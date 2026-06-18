@@ -42,13 +42,23 @@ from runtime.model_gateway.assistant_stream_frame import (
 from runtime.model_gateway.assistant_stream_normalizer import AssistantStreamNormalizer
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
-from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_content
+from runtime.model_gateway.model_runtime import stringify_content
 from runtime.output_boundary import (
     CanonicalFinalTextDecision,
     canonical_output_decision_for_final_text,
     contains_inline_pseudo_tool_call,
     contains_internal_protocol,
     sanitize_visible_assistant_content,
+)
+from runtime.model_gateway.stream_recovery import (
+    VISIBLE_PREFIX_RECOVERY_MODE,
+    build_visible_prefix_recovery_messages,
+    continuation_after_visible_prefix,
+    model_selection_for_visible_prefix_recovery,
+    recovery_attempts_from_policy,
+    should_recover_partial_visible_stream,
+    stream_error_code,
+    visible_prefix_utf8_bytes,
 )
 from runtime.output_stream.public_contract import ASSISTANT_PUBLIC_FEEDBACK_EVENT
 from runtime.shared.models import TurnRun
@@ -2982,7 +2992,7 @@ async def _invoke_single_turn_model_with_stream_events(
             return
     except Exception as exc:
         logger.exception("single agent turn streaming model invocation failed")
-        if _partial_stream_recovery_enabled(
+        if should_recover_partial_visible_stream(
             stream_policy,
             raw_content=raw_content,
             emit_assistant_text_delta=emit_assistant_text_delta,
@@ -2997,33 +3007,33 @@ async def _invoke_single_turn_model_with_stream_events(
                 "request_id": f"{stream_ref}:partial-stream-recovery",
                 "source": _PARTIAL_STREAM_RECOVERY_SOURCE,
                 "stream_recovery": {
-                    "mode": "continue_from_visible_prefix",
-                    "visible_prefix_utf8_bytes": len(raw_content.encode("utf-8")),
-                    "error_code": _stream_error_code(exc),
+                    "mode": VISIBLE_PREFIX_RECOVERY_MODE,
+                    "visible_prefix_utf8_bytes": visible_prefix_utf8_bytes(raw_content),
+                    "error_code": stream_error_code(exc),
                 },
             }
             yield {
                 "type": "stream_recovery",
                 "status": "started",
                 "reason": "partial_stream_error",
-                "code": _stream_error_code(exc),
+                "code": stream_error_code(exc),
                 "detail": str(exc),
                 "stream_ref": stream_ref,
-                "partial_utf8_bytes": len(raw_content.encode("utf-8")),
-                "recovery_mode": "continue_from_visible_prefix",
+                "partial_utf8_bytes": visible_prefix_utf8_bytes(raw_content),
+                "recovery_mode": VISIBLE_PREFIX_RECOVERY_MODE,
             }
             recovery_response: Any = None
-            recovery_attempts = max(1, int(stream_policy.get("partial_stream_recovery_attempts") or 2))
+            recovery_attempts = recovery_attempts_from_policy(stream_policy)
             for recovery_attempt in range(1, recovery_attempts + 1):
                 recovery_response = await _invoke_single_turn_model(
                     model_runtime=model_runtime,
-                    model_messages=_partial_stream_recovery_messages(
+                    model_messages=build_visible_prefix_recovery_messages(
                         model_messages,
                         visible_prefix=raw_content,
-                        error=exc,
                         turn_id=str(accounting_context.get("turn_id") or ""),
+                        source=_PARTIAL_STREAM_RECOVERY_SOURCE,
                     ),
-                    model_selection=_model_selection_for_partial_stream_recovery(model_selection),
+                    model_selection=model_selection_for_visible_prefix_recovery(model_selection),
                     accounting_context={
                         **recovery_context,
                         "request_id": f"{stream_ref}:partial-stream-recovery:{recovery_attempt}",
@@ -3039,7 +3049,7 @@ async def _invoke_single_turn_model_with_stream_events(
                     break
             if not (isinstance(recovery_response, dict) and recovery_response.get("type") == "error"):
                 recovered_text = stringify_content(getattr(recovery_response, "content", recovery_response))
-                continuation = _continuation_after_visible_prefix(raw_content, recovered_text)
+                continuation = continuation_after_visible_prefix(raw_content, recovered_text)
                 if continuation:
                     if assistant_normalizer is not None:
                         for frame_event in assistant_normalizer.observe_delta(continuation):
@@ -3051,9 +3061,9 @@ async def _invoke_single_turn_model_with_stream_events(
                         "status": "completed",
                         "reason": "continued_from_visible_prefix",
                         "stream_ref": stream_ref,
-                        "partial_utf8_bytes": len(raw_content.encode("utf-8")),
-                        "continuation_utf8_bytes": len(continuation.encode("utf-8")),
-                        "recovery_mode": "continue_from_visible_prefix",
+                        "partial_utf8_bytes": visible_prefix_utf8_bytes(raw_content),
+                        "continuation_utf8_bytes": visible_prefix_utf8_bytes(continuation),
+                        "recovery_mode": VISIBLE_PREFIX_RECOVERY_MODE,
                     }
                     yield {
                         "type": _INTERNAL_MODEL_RESPONSE_EVENT,
@@ -3066,9 +3076,9 @@ async def _invoke_single_turn_model_with_stream_events(
                     "status": "completed",
                     "reason": "visible_prefix_committed_without_extra_continuation",
                     "stream_ref": stream_ref,
-                    "partial_utf8_bytes": len(raw_content.encode("utf-8")),
+                    "partial_utf8_bytes": visible_prefix_utf8_bytes(raw_content),
                     "continuation_utf8_bytes": 0,
-                    "recovery_mode": "continue_from_visible_prefix",
+                    "recovery_mode": VISIBLE_PREFIX_RECOVERY_MODE,
                 }
                 yield {
                     "type": _INTERNAL_MODEL_RESPONSE_EVENT,
@@ -3081,12 +3091,12 @@ async def _invoke_single_turn_model_with_stream_events(
                 "type": "stream_recovery",
                 "status": "completed",
                 "reason": "visible_prefix_committed_after_recovery_error",
-                "code": _stream_error_code(exc),
+                "code": stream_error_code(exc),
                 "detail": recovery_error_reason,
                 "stream_ref": stream_ref,
-                "partial_utf8_bytes": len(raw_content.encode("utf-8")),
+                "partial_utf8_bytes": visible_prefix_utf8_bytes(raw_content),
                 "continuation_utf8_bytes": 0,
-                "recovery_mode": "continue_from_visible_prefix",
+                "recovery_mode": VISIBLE_PREFIX_RECOVERY_MODE,
                 "recovery_call_status": "failed",
             }
             yield {
@@ -3145,95 +3155,6 @@ def _merge_model_stream_chunk(current: Any, chunk: Any) -> Any:
 
 def _model_stream_chunk_text(chunk: Any) -> str:
     return stringify_content(getattr(chunk, "content", chunk))
-
-
-def _partial_stream_recovery_enabled(
-    stream_policy: dict[str, Any],
-    *,
-    raw_content: str,
-    emit_assistant_text_delta: bool,
-    require_json_action: bool,
-    error: Exception,
-) -> bool:
-    policy = dict(stream_policy or {})
-    if policy.get("upstream_reconnect_enabled") is False:
-        return False
-    if str(policy.get("partial_stream_recovery") or "continue_from_visible_prefix").strip().lower() in {"", "disabled", "off", "false"}:
-        return False
-    if require_json_action or not emit_assistant_text_delta:
-        return False
-    if not _meaningful_visible_answer(raw_content):
-        return False
-    if isinstance(error, ModelRuntimeError):
-        return bool(error.retryable)
-    return True
-
-
-def _partial_stream_recovery_messages(
-    model_messages: list[dict[str, Any]],
-    *,
-    visible_prefix: str,
-    error: Exception,
-    turn_id: str,
-) -> list[dict[str, Any]]:
-    prefix = str(visible_prefix or "")
-    instruction = (
-        "上一条助手回复的模型流在网络层中断。下面这段文字已经公开显示给用户：\n\n"
-        f"{prefix}\n\n"
-        "你仍然是同一个助手，继续完成同一条回复。"
-        "不要重复已经公开的文字，不要从头改写，不要解释网络错误。"
-        "从断点之后直接续写用户应当看到的正文。"
-    )
-    prefix_message = _assistant_protocol_message_from_content(prefix, turn_id=turn_id)
-    prefix_message["prefix"] = True
-    prefix_message["additional_kwargs"] = {
-        **dict(prefix_message.get("additional_kwargs") or {}),
-        "prefix": True,
-    }
-    return _sanitize_model_messages(
-        [
-            *[dict(item) for item in list(model_messages or []) if isinstance(item, dict)],
-            {"role": "system", "content": instruction, "turn_id": turn_id},
-            prefix_message,
-        ],
-        turn_id=turn_id,
-        source=_PARTIAL_STREAM_RECOVERY_SOURCE,
-    )
-
-
-def _model_selection_for_partial_stream_recovery(model_selection: dict[str, Any]) -> dict[str, Any]:
-    selection = dict(model_selection or {})
-    selection.pop("structured_output", None)
-    selection.pop("response_format", None)
-    completion_profile = dict(selection.get("completion_profile") or {})
-    completion_profile.setdefault("mode", "chat_prefix")
-    completion_profile.setdefault("provider_mode", "deepseek_chat_prefix")
-    completion_profile.setdefault("source", "partial_stream_recovery")
-    selection["completion_profile"] = completion_profile
-    stream_policy = dict(selection.get("stream_policy") or {})
-    stream_policy["enabled"] = False
-    selection["stream_policy"] = stream_policy
-    return selection
-
-
-def _continuation_after_visible_prefix(visible_prefix: str, recovered_text: str) -> str:
-    prefix = str(visible_prefix or "")
-    recovered = str(recovered_text or "")
-    if not recovered:
-        return ""
-    if recovered.startswith(prefix):
-        return recovered[len(prefix):]
-    max_overlap = min(len(prefix), len(recovered))
-    for overlap in range(max_overlap, 0, -1):
-        if prefix.endswith(recovered[:overlap]):
-            return recovered[overlap:]
-    return recovered
-
-
-def _stream_error_code(error: Exception) -> str:
-    if isinstance(error, ModelRuntimeError):
-        return str(error.code or "model_stream_error")
-    return error.__class__.__name__ or "model_stream_error"
 
 
 async def _repair_single_agent_admission_failure(

@@ -3804,11 +3804,11 @@ export class WorkspaceRuntime {
       upstream_reconnect_enabled: true,
       partial_stream_recovery: "continue_from_visible_prefix",
       chunk_strategy: "typing",
-      max_flush_interval_ms: 16,
-      max_pending_utf8_bytes: 24,
+      max_flush_interval_ms: 24,
+      max_pending_utf8_bytes: 36,
       max_pending_line_count: 1,
-      min_event_interval_ms: 0,
-      event_budget_per_second: 120,
+      min_event_interval_ms: 8,
+      event_budget_per_second: 90,
       source: "frontend.chat_stream_display_toggle",
     };
   }

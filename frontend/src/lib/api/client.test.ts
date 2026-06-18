@@ -373,6 +373,7 @@ describe("streamChat", () => {
     expect(result.terminalStatus).toBe("completed");
     expect(fetch).toHaveBeenCalledTimes(3);
     expect(String(fetch.mock.calls[2][0])).toContain("after_offset=1");
+    expect(fetch.mock.calls[2][1]?.headers).toEqual({ "Last-Event-ID": "strun:test:chatrun:test:1" });
     expect(events.map((item) => item.event)).toEqual([
       "assistant_text_delta",
       "stream_reconnecting",

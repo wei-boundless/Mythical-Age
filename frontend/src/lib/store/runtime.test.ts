@@ -3828,6 +3828,25 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(transition.state.sessionActivity).toBe(activityBeforeSteer);
   });
 
+  it("treats provider stream recovery as connection state without appending assistant body", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续输出");
+    transition = reduceStreamEvent(transition.state, transition.session, "stream_recovery", {
+      status: "started",
+      reason: "partial_stream_error",
+      recovery_mode: "continue_from_visible_prefix",
+      partial_utf8_bytes: 18,
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.role).toBe("assistant");
+    expect(assistant?.content).toBe("");
+    expect(assistant?.projectionView).toBeUndefined();
+    expect(transition.state.chatStreamConnectionStatus).toMatchObject({
+      state: "streaming",
+      reason: "partial_stream_recovery",
+    });
+  });
+
   it("keeps chat usable when noncritical workspace metadata is still loading", async () => {
     vi.useRealTimers();
     api.getTaskEnvironmentCatalog.mockImplementation(() => new Promise(() => undefined));
@@ -3851,10 +3870,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       upstream_reconnect_enabled: true,
       partial_stream_recovery: "continue_from_visible_prefix",
       chunk_strategy: "typing",
-      max_flush_interval_ms: 16,
-      max_pending_utf8_bytes: 24,
-      min_event_interval_ms: 0,
-      event_budget_per_second: 120,
+      max_flush_interval_ms: 24,
+      max_pending_utf8_bytes: 36,
+      min_event_interval_ms: 8,
+      event_budget_per_second: 90,
     }));
   });
 
@@ -5693,11 +5712,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         upstream_reconnect_enabled: true,
         partial_stream_recovery: "continue_from_visible_prefix",
         chunk_strategy: "typing",
-        max_flush_interval_ms: 16,
-        max_pending_utf8_bytes: 24,
+        max_flush_interval_ms: 24,
+        max_pending_utf8_bytes: 36,
         max_pending_line_count: 1,
-        min_event_interval_ms: 0,
-        event_budget_per_second: 120,
+        min_event_interval_ms: 8,
+        event_budget_per_second: 90,
         source: "frontend.chat_stream_display_toggle",
       },
     });
@@ -5838,11 +5857,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         upstream_reconnect_enabled: true,
         partial_stream_recovery: "continue_from_visible_prefix",
         chunk_strategy: "typing",
-        max_flush_interval_ms: 16,
-        max_pending_utf8_bytes: 24,
+        max_flush_interval_ms: 24,
+        max_pending_utf8_bytes: 36,
         max_pending_line_count: 1,
-        min_event_interval_ms: 0,
-        event_budget_per_second: 120,
+        min_event_interval_ms: 8,
+        event_budget_per_second: 90,
         source: "frontend.chat_stream_display_toggle",
       },
     });
@@ -5935,11 +5954,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         upstream_reconnect_enabled: true,
         partial_stream_recovery: "continue_from_visible_prefix",
         chunk_strategy: "typing",
-        max_flush_interval_ms: 16,
-        max_pending_utf8_bytes: 24,
+        max_flush_interval_ms: 24,
+        max_pending_utf8_bytes: 36,
         max_pending_line_count: 1,
-        min_event_interval_ms: 0,
-        event_budget_per_second: 120,
+        min_event_interval_ms: 8,
+        event_budget_per_second: 90,
         source: "frontend.chat_stream_display_toggle",
       },
     });

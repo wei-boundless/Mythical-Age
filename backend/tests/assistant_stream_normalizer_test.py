@@ -78,6 +78,26 @@ def test_assistant_stream_force_flush_keeps_typing_chunk_size() -> None:
     assert [event["content"] for event in final] == ["efgh", "ijkl", "mnop"]
 
 
+def test_assistant_stream_typing_strategy_respects_min_event_interval() -> None:
+    normalizer = AssistantStreamNormalizer.from_policy(
+        stream_ref="stream:typing-min-interval",
+        stream_policy={
+            "chunk_strategy": "typing",
+            "max_flush_interval_ms": 0,
+            "max_pending_utf8_bytes": 4,
+            "min_event_interval_ms": 1000,
+        },
+    )
+
+    first = normalizer.observe_delta("abcd")
+    second = normalizer.observe_delta("efgh")
+    final = normalizer.flush()
+
+    assert [event["content"] for event in first] == ["abcd"]
+    assert second == []
+    assert [event["content"] for event in final] == ["efgh"]
+
+
 def test_assistant_stream_normalizer_reports_emitted_public_text() -> None:
     normalizer = AssistantStreamNormalizer.from_policy(
         stream_ref="stream:public-feedback",

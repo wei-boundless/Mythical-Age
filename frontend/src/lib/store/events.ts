@@ -852,7 +852,7 @@ function eventNodeId(event: string) {
   if (event === TOOL_ITEM_STARTED_EVENT || event === TOOL_ITEM_COMPLETED_EVENT || event.startsWith("tool")) {
     return "tool";
   }
-  if (event === "token" || event === "assistant_text_delta" || event === "assistant_text_final" || event === "assistant_stream_repair" || event === "debug") {
+  if (event === "token" || event === "assistant_text_delta" || event === "assistant_text_final" || event === "assistant_stream_repair" || event === "stream_recovery" || event === "debug") {
     return "model";
   }
   if (event === "done" || event === "error" || event === TURN_COMPLETED_EVENT) {
@@ -953,6 +953,7 @@ function publicStreamEventLabel(event: string) {
     output_boundary: "输出边界已检查",
     prompt_manifest: "上下文已整理",
     retrieval: "检索证据",
+    stream_recovery: "正在恢复输出",
     worker_end: "子任务已完成",
     worker_start: "子任务已开始",
   };
@@ -1413,13 +1414,27 @@ function chatStreamConnectionStatusFromEvent(
     event === "public_projection_frame"
     || event === "assistant_text_delta"
     || event === "assistant_text_final"
+    || event === "stream_recovery"
     || event === "token"
     || event === TOOL_ITEM_STARTED_EVENT
     || event === TOOL_ITEM_COMPLETED_EVENT
   ) {
-    return { state: "streaming", updatedAt };
+    return {
+      state: "streaming",
+      reason: event === "stream_recovery" ? streamRecoveryConnectionReason(data) : undefined,
+      updatedAt,
+    };
   }
   return null;
+}
+
+function streamRecoveryConnectionReason(data: Record<string, unknown>) {
+  const status = stringValue(data.status).toLowerCase();
+  const callStatus = stringValue(data.recovery_call_status).toLowerCase();
+  if (status === "completed" && callStatus === "failed") {
+    return "partial_stream_recovery_failed";
+  }
+  return "partial_stream_recovery";
 }
 
 function finiteNumber(value: unknown) {

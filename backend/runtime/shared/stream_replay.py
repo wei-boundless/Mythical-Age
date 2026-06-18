@@ -177,15 +177,25 @@ def parse_stream_event_id(value: str, *, expected_stream_run_id: str = "", expec
     if not raw:
         return None
     prefix = f"{expected_stream_run_id}:{expected_event_log_id}:" if expected_stream_run_id and expected_event_log_id else ""
-    if prefix and raw.startswith(prefix):
-        tail = raw[len(prefix):]
-        if tail.isdigit():
+    if prefix:
+        if raw.startswith(prefix):
+            tail = raw[len(prefix):]
+            if tail.isdigit():
+                return RuntimeStreamCursor(
+                    stream_run_id=expected_stream_run_id,
+                    event_log_id=expected_event_log_id,
+                    last_event_offset=int(tail),
+                    last_event_id=raw,
+                )
+            return None
+        if raw.isdigit():
             return RuntimeStreamCursor(
                 stream_run_id=expected_stream_run_id,
                 event_log_id=expected_event_log_id,
-                last_event_offset=int(tail),
+                last_event_offset=int(raw),
                 last_event_id=raw,
             )
+        return None
     parts = raw.rsplit(":", 1)
     if len(parts) != 2 or not parts[1].isdigit():
         return None

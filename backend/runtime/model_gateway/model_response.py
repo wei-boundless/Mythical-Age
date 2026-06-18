@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import inspect
 import threading
-from dataclasses import is_dataclass, replace
+from dataclasses import dataclass, is_dataclass, replace
 from types import SimpleNamespace
 from typing import Any
 
@@ -15,10 +15,31 @@ from runtime.model_gateway.assistant_stream_frame import (
 from runtime.model_gateway.assistant_stream_normalizer import AssistantStreamNormalizer
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
 from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_content, utility_accounting_context
+from runtime.model_gateway.stream_recovery import (
+    VISIBLE_PREFIX_RECOVERY_MODE,
+    build_visible_prefix_recovery_messages,
+    continuation_after_visible_prefix,
+    model_selection_for_visible_prefix_recovery,
+    recovery_attempts_from_policy,
+    should_recover_partial_visible_stream,
+    stream_error_code,
+    visible_prefix_utf8_bytes,
+)
 from task_system.runtime_semantics.protocol_boundary import detect_protocol_leak
 from orchestration.commit_gate import build_blocked_runtime_commit_gate
 from orchestration.runtime_directive import RuntimeDirective
 from runtime.output_boundary import AssistantOutputBoundary, sanitize_visible_assistant_content
+
+
+_MODEL_RESPONSE_PARTIAL_STREAM_RECOVERY_SOURCE = "runtime_directive.model_response.partial_stream_recovery"
+
+
+@dataclass(frozen=True, slots=True)
+class VisiblePrefixRecoveryResult:
+    handled: bool
+    response: Any = None
+    events: tuple[dict[str, Any], ...] = ()
+
 
 class ModelResponseRuntimeExecutor:
     """Directive-only executor for the current agent invocation."""
@@ -173,23 +194,39 @@ class ModelResponseRuntimeExecutor:
                     policy=stream_policy,
                 )
         except ModelRuntimeError as exc:
-            if stream_enabled and exc.retryable and _stream_recovery_enabled(stream_policy):
+            if stream_enabled and _stream_recovery_enabled(stream_policy):
                 if assistant_normalizer is not None:
                     for frame_event in assistant_normalizer.flush():
                         public_delta_count += 1
                         yield frame_event
-                fallback_timeout_seconds = _stream_recovery_timeout_seconds(stream_policy)
-                if public_delta_count > 0:
+                recovery = await _recover_visible_prefix_stream(
+                    invoker=invoker,
+                    model_messages=model_messages,
+                    model_spec=effective_model_spec,
+                    stream_policy=stream_policy,
+                    accounting_context=accounting_context,
+                    raw_content=raw_content,
+                    assistant_normalizer=assistant_normalizer,
+                    stream_ref=stream_ref,
+                    directive_ref=directive.directive_id,
+                    error=exc,
+                    emit_assistant_text_delta=emit_assistant_text_delta,
+                    require_json_action=bool(tools),
+                )
+                if recovery.handled:
+                    for recovery_event in recovery.events:
+                        yield recovery_event
+                    response = recovery.response
+                elif public_delta_count > 0:
                     yield {
                         "type": "stream_recovery",
                         "status": "suppressed",
-                        "reason": "partial_output_already_emitted",
+                        "reason": "partial_output_not_recoverable",
                         "code": exc.code,
                         "provider": exc.provider,
                         "model": exc.model,
                         "detail": exc.detail,
                         "partial_delta_count": public_delta_count,
-                        "fallback_timeout_seconds": fallback_timeout_seconds,
                         "directive_ref": directive.directive_id,
                     }
                     yield {
@@ -205,118 +242,134 @@ class ModelResponseRuntimeExecutor:
                         "answer_source": "runtime_directive_executor",
                     }
                     return
-                yield {
-                    "type": "stream_recovery",
-                    "status": "started",
-                    "reason": "retryable_stream_error",
-                    "code": exc.code,
-                    "provider": exc.provider,
-                    "model": exc.model,
-                    "detail": exc.detail,
-                    "partial_delta_count": public_delta_count,
-                    "fallback_timeout_seconds": fallback_timeout_seconds,
-                    "directive_ref": directive.directive_id,
-                }
-                try:
-                    response = await _await_model_invocation(
-                        lambda: _invoke_non_stream_after_stream_error(
-                            invoker=invoker,
-                            tool_invoker=tool_invoker,
-                            model_messages=model_messages,
-                            tools=tools,
-                            model_spec=effective_model_spec,
-                            tool_call_options=tool_call_options,
-                            accounting_context={**accounting_context, "source": "runtime_directive.model_response.stream_recovery"},
-                        ),
-                        timeout_seconds=fallback_timeout_seconds,
-                        policy=stream_policy,
-                    )
-                except asyncio.TimeoutError:
+                elif exc.retryable:
+                    fallback_timeout_seconds = _stream_recovery_timeout_seconds(stream_policy)
                     yield {
                         "type": "stream_recovery",
-                        "status": "failed",
-                        "reason": "non_stream_fallback_timeout",
-                        "code": "timeout",
+                        "status": "started",
+                        "reason": "retryable_stream_error",
+                        "code": exc.code,
                         "provider": exc.provider,
                         "model": exc.model,
-                        "detail": f"non-stream fallback exceeded {fallback_timeout_seconds:g}s",
+                        "detail": exc.detail,
                         "partial_delta_count": public_delta_count,
                         "fallback_timeout_seconds": fallback_timeout_seconds,
                         "directive_ref": directive.directive_id,
                     }
-                    yield {
-                        "type": "error",
-                        "error": "运行中断",
-                        "content": "运行中断",
-                        "code": "timeout",
-                        "reason": "model_stream_recovery_timeout",
-                        "provider": exc.provider,
-                        "model": exc.model,
-                        "detail": f"non-stream fallback exceeded {fallback_timeout_seconds:g}s",
-                        "answer_channel": "orchestration_fail_closed",
-                        "answer_source": "runtime_directive_executor",
-                    }
-                    return
-                except ModelRuntimeError as fallback_exc:
+                    try:
+                        response = await _await_model_invocation(
+                            lambda: _invoke_non_stream_after_stream_error(
+                                invoker=invoker,
+                                tool_invoker=tool_invoker,
+                                model_messages=model_messages,
+                                tools=tools,
+                                model_spec=effective_model_spec,
+                                tool_call_options=tool_call_options,
+                                accounting_context={**accounting_context, "source": "runtime_directive.model_response.stream_recovery"},
+                            ),
+                            timeout_seconds=fallback_timeout_seconds,
+                            policy=stream_policy,
+                        )
+                    except asyncio.TimeoutError:
+                        yield {
+                            "type": "stream_recovery",
+                            "status": "failed",
+                            "reason": "non_stream_fallback_timeout",
+                            "code": "timeout",
+                            "provider": exc.provider,
+                            "model": exc.model,
+                            "detail": f"non-stream fallback exceeded {fallback_timeout_seconds:g}s",
+                            "partial_delta_count": public_delta_count,
+                            "fallback_timeout_seconds": fallback_timeout_seconds,
+                            "directive_ref": directive.directive_id,
+                        }
+                        yield {
+                            "type": "error",
+                            "error": "运行中断",
+                            "content": "运行中断",
+                            "code": "timeout",
+                            "reason": "model_stream_recovery_timeout",
+                            "provider": exc.provider,
+                            "model": exc.model,
+                            "detail": f"non-stream fallback exceeded {fallback_timeout_seconds:g}s",
+                            "answer_channel": "orchestration_fail_closed",
+                            "answer_source": "runtime_directive_executor",
+                        }
+                        return
+                    except ModelRuntimeError as fallback_exc:
+                        yield {
+                            "type": "stream_recovery",
+                            "status": "failed",
+                            "reason": "non_stream_fallback_failed",
+                            "code": fallback_exc.code,
+                            "provider": fallback_exc.provider,
+                            "model": fallback_exc.model,
+                            "detail": fallback_exc.detail,
+                            "partial_delta_count": public_delta_count,
+                            "fallback_timeout_seconds": fallback_timeout_seconds,
+                            "directive_ref": directive.directive_id,
+                        }
+                        yield {
+                            "type": "error",
+                            "error": "运行中断",
+                            "content": "运行中断",
+                            "code": fallback_exc.code,
+                            "reason": fallback_exc.user_message,
+                            "provider": fallback_exc.provider,
+                            "model": fallback_exc.model,
+                            "detail": fallback_exc.detail,
+                            "answer_channel": "orchestration_fail_closed",
+                            "answer_source": "runtime_directive_executor",
+                        }
+                        return
+                    except Exception as fallback_exc:
+                        yield {
+                            "type": "stream_recovery",
+                            "status": "failed",
+                            "reason": "non_stream_fallback_failed",
+                            "code": "model_runtime_error",
+                            "provider": exc.provider,
+                            "model": exc.model,
+                            "detail": str(fallback_exc) or fallback_exc.__class__.__name__,
+                            "partial_delta_count": public_delta_count,
+                            "fallback_timeout_seconds": fallback_timeout_seconds,
+                            "directive_ref": directive.directive_id,
+                        }
+                        yield {
+                            "type": "error",
+                            "error": "运行中断",
+                            "content": "运行中断",
+                            "code": "model_runtime_error",
+                            "reason": str(fallback_exc) or "model_runtime_error",
+                            "answer_channel": "orchestration_fail_closed",
+                            "answer_source": "runtime_directive_executor",
+                        }
+                        return
                     yield {
                         "type": "stream_recovery",
-                        "status": "failed",
-                        "reason": "non_stream_fallback_failed",
-                        "code": fallback_exc.code,
-                        "provider": fallback_exc.provider,
-                        "model": fallback_exc.model,
-                        "detail": fallback_exc.detail,
+                        "status": "recovered",
+                        "reason": "non_stream_fallback_succeeded",
+                        "code": exc.code,
+                        "provider": exc.provider,
+                        "model": exc.model,
                         "partial_delta_count": public_delta_count,
                         "fallback_timeout_seconds": fallback_timeout_seconds,
                         "directive_ref": directive.directive_id,
                     }
+                else:
                     yield {
                         "type": "error",
                         "error": "运行中断",
                         "content": "运行中断",
-                        "code": fallback_exc.code,
-                        "reason": fallback_exc.user_message,
-                        "provider": fallback_exc.provider,
-                        "model": fallback_exc.model,
-                        "detail": fallback_exc.detail,
-                        "answer_channel": "orchestration_fail_closed",
-                        "answer_source": "runtime_directive_executor",
-                    }
-                    return
-                except Exception as fallback_exc:
-                    yield {
-                        "type": "stream_recovery",
-                        "status": "failed",
-                        "reason": "non_stream_fallback_failed",
-                        "code": "model_runtime_error",
+                        "code": exc.code,
+                        "reason": exc.user_message,
                         "provider": exc.provider,
                         "model": exc.model,
-                        "detail": str(fallback_exc) or fallback_exc.__class__.__name__,
-                        "partial_delta_count": public_delta_count,
-                        "fallback_timeout_seconds": fallback_timeout_seconds,
-                        "directive_ref": directive.directive_id,
-                    }
-                    yield {
-                        "type": "error",
-                        "error": "运行中断",
-                        "content": "运行中断",
-                        "code": "model_runtime_error",
-                        "reason": str(fallback_exc) or "model_runtime_error",
+                        "detail": exc.detail,
                         "answer_channel": "orchestration_fail_closed",
                         "answer_source": "runtime_directive_executor",
                     }
                     return
-                yield {
-                    "type": "stream_recovery",
-                    "status": "recovered",
-                    "reason": "non_stream_fallback_succeeded",
-                    "code": exc.code,
-                    "provider": exc.provider,
-                    "model": exc.model,
-                    "partial_delta_count": public_delta_count,
-                    "fallback_timeout_seconds": fallback_timeout_seconds,
-                    "directive_ref": directive.directive_id,
-                }
             else:
                 yield {
                     "type": "error",
@@ -335,23 +388,43 @@ class ModelResponseRuntimeExecutor:
             if stream_enabled and raw_content.strip():
                 if assistant_normalizer is not None:
                     for frame_event in assistant_normalizer.flush():
+                        public_delta_count += 1
                         yield frame_event
-                yield {
-                    "type": "error",
-                    "error": "运行中断",
-                    "content": "运行中断",
-                    "code": "timeout",
-                    "reason": "model_response_timeout_after_partial_output",
-                    "provider": str(getattr(effective_model_spec, "provider", "") or ""),
-                    "model": str(getattr(effective_model_spec, "model", "") or ""),
-                    "detail": f"model response exceeded {response_timeout_seconds:g}s after partial output",
-                    "timeout_seconds": response_timeout_seconds,
-                    "partial_delta_count": public_delta_count,
-                    "answer_channel": "orchestration_fail_closed",
-                    "answer_source": "runtime_directive_executor",
-                    "answer_persist_policy": "runtime_status_only",
-                }
-                return
+                recovery = await _recover_visible_prefix_stream(
+                    invoker=invoker,
+                    model_messages=model_messages,
+                    model_spec=effective_model_spec,
+                    stream_policy=stream_policy,
+                    accounting_context=accounting_context,
+                    raw_content=raw_content,
+                    assistant_normalizer=assistant_normalizer,
+                    stream_ref=stream_ref,
+                    directive_ref=directive.directive_id,
+                    error=asyncio.TimeoutError(f"model response exceeded {response_timeout_seconds:g}s after partial output"),
+                    emit_assistant_text_delta=emit_assistant_text_delta,
+                    require_json_action=bool(tools),
+                )
+                if recovery.handled:
+                    for recovery_event in recovery.events:
+                        yield recovery_event
+                    response = recovery.response
+                else:
+                    yield {
+                        "type": "error",
+                        "error": "运行中断",
+                        "content": "运行中断",
+                        "code": "timeout",
+                        "reason": "model_response_timeout_after_partial_output",
+                        "provider": str(getattr(effective_model_spec, "provider", "") or ""),
+                        "model": str(getattr(effective_model_spec, "model", "") or ""),
+                        "detail": f"model response exceeded {response_timeout_seconds:g}s after partial output",
+                        "timeout_seconds": response_timeout_seconds,
+                        "partial_delta_count": public_delta_count,
+                        "answer_channel": "orchestration_fail_closed",
+                        "answer_source": "runtime_directive_executor",
+                        "answer_persist_policy": "runtime_status_only",
+                    }
+                    return
             else:
                 yield {
                     "type": "error",
@@ -668,6 +741,182 @@ def _is_tool_message(message: Any) -> bool:
 def _chunk_text(chunk: Any) -> str:
     content = getattr(chunk, "content", chunk)
     return stringify_content(content)
+
+
+async def _recover_visible_prefix_stream(
+    *,
+    invoker: Any,
+    model_messages: list[Any],
+    model_spec: Any | None,
+    stream_policy: dict[str, Any],
+    accounting_context: dict[str, Any],
+    raw_content: str,
+    assistant_normalizer: AssistantStreamNormalizer | None,
+    stream_ref: str,
+    directive_ref: str,
+    error: Exception,
+    emit_assistant_text_delta: bool,
+    require_json_action: bool,
+) -> VisiblePrefixRecoveryResult:
+    if not should_recover_partial_visible_stream(
+        stream_policy,
+        raw_content=raw_content,
+        emit_assistant_text_delta=emit_assistant_text_delta,
+        require_json_action=require_json_action,
+        error=error,
+    ):
+        return VisiblePrefixRecoveryResult(handled=False)
+
+    events: list[dict[str, Any]] = []
+    recovery_timeout_seconds = _stream_recovery_timeout_seconds(stream_policy)
+    code = stream_error_code(error)
+    provider = _model_spec_value(model_spec, "provider")
+    model = _model_spec_value(model_spec, "model")
+    recovery_context = {
+        **dict(accounting_context or {}),
+        "request_id": f"{stream_ref}:partial-stream-recovery",
+        "source": _MODEL_RESPONSE_PARTIAL_STREAM_RECOVERY_SOURCE,
+        "stream_recovery": {
+            "mode": VISIBLE_PREFIX_RECOVERY_MODE,
+            "visible_prefix_utf8_bytes": visible_prefix_utf8_bytes(raw_content),
+            "error_code": code,
+        },
+    }
+    events.append(
+        {
+            "type": "stream_recovery",
+            "status": "started",
+            "reason": "partial_stream_error",
+            "code": code,
+            "provider": provider,
+            "model": model,
+            "detail": str(error) or error.__class__.__name__,
+            "stream_ref": stream_ref,
+            "partial_utf8_bytes": visible_prefix_utf8_bytes(raw_content),
+            "recovery_mode": VISIBLE_PREFIX_RECOVERY_MODE,
+            "fallback_timeout_seconds": recovery_timeout_seconds,
+            "directive_ref": directive_ref,
+        }
+    )
+
+    recovery_response: Any = None
+    recovery_error_reason = ""
+    recovery_attempts = recovery_attempts_from_policy(stream_policy)
+    recovery_model_spec = model_selection_for_visible_prefix_recovery(model_spec)
+    recovery_messages = build_visible_prefix_recovery_messages(
+        model_messages,
+        visible_prefix=raw_content,
+        turn_id=str(accounting_context.get("turn_id") or ""),
+        source=_MODEL_RESPONSE_PARTIAL_STREAM_RECOVERY_SOURCE,
+    )
+    for recovery_attempt in range(1, recovery_attempts + 1):
+        try:
+            recovery_response = await _await_model_invocation(
+                lambda: _call_invoker_with_optional_model_spec(
+                    invoker,
+                    recovery_messages,
+                    model_spec=recovery_model_spec,
+                    accounting_context={
+                        **recovery_context,
+                        "request_id": f"{stream_ref}:partial-stream-recovery:{recovery_attempt}",
+                        "stream_recovery": {
+                            **dict(recovery_context.get("stream_recovery") or {}),
+                            "attempt": recovery_attempt,
+                            "max_attempts": recovery_attempts,
+                        },
+                    },
+                ),
+                timeout_seconds=recovery_timeout_seconds,
+                policy=stream_policy,
+            )
+        except asyncio.TimeoutError:
+            recovery_error_reason = "partial_stream_recovery_timeout"
+            continue
+        except ModelRuntimeError as exc:
+            recovery_error_reason = str(exc.user_message or exc.code or "partial_stream_recovery_failed")
+            continue
+        except Exception as exc:
+            recovery_error_reason = str(exc) or exc.__class__.__name__ or "partial_stream_recovery_failed"
+            continue
+        if not (isinstance(recovery_response, dict) and recovery_response.get("type") == "error"):
+            break
+        recovery_error_reason = str(
+            recovery_response.get("reason")
+            or recovery_response.get("code")
+            or "partial_stream_recovery_failed"
+        )
+
+    if not (isinstance(recovery_response, dict) and recovery_response.get("type") == "error") and recovery_response is not None:
+        recovered_text = stringify_content(getattr(recovery_response, "content", recovery_response))
+        continuation = continuation_after_visible_prefix(raw_content, recovered_text)
+        if continuation:
+            if assistant_normalizer is not None:
+                for frame_event in assistant_normalizer.observe_delta(continuation):
+                    events.append(frame_event)
+                for frame_event in assistant_normalizer.flush():
+                    events.append(frame_event)
+            events.append(
+                {
+                    "type": "stream_recovery",
+                    "status": "completed",
+                    "reason": "continued_from_visible_prefix",
+                    "provider": provider,
+                    "model": model,
+                    "stream_ref": stream_ref,
+                    "partial_utf8_bytes": visible_prefix_utf8_bytes(raw_content),
+                    "continuation_utf8_bytes": visible_prefix_utf8_bytes(continuation),
+                    "recovery_mode": VISIBLE_PREFIX_RECOVERY_MODE,
+                    "directive_ref": directive_ref,
+                }
+            )
+            return VisiblePrefixRecoveryResult(
+                handled=True,
+                response=SimpleNamespace(
+                    content=raw_content + continuation,
+                    additional_kwargs=dict(getattr(recovery_response, "additional_kwargs", {}) or {}),
+                ),
+                events=tuple(events),
+            )
+        events.append(
+            {
+                "type": "stream_recovery",
+                "status": "completed",
+                "reason": "visible_prefix_committed_without_extra_continuation",
+                "provider": provider,
+                "model": model,
+                "stream_ref": stream_ref,
+                "partial_utf8_bytes": visible_prefix_utf8_bytes(raw_content),
+                "continuation_utf8_bytes": 0,
+                "recovery_mode": VISIBLE_PREFIX_RECOVERY_MODE,
+                "directive_ref": directive_ref,
+            }
+        )
+        return VisiblePrefixRecoveryResult(handled=True, response=SimpleNamespace(content=raw_content), events=tuple(events))
+
+    events.append(
+        {
+            "type": "stream_recovery",
+            "status": "completed",
+            "reason": "visible_prefix_committed_after_recovery_error",
+            "code": code,
+            "provider": provider,
+            "model": model,
+            "detail": recovery_error_reason or "partial_stream_recovery_failed",
+            "stream_ref": stream_ref,
+            "partial_utf8_bytes": visible_prefix_utf8_bytes(raw_content),
+            "continuation_utf8_bytes": 0,
+            "recovery_mode": VISIBLE_PREFIX_RECOVERY_MODE,
+            "recovery_call_status": "failed",
+            "directive_ref": directive_ref,
+        }
+    )
+    return VisiblePrefixRecoveryResult(handled=True, response=SimpleNamespace(content=raw_content), events=tuple(events))
+
+
+def _model_spec_value(model_spec: Any | None, key: str) -> str:
+    if isinstance(model_spec, dict):
+        return str(model_spec.get(key) or "").strip()
+    return str(getattr(model_spec, key, "") or "").strip()
 
 
 async def _invoke_non_stream_after_stream_error(
@@ -1071,4 +1320,3 @@ def _normalize_tool_calls(raw_tool_calls: Any) -> list[dict[str, Any]]:
             }
         )
     return normalized
-

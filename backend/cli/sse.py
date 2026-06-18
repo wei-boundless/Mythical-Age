@@ -6,7 +6,7 @@ from typing import Any, Iterable
 
 
 MAX_STREAM_BUFFER_CHARS = 1024 * 1024
-TERMINAL_STREAM_EVENTS = {"done", "error", "stopped"}
+TERMINAL_STREAM_EVENTS = {"done", "error", "stopped", "turn_completed"}
 
 
 @dataclass(frozen=True, slots=True)

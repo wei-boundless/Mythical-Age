@@ -2,19 +2,25 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 
 from api.chat import (
     _agent_todo_observation_summary,
+    _allow_public_stream_flush,
     _append_chat_public_event,
     _is_task_executor_handoff_terminal,
     _project_public_stream_event,
+    _resolve_after_offset,
+    _run_chat_to_event_log,
     get_chat_run_events,
 )
+from harness.entrypoint.models import HarnessRuntimeRequest
 from harness.runtime.projection.authority import PUBLIC_PROJECTION_AUTHORITY, PUBLIC_PROJECTION_CONTRACT_REVISION
 from harness.runtime.projection.guards import public_text
 from harness.runtime.projection.projector import ProjectionLifecycleState, project_public_projection_event
 from runtime.output_stream.public_contract import (
     ASSISTANT_PUBLIC_FEEDBACK_EVENT,
+    ASSISTANT_TEXT_DELTA_EVENT,
     ASSISTANT_TEXT_FINAL_EVENT,
     SESSION_OUTPUT_COMMIT_ACK_EVENT,
     SESSION_OUTPUT_COMMIT_FAILED_EVENT,
@@ -85,6 +91,188 @@ class _ReplaySpy:
         return _Logged()
 
 
+class _MutableRegistrySpy:
+    def __init__(self, run: RuntimeRun) -> None:
+        self.run = run
+
+    def mark_running(self, run: RuntimeRun) -> RuntimeRun:
+        self.run = RuntimeRun(
+            stream_run_id=run.stream_run_id,
+            session_id=run.session_id,
+            event_log_id=run.event_log_id,
+            root_request_ref=run.root_request_ref,
+            status="running",
+            created_at=run.created_at,
+            updated_at=run.updated_at + 1,
+            latest_event_offset=run.latest_event_offset,
+            terminal_event=run.terminal_event,
+            diagnostics=run.diagnostics,
+        )
+        return self.run
+
+    def mark_event(self, run: RuntimeRun, **kwargs) -> RuntimeRun:
+        self.run = RuntimeRun(
+            stream_run_id=run.stream_run_id,
+            session_id=run.session_id,
+            event_log_id=run.event_log_id,
+            root_request_ref=run.root_request_ref,
+            status=kwargs.get("status") or run.status,
+            created_at=run.created_at,
+            updated_at=run.updated_at + 1,
+            latest_event_offset=kwargs.get("latest_event_offset", run.latest_event_offset),
+            terminal_event=kwargs.get("terminal_event") or run.terminal_event,
+            diagnostics=kwargs.get("diagnostics") or run.diagnostics,
+        )
+        return self.run
+
+    def get_run(self, _stream_run_id: str) -> RuntimeRun:
+        return self.run
+
+
+class _OffsetReplaySpy:
+    def __init__(self) -> None:
+        self.append_public_event_calls: list[dict] = []
+
+    def append_public_event(self, run: RuntimeRun, *, public_event_type: str, data: dict):
+        offset = len(self.append_public_event_calls)
+        self.append_public_event_calls.append(
+            {
+                "public_event_type": public_event_type,
+                "data": dict(data),
+                "previous_latest_event_offset": run.latest_event_offset,
+                "offset": offset,
+            }
+        )
+        return SimpleNamespace(offset=offset)
+
+
+def test_public_stream_flush_yields_only_after_new_public_event(monkeypatch) -> None:
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    monkeypatch.setattr("api.chat.asyncio.sleep", fake_sleep)
+    unchanged = RuntimeRun(
+        stream_run_id="strun:test",
+        session_id="session:test",
+        event_log_id="chatrun:test",
+        root_request_ref="chatreq:test",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+        latest_event_offset=0,
+    )
+    advanced = RuntimeRun(
+        stream_run_id="strun:test",
+        session_id="session:test",
+        event_log_id="chatrun:test",
+        root_request_ref="chatreq:test",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+        latest_event_offset=1,
+    )
+
+    asyncio.run(_allow_public_stream_flush(0, unchanged))
+    asyncio.run(_allow_public_stream_flush(0, advanced))
+
+    assert sleep_calls == [0]
+
+
+def test_chat_event_log_allows_sse_flush_between_contiguous_public_events(monkeypatch) -> None:
+    run = RuntimeRun(
+        stream_run_id="strun:test",
+        session_id="session:test",
+        event_log_id="chatrun:test",
+        root_request_ref="chatreq:test",
+        status="starting",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    registry = _MutableRegistrySpy(run)
+    replay = _OffsetReplaySpy()
+    flush_calls: list[tuple[int, int, str]] = []
+
+    async def fake_flush(previous_offset: int, current: RuntimeRun) -> None:
+        event_type = replay.append_public_event_calls[-1]["public_event_type"]
+        flush_calls.append((previous_offset, current.latest_event_offset, event_type))
+
+    async def fake_astream(_request):
+        yield {
+            "type": "single_agent_turn_started",
+            "turn_run_id": "turnrun:turn:test",
+            "active_turn_id": "turn:test",
+            "event_id": "rtevt:turn:start",
+            "event_offset": 0,
+        }
+        yield {
+            "type": ASSISTANT_TEXT_DELTA_EVENT,
+            "turn_run_id": "turnrun:turn:test",
+            "active_turn_id": "turn:test",
+            "stream_ref": "stream:test",
+            "message_ref": "message:test",
+            "sequence": 1,
+            "content": "第一段",
+        }
+        yield {
+            "type": ASSISTANT_TEXT_DELTA_EVENT,
+            "turn_run_id": "turnrun:turn:test",
+            "active_turn_id": "turn:test",
+            "stream_ref": "stream:test",
+            "message_ref": "message:test",
+            "sequence": 2,
+            "content": "第二段",
+        }
+        yield {
+            "type": ASSISTANT_TEXT_FINAL_EVENT,
+            "turn_run_id": "turnrun:turn:test",
+            "active_turn_id": "turn:test",
+            "stream_ref": "stream:test",
+            "message_ref": "message:test",
+            "sequence": 3,
+            "content": "第一段第二段",
+        }
+        yield {"type": "done", "content": "第一段第二段", "status": "completed"}
+
+    monkeypatch.setattr("api.chat._allow_public_stream_flush", fake_flush)
+    host = SimpleNamespace(
+        run_registry=registry,
+        stream_replay=replay,
+        active_turn_registry=SimpleNamespace(snapshot=lambda _session_id: None),
+    )
+    runtime = SimpleNamespace(
+        harness_runtime=SimpleNamespace(
+            single_agent_runtime_host=host,
+            astream=fake_astream,
+        )
+    )
+    request = HarnessRuntimeRequest(session_id="session:test", message="hello")
+
+    asyncio.run(_run_chat_to_event_log(runtime, run, request))
+
+    public_event_types = [call["public_event_type"] for call in replay.append_public_event_calls]
+    assert public_event_types == [
+        "chat_run_started",
+        "chat_turn_bound",
+        "single_agent_turn_started",
+        ASSISTANT_TEXT_DELTA_EVENT,
+        ASSISTANT_TEXT_DELTA_EVENT,
+        ASSISTANT_TEXT_FINAL_EVENT,
+        TURN_COMPLETED_EVENT,
+    ]
+    assert [call[2] for call in flush_calls] == public_event_types
+    assert [(previous, current) for previous, current, _event_type in flush_calls] == [
+        (-1, 0),
+        (0, 1),
+        (1, 2),
+        (2, 3),
+        (3, 4),
+        (4, 5),
+        (5, 6),
+    ]
+
+
 def test_chat_run_events_uses_unbuffered_sse_headers(monkeypatch) -> None:
     run = RuntimeRun(
         stream_run_id="strun:test",
@@ -111,6 +299,34 @@ def test_chat_run_events_uses_unbuffered_sse_headers(monkeypatch) -> None:
     assert response.headers["Cache-Control"] == "no-cache, no-transform"
     assert response.headers["Connection"] == "keep-alive"
     assert response.headers["X-Accel-Buffering"] == "no"
+
+
+def test_chat_run_reconnect_cursor_resolves_after_offset_and_last_event_id() -> None:
+    run = RuntimeRun(
+        stream_run_id="strun:test",
+        session_id="session:test",
+        event_log_id="chatrun:test",
+        root_request_ref="chatreq:test",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+
+    assert _resolve_after_offset(
+        run,
+        after_offset=7,
+        last_event_id="strun:test:chatrun:test:3",
+    ) == 7
+    assert _resolve_after_offset(
+        run,
+        after_offset=None,
+        last_event_id="strun:test:chatrun:test:3",
+    ) == 3
+    assert _resolve_after_offset(
+        run,
+        after_offset=None,
+        last_event_id="strun:other:chatrun:test:3",
+    ) == -1
 
 
 def test_stream_replay_sse_diagnostics_do_not_mutate_projection_frame() -> None:
@@ -452,6 +668,29 @@ def test_task_model_wait_heartbeat_is_not_public_projection_input() -> None:
     )
 
     assert events == []
+
+
+def test_stream_recovery_projects_status_contract_without_body_or_detail() -> None:
+    events = _project_public_stream_event(
+        "stream_recovery",
+        {
+            "status": "started",
+            "reason": "partial_stream_error",
+            "detail": "provider socket reset",
+            "stream_ref": "modelreq:test",
+            "partial_utf8_bytes": 18,
+            "recovery_mode": "continue_from_visible_prefix",
+        },
+    )
+
+    assert [event_type for event_type, _ in events] == ["stream_recovery"]
+    data = events[0][1]
+    assert data["status"] == "started"
+    assert data["reason"] == "partial_stream_error"
+    assert data["recovery_mode"] == "continue_from_visible_prefix"
+    assert data["partial_utf8_bytes"] == 18
+    assert "detail" not in data
+    assert "public_projection_frame" not in data
 
 
 def test_model_wait_runtime_status_fails_closed_as_hidden_trace_if_seen() -> None:

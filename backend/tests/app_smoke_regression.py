@@ -14,7 +14,30 @@ from tests.support.app_client import isolated_app_client
 
 
 async def _fake_astream(_request):
-    yield {"type": "token", "content": "smoke"}
+    yield {
+        "type": "single_agent_turn_started",
+        "turn_run_id": "turnrun:turn:smoke",
+        "active_turn_id": "turn:smoke",
+        "turn_id": "turn:smoke",
+    }
+    yield {
+        "type": "assistant_text_delta",
+        "turn_run_id": "turnrun:turn:smoke",
+        "active_turn_id": "turn:smoke",
+        "stream_ref": "stream:smoke",
+        "message_ref": "message:smoke",
+        "sequence": 1,
+        "content": "smoke",
+    }
+    yield {
+        "type": "assistant_text_final",
+        "turn_run_id": "turnrun:turn:smoke",
+        "active_turn_id": "turn:smoke",
+        "stream_ref": "stream:smoke",
+        "message_ref": "message:smoke",
+        "sequence": 2,
+        "content": "smoke result",
+    }
     yield {"type": "done", "content": "smoke result"}
 
 
@@ -191,7 +214,7 @@ def test_api_smoke_flow() -> None:
             assert response.status_code == 200
             stream = client.get(response.json()["stream_url"])
             assert stream.status_code == 200
-            assert "event: token" in stream.text
+            assert "event: assistant_text_delta" in stream.text
             assert "event: turn_completed" in stream.text
         finally:
             runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
@@ -299,7 +322,8 @@ def test_stream_chat_emits_error_when_runtime_ends_without_terminal_event() -> N
             assert "event: input_commit_gate" in stream.text
             assert "event: task_intent_decision" in stream.text
             assert "event: turn_completed" in stream.text
-            assert "missing_terminal_event" in stream.text
+            assert '"status": "failed"' in stream.text
+            assert "输出流没有正常收口" in stream.text
         finally:
             runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
@@ -342,6 +366,4 @@ def test_removed_agent_control_plane_routes_stay_absent() -> None:
     with isolated_app_client(app) as client:
         response = client.get("/api/agents/catalog")
         assert response.status_code == 404
-
-
 

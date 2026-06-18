@@ -206,6 +206,20 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "active_turn_id",
         "active_turn",
     },
+    "stream_recovery": {
+        "status",
+        "reason",
+        "code",
+        "provider",
+        "model",
+        "stream_ref",
+        "partial_utf8_bytes",
+        "continuation_utf8_bytes",
+        "recovery_mode",
+        "recovery_call_status",
+        "fallback_timeout_seconds",
+        "directive_ref",
+    },
     "harness_run_started": {"task_run", "turn_run", "event"},
     "runtime_step_summary": {
         "step",
@@ -1209,12 +1223,14 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             session_id=request.session_id,
             sequence=0,
         )
+        previous_offset = _latest_public_event_offset(current)
         start_event = replay.append_public_event(
             current,
             public_event_type="chat_run_started",
             data=start_data,
         )
         current = _safe_mark_run_event(registry, current, latest_event_offset=start_event.offset, status="running")
+        await _allow_public_stream_flush(previous_offset, current)
         async for event in runtime.harness_runtime.astream(request):
             event_type = str(event.get("type", "message") or "message")
             raw_refs = _runtime_run_refs_from_event(event)
@@ -1233,6 +1249,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                 )
                 if created_turn_context is not None:
                     turn_context = created_turn_context
+                    previous_offset = _latest_public_event_offset(current)
                     current = _append_chat_public_event(
                         registry=registry,
                         replay=replay,
@@ -1245,6 +1262,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                         runtime_active_turn_id=turn_context.turn_id,
                         public_anchor=turn_context.anchor(),
                     )
+                    await _allow_public_stream_flush(previous_offset, current)
             projections = _project_public_stream_event(event_type, event)
             if not projections:
                 continue
@@ -1259,6 +1277,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                 if runtime_active_turn_id:
                     data.setdefault("active_turn_id", runtime_active_turn_id)
                 if turn_context is None and public_event_type in TURN_CONTEXT_REQUIRED_PUBLIC_EVENTS:
+                    previous_offset = _latest_public_event_offset(current)
                     current = _append_chat_public_event(
                         registry=registry,
                         replay=replay,
@@ -1277,10 +1296,12 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                         runtime_turn_run_id=runtime_turn_run_id,
                         runtime_active_turn_id=runtime_active_turn_id,
                     )
+                    await _allow_public_stream_flush(previous_offset, current)
                     continue
                 if _is_task_executor_handoff_terminal(public_event_type, data):
                     bridged_task_run_id = _task_run_id_from_public_data(data) or runtime_refs.get("task_run_id", "")
                     if turn_context is None:
+                        previous_offset = _latest_public_event_offset(current)
                         current = _append_chat_public_event(
                             registry=registry,
                             replay=replay,
@@ -1303,6 +1324,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                             runtime_turn_run_id=runtime_turn_run_id,
                             runtime_active_turn_id=runtime_active_turn_id,
                         )
+                        await _allow_public_stream_flush(previous_offset, current)
                         terminal_event = TURN_COMPLETED_EVENT
                         break
                     bridge_context = _chat_task_bridge_context_from_handoff(
@@ -1314,6 +1336,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                         task_run_id=bridged_task_run_id,
                         public_sequence_base=int(getattr(current, "latest_event_offset", -1) or -1) + 1,
                     )
+                    previous_offset = _latest_public_event_offset(current)
                     current = _append_chat_public_event(
                         registry=registry,
                         replay=replay,
@@ -1327,6 +1350,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                         runtime_active_turn_id=bridge_context.turn_id,
                         public_anchor=bridge_context.anchor(),
                     )
+                    await _allow_public_stream_flush(previous_offset, current)
                     current = _safe_update_run(
                         registry,
                         run.stream_run_id,
@@ -1342,6 +1366,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                         },
                     )
                     break
+                previous_offset = _latest_public_event_offset(current)
                 current = _append_chat_public_event(
                     registry=registry,
                     replay=replay,
@@ -1355,6 +1380,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                     runtime_active_turn_id=runtime_active_turn_id or (turn_context.turn_id if turn_context else ""),
                     public_anchor=turn_context.anchor() if turn_context is not None else None,
                 )
+                await _allow_public_stream_flush(previous_offset, current)
                 terminal_event = public_event_type if public_event_type in TERMINAL_STREAM_EVENTS else terminal_event
                 if public_event_type in TERMINAL_STREAM_EVENTS:
                     break
@@ -1405,6 +1431,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             )
             _schedule_queued_input_dispatch(runtime, request.session_id, reason="chat_run_orphaned_after_exception")
             return
+        previous_offset = _latest_public_event_offset(current)
         logged = replay.append_public_event(
             current,
             public_event_type=TURN_COMPLETED_EVENT,
@@ -1418,6 +1445,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             ),
         )
         current = _safe_mark_run_event(current=current, registry=registry, latest_event_offset=logged.offset, status="failed", terminal_event=TURN_COMPLETED_EVENT)
+        await _allow_public_stream_flush(previous_offset, current)
         host.close_chat_turn_run_for_stream_failure_best_effort(
             current,
             code="stream_exception",
@@ -1443,6 +1471,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             )
             _schedule_queued_input_dispatch(runtime, request.session_id, reason="chat_run_orphaned_missing_terminal")
             return
+        previous_offset = _latest_public_event_offset(current)
         logged = replay.append_public_event(
             current,
             public_event_type=TURN_COMPLETED_EVENT,
@@ -1456,6 +1485,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             ),
         )
         current = _safe_mark_run_event(current=current, registry=registry, latest_event_offset=logged.offset, status="failed", terminal_event=TURN_COMPLETED_EVENT)
+        await _allow_public_stream_flush(previous_offset, current)
         host.close_chat_turn_run_for_stream_failure_best_effort(
             current,
             code="missing_terminal_event",
@@ -1705,6 +1735,7 @@ async def _bridge_task_run_to_chat_stream(
                     continue
                 latest_task_offset = int(getattr(task_event, "offset", -1) or -1)
                 progressed = True
+                previous_offset = _latest_public_event_offset(current)
                 current, terminal, terminal_output_state = _project_task_runtime_event_to_chat(
                     runtime,
                     run,
@@ -1716,11 +1747,13 @@ async def _bridge_task_run_to_chat_stream(
                     output_observed=output_observed,
                     commit_observed=commit_observed,
                 )
+                await _allow_public_stream_flush(previous_offset, current)
                 output_observed = output_observed or terminal_output_state.get("output_observed", False)
                 commit_observed = commit_observed or terminal_output_state.get("commit_observed", False)
                 if terminal:
                     return current
             if _task_run_snapshot_is_terminal(host, normalized_task_run_id):
+                previous_offset = _latest_public_event_offset(current)
                 current = _append_task_bridge_terminal_from_snapshot(
                     runtime,
                     run,
@@ -1731,6 +1764,7 @@ async def _bridge_task_run_to_chat_stream(
                     output_observed=output_observed,
                     commit_observed=commit_observed,
                 )
+                await _allow_public_stream_flush(previous_offset, current)
                 return current
             if progressed:
                 continue
@@ -2185,6 +2219,16 @@ def _turn_id_from_turn_run_id(turn_run_id: str) -> str:
     return candidate if candidate.startswith("turn:") else ""
 
 
+def _latest_public_event_offset(run: RuntimeRun) -> int:
+    value = getattr(run, "latest_event_offset", -1)
+    return -1 if value is None else int(value)
+
+
+async def _allow_public_stream_flush(previous_offset: int, current: RuntimeRun) -> None:
+    if _latest_public_event_offset(current) > int(previous_offset):
+        await asyncio.sleep(0)
+
+
 def _safe_mark_run_running(registry: Any, run: RuntimeRun) -> RuntimeRun:
     try:
         return registry.mark_running(run)
@@ -2249,31 +2293,38 @@ async def _stream_run_events(runtime: Any, run: RuntimeRun, *, after_offset: int
             yield replay.to_public_sse(current, event)
             if is_terminal:
                 return
+        last_keepalive_at = time.time()
+        poll_interval_seconds = 0.05
         while True:
             current = registry.get_run(run.stream_run_id) or run
-            if current.status in {"completed", "failed", "stopped", "orphaned"} and current.latest_event_offset <= latest_offset:
-                return
-            try:
-                event = await asyncio.wait_for(subscription.queue.get(), timeout=15.0)
-            except asyncio.TimeoutError:
-                yield ": keepalive\n\n"
-                continue
-            if event.offset <= latest_offset or str(event.event_type) != "chat_stream_event":
-                continue
-            if event.offset > latest_offset + 1:
-                catchup_events = [
-                    candidate
-                    for candidate in replay.list_public_events_after(run, after_offset=latest_offset)
-                    if candidate.offset <= event.offset
-                ]
+            catchup_events = [
+                candidate
+                for candidate in replay.list_public_events_after(run, after_offset=latest_offset)
+                if candidate.offset > latest_offset
+            ]
+            if catchup_events:
                 for catchup in catchup_events:
-                    if catchup.offset <= latest_offset or str(catchup.event_type) != "chat_stream_event":
+                    if str(catchup.event_type) != "chat_stream_event":
                         continue
                     current = registry.get_run(run.stream_run_id) or run
                     latest_offset = max(latest_offset, catchup.offset)
                     yield replay.to_public_sse(current, catchup)
                     if replay.is_terminal_event(catchup):
                         return
+                continue
+            if current.status in {"completed", "failed", "stopped", "orphaned"} and current.latest_event_offset <= latest_offset:
+                return
+            try:
+                event = await asyncio.wait_for(subscription.queue.get(), timeout=poll_interval_seconds)
+            except asyncio.TimeoutError:
+                now = time.time()
+                if now - last_keepalive_at >= 15.0:
+                    last_keepalive_at = now
+                    yield ": keepalive\n\n"
+                continue
+            if event.offset <= latest_offset or str(event.event_type) != "chat_stream_event":
+                continue
+            if event.offset > latest_offset + 1:
                 continue
             latest_offset = max(latest_offset, event.offset)
             yield replay.to_public_sse(current, event)
@@ -2387,6 +2438,9 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list
     if normalized in {"step_summary_recorded", "runtime_step_summary"}:
         data = _runtime_step_summary_data(raw_data)
         return [("runtime_step_summary", data)] if data else []
+    if normalized == "stream_recovery":
+        data = _stream_recovery_public_data(raw_data)
+        return [(normalized, data)] if data else []
     if normalized == "task_model_action_wait_heartbeat":
         return []
     if normalized in {ASSISTANT_TEXT_DELTA_EVENT, ASSISTANT_TEXT_FINAL_EVENT, ASSISTANT_STREAM_REPAIR_EVENT}:
@@ -2458,6 +2512,17 @@ def _assistant_stream_public_data(event_type: str, raw_data: dict[str, Any]) -> 
         return {}
     if event_type == ASSISTANT_STREAM_REPAIR_EVENT and not str(data.get("replacement_content") or ""):
         return {}
+    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
+
+
+def _stream_recovery_public_data(raw_data: dict[str, Any]) -> dict[str, Any]:
+    raw_event = _record(raw_data.get("event"))
+    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
+    allowed = PUBLIC_EVENT_DATA_ALLOWLIST.get("stream_recovery", set())
+    data = {key: payload[key] for key in allowed if key in payload and payload[key] not in ("", None)}
+    data["status"] = str(data.get("status") or payload.get("status") or "started")
+    data["reason"] = str(data.get("reason") or payload.get("reason") or "partial_stream_error")
+    data["runtime_event_id"] = str(raw_event.get("event_id") or raw_data.get("event_id") or "")
     return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
 
 

@@ -331,6 +331,22 @@ function chatStreamStatusPresentation(status: ChatStreamConnectionStatus, stream
       title: "输出流已恢复，继续接收事件。",
     };
   }
+  if (state === "streaming" && status.reason === "partial_stream_recovery") {
+    return {
+      state,
+      label: "输出流",
+      detail: "恢复中",
+      title: "模型输出连接中断，正在从已显示内容继续。",
+    };
+  }
+  if (state === "streaming" && status.reason === "partial_stream_recovery_failed") {
+    return {
+      state,
+      label: "输出流",
+      detail: "整理中",
+      title: "模型续写请求未完成，正在提交已显示内容。",
+    };
+  }
   return {
     state,
     label: "输出流",

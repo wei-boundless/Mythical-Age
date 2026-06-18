@@ -6,11 +6,28 @@ from typing import Any, Callable, Iterator
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from .sse import SSEDecoder, ServerSentEvent
+from .sse import SSEDecoder, ServerSentEvent, TERMINAL_STREAM_EVENTS
 from .state import DEFAULT_API_BASE
 
 
 UrlOpen = Callable[..., Any]
+
+
+DEFAULT_CHAT_STREAM_MODEL_SELECTION: dict[str, Any] = {
+    "stream_policy": {
+        "enabled": True,
+        "emit_assistant_text_delta": True,
+        "upstream_reconnect_enabled": True,
+        "partial_stream_recovery": "continue_from_visible_prefix",
+        "chunk_strategy": "typing",
+        "max_flush_interval_ms": 24,
+        "max_pending_utf8_bytes": 36,
+        "max_pending_line_count": 1,
+        "min_event_interval_ms": 8,
+        "event_budget_per_second": 90,
+        "source": "backend.cli.chat_stream_default",
+    }
+}
 
 
 class AgentCliClientError(RuntimeError):
@@ -133,11 +150,17 @@ class AgentCliClient:
             "message": message,
             "stream": True,
             "environment_binding": {},
-            "model_selection": {},
+            "model_selection": _merge_model_selection(
+                DEFAULT_CHAT_STREAM_MODEL_SELECTION,
+                dict(extra_payload.get("model_selection") or {}) if isinstance(extra_payload, dict) else {},
+            ),
             "image_generation": {},
         }
         if extra_payload:
-            body.update(extra_payload)
+            for key, value in extra_payload.items():
+                if key == "model_selection":
+                    continue
+                body[key] = value
         run = self._json_request("POST", "/chat/runs", body)
         if not isinstance(run, dict):
             raise AgentCliClientError("Backend returned an invalid chat run.")
@@ -161,14 +184,13 @@ class AgentCliClient:
 
         decoder = SSEDecoder()
         terminal_event = ""
-        while True:
-            chunk = response.read(4096)
+        for chunk in _iter_sse_response_chunks(response):
             if not chunk:
                 break
             text = chunk.decode("utf-8", errors="replace")
             for event in decoder.feed(text):
                 yield event
-                if event.event in {"done", "error", "stopped"}:
+                if event.event in TERMINAL_STREAM_EVENTS:
                     terminal_event = event.event
                     break
             if terminal_event:
@@ -176,7 +198,7 @@ class AgentCliClient:
         if not terminal_event:
             for event in decoder.flush():
                 yield event
-                if event.event in {"done", "error", "stopped"}:
+                if event.event in TERMINAL_STREAM_EVENTS:
                     terminal_event = event.event
         if not terminal_event:
             raise AgentCliClientError(
@@ -233,5 +255,30 @@ def _quote_path(value: str) -> str:
     from urllib.parse import quote
 
     return quote(value, safe="")
+
+
+def _merge_model_selection(default_selection: dict[str, Any], override_selection: dict[str, Any]) -> dict[str, Any]:
+    selection = {**dict(default_selection or {}), **dict(override_selection or {})}
+    default_policy = dict(dict(default_selection or {}).get("stream_policy") or {})
+    override_policy = dict(dict(override_selection or {}).get("stream_policy") or {})
+    if default_policy or override_policy:
+        selection["stream_policy"] = {**default_policy, **override_policy}
+    return selection
+
+
+def _iter_sse_response_chunks(response: Any):
+    readline = getattr(response, "readline", None)
+    if callable(readline):
+        while True:
+            chunk = readline()
+            if not chunk:
+                break
+            yield chunk
+        return
+    while True:
+        chunk = response.read(4096)
+        if not chunk:
+            break
+        yield chunk
 
 

@@ -13,7 +13,7 @@ from .sse import ServerSentEvent
 from .state import CliStateStore, DEFAULT_API_BASE
 
 
-CONTENT_EVENTS = {"token", "assistant_text_delta", "assistant_text_final", "answer_candidate"}
+CONTENT_EVENTS = {"token", "assistant_text_delta", "answer_candidate"}
 PROGRESS_EVENTS = {
     "input_commit_gate",
     "runtime_assembly_compiled",
@@ -319,8 +319,9 @@ def _send_message_text(
 ) -> None:
     resolved_session_id = session_id or _resolve_session_id("", store)
     terminal = ""
+    render_state: dict[str, Any] = {}
     for event in client.stream_chat(session_id=resolved_session_id, message=message, extra_payload=extra_payload):
-        terminal = _render_stream_event(event, stdout=stdout, stderr=stderr, verbose=verbose) or terminal
+        terminal = _render_stream_event(event, stdout=stdout, stderr=stderr, verbose=verbose, state=render_state) or terminal
     if terminal == "error":
         raise AgentCliClientError("Backend returned an error event.")
 
@@ -414,9 +415,10 @@ def _run_task_run_start(
         extra_payload["environment_binding"] = {"task_environment_id": environment_id}
     task_run_id = ""
     terminal = ""
+    render_state: dict[str, Any] = {}
     for event in client.stream_chat(session_id=session_id, message=message, extra_payload=extra_payload):
         task_run_id = _task_run_id_from_stream_event(event) or task_run_id
-        terminal = _render_stream_event(event, stdout=stdout, stderr=stderr, verbose=bool(args.verbose)) or terminal
+        terminal = _render_stream_event(event, stdout=stdout, stderr=stderr, verbose=bool(args.verbose), state=render_state) or terminal
     if terminal == "error":
         raise AgentCliClientError("Backend returned an error event.")
     if not task_run_id:
@@ -474,16 +476,50 @@ def _render_stream_event(
     stdout: TextIO,
     stderr: TextIO,
     verbose: bool,
+    state: dict[str, Any] | None = None,
 ) -> str:
+    render_state = state if state is not None else {}
     if event.event in CONTENT_EVENTS:
         content = str(event.data.get("content") or "")
         if content:
             print(content, end="", flush=True, file=stdout)
+            render_state["printed_body"] = str(render_state.get("printed_body") or "") + content
+        return ""
+    if event.event == "assistant_text_final":
+        content = str(event.data.get("content") or "")
+        printed = str(render_state.get("printed_body") or "")
+        if content and content.startswith(printed):
+            suffix = content[len(printed):]
+            if suffix:
+                print(suffix, end="", flush=True, file=stdout)
+                render_state["printed_body"] = content
+        elif content and not printed:
+            print(content, end="", flush=True, file=stdout)
+            render_state["printed_body"] = content
         return ""
     if event.event == "done":
         content = str(event.data.get("content") or "")
-        if content:
+        printed = str(render_state.get("printed_body") or "")
+        if content and content.startswith(printed):
+            suffix = content[len(printed):]
+            if suffix:
+                print(suffix, end="", flush=True, file=stdout)
+                render_state["printed_body"] = content
+        elif content and not printed:
             print(content, end="", flush=True, file=stdout)
+            render_state["printed_body"] = content
+        print("", file=stdout)
+        return "done"
+    if event.event == "turn_completed":
+        status = str(event.data.get("status") or "completed").strip().lower()
+        if status == "failed":
+            reason = str(event.data.get("terminal_reason") or event.data.get("error_summary") or "处理失败")
+            print(f"\nerror: {reason}", file=stderr)
+            return "error"
+        if status == "stopped":
+            reason = str(event.data.get("stopped_reason") or event.data.get("terminal_reason") or "stopped")
+            print(f"\nstopped: {reason}", file=stderr)
+            return "stopped"
         print("", file=stdout)
         return "done"
     if event.event == "error":
