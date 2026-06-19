@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, model_visible_artifact_refs
@@ -156,7 +158,6 @@ class TaskStateProjector:
 def _task_state_replay_entries(task_state: dict[str, Any], *, limit: int) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     index_by_key: dict[str, int] = {}
-    order_by_key: dict[str, tuple[int, int, str]] = {}
     fallback_order = 0
     for entry_kind, items in (
         ("subagent_result", dict_tuple(task_state.get("authoritative_subagent_results"))),
@@ -164,6 +165,9 @@ def _task_state_replay_entries(task_state: dict[str, Any], *, limit: int) -> lis
         ("active_failure", dict_tuple(task_state.get("active_failures"))),
         ("historical_failure", dict_tuple(task_state.get("historical_failures"))),
     ):
+        category_entries: list[dict[str, Any]] = []
+        category_index_by_key: dict[str, int] = {}
+        category_order_by_key: dict[str, tuple[int, int, str]] = {}
         for item in items:
             fallback_order += 1
             entry = _replay_entry_projection(entry_kind, item)
@@ -171,43 +175,96 @@ def _task_state_replay_entries(task_state: dict[str, Any], *, limit: int) -> lis
                 continue
             key = _replay_entry_key(entry)
             order = _replay_entry_order(item, fallback_order=fallback_order)
+            if key in category_index_by_key:
+                index = category_index_by_key[key]
+                merged = _merge_projection(category_entries[index], entry)
+                merged["entry_kind"] = _merged_entry_kind(category_entries[index].get("entry_kind"), entry.get("entry_kind"))
+                category_entries[index] = merged
+                category_order_by_key[key] = min(category_order_by_key[key], order)
+                continue
+            category_index_by_key[key] = len(category_entries)
+            category_order_by_key[key] = order
+            category_entries.append(entry)
+        ordered_category = sorted(
+            category_entries,
+            key=lambda entry: category_order_by_key.get(
+                _replay_entry_key(entry),
+                (1, 0, _replay_entry_key(entry)),
+            ),
+        )
+        for entry in ordered_category:
+            key = _replay_entry_key(entry)
             if key in index_by_key:
                 index = index_by_key[key]
                 merged = _merge_projection(entries[index], entry)
                 merged["entry_kind"] = _merged_entry_kind(entries[index].get("entry_kind"), entry.get("entry_kind"))
                 entries[index] = merged
-                order_by_key[key] = min(order_by_key[key], order)
                 continue
             index_by_key[key] = len(entries)
-            order_by_key[key] = order
             entries.append(entry)
-    ordered = sorted(entries, key=lambda entry: order_by_key.get(_replay_entry_key(entry), (1, 0, _replay_entry_key(entry))))
-    return _bounded_replay_entries(ordered, limit=limit)
+    return _bounded_replay_entries(entries, limit=limit)
 
 
 def _bounded_replay_entries(entries: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
     bounded_limit = max(1, int(limit or 1))
     if len(entries) <= bounded_limit:
         return entries
-    protected_limit = min(4, bounded_limit)
-    protected = [entry for entry in entries if _is_protected_replay_entry(entry)]
-    selected_protected = protected[-protected_limit:]
-    selected_keys = {_replay_entry_key(entry) for entry in selected_protected}
-    remaining = max(0, bounded_limit - len(selected_keys))
-    selected_unprotected = [
-        entry
-        for entry in entries
-        if _replay_entry_key(entry) not in selected_keys
-    ][-remaining:] if remaining else []
-    selected_keys.update(_replay_entry_key(entry) for entry in selected_unprotected)
-    return [entry for entry in entries if _replay_entry_key(entry) in selected_keys]
+    if bounded_limit == 1:
+        return [_replay_summary_entry(entries, retained_prefix_entry_count=0, total_entry_count=len(entries))]
+    retained = entries[: bounded_limit - 1]
+    overflow = entries[bounded_limit - 1 :]
+    return [
+        *retained,
+        _replay_summary_entry(
+            overflow,
+            retained_prefix_entry_count=len(retained),
+            total_entry_count=len(entries),
+        ),
+    ]
 
 
-def _is_protected_replay_entry(entry: dict[str, Any]) -> bool:
-    entry_kind = str(entry.get("entry_kind") or "")
-    if "subagent_result" in entry_kind:
-        return True
-    return _is_authoritative_subagent_result(entry)
+def _replay_summary_entry(
+    entries: list[dict[str, Any]],
+    *,
+    retained_prefix_entry_count: int,
+    total_entry_count: int,
+) -> dict[str, Any]:
+    refs = [_entry_ref(entry) for entry in entries if _entry_ref(entry)]
+    tool_counts: dict[str, int] = {}
+    status_counts: dict[str, int] = {}
+    for entry in entries:
+        tool_name = str(entry.get("tool_name") or "").strip()
+        status = str(entry.get("status") or "").strip()
+        if tool_name:
+            tool_counts[tool_name] = tool_counts.get(tool_name, 0) + 1
+        if status:
+            status_counts[status] = status_counts.get(status, 0) + 1
+    seed = {
+        "refs": refs,
+        "tool_counts": tool_counts,
+        "status_counts": status_counts,
+        "retained_prefix_entry_count": retained_prefix_entry_count,
+        "total_entry_count": total_entry_count,
+    }
+    digest = hashlib.sha256(
+        json.dumps(seed, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    return drop_empty(
+        {
+            "entry_kind": "task_state_replay_summary",
+            "entry_ref": f"task_state_replay_summary:{digest}",
+            "summary_ref": f"task_state_replay_summary:{digest}",
+            "retained_prefix_entry_count": retained_prefix_entry_count,
+            "summarized_entry_count": len(entries),
+            "total_entry_count": total_entry_count,
+            "summarized_refs": refs[-24:],
+            "tool_counts": tool_counts,
+            "status_counts": status_counts,
+            "replay_summary_policy": "prefix_preserved_summary_replacement",
+            "rehydration": "older exact replay entries are summarized; use evidence refs or tools when exact detail is needed",
+            "authority": "harness.runtime.dynamic_context.task_state_replay_summary",
+        }
+    )
 
 
 def _task_state_cursor_projection(
@@ -243,10 +300,26 @@ def _task_state_cursor_projection(
     else:
         cursor.pop("authoritative_subagent_results", None)
     if active_failures:
-        cursor["active_failures"] = list(active_failures[-failure_limit:])
+        cursor["active_failures"] = [
+            _cursor_failure_projection(item)
+            for item in active_failures[-failure_limit:]
+        ]
     else:
         cursor.pop("active_failures", None)
     cursor.pop("historical_failures", None)
+    cursor["file_evidence_decisions"] = _cursor_file_evidence_decisions_projection(
+        dict(cursor.get("file_evidence_decisions") or {})
+    )
+    cursor["task_progress_facts"] = _cursor_task_progress_facts_projection(
+        dict(cursor.get("task_progress_facts") or {})
+    )
+    cursor["read_resource_state"] = _cursor_read_resource_state_projection(
+        dict(cursor.get("read_resource_state") or {})
+    )
+    cursor["work_progress"] = _cursor_work_progress_projection(dict(cursor.get("work_progress") or {}))
+    cursor["evidence_confidence"] = _cursor_evidence_confidence_projection(
+        dict(cursor.get("evidence_confidence") or {})
+    )
     if replay_entries:
         cursor["replay_prefix"] = drop_empty(
             {
@@ -261,6 +334,9 @@ def _task_state_cursor_projection(
 
 def _cursor_tool_result_projection(item: dict[str, Any]) -> dict[str, Any]:
     error = _dict_value(item.get("error")) or _dict_value(item.get("structured_error"))
+    content_range = _replay_content_range(dict(item.get("content_range") or {}))
+    summary_limit = 80 if content_range else 140
+    summary = "" if content_range else compact_text(item.get("summary") or error.get("message") or "", limit=summary_limit)
     projected = drop_empty(
         {
             "observation_ref": str(item.get("observation_ref") or item.get("observation_id") or ""),
@@ -270,13 +346,18 @@ def _cursor_tool_result_projection(item: dict[str, Any]) -> dict[str, Any]:
             "path": _projection_path(item),
             "visibility": str(item.get("visibility") or ""),
             "reason": str(item.get("reason") or error.get("code") or ""),
-            "summary": compact_text(item.get("summary") or error.get("message") or "", limit=160),
-            "error": _replay_safe_value(error),
-            "structured_error": _replay_safe_value(_dict_value(item.get("structured_error"))),
+            "summary": summary,
+            "error": _cursor_error_projection(error),
+            "structured_error": _cursor_error_projection(_dict_value(item.get("structured_error"))),
             "code_structure": _replay_code_structure_summary(dict(item.get("code_structure") or {})),
-            "content_range": _replay_content_range(dict(item.get("content_range") or {})),
-            "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or {})),
-            "evidence_confidence": _replay_evidence_confidence(dict(item.get("evidence_confidence") or {})),
+            "content_range": content_range,
+            "evidence_policy": _cursor_evidence_policy_projection(
+                dict(item.get("evidence_policy") or {}),
+                content_range=bool(content_range),
+            ),
+            "evidence_confidence": {}
+            if content_range
+            else _replay_evidence_confidence(dict(item.get("evidence_confidence") or {})),
             "todo_plan": project_todo_plan(dict(item.get("todo_plan") or {})),
             "subagent_result": _cursor_subagent_result_projection(dict(item.get("subagent_result") or {})),
             "rehydration_plan": _replay_rehydration_plan(dict(item.get("rehydration_plan") or {})),
@@ -284,6 +365,52 @@ def _cursor_tool_result_projection(item: dict[str, Any]) -> dict[str, Any]:
         }
     )
     return projected
+
+
+def _cursor_failure_projection(item: dict[str, Any]) -> dict[str, Any]:
+    error = _dict_value(item.get("error")) or _dict_value(item.get("structured_error"))
+    return drop_empty(
+        {
+            "observation_ref": str(item.get("observation_ref") or item.get("observation_id") or ""),
+            "tool_name": _tool_name(str(item.get("tool_name") or item.get("source") or "")),
+            "status": str(item.get("status") or "error"),
+            "visibility": str(item.get("visibility") or ""),
+            "reason": str(item.get("reason") or error.get("code") or ""),
+            "summary": compact_text(item.get("summary") or error.get("message") or "", limit=180),
+            "error": _cursor_error_projection(error),
+            "current_runtime_fact": item.get("current_runtime_fact") if isinstance(item.get("current_runtime_fact"), bool) else None,
+        }
+    )
+
+
+def _cursor_error_projection(error: dict[str, Any]) -> dict[str, Any]:
+    if not error:
+        return {}
+    repair_instruction = str(error.get("repair_instruction") or "")
+    return drop_empty(
+        {
+            "code": str(error.get("code") or ""),
+            "origin": str(error.get("origin") or ""),
+            "retryable": error.get("retryable") if isinstance(error.get("retryable"), bool) else None,
+            "message": compact_text(error.get("message") or "", limit=220),
+            "repair_instruction_summary": compact_text(repair_instruction, limit=260),
+            "repair_instruction_available": True if repair_instruction else None,
+        }
+    )
+
+
+def _cursor_evidence_policy_projection(value: dict[str, Any], *, content_range: bool) -> dict[str, Any]:
+    if not value:
+        return {}
+    if content_range:
+        return drop_empty(
+            {
+                "policy_ref": str(value.get("policy_ref") or "file_evidence_policy_stable.tool_result_evidence"),
+                "source_kind": str(value.get("source_kind") or ""),
+                "visible_content_authority": str(value.get("visible_content_authority") or ""),
+            }
+        )
+    return _replay_evidence_policy(value)
 
 
 def _replay_entry_projection(entry_kind: str, item: dict[str, Any]) -> dict[str, Any]:
@@ -352,7 +479,7 @@ def _merged_entry_kind(first: Any, second: Any) -> str:
 
 
 def _entry_ref(entry: dict[str, Any]) -> str:
-    ref = str(entry.get("observation_ref") or "").strip()
+    ref = str(entry.get("observation_ref") or entry.get("entry_ref") or "").strip()
     if ref:
         return ref
     return _replay_entry_key(entry)
@@ -640,10 +767,10 @@ def _task_progress_facts_projection(
     return drop_empty(
         {
             "authority": "harness.runtime.dynamic_context.task_progress_facts",
-            "files": [item for item in files if item][-12:],
+            "files": [item for item in files if item][-8:],
             "file_evidence": _task_progress_file_evidence_facts(dict(file_evidence_decisions or {})),
             "todos": todos,
-            "recent_tool_observations": recent_tool_observations,
+            "recent_tool_observations": recent_tool_observations[-8:],
         }
     )
 
@@ -656,27 +783,18 @@ def _task_progress_file_fact(item: dict[str, Any]) -> dict[str, Any]:
         {
             "path": _projection_path(item),
             "status": str(item.get("status") or ""),
-            "coverage": coverage,
+            "coverage": _thin_coverage_projection(coverage),
             "total_lines": item.get("total_lines"),
             "content_sha256": str(item.get("content_sha256") or ""),
             "stale": str(item.get("status") or "") == "stale",
             "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
             "last_observation_ref": str(item.get("last_observation_ref") or ""),
             "reusable_result_ref": reusable_ref,
-            "next_missing_ranges": next_missing_ranges,
+            "next_missing_ranges": [_range_ref(segment) for segment in next_missing_ranges[:4]],
             "next_suggested_read": dict(item.get("next_suggested_read") or {}),
             "read_windows_available": [
-                drop_empty(
-                    {
-                        "start_line": segment.get("start_line"),
-                        "end_line": segment.get("end_line"),
-                        "observation_ref": str(segment.get("observation_ref") or ""),
-                        "reusable_result_ref": str(segment.get("reusable_result_ref") or ""),
-                        "exact_artifact_ref": str(segment.get("exact_artifact_ref") or ""),
-                        "returned_exact": segment.get("visible_exact") if isinstance(segment.get("visible_exact"), bool) else None,
-                    }
-                )
-                for segment in dict_tuple(item.get("read_ranges"))[-8:]
+                _file_state_cursor_read_window(segment)
+                for segment in dict_tuple(item.get("read_ranges"))[-4:]
             ],
         }
     )
@@ -691,7 +809,7 @@ def _task_progress_file_evidence_facts(file_evidence_decisions: dict[str, Any]) 
                     "path": str(item.get("path") or ""),
                     "visible_exact_window_count": len(dict_tuple(item.get("visible_exact_windows"))),
                     "artifact_available_window_count": len(dict_tuple(item.get("artifact_available_windows"))),
-                    "artifact_injection_required_window_count": len(dict_tuple(item.get("artifact_injection_required_windows"))),
+                    "read_required_window_count": len(dict_tuple(item.get("read_required_windows"))),
                     "missing_window_count": len(dict_tuple(item.get("read_missing_windows"))),
                     "stale_window_count": len(dict_tuple(item.get("read_after_stale_windows"))),
                 }
@@ -905,6 +1023,7 @@ def _current_fact_projection(items: list[dict[str, Any]] | tuple[dict[str, Any],
     for item in items:
         if not isinstance(item, dict):
             continue
+        content_range = _replay_content_range(dict(item.get("content_range") or {}))
         projected = drop_empty(
             {
                 "observation_ref": str(item.get("observation_ref") or item.get("observation_id") or ""),
@@ -913,8 +1032,8 @@ def _current_fact_projection(items: list[dict[str, Any]] | tuple[dict[str, Any],
                 "path": _projection_path(item),
                 "visibility": str(item.get("visibility") or ""),
                 "reason": str(item.get("reason") or ""),
-                "summary": compact_text(item.get("summary") or "", limit=140),
-                "content_range": _replay_content_range(dict(item.get("content_range") or {})),
+                "summary": "" if content_range else compact_text(item.get("summary") or "", limit=120),
+                "content_range": content_range,
             }
         )
         if projected:
@@ -1138,21 +1257,188 @@ def _failure_projection(item: dict[str, Any]) -> dict[str, Any]:
 def _work_progress_projection(work_history_projection: dict[str, Any]) -> dict[str, Any]:
     return drop_empty(
         {
-            "latest_progress": compact_text(work_history_projection.get("latest_progress") or "", limit=300),
+            "latest_progress": compact_text(work_history_projection.get("latest_progress") or "", limit=180),
             "latest_step_title": compact_text(work_history_projection.get("latest_step_title") or "", limit=120),
-            "active_facts": [compact_text(item, limit=180) for item in list(work_history_projection.get("active_facts") or []) if str(item)],
-            "historical_work_summary": dict(work_history_projection.get("historical_work_summary") or {}),
+            "active_facts": [
+                compact_text(item, limit=120)
+                for item in list(work_history_projection.get("active_facts") or [])[-3:]
+                if str(item)
+            ],
+            "historical_work_summary": _cursor_historical_work_summary(
+                dict(work_history_projection.get("historical_work_summary") or {})
+            ),
             "recent_steps": [
                 drop_empty(
                     {
                         "type": str(item.get("type") or ""),
                         "title": compact_text(item.get("title") or "", limit=120),
                         "status": str(item.get("status") or ""),
-                        "summary": compact_text(item.get("summary") or "", limit=240),
+                        "summary": compact_text(item.get("summary") or "", limit=140),
                     }
                 )
                 for item in dict_tuple(work_history_projection.get("recent_steps"))[-1:]
             ],
+        }
+    )
+
+
+def _cursor_historical_work_summary(value: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "status": str(value.get("status") or ""),
+            "public_result_summary": compact_text(value.get("public_result_summary") or "", limit=160),
+            "usable_artifact_refs": _replay_artifact_refs(value.get("usable_artifact_refs")),
+            "non_control_context": value.get("non_control_context") if isinstance(value.get("non_control_context"), bool) else None,
+        }
+    )
+
+
+def _cursor_work_progress_projection(value: dict[str, Any]) -> dict[str, Any]:
+    if not value:
+        return {}
+    return drop_empty(
+        {
+            "latest_progress": compact_text(value.get("latest_progress") or "", limit=140),
+            "latest_step_title": compact_text(value.get("latest_step_title") or "", limit=100),
+            "active_facts": [
+                compact_text(item, limit=100)
+                for item in list(value.get("active_facts") or [])[-2:]
+                if str(item).strip()
+            ],
+            "historical_work_summary": _cursor_historical_work_summary(
+                dict(value.get("historical_work_summary") or {})
+            ),
+            "recent_steps": [
+                drop_empty(
+                    {
+                        "type": str(item.get("type") or ""),
+                        "title": compact_text(item.get("title") or "", limit=100),
+                        "status": str(item.get("status") or ""),
+                        "summary": compact_text(item.get("summary") or "", limit=120),
+                    }
+                )
+                for item in dict_tuple(value.get("recent_steps"))[-1:]
+            ],
+        }
+    )
+
+
+def _cursor_file_evidence_decisions_projection(value: dict[str, Any]) -> dict[str, Any]:
+    if not value:
+        return {}
+    files: list[dict[str, Any]] = []
+    for item in dict_tuple(value.get("files"))[-8:]:
+        files.append(
+            drop_empty(
+                {
+                    "path": str(item.get("path") or ""),
+                    "status": str(item.get("status") or ""),
+                    "artifact_available_window_count": len(dict_tuple(item.get("artifact_available_windows"))),
+                    "read_required_window_count": len(dict_tuple(item.get("read_required_windows"))),
+                    "read_required_windows": _cursor_decision_windows(item.get("read_required_windows")),
+                    "read_after_stale_window_count": len(dict_tuple(item.get("read_after_stale_windows"))),
+                    "policy_ref": str(item.get("policy_ref") or ""),
+                }
+            )
+        )
+    return drop_empty(
+        {
+            "kind": str(value.get("kind") or "file_evidence_decisions"),
+            "authority": str(value.get("authority") or "runtime.memory.file_state_authority.evidence_decision_projection"),
+            "files": [item for item in files if item],
+        }
+    )
+
+
+def _cursor_decision_windows(value: Any) -> list[dict[str, Any]]:
+    windows: list[dict[str, Any]] = []
+    for item in dict_tuple(value)[-3:]:
+        windows.append(
+            drop_empty(
+                {
+                    "decision": str(item.get("decision") or ""),
+                    "decision_code": str(item.get("decision_code") or ""),
+                    "path": str(item.get("path") or ""),
+                    "start_line": item.get("start_line"),
+                    "end_line": item.get("end_line"),
+                    "line_count": item.get("line_count"),
+                    "observation_ref": str(item.get("observation_ref") or ""),
+                    "exact_artifact_ref": str(item.get("exact_artifact_ref") or ""),
+                    "reason": compact_text(item.get("reason") or "", limit=120),
+                }
+            )
+        )
+    return [item for item in windows if item]
+
+
+def _cursor_task_progress_facts_projection(value: dict[str, Any]) -> dict[str, Any]:
+    if not value:
+        return {}
+    return drop_empty(
+        {
+            "authority": str(value.get("authority") or "harness.runtime.dynamic_context.task_progress_facts"),
+            "file_evidence": dict(value.get("file_evidence") or {}),
+            "todos": list(value.get("todos") or [])[-8:],
+            "recent_tool_observations": [
+                drop_empty(
+                    {
+                        "tool_name": str(item.get("tool_name") or ""),
+                        "outcome": str(item.get("outcome") or ""),
+                        "observation_ref": str(item.get("observation_ref") or ""),
+                        "path": str(item.get("path") or ""),
+                        "trace_only": item.get("trace_only") if isinstance(item.get("trace_only"), bool) else None,
+                        "reason": str(item.get("reason") or ""),
+                    }
+                )
+                for item in dict_tuple(value.get("recent_tool_observations"))[-6:]
+            ],
+        }
+    )
+
+
+def _cursor_read_resource_state_projection(value: dict[str, Any]) -> dict[str, Any]:
+    if not value:
+        return {}
+    return drop_empty(
+        {
+            "kind": str(value.get("kind") or "read_resource_state"),
+            "authority_boundary": str(value.get("authority_boundary") or ""),
+            "status": str(value.get("status") or ""),
+            "path": str(value.get("path") or ""),
+            "active_file_count": value.get("active_file_count"),
+            "available_range_count": value.get("available_range_count"),
+            "available_evidence_refs": [
+                str(item)
+                for item in list(value.get("available_evidence_refs") or [])[-10:]
+                if str(item).strip()
+            ],
+            "has_more": value.get("has_more") if isinstance(value.get("has_more"), bool) else None,
+            "content_sha256": str(value.get("content_sha256") or ""),
+            "file_evidence_decision_ref": str(value.get("file_evidence_decision_ref") or ""),
+            "state_code": str(value.get("state_code") or ""),
+            "authority": str(value.get("authority") or "harness.runtime.dynamic_context.read_resource_state"),
+        }
+    )
+
+
+def _cursor_evidence_confidence_projection(value: dict[str, Any]) -> dict[str, Any]:
+    if not value:
+        return {}
+    return drop_empty(
+        {
+            "authority": str(value.get("authority") or "harness.runtime.dynamic_context.evidence_confidence"),
+            "files": [
+                drop_empty(
+                    {
+                        "path": str(item.get("path") or ""),
+                        "start_line": item.get("start_line"),
+                        "end_line": item.get("end_line"),
+                        "content_sha256": str(item.get("content_sha256") or ""),
+                    }
+                )
+                for item in dict_tuple(value.get("files"))[-8:]
+            ],
+            "locator_result_count": value.get("locator_result_count"),
         }
     )
 
@@ -1162,7 +1448,7 @@ def _cursor_file_state_projection(items: list[dict[str, Any]] | tuple[dict[str, 
     for item in items:
         if not isinstance(item, dict) or _low_value_file_state_cursor_item(item):
             continue
-        result.append(dict(item))
+        result.append(_file_state_cursor_item_projection(item))
     return result[-5:]
 
 
@@ -1178,6 +1464,123 @@ def _low_value_file_state_cursor_item(item: dict[str, Any]) -> bool:
             return False
     status = str(item.get("status") or "").strip().lower()
     return status in {"", "missing", "absent", "not_found", "ok"}
+
+
+def _file_state_cursor_item_projection(item: dict[str, Any]) -> dict[str, Any]:
+    coverage = dict(item.get("coverage") or {})
+    ranges = [
+        _file_state_cursor_read_window(segment)
+        for segment in dict_tuple(item.get("read_ranges"))
+        if segment.get("start_line") not in (None, "") and segment.get("end_line") not in (None, "")
+    ]
+    return drop_empty(
+        {
+            "path": _projection_path(item) or str(item.get("path") or ""),
+            "status": str(item.get("status") or ""),
+            "coverage": _file_state_coverage_summary(coverage),
+            "total_lines": item.get("total_lines"),
+            "content_sha256": str(item.get("content_sha256") or ""),
+            "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
+            "last_observation_ref": str(item.get("last_observation_ref") or ""),
+            "next_suggested_read": _read_request_ref(dict(item.get("next_suggested_read") or {})),
+            "read_window_refs": ranges[-4:],
+            "evidence_refs": _dedupe_strings(
+                str(ref)
+                for ref in list(item.get("evidence_refs") or [])
+                if str(ref or "").strip()
+            )[-4:],
+        }
+    )
+
+
+def _file_state_cursor_read_window(segment: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "start_line": segment.get("start_line"),
+            "end_line": segment.get("end_line"),
+            "observation_ref": str(segment.get("observation_ref") or ""),
+            "reusable_result_ref": str(segment.get("reusable_result_ref") or ""),
+            "exact_artifact_ref": str(segment.get("exact_artifact_ref") or ""),
+            "artifact_ref_status": str(segment.get("artifact_ref_status") or ""),
+            "content_sha256": str(segment.get("content_sha256") or ""),
+            "text_sha256": str(segment.get("text_sha256") or ""),
+            "returned_exact": segment.get("returned_exact") if isinstance(segment.get("returned_exact"), bool) else None,
+            "stale": segment.get("stale") if isinstance(segment.get("stale"), bool) else None,
+        }
+    )
+
+
+def _thin_coverage_projection(coverage: dict[str, Any]) -> dict[str, Any]:
+    if not coverage:
+        return {}
+    covered_ranges = [
+        dict(item)
+        for item in list(coverage.get("covered_ranges") or coverage.get("merged_ranges") or [])
+        if isinstance(item, dict)
+    ]
+    missing_ranges = [
+        dict(item)
+        for item in list(coverage.get("missing_ranges") or [])
+        if isinstance(item, dict)
+    ]
+    return drop_empty(
+        {
+            "complete": coverage.get("complete") if isinstance(coverage.get("complete"), bool) else None,
+            "start_line": coverage.get("start_line"),
+            "end_line": coverage.get("end_line"),
+            "total_lines": coverage.get("total_lines"),
+            "covered_lines": coverage.get("covered_lines"),
+            "covered_ranges": [_range_ref(item) for item in covered_ranges[-3:]],
+            "missing_ranges": [_range_ref(item) for item in missing_ranges[:3]],
+            "covered_range_count": _safe_int(coverage.get("range_count")) or len(covered_ranges),
+            "missing_range_count": len(missing_ranges),
+        }
+    )
+
+
+def _file_state_coverage_summary(coverage: dict[str, Any]) -> dict[str, Any]:
+    if not coverage:
+        return {}
+    return drop_empty(
+        {
+            "complete": coverage.get("complete") if isinstance(coverage.get("complete"), bool) else None,
+            "total_lines": coverage.get("total_lines"),
+            "covered_lines": coverage.get("covered_lines"),
+            "covered_range_count": _safe_int(coverage.get("range_count"))
+            or len(list(coverage.get("covered_ranges") or coverage.get("merged_ranges") or [])),
+            "missing_range_count": len(list(coverage.get("missing_ranges") or [])),
+        }
+    )
+
+
+def _range_ref(value: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "start_line": value.get("start_line"),
+            "end_line": value.get("end_line"),
+            "line_count": value.get("line_count"),
+        }
+    )
+
+
+def _read_request_ref(value: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "path": _projection_path(value),
+            "start_line": value.get("start_line"),
+            "line_count": value.get("line_count"),
+            "reason": compact_text(value.get("reason") or "", limit=120),
+        }
+    )
+
+
+def _dedupe_strings(values: Any) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if text and text not in result:
+            result.append(text)
+    return result
 
 
 def _task_run_state_projection(task_run_state: dict[str, Any]) -> dict[str, Any]:
@@ -1354,6 +1757,9 @@ def _file_state_read_range_projection(segment: dict[str, Any]) -> dict[str, Any]
         payload["artifact_ref_status"] = artifact_ref_status
     if isinstance(segment.get("visible_exact"), bool):
         payload["returned_exact"] = segment.get("visible_exact")
+    text_sha256 = str(segment.get("text_sha256") or "")
+    if text_sha256:
+        payload["text_sha256"] = text_sha256
     source = str(segment.get("source") or "")
     if source:
         payload["source"] = source
@@ -1376,11 +1782,10 @@ def _file_evidence_decisions_projection(file_state: list[dict[str, Any]]) -> dic
         exact_ranges = [segment for segment in active_ranges if _segment_exact_available(segment)]
         stale_ranges = [segment for segment in ranges if bool(segment.get("stale") is True) or status == "stale"]
         artifact_windows = [
-            _inject_read_artifact_window_decision(path=path, segment=segment)
+            _exact_artifact_window_decision(path=path, segment=segment)
             for segment in exact_ranges
             if _segment_has_exact_artifact(segment)
         ]
-        injection_required_windows = [window for window in artifact_windows if window]
         missing_windows = _read_missing_window_decisions(item, active_ranges=exact_ranges)
         stale_read_windows = [_read_after_stale_window_decision(path=path, segment=segment) for segment in stale_ranges]
         projected = drop_empty(
@@ -1388,12 +1793,11 @@ def _file_evidence_decisions_projection(file_state: list[dict[str, Any]]) -> dic
                 "path": path,
                 "status": str(item.get("status") or ""),
                 "content_sha256": str(item.get("content_sha256") or ""),
-                "coverage": dict(item.get("coverage") or {}),
-                "exact_coverage": dict(item.get("exact_coverage") or {}),
+                "coverage": _thin_coverage_projection(dict(item.get("coverage") or {})),
+                "exact_coverage": _thin_coverage_projection(dict(item.get("exact_coverage") or {})),
                 "visible_exact_windows": [],
-                "artifact_available_windows": [window for window in artifact_windows if window][-8:],
-                "artifact_injection_required_windows": injection_required_windows[-8:],
-                "inject_read_artifact_windows": injection_required_windows[-8:],
+                "artifact_available_windows": [window for window in artifact_windows if window][-6:],
+                "read_required_windows": [window for window in missing_windows if window][-4:],
                 "read_missing_windows": [window for window in missing_windows if window][-4:],
                 "read_after_stale_windows": [window for window in stale_read_windows if window][-6:],
                 "policy_ref": "file_evidence_policy_stable.read_window_admission",
@@ -1411,17 +1815,17 @@ def _file_evidence_decisions_projection(file_state: list[dict[str, Any]]) -> dic
     )
 
 
-def _inject_read_artifact_window_decision(*, path: str, segment: dict[str, Any]) -> dict[str, Any]:
+def _exact_artifact_window_decision(*, path: str, segment: dict[str, Any]) -> dict[str, Any]:
     artifact_ref = str(segment.get("exact_artifact_ref") or segment.get("reusable_result_ref") or "").strip()
     return drop_empty(
         {
-            "decision": "inject_read_artifact",
+            "decision": "exact_read_artifact_available",
             "path": path,
             "start_line": segment.get("start_line"),
             "end_line": segment.get("end_line"),
             "observation_ref": str(segment.get("observation_ref") or ""),
             "exact_artifact_ref": artifact_ref,
-            "decision_code": "inject_exact_read_observation_artifact",
+            "decision_code": "historical_exact_content_ref_available",
         }
     )
 
@@ -1571,30 +1975,35 @@ def _read_resource_state_projection(
             "authority_boundary": "resource_state_only",
             "status": "available",
             "path": path,
-            "files": [
-                drop_empty(
-                    {
-                        "path": str(item.get("path") or ""),
-                        "status": str(item.get("status") or ""),
-                        "coverage": dict(item.get("coverage") or {}),
-                        "exact_coverage": dict(item.get("exact_coverage") or {}),
-                        "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
-                        "content_sha256": str(item.get("content_sha256") or ""),
-                        "last_observation_ref": str(item.get("last_observation_ref") or ""),
-                        "next_suggested_read": dict(item.get("next_suggested_read") or {}),
-                    }
-                )
-                for item in active_files[-8:]
-            ],
+            "files": [_read_resource_file_ref(item) for item in active_files[-6:]],
+            "active_file_count": len(active_files),
             "available_range_count": len(active_ranges),
             "available_evidence_refs": _read_resource_evidence_refs(active_files),
-            "coverage": dict(latest.get("coverage") or {}),
-            "exact_coverage": dict(latest.get("exact_coverage") or {}),
+            "coverage": _thin_coverage_projection(dict(latest.get("coverage") or {})),
+            "exact_coverage": _thin_coverage_projection(dict(latest.get("exact_coverage") or {})),
             "has_more": latest.get("has_more") if isinstance(latest.get("has_more"), bool) else None,
             "content_sha256": str(latest.get("content_sha256") or ""),
             "file_evidence_decision_ref": "file_evidence_decisions",
             "state_code": "current_read_resource_available",
             "authority": "harness.runtime.dynamic_context.read_resource_state",
+        }
+    )
+
+
+def _read_resource_file_ref(item: dict[str, Any]) -> dict[str, Any]:
+    ranges = _current_read_ranges(item)
+    return drop_empty(
+        {
+            "path": str(item.get("path") or ""),
+            "status": str(item.get("status") or ""),
+            "coverage": _thin_coverage_projection(dict(item.get("coverage") or {})),
+            "exact_coverage": _thin_coverage_projection(dict(item.get("exact_coverage") or {})),
+            "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
+            "content_sha256": str(item.get("content_sha256") or ""),
+            "last_observation_ref": str(item.get("last_observation_ref") or ""),
+            "latest_read_window_ref": _file_state_cursor_read_window(ranges[-1]) if ranges else {},
+            "read_window_count": len(ranges),
+            "next_suggested_read": _read_request_ref(dict(item.get("next_suggested_read") or {})),
         }
     )
 

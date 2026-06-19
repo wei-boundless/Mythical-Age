@@ -27,6 +27,7 @@ class Diagnosis:
     prefix_groups: tuple[dict[str, Any], ...] = ()
     unstable_stable_segments: tuple[dict[str, Any], ...] = ()
     volatile_stable_segments: tuple[dict[str, Any], ...] = ()
+    top_volatile_segments: tuple[dict[str, Any], ...] = ()
     recent_requests: tuple[dict[str, Any], ...] = ()
     stability_reports: tuple[dict[str, Any], ...] = ()
 
@@ -37,6 +38,7 @@ class Diagnosis:
             "prefix_groups": list(self.prefix_groups),
             "unstable_stable_segments": list(self.unstable_stable_segments),
             "volatile_stable_segments": list(self.volatile_stable_segments),
+            "top_volatile_segments": list(self.top_volatile_segments),
             "recent_requests": list(self.recent_requests),
             "stability_reports": list(self.stability_reports),
         }
@@ -96,11 +98,11 @@ def diagnose(
     ledger_tail_mb: int = DEFAULT_LEDGER_TAIL_MB,
 ) -> Diagnosis:
     tail_bytes = _ledger_tail_bytes(ledger_tail_mb)
-    token_usage_rows = _read_jsonl(ledger_dir / "token_usage.jsonl", tail_bytes=tail_bytes)
-    cache_record_rows = _read_jsonl(ledger_dir / "prompt_cache.jsonl", tail_bytes=tail_bytes)
-    segment_map_rows = _read_jsonl(ledger_dir / "segment_maps.jsonl", tail_bytes=tail_bytes)
-    stability_record_rows = _read_jsonl(ledger_dir / "prompt_stability.jsonl", tail_bytes=tail_bytes)
-    cache_break_rows = _read_jsonl(ledger_dir / "prompt_cache_breaks.jsonl", tail_bytes=tail_bytes)
+    token_usage_rows = _read_ledger_jsonl(ledger_dir, "token_usage.jsonl", tail_bytes=tail_bytes)
+    cache_record_rows = _read_ledger_jsonl(ledger_dir, "prompt_cache.jsonl", tail_bytes=tail_bytes)
+    segment_map_rows = _read_ledger_jsonl(ledger_dir, "segment_maps.jsonl", tail_bytes=tail_bytes)
+    stability_record_rows = _read_ledger_jsonl(ledger_dir, "prompt_stability.jsonl", tail_bytes=tail_bytes)
+    cache_break_rows = _read_ledger_jsonl(ledger_dir, "prompt_cache_breaks.jsonl", tail_bytes=tail_bytes)
     created_at_floor = _tail_window_created_at_floor(
         ledger_dir=ledger_dir,
         tail_bytes=tail_bytes,
@@ -216,6 +218,7 @@ def diagnose(
     )
     volatile_stable_segments = _find_volatile_stable_segments(segment_maps, limit=limit)
     unstable_stable_segments = _find_unstable_stable_segments(segment_maps, limit=limit)
+    top_volatile_segments = _top_volatile_segments(segment_maps, limit=limit)
     stability_by_request = {str(row.get("request_id") or ""): row for row in stability_records}
     cache_break_by_request = {str(row.get("request_id") or ""): row for row in cache_breaks}
     recent_requests = _recent_requests(
@@ -233,6 +236,7 @@ def diagnose(
         prefix_groups=prefix_groups,
         volatile_stable_segments=volatile_stable_segments,
         unstable_stable_segments=unstable_stable_segments,
+        top_volatile_segments=top_volatile_segments,
         hit_rate=hit_rate,
         policy_counts=policy_counts,
         unplanned_breaks=unplanned_breaks,
@@ -326,6 +330,7 @@ def diagnose(
         prefix_groups=tuple(prefix_groups),
         unstable_stable_segments=tuple(unstable_stable_segments),
         volatile_stable_segments=tuple(volatile_stable_segments),
+        top_volatile_segments=tuple(top_volatile_segments),
         recent_requests=tuple(recent_requests),
         stability_reports=tuple(stability_reports),
     )
@@ -345,14 +350,18 @@ def _ledger_read_window_report(*, ledger_dir: Path, ledger_tail_mb: int, created
     tail_bytes = _ledger_tail_bytes(ledger_tail_mb)
     files: dict[str, dict[str, Any]] = {}
     for name in LEDGER_JSONL_FILES:
-        path = ledger_dir / name
-        size = path.stat().st_size if path.exists() else 0
-        window_start = max(0, size - tail_bytes) if tail_bytes and size > tail_bytes else 0
+        paths = _ledger_jsonl_paths(ledger_dir, name)
+        sizes = [path.stat().st_size for path in paths if path.exists()]
+        size = sum(sizes)
+        truncated_count = sum(1 for item_size in sizes if tail_bytes and item_size > tail_bytes)
         files[name] = {
+            "file_count": len(paths),
             "file_size_bytes": size,
-            "read_mode": "tail" if window_start else "full",
-            "tail_bytes": tail_bytes if window_start else 0,
-            "window_start_bytes": window_start,
+            "read_mode": "tail" if truncated_count else "full",
+            "tail_bytes_per_file": tail_bytes if truncated_count else 0,
+            "truncated_file_count": truncated_count,
+            "root_file": str(ledger_dir / name),
+            "hot_partition_file_count": max(0, len(paths) - (1 if (ledger_dir / name).exists() else 0)),
         }
     return {
         "mode": "full" if tail_bytes <= 0 else "tail",
@@ -373,8 +382,8 @@ def _tail_window_created_at_floor(
         return 0.0
     floors: list[float] = []
     for name, rows in rows_by_name.items():
-        path = ledger_dir / name
-        if not path.exists() or path.stat().st_size <= tail_bytes:
+        paths = _ledger_jsonl_paths(ledger_dir, name)
+        if not any(path.exists() and path.stat().st_size > tail_bytes for path in paths):
             continue
         timestamps = [_float(row.get("created_at")) for row in rows if _float(row.get("created_at")) > 0]
         if timestamps:
@@ -409,6 +418,24 @@ def _read_jsonl(path: Path, *, tail_bytes: int = 0) -> list[dict[str, Any]]:
             if isinstance(payload, dict):
                 rows.append(payload)
     return rows
+
+
+def _read_ledger_jsonl(ledger_dir: Path, name: str, *, tail_bytes: int = 0) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for path in _ledger_jsonl_paths(ledger_dir, name):
+        rows.extend(_read_jsonl(path, tail_bytes=tail_bytes))
+    return rows
+
+
+def _ledger_jsonl_paths(ledger_dir: Path, name: str) -> list[Path]:
+    root_path = ledger_dir / name
+    paths: list[Path] = []
+    if root_path.exists():
+        paths.append(root_path)
+    hot_root = ledger_dir / "hot" / "by_time"
+    if hot_root.exists():
+        paths.extend(path for path in sorted(hot_root.glob(f"*/*/{name}")) if path.is_file())
+    return paths
 
 
 def _dedupe_latest(rows: list[dict[str, Any]], *, key_fields: tuple[str, ...]) -> list[dict[str, Any]]:
@@ -669,6 +696,37 @@ def _find_unstable_stable_segments(segment_maps: list[dict[str, Any]], *, limit:
     )[:limit]
 
 
+def _top_volatile_segments(segment_maps: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for segment_map in segment_maps:
+        request_id = str(segment_map.get("request_id") or "")
+        packet_ref = str(dict(segment_map.get("metadata") or {}).get("packet_ref") or "")
+        for segment in list(segment_map.get("segments") or []):
+            if not isinstance(segment, dict):
+                continue
+            if str(segment.get("cache_role") or "") in STABLE_CACHE_ROLES:
+                continue
+            predicted_tokens = _int(segment.get("predicted_tokens"))
+            if predicted_tokens <= 0:
+                continue
+            metadata = dict(segment.get("metadata") or {})
+            rows.append(
+                {
+                    "request_id": request_id,
+                    "packet_ref": packet_ref,
+                    "kind": str(segment.get("kind") or ""),
+                    "ordinal": _int(segment.get("ordinal")),
+                    "cache_role": str(segment.get("cache_role") or ""),
+                    "predicted_tokens": predicted_tokens,
+                    "content_hash": str(segment.get("content_hash") or ""),
+                    "source": str(segment.get("source") or segment.get("source_ref") or ""),
+                    "projection_strategy": str(metadata.get("projection_strategy") or ""),
+                    "content_source": str(metadata.get("content_source") or ""),
+                }
+            )
+    return sorted(rows, key=lambda item: int(item.get("predicted_tokens") or 0), reverse=True)[:limit]
+
+
 def _recent_requests(
     *,
     cache_records: list[dict[str, Any]],
@@ -780,6 +838,7 @@ def _build_issues(
     prefix_groups: list[dict[str, Any]],
     volatile_stable_segments: list[dict[str, Any]],
     unstable_stable_segments: list[dict[str, Any]],
+    top_volatile_segments: list[dict[str, Any]],
     hit_rate: float,
     policy_counts: Counter,
     unplanned_breaks: list[dict[str, Any]],
@@ -859,6 +918,22 @@ def _build_issues(
                 "code": "stable_segment_content_changes",
                 "message": "同类 stable segment 在多次请求中 content_hash 变化。若不是任务合同真实变化，就说明 stable 装载里混入了动态字段。",
                 "segments": len(unstable_stable_segments),
+            }
+        )
+    heavy_volatile = [
+        item
+        for item in top_volatile_segments
+        if int(item.get("predicted_tokens") or 0) >= 4000
+    ]
+    if heavy_volatile:
+        issues.append(
+            {
+                "severity": "medium",
+                "code": "heavy_volatile_suffix_segments",
+                "message": "存在大体积 volatile 段。若这些段不是本轮新增事实，应拆成 append-only replay、summary replacement 或 evidence refs，否则会持续拉低 prompt cache 命中率。",
+                "segments": len(heavy_volatile),
+                "top_kind": str(heavy_volatile[0].get("kind") or ""),
+                "top_predicted_tokens": int(heavy_volatile[0].get("predicted_tokens") or 0),
             }
         )
     if provider_usage and hit_rate < 0.2 and len(provider_usage) < 3 and not prefix_groups:
@@ -1109,6 +1184,11 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
         "stable_segments_with_changing_hash",
         payload["unstable_stable_segments"],
         fields=("stability_scope", "invocation_kind", "kind", "request_count", "distinct_content_hashes", "avg_predicted_tokens", "source"),
+    )
+    _print_section(
+        "top_volatile_segments",
+        payload["top_volatile_segments"],
+        fields=("kind", "ordinal", "predicted_tokens", "cache_role", "projection_strategy", "content_source", "request_id"),
     )
     _print_section(
         "recent_requests",

@@ -27,24 +27,19 @@ def extract_provider_usage(
         "prompt_token_count",
         "input_token_count",
     )
-    deepseek_cache_hit_tokens = _first_int(usage, "prompt_cache_hit_tokens")
-    provider_cache_miss_tokens = _first_int(
+    provider_cache_hit_tokens = _first_int(usage, "prompt_cache_hit_tokens")
+    explicit_cache_miss_tokens = _first_int(
         usage,
         "prompt_cache_miss_tokens",
         "cache_miss_input_tokens",
         "cache_miss_tokens",
     )
-    provider_hit_miss_available = any(
-        key in usage
-        for key in (
-            "prompt_cache_hit_tokens",
-            "prompt_cache_miss_tokens",
-            "cache_miss_input_tokens",
-            "cache_miss_tokens",
-        )
+    explicit_cache_miss_available = _any_key(
+        usage,
+        "prompt_cache_miss_tokens",
+        "cache_miss_input_tokens",
+        "cache_miss_tokens",
     )
-    if prompt_tokens <= 0 and (deepseek_cache_hit_tokens > 0 or provider_cache_miss_tokens > 0):
-        prompt_tokens = deepseek_cache_hit_tokens + provider_cache_miss_tokens
     completion_tokens = _first_int(
         usage,
         "completion_tokens",
@@ -68,7 +63,7 @@ def extract_provider_usage(
         ("input_tokens_details", "cached_tokens"),
         ("cache", "read_tokens"),
     )
-    cached_tokens = max(cached_tokens, deepseek_cache_hit_tokens)
+    cached_tokens = max(cached_tokens, provider_cache_hit_tokens)
     cache_creation_tokens = _nested_first_int(
         usage,
         ("input_token_details", "cache_creation"),
@@ -81,24 +76,32 @@ def extract_provider_usage(
     )
     cache_read_tokens = _first_int(usage, "cache_read_input_tokens", "cache_read_tokens")
     cache_read_tokens = max(cache_read_tokens, cached_tokens)
+    if prompt_tokens <= 0 and (cached_tokens > 0 or explicit_cache_miss_tokens > 0):
+        prompt_tokens = cached_tokens + explicit_cache_miss_tokens
     total_tokens = _first_int(usage, "total_tokens", "total_token_count")
     if total_tokens <= 0:
         total_tokens = prompt_tokens + completion_tokens + reasoning_tokens
     if prompt_tokens <= 0 and completion_tokens <= 0 and total_tokens <= 0 and cached_tokens <= 0:
         return None
     prompt_cache_read_ratio = round(cached_tokens / prompt_tokens, 4) if prompt_tokens > 0 else 0.0
-    provider_cache_hit_rate = (
-        round(cached_tokens / (cached_tokens + provider_cache_miss_tokens), 4)
-        if provider_hit_miss_available and (cached_tokens + provider_cache_miss_tokens) > 0
-        else prompt_cache_read_ratio
-    )
-    provider_cache_hit_rate_source = (
-        "provider_hit_miss_tokens"
-        if provider_hit_miss_available
-        else "prompt_tokens"
-        if prompt_tokens > 0
-        else ""
-    )
+    if explicit_cache_miss_available:
+        cache_miss_tokens = explicit_cache_miss_tokens
+        cache_miss_tokens_source = "provider_explicit"
+    elif prompt_tokens > 0:
+        cache_miss_tokens = max(0, prompt_tokens - cached_tokens)
+        cache_miss_tokens_source = "prompt_tokens_minus_cached_tokens"
+    else:
+        cache_miss_tokens = 0
+        cache_miss_tokens_source = "unavailable"
+    if explicit_cache_miss_available and (cached_tokens + explicit_cache_miss_tokens) > 0:
+        provider_cache_hit_rate = round(cached_tokens / (cached_tokens + explicit_cache_miss_tokens), 4)
+        provider_cache_hit_rate_source = "provider_hit_miss_tokens"
+    elif prompt_tokens > 0:
+        provider_cache_hit_rate = prompt_cache_read_ratio
+        provider_cache_hit_rate_source = "prompt_tokens"
+    else:
+        provider_cache_hit_rate = 0.0
+        provider_cache_hit_rate_source = ""
     timestamp = time.time() if created_at is None else float(created_at or 0.0)
     return ModelTokenUsageRecord(
         usage_id=f"tokuse:{request_id}:provider_usage",
@@ -115,13 +118,18 @@ def extract_provider_usage(
         cached_tokens=cached_tokens,
         cache_creation_tokens=cache_creation_tokens,
         cache_read_tokens=cache_read_tokens,
-        cache_miss_tokens=provider_cache_miss_tokens,
+        cache_miss_tokens=cache_miss_tokens,
         total_tokens=total_tokens,
         created_at=timestamp,
         diagnostics={
             "raw_usage_keys": sorted(str(key) for key in usage.keys()),
             "provider_cache_hit_tokens": cached_tokens,
-            "provider_cache_miss_tokens": provider_cache_miss_tokens,
+            "provider_reported_cache_hit_tokens": provider_cache_hit_tokens,
+            "provider_reported_cache_miss_tokens": explicit_cache_miss_tokens if explicit_cache_miss_available else 0,
+            "provider_cache_miss_tokens": cache_miss_tokens,
+            "provider_cache_miss_tokens_source": cache_miss_tokens_source,
+            "provider_cache_miss_tokens_derived": cache_miss_tokens if cache_miss_tokens_source == "prompt_tokens_minus_cached_tokens" else 0,
+            "provider_cache_hit_miss_tokens_available": explicit_cache_miss_available,
             "provider_cache_hit_rate": provider_cache_hit_rate,
             "provider_cache_hit_rate_source": provider_cache_hit_rate_source,
             "prompt_cache_read_ratio": prompt_cache_read_ratio,
@@ -187,6 +195,10 @@ def _first_int(payload: dict[str, Any], *keys: str) -> int:
         if value > 0:
             return value
     return 0
+
+
+def _any_key(payload: dict[str, Any], *keys: str) -> bool:
+    return any(key in payload for key in keys)
 
 
 def _nested_first_int(payload: dict[str, Any], *paths: tuple[str, str]) -> int:

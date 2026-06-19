@@ -80,8 +80,13 @@ def test_single_agent_turn_projection_separates_assistant_text_from_control_acti
     events = asyncio.run(_collect())
     assembly = dict(next(event for event in events if event.get("type") == "runtime_assembly_compiled").get("runtime_assembly") or {})
     start = dict(next(event for event in events if event.get("type") == "single_agent_turn_started"))
+    stable_boundary_message = next(
+        message
+        for message in model.last_messages
+        if str(message.get("content") or "").startswith("Single agent turn stable boundary\n")
+    )
     stable_payload = _packet_payload_after_title(
-        str(model.last_messages[1].get("content") or ""),
+        str(stable_boundary_message.get("content") or ""),
         "Single agent turn stable boundary",
     )
     effective_capabilities = dict(stable_payload.get("control_capabilities") or {})
@@ -121,10 +126,9 @@ def test_single_agent_turn_projection_separates_assistant_text_from_control_acti
     assert native_feedback_contract.get("assistant_content_preamble_is_public_feedback") is True
     assert native_feedback_contract.get("projection_target") == "assistant_public_feedback"
     assert native_feedback_contract.get("missing_preamble_policy") == "record_contract_gap_without_synthesizing_body"
-    assert "直接用普通助手正文回答" in model_input
-    assert "控制动作必须输出" in model_input
-    assert "provider-native tool call" in model_input
-    assert "preamble 作为 public_progress_note" in model_input
+    assert "runtime_prompt.system_call_boundary" in model_input
+    assert "runtime_prompt.control_action_json" in model_input
+    assert "runtime_prompt.native_tool_preamble" in model_input
     assert "single_action_per_turn" not in json.dumps(output_contract, ensure_ascii=False)
     assert getattr(model.seen_tool_call_options[0], "parallel_tool_calls", None) is True
 
@@ -255,8 +259,10 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     evidence_marker = "Task current exact read evidence\n"
     evidence_content = next(str(item.get("content") or "") for item in second_turn_messages if evidence_marker in str(item.get("content") or ""))
     evidence_payload = json.loads(evidence_content[evidence_content.index(evidence_marker) + len(evidence_marker):])
-    assert evidence_payload["read_evidence_injections"][0]["path"] == "requirements.txt"
-    assert evidence_payload["read_evidence_injections"][0]["visible_exact_in_packet"] is True
+    assert evidence_payload["visible_exact_in_packet"] is False
+    assert "read_evidence_injections" not in evidence_payload
+    assert evidence_payload["read_evidence_refs"][0]["path"] == "requirements.txt"
+    assert evidence_payload["projection_policy"]["rehydration"] == "read_again_or_artifact_lookup_when_exact_text_is_needed"
 
 def test_single_agent_turn_stream_policy_does_not_emit_json_action_delta(tmp_path: Path) -> None:
     action = json.dumps(

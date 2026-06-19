@@ -288,8 +288,9 @@ def test_duplicate_read_only_guard_stops_empty_identical_read_dispatch_after_con
             "source": "tool:read_file",
             "payload": {
                 "tool_name": "read_file",
-                "tool_args": {"path": "backend/harness/loop/task_executor.py", "start_line": 1, "line_count": 240},
+                "tool_args": {"path": "backend/harness/loop/task_executor.py", "start_line": 1, "line_count": 500},
                 "result_envelope": {"tool_name": "read_file", "status": "ok"},
+                "runtime_fingerprint": {"tool_registry_hash": "tools-v1"},
             },
         }
         for index in range(5)

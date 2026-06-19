@@ -1312,11 +1312,8 @@ class ModelRuntime:
                 provider_returned_cache_hit_rate = (
                     round(cached_tokens / (cached_tokens + cache_miss_tokens), 4)
                     if (cached_tokens + cache_miss_tokens) > 0
-                    and (
-                        cache_miss_tokens > 0
-                        or str(dict(provider_usage.diagnostics or {}).get("provider_cache_hit_rate_source") or "")
-                        == "provider_hit_miss_tokens"
-                    )
+                    and str(dict(provider_usage.diagnostics or {}).get("provider_cache_hit_rate_source") or "")
+                    == "provider_hit_miss_tokens"
                     else None
                 )
                 cache_efficiency = (
@@ -2122,4 +2119,3 @@ def _exception_chain_text(exc: Exception) -> str:
         parts.append(f"{current.__class__.__name__}: {current}")
         current = current.__cause__ or current.__context__
     return " | ".join(parts) or exc.__class__.__name__
-

@@ -191,7 +191,7 @@ def _task_files(value: Any, *, file_evidence_decisions: dict[str, dict[str, Any]
         path = _clean_path(item.get("path"))
         if not path:
             continue
-        read_windows = _read_windows(item.get("read_ranges"))
+        read_windows = _read_windows(item.get("read_ranges") or item.get("read_window_refs"))
         evidence_decision = dict(decisions_by_path.get(path) or {})
         projected = _drop_empty_payload(
             {
@@ -233,8 +233,6 @@ def _bound_file_evidence_decision(value: dict[str, Any]) -> dict[str, Any]:
         {
             "visible_exact_windows": _bounded_decision_windows(value.get("visible_exact_windows")),
             "artifact_available_windows": _bounded_decision_windows(value.get("artifact_available_windows")),
-            "artifact_injection_required_windows": _bounded_decision_windows(value.get("artifact_injection_required_windows")),
-            "inject_read_artifact_windows": _bounded_decision_windows(value.get("inject_read_artifact_windows")),
             "read_missing_windows": _bounded_decision_windows(value.get("read_missing_windows")),
             "read_after_stale_windows": _bounded_decision_windows(value.get("read_after_stale_windows")),
             "read_required_windows": _bounded_decision_windows(value.get("read_required_windows")),
@@ -252,6 +250,7 @@ def _bounded_decision_windows(value: Any) -> list[dict[str, Any]]:
             _drop_empty_payload(
                 {
                     "decision": str(item.get("decision") or ""),
+                    "decision_code": str(item.get("decision_code") or ""),
                     "path": _clean_path(item.get("path")),
                     "start_line": _int_or_none(item.get("start_line")),
                     "end_line": _int_or_none(item.get("end_line")),

@@ -11,6 +11,7 @@ _LOAD_PHASE_ORDER = {
     "stable_prefix": 100,
     "active_skills": 200,
     "history_replay": 300,
+    "runtime_cursor_prefix": 350,
     "append_only_task_evidence": 400,
     "current_runtime_cursor": 500,
     "file_evidence_cursor": 600,

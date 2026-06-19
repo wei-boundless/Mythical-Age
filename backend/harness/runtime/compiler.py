@@ -44,16 +44,12 @@ from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_promp
 from runtime.memory.file_evidence_scope import session_file_evidence_scope, task_run_file_evidence_scope
 from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime_objects.tool_result_storage import DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
-from runtime_objects.read_observation_artifacts import ReadObservationArtifactStore
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
-from .context_budget_policy import (
-    DEFAULT_READ_EVIDENCE_PER_WINDOW_CHARS,
-    DEFAULT_READ_EVIDENCE_TOTAL_EXACT_CHARS,
-    build_model_aware_context_budget_policy,
-)
+from .context_budget_policy import build_model_aware_context_budget_policy
 from .artifact_scope import runtime_artifact_scope_from_environment
 from .dynamic_context import DynamicContextInput, DynamicContextManager, DynamicContextProjection, dynamic_context_storage_root
+from .dynamic_context.read_evidence_projector import build_read_evidence_projection_payload
 from .envelope import RuntimeEnvelope
 from .invocation_packet import RuntimeInvocationPacket
 from .action_schema_manifest import ActionSchemaManifest, build_action_schema_manifest
@@ -95,8 +91,8 @@ _PROVIDER_PROTOCOL_REHYDRATION_NOTE = (
     "Provider protocol replay evidence only. This preserves tool-call continuity; it is not a request to repeat the tool. "
     "Preview only. Do not rely on omitted content for exact claims, citations, line-level edits, "
     "or final factual judgments. For non-code omitted output, call read_persisted_tool_result first when exact content matters. "
-    "For read_file content, use file_evidence_decisions only when exact content is visible or backed by an injected read artifact; "
-    "otherwise read the current target window."
+    "For read_file content, rely on exact text only when it is visible in the current packet; "
+    "historical file evidence is represented by refs, hashes, and line ranges, so read the current target window when exact text matters."
 )
 
 
@@ -558,6 +554,7 @@ class RuntimeCompiler:
             file_evidence_scope=file_evidence_scope,
             packet_id=packet_id,
             budget_policy=projection_policy,
+            current_observations=(),
         )
         dynamic_context = self.dynamic_context_manager.project(
             DynamicContextInput(
@@ -768,9 +765,9 @@ class RuntimeCompiler:
                     compression_role="preserve",
                     metadata={
                         "authority_class": "read_evidence_injection",
-                        "projection_strategy": "exact_read_observation_artifact_injection",
-                        "content_source": "harness.runtime.compiler.read_evidence_injection",
-                        "volatility_reason": "exact file read evidence is packet-visible only and must not be inferred from persisted file_state",
+                        "projection_strategy": "current_exact_read_once_historical_refs",
+                        "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
+                        "volatility_reason": "current packet exact file read evidence is visible once; historical file evidence is represented by refs",
                         "cache_impact": "volatile_suffix_only",
                     },
                 )
@@ -1250,6 +1247,7 @@ class RuntimeCompiler:
             file_evidence_scope=task_run_file_evidence_scope(task_run_id, session_id=session_id),
             packet_id=packet_id,
             budget_policy=projection_policy,
+            current_observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
         )
         user_steering_payload = _user_steering_updates_payload(execution_state)
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
@@ -1540,9 +1538,9 @@ class RuntimeCompiler:
                     compression_role="preserve",
                     metadata={
                         "authority_class": "read_evidence_injection",
-                        "projection_strategy": "exact_read_observation_artifact_injection",
-                        "content_source": "harness.runtime.compiler.read_evidence_injection",
-                        "volatility_reason": "exact file read evidence is packet-visible only and must not be inferred from persisted file_state",
+                        "projection_strategy": "current_exact_read_once_historical_refs",
+                        "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
+                        "volatility_reason": "current packet exact file read evidence is visible once; historical file evidence is represented by refs",
                         "cache_impact": "volatile_suffix_only",
                     },
                 )
@@ -1925,6 +1923,7 @@ class RuntimeCompiler:
             file_evidence_scope=file_evidence_scope,
             packet_id=packet_id,
             budget_policy=projection_policy,
+            current_observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
         )
         dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or {})
         memory_context_payload = _memory_context_model_visible_payload(
@@ -2085,9 +2084,9 @@ class RuntimeCompiler:
                     compression_role="preserve",
                     metadata={
                         "authority_class": "read_evidence_injection",
-                        "projection_strategy": "exact_read_observation_artifact_injection",
-                        "content_source": "harness.runtime.compiler.read_evidence_injection",
-                        "volatility_reason": "exact file read evidence is packet-visible only and must not be inferred from persisted file_state",
+                        "projection_strategy": "current_exact_read_once_historical_refs",
+                        "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
+                        "volatility_reason": "current packet exact file read evidence is visible once; historical file evidence is represented by refs",
                         "cache_impact": "volatile_suffix_only",
                     },
                 )
@@ -4386,153 +4385,22 @@ def _read_evidence_injection_payload(
     file_evidence_scope: dict[str, Any],
     packet_id: str,
     budget_policy: dict[str, Any] | None = None,
+    current_observations: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
 ) -> dict[str, Any]:
     scope = dict(file_evidence_scope or {})
     if not scope:
         return {}
     storage_root = dynamic_context_storage_root(base_dir, dict(runtime_assembly or {})) or base_dir
-    try:
-        artifact_store = ReadObservationArtifactStore(storage_root)
-    except Exception:
-        return {}
-    budget_sources: list[dict[str, Any]] = []
-    for candidate in (
-        budget_policy,
-        dict(budget_policy or {}).get("context_budget_policy"),
-        dict(runtime_assembly or {}).get("read_evidence_policy"),
-        dict(runtime_assembly or {}).get("context_budget_policy"),
-    ):
-        if isinstance(candidate, dict):
-            budget_sources.append(dict(candidate))
-    budget_payload: dict[str, Any] = {}
-    for source in budget_sources:
-        budget_payload.update(source)
-    total_budget = _safe_int(budget_payload.get("read_evidence_total_exact_chars")) or DEFAULT_READ_EVIDENCE_TOTAL_EXACT_CHARS
-    per_window_budget = _safe_int(budget_payload.get("read_evidence_per_window_chars")) or DEFAULT_READ_EVIDENCE_PER_WINDOW_CHARS
-    injections: list[dict[str, Any]] = []
-    read_required: list[dict[str, Any]] = []
-    consumed_chars = 0
-    for item in list(file_state or []):
-        if not isinstance(item, dict):
-            continue
-        path = str(item.get("path") or "").strip()
-        if not path:
-            continue
-        ranges = [dict(segment) for segment in list(item.get("read_ranges") or []) if isinstance(segment, dict) and segment.get("stale") is not True]
-        if not ranges:
-            continue
-        for segment in ranges:
-            artifact_ref = str(segment.get("exact_artifact_ref") or segment.get("reusable_result_ref") or "").strip()
-            if not artifact_ref.startswith("read_observation:"):
-                continue
-            start_line = _safe_int(segment.get("start_line"))
-            end_line = _safe_int(segment.get("end_line"))
-            if start_line <= 0 or end_line < start_line:
-                continue
-            exact_available = str(segment.get("artifact_ref_status") or "").strip() in {"", "exact"}
-            if not exact_available:
-                continue
-            try:
-                payload = artifact_store.read_payload(artifact_ref)
-            except Exception as exc:
-                read_required.append(
-                    _drop_empty_payload(
-                        {
-                            "path": path,
-                            "start_line": start_line,
-                            "end_line": end_line,
-                            "artifact_ref": artifact_ref,
-                            "decision": "read_required",
-                            "reason": "artifact_missing_or_invalid",
-                            "error": str(exc),
-                        }
-                    )
-                )
-                continue
-            metadata = dict(payload.get("metadata") or {})
-            text = str(payload.get("text") or "")
-            if str(metadata.get("path") or "").replace("\\", "/").strip().strip("/") != path.replace("\\", "/").strip().strip("/"):
-                read_required.append(
-                    _drop_empty_payload(
-                        {
-                            "path": path,
-                            "start_line": start_line,
-                            "end_line": end_line,
-                            "artifact_ref": artifact_ref,
-                            "decision": "read_required",
-                            "reason": "artifact_path_mismatch",
-                        }
-                    )
-                )
-                continue
-            if _safe_int(metadata.get("start_line")) != start_line or _safe_int(metadata.get("end_line")) != end_line:
-                read_required.append(
-                    _drop_empty_payload(
-                        {
-                            "path": path,
-                            "start_line": start_line,
-                            "end_line": end_line,
-                            "artifact_ref": artifact_ref,
-                            "decision": "read_required",
-                            "reason": "artifact_range_mismatch",
-                        }
-                    )
-                )
-                continue
-            chars = len(text)
-            if chars > per_window_budget or consumed_chars + chars > total_budget:
-                read_required.append(
-                    _drop_empty_payload(
-                        {
-                            "path": path,
-                            "start_line": start_line,
-                            "end_line": end_line,
-                            "artifact_ref": artifact_ref,
-                            "decision": "read_required",
-                            "reason": "budget_exceeded",
-                            "required_line_count": max(1, end_line - start_line + 1),
-                        }
-                    )
-                )
-                continue
-            consumed_chars += chars
-            injections.append(
-                _drop_empty_payload(
-                    {
-                        "path": path,
-                        "start_line": start_line,
-                        "end_line": end_line,
-                        "artifact_ref": artifact_ref,
-                        "observation_ref": str(segment.get("observation_ref") or metadata.get("observation_ref") or ""),
-                        "content": text,
-                        "content_sha256": str(metadata.get("content_sha256") or segment.get("content_sha256") or ""),
-                        "text_sha256": str(metadata.get("text_sha256") or ""),
-                        "visible_exact_in_packet": True,
-                        "packet_id": packet_id,
-                        "authority": "harness.runtime.compiler.read_evidence_injection",
-                    }
-                )
-            )
-    if injections:
-        payload = {
-            "kind": "read_evidence_injection",
-            "authority": "harness.runtime.compiler.read_evidence_injection",
-            "packet_id": packet_id,
-            "read_evidence_injections": injections[-8:],
-            "visible_exact_in_packet": True,
-        }
-        if read_required:
-            payload["read_required_windows"] = read_required[-8:]
-        return payload
-    if read_required:
-        return {
-            "kind": "read_evidence_injection",
-            "authority": "harness.runtime.compiler.read_evidence_injection",
-            "packet_id": packet_id,
-            "visible_exact_in_packet": False,
-            "read_required_windows": read_required[-8:],
-        }
-    return {}
+    budget_payload = dict(runtime_assembly.get("read_evidence_policy") or {})
+    budget_payload.update(dict(runtime_assembly.get("context_budget_policy") or {}))
+    budget_payload.update(dict(budget_policy or {}))
+    return build_read_evidence_projection_payload(
+        storage_root=storage_root,
+        file_state=file_state,
+        packet_id=packet_id,
+        budget_policy=budget_payload,
+        current_observations=current_observations,
+    )
 
 
 def _prompt_pack_refs_for_invocation(profile_payload: dict[str, Any], *, invocation_kind: str) -> tuple[str, ...]:
@@ -5153,29 +5021,17 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
     native_tool_available = bool(service_surface.get("tool_call_transport_available") is True) and bool(
         visible_tool_count > 0
     )
-    allowed_text = "、".join(allowed_actions) if allowed_actions else "当前包声明的允许动作"
-    lines = [
-        "当前运行事实：",
-        f"你本轮可以选择：{allowed_text}。",
-        "如果你已经可以回答用户，且不需要工具或控制动作，直接用普通助手正文回答；不要把自然回复包进 JSON action。",
-    ]
+    allowed_text = "、".join(allowed_actions) if allowed_actions else "见 payload.allowed_action_types"
+    protocol_refs = ["output_contract", "action_schema_static", "runtime_prompt.system_call_boundary"]
     if control_actions:
-        lines.append(
-            "控制动作必须输出 authority 为 harness.loop.model_action_request 的 JSON action；"
-            "不要用 provider-native tool call 表达控制决定。"
-        )
+        protocol_refs.append("runtime_prompt.control_action_json")
     if native_tool_available:
-        lines.extend(
-            [
-                "普通工具可以使用 provider-native tool call，也可以按本轮 JSON action 合同提交 tool_call。",
-                "如果使用 provider-native tool call 且需要回应用户、解释阶段判断、处理工具失败或说明范围变化，"
-                "请在同一条 assistant content 中先写一句用户可见说明；系统会把这句 preamble 作为 public_progress_note 投影到正文。",
-                "低层连续读取、搜索、列目录可以不逐次解释；但用户追问、工具失败、范围变化、阶段结束或连续多批工具后继续执行时，必须给出公开判断。",
-            ]
-        )
-    lines.append(
-        "不要把工具名、协议字段、内部事件号或隐藏推理写给用户；系统不会替你生成“已收到”“正在处理”这类语义正文。"
-    )
+        protocol_refs.append("runtime_prompt.native_tool_preamble")
+    lines = [
+        "当前运行边界增量：",
+        f"本轮允许动作：{allowed_text}。",
+        "稳定协议见：" + ", ".join(protocol_refs) + "；本段只声明本轮边界，不重复协议全文。",
+    ]
     return "\n".join(lines).strip() + "\n"
 
 

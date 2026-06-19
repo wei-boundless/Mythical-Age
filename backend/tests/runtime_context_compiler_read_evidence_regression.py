@@ -20,7 +20,7 @@ def _payload_after_title(packet, title: str) -> dict[str, object]:
     raise AssertionError(f"missing model message title: {title}")
 
 
-def test_task_execution_compiler_injects_exact_read_observation_text(tmp_path: Path) -> None:
+def test_task_execution_compiler_injects_current_exact_read_observation_text_once(tmp_path: Path) -> None:
     runtime_root = tmp_path / "runtime_state"
     task_run_id = "taskrun:read-evidence-injection"
     session_id = "session:read-evidence-injection"
@@ -66,7 +66,23 @@ def test_task_execution_compiler_injects_exact_read_observation_text(tmp_path: P
         session_id=session_id,
         task_run={"task_run_id": task_run_id, "diagnostics": {"executor_status": "running"}},
         contract={"task_run_goal": "edit notes", "completion_criteria": ["edit notes"]},
-        observations=[],
+        observations=[
+            {
+                "observation_id": "obs:read",
+                "tool_name": "read_file",
+                "status": "ok",
+                "structured_payload": {
+                    "tool_result": {
+                        "path": "notes.txt",
+                        "start_line": 1,
+                        "end_line": 2,
+                        "exact_artifact_ref": artifact["artifact_ref"],
+                        "artifact_ref_status": "exact",
+                        "visible_exact": True,
+                    }
+                },
+            }
+        ],
         execution_state={
             "system_projection": {
                 "runtime_status": "running",
@@ -91,9 +107,10 @@ def test_task_execution_compiler_injects_exact_read_observation_text(tmp_path: P
     assert injection["content"] == text
     assert injection["artifact_ref"] == artifact["artifact_ref"]
     assert injection["visible_exact_in_packet"] is True
+    assert payload["read_evidence_refs"][0]["artifact_ref"] == artifact["artifact_ref"]
 
 
-def test_single_agent_turn_compiler_inherits_session_read_evidence_with_interrupted_turn_context(tmp_path: Path) -> None:
+def test_single_agent_turn_compiler_inherits_session_read_evidence_as_ref_only(tmp_path: Path) -> None:
     runtime_root = tmp_path / "runtime_state"
     session_id = "session:single-turn-read-evidence"
     scope = session_file_evidence_scope(session_id)
@@ -165,13 +182,16 @@ def test_single_agent_turn_compiler_inherits_session_read_evidence_with_interrup
     )
 
     evidence_payload = _payload_after_title(result.packet, "Task current exact read evidence")
-    injection = evidence_payload["read_evidence_injections"][0]
+    evidence_ref = evidence_payload["read_evidence_refs"][0]
     dynamic_payload = _payload_after_title(result.packet, "Single agent turn dynamic runtime")
 
-    assert evidence_payload["visible_exact_in_packet"] is True
-    assert injection["path"] == "fps_game.html"
-    assert injection["content"] == text
-    assert injection["artifact_ref"] == artifact["artifact_ref"]
+    assert evidence_payload["visible_exact_in_packet"] is False
+    assert "read_evidence_injections" not in evidence_payload
+    assert evidence_ref["path"] == "fps_game.html"
+    assert evidence_ref["artifact_ref"] == artifact["artifact_ref"]
+    assert evidence_ref["content_sha256"] == "sha256:fps"
+    assert evidence_payload["projection_policy"]["rehydration"] == "read_again_or_artifact_lookup_when_exact_text_is_needed"
+    assert text not in json.dumps(evidence_payload, ensure_ascii=False)
     assert dynamic_payload["interrupted_turn_work"]["turn_run_id"] == "turnrun:previous"
     read_evidence_segment = next(
         segment
@@ -227,7 +247,23 @@ def test_task_execution_compiler_emits_read_required_when_read_artifact_exceeds_
         session_id=session_id,
         task_run={"task_run_id": task_run_id, "diagnostics": {"executor_status": "running"}},
         contract={"task_run_goal": "edit large", "completion_criteria": ["edit large"]},
-        observations=[],
+        observations=[
+            {
+                "observation_id": "obs:read",
+                "tool_name": "read_file",
+                "status": "ok",
+                "structured_payload": {
+                    "tool_result": {
+                        "path": "large.txt",
+                        "start_line": 1,
+                        "end_line": 1,
+                        "exact_artifact_ref": artifact["artifact_ref"],
+                        "artifact_ref_status": "exact",
+                        "visible_exact": True,
+                    }
+                },
+            }
+        ],
         execution_state={
             "system_projection": {
                 "runtime_status": "running",

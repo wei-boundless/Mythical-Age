@@ -449,22 +449,27 @@ def _provider_cache_read_coverage_diagnostics(
         stable_prefix_estimated_tokens = int(stable_coverage[-1].get("provider_scaled_cumulative_tokens") or 0)
     status = "unmeasured"
     if required_coverage:
-        status = "covered" if not uncovered_required else "partial"
+        status = "estimated_covered" if not uncovered_required else "estimated_partial"
+    stable_prefix_estimated_covered = (
+        bool(stable_prefix_estimated_tokens)
+        and int(cached_tokens or 0) >= stable_prefix_estimated_tokens
+    )
     return {
         "provider_cache_read_token_scale": token_scale,
+        "provider_cache_read_token_scale_source": "local_prediction_to_provider_prompt_token_scale_estimate",
         "provider_cache_read_prompt_tokens": provider_prompt_tokens,
         "provider_cache_read_cached_tokens": int(cached_tokens or 0),
         "provider_cache_read_required_coverage_status": status,
+        "provider_cache_read_required_coverage_evidence": "estimated_from_local_token_scale" if required_coverage else "unmeasured",
         "provider_cache_read_required_segment_coverage": required_coverage,
         "provider_cache_read_uncovered_required_segments": [
             str(item.get("kind") or "") for item in uncovered_required
         ],
         "provider_cache_read_uncovered_required_count": len(uncovered_required),
         "provider_cache_read_stable_prefix_estimated_tokens": stable_prefix_estimated_tokens,
-        "provider_cache_read_stable_prefix_covered": (
-            bool(stable_prefix_estimated_tokens)
-            and int(cached_tokens or 0) >= stable_prefix_estimated_tokens
-        ),
+        "provider_cache_read_stable_prefix_estimated_covered": stable_prefix_estimated_covered,
+        "provider_cache_read_stable_prefix_covered": None,
+        "provider_cache_read_stable_prefix_coverage_evidence": "unmeasured_by_provider_usage",
     }
 
 
@@ -488,6 +493,8 @@ def _coverage_item(
         "provider_scaled_cumulative_tokens": scaled_boundary,
         "covered_by_raw_predicted_boundary": bool(raw_boundary) and int(cached_tokens or 0) >= raw_boundary,
         "covered_by_provider_scaled_boundary": covered_scaled,
+        "covered_by_provider_scaled_boundary_estimate": covered_scaled,
+        "coverage_evidence": "estimated_from_local_token_scale" if scaled_boundary else "unmeasured",
         "provider_scaled_under_read_tokens": max(0, scaled_boundary - int(cached_tokens or 0)) if scaled_boundary else 0,
     }
 

@@ -121,8 +121,7 @@ class PromptStabilityReporter:
         cache_miss_tokens = int(usage.cache_miss_tokens or 0)
         prompt_tokens = int(usage.prompt_tokens or 0)
         provider_returned_hit_miss_available = (
-            cache_miss_tokens > 0
-            or str(dict(usage.diagnostics or {}).get("provider_cache_hit_rate_source") or "")
+            str(dict(usage.diagnostics or {}).get("provider_cache_hit_rate_source") or "")
             == "provider_hit_miss_tokens"
         )
         provider_usage = {

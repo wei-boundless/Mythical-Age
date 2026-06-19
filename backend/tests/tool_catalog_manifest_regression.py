@@ -494,7 +494,7 @@ def test_observation_followup_stable_contract_uses_tool_catalog_manifest_payload
     assert dict(packet.diagnostics["prompt_manifest"])["tool_catalog_manifest"] == packet.tool_catalog_manifest
 
 
-def test_provider_usage_marks_required_stable_segments_not_actually_cache_read() -> None:
+def test_provider_usage_keeps_estimated_required_stable_under_read_out_of_cache_breaks() -> None:
     result = RuntimeCompiler(base_dir=_backend_dir()).compile_task_execution_packet(
         session_id="session:tool-catalog-cache-coverage",
         task_run={"task_run_id": "taskrun:tool-catalog-cache-coverage", "diagnostics": {"executor_status": "running"}},
@@ -570,15 +570,16 @@ def test_provider_usage_marks_required_stable_segments_not_actually_cache_read()
         created_at=123.0,
     )
 
-    assert diagnostics["provider_cache_read_required_coverage_status"] == "partial"
+    assert diagnostics["provider_cache_read_required_coverage_status"] == "estimated_partial"
+    assert diagnostics["provider_cache_read_required_coverage_evidence"] == "estimated_from_local_token_scale"
     assert coverage_by_kind["tool_schema_catalog"]["covered_by_provider_scaled_boundary"] is True
     assert coverage_by_kind["tool_index_stable"]["covered_by_provider_scaled_boundary"] is False
+    assert coverage_by_kind["tool_index_stable"]["coverage_evidence"] == "estimated_from_local_token_scale"
     assert "tool_index_stable" in diagnostics["provider_cache_read_uncovered_required_segments"]
-    assert break_record is not None
-    assert break_record.reason == "provider_cache_read_under_required_stable_boundary"
+    assert break_record is None
 
 
-def test_provider_usage_marks_repeated_stable_prefix_under_read_as_cache_break() -> None:
+def test_provider_usage_does_not_mark_estimated_stable_prefix_under_read_as_cache_break() -> None:
     result = RuntimeCompiler(base_dir=_backend_dir()).compile_task_execution_packet(
         session_id="session:tool-catalog-stable-prefix-coverage",
         task_run={"task_run_id": "taskrun:tool-catalog-stable-prefix-coverage", "diagnostics": {"executor_status": "running"}},
@@ -648,10 +649,11 @@ def test_provider_usage_marks_repeated_stable_prefix_under_read_as_cache_break()
         created_at=123.0,
     )
 
-    assert dict(updated.diagnostics or {})["provider_cache_read_required_coverage_status"] == "covered"
-    assert dict(updated.diagnostics or {})["provider_cache_read_stable_prefix_covered"] is False
-    assert break_record is not None
-    assert break_record.reason == "provider_cache_read_under_stable_prefix_boundary"
+    assert dict(updated.diagnostics or {})["provider_cache_read_required_coverage_status"] == "estimated_covered"
+    assert dict(updated.diagnostics or {})["provider_cache_read_stable_prefix_estimated_covered"] is False
+    assert dict(updated.diagnostics or {})["provider_cache_read_stable_prefix_covered"] is None
+    assert dict(updated.diagnostics or {})["provider_cache_read_stable_prefix_coverage_evidence"] == "unmeasured_by_provider_usage"
+    assert break_record is None
 
 
 def test_model_request_tool_schema_cache_uses_tool_catalog_manifest_metadata() -> None:

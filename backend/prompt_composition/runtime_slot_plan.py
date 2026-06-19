@@ -193,6 +193,8 @@ def _authority_class_for_source_kind(source_kind: str) -> str:
 def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str) -> str:
     if source_kind == "runtime_task_state_replay" or kind == "task_state_replay_entry":
         return "append_only_task_evidence"
+    if kind in {"lifecycle_runtime_guidance", "task_start_inherited_context"}:
+        return "runtime_cursor_prefix"
     if kind == "graph_node_completion_prefix":
         return "assistant_completion_prefix"
     if kind in {"active_skills", "skill_candidates"}:

@@ -418,7 +418,5 @@ class ContextUsageMeter:
 
 
 def _provider_hit_miss_available(record: ModelTokenUsageRecord) -> bool:
-    if int(record.cache_miss_tokens or 0) > 0:
-        return True
     diagnostics = dict(record.diagnostics or {})
     return str(diagnostics.get("provider_cache_hit_rate_source") or "") == "provider_hit_miss_tokens"

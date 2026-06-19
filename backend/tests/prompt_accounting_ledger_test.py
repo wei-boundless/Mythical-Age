@@ -16,6 +16,7 @@ from runtime.prompt_accounting import (
 )
 from runtime.model_gateway import ModelRequestBuilder
 from harness.runtime.compiler import RuntimeCompiler
+from harness.runtime.dynamic_context.task_state_projector import TaskStateProjector
 from harness.runtime.environment_prompt_controller import build_base_prompt_mount_plan, prompt_mount_plan_for_invocation
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 from prompt_library.environment_lifecycle_prompts import ENVIRONMENT_LIFECYCLE_PROMPT_DEFAULTS_BY_ENVIRONMENT
@@ -471,14 +472,19 @@ def test_provider_usage_extractor_handles_openai_anthropic_and_deepseek_shapes()
     assert deepseek_usage.cache_miss_tokens == 33000
     assert deepseek_usage.diagnostics["provider_cache_hit_rate"] == 0.1165
     assert deepseek_usage.diagnostics["provider_cache_hit_rate_source"] == "provider_hit_miss_tokens"
+    assert deepseek_usage.diagnostics["provider_cache_miss_tokens_source"] == "provider_explicit"
+    assert deepseek_usage.diagnostics["provider_cache_hit_miss_tokens_available"] is True
     assert deepseek_usage.completion_tokens == 4
     assert deepseek_usage.total_tokens == 37356
     assert cache_read_only_usage is not None
     assert cache_read_only_usage.prompt_tokens == 1000
     assert cache_read_only_usage.cached_tokens == 125
-    assert cache_read_only_usage.cache_miss_tokens == 0
+    assert cache_read_only_usage.cache_miss_tokens == 875
     assert cache_read_only_usage.diagnostics["provider_cache_hit_rate"] == 0.125
     assert cache_read_only_usage.diagnostics["provider_cache_hit_rate_source"] == "prompt_tokens"
+    assert cache_read_only_usage.diagnostics["provider_cache_miss_tokens_source"] == "prompt_tokens_minus_cached_tokens"
+    assert cache_read_only_usage.diagnostics["provider_cache_miss_tokens_derived"] == 875
+    assert cache_read_only_usage.diagnostics["provider_cache_hit_miss_tokens_available"] is False
     assert cache_read_only_usage.diagnostics["prompt_cache_read_ratio"] == 0.125
 
 
@@ -941,7 +947,21 @@ def test_task_execution_replay_entries_are_volatile_before_current_state() -> No
         },
         "runtime_assembly": {
             "profile": {"profile_ref": "main_interactive_agent"},
-            "task_environment": {"environment_id": "env.general.workspace"},
+            "task_environment": {
+                "environment_id": "env.coding.vibe_workspace",
+                "environment_boundary": {
+                    "lifecycle_prompt_defaults": ENVIRONMENT_LIFECYCLE_PROMPT_DEFAULTS_BY_ENVIRONMENT[
+                        "env.coding.vibe_workspace"
+                    ],
+                },
+            },
+        },
+        "memory_context": {
+            "memory_runtime_view_ref": "memview:append-only-runtime-guidance",
+            "selected_sections": ["relevant_durable_context"],
+            "model_visible_sections": {
+                "relevant_durable_context": ["stable memory marker for runtime lifecycle guidance"],
+            },
         },
     }
     first = RuntimeCompiler().compile_task_execution_packet(
@@ -973,6 +993,8 @@ def test_task_execution_replay_entries_are_volatile_before_current_state() -> No
     assert first_replay_messages[0] == second_replay_messages[0]
 
     second_kinds = [segment["kind"] for segment in second.packet.segment_plan["segments"]]
+    assert "lifecycle_runtime_guidance" in second_kinds
+    assert second_kinds.index("lifecycle_runtime_guidance") < second_kinds.index("task_state_replay_entry")
     assert second_kinds.index("task_state_replay_entry") < second_kinds.index("volatile_task_state")
     for segment in second.packet.segment_plan["segments"]:
         if segment["kind"] in {"task_state_replay_entry", "task_runtime_boundary_dynamic", "volatile_task_state"}:
@@ -1189,6 +1211,122 @@ def test_task_execution_replay_entries_keep_source_content_stable_when_new_failu
         if segment["kind"] == "task_state_replay_entry"
     ]
     assert second_sources.index(old_source) < second_sources.index(new_source)
+
+
+def test_task_execution_replay_entries_append_late_runtime_control_even_with_earlier_event_offset() -> None:
+    base_kwargs = {
+        "session_id": "session:late-runtime-control-replay",
+        "task_run": {
+            "task_run_id": "taskrun:late-runtime-control-replay",
+            "task_id": "task:late-runtime-control-replay",
+            "task_contract_ref": "contract:late-runtime-control-replay",
+            "diagnostics": {"executor_status": "running"},
+        },
+        "contract": {
+            "contract_id": "contract:late-runtime-control-replay",
+            "task_run_goal": "验证 runtime control 不能插入旧 replay 前缀",
+            "completion_criteria": ["replay 只追加"],
+        },
+        "runtime_assembly": {
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    }
+    first_tool_result = {
+        "observation_ref": "toolobs:first-read",
+        "tool_name": "read_file",
+        "status": "ok",
+        "summary": "first stable replay entry",
+        "event_offset": 100,
+    }
+    second_tool_result = {
+        "observation_ref": "toolobs:second-search",
+        "tool_name": "search_text",
+        "status": "ok",
+        "summary": "second stable replay entry",
+        "event_offset": 200,
+    }
+    late_runtime_control = {
+        "observation_ref": "runtime-control:late-repair",
+        "tool_name": "runtime_control",
+        "status": "error",
+        "summary": "late-projected runtime control with earlier source offset",
+        "error": {"code": "model_action_invalid", "message": "invalid action", "retryable": True},
+        "event_offset": 50,
+    }
+    first = RuntimeCompiler().compile_task_execution_packet(
+        **base_kwargs,
+        invocation_index=1,
+        observations=[],
+        execution_state={
+            "system_projection": {
+                "last_action_receipts": [first_tool_result, second_tool_result],
+            }
+        },
+    )
+    second = RuntimeCompiler().compile_task_execution_packet(
+        **base_kwargs,
+        invocation_index=2,
+        observations=[],
+        execution_state={
+            "system_projection": {
+                "last_action_receipts": [first_tool_result, second_tool_result],
+                "active_failures": [late_runtime_control],
+            }
+        },
+    )
+
+    first_sources = [
+        segment["source_ref"]
+        for segment in first.packet.segment_plan["segments"]
+        if segment["kind"] == "task_state_replay_entry"
+    ]
+    second_sources = [
+        segment["source_ref"]
+        for segment in second.packet.segment_plan["segments"]
+        if segment["kind"] == "task_state_replay_entry"
+    ]
+
+    assert first_sources == [
+        "task_state_replay:toolobs:first-read",
+        "task_state_replay:toolobs:second-search",
+    ]
+    assert second_sources == [
+        "task_state_replay:toolobs:first-read",
+        "task_state_replay:toolobs:second-search",
+        "task_state_replay:runtime-control:late-repair",
+    ]
+    assert _message_content_for_source(second.packet, first_sources[0]) == _message_content_for_source(first.packet, first_sources[0])
+    assert _message_content_for_source(second.packet, first_sources[1]) == _message_content_for_source(first.packet, first_sources[1])
+
+
+def test_task_state_replay_overflow_preserves_prefix_and_summarizes_tail() -> None:
+    projector = TaskStateProjector()
+    task_state = {
+        "latest_tool_results": [
+            {"observation_ref": f"obs:{index:02d}", "tool_name": "read_file", "status": "ok", "summary": f"result {index}"}
+            for index in range(1, 7)
+        ]
+    }
+
+    first_replay, first_cursor = projector.split_for_prompt_cache(task_state, replay_entry_limit=4)
+    expanded_state = {
+        "latest_tool_results": [
+            *task_state["latest_tool_results"],
+            {"observation_ref": "obs:07", "tool_name": "read_file", "status": "ok", "summary": "result 7"},
+        ]
+    }
+    second_replay, second_cursor = projector.split_for_prompt_cache(expanded_state, replay_entry_limit=4)
+
+    assert [entry["observation_ref"] for entry in first_replay[:3]] == ["obs:01", "obs:02", "obs:03"]
+    assert [entry["observation_ref"] for entry in second_replay[:3]] == ["obs:01", "obs:02", "obs:03"]
+    assert first_replay[:3] == second_replay[:3]
+    assert first_replay[3]["entry_kind"] == "task_state_replay_summary"
+    assert second_replay[3]["entry_kind"] == "task_state_replay_summary"
+    assert first_replay[3]["summarized_refs"] == ["obs:04", "obs:05", "obs:06"]
+    assert second_replay[3]["summarized_refs"] == ["obs:04", "obs:05", "obs:06", "obs:07"]
+    assert first_cursor["replay_prefix"]["cursor_code"] == "append_only_replay_available"
+    assert second_cursor["replay_prefix"]["latest_entry_ref"].startswith("task_state_replay_summary:")
 
 
 def test_model_request_reports_segment_plan_binding_mismatch() -> None:

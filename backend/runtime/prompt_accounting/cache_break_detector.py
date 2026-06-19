@@ -73,7 +73,7 @@ class PromptCacheBreakDetector:
         ]
         latest_previous = _latest_record(comparable_records)
         uncovered_required = _uncovered_required_segments(cache_record)
-        if uncovered_required and repeated_prefix:
+        if uncovered_required and repeated_prefix and _required_coverage_is_authoritative(cache_record):
             return _build_break_record(
                 cache_record=cache_record,
                 provider_usage=provider_usage,
@@ -91,26 +91,6 @@ class PromptCacheBreakDetector:
                     "provider_cache_read_required_segment_coverage": _diag_raw(
                         dict(cache_record.diagnostics or {}),
                         "provider_cache_read_required_segment_coverage",
-                    ),
-                },
-            )
-        if _stable_prefix_under_read(cache_record) and repeated_prefix:
-            return _build_break_record(
-                cache_record=cache_record,
-                provider_usage=provider_usage,
-                previous_repeated_records=repeated_prefix,
-                latest_previous=latest_previous,
-                reason="provider_cache_read_under_stable_prefix_boundary",
-                created_at=created_at,
-                extra_diagnostics={
-                    "cached_tokens": cached_tokens,
-                    "provider_cache_read_stable_prefix_estimated_tokens": _diag_raw(
-                        dict(cache_record.diagnostics or {}),
-                        "provider_cache_read_stable_prefix_estimated_tokens",
-                    ),
-                    "provider_cache_read_stable_segment_boundaries": _diag_raw(
-                        dict(cache_record.diagnostics or {}),
-                        "provider_cache_read_stable_segment_boundaries",
                     ),
                 },
             )
@@ -203,11 +183,10 @@ def _uncovered_required_segments(record: PromptCacheRecord) -> list[str]:
     return []
 
 
-def _stable_prefix_under_read(record: PromptCacheRecord) -> bool:
+def _required_coverage_is_authoritative(record: PromptCacheRecord) -> bool:
     diagnostics = dict(record.diagnostics or {})
-    if not diagnostics.get("provider_cache_read_stable_segment_boundaries"):
-        return False
-    return diagnostics.get("provider_cache_read_stable_prefix_covered") is False
+    evidence = str(diagnostics.get("provider_cache_read_required_coverage_evidence") or "").strip()
+    return bool(evidence and evidence not in {"estimated_from_local_token_scale", "unmeasured"})
 
 
 def _changed_payload_reason(
