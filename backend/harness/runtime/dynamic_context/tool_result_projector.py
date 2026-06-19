@@ -754,7 +754,7 @@ def _next_read_file_request(content_range: dict[str, Any]) -> dict[str, Any]:
     next_start_line = _int_or_none(content_range.get("next_start_line"))
     if not path or next_start_line is None or not bool(content_range.get("has_more") or content_range.get("truncated")):
         return {}
-    line_count = _int_or_none(content_range.get("line_count")) or _int_or_none(content_range.get("returned_lines")) or 240
+    line_count = _int_or_none(content_range.get("line_count")) or _int_or_none(content_range.get("returned_lines")) or 500
     return {
         "tool_name": "read_file",
         "args": {

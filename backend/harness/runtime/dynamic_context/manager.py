@@ -780,7 +780,7 @@ def _active_editor_file_state(active_file: dict[str, Any], *, workspace_roots: l
             "stale_reason": "editor buffer is dirty; disk reads may be stale" if dirty else "",
             "next_suggested_read": {
                 "start_line": 1,
-                "line_count": 240,
+                "line_count": 500,
                 "reason": "active editor buffer is dirty; confirm saved source before disk edit",
             }
             if dirty

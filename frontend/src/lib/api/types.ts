@@ -4089,7 +4089,8 @@ export type ChatRun = {
   } | null;
   is_reconnectable?: boolean;
   terminal_event?: string;
-  stream_url: string;
+  replay_url: string;
+  live_ws_url: string;
 };
 
 export type LatestChatRunResult = ChatRun | null;

@@ -630,28 +630,6 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
-                    title="Single agent turn stable boundary",
-                    payload=stable_payload,
-                    kind="turn_stable",
-                    source_ref="single_agent_turn_stable_boundary",
-                    cache_scope="session",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _runtime_payload_spec(
-                    role="system",
-                    title="Single agent turn tool index",
-                    payload=tool_index_payload,
-                    kind="tool_index_stable",
-                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
-                    cache_scope="session",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                )
-                if tool_index_payload
-                else None,
-                _runtime_payload_spec(
-                    role="system",
                     title="Single agent turn tool schema catalog",
                     payload=tool_schema_catalog_payload,
                     kind="tool_schema_catalog",
@@ -666,6 +644,28 @@ class RuntimeCompiler:
                 )
                 if tool_schema_catalog_payload
                 else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Single agent turn tool index",
+                    payload=tool_index_payload,
+                    kind="tool_index_stable",
+                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                )
+                if tool_index_payload
+                else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Single agent turn stable boundary",
+                    payload=stable_payload,
+                    kind="turn_stable",
+                    source_ref="single_agent_turn_stable_boundary",
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
                 _runtime_payload_spec(
                     role="system",
                     title="File evidence policy",
@@ -1175,11 +1175,11 @@ class RuntimeCompiler:
         if capability_directory_payload:
             environment_stable_payload["capability_directory"] = capability_directory_payload
         project_instruction_payload = _project_instruction_model_payload(project_instruction_bundle)
-        tool_index_payload = tool_catalog_manifest.to_model_visible_payload(include_catalog_hash=True)
         tool_schema_catalog_payload = stable_tool_schema_catalog_payload(
             tool_payloads=tool_payloads,
             tool_catalog_manifest=tool_catalog_manifest,
         )
+        tool_index_payload = tool_catalog_manifest.to_model_visible_payload(include_catalog_hash=True)
         packet_id = f"rtpacket:{task_run_id}:task_execution:{executor_epoch}:{invocation_index}"
         projection_policy = _dynamic_context_projection_policy(
             invocation_kind="task_execution",
@@ -1272,6 +1272,92 @@ class RuntimeCompiler:
                     kind="action_schema_static",
                     source_ref=action_schema_manifest.source_ref,
                     cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task execution tool schema catalog",
+                    payload=tool_schema_catalog_payload,
+                    kind="tool_schema_catalog",
+                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "provider_tool_schema_catalog",
+                        "content_source": "harness.runtime.compiler.stable_tool_schema_catalog",
+                    },
+                )
+                if tool_schema_catalog_payload
+                else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task execution tool index",
+                    payload=tool_index_payload,
+                    kind="tool_index_stable",
+                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task execution task contract",
+                    payload=task_contract_payload,
+                    kind="task_contract_stable",
+                    source_ref=task_contract_manifest.source_ref,
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=render_prompt_contract_instruction(task_prompt_assembly),
+                    kind="task_prompt_contract",
+                    source_ref=",".join(task_prompt_assembly.manifest.get("stable_contract_refs") or ()),
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task execution bound task context",
+                    payload=bound_task_context_payload,
+                    kind="bound_task_context_stable",
+                    source_ref=bound_task_context.source_ref,
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "bound_task_context",
+                        "semantic_layer": "L7_bound_task_context",
+                        "cache_impact": "task_prefix_stable",
+                        "projection_strategy": "task_bound_context_manifest",
+                        "content_source": "harness.runtime.bound_task_context",
+                    },
+                )
+                if bound_task_context_payload
+                else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task execution graph shared context",
+                    payload=graph_task_shared_payload,
+                    kind="graph_task_shared_stable",
+                    source_ref=str(graph_task_shared_payload.get("graph_shared_context", {}).get("shared_context_hash") or ""),
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                )
+                if graph_task_shared_payload
+                else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task execution artifact write scope",
+                    payload=artifact_execution_scope_payload,
+                    kind="artifact_scope_stable",
+                    source_ref=artifact_scope_manifest.source_ref,
+                    cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
@@ -1376,92 +1462,6 @@ class RuntimeCompiler:
                         "projection_strategy": "stable_file_evidence_policy",
                     },
                 ),
-                _runtime_payload_spec(
-                    role="system",
-                    title="Task execution artifact write scope",
-                    payload=artifact_execution_scope_payload,
-                    kind="artifact_scope_stable",
-                    source_ref=artifact_scope_manifest.source_ref,
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _runtime_payload_spec(
-                    role="system",
-                    title="Task execution tool index",
-                    payload=tool_index_payload,
-                    kind="tool_index_stable",
-                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _runtime_payload_spec(
-                    role="system",
-                    title="Task execution tool schema catalog",
-                    payload=tool_schema_catalog_payload,
-                    kind="tool_schema_catalog",
-                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                    metadata={
-                        "authority_class": "provider_tool_schema_catalog",
-                        "content_source": "harness.runtime.compiler.stable_tool_schema_catalog",
-                    },
-                )
-                if tool_schema_catalog_payload
-                else None,
-                _runtime_payload_spec(
-                    role="system",
-                    title="Task execution graph shared context",
-                    payload=graph_task_shared_payload,
-                    kind="graph_task_shared_stable",
-                    source_ref=str(graph_task_shared_payload.get("graph_shared_context", {}).get("shared_context_hash") or ""),
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                )
-                if graph_task_shared_payload
-                else None,
-                _runtime_payload_spec(
-                    role="system",
-                    title="Task execution task contract",
-                    payload=task_contract_payload,
-                    kind="task_contract_stable",
-                    source_ref=task_contract_manifest.source_ref,
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _message_spec(
-                    role="system",
-                    content=render_prompt_contract_instruction(task_prompt_assembly),
-                    kind="task_prompt_contract",
-                    source_ref=",".join(task_prompt_assembly.manifest.get("stable_contract_refs") or ()),
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _runtime_payload_spec(
-                    role="system",
-                    title="Task execution bound task context",
-                    payload=bound_task_context_payload,
-                    kind="bound_task_context_stable",
-                    source_ref=bound_task_context.source_ref,
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                    metadata={
-                        "authority_class": "bound_task_context",
-                        "semantic_layer": "L7_bound_task_context",
-                        "cache_impact": "task_prefix_stable",
-                        "projection_strategy": "task_bound_context_manifest",
-                        "content_source": "harness.runtime.bound_task_context",
-                    },
-                )
-                if bound_task_context_payload
-                else None,
                 _message_spec(
                     role="system",
                     content=active_skill_instruction,
@@ -1845,6 +1845,11 @@ class RuntimeCompiler:
             tool_payloads=tool_payloads,
             tool_catalog_manifest=tool_catalog_manifest,
         )
+        tool_index_payload = (
+            tool_catalog_manifest.to_model_visible_payload(include_catalog_hash=True)
+            if tool_payloads
+            else {}
+        )
         agent_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="tool_observation_followup",
             prompt_refs=_agent_prompt_refs_for_invocation(assembly_payload, invocation_kind="tool_observation_followup"),
@@ -1884,7 +1889,6 @@ class RuntimeCompiler:
                 environment_payload,
                 prompt_mount_plan=prompt_mount_plan.to_dict(),
             ),
-            **tool_catalog_manifest.to_model_visible_payload(include_catalog_hash=True),
             **_project_instruction_model_payload(project_instruction_bundle),
         }
         packet_id = f"rtpacket:{turn_id}:tool_observation_followup:{len(observations) + 1}"
@@ -1945,16 +1949,6 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
-                    title="Observation followup stable contract",
-                    payload=stable_payload,
-                    kind="task_stable",
-                    source_ref="observation_followup_stable_contract",
-                    cache_scope="session",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _runtime_payload_spec(
-                    role="system",
                     title="Observation followup tool schema catalog",
                     payload=tool_schema_catalog_payload,
                     kind="tool_schema_catalog",
@@ -1969,6 +1963,28 @@ class RuntimeCompiler:
                 )
                 if tool_schema_catalog_payload
                 else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Observation followup tool index",
+                    payload=tool_index_payload,
+                    kind="tool_index_stable",
+                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                )
+                if tool_index_payload
+                else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Observation followup stable contract",
+                    payload=stable_payload,
+                    kind="task_stable",
+                    source_ref="observation_followup_stable_contract",
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
                 _message_spec(
                     role="system",
                     content=environment_instruction,

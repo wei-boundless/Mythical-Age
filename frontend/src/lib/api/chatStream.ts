@@ -293,11 +293,11 @@ import type {
 
 const TURN_COMPLETED_EVENT = "turn_completed";
 const TERMINAL_STREAM_EVENTS = new Set([TURN_COMPLETED_EVENT]);
-const MAX_STREAM_BUFFER_CHARS = 1_000_000;
 const CHAT_STREAM_RECONNECT_INITIAL_DELAY_MS = 500;
 const CHAT_STREAM_RECONNECT_MAX_DELAY_MS = 30_000;
 const CHAT_STREAM_CONSUME_BURST_EVENT_LIMIT = 64;
 const CHAT_STREAM_CONSUME_BURST_TIME_MS = 12;
+const CHAT_LIVE_PROTOCOL = "agent-live.v1";
 
 type ChatStreamError = Error & {
   status?: number;
@@ -340,18 +340,6 @@ function isReconnectableChatStreamTransportError(error: unknown) {
     || message.includes("NetworkError")
     || message.includes("Load failed")
     || message.includes("The network connection was lost");
-}
-
-function findSseBoundary(buffer: string): { index: number; length: number } | null {
-  const boundaries = [
-    { index: buffer.indexOf("\n\n"), length: 2 },
-    { index: buffer.indexOf("\r\n\r\n"), length: 4 },
-    { index: buffer.indexOf("\r\r"), length: 2 },
-  ].filter((item) => item.index >= 0);
-  if (!boundaries.length) {
-    return null;
-  }
-  return boundaries.sort((left, right) => left.index - right.index)[0];
 }
 
 function chatStreamCursorKey(sessionId: string) {
@@ -528,36 +516,35 @@ export async function getLatestSessionContinuation(sessionId: string, scope?: Pa
   );
 }
 
-export async function resumeChatRun(streamRunId: string) {
-  return request<ChatRun & { resume_mode: string }>(`/chat/runs/${encodeURIComponent(streamRunId)}/resume`, {
-    method: "POST",
-  });
-}
+type ChatLiveEnvelope = {
+  type?: string;
+  protocol?: string;
+  stream_run_id?: string;
+  event_log_id?: string;
+  event_id?: string;
+  event_offset?: number;
+  public_event_type?: string;
+  terminal?: boolean;
+  status?: string;
+  data?: Record<string, unknown>;
+  replay_url?: string;
+  reason?: string;
+  code?: string;
+};
 
-function parseSseBlock(block: string): { id: string; event: string; data: Record<string, unknown> } | null {
-  const lines = block.split(/\r?\n|\r/);
-  let id = "";
-  let event = "message";
-  const dataLines: string[] = [];
+type ChatReplayResponse = {
+  stream_run_id: string;
+  event_log_id: string;
+  after_offset: number;
+  latest_event_offset: number;
+  events: ChatLiveEnvelope[];
+  terminal: boolean;
+  authority: string;
+};
 
-  for (const line of lines) {
-    if (line.startsWith("id:")) {
-      id = line.slice(3).trim();
-    } else if (line.startsWith("event:")) {
-      event = line.slice(6).trim();
-    } else if (line.startsWith("data:")) {
-      dataLines.push(line.slice(5).trim());
-    }
-  }
-
-  if (!dataLines.length) {
-    return null;
-  }
-  return {
-    id,
-    event,
-    data: JSON.parse(dataLines.join("\n")) as Record<string, unknown>,
-  };
+export async function replayChatRunEvents(streamRunId: string, afterOffset: number, limit = 500) {
+  const params = new URLSearchParams({ after_offset: String(afterOffset), limit: String(limit) });
+  return request<ChatReplayResponse>(`/chat/runs/${encodeURIComponent(streamRunId)}/events/replay?${params.toString()}`);
 }
 
 function terminalStatusFromTurnCompleted(data: Record<string, unknown>) {
@@ -602,7 +589,7 @@ async function yieldAfterBufferedStreamBurst(budget: ChatStreamConsumeBudget, si
   resetChatStreamConsumeBudget(budget);
 }
 
-async function consumeChatRunStream(
+async function consumeChatRunLive(
   run: ChatRun,
   sessionId: string,
   handlers: StreamHandlers,
@@ -616,7 +603,7 @@ async function consumeChatRunStream(
   const persistCursor = options.persistCursor !== false;
   let lastEventOffset = options.replayFromStart
     ? -1
-    : Number(options.initialCursor?.lastEventOffset ?? run.latest_event_offset ?? -1);
+    : Number(options.initialCursor?.lastEventOffset ?? -1);
   let lastEventId = options.replayFromStart ? "" : String(options.initialCursor?.lastEventId || "");
   let terminalEvent: StreamResult["terminalEvent"] | "" = "";
   let terminalStatus: StreamResult["terminalStatus"] = "";
@@ -635,35 +622,55 @@ async function consumeChatRunStream(
     });
   }
 
-  const consumeBlock = async (block: string) => {
-    const parsed = parseSseBlock(block);
-    if (!parsed) {
+  const persistCurrentCursor = () => {
+    if (!persistCursor) return;
+    saveChatStreamCursor(sessionId, {
+      streamRunId: run.stream_run_id,
+      eventLogId: run.event_log_id,
+      lastEventOffset,
+      lastEventId,
+    });
+  };
+
+  const consumeEnvelope = async (envelope: ChatLiveEnvelope, socket?: WebSocket | null) => {
+    const envelopeType = String(envelope.type || "");
+    if (envelopeType === "hello" || envelopeType === "heartbeat") {
       return "";
     }
-    parsed.data = {
-      ...parsed.data,
+    if (envelopeType === "error") {
+      throw nonReconnectableChatStreamError(String(envelope.code || envelope.reason || "chat_live_protocol_error"));
+    }
+    if (envelopeType === "gap") {
+      await replayFromHttp("chat_live_gap");
+      socket?.close();
+      return "";
+    }
+    if (envelopeType === "terminal") {
+      terminalEvent = TURN_COMPLETED_EVENT;
+      terminalStatus = String(envelope.status || terminalStatus || "completed");
+      return terminalEvent;
+    }
+    if (envelopeType !== "event") {
+      return "";
+    }
+    const eventName = String(envelope.public_event_type || "message");
+    const data: Record<string, unknown> = {
+      ...(envelope.data ?? {}),
       diagnostics: {
-        ...(typeof parsed.data.diagnostics === "object" && parsed.data.diagnostics !== null && !Array.isArray(parsed.data.diagnostics)
-          ? parsed.data.diagnostics
+        ...(typeof envelope.data?.diagnostics === "object" && envelope.data.diagnostics !== null && !Array.isArray(envelope.data.diagnostics)
+          ? envelope.data.diagnostics
           : {}),
         client_received_at: clientNow(),
       },
     };
-    const eventOffset = Number(parsed.data.event_offset);
+    const eventOffset = Number(envelope.event_offset ?? data.event_offset);
     if (Number.isFinite(eventOffset)) {
       if (eventOffset <= lastEventOffset) {
-        return parsed.event;
+        return eventName;
       }
       lastEventOffset = eventOffset;
-      lastEventId = parsed.id || `${run.stream_run_id}:${run.event_log_id}:${lastEventOffset}`;
-      if (persistCursor) {
-        saveChatStreamCursor(sessionId, {
-          streamRunId: run.stream_run_id,
-          eventLogId: run.event_log_id,
-          lastEventOffset,
-          lastEventId,
-        });
-      }
+      lastEventId = String(envelope.event_id || `${run.stream_run_id}:${run.event_log_id}:${lastEventOffset}`);
+      persistCurrentCursor();
     }
     if (reconnectAttempt > 0) {
       handlers.onEvent("stream_reconnected", {
@@ -671,16 +678,51 @@ async function consumeChatRunStream(
         event_log_id: run.event_log_id,
         event_offset: lastEventOffset,
         attempt: reconnectAttempt,
+        transport: "websocket",
       });
       reconnectAttempt = 0;
     }
-    handlers.onEvent(parsed.event, parsed.data);
-    if (TERMINAL_STREAM_EVENTS.has(parsed.event)) {
-      terminalStatus = terminalStatusFromTurnCompleted(parsed.data);
+    handlers.onEvent(eventName, data);
+    if (socket && Number.isFinite(lastEventOffset) && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({
+        type: "ack",
+        stream_run_id: run.stream_run_id,
+        event_log_id: run.event_log_id,
+        last_event_offset: lastEventOffset,
+        last_event_id: lastEventId,
+        client_rendered_at: clientNow(),
+      }));
+    }
+    if (TERMINAL_STREAM_EVENTS.has(eventName) || envelope.terminal === true) {
+      terminalEvent = TURN_COMPLETED_EVENT;
+      terminalStatus = terminalStatusFromTurnCompleted(data);
     } else {
       await yieldAfterBufferedStreamBurst(consumeBudget, options.signal);
     }
-    return parsed.event;
+    return eventName;
+  };
+
+  const replayFromHttp = async (reason: string) => {
+    const replay = await replayChatRunEvents(run.stream_run_id, lastEventOffset);
+    for (const event of replay.events ?? []) {
+      await consumeEnvelope(event, null);
+      if (terminalEvent) break;
+    }
+    if (!terminalEvent && replay.terminal && replay.latest_event_offset <= lastEventOffset) {
+      terminalEvent = TURN_COMPLETED_EVENT;
+      terminalStatus = "completed";
+    }
+    if (!terminalEvent && reconnectAttempt > 0) {
+      handlers.onEvent("stream_reconnecting", {
+        stream_run_id: run.stream_run_id,
+        event_log_id: run.event_log_id,
+        event_offset: lastEventOffset,
+        last_event_id: lastEventId,
+        attempt: reconnectAttempt,
+        reason,
+        transport: "websocket",
+      });
+    }
   };
 
   while (!terminalEvent) {
@@ -690,68 +732,20 @@ async function consumeChatRunStream(
       }
       throw new DOMException("Aborted", "AbortError");
     }
-    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-    let readerClosed = false;
-    let readerCancelled = false;
     let reconnectReason = "stream_closed_without_terminal";
     try {
-      const params = new URLSearchParams({ after_offset: String(lastEventOffset) });
-      const response = await fetch(`${getApiBase()}/chat/runs/${encodeURIComponent(run.stream_run_id)}/events?${params.toString()}`, {
-        method: "GET",
-        headers: lastEventId ? { "Last-Event-ID": lastEventId } : undefined,
+      if (reconnectAttempt > 0) {
+        await replayFromHttp(reconnectReason);
+      }
+      if (terminalEvent) break;
+      await consumeChatRunWebSocketConnection({
+        run,
+        sessionId,
+        afterOffset: lastEventOffset,
+        lastEventId,
         signal: options.signal,
+        consumeEnvelope,
       });
-
-      if (!response.ok) {
-        throw nonReconnectableChatStreamError(`Chat stream request failed: ${response.status}`, response.status);
-      }
-      if (!response.body) {
-        throw nonReconnectableChatStreamError("Chat stream response did not include a readable body.");
-      }
-
-      reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        resetChatStreamConsumeBudget(consumeBudget);
-        buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
-        if (buffer.length > MAX_STREAM_BUFFER_CHARS) {
-          throw new Error("Chat stream SSE buffer exceeded 1MB without a complete event boundary.");
-        }
-
-        let boundary = findSseBoundary(buffer);
-        while (boundary) {
-          const event = await consumeBlock(buffer.slice(0, boundary.index));
-          buffer = buffer.slice(boundary.index + boundary.length);
-          if (TERMINAL_STREAM_EVENTS.has(event)) {
-            terminalEvent = event as StreamResult["terminalEvent"];
-            break;
-          }
-          boundary = findSseBoundary(buffer);
-        }
-
-        if (terminalEvent) {
-          if (!done) {
-            await reader.cancel().catch(() => undefined);
-            readerCancelled = true;
-          } else {
-            readerClosed = true;
-          }
-          break;
-        }
-
-        if (done) {
-          readerClosed = true;
-          if (buffer.trim()) {
-            const event = await consumeBlock(buffer);
-            if (TERMINAL_STREAM_EVENTS.has(event)) {
-              terminalEvent = event as StreamResult["terminalEvent"];
-            }
-          }
-          break;
-        }
-      }
     } catch (error) {
       if (options.signal?.aborted) {
         if (persistCursor) {
@@ -771,10 +765,6 @@ async function consumeChatRunStream(
         throw error;
       }
       reconnectReason = chatStreamErrorMessage(error, "stream_transport_error");
-    } finally {
-      if (reader && !readerClosed && !readerCancelled) {
-        await reader.cancel().catch(() => undefined);
-      }
     }
 
     if (!terminalEvent) {
@@ -786,6 +776,7 @@ async function consumeChatRunStream(
         last_event_id: lastEventId,
         attempt: reconnectAttempt,
         reason: reconnectReason,
+        transport: "websocket",
       });
       const reconnectDelay = Math.min(
         CHAT_STREAM_RECONNECT_MAX_DELAY_MS,
@@ -808,6 +799,109 @@ async function consumeChatRunStream(
   };
 }
 
+async function consumeChatRunWebSocketConnection({
+  run,
+  sessionId,
+  afterOffset,
+  lastEventId,
+  signal,
+  consumeEnvelope,
+}: {
+  run: ChatRun;
+  sessionId: string;
+  afterOffset: number;
+  lastEventId: string;
+  signal?: AbortSignal;
+  consumeEnvelope: (envelope: ChatLiveEnvelope, socket?: WebSocket | null) => Promise<string>;
+}) {
+  if (typeof WebSocket === "undefined") {
+    throw nonReconnectableChatStreamError("WebSocket is not available in this environment.");
+  }
+  const socket = new WebSocket(chatLiveWebSocketUrl(run, sessionId));
+  let settled = false;
+  let opened = false;
+  let processing = Promise.resolve();
+  await new Promise<void>((resolve, reject) => {
+    const settleResolve = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+    const settleReject = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const onAbort = () => {
+      socket.close();
+      settleReject(new DOMException("Aborted", "AbortError"));
+    };
+    const cleanup = () => {
+      signal?.removeEventListener("abort", onAbort);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    socket.onopen = () => {
+      opened = true;
+      socket.send(JSON.stringify({
+        type: "subscribe",
+        protocol: CHAT_LIVE_PROTOCOL,
+        session_id: sessionId,
+        subscriptions: [
+          {
+            kind: "chat_run",
+            stream_run_id: run.stream_run_id,
+            event_log_id: run.event_log_id,
+            after_offset: afterOffset,
+            last_event_id: lastEventId,
+          },
+        ],
+      }));
+    };
+    socket.onmessage = (message) => {
+      processing = processing
+        .then(async () => {
+          const envelope = JSON.parse(String(message.data ?? "{}")) as ChatLiveEnvelope;
+          await consumeEnvelope(envelope, socket);
+          if (envelope.type === "terminal" || envelope.terminal === true) {
+            socket.close(1000);
+          }
+        })
+        .catch((error) => {
+          socket.close();
+          settleReject(error);
+        });
+    };
+    socket.onerror = () => {
+      if (!opened) {
+        settleReject(new TypeError("WebSocket connection failed"));
+        return;
+      }
+      socket.close();
+    };
+    socket.onclose = () => {
+      processing.then(settleResolve, settleReject);
+    };
+  });
+}
+
+function chatLiveWebSocketUrl(run: ChatRun, sessionId: string) {
+  const liveUrl = String(run.live_ws_url || "").trim();
+  if (!liveUrl) {
+    throw nonReconnectableChatStreamError("chat_live_url_missing");
+  }
+  const url = new URL(liveUrl, getApiBase());
+  if (url.protocol === "https:") {
+    url.protocol = "wss:";
+  } else if (url.protocol === "http:") {
+    url.protocol = "ws:";
+  } else if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+    throw nonReconnectableChatStreamError("chat_live_url_unsupported_protocol");
+  }
+  return url.toString();
+}
+
 export async function streamExistingChatRun(
   sessionId: string,
   streamRunId: string,
@@ -819,8 +913,8 @@ export async function streamExistingChatRun(
     persistCursor?: boolean;
   } = {}
 ) {
-  const run = await resumeChatRun(streamRunId);
-  return consumeChatRunStream(run, sessionId, handlers, options);
+  const run = await getChatRun(streamRunId);
+  return consumeChatRunLive(run, sessionId, handlers, options);
 }
 
 export async function streamChat(
@@ -832,5 +926,5 @@ export async function streamChat(
   } = {}
 ): Promise<StreamResult> {
   const run = await createChatRun(payload);
-  return consumeChatRunStream(run, payload.session_id, handlers, options);
+  return consumeChatRunLive(run, payload.session_id, handlers, options);
 }

@@ -44,6 +44,7 @@ from runtime.model_gateway.assistant_stream_normalizer import AssistantStreamNor
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
 from runtime.model_gateway.model_runtime import stringify_content
+from runtime.model_gateway.stream_iteration import iterate_stream_with_due_ticks
 from runtime.output_boundary import (
     CanonicalFinalTextDecision,
     canonical_output_decision_for_final_text,
@@ -54,6 +55,7 @@ from runtime.output_boundary import (
 from runtime.model_gateway.stream_recovery import (
     VISIBLE_PREFIX_RECOVERY_MODE,
     build_visible_prefix_recovery_messages,
+    build_visible_prefix_recovery_segment_plan,
     continuation_after_visible_prefix,
     model_selection_for_visible_prefix_recovery,
     recovery_attempts_from_policy,
@@ -3008,13 +3010,22 @@ async def _invoke_single_turn_model_with_stream_events(
     try:
         if native_tools and callable(tool_streamer):
             tool_call_options = build_round_tool_call_options(max_tool_calls=len(native_tools))
-            async for chunk in tool_streamer(
-                model_messages,
-                native_tools,
-                model_spec=model_selection,
-                tool_call_options=tool_call_options,
-                accounting_context=accounting_context,
+            async for stream_item_kind, chunk in iterate_stream_with_due_ticks(
+                tool_streamer(
+                    model_messages,
+                    native_tools,
+                    model_spec=model_selection,
+                    tool_call_options=tool_call_options,
+                    accounting_context=accounting_context,
+                ),
+                timeout_seconds=_single_turn_stream_timeout_seconds(model_selection),
+                tick_seconds=assistant_normalizer.release_tick_seconds() if assistant_normalizer is not None else 1.0,
             ):
+                if stream_item_kind == "tick":
+                    if assistant_normalizer is not None:
+                        for frame_event in assistant_normalizer.drain_due():
+                            yield frame_event
+                    continue
                 aggregated_response = _merge_model_stream_chunk(aggregated_response, chunk)
                 delta_text = _model_stream_chunk_text(chunk)
                 if not delta_text:
@@ -3024,11 +3035,20 @@ async def _invoke_single_turn_model_with_stream_events(
                     for frame_event in assistant_normalizer.observe_delta(delta_text):
                         yield frame_event
         elif callable(plain_streamer):
-            async for chunk in plain_streamer(
-                model_messages,
-                model_spec=model_selection,
-                accounting_context=accounting_context,
+            async for stream_item_kind, chunk in iterate_stream_with_due_ticks(
+                plain_streamer(
+                    model_messages,
+                    model_spec=model_selection,
+                    accounting_context=accounting_context,
+                ),
+                timeout_seconds=_single_turn_stream_timeout_seconds(model_selection),
+                tick_seconds=assistant_normalizer.release_tick_seconds() if assistant_normalizer is not None else 1.0,
             ):
+                if stream_item_kind == "tick":
+                    if assistant_normalizer is not None:
+                        for frame_event in assistant_normalizer.drain_due():
+                            yield frame_event
+                    continue
                 aggregated_response = _merge_model_stream_chunk(aggregated_response, chunk)
                 delta_text = _model_stream_chunk_text(chunk)
                 if not delta_text:
@@ -3087,19 +3107,33 @@ async def _invoke_single_turn_model_with_stream_events(
             }
             recovery_response: Any = None
             recovery_attempts = recovery_attempts_from_policy(stream_policy)
+            recovery_messages = build_visible_prefix_recovery_messages(
+                model_messages,
+                visible_prefix=raw_content,
+                turn_id=str(accounting_context.get("turn_id") or ""),
+                source=_PARTIAL_STREAM_RECOVERY_SOURCE,
+            )
             for recovery_attempt in range(1, recovery_attempts + 1):
+                recovery_segment_plan = build_visible_prefix_recovery_segment_plan(
+                    base_segment_plan=dict(accounting_context.get("segment_plan") or {}),
+                    recovery_messages=recovery_messages,
+                    packet_id=str(accounting_context.get("packet_ref") or stream_ref),
+                    recovery_attempt=recovery_attempt,
+                    source=_PARTIAL_STREAM_RECOVERY_SOURCE,
+                )
                 recovery_response = await _invoke_single_turn_model(
                     model_runtime=model_runtime,
-                    model_messages=build_visible_prefix_recovery_messages(
-                        model_messages,
-                        visible_prefix=raw_content,
-                        turn_id=str(accounting_context.get("turn_id") or ""),
-                        source=_PARTIAL_STREAM_RECOVERY_SOURCE,
-                    ),
+                    model_messages=recovery_messages,
                     model_selection=model_selection_for_visible_prefix_recovery(model_selection),
                     accounting_context={
                         **recovery_context,
                         "request_id": f"{stream_ref}:partial-stream-recovery:{recovery_attempt}",
+                        "segment_plan": recovery_segment_plan,
+                        "prompt_manifest": {
+                            **dict(recovery_context.get("prompt_manifest") or {}),
+                            "invocation_kind": "single_agent_turn_partial_stream_recovery",
+                            "segment_plan_ref": str(recovery_segment_plan.get("segment_plan_id") or ""),
+                        },
                         "stream_recovery": {
                             **dict(recovery_context.get("stream_recovery") or {}),
                             "attempt": recovery_attempt,
@@ -3203,6 +3237,27 @@ def _assistant_stream_end_events(
             events.extend(assistant_normalizer.observe_delta(content))
     events.extend(assistant_normalizer.flush())
     return events
+
+
+def _single_turn_stream_timeout_seconds(model_selection: dict[str, Any] | None) -> float:
+    selection = dict(model_selection or {})
+    stream_policy = dict(selection.get("stream_policy") or {})
+    for value in (
+        stream_policy.get("model_response_timeout_seconds"),
+        stream_policy.get("model_timeout_seconds"),
+        stream_policy.get("request_timeout_seconds"),
+        selection.get("model_response_timeout_seconds"),
+        selection.get("model_timeout_seconds"),
+        selection.get("request_timeout_seconds"),
+        selection.get("long_output_timeout_seconds"),
+    ):
+        try:
+            parsed = float(value or 0)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            return max(0.01, parsed)
+    return 300.0
 
 
 def _merge_model_stream_chunk(current: Any, chunk: Any) -> Any:

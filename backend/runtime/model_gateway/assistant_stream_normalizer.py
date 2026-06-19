@@ -46,6 +46,13 @@ class AssistantStreamPolicy:
     min_event_interval_ms: int = 0
     event_budget_per_second: int = 0
     chunk_strategy: str = "semantic"
+    first_flush_delay_ms: int = 70
+    target_buffer_delay_ms: int = 150
+    adaptive_min_buffer_delay_ms: int = 80
+    adaptive_max_buffer_delay_ms: int = 240
+    release_tick_ms: int = 16
+    max_buffer_delay_ms: int = 320
+    max_release_utf8_bytes: int = 192
 
     @classmethod
     def from_dict(cls, value: dict[str, Any] | None) -> "AssistantStreamPolicy":
@@ -56,7 +63,14 @@ class AssistantStreamPolicy:
             max_pending_line_count=_bounded_int(policy.get("max_pending_line_count"), default=1, minimum=1, maximum=20),
             min_event_interval_ms=_bounded_int(policy.get("min_event_interval_ms"), default=0, minimum=0, maximum=1000),
             event_budget_per_second=_bounded_int(policy.get("event_budget_per_second"), default=0, minimum=0, maximum=240),
-            chunk_strategy=_choice(policy.get("chunk_strategy"), default="semantic", choices={"semantic", "typing", "passthrough"}),
+            chunk_strategy=_choice(policy.get("chunk_strategy"), default="semantic", choices={"semantic", "typing", "passthrough", "adaptive_buffer"}),
+            first_flush_delay_ms=_bounded_int(policy.get("first_flush_delay_ms"), default=70, minimum=0, maximum=1000),
+            target_buffer_delay_ms=_bounded_int(policy.get("target_buffer_delay_ms"), default=150, minimum=0, maximum=2000),
+            adaptive_min_buffer_delay_ms=_bounded_int(policy.get("adaptive_min_buffer_delay_ms"), default=80, minimum=0, maximum=2000),
+            adaptive_max_buffer_delay_ms=_bounded_int(policy.get("adaptive_max_buffer_delay_ms"), default=240, minimum=0, maximum=5000),
+            release_tick_ms=_bounded_int(policy.get("release_tick_ms"), default=16, minimum=1, maximum=1000),
+            max_buffer_delay_ms=_bounded_int(policy.get("max_buffer_delay_ms"), default=320, minimum=1, maximum=5000),
+            max_release_utf8_bytes=_bounded_int(policy.get("max_release_utf8_bytes"), default=192, minimum=1, maximum=4096),
         )
 
 
@@ -76,6 +90,13 @@ class AssistantStreamNormalizer:
         min_event_interval_ms: int = 0,
         event_budget_per_second: int = 0,
         chunk_strategy: str = "semantic",
+        first_flush_delay_ms: int = 70,
+        target_buffer_delay_ms: int = 150,
+        adaptive_min_buffer_delay_ms: int = 80,
+        adaptive_max_buffer_delay_ms: int = 240,
+        release_tick_ms: int = 16,
+        max_buffer_delay_ms: int = 320,
+        max_release_utf8_bytes: int = 192,
         safety_prefix_utf8_limit: int = 512,
     ) -> None:
         self.stream_ref = str(stream_ref or "")
@@ -89,7 +110,14 @@ class AssistantStreamNormalizer:
         self.max_pending_line_count = max(1, int(max_pending_line_count))
         self.min_event_interval_ms = max(0, int(min_event_interval_ms))
         self.event_budget_per_second = max(0, int(event_budget_per_second))
-        self.chunk_strategy = _choice(chunk_strategy, default="semantic", choices={"semantic", "typing", "passthrough"})
+        self.chunk_strategy = _choice(chunk_strategy, default="semantic", choices={"semantic", "typing", "passthrough", "adaptive_buffer"})
+        self.first_flush_delay_ms = max(0, int(first_flush_delay_ms))
+        self.target_buffer_delay_ms = max(0, int(target_buffer_delay_ms))
+        self.adaptive_min_buffer_delay_ms = max(0, int(adaptive_min_buffer_delay_ms))
+        self.adaptive_max_buffer_delay_ms = max(self.adaptive_min_buffer_delay_ms, int(adaptive_max_buffer_delay_ms))
+        self.release_tick_ms = max(1, int(release_tick_ms))
+        self.max_buffer_delay_ms = max(1, int(max_buffer_delay_ms))
+        self.max_release_utf8_bytes = max(1, int(max_release_utf8_bytes))
         self.safety_prefix_utf8_limit = max(1, int(safety_prefix_utf8_limit))
         self.latest_sequence = 0
         self.safety_gate_open = False
@@ -104,6 +132,9 @@ class AssistantStreamNormalizer:
         self._coalesce_latency_ms_total = 0.0
         self._event_budget_window_started = self._pending_since
         self._event_budget_window_count = 0
+        self._adaptive_pending_segments: list[dict[str, Any]] = []
+        self._adaptive_delta_intervals_ms: list[float] = []
+        self._adaptive_last_observed_at: float | None = None
 
     @classmethod
     def from_policy(
@@ -132,6 +163,13 @@ class AssistantStreamNormalizer:
             min_event_interval_ms=policy.min_event_interval_ms,
             event_budget_per_second=policy.event_budget_per_second,
             chunk_strategy=policy.chunk_strategy,
+            first_flush_delay_ms=policy.first_flush_delay_ms,
+            target_buffer_delay_ms=policy.target_buffer_delay_ms,
+            adaptive_min_buffer_delay_ms=policy.adaptive_min_buffer_delay_ms,
+            adaptive_max_buffer_delay_ms=policy.adaptive_max_buffer_delay_ms,
+            release_tick_ms=policy.release_tick_ms,
+            max_buffer_delay_ms=policy.max_buffer_delay_ms,
+            max_release_utf8_bytes=policy.max_release_utf8_bytes,
             safety_prefix_utf8_limit=safety_prefix_utf8_limit,
         )
 
@@ -144,9 +182,22 @@ class AssistantStreamNormalizer:
             self._pending_since = now
         self.observed_content += text
         self.pending_content += text
+        self._record_adaptive_observation(text, now=now)
         if not self._ensure_safety_gate():
             return []
         return [frame.to_event() for frame in self._drain_pending(force=False, now=now)]
+
+    def drain_due(self) -> list[dict[str, Any]]:
+        if self.chunk_strategy != "adaptive_buffer":
+            return []
+        if not self.pending_content:
+            return []
+        if not self._ensure_safety_gate():
+            return []
+        return [frame.to_event() for frame in self._drain_pending(force=False, now=time.monotonic())]
+
+    def release_tick_seconds(self) -> float:
+        return max(0.001, self.release_tick_ms / 1000.0)
 
     def flush(self) -> list[dict[str, Any]]:
         if not self._ensure_safety_gate():
@@ -200,6 +251,7 @@ class AssistantStreamNormalizer:
         self.safety_gate_blocked = True
         self.safety_gate_blocked_total += 1
         self.pending_content = ""
+        self._adaptive_pending_segments.clear()
         return False
 
     def _drain_pending(self, *, force: bool, now: float) -> list[AssistantStreamFrame]:
@@ -212,6 +264,9 @@ class AssistantStreamNormalizer:
                 break
             frames.append(self._frame_from_chunk(chunk, now=now))
             self.pending_content = self.pending_content[len(chunk):]
+            self._consume_adaptive_segments(chunk)
+            if self.pending_content and self._adaptive_pending_segments:
+                self._pending_since = float(self._adaptive_pending_segments[0]["observed_at"])
             self._last_flush = now
             self._record_event_budget(now)
             if not force and self.chunk_strategy != "passthrough":
@@ -255,6 +310,8 @@ class AssistantStreamNormalizer:
             return _take_utf8_budget(pending, self._slice_utf8_budget())
         if self.chunk_strategy == "typing":
             return self._typing_slice(pending, now=now)
+        if self.chunk_strategy == "adaptive_buffer":
+            return self._adaptive_slice(pending, force=False, now=now)
         newline_limited = _line_slice(pending, max_lines=self.max_pending_line_count)
         if newline_limited:
             return newline_limited
@@ -286,6 +343,8 @@ class AssistantStreamNormalizer:
         return ""
 
     def _slice_utf8_budget(self) -> int:
+        if self.chunk_strategy == "adaptive_buffer":
+            return max(1, min(self.max_pending_utf8_bytes, self.max_release_utf8_bytes))
         if self.chunk_strategy == "typing":
             return max(1, min(self.max_pending_utf8_bytes, 48))
         if self.chunk_strategy == "passthrough":
@@ -311,6 +370,81 @@ class AssistantStreamNormalizer:
             self._event_budget_window_started = now
             self._event_budget_window_count = 0
         self._event_budget_window_count += 1
+
+    def _record_adaptive_observation(self, text: str, *, now: float) -> None:
+        if self.chunk_strategy != "adaptive_buffer" or not text:
+            return
+        if self._adaptive_last_observed_at is not None:
+            interval_ms = max(0.0, (now - self._adaptive_last_observed_at) * 1000)
+            self._adaptive_delta_intervals_ms.append(interval_ms)
+            if len(self._adaptive_delta_intervals_ms) > 24:
+                self._adaptive_delta_intervals_ms = self._adaptive_delta_intervals_ms[-24:]
+        self._adaptive_last_observed_at = now
+        self._adaptive_pending_segments.append({"text": text, "observed_at": float(now)})
+
+    def _adaptive_slice(self, pending: str, *, force: bool, now: float) -> str:
+        if force:
+            return _take_utf8_budget(pending, self._slice_utf8_budget())
+        if not self._adaptive_pending_segments:
+            elapsed_ms = (now - self._last_flush) * 1000
+            if elapsed_ms >= self.max_buffer_delay_ms:
+                return _take_utf8_budget(pending, self._slice_utf8_budget())
+            return ""
+        oldest_at = float(self._adaptive_pending_segments[0]["observed_at"])
+        oldest_age_ms = max(0.0, (now - oldest_at) * 1000)
+        delay_ms = self.first_flush_delay_ms if self.latest_sequence <= 0 else self._adaptive_delay_ms()
+        overflow = utf8_byte_length(pending) >= self.max_pending_utf8_bytes
+        stale = oldest_age_ms >= self.max_buffer_delay_ms
+        due_text = self._adaptive_due_text(now=now, delay_ms=delay_ms)
+        if not due_text and not overflow and not stale:
+            return ""
+        if not due_text:
+            due_text = pending
+        return _take_utf8_budget(due_text, self._slice_utf8_budget())
+
+    def _adaptive_due_text(self, *, now: float, delay_ms: float) -> str:
+        collected: list[str] = []
+        for segment in self._adaptive_pending_segments:
+            if (now - float(segment["observed_at"])) * 1000 < delay_ms:
+                break
+            collected.append(str(segment["text"]))
+        return "".join(collected)
+
+    def _adaptive_delay_ms(self) -> float:
+        if not self._adaptive_delta_intervals_ms:
+            return float(
+                min(
+                    max(self.target_buffer_delay_ms, self.adaptive_min_buffer_delay_ms),
+                    self.adaptive_max_buffer_delay_ms,
+                )
+            )
+        ordered = sorted(self._adaptive_delta_intervals_ms)
+        midpoint = len(ordered) // 2
+        median = ordered[midpoint] if len(ordered) % 2 else (ordered[midpoint - 1] + ordered[midpoint]) / 2
+        deviations = sorted(abs(value - median) for value in ordered)
+        jitter_midpoint = len(deviations) // 2
+        jitter = deviations[jitter_midpoint] if len(deviations) % 2 else (deviations[jitter_midpoint - 1] + deviations[jitter_midpoint]) / 2
+        calculated = 60.0 + 2.0 * median + 1.5 * jitter
+        calculated = max(float(self.adaptive_min_buffer_delay_ms), calculated)
+        calculated = min(float(self.adaptive_max_buffer_delay_ms), calculated)
+        return calculated
+
+    def _consume_adaptive_segments(self, chunk: str) -> None:
+        if self.chunk_strategy != "adaptive_buffer" or not chunk:
+            return
+        remaining = len(chunk)
+        while remaining > 0 and self._adaptive_pending_segments:
+            head = self._adaptive_pending_segments[0]
+            text = str(head["text"])
+            if remaining >= len(text):
+                remaining -= len(text)
+                self._adaptive_pending_segments.pop(0)
+                continue
+            self._adaptive_pending_segments[0] = {
+                "text": text[remaining:],
+                "observed_at": float(head["observed_at"]),
+            }
+            remaining = 0
 
 
 def _markdown_state(text: str) -> dict[str, Any]:

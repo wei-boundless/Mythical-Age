@@ -3772,12 +3772,19 @@ def _stream_policy_for_task_model_requirement(
             "enabled": True,
             "mode": str(policy.get("mode") or "model_text_stream"),
             "fallback_to_non_stream_on_error": bool(policy.get("fallback_to_non_stream_on_error", True) is not False),
-            "chunk_strategy": str(policy.get("chunk_strategy") or "passthrough"),
-            "max_flush_interval_ms": _stream_policy_int(policy.get("max_flush_interval_ms"), default=8),
-            "max_pending_utf8_bytes": _stream_policy_int(policy.get("max_pending_utf8_bytes"), default=1024),
+            "chunk_strategy": str(policy.get("chunk_strategy") or "adaptive_buffer"),
+            "first_flush_delay_ms": _stream_policy_int(policy.get("first_flush_delay_ms"), default=70),
+            "target_buffer_delay_ms": _stream_policy_int(policy.get("target_buffer_delay_ms"), default=150),
+            "adaptive_min_buffer_delay_ms": _stream_policy_int(policy.get("adaptive_min_buffer_delay_ms"), default=80),
+            "adaptive_max_buffer_delay_ms": _stream_policy_int(policy.get("adaptive_max_buffer_delay_ms"), default=240),
+            "release_tick_ms": _stream_policy_int(policy.get("release_tick_ms"), default=16),
+            "max_buffer_delay_ms": _stream_policy_int(policy.get("max_buffer_delay_ms"), default=320),
+            "max_flush_interval_ms": _stream_policy_int(policy.get("max_flush_interval_ms"), default=80),
+            "max_pending_utf8_bytes": _stream_policy_int(policy.get("max_pending_utf8_bytes"), default=1536),
+            "max_release_utf8_bytes": _stream_policy_int(policy.get("max_release_utf8_bytes"), default=192),
             "max_pending_line_count": _stream_policy_int(policy.get("max_pending_line_count"), default=1),
-            "min_event_interval_ms": _stream_policy_int(policy.get("min_event_interval_ms"), default=0),
-            "event_budget_per_second": _stream_policy_int(policy.get("event_budget_per_second"), default=0),
+            "min_event_interval_ms": _stream_policy_int(policy.get("min_event_interval_ms"), default=16),
+            "event_budget_per_second": _stream_policy_int(policy.get("event_budget_per_second"), default=45),
             "source": str(policy.get("source") or "node.contract_bindings.runtime.model_requirement.streaming_required"),
         }
     return policy
@@ -7986,7 +7993,7 @@ _DUPLICATE_GUARDED_READ_ONLY_TOOLS = frozenset(
     }
 )
 _READ_FILE_FINGERPRINT_DEFAULT_START_LINE = 1
-_READ_FILE_FINGERPRINT_DEFAULT_LINE_COUNT = 240
+_READ_FILE_FINGERPRINT_DEFAULT_LINE_COUNT = 500
 _DUPLICATE_READ_ONLY_TOOL_CALL_LIMIT = 5
 
 

@@ -56,13 +56,9 @@ class PromptCacheBreakDetector:
         previous_cache_records: list[PromptCacheRecord],
         created_at: float | None = None,
     ) -> PromptCacheBreakRecord | None:
-        if cache_record.status != "miss":
-            return None
         if not cache_record.cache_key or not cache_record.prefix_hash:
             return None
         cached_tokens = max(int(provider_usage.cached_tokens or 0), int(provider_usage.cache_read_tokens or 0))
-        if cached_tokens > 0:
-            return None
         comparable_records = [
             record
             for record in previous_cache_records
@@ -76,40 +72,107 @@ class PromptCacheBreakDetector:
             if record.cache_key == cache_record.cache_key
         ]
         latest_previous = _latest_record(comparable_records)
+        uncovered_required = _uncovered_required_segments(cache_record)
+        if uncovered_required and repeated_prefix:
+            return _build_break_record(
+                cache_record=cache_record,
+                provider_usage=provider_usage,
+                previous_repeated_records=repeated_prefix,
+                latest_previous=latest_previous,
+                reason="provider_cache_read_under_required_stable_boundary",
+                created_at=created_at,
+                extra_diagnostics={
+                    "cached_tokens": cached_tokens,
+                    "provider_cache_read_required_coverage_status": _diag_value(
+                        dict(cache_record.diagnostics or {}),
+                        "provider_cache_read_required_coverage_status",
+                    ),
+                    "provider_cache_read_uncovered_required_segments": uncovered_required,
+                    "provider_cache_read_required_segment_coverage": _diag_raw(
+                        dict(cache_record.diagnostics or {}),
+                        "provider_cache_read_required_segment_coverage",
+                    ),
+                },
+            )
+        if _stable_prefix_under_read(cache_record) and repeated_prefix:
+            return _build_break_record(
+                cache_record=cache_record,
+                provider_usage=provider_usage,
+                previous_repeated_records=repeated_prefix,
+                latest_previous=latest_previous,
+                reason="provider_cache_read_under_stable_prefix_boundary",
+                created_at=created_at,
+                extra_diagnostics={
+                    "cached_tokens": cached_tokens,
+                    "provider_cache_read_stable_prefix_estimated_tokens": _diag_raw(
+                        dict(cache_record.diagnostics or {}),
+                        "provider_cache_read_stable_prefix_estimated_tokens",
+                    ),
+                    "provider_cache_read_stable_segment_boundaries": _diag_raw(
+                        dict(cache_record.diagnostics or {}),
+                        "provider_cache_read_stable_segment_boundaries",
+                    ),
+                },
+            )
+        if cache_record.status != "miss":
+            return None
+        if cached_tokens > 0:
+            return None
         reason = "provider_reported_miss_for_repeated_provider_payload_prefix" if repeated_prefix else _changed_payload_reason(
             previous=latest_previous,
             current=cache_record,
         )
         if not reason:
             return None
-        timestamp = time.time() if created_at is None else float(created_at or 0.0)
-        return PromptCacheBreakRecord(
-            break_id=f"pcachebreak:{cache_record.request_id}",
-            request_id=cache_record.request_id,
-            provider=cache_record.provider,
-            model=cache_record.model,
-            run_id=cache_record.run_id,
-            task_run_id=cache_record.task_run_id,
-            session_id=cache_record.session_id,
-            cache_key=cache_record.cache_key,
-            prefix_hash=cache_record.prefix_hash,
+        return _build_break_record(
+            cache_record=cache_record,
+            provider_usage=provider_usage,
+            previous_repeated_records=repeated_prefix,
+            latest_previous=latest_previous,
             reason=reason,
-            created_at=timestamp,
-            diagnostics={
-                "provider_usage_ref": provider_usage.usage_id,
-                "previous_request_ids": [record.request_id for record in repeated_prefix[-5:]],
-                "previous_comparable_request_id": latest_previous.request_id if latest_previous is not None else "",
-                "boundary_segment_id": cache_record.boundary_segment_id,
-                "provider_payload": _provider_payload_diagnostics(
-                    previous=latest_previous,
-                    current=cache_record,
-                ),
-                "prompt_assembly": _prompt_assembly_diagnostics(
-                    previous=latest_previous,
-                    current=cache_record,
-                ),
-            },
+            created_at=created_at,
         )
+
+
+def _build_break_record(
+    *,
+    cache_record: PromptCacheRecord,
+    provider_usage: ModelTokenUsageRecord,
+    previous_repeated_records: list[PromptCacheRecord],
+    latest_previous: PromptCacheRecord | None,
+    reason: str,
+    created_at: float | None,
+    extra_diagnostics: dict[str, Any] | None = None,
+) -> PromptCacheBreakRecord:
+    timestamp = time.time() if created_at is None else float(created_at or 0.0)
+    return PromptCacheBreakRecord(
+        break_id=f"pcachebreak:{cache_record.request_id}",
+        request_id=cache_record.request_id,
+        provider=cache_record.provider,
+        model=cache_record.model,
+        run_id=cache_record.run_id,
+        task_run_id=cache_record.task_run_id,
+        session_id=cache_record.session_id,
+        cache_key=cache_record.cache_key,
+        prefix_hash=cache_record.prefix_hash,
+        reason=reason,
+        created_at=timestamp,
+        diagnostics={
+            "provider_usage_ref": provider_usage.usage_id,
+            "previous_request_ids": [record.request_id for record in previous_repeated_records[-5:]],
+            "previous_comparable_request_id": latest_previous.request_id if latest_previous is not None else "",
+            "boundary_segment_id": cache_record.boundary_segment_id,
+            "provider_payload": _provider_payload_diagnostics(
+                previous=latest_previous,
+                current=cache_record,
+            ),
+            "prompt_assembly": _prompt_assembly_diagnostics(
+                previous=latest_previous,
+                current=cache_record,
+            ),
+            **dict(extra_diagnostics or {}),
+        },
+    )
 
 
 def _record_scope_matches(previous: PromptCacheRecord, current: PromptCacheRecord) -> bool:
@@ -130,6 +193,21 @@ def _latest_record(records: list[PromptCacheRecord]) -> PromptCacheRecord | None
     if not records:
         return None
     return sorted(records, key=lambda item: float(item.created_at or 0.0))[-1]
+
+
+def _uncovered_required_segments(record: PromptCacheRecord) -> list[str]:
+    diagnostics = dict(record.diagnostics or {})
+    value = diagnostics.get("provider_cache_read_uncovered_required_segments")
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item or "")]
+    return []
+
+
+def _stable_prefix_under_read(record: PromptCacheRecord) -> bool:
+    diagnostics = dict(record.diagnostics or {})
+    if not diagnostics.get("provider_cache_read_stable_segment_boundaries"):
+        return False
+    return diagnostics.get("provider_cache_read_stable_prefix_covered") is False
 
 
 def _changed_payload_reason(

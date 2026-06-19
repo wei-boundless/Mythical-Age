@@ -117,7 +117,7 @@ export type ChatStreamLatencySummary = {
   event: string;
   eventOffset?: number;
   serverEventCreatedAt?: number;
-  serverSseSentAt?: number;
+  serverWsSentAt?: number;
   clientReceivedAt?: number;
   clientVisibleFlushedAt?: number;
   updatedAt: number;
@@ -492,7 +492,7 @@ export type StoreActions = {
   refreshProjectSessions: () => Promise<void>;
   createNewSession: () => Promise<void>;
   selectSession: (ref: SessionRef) => Promise<void>;
-  sendMessage: (value: string, options?: { files?: File[] }) => Promise<void>;
+  sendMessage: (value: string, options?: { files?: File[]; queuedUserMessageId?: string }) => Promise<void>;
   stopCurrentStream: () => void;
   pauseActiveTaskRun: () => Promise<void>;
   resumeActiveTaskRun: () => Promise<void>;
@@ -542,4 +542,3 @@ export type AppStore = StoreState &
   StoreActions & {
     editableFiles: string[];
   };
-

@@ -79,6 +79,11 @@ def validate_obligations(
                 for item in list(obligation.get("required_reads") or [])
                 if isinstance(item, dict) and str(item.get("path") or "").strip()
             ],
+            *[
+                str(item.get("path") or item.get("ref") or "").strip()
+                for item in list(contract.get("materials") or [])
+                if isinstance(item, dict) and str(item.get("path") or item.get("ref") or "").strip()
+            ],
             *list(getattr(goal, "required_material_paths", []) or []),
         ]
     )
@@ -93,8 +98,6 @@ def validate_obligations(
         ]
     )
     requires_material = bool(required_material_paths or getattr(goal, "requires_material_review", False))
-    if requires_material and not required_material_paths:
-        requires_material = False
     requires_write = bool(
         list(obligation.get("required_writes") or [])
         or getattr(goal, "requires_write_output", False)
@@ -124,7 +127,7 @@ def validate_obligations(
             requires_material,
             material_satisfied,
             evidence_refs=_refs_for(tool_observation_ledger, "read_material"),
-            missing_reason="missing_material_paths" if missing_material_paths else "",
+            missing_reason="missing_material_paths" if missing_material_paths else "missing_read_observation" if requires_material and not material_satisfied else "",
         )
     )
     if requires_material and not material_satisfied:

@@ -4,6 +4,7 @@ from dataclasses import is_dataclass, replace
 from types import SimpleNamespace
 from typing import Any
 
+from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_content
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
 from runtime.output_boundary import (
@@ -75,6 +76,50 @@ def build_visible_prefix_recovery_messages(
             source=str(source or VISIBLE_PREFIX_RECOVERY_PROFILE_SOURCE),
         ).messages
     ]
+
+
+def build_visible_prefix_recovery_segment_plan(
+    *,
+    base_segment_plan: dict[str, Any],
+    recovery_messages: list[dict[str, Any]],
+    packet_id: str,
+    recovery_attempt: int,
+    source: str = VISIBLE_PREFIX_RECOVERY_PROFILE_SOURCE,
+) -> dict[str, Any]:
+    base_segments = _base_segments_by_message_index(base_segment_plan)
+    specs: list[dict[str, Any]] = []
+    last_base_index = max(base_segments) if base_segments else -1
+    for index, message in enumerate([dict(item) for item in list(recovery_messages or []) if isinstance(item, dict)]):
+        base = dict(base_segments.get(index) or {})
+        if base:
+            specs.append(
+                {
+                    "role": str(message.get("role") or "user"),
+                    "content": str(message.get("content") or ""),
+                    "kind": str(base.get("kind") or "visible_prefix_recovery_base"),
+                    "source_ref": str(base.get("source_ref") or base.get("source") or "visible_prefix_recovery_base"),
+                    "cache_scope": str(base.get("cache_scope") or "none"),
+                    "cache_role": str(base.get("cache_role") or "volatile"),
+                    "prefix_tier": str(base.get("prefix_tier") or "volatile"),
+                    "compression_role": str(base.get("compression_role") or "summarize"),
+                    "metadata": dict(base.get("metadata") or {}),
+                    "model_message": dict(message),
+                }
+            )
+            continue
+        specs.append(
+            _visible_prefix_recovery_message_spec(
+                message,
+                recovery_attempt=recovery_attempt,
+                source=source,
+                suffix_index=max(1, index - last_base_index),
+            )
+        )
+    return build_prompt_segment_plan(
+        packet_id=f"{packet_id}:partial-stream-recovery:{max(1, int(recovery_attempt or 1))}",
+        invocation_kind="visible_prefix_stream_recovery",
+        message_specs=specs,
+    ).to_dict()
 
 
 def model_selection_for_visible_prefix_recovery(
@@ -188,6 +233,55 @@ def _normalize_recovery_input_messages(messages: list[Any]) -> list[dict[str, An
         if item:
             normalized.append(item)
     return normalized
+
+
+def _base_segments_by_message_index(segment_plan: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    result: dict[int, dict[str, Any]] = {}
+    for segment in list(dict(segment_plan or {}).get("segments") or []):
+        if not isinstance(segment, dict):
+            continue
+        try:
+            index = int(segment.get("model_message_index"))
+        except (TypeError, ValueError):
+            continue
+        if index >= 0:
+            result[index] = dict(segment)
+    return result
+
+
+def _visible_prefix_recovery_message_spec(
+    message: dict[str, Any],
+    *,
+    recovery_attempt: int,
+    source: str,
+    suffix_index: int,
+) -> dict[str, Any]:
+    role = str(message.get("role") or "user")
+    is_assistant_prefix = role == "assistant" and bool(message.get("prefix") is True)
+    kind = "partial_stream_recovery_visible_prefix" if is_assistant_prefix else "partial_stream_recovery_instruction"
+    return {
+        "role": role,
+        "content": str(message.get("content") or ""),
+        "kind": kind,
+        "source_ref": f"{source}:{max(1, int(recovery_attempt or 1))}:{max(1, int(suffix_index or 1))}",
+        "cache_scope": "none",
+        "cache_role": "volatile",
+        "prefix_tier": "volatile",
+        "compression_role": "preserve" if is_assistant_prefix else "summarize",
+        "metadata": {
+            "recovery_attempt": max(1, int(recovery_attempt or 1)),
+            "visible_prefix_recovery": True,
+            "volatility_reason": "partial stream recovery appends current visible prefix state and must remain outside the cacheable prefix",
+            **(
+                {
+                    "completion_mode": "chat_prefix",
+                    "provider_protocol": "deepseek_chat_prefix_completion",
+                }
+                if is_assistant_prefix
+                else {}
+            ),
+        },
+    }
 
 
 def _message_to_recovery_dict(message: Any) -> dict[str, Any]:

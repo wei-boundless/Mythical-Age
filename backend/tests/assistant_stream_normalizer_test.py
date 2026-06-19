@@ -1,7 +1,19 @@
 from __future__ import annotations
 
 from harness.loop.single_agent_turn import _assistant_stream_continuity_after_event
+import runtime.model_gateway.assistant_stream_normalizer as normalizer_module
 from runtime.model_gateway.assistant_stream_normalizer import AssistantStreamNormalizer
+
+
+class _FakeClock:
+    def __init__(self) -> None:
+        self.now = 100.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def advance_ms(self, value: float) -> None:
+        self.now += value / 1000.0
 
 
 def test_assistant_stream_policy_controls_pending_utf8_slice_size() -> None:
@@ -95,6 +107,77 @@ def test_assistant_stream_passthrough_drains_oversized_model_delta_without_waiti
 
     assert [event["content"] for event in events] == ["abcd", "efgh", "ijkl"]
     assert normalizer.flush() == []
+
+
+def test_assistant_stream_adaptive_buffer_delays_until_first_flush_window(monkeypatch) -> None:
+    clock = _FakeClock()
+    monkeypatch.setattr(normalizer_module.time, "monotonic", clock.monotonic)
+    normalizer = AssistantStreamNormalizer.from_policy(
+        stream_ref="stream:adaptive-first",
+        stream_policy={
+            "chunk_strategy": "adaptive_buffer",
+            "first_flush_delay_ms": 70,
+            "target_buffer_delay_ms": 150,
+            "adaptive_min_buffer_delay_ms": 80,
+            "adaptive_max_buffer_delay_ms": 240,
+            "max_release_utf8_bytes": 64,
+        },
+    )
+
+    assert normalizer.observe_delta("你好") == []
+    clock.advance_ms(69)
+    assert normalizer.drain_due() == []
+    clock.advance_ms(2)
+    events = normalizer.drain_due()
+
+    assert [event["content"] for event in events] == ["你好"]
+
+
+def test_assistant_stream_adaptive_due_tick_releases_without_new_provider_chunk(monkeypatch) -> None:
+    clock = _FakeClock()
+    monkeypatch.setattr(normalizer_module.time, "monotonic", clock.monotonic)
+    normalizer = AssistantStreamNormalizer.from_policy(
+        stream_ref="stream:adaptive-tick",
+        stream_policy={
+            "chunk_strategy": "adaptive_buffer",
+            "first_flush_delay_ms": 0,
+            "adaptive_min_buffer_delay_ms": 80,
+            "adaptive_max_buffer_delay_ms": 80,
+            "max_release_utf8_bytes": 64,
+        },
+    )
+
+    assert [event["content"] for event in normalizer.observe_delta("我")] == ["我"]
+    clock.advance_ms(50)
+    assert normalizer.observe_delta("正在") == []
+    clock.advance_ms(79)
+    assert normalizer.drain_due() == []
+    clock.advance_ms(2)
+    events = normalizer.drain_due()
+
+    assert [event["content"] for event in events] == ["正在"]
+
+
+def test_assistant_stream_adaptive_slices_large_due_delta(monkeypatch) -> None:
+    clock = _FakeClock()
+    monkeypatch.setattr(normalizer_module.time, "monotonic", clock.monotonic)
+    normalizer = AssistantStreamNormalizer.from_policy(
+        stream_ref="stream:adaptive-large",
+        stream_policy={
+            "chunk_strategy": "adaptive_buffer",
+            "first_flush_delay_ms": 10,
+            "max_release_utf8_bytes": 4,
+            "max_pending_utf8_bytes": 64,
+        },
+    )
+
+    assert normalizer.observe_delta("abcdefghijkl") == []
+    clock.advance_ms(10)
+    first = normalizer.drain_due()
+    second = normalizer.flush()
+
+    assert [event["content"] for event in first] == ["abcd"]
+    assert [event["content"] for event in second] == ["efgh", "ijkl"]
 
 
 def test_assistant_stream_force_flush_keeps_typing_chunk_size() -> None:

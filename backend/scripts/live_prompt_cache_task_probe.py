@@ -163,9 +163,10 @@ async def _start_task_run(runtime_facade: Any, request: HarnessRuntimeRequest, *
                 event = await asyncio.wait_for(anext(agen), timeout=min(10.0, max(0.1, deadline - time.monotonic())))
             except StopAsyncIteration:
                 break
-            events.append(dict(event))
-            task_run_id = _event_task_run_id(dict(event))
-            if task_run_id:
+            payload = dict(event)
+            events.append(payload)
+            task_run_id = _event_task_run_id(payload) or task_run_id
+            if _is_start_stream_terminal(payload):
                 break
     finally:
         await agen.aclose()
@@ -259,6 +260,16 @@ def _event_task_run_id(event: dict[str, Any]) -> str:
         if task_run_id.startswith("taskrun:"):
             return task_run_id
     return ""
+
+
+def _is_start_stream_terminal(event: dict[str, Any]) -> bool:
+    event_type = str(event.get("type") or "").strip()
+    if event_type in {"turn_completed", "done", "error", "stopped"}:
+        return True
+    runtime_event = dict(event.get("event") or {})
+    runtime_type = str(runtime_event.get("event_type") or "").strip()
+    payload = dict(runtime_event.get("payload") or {})
+    return runtime_type == "step_summary_recorded" and str(payload.get("step") or "").strip() == "task_executor_scheduled"
 
 
 def _trace_event_counts(trace: dict[str, Any] | None) -> dict[str, int]:

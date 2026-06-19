@@ -1,7 +1,9 @@
 import type {
   ActivityArchiveChildBlock,
+  BodyProjectionBlock,
   ChronologicalProjectionLedger,
   ChronologicalProjectionView,
+  LogProjectionBlock,
   ProjectionDisplayMode,
   ProjectionRenderBlock,
   StatusProjectionBlock,
@@ -61,7 +63,7 @@ export function projectionViewFromLedger(ledger: ChronologicalProjectionLedger |
     sourceEventId: event.sourceEventId,
     logRef: event.logRef,
   }));
-  const bodyBlocks = ledger.bodySegments.map((segment) => ({
+  const bodyBlocks = ledger.bodySegments.map((segment): BodyProjectionBlock => ({
     kind: "body_segment" as const,
     id: segment.id,
     text: segment.text,
@@ -72,7 +74,7 @@ export function projectionViewFromLedger(ledger: ChronologicalProjectionLedger |
     retention: segment.retention,
     mainVisibility: segment.mainVisibility,
   }));
-  const activityBlocks = [...todoBlocks, ...toolBlocks, ...statusBlocks];
+  const activityBlocks: ActivityArchiveChildBlock[] = [...todoBlocks, ...toolBlocks, ...statusBlocks];
   const finalBodyBoundaryOffset = finalBodyBoundaryOffsetFrom(bodyBlocks);
   const hasFinalBodyBoundary = finalBodyBoundaryOffset !== undefined;
   const closeoutMode = displayMode === "committed" || displayMode === "closeout";
@@ -81,7 +83,7 @@ export function projectionViewFromLedger(ledger: ChronologicalProjectionLedger |
   const archivedBodyBlocks = closeoutViewMode
     ? bodyBlocks.filter((block) => isArchivedBodyBlock(block, finalBodyBoundaryOffset))
     : [];
-  const lifecycleBlocks = closeoutViewMode
+  const lifecycleBlocks: ProjectionRenderBlock[] = closeoutViewMode
     ? activityArchiveBlocks(
         ledger,
         [
@@ -91,7 +93,7 @@ export function projectionViewFromLedger(ledger: ChronologicalProjectionLedger |
       )
     : activityBlocks;
   const recoveryOrTerminalBlocks = statusBlocks.filter((block) => block.kind === "recovery_event" || block.kind === "terminal_event");
-  const logBlocks = (displayMode === "committed" || displayMode === "closeout" || displayMode === "recovery")
+  const logBlocks: LogProjectionBlock[] = (displayMode === "committed" || displayMode === "closeout" || displayMode === "recovery")
     && (toolBlocks.length || recoveryOrTerminalBlocks.length)
     ? [{
         kind: "log_entry" as const,
@@ -203,10 +205,10 @@ function isExplicitFinalBodyBlock(block: { sourceEventType?: string; mainVisibil
 }
 
 function visibleTimelineBodyBlocks(
-  bodyBlocks: Array<{ id?: string; firstOffset?: number; retention?: string; sourceEventType?: string; mainVisibility?: string; text?: string }>,
+  bodyBlocks: BodyProjectionBlock[],
   finalBodyBoundaryOffset?: number,
   closeoutMode = false,
-) {
+): BodyProjectionBlock[] {
   if (finalBodyBoundaryOffset === undefined) return bodyBlocks;
   if (closeoutMode) return [];
   return bodyBlocks.filter((block) =>

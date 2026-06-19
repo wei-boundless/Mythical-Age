@@ -4,7 +4,7 @@ from typing import Any
 
 import re
 
-from request_intent.frame_access import capability_needs, explicit_paths, material_kinds, turn_signals
+from request_intent.frame_access import explicit_paths, material_kinds, target_domain_hints, turn_signals
 from context_system.current_turn.turn_binding import BundleItem, TurnBinding, ResolvedBinding
 
 
@@ -150,13 +150,27 @@ class ContextResolver:
                 result[key] = value
         if signals.get("followup_ordinals"):
             result["followup_ordinals"] = list(signals.get("followup_ordinals") or [])
-        capability_requests = [
-            str(item).strip()
-            for item in sorted(capability_needs(understanding))
-            if str(item).strip()
-        ]
+        capability_intent_payload = dict(understanding.get("capability_intent") or {})
+        capability_requests = _dedupe_text(
+            [
+                str(item).strip()
+                for item in [
+                    *list(understanding.get("capability_needs") or []),
+                    *list(capability_intent_payload.get("capability_needs") or []),
+                    *list(signals.get("weak_capability_needs") or []),
+                ]
+                if str(item).strip()
+            ]
+        )
         if capability_requests:
             result["capability_requests"] = capability_requests
+        domain_hints = [
+            str(item).strip()
+            for item in sorted(target_domain_hints(understanding))
+            if str(item).strip()
+        ]
+        if domain_hints:
+            result["target_domain_hints"] = domain_hints
         return result
 
     def _resolved_bindings(
@@ -262,15 +276,19 @@ class ContextResolver:
         if followup_items:
             return followup_items
         message = str(user_message or "").strip()
-        if not _looks_compound(message):
+        capabilities = _structured_bundle_capabilities(
+            message=message,
+            explicit_inputs=explicit_inputs,
+            bindings=bindings,
+        )
+        if len(capabilities) < 2 or not _looks_compound(message):
             return []
         bundle_id = f"bundle:{task_id}"
         parts = [part.strip(" ，,；;") for part in _ORDER_SPLIT_RE.split(message) if part.strip(" ，,；;")]
         items: list[BundleItem] = []
-        for part in parts:
-            capability, tool = _capability_for_text(part)
-            if not capability:
-                continue
+        for index, capability in enumerate(capabilities):
+            part = parts[index] if index < len(parts) else message
+            tool = _tool_for_capability(capability)
             binding = _binding_for_capability(capability, bindings)
             source_kind = _source_kind_for_capability(capability)
             target_ref = ""
@@ -303,34 +321,50 @@ def _looks_compound(message: str) -> bool:
     lowered = message.lower()
     if _looks_like_creative_writing_runtime_packet(lowered):
         return False
-    markers = len(re.findall(r"(?<!优)先|再|然后|最后|并且|以及", lowered))
-    domains = sum(
-        1
-        for matched in (
-            any(item in lowered for item in ("pdf", ".pdf", "报告")) or _looks_like_document_scope(lowered),
-            any(item in lowered for item in (".xlsx", ".csv", "表", "仓库", "缺货")),
-            any(item in lowered for item in ("天气", "weather")),
-            any(item in lowered for item in ("黄金", "金价", "gold")),
-        )
-        if matched
-    )
-    return markers >= 2 or domains >= 2
+    return len(re.findall(r"(?<!优)先|再|然后|最后|并且|以及", lowered)) >= 1
 
 
-def _capability_for_text(text: str) -> tuple[str, str]:
-    lowered = text.lower()
-    if (
-        (any(item in lowered for item in ("pdf", ".pdf", "报告")) or _looks_like_document_scope(lowered))
-        and not any(item in lowered for item in ("天气", "黄金", "金价"))
-    ):
-        return "pdf", ""
-    if any(item in lowered for item in (".xlsx", ".csv", "表", "仓库", "缺货", "库存")):
-        return "structured_data", ""
-    if any(item in lowered for item in ("天气", "weather")):
-        return "realtime_network", "web_search"
-    if any(item in lowered for item in ("黄金", "金价", "gold")):
-        return "realtime_network", "web_search"
-    return "", ""
+def _structured_bundle_capabilities(
+    *,
+    message: str,
+    explicit_inputs: dict[str, Any],
+    bindings: list[ResolvedBinding],
+) -> list[str]:
+    capabilities: list[str] = []
+    if explicit_inputs.get("explicit_pdf_path"):
+        capabilities.append("pdf")
+    if explicit_inputs.get("explicit_dataset_path"):
+        capabilities.append("structured_data")
+    for value in list(explicit_inputs.get("capability_requests") or []):
+        capability = _capability_from_structured_signal(str(value or ""))
+        if capability:
+            capabilities.append(capability)
+    for value in list(explicit_inputs.get("target_domain_hints") or []):
+        capability = _capability_from_structured_signal(str(value or ""))
+        if capability:
+            capabilities.append(capability)
+    if _looks_like_document_scope(message) and _binding_for_capability("pdf", bindings) is not None:
+        capabilities.append("pdf")
+    return _dedupe_text(capabilities)
+
+
+def _capability_from_structured_signal(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"pdf", "pdf_material", "document_pdf", "document"}:
+        return "pdf"
+    if normalized in {"dataset", "dataset_material", "structured_data", "spreadsheet", "table_data"}:
+        return "structured_data"
+    if normalized in {"realtime_network", "external_web", "web_search", "latest_information"}:
+        return "realtime_network"
+    if normalized in {"retrieval", "rag", "knowledge_lookup"}:
+        return "retrieval"
+    return ""
+
+
+def _tool_for_capability(capability: str) -> str:
+    if capability == "realtime_network":
+        return "web_search"
+    return ""
 
 
 def _looks_like_creative_writing_runtime_packet(text: str) -> bool:
@@ -348,7 +382,7 @@ def _looks_like_document_scope(text: str) -> bool:
         return False
     if _looks_like_creative_writing_runtime_packet(text):
         return False
-    return any(marker in text for marker in ("pdf", ".pdf", "报告", "文档", "文件", "材料", "阅读", "抽取", "页码", "目录"))
+    return any(marker in text for marker in ("pdf", ".pdf", "文档", "文件", "材料", "阅读", "抽取", "页码", "目录"))
 
 
 def _source_kind_for_capability(capability: str) -> str:

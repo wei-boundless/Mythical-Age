@@ -1458,9 +1458,9 @@ def _read_missing_window_decisions(item: dict[str, Any], *, active_ranges: list[
         end_line = _safe_int(segment.get("end_line"))
         if start_line <= 0:
             continue
-        line_count = 240
+        line_count = 500
         if end_line >= start_line:
-            line_count = max(1, min(240, end_line - start_line + 1))
+            line_count = max(1, min(500, end_line - start_line + 1))
         windows.append(
             drop_empty(
                 {

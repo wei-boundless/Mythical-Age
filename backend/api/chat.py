@@ -9,8 +9,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, Query
-from fastapi.responses import Response, StreamingResponse
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.deps import require_runtime
@@ -57,7 +57,6 @@ from runtime.shared.queued_user_input_dispatcher import (
 )
 from runtime.shared.queued_user_input_store import QueuedUserInput
 from runtime.shared.runtime_run_registry import RuntimeRun
-from runtime.shared.stream_replay import parse_stream_event_id
 from sessions import SessionProjectBindingConflict, validate_session_id
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 from capability_system.capabilities.attachments import SUPPORTED_ATTACHMENT_IMAGE_SUFFIXES
@@ -718,41 +717,16 @@ async def get_latest_session_continuation(session_id: str):
     }
 
 
-@router.get("/chat/runs/{stream_run_id}/events")
-async def get_chat_run_events(
+@router.get("/chat/runs/{stream_run_id}/events/replay")
+async def replay_chat_run_events(
     stream_run_id: str,
-    after_offset: int | None = Query(default=None),
-    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+    after_offset: int = Query(default=-1),
+    limit: int = Query(default=500, ge=1, le=2000),
 ):
     runtime = require_runtime()
     run = _get_run_or_404(runtime, stream_run_id)
-    effective_after_offset = _resolve_after_offset(
-        run,
-        after_offset=after_offset,
-        last_event_id=last_event_id,
-    )
-    return StreamingResponse(
-        _stream_run_events(runtime, run, after_offset=effective_after_offset),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
-
-
-@router.post("/chat/runs/{stream_run_id}/resume")
-async def resume_chat_run(stream_run_id: str):
-    runtime = require_runtime()
-    run = _get_run_or_404(runtime, stream_run_id)
-    # Resume is intentionally attach-only here. Re-executing the original user
-    # message would duplicate model/tool side effects; actual task continuation
-    # remains owned by the runtime resume and execution-record paths.
-    return {
-        **_run_response(runtime, run),
-        "resume_mode": "attach_existing_run",
-    }
+    replay = runtime.harness_runtime.single_agent_runtime_host.stream_replay
+    return replay.public_replay_response(run, after_offset=int(after_offset), limit=int(limit))
 
 
 def _query_request_from_payload(
@@ -2274,82 +2248,6 @@ def _safe_update_run(registry: Any, stream_run_id: str, *, fallback: RuntimeRun,
         return fallback
 
 
-async def _stream_run_events(runtime: Any, run: RuntimeRun, *, after_offset: int):
-    host = runtime.harness_runtime.single_agent_runtime_host
-    registry = host.run_registry
-    replay = host.stream_replay
-    subscription = host.event_log.subscribe(run_id=run.event_log_id)
-    latest_offset = int(after_offset)
-    try:
-        yield "retry: 1500\n\n"
-        replay_events = replay.list_public_events_after(run, after_offset=latest_offset)
-        latest_terminal_offset = max(
-            (event.offset for event in replay_events if replay.is_terminal_event(event)),
-            default=-1,
-        )
-        for event in replay_events:
-            latest_offset = max(latest_offset, event.offset)
-            current = registry.get_run(run.stream_run_id) or run
-            is_terminal = replay.is_terminal_event(event)
-            if is_terminal and event.offset < latest_terminal_offset:
-                continue
-            yield replay.to_public_sse(current, event)
-            if is_terminal:
-                return
-        last_keepalive_at = time.time()
-        poll_interval_seconds = 0.05
-        while True:
-            current = registry.get_run(run.stream_run_id) or run
-            catchup_events = [
-                candidate
-                for candidate in replay.list_public_events_after(run, after_offset=latest_offset)
-                if candidate.offset > latest_offset
-            ]
-            if catchup_events:
-                for catchup in catchup_events:
-                    if str(catchup.event_type) != "chat_stream_event":
-                        continue
-                    current = registry.get_run(run.stream_run_id) or run
-                    latest_offset = max(latest_offset, catchup.offset)
-                    yield replay.to_public_sse(current, catchup)
-                    if replay.is_terminal_event(catchup):
-                        return
-                continue
-            if current.status in {"completed", "failed", "stopped", "orphaned"} and current.latest_event_offset <= latest_offset:
-                return
-            try:
-                event = await asyncio.wait_for(subscription.queue.get(), timeout=poll_interval_seconds)
-            except asyncio.TimeoutError:
-                now = time.time()
-                if now - last_keepalive_at >= 15.0:
-                    last_keepalive_at = now
-                    yield ": keepalive\n\n"
-                continue
-            if event.offset <= latest_offset or str(event.event_type) != "chat_stream_event":
-                continue
-            if event.offset > latest_offset + 1:
-                continue
-            latest_offset = max(latest_offset, event.offset)
-            yield replay.to_public_sse(current, event)
-            if replay.is_terminal_event(event):
-                return
-    finally:
-        host.event_log.unsubscribe(subscription)
-
-
-def _resolve_after_offset(run: RuntimeRun, *, after_offset: int | None, last_event_id: str | None) -> int:
-    if after_offset is not None:
-        return int(after_offset)
-    cursor = parse_stream_event_id(
-        str(last_event_id or ""),
-        expected_stream_run_id=run.stream_run_id,
-        expected_event_log_id=run.event_log_id,
-    )
-    if cursor is not None:
-        return cursor.last_event_offset
-    return -1
-
-
 def _get_run_or_404(runtime: Any, stream_run_id: str) -> RuntimeRun:
     run = runtime.harness_runtime.single_agent_runtime_host.run_registry.get_run(stream_run_id)
     if run is None:
@@ -2411,7 +2309,8 @@ def _run_response(runtime: Any, run: RuntimeRun) -> dict[str, Any]:
         "active_turn_snapshot": active_turn_snapshot,
         "is_reconnectable": run.reconnectable_until >= time.time()
         and run.status not in TERMINAL_RUN_STATUSES,
-        "stream_url": f"/api/chat/runs/{run.stream_run_id}/events",
+        "replay_url": f"/api/chat/runs/{run.stream_run_id}/events/replay",
+        "live_ws_url": f"/api/chat/sessions/{run.session_id}/live",
     }
 
 

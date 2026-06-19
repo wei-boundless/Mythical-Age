@@ -2,19 +2,70 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+from harness.graph.checkpoint_store import GraphCheckpointRecord
 from harness.graph.flow_edges import build_inbound_flow_edges, build_outbound_flow_edges
 from harness.graph.context_materializer import GraphContextMaterializer
 from harness.graph.flow_packet import build_flow_packet, flow_packet_inbound_projection
+from harness.graph.loop import GraphLoop
 from harness.graph.models import GraphLoopState
 from harness.graph.models import GraphHarnessConfig, NodeResultEnvelope
 from harness.graph.scheduler_view import build_scheduler_view
 from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
+
+
+class _CheckpointStore:
+    def __init__(self) -> None:
+        self.records: list[GraphCheckpointRecord] = []
+
+    def put_checkpoint(self, *, state: GraphLoopState, metadata: dict[str, Any] | None = None) -> GraphCheckpointRecord:
+        record = GraphCheckpointRecord(
+            checkpoint_id=f"checkpoint:{len(self.records) + 1}",
+            graph_run_id=state.graph_run_id,
+            task_run_id=state.task_run_id,
+            config_id=state.config_id,
+            config_hash=state.config_hash,
+            event_cursor=state.event_cursor,
+            state=state.to_dict(),
+            metadata=dict(metadata or {}),
+        )
+        self.records.append(record)
+        return record
+
+    def get_latest_state(self, graph_run_id: str) -> dict[str, Any] | None:
+        for record in reversed(self.records):
+            if record.graph_run_id == graph_run_id:
+                return dict(record.state)
+        return None
+
+    def get_latest_checkpoint(self, graph_run_id: str) -> GraphCheckpointRecord | None:
+        for record in reversed(self.records):
+            if record.graph_run_id == graph_run_id:
+                return record
+        return None
+
+    def list_checkpoints(self, graph_run_id: str, *, limit: int | None = None) -> tuple[GraphCheckpointRecord, ...]:
+        records = tuple(record for record in self.records if record.graph_run_id == graph_run_id)
+        return records[-limit:] if limit else records
+
+    def put_pending_writes(self, *, graph_run_id: str, task_id: str, writes: tuple[tuple[str, Any], ...]) -> None:
+        del graph_run_id, task_id, writes
+
+
+def _graph_loop_services() -> SimpleNamespace:
+    return SimpleNamespace(
+        graph_checkpoint_store=_CheckpointStore(),
+        event_log=SimpleNamespace(append=lambda *_args, **_kwargs: SimpleNamespace(to_dict=lambda: {})),
+        runtime_objects=SimpleNamespace(get_object=lambda _ref: None, put_object=lambda *_args, **_kwargs: ""),
+        state_index=SimpleNamespace(get_task_run=lambda _task_run_id: None),
+    )
 
 
 def _config(edges: tuple[dict, ...]) -> GraphHarnessConfig:
@@ -245,7 +296,7 @@ def test_resource_flow_edges_materialize_as_view_requests_not_result_context() -
                 "scheduler_role": "context",
             },
         )
-    )
+    ).with_content_identity(config_id="ghcfg:test:flow_edges")
     state = GraphLoopState(
         state_id="gstate:test",
         graph_run_id="grun:test",
@@ -255,7 +306,10 @@ def test_resource_flow_edges_materialize_as_view_requests_not_result_context() -
         config_hash=graph_config.content_hash,
         graph_id=graph_config.graph_id,
         status="running",
-        node_states={"draft": {"node_id": "draft", "status": "ready"}},
+        node_states={
+            "plan": {"node_id": "plan", "status": "completed"},
+            "draft": {"node_id": "draft", "status": "ready"},
+        },
     )
     node = {"node_id": "draft", "node_type": "agent", "title": "起草"}
 
@@ -273,14 +327,19 @@ def test_resource_flow_edges_materialize_as_view_requests_not_result_context() -
     assert [item["edge_id"] for item in package["artifact_view"]["graph_artifact_policy"]["context_edges"]] == ["edge.plan.draft.artifact"]
     assert [item["edge_id"] for item in package["file_view"]["graph_resource_policy"]["file_context_edges"]] == ["edge.plan.draft.file"]
 
-    try:
-        materializer.build_work_order(graph_config=graph_config, state=state, node=node)
-        raised = None
-    except ValueError as exc:
-        raised = exc
+    services = _graph_loop_services()
+    services.graph_checkpoint_store.put_checkpoint(state=state)
 
-    assert raised is not None
-    assert "formal_memory_service" in str(raised)
+    dispatch = GraphLoop(services=services).dispatch_ready_and_checkpoint(
+        graph_config=graph_config,
+        graph_run_id=state.graph_run_id,
+    )
+
+    blocked = dispatch.loop_state.node_states["draft"]
+    assert dispatch.node_work_orders == ()
+    assert dispatch.loop_state.status == "blocked"
+    assert dispatch.loop_state.blocked_node_ids == ("draft",)
+    assert blocked["blocked_reason"] == "memory_context:formal_memory_service_unavailable"
 
 
 def test_published_graph_includes_node_and_edge_protocol_indexes() -> None:

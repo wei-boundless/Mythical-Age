@@ -22,6 +22,7 @@ from .context_materializer import GraphContextMaterializer
 from .edge_contracts import edge_contract_or_projection
 from .flow_edges import build_outbound_flow_edges
 from .language import REVISION_EDGE_TYPES
+from .memory_context import GraphMemoryContextResolutionError
 from .model_overrides import merge_runtime_settings
 from .models import (
     GraphHarnessConfig,
@@ -145,9 +146,9 @@ class GraphLoop:
                 "scheduler": scheduler_view.diagnostics,
             },
         )
-        work_orders = self.dispatch_ready(graph_config=graph_config, state=state) if dispatch_ready and not terminal_status else ()
-        if work_orders:
-            state = _state_with_work_orders(state, work_orders, services=self._services)
+        work_orders: tuple[GraphNodeWorkOrder, ...] = ()
+        if dispatch_ready and not terminal_status:
+            state, work_orders = self._dispatch_ready_with_state(graph_config=graph_config, state=state)
         graph_result = None
         if terminal_status:
             graph_result = _graph_result(
@@ -209,6 +210,37 @@ class GraphLoop:
             orders.append(self._context_materializer.build_work_order(graph_config=graph_config, state=state, node=node))
         return tuple(orders)
 
+    def _dispatch_ready_with_state(
+        self,
+        *,
+        graph_config: GraphHarnessConfig,
+        state: GraphLoopState,
+        max_requests: int | None = None,
+    ) -> tuple[GraphLoopState, tuple[GraphNodeWorkOrder, ...]]:
+        try:
+            work_orders = self.dispatch_ready(
+                graph_config=graph_config,
+                state=state,
+                max_requests=max_requests,
+            )
+            next_state = _state_with_work_orders(state, work_orders, services=self._services) if work_orders else state
+            return next_state, work_orders
+        except GraphMemoryContextResolutionError as exc:
+            node_id = exc.node_id
+            if not node_id:
+                raise
+            blocked = _dispatch_block_payload(node_id=node_id, error=exc)
+            return (
+                _state_after_dispatch_block(
+                    graph_config=graph_config,
+                    state=state,
+                    node_id=node_id,
+                    block=blocked,
+                    state_machine=self._state_machine,
+                ),
+                (),
+            )
+
     def dispatch_ready_and_checkpoint(
         self,
         *,
@@ -220,12 +252,11 @@ class GraphLoop:
         if state is None:
             raise ValueError(f"GraphLoopState not found: {graph_run_id}")
         assert_graph_config_compatible_with_state(graph_config=graph_config, state=state)
-        work_orders = self.dispatch_ready(
+        next_state, work_orders = self._dispatch_ready_with_state(
             graph_config=graph_config,
             state=state,
             max_requests=max_requests,
         )
-        next_state = _state_with_work_orders(state, work_orders, services=self._services) if work_orders else state
         next_state = _advance_event_cursor(next_state)
         checkpoint = self._write_state(next_state, pending_work_orders=work_orders)
         events = []
@@ -393,9 +424,10 @@ class GraphLoop:
             blocked_node_ids=status_snapshot.blocked_node_ids,
             terminal_reason=status_snapshot.terminal_reason,
         )
-        work_orders = () if graph_result is not None or status_snapshot.status in {"blocked", "waiting_human_gate"} else self.dispatch_ready(graph_config=graph_config, state=next_state)
-        if work_orders:
-            next_state = _state_with_work_orders(next_state, work_orders, services=self._services)
+        if graph_result is not None or status_snapshot.status in {"blocked", "waiting_human_gate"}:
+            work_orders = ()
+        else:
+            next_state, work_orders = self._dispatch_ready_with_state(graph_config=graph_config, state=next_state)
         next_state = _advance_event_cursor(next_state)
         checkpoint = self._write_state(next_state, pending_work_orders=work_orders)
         events = [
@@ -822,9 +854,14 @@ class GraphLoop:
             failed_node_ids=tuple(node for node, payload in node_states.items() if str(payload.get("status") or "") == "failed"),
             blocked_node_ids=tuple(node for node, payload in node_states.items() if str(payload.get("status") or "") in {"blocked", "waiting_human_gate"}),
         )
-        work_orders = () if graph_result is not None or status in {"blocked", "waiting_human_gate"} else self.dispatch_ready(graph_config=graph_config, state=next_state, max_requests=max_requests)
-        if work_orders:
-            next_state = _state_with_work_orders(next_state, work_orders, services=self._services)
+        if graph_result is not None or status in {"blocked", "waiting_human_gate"}:
+            work_orders = ()
+        else:
+            next_state, work_orders = self._dispatch_ready_with_state(
+                graph_config=graph_config,
+                state=next_state,
+                max_requests=max_requests,
+            )
         next_state = _advance_event_cursor(next_state)
         checkpoint = self._write_state(next_state, pending_work_orders=work_orders)
         events = [
@@ -995,13 +1032,14 @@ class GraphLoop:
             blocked_node_ids=status_snapshot.blocked_node_ids,
             terminal_reason=status_snapshot.terminal_reason,
         )
-        work_orders = (
-            ()
-            if graph_result is not None or status_snapshot.status in {"blocked", "waiting_human_gate"}
-            else self.dispatch_ready(graph_config=graph_config, state=next_state, max_requests=max_requests)
-        )
-        if work_orders:
-            next_state = _state_with_work_orders(next_state, work_orders, services=self._services)
+        if graph_result is not None or status_snapshot.status in {"blocked", "waiting_human_gate"}:
+            work_orders = ()
+        else:
+            next_state, work_orders = self._dispatch_ready_with_state(
+                graph_config=graph_config,
+                state=next_state,
+                max_requests=max_requests,
+            )
         next_state = _advance_event_cursor(next_state)
         checkpoint = self._write_state(next_state, pending_work_orders=work_orders)
         packet_ref = str(dict(next_state.edge_states.get(edge_id) or {}).get("latest_packet_ref") or "")
@@ -3610,6 +3648,64 @@ def _revision_targets_require_execution_range(
         if str(retry_policy.get("requirements_input_key") or "").strip() == "chapter_revision_requirements":
             return True
     return False
+
+
+def _dispatch_block_payload(*, node_id: str, error: GraphMemoryContextResolutionError) -> dict[str, Any]:
+    reason = str(error.reason or "memory_context_resolution_failed").strip()
+    return _drop_empty(
+        {
+            "reason": reason,
+            "node_id": str(node_id or error.node_id or "").strip(),
+            "work_order_id": error.work_order_id,
+            "message": str(error),
+            "details": dict(error.details or {}),
+            "blocked_reason": f"memory_context:{reason}",
+            "authority": "harness.graph.dispatch_block",
+        }
+    )
+
+
+def _state_after_dispatch_block(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    node_id: str,
+    block: dict[str, Any],
+    state_machine: GraphStateMachine,
+) -> GraphLoopState:
+    node_states = {key: dict(value) for key, value in state.node_states.items()}
+    node_state = dict(node_states.get(node_id) or {"node_id": node_id})
+    node_state["status"] = "blocked"
+    node_state["blocked_reason"] = str(dict(block).get("blocked_reason") or "dispatch_blocked")
+    node_state["dispatch_block"] = dict(block)
+    node_state["updated_at"] = time.time()
+    node_states[node_id] = node_state
+    diagnostics = dict(state.diagnostics or {})
+    dispatch_blocks = [dict(item) for item in list(diagnostics.get("dispatch_blocks") or []) if isinstance(item, dict)]
+    dispatch_blocks.append(dict(block))
+    diagnostics["dispatch_blocks"] = dispatch_blocks[-24:]
+    active_work_orders = dict(state.active_work_orders or {})
+    active_work_orders.pop(node_id, None)
+    status_snapshot = state_machine.status_snapshot(
+        graph_config=graph_config,
+        node_states=node_states,
+        edge_states={key: dict(value) for key, value in state.edge_states.items()},
+        active_work_orders=active_work_orders,
+        loop_state=state.loop_state,
+    )
+    return _replace_state(
+        state,
+        status=status_snapshot.status,
+        node_states=node_states,
+        active_work_orders=active_work_orders,
+        ready_node_ids=status_snapshot.ready_node_ids,
+        running_node_ids=status_snapshot.running_node_ids,
+        completed_node_ids=status_snapshot.completed_node_ids,
+        failed_node_ids=status_snapshot.failed_node_ids,
+        blocked_node_ids=status_snapshot.blocked_node_ids,
+        terminal_reason=status_snapshot.terminal_reason,
+        diagnostics=diagnostics,
+    )
 
 
 def _state_with_work_orders(

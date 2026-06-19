@@ -18,6 +18,7 @@ from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_con
 from runtime.model_gateway.stream_recovery import (
     VISIBLE_PREFIX_RECOVERY_MODE,
     build_visible_prefix_recovery_messages,
+    build_visible_prefix_recovery_segment_plan,
     continuation_after_visible_prefix,
     model_selection_for_visible_prefix_recovery,
     recovery_attempts_from_policy,
@@ -25,6 +26,7 @@ from runtime.model_gateway.stream_recovery import (
     stream_error_code,
     visible_prefix_utf8_bytes,
 )
+from runtime.model_gateway.stream_iteration import iterate_stream_with_due_ticks
 from task_system.runtime_semantics.protocol_boundary import detect_protocol_leak
 from orchestration.commit_gate import build_blocked_runtime_commit_gate
 from orchestration.runtime_directive import RuntimeDirective
@@ -129,7 +131,7 @@ class ModelResponseRuntimeExecutor:
         try:
             if stream_enabled and tools and callable(tool_streamer):
                 aggregated_chunk = None
-                async for chunk in _iterate_stream_with_hard_timeout(
+                async for stream_item_kind, chunk in iterate_stream_with_due_ticks(
                     _call_streamer_with_optional_model_spec(
                         tool_streamer,
                         model_messages,
@@ -139,7 +141,14 @@ class ModelResponseRuntimeExecutor:
                         accounting_context=accounting_context,
                     ),
                     timeout_seconds=response_timeout_seconds,
+                    tick_seconds=assistant_normalizer.release_tick_seconds() if assistant_normalizer is not None else response_timeout_seconds,
                 ):
+                    if stream_item_kind == "tick":
+                        if assistant_normalizer is not None:
+                            for frame_event in assistant_normalizer.drain_due():
+                                public_delta_count += 1
+                                yield frame_event
+                        continue
                     aggregated_chunk = chunk if aggregated_chunk is None else aggregated_chunk + chunk
                     delta_text = _chunk_text(chunk)
                     if not delta_text:
@@ -151,7 +160,7 @@ class ModelResponseRuntimeExecutor:
                             yield frame_event
                 response = aggregated_chunk if aggregated_chunk is not None else raw_content
             elif stream_enabled and callable(plain_streamer):
-                async for chunk in _iterate_stream_with_hard_timeout(
+                async for stream_item_kind, chunk in iterate_stream_with_due_ticks(
                     _call_streamer_with_optional_model_spec(
                         plain_streamer,
                         model_messages,
@@ -159,7 +168,14 @@ class ModelResponseRuntimeExecutor:
                         accounting_context=accounting_context,
                     ),
                     timeout_seconds=response_timeout_seconds,
+                    tick_seconds=assistant_normalizer.release_tick_seconds() if assistant_normalizer is not None else response_timeout_seconds,
                 ):
+                    if stream_item_kind == "tick":
+                        if assistant_normalizer is not None:
+                            for frame_event in assistant_normalizer.drain_due():
+                                public_delta_count += 1
+                                yield frame_event
+                        continue
                     delta_text = _chunk_text(chunk)
                     if not delta_text:
                         continue
@@ -810,6 +826,13 @@ async def _recover_visible_prefix_stream(
         source=_MODEL_RESPONSE_PARTIAL_STREAM_RECOVERY_SOURCE,
     )
     for recovery_attempt in range(1, recovery_attempts + 1):
+        recovery_segment_plan = build_visible_prefix_recovery_segment_plan(
+            base_segment_plan=dict(accounting_context.get("segment_plan") or {}),
+            recovery_messages=recovery_messages,
+            packet_id=str(accounting_context.get("packet_ref") or stream_ref),
+            recovery_attempt=recovery_attempt,
+            source=_MODEL_RESPONSE_PARTIAL_STREAM_RECOVERY_SOURCE,
+        )
         try:
             recovery_response = await _await_model_invocation(
                 lambda: _call_invoker_with_optional_model_spec(
@@ -819,6 +842,12 @@ async def _recover_visible_prefix_stream(
                     accounting_context={
                         **recovery_context,
                         "request_id": f"{stream_ref}:partial-stream-recovery:{recovery_attempt}",
+                        "segment_plan": recovery_segment_plan,
+                        "prompt_manifest": {
+                            **dict(recovery_context.get("prompt_manifest") or {}),
+                            "invocation_kind": "runtime_directive_model_response_partial_stream_recovery",
+                            "segment_plan_ref": str(recovery_segment_plan.get("segment_plan_id") or ""),
+                        },
                         "stream_recovery": {
                             **dict(recovery_context.get("stream_recovery") or {}),
                             "attempt": recovery_attempt,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 from dataclasses import replace
 from typing import Any
@@ -15,6 +16,15 @@ from .provider_payload_boundary import (
     provider_payload_selected_tier,
     provider_payload_tier_prefix,
 )
+
+
+CACHE_READ_REQUIRED_SEGMENT_KINDS = {
+    "global_static",
+    "action_schema_static",
+    "tool_schema_catalog",
+    "tool_index_stable",
+    "task_contract_stable",
+}
 
 
 def stable_text_hash(text: str) -> str:
@@ -193,6 +203,11 @@ class PromptCachePlanner:
             cache_savings_tokens=cached,
             diagnostics={
                 **dict(record.diagnostics or {}),
+                **_provider_cache_read_coverage_diagnostics(
+                    diagnostics=dict(record.diagnostics or {}),
+                    usage=usage,
+                    cached_tokens=cached,
+                ),
                 "provider_usage_ref": usage.usage_id,
                 "provider_cached_tokens": cached,
             },
@@ -284,6 +299,7 @@ def _prefix_diagnostics(
         "append_only_replay_volatile_predicted_tokens": replay_volatile_tokens,
         "read_evidence_exact_predicted_tokens": read_evidence_tokens,
         "volatile_task_state_predicted_tokens": volatile_task_state_tokens,
+        **_stable_segment_boundary_diagnostics(segment_map),
         **_cache_read_target_diagnostics(
             segment_map=segment_map,
             prefix_tokens=task_tokens,
@@ -339,6 +355,154 @@ def _top_volatile_segment_families(segment_map: PromptSegmentMap, *, limit: int 
         for item in ordered
         if int(item["predicted_tokens"]) > 0
     ]
+
+
+def _stable_segment_boundary_diagnostics(segment_map: PromptSegmentMap) -> dict[str, Any]:
+    boundaries: list[dict[str, Any]] = []
+    required: list[dict[str, Any]] = []
+    cumulative = 0
+    for segment in segment_map.segments:
+        tokens = int(segment.predicted_tokens or 0)
+        cumulative += tokens
+        tier = str(segment.prefix_tier or "")
+        if not is_cache_eligible_prefix(cache_role=segment.cache_role, prefix_tier=tier):
+            break
+        metadata = dict(segment.metadata or {})
+        item = {
+            "kind": str(segment.kind or ""),
+            "ordinal": int(segment.ordinal or 0),
+            "cache_role": str(segment.cache_role or ""),
+            "prefix_tier": tier,
+            "predicted_tokens": tokens,
+            "cumulative_predicted_tokens": cumulative,
+            "authority_class": str(metadata.get("authority_class") or segment.authority_class or ""),
+            "source": str(segment.source or ""),
+        }
+        boundaries.append(item)
+        if _requires_provider_cache_read_coverage(segment_kind=str(segment.kind or ""), metadata=metadata):
+            required.append(item)
+    return {
+        "provider_cache_read_stable_segment_boundaries": boundaries,
+        "provider_cache_read_required_segment_boundaries": required,
+        "provider_cache_read_required_segment_kinds": [item["kind"] for item in required],
+    }
+
+
+def _requires_provider_cache_read_coverage(*, segment_kind: str, metadata: dict[str, Any]) -> bool:
+    if segment_kind in CACHE_READ_REQUIRED_SEGMENT_KINDS:
+        return True
+    return str(metadata.get("authority_class") or "") == "provider_tool_schema_catalog"
+
+
+def _provider_cache_read_coverage_diagnostics(
+    *,
+    diagnostics: dict[str, Any],
+    usage: ModelTokenUsageRecord,
+    cached_tokens: int,
+) -> dict[str, Any]:
+    raw_boundaries = [
+        dict(item)
+        for item in list(diagnostics.get("provider_cache_read_required_segment_boundaries") or [])
+        if isinstance(item, dict)
+    ]
+    all_boundaries = [
+        dict(item)
+        for item in list(diagnostics.get("provider_cache_read_stable_segment_boundaries") or [])
+        if isinstance(item, dict)
+    ]
+    predicted_total = int(
+        diagnostics.get("target_warm_cache_read_rate_total_tokens")
+        or diagnostics.get("predicted_prompt_tokens_total")
+        or 0
+    )
+    provider_prompt_tokens = int(usage.prompt_tokens or 0)
+    token_scale = (
+        round(provider_prompt_tokens / predicted_total, 6)
+        if predicted_total > 0 and provider_prompt_tokens > 0
+        else 0.0
+    )
+    required_coverage = [
+        _coverage_item(
+            item,
+            cached_tokens=cached_tokens,
+            predicted_total=predicted_total,
+            provider_prompt_tokens=provider_prompt_tokens,
+        )
+        for item in raw_boundaries
+    ]
+    stable_coverage = [
+        _coverage_item(
+            item,
+            cached_tokens=cached_tokens,
+            predicted_total=predicted_total,
+            provider_prompt_tokens=provider_prompt_tokens,
+        )
+        for item in all_boundaries
+    ]
+    uncovered_required = [
+        item
+        for item in required_coverage
+        if item.get("covered_by_provider_scaled_boundary") is False
+    ]
+    stable_prefix_estimated_tokens = 0
+    if stable_coverage:
+        stable_prefix_estimated_tokens = int(stable_coverage[-1].get("provider_scaled_cumulative_tokens") or 0)
+    status = "unmeasured"
+    if required_coverage:
+        status = "covered" if not uncovered_required else "partial"
+    return {
+        "provider_cache_read_token_scale": token_scale,
+        "provider_cache_read_prompt_tokens": provider_prompt_tokens,
+        "provider_cache_read_cached_tokens": int(cached_tokens or 0),
+        "provider_cache_read_required_coverage_status": status,
+        "provider_cache_read_required_segment_coverage": required_coverage,
+        "provider_cache_read_uncovered_required_segments": [
+            str(item.get("kind") or "") for item in uncovered_required
+        ],
+        "provider_cache_read_uncovered_required_count": len(uncovered_required),
+        "provider_cache_read_stable_prefix_estimated_tokens": stable_prefix_estimated_tokens,
+        "provider_cache_read_stable_prefix_covered": (
+            bool(stable_prefix_estimated_tokens)
+            and int(cached_tokens or 0) >= stable_prefix_estimated_tokens
+        ),
+    }
+
+
+def _coverage_item(
+    boundary: dict[str, Any],
+    *,
+    cached_tokens: int,
+    predicted_total: int,
+    provider_prompt_tokens: int,
+) -> dict[str, Any]:
+    raw_boundary = int(boundary.get("cumulative_predicted_tokens") or 0)
+    scaled_boundary = _scaled_boundary_tokens(
+        raw_boundary,
+        predicted_total=predicted_total,
+        provider_prompt_tokens=provider_prompt_tokens,
+    )
+    covered_scaled = bool(scaled_boundary) and int(cached_tokens or 0) >= scaled_boundary
+    return {
+        **boundary,
+        "raw_cumulative_predicted_tokens": raw_boundary,
+        "provider_scaled_cumulative_tokens": scaled_boundary,
+        "covered_by_raw_predicted_boundary": bool(raw_boundary) and int(cached_tokens or 0) >= raw_boundary,
+        "covered_by_provider_scaled_boundary": covered_scaled,
+        "provider_scaled_under_read_tokens": max(0, scaled_boundary - int(cached_tokens or 0)) if scaled_boundary else 0,
+    }
+
+
+def _scaled_boundary_tokens(
+    raw_boundary: int,
+    *,
+    predicted_total: int,
+    provider_prompt_tokens: int,
+) -> int:
+    if int(raw_boundary or 0) <= 0:
+        return 0
+    if int(predicted_total or 0) <= 0 or int(provider_prompt_tokens or 0) <= 0:
+        return int(raw_boundary or 0)
+    return max(1, int(math.ceil(int(raw_boundary or 0) * int(provider_prompt_tokens or 0) / int(predicted_total or 1))))
 
 
 def _cache_read_target_diagnostics(

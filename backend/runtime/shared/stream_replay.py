@@ -12,6 +12,7 @@ from runtime.output_stream.public_contract import is_terminal_public_event
 
 
 PUBLIC_STREAM_EVENT_TYPE = "chat_stream_event"
+AGENT_LIVE_PROTOCOL = "agent-live.v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,11 +96,18 @@ class RuntimeStreamReplayService:
             )
         return sorted(records, key=lambda item: int(item.get("event_offset") or 0))
 
-    def to_public_sse(self, run: RuntimeRun, event: RuntimeEvent, *, retry_ms: int = 1500) -> str:
+    def to_public_envelope(
+        self,
+        run: RuntimeRun,
+        event: RuntimeEvent,
+        *,
+        sent_at_key: str = "server_sent_at",
+    ) -> dict[str, Any]:
         payload = dict(event.payload or {})
         event_name = str(payload.get("public_event_type") or "message").strip() or "message"
         data = dict(payload.get("data") or {})
         data = _data_with_sanitized_public_projection_frame(data)
+        diagnostics = data.get("diagnostics") if isinstance(data.get("diagnostics"), dict) else {}
         data.update(
             {
                 "stream_run_id": run.stream_run_id,
@@ -107,22 +115,70 @@ class RuntimeStreamReplayService:
                 "event_offset": event.offset,
                 "runtime_event_id": event.event_id,
                 "diagnostics": {
-                    **(
-                        data.get("diagnostics")
-                        if isinstance(data.get("diagnostics"), dict)
-                        else {}
-                    ),
+                    **dict(diagnostics or {}),
                     "server_event_created_at": float(event.created_at),
-                    "server_sse_sent_at": time.time(),
+                    sent_at_key: time.time(),
                 },
             }
         )
-        return format_sse(
-            event_name,
-            data,
-            event_id=stream_event_id(run.stream_run_id, run.event_log_id, event.offset),
-            retry_ms=retry_ms,
+        return {
+            "type": "event",
+            "protocol": AGENT_LIVE_PROTOCOL,
+            "stream_run_id": run.stream_run_id,
+            "event_log_id": run.event_log_id,
+            "event_id": stream_event_id(run.stream_run_id, run.event_log_id, event.offset),
+            "event_offset": event.offset,
+            "runtime_event_id": event.event_id,
+            "public_event_type": event_name,
+            "terminal": self.is_terminal_event(event),
+            "data": data,
+            "public_projection_frame": dict(data.get("public_projection_frame") or {})
+            if isinstance(data.get("public_projection_frame"), dict)
+            else {},
+        }
+
+    def list_public_envelopes_after(
+        self,
+        run: RuntimeRun,
+        *,
+        after_offset: int = -1,
+        limit: int = 500,
+        sent_at_key: str = "server_sent_at",
+    ) -> list[dict[str, Any]]:
+        events = self.list_public_events_after(run, after_offset=after_offset)
+        max_items = max(1, min(int(limit or 500), 2000))
+        return [
+            self.to_public_envelope(run, event, sent_at_key=sent_at_key)
+            for event in events[:max_items]
+        ]
+
+    def public_replay_response(
+        self,
+        run: RuntimeRun,
+        *,
+        after_offset: int = -1,
+        limit: int = 500,
+    ) -> dict[str, Any]:
+        envelopes = self.list_public_envelopes_after(
+            run,
+            after_offset=after_offset,
+            limit=limit,
+            sent_at_key="server_replay_sent_at",
         )
+        latest_offset = int(after_offset)
+        terminal = False
+        for envelope in envelopes:
+            latest_offset = max(latest_offset, int(envelope.get("event_offset") or latest_offset))
+            terminal = terminal or bool(envelope.get("terminal") is True)
+        return {
+            "stream_run_id": run.stream_run_id,
+            "event_log_id": run.event_log_id,
+            "after_offset": int(after_offset),
+            "latest_event_offset": latest_offset,
+            "events": envelopes,
+            "terminal": terminal,
+            "authority": "runtime.stream_replay",
+        }
 
     def is_terminal_event(self, event: RuntimeEvent) -> bool:
         payload = dict(event.payload or {})

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import json
 import sys
+import time
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -63,6 +65,22 @@ _ONE_PIXEL_PNG_BASE64 = (
 )
 
 
+def _replay_payload(client, replay_url: str, *, wait_for_terminal: bool = True) -> dict:
+    payload: dict = {}
+    for _attempt in range(100):
+        replay = client.get(replay_url)
+        assert replay.status_code == 200
+        payload = replay.json()
+        if not wait_for_terminal or payload.get("terminal") is True:
+            return payload
+        time.sleep(0.02)
+    return payload
+
+
+def _replay_event_types(payload: dict) -> list[str]:
+    return [str(event.get("public_event_type") or "") for event in list(payload.get("events") or []) if isinstance(event, dict)]
+
+
 def test_chat_accepts_per_turn_model_selection() -> None:
     captured: dict[str, object] = {}
 
@@ -93,9 +111,8 @@ def test_chat_accepts_per_turn_model_selection() -> None:
             )
 
             assert response.status_code == 200
-            stream = client.get(response.json()["stream_url"])
-            assert stream.status_code == 200
-            assert "event: turn_completed" in stream.text
+            replay = _replay_payload(client, response.json()["replay_url"])
+            assert "turn_completed" in _replay_event_types(replay)
             assert captured["model_selection"] == {
                 "provider": "deepseek",
                 "model": "deepseek-v4-flash",
@@ -139,9 +156,8 @@ def test_chat_routes_gpt_image_2_to_image_generation() -> None:
             )
 
             assert response.status_code == 200
-            stream = client.get(response.json()["stream_url"])
-            assert stream.status_code == 200
-            assert "event: turn_completed" in stream.text
+            replay = _replay_payload(client, response.json()["replay_url"])
+            assert "turn_completed" in _replay_event_types(replay)
             history = client.get(f"/api/sessions/{session_id}/history")
             assert history.status_code == 200
             image = history.json()["messages"][-1]["image"]
@@ -212,10 +228,9 @@ def test_api_smoke_flow() -> None:
                 json={"message": "hello smoke", "session_id": session_id, "stream": True},
             )
             assert response.status_code == 200
-            stream = client.get(response.json()["stream_url"])
-            assert stream.status_code == 200
-            assert "event: assistant_text_delta" in stream.text
-            assert "event: turn_completed" in stream.text
+            replay = _replay_payload(client, response.json()["replay_url"])
+            assert "assistant_text_delta" in _replay_event_types(replay)
+            assert "turn_completed" in _replay_event_types(replay)
         finally:
             runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
@@ -317,13 +332,13 @@ def test_stream_chat_emits_error_when_runtime_ends_without_terminal_event() -> N
             )
 
             assert response.status_code == 200
-            stream = client.get(response.json()["stream_url"])
-            assert stream.status_code == 200
-            assert "event: input_commit_gate" in stream.text
-            assert "event: task_intent_decision" in stream.text
-            assert "event: turn_completed" in stream.text
-            assert '"status": "failed"' in stream.text
-            assert "输出流没有正常收口" in stream.text
+            replay = _replay_payload(client, response.json()["replay_url"])
+            replay_text = json.dumps(replay, ensure_ascii=False)
+            assert "input_commit_gate" in _replay_event_types(replay)
+            assert "task_intent_decision" in _replay_event_types(replay)
+            assert "turn_completed" in _replay_event_types(replay)
+            assert '"status": "failed"' in replay_text
+            assert "输出流没有正常收口" in replay_text
         finally:
             runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
@@ -366,4 +381,3 @@ def test_removed_agent_control_plane_routes_stay_absent() -> None:
     with isolated_app_client(app) as client:
         response = client.get("/api/agents/catalog")
         assert response.status_code == 404
-

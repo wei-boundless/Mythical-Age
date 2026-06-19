@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from io import StringIO
 import json
+from io import StringIO
 from typing import Any
 
 from backend.cli.client import AgentCliClient
@@ -37,21 +37,43 @@ class _FakeResponse:
         return line
 
 
-def _sse(event: str, data: dict[str, Any], event_id: str = "") -> bytes:
-    prefix = f"id: {event_id}\n" if event_id else ""
-    return f"{prefix}event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8")
-
-
 def test_cli_client_accepts_turn_completed_as_terminal_event() -> None:
     calls: list[str] = []
     posted_payloads: list[dict[str, Any]] = []
-    stream_response = _FakeResponse(
-        [
-            _sse("assistant_text_delta", {"content": "你好"}),
-            _sse("assistant_text_final", {"content": "你好世界"}),
-            _sse("turn_completed", {"status": "completed"}),
-        ]
-    )
+    replay_payload = {
+        "stream_run_id": "strun:test",
+        "event_log_id": "chatrun:test",
+        "after_offset": -1,
+        "latest_event_offset": 2,
+        "terminal": True,
+        "events": [
+            {
+                "type": "event",
+                "event_id": "strun:test:chatrun:test:0",
+                "event_offset": 0,
+                "public_event_type": "assistant_text_delta",
+                "terminal": False,
+                "data": {"content": "你好", "event_offset": 0},
+            },
+            {
+                "type": "event",
+                "event_id": "strun:test:chatrun:test:1",
+                "event_offset": 1,
+                "public_event_type": "assistant_text_final",
+                "terminal": False,
+                "data": {"content": "你好世界", "event_offset": 1},
+            },
+            {
+                "type": "event",
+                "event_id": "strun:test:chatrun:test:2",
+                "event_offset": 2,
+                "public_event_type": "turn_completed",
+                "terminal": True,
+                "data": {"status": "completed", "event_offset": 2},
+            },
+        ],
+        "authority": "runtime.stream_replay",
+    }
 
     def opener(request, timeout=None):  # noqa: ANN001, ANN202
         url = str(request.full_url)
@@ -59,7 +81,7 @@ def test_cli_client_accepts_turn_completed_as_terminal_event() -> None:
         if url.endswith("/chat/runs"):
             posted_payloads.append(json.loads(request.data.decode("utf-8")))
             return _FakeResponse([json.dumps({"stream_run_id": "strun:test"}).encode("utf-8")])
-        return stream_response
+        return _FakeResponse([json.dumps(replay_payload).encode("utf-8")])
 
     client = AgentCliClient(api_base="http://127.0.0.1:8003/api", opener=opener)
 
@@ -70,19 +92,25 @@ def test_cli_client_accepts_turn_completed_as_terminal_event() -> None:
         "assistant_text_final",
         "turn_completed",
     ]
-    assert calls[-1].endswith("/chat/runs/strun%3Atest/events?after_offset=-1")
-    assert stream_response.readline_count > 0
+    assert calls[-1].endswith("/chat/runs/strun%3Atest/events/replay?after_offset=-1&limit=500")
     assert posted_payloads[-1]["model_selection"]["stream_policy"] == {
         "enabled": True,
         "emit_assistant_text_delta": True,
         "upstream_reconnect_enabled": True,
         "partial_stream_recovery": "continue_from_visible_prefix",
-        "chunk_strategy": "passthrough",
-        "max_flush_interval_ms": 8,
-        "max_pending_utf8_bytes": 1024,
+        "chunk_strategy": "adaptive_buffer",
+        "first_flush_delay_ms": 70,
+        "target_buffer_delay_ms": 150,
+        "adaptive_min_buffer_delay_ms": 80,
+        "adaptive_max_buffer_delay_ms": 240,
+        "release_tick_ms": 16,
+        "max_buffer_delay_ms": 320,
+        "max_flush_interval_ms": 80,
+        "max_pending_utf8_bytes": 1536,
+        "max_release_utf8_bytes": 192,
         "max_pending_line_count": 1,
-        "min_event_interval_ms": 0,
-        "event_budget_per_second": 0,
+        "min_event_interval_ms": 16,
+        "event_budget_per_second": 45,
         "source": "backend.cli.chat_stream_default",
     }
 

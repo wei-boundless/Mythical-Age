@@ -6,7 +6,7 @@ from typing import Any
 
 
 READ_FILE_WINDOW_AUTHORITY = "runtime.tool_result.read_file_window.v1"
-READ_FILE_DEFAULT_LINE_COUNT = 240
+READ_FILE_DEFAULT_LINE_COUNT = 500
 READ_FILE_MAX_LINE_COUNT = 2000
 
 

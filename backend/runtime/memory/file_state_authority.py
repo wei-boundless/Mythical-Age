@@ -438,22 +438,22 @@ def _next_suggested_read(state: TaskFileState) -> dict[str, Any]:
         return {}
     active = _active_read_ranges(state.read_ranges)
     if not active:
-        return {"start_line": 1, "line_count": 240, "reason": "file state is stale or unread"}
+        return {"start_line": 1, "line_count": 500, "reason": "file state is stale or unread"}
     merged = _merged_read_ranges(active)
     missing = _missing_ranges(merged, state.total_lines)
     latest = _latest_active_read_range(state, active)
     if latest is not None and latest.has_more is True and latest.next_start_line is not None:
         return {
             "start_line": latest.next_start_line,
-            "line_count": 240,
+            "line_count": 500,
             "reason": "continue from latest read window",
         }
     if missing:
         first = missing[0]
         end_line = first.get("end_line")
-        line_count = 240
+        line_count = 500
         if isinstance(end_line, int):
-            line_count = max(1, min(240, end_line - int(first["start_line"]) + 1))
+            line_count = max(1, min(500, end_line - int(first["start_line"]) + 1))
         return {
             "start_line": first["start_line"],
             "line_count": line_count,
@@ -462,7 +462,7 @@ def _next_suggested_read(state: TaskFileState) -> dict[str, Any]:
     end = max(int(item["end_line"]) for item in merged)
     if state.total_lines and end >= state.total_lines:
         return {}
-    return {"start_line": end + 1, "line_count": 240, "reason": "continue from last read window"}
+    return {"start_line": end + 1, "line_count": 500, "reason": "continue from last read window"}
 
 
 def _latest_active_read_range(state: TaskFileState, active: list[FileReadRange]) -> FileReadRange | None:

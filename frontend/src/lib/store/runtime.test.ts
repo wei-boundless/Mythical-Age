@@ -3208,7 +3208,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       },
       latest_event_offset: 0,
       is_reconnectable: true,
-      stream_url: "/api/chat/runs/strun:queued-dispatch/events",
+      replay_url: "/api/chat/runs/strun:queued-dispatch/events/replay",
+      live_ws_url: "/api/chat/sessions/session-auto-active-stream/live",
     });
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -3869,11 +3870,17 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       enabled: true,
       upstream_reconnect_enabled: true,
       partial_stream_recovery: "continue_from_visible_prefix",
-      chunk_strategy: "passthrough",
-      max_flush_interval_ms: 8,
-      max_pending_utf8_bytes: 1024,
-      min_event_interval_ms: 0,
-      event_budget_per_second: 0,
+      chunk_strategy: "adaptive_buffer",
+      first_flush_delay_ms: 70,
+      target_buffer_delay_ms: 150,
+      adaptive_min_buffer_delay_ms: 80,
+      adaptive_max_buffer_delay_ms: 240,
+      release_tick_ms: 16,
+      max_buffer_delay_ms: 320,
+      max_pending_utf8_bytes: 1536,
+      max_release_utf8_bytes: 192,
+      min_event_interval_ms: 16,
+      event_budget_per_second: 45,
     }));
   });
 
@@ -3899,7 +3906,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         event_offset: 1,
         diagnostics: {
           server_event_created_at: 10,
-          server_sse_sent_at: 11,
+          server_ws_sent_at: 11,
           client_received_at: 12,
         },
         public_projection_frame: publicBodyFrame({ text: "甲" }),
@@ -3910,7 +3917,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         event_offset: 2,
         diagnostics: {
           server_event_created_at: 20,
-          server_sse_sent_at: 21,
+          server_ws_sent_at: 21,
           client_received_at: 22,
         },
         public_projection_frame: publicBodyFrame({ text: "乙" }),
@@ -3946,7 +3953,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       event: "assistant_text_delta",
       eventOffset: 2,
       serverEventCreatedAt: 20,
-      serverSseSentAt: 21,
+      serverWsSentAt: 21,
       clientReceivedAt: 22,
       clientVisibleFlushedAt: expect.any(Number),
     }));
@@ -5188,7 +5195,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       },
       latest_event_offset: 3,
       is_reconnectable: true,
-      stream_url: "/api/chat/runs/strun:resume/events",
+      replay_url: "/api/chat/runs/strun:resume/events/replay",
+      live_ws_url: "/api/chat/sessions/session:existing/live",
     });
     api.getSessionHistory.mockResolvedValue({
       messages: [
@@ -5268,7 +5276,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       diagnostics: {},
       latest_event_offset: 1,
       is_reconnectable: true,
-      stream_url: "/api/chat/runs/strun:wait/events",
+      replay_url: "/api/chat/runs/strun:wait/events/replay",
+      live_ws_url: "/api/chat/sessions/session:wait/live",
     });
     api.getSessionHistory.mockResolvedValue({
       messages: [
@@ -5348,7 +5357,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       status: "running",
       latest_event_offset: 99,
       is_reconnectable: true,
-      stream_url: "/api/chat/runs/strun:stale/events",
+      replay_url: "/api/chat/runs/strun:stale/events/replay",
+      live_ws_url: "/api/chat/sessions/session:other/live",
     });
     api.getSessionHistory.mockResolvedValue({
       messages: [
@@ -5391,7 +5401,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       latest_event_offset: 9,
       terminal_event: "turn_completed",
       is_reconnectable: true,
-      stream_url: "/api/chat/runs/strun:terminal/events",
+      replay_url: "/api/chat/runs/strun:terminal/events/replay",
+      live_ws_url: "/api/chat/sessions/session:terminal/live",
     });
     api.getSessionHistory.mockResolvedValue({
       messages: [
@@ -5712,12 +5723,18 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         emit_assistant_text_delta: true,
         upstream_reconnect_enabled: true,
         partial_stream_recovery: "continue_from_visible_prefix",
-        chunk_strategy: "passthrough",
-        max_flush_interval_ms: 8,
-        max_pending_utf8_bytes: 1024,
+        chunk_strategy: "adaptive_buffer",
+        first_flush_delay_ms: 70,
+        target_buffer_delay_ms: 150,
+        adaptive_min_buffer_delay_ms: 80,
+        adaptive_max_buffer_delay_ms: 240,
+        release_tick_ms: 16,
+        max_buffer_delay_ms: 320,
+        max_pending_utf8_bytes: 1536,
+        max_release_utf8_bytes: 192,
         max_pending_line_count: 1,
-        min_event_interval_ms: 0,
-        event_budget_per_second: 0,
+        min_event_interval_ms: 16,
+        event_budget_per_second: 45,
         source: "frontend.chat_stream_display_toggle",
       },
     });
@@ -5857,12 +5874,18 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         emit_assistant_text_delta: true,
         upstream_reconnect_enabled: true,
         partial_stream_recovery: "continue_from_visible_prefix",
-        chunk_strategy: "passthrough",
-        max_flush_interval_ms: 8,
-        max_pending_utf8_bytes: 1024,
+        chunk_strategy: "adaptive_buffer",
+        first_flush_delay_ms: 70,
+        target_buffer_delay_ms: 150,
+        adaptive_min_buffer_delay_ms: 80,
+        adaptive_max_buffer_delay_ms: 240,
+        release_tick_ms: 16,
+        max_buffer_delay_ms: 320,
+        max_pending_utf8_bytes: 1536,
+        max_release_utf8_bytes: 192,
         max_pending_line_count: 1,
-        min_event_interval_ms: 0,
-        event_budget_per_second: 0,
+        min_event_interval_ms: 16,
+        event_budget_per_second: 45,
         source: "frontend.chat_stream_display_toggle",
       },
     });
@@ -5954,12 +5977,18 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         emit_assistant_text_delta: true,
         upstream_reconnect_enabled: true,
         partial_stream_recovery: "continue_from_visible_prefix",
-        chunk_strategy: "passthrough",
-        max_flush_interval_ms: 8,
-        max_pending_utf8_bytes: 1024,
+        chunk_strategy: "adaptive_buffer",
+        first_flush_delay_ms: 70,
+        target_buffer_delay_ms: 150,
+        adaptive_min_buffer_delay_ms: 80,
+        adaptive_max_buffer_delay_ms: 240,
+        release_tick_ms: 16,
+        max_buffer_delay_ms: 320,
+        max_pending_utf8_bytes: 1536,
+        max_release_utf8_bytes: 192,
         max_pending_line_count: 1,
-        min_event_interval_ms: 0,
-        event_budget_per_second: 0,
+        min_event_interval_ms: 16,
+        event_budget_per_second: 45,
         source: "frontend.chat_stream_display_toggle",
       },
     });

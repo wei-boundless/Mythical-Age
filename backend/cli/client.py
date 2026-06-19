@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from .sse import SSEDecoder, ServerSentEvent, TERMINAL_STREAM_EVENTS
+from .sse import ServerSentEvent, TERMINAL_STREAM_EVENTS
 from .state import DEFAULT_API_BASE
 
 
@@ -19,12 +20,19 @@ DEFAULT_CHAT_STREAM_MODEL_SELECTION: dict[str, Any] = {
         "emit_assistant_text_delta": True,
         "upstream_reconnect_enabled": True,
         "partial_stream_recovery": "continue_from_visible_prefix",
-        "chunk_strategy": "passthrough",
-        "max_flush_interval_ms": 8,
-        "max_pending_utf8_bytes": 1024,
+        "chunk_strategy": "adaptive_buffer",
+        "first_flush_delay_ms": 70,
+        "target_buffer_delay_ms": 150,
+        "adaptive_min_buffer_delay_ms": 80,
+        "adaptive_max_buffer_delay_ms": 240,
+        "release_tick_ms": 16,
+        "max_buffer_delay_ms": 320,
+        "max_flush_interval_ms": 80,
+        "max_pending_utf8_bytes": 1536,
+        "max_release_utf8_bytes": 192,
         "max_pending_line_count": 1,
-        "min_event_interval_ms": 0,
-        "event_budget_per_second": 0,
+        "min_event_interval_ms": 16,
+        "event_budget_per_second": 45,
         "source": "backend.cli.chat_stream_default",
     }
 }
@@ -167,43 +175,40 @@ class AgentCliClient:
         stream_run_id = str(run.get("stream_run_id") or "").strip()
         if not stream_run_id:
             raise AgentCliClientError("Backend returned a chat run without stream_run_id.")
-        request = self._request(
-            "GET",
-            f"/chat/runs/{_quote_path(stream_run_id)}/events?after_offset=-1",
-            accept="text/event-stream",
-        )
-        try:
-            if self.stream_timeout is None:
-                response = self._opener(request, timeout=None)
-            else:
-                response = self._opener(request, timeout=self.stream_timeout)
-        except HTTPError as exc:
-            raise AgentCliClientError(_read_http_error(exc)) from exc
-        except URLError as exc:
-            raise AgentCliClientError(str(exc.reason)) from exc
-
-        decoder = SSEDecoder()
+        latest_offset = -1
         terminal_event = ""
-        for chunk in _iter_sse_response_chunks(response):
-            if not chunk:
-                break
-            text = chunk.decode("utf-8", errors="replace")
-            for event in decoder.feed(text):
+        deadline = time.monotonic() + float(self.stream_timeout) if self.stream_timeout is not None else None
+        while not terminal_event:
+            if deadline is not None and time.monotonic() > deadline:
+                raise AgentCliClientError("Chat stream replay polling timed out before a terminal event.")
+            replay = self._json_request(
+                "GET",
+                f"/chat/runs/{_quote_path(stream_run_id)}/events/replay?after_offset={latest_offset}&limit=500",
+            )
+            if not isinstance(replay, dict):
+                raise AgentCliClientError("Backend returned an invalid chat replay payload.")
+            emitted = False
+            for envelope in list(replay.get("events") or []):
+                if not isinstance(envelope, dict):
+                    continue
+                event_name = str(envelope.get("public_event_type") or "message")
+                data = dict(envelope.get("data") or {})
+                event_offset = int(envelope.get("event_offset") or latest_offset)
+                latest_offset = max(latest_offset, event_offset)
+                emitted = True
+                event = ServerSentEvent(
+                    event=event_name,
+                    data=data,
+                    event_id=str(envelope.get("event_id") or ""),
+                )
                 yield event
-                if event.event in TERMINAL_STREAM_EVENTS:
+                if event.event in TERMINAL_STREAM_EVENTS or envelope.get("terminal") is True:
                     terminal_event = event.event
                     break
             if terminal_event:
                 break
-        if not terminal_event:
-            for event in decoder.flush():
-                yield event
-                if event.event in TERMINAL_STREAM_EVENTS:
-                    terminal_event = event.event
-        if not terminal_event:
-            raise AgentCliClientError(
-                "Chat stream ended without a terminal event. Check the backend log for a stream exception."
-            )
+            if not emitted:
+                time.sleep(0.05)
 
     def _json_request(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         request = self._request(method, path, body)
@@ -264,21 +269,5 @@ def _merge_model_selection(default_selection: dict[str, Any], override_selection
     if default_policy or override_policy:
         selection["stream_policy"] = {**default_policy, **override_policy}
     return selection
-
-
-def _iter_sse_response_chunks(response: Any):
-    readline = getattr(response, "readline", None)
-    if callable(readline):
-        while True:
-            chunk = readline()
-            if not chunk:
-                break
-            yield chunk
-        return
-    while True:
-        chunk = response.read(4096)
-        if not chunk:
-            break
-        yield chunk
 
 

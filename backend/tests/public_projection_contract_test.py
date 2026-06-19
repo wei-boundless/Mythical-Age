@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from types import SimpleNamespace
 
 from api.chat import (
@@ -11,9 +10,8 @@ from api.chat import (
     _is_task_executor_handoff_terminal,
     _project_public_stream_event,
     _public_terminal_reason,
-    _resolve_after_offset,
     _run_chat_to_event_log,
-    get_chat_run_events,
+    replay_chat_run_events,
 )
 from harness.entrypoint.models import HarnessRuntimeRequest
 from harness.runtime.projection.authority import PUBLIC_PROJECTION_AUTHORITY, PUBLIC_PROJECTION_CONTRACT_REVISION
@@ -274,7 +272,7 @@ def test_chat_event_log_allows_sse_flush_between_contiguous_public_events(monkey
     ]
 
 
-def test_chat_run_events_uses_unbuffered_sse_headers(monkeypatch) -> None:
+def test_chat_run_events_replay_returns_public_envelopes(monkeypatch) -> None:
     run = RuntimeRun(
         stream_run_id="strun:test",
         session_id="session:test",
@@ -285,92 +283,35 @@ def test_chat_run_events_uses_unbuffered_sse_headers(monkeypatch) -> None:
         updated_at=1.0,
     )
 
-    async def empty_stream(*_args: object, **_kwargs: object):
-        if False:
-            yield ""
+    expected = {
+        "stream_run_id": "strun:test",
+        "event_log_id": "chatrun:test",
+        "after_offset": -1,
+        "latest_event_offset": 1,
+        "terminal": True,
+        "events": [
+            {
+                "type": "event",
+                "event_offset": 1,
+                "public_event_type": TURN_COMPLETED_EVENT,
+                "terminal": True,
+                "data": {"status": "completed"},
+            }
+        ],
+        "authority": "runtime.stream_replay",
+    }
+    replay = SimpleNamespace(public_replay_response=lambda _run, after_offset, limit: expected)
+    runtime = SimpleNamespace(
+        harness_runtime=SimpleNamespace(
+            single_agent_runtime_host=SimpleNamespace(stream_replay=replay)
+        )
+    )
 
-    monkeypatch.setattr("api.chat.require_runtime", lambda: object())
+    monkeypatch.setattr("api.chat.require_runtime", lambda: runtime)
     monkeypatch.setattr("api.chat._get_run_or_404", lambda _runtime, _stream_run_id: run)
-    monkeypatch.setattr("api.chat._resolve_after_offset", lambda *_args, **_kwargs: -1)
-    monkeypatch.setattr("api.chat._stream_run_events", empty_stream)
+    response = asyncio.run(replay_chat_run_events("strun:test", after_offset=-1, limit=10))
 
-    response = asyncio.run(get_chat_run_events("strun:test"))
-
-    assert response.media_type == "text/event-stream"
-    assert response.headers["Cache-Control"] == "no-cache, no-transform"
-    assert response.headers["Connection"] == "keep-alive"
-    assert response.headers["X-Accel-Buffering"] == "no"
-
-
-def test_chat_run_reconnect_cursor_resolves_after_offset_and_last_event_id() -> None:
-    run = RuntimeRun(
-        stream_run_id="strun:test",
-        session_id="session:test",
-        event_log_id="chatrun:test",
-        root_request_ref="chatreq:test",
-        status="running",
-        created_at=1.0,
-        updated_at=1.0,
-    )
-
-    assert _resolve_after_offset(
-        run,
-        after_offset=7,
-        last_event_id="strun:test:chatrun:test:3",
-    ) == 7
-    assert _resolve_after_offset(
-        run,
-        after_offset=None,
-        last_event_id="strun:test:chatrun:test:3",
-    ) == 3
-    assert _resolve_after_offset(
-        run,
-        after_offset=None,
-        last_event_id="strun:other:chatrun:test:3",
-    ) == -1
-
-
-def test_stream_replay_sse_diagnostics_do_not_mutate_projection_frame() -> None:
-    run = RuntimeRun(
-        stream_run_id="strun:test",
-        session_id="session:test",
-        event_log_id="chatrun:test",
-        root_request_ref="chatreq:test",
-        status="running",
-        created_at=1.0,
-        updated_at=1.0,
-    )
-    event = RuntimeEvent(
-        event_id="event:test",
-        run_id="chatrun:test",
-        event_type="chat_stream_event",  # type: ignore[arg-type]
-        offset=7,
-        created_at=123.456,
-        payload={
-            "public_event_type": ASSISTANT_TEXT_FINAL_EVENT,
-            "data": {
-                "content": "完成。",
-                "public_projection_frame": {
-                    "authority": PUBLIC_PROJECTION_AUTHORITY,
-                    "frame_id": "frame:test",
-                    "op": "body_finalize",
-                    "slot": "body",
-                    "main_visibility": "visible_final",
-                    "retention": "final",
-                    "text": "完成。",
-                },
-            },
-        },
-    )
-
-    sse = RuntimeStreamReplayService(event_log=None).to_public_sse(run, event)  # type: ignore[arg-type]
-    data_line = next(line for line in sse.splitlines() if line.startswith("data: "))
-    payload = json.loads(data_line.removeprefix("data: "))
-
-    assert payload["diagnostics"]["server_event_created_at"] == 123.456
-    assert "server_sse_sent_at" in payload["diagnostics"]
-    assert payload["public_projection_frame"]["text"] == "完成。"
-    assert "diagnostics" not in payload["public_projection_frame"]
+    assert response == expected
 
 
 def test_public_projection_frame_exposes_dual_channel_contract() -> None:

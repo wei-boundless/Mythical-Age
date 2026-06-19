@@ -241,6 +241,31 @@ def test_runtime_read_file_gateway_respects_line_window(tmp_path: Path) -> None:
     assert tool_result["has_more"] is True
 
 
+def test_runtime_read_file_defaults_to_500_line_window(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    sandbox = tmp_path / "sandbox" / "workspace"
+    (project / "docs").mkdir(parents=True)
+    (project / "docs" / "large.md").write_text("\n".join(f"line{i}" for i in range(1, 602)), encoding="utf-8")
+
+    result = _run_tool(
+        workspace=project,
+        sandbox_root=sandbox,
+        tool_name="read_file",
+        tool_args={"path": "docs/large.md"},
+        operation_id="op.read_file",
+    )
+
+    envelope = result["observation"].payload["result_envelope"]
+    tool_result = envelope["structured_payload"]["tool_result"]
+
+    assert result["error"] == ""
+    assert tool_result["line_count"] == 500
+    assert tool_result["returned_lines"] == 500
+    assert tool_result["end_line"] == 500
+    assert tool_result["next_start_line"] == 501
+    assert tool_result["has_more"] is True
+
+
 def test_runtime_full_access_reads_project_workspace_after_project_edit(tmp_path: Path) -> None:
     project = tmp_path / "project"
     sandbox = tmp_path / "sandbox" / "workspace"
@@ -489,4 +514,3 @@ def _run_tool(
             },
         )
     )
-

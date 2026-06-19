@@ -7,6 +7,25 @@ from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifa
 from .models import GraphHarnessConfig, GraphLoopState, safe_id, stable_hash
 
 
+class GraphMemoryContextResolutionError(RuntimeError):
+    """Raised when a graph memory read contract cannot be satisfied."""
+
+    def __init__(
+        self,
+        *,
+        reason: str,
+        node_id: str,
+        work_order_id: str,
+        message: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason = str(reason or "").strip() or "memory_context_resolution_failed"
+        self.node_id = str(node_id or "").strip()
+        self.work_order_id = str(work_order_id or "").strip()
+        self.details = dict(details or {})
+
+
 class MemoryContextAssembler:
     """Resolve graph memory read contracts into model-visible snapshots."""
 
@@ -47,7 +66,16 @@ class MemoryContextAssembler:
             }
         service = getattr(self._services, "formal_memory_service", None) if self._services is not None else None
         if service is None:
-            raise ValueError("Graph memory read contract requires formal_memory_service")
+            raise GraphMemoryContextResolutionError(
+                reason="formal_memory_service_unavailable",
+                node_id=node_id,
+                work_order_id=work_order_id,
+                message="Graph memory read contract requires formal_memory_service",
+                details={
+                    "read_protocol_count": len(protocols),
+                    "authority": self.authority,
+                },
+            )
 
         runtime_scope = _runtime_scope(graph_config=graph_config, state=state)
         selection = service.select_for_node(
@@ -63,9 +91,21 @@ class MemoryContextAssembler:
         blocking_missing = [item for item in missing if _missing_record_blocks(item)]
         if blocking_missing:
             first = blocking_missing[0]
-            raise ValueError(
-                "Graph memory read contract could not resolve required records: "
-                f"{first.get('edge_id') or node_id}:{first.get('reason') or 'missing_required_records'}"
+            raise GraphMemoryContextResolutionError(
+                reason="missing_required_records",
+                node_id=node_id,
+                work_order_id=work_order_id,
+                message=(
+                    "Graph memory read contract could not resolve required records: "
+                    f"{first.get('edge_id') or node_id}:{first.get('reason') or 'missing_required_records'}"
+                ),
+                details={
+                    "read_protocol_count": len(protocols),
+                    "missing_record_count": len(missing),
+                    "missing_required_records": blocking_missing,
+                    "runtime_scope": _public_runtime_scope(runtime_scope),
+                    "authority": self.authority,
+                },
             )
         records = [dict(item) for item in list(dict(selection or {}).get("required_records") or []) if isinstance(item, dict)]
         snapshots = _snapshots_from_selection(
