@@ -11,8 +11,35 @@ from typing import Any
 
 from capability_system.capabilities.document_processing.pdf.analysis.parser import PdfSegment, PdfTextParser
 
+from dataclasses import dataclass
+from typing import Callable
+
 from .cleaner import ParsedContentCleaner
 from .models import ParsedChunk
+
+
+@dataclass(frozen=True)
+class ParserCapability:
+    """描述一个 parser 能处理的扩展名集合。"""
+    extensions: frozenset[str]
+    label: str = ""
+
+
+class ParserRegistry:
+    """集中管理扩展名到解析函数的映射。"""
+
+    def __init__(self) -> None:
+        self._map: dict[str, Callable[[Path], list[ParsedChunk]]] = {}
+
+    def register(self, extensions: frozenset[str], parser_fn: Callable[[Path], list[ParsedChunk]], *, label: str = "") -> None:
+        for ext in extensions:
+            self._map[ext.lower()] = parser_fn
+
+    def resolve(self, suffix: str) -> Callable[[Path], list[ParsedChunk]] | None:
+        return self._map.get(suffix.lower())
+
+    def supported_extensions(self) -> frozenset[str]:
+        return frozenset(self._map.keys())
 
 
 class MultimodalParserAdapter:
@@ -23,27 +50,9 @@ class MultimodalParserAdapter:
     to the existing vector indexer.
     """
 
-    _SUPPORTED_EXTENSIONS = {
-        ".pdf",
-        ".png",
-        ".jpg",
-        ".jpeg",
-        ".bmp",
-        ".tiff",
-        ".tif",
-        ".gif",
-        ".webp",
-        ".doc",
-        ".docx",
-        ".ppt",
-        ".pptx",
-        ".xls",
-        ".xlsx",
-        ".txt",
-        ".md",
-        ".json",
-        ".csv",
-    }
+    @property
+    def _SUPPORTED_EXTENSIONS(self) -> frozenset[str]:
+        return self._registry.supported_extensions()
 
     def __init__(
         self,
@@ -63,6 +72,16 @@ class MultimodalParserAdapter:
         self.cleaner = ParsedContentCleaner()
         self._pdf_parser = PdfTextParser(root_dir=self.backend_root)
         self._image_ocr_engine: Any | None = None
+        self._registry = ParserRegistry()
+        self._registry.register(frozenset({".txt", ".md"}), self._parse_text_file)
+        self._registry.register(frozenset({".json"}), self._parse_json_file)
+        self._registry.register(frozenset({".csv"}), self._parse_csv_file)
+        self._registry.register(frozenset({".pdf"}), self._parse_pdf_file)
+        self._registry.register(frozenset({".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".gif", ".webp"}), self._parse_image_file)
+        self._registry.register(frozenset({".docx"}), self._parse_docx_file)
+        self._registry.register(frozenset({".pptx"}), self._parse_pptx_file)
+        self._registry.register(frozenset({".xlsx"}), self._parse_xlsx_file)
+        self._registry.register(frozenset({".doc", ".ppt", ".xls"}), self._parse_binary_office_file)
 
     def is_supported_file(self, path: Path) -> bool:
         return path.is_file() and path.suffix.lower() in self._SUPPORTED_EXTENSIONS
@@ -81,24 +100,9 @@ class MultimodalParserAdapter:
 
     def parse_file(self, path: Path) -> list[ParsedChunk]:
         suffix = path.suffix.lower()
-        if suffix in {".txt", ".md"}:
-            return self._parse_text_file(path)
-        if suffix == ".json":
-            return self._parse_json_file(path)
-        if suffix == ".csv":
-            return self._parse_csv_file(path)
-        if suffix == ".pdf":
-            return self._parse_pdf_file(path)
-        if suffix in {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".gif", ".webp"}:
-            return self._parse_image_file(path)
-        if suffix == ".docx":
-            return self._parse_docx_file(path)
-        if suffix == ".pptx":
-            return self._parse_pptx_file(path)
-        if suffix == ".xlsx":
-            return self._parse_xlsx_file(path)
-        if suffix in {".doc", ".ppt", ".xls"}:
-            return self._parse_binary_office_file(path)
+        parser_fn = self._registry.resolve(suffix)
+        if parser_fn is not None:
+            return parser_fn(path)
         return []
 
     def _source(self, path: Path) -> str:
