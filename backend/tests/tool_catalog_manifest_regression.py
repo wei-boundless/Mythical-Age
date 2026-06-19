@@ -201,18 +201,29 @@ def test_single_agent_turn_renders_stable_tool_index_for_provider_cache() -> Non
         tool_guidance_prompt_defaults=_TOOL_GUIDANCE_DEFAULTS,
     ).to_model_visible_payload(include_catalog_hash=True)
     tool_index_payload = _message_payload_with_title(packet, "Single agent turn tool index")
+    tool_schema_payload = _message_payload_with_title(packet, "Single agent turn tool schema catalog")
     tool_segment = next(
         segment
         for segment in list(packet.segment_plan.get("segments") or [])
         if dict(segment).get("kind") == "tool_index_stable"
+    )
+    schema_segment = next(
+        segment
+        for segment in list(packet.segment_plan.get("segments") or [])
+        if dict(segment).get("kind") == "tool_schema_catalog"
     )
     prompt_manifest = dict(packet.diagnostics["prompt_manifest"])
 
     assert "tool_catalog_hash" not in stable_payload
     assert "available_tools" not in stable_payload
     assert tool_index_payload == expected
+    assert tool_schema_payload["tools"][0]["name"] == "read_file"
+    assert tool_schema_payload["tools"][0]["schema"] == _tools()[0]["input_schema"]
     assert packet.tool_catalog_manifest["tool_catalog_hash"] == expected["tool_catalog_hash"]
     assert str(tool_segment.get("source_ref") or "").startswith("sha256:")
+    assert schema_segment["cache_role"] == "session_stable"
+    assert schema_segment["prefix_tier"] == "session"
+    assert int(schema_segment["ordinal"]) == int(tool_segment["ordinal"]) + 1
     assert prompt_manifest["tool_catalog_manifest"] == packet.tool_catalog_manifest
     assert packet.diagnostics["tool_catalog_manifest"] == packet.tool_catalog_manifest
 
@@ -244,17 +255,28 @@ def test_single_agent_turn_model_request_promotes_matching_tool_schema() -> None
         segment_plan=packet.segment_plan,
         metadata={"prompt_manifest": dict(packet.diagnostics["prompt_manifest"])},
     )
-    provider_tool_segment = next(
+    stable_schema_segment = next(
+        segment
+        for segment in model_request.provider_payload_manifest.segments
+        if segment.transport_location == "messages" and segment.kind == "tool_schema_catalog"
+    )
+    native_tool_segment = next(
         segment
         for segment in model_request.provider_payload_manifest.segments
         if segment.transport_location == "tools"
     )
 
     assert model_request.tool_catalog_manifest == packet.tool_catalog_manifest
-    assert provider_tool_segment.cache_role == "session_stable"
-    assert provider_tool_segment.prefix_tier == "session"
-    assert provider_tool_segment.metadata["tool_schema_cache_decision"] == "derived_from_tool_catalog_manifest"
-    assert provider_tool_segment.metadata["tool_catalog_manifest_ref"] == packet.tool_catalog_manifest["manifest_id"]
+    assert stable_schema_segment.cache_role == "session_stable"
+    assert stable_schema_segment.prefix_tier == "session"
+    assert native_tool_segment.kind == "native_tool_binding_schema"
+    assert native_tool_segment.cache_role == "never_cache"
+    assert native_tool_segment.prefix_tier == "none"
+    assert native_tool_segment.metadata["native_tool_binding_decision"] == "validated_against_tool_catalog_manifest"
+    assert native_tool_segment.metadata["tool_catalog_manifest_ref"] == packet.tool_catalog_manifest["manifest_id"]
+    selected_prefix = model_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["session"]
+    assert "tool_schema_catalog" in selected_prefix["kinds"]
+    assert selected_prefix["tool_segment_count"] == 0
 
 
 def test_task_execution_tool_index_uses_tool_catalog_manifest_payload() -> None:
@@ -346,17 +368,28 @@ def test_model_request_tool_schema_cache_uses_tool_catalog_manifest_metadata() -
         segment_plan=packet.segment_plan,
         metadata={"prompt_manifest": dict(packet.diagnostics["prompt_manifest"])},
     )
-    provider_tool_segment = next(
+    stable_schema_segment = next(
+        segment
+        for segment in model_request.provider_payload_manifest.segments
+        if segment.transport_location == "messages" and segment.kind == "tool_schema_catalog"
+    )
+    native_tool_segment = next(
         segment
         for segment in model_request.provider_payload_manifest.segments
         if segment.transport_location == "tools"
     )
 
     assert model_request.tool_catalog_manifest == packet.tool_catalog_manifest
-    assert provider_tool_segment.cache_role == "session_stable"
-    assert provider_tool_segment.prefix_tier == "task"
-    assert provider_tool_segment.metadata["tool_schema_cache_decision"] == "derived_from_tool_catalog_manifest"
-    assert provider_tool_segment.metadata["tool_catalog_manifest_ref"] == packet.tool_catalog_manifest["manifest_id"]
+    assert stable_schema_segment.cache_role == "session_stable"
+    assert stable_schema_segment.prefix_tier == "task"
+    assert native_tool_segment.kind == "native_tool_binding_schema"
+    assert native_tool_segment.cache_role == "never_cache"
+    assert native_tool_segment.prefix_tier == "none"
+    assert native_tool_segment.metadata["native_tool_binding_decision"] == "validated_against_tool_catalog_manifest"
+    assert native_tool_segment.metadata["tool_catalog_manifest_ref"] == packet.tool_catalog_manifest["manifest_id"]
+    selected_prefix = model_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]
+    assert "tool_schema_catalog" in selected_prefix["kinds"]
+    assert selected_prefix["tool_segment_count"] == 0
 
 
 def test_model_request_keeps_tool_schema_uncached_when_manifest_drifts_from_tool_index() -> None:
@@ -389,12 +422,13 @@ def test_model_request_keeps_tool_schema_uncached_when_manifest_drifts_from_tool
         segment_plan=packet.segment_plan,
         metadata={"tool_catalog_manifest": drifted_manifest},
     )
-    provider_tool_segment = next(
+    native_tool_segment = next(
         segment
         for segment in model_request.provider_payload_manifest.segments
         if segment.transport_location == "tools"
     )
 
-    assert provider_tool_segment.cache_role == "never_cache"
-    assert provider_tool_segment.prefix_tier == "none"
-    assert provider_tool_segment.metadata["tool_schema_cache_reason"] == "stable_tool_index_does_not_match_tool_catalog_manifest"
+    assert native_tool_segment.kind == "native_tool_binding_schema"
+    assert native_tool_segment.cache_role == "never_cache"
+    assert native_tool_segment.prefix_tier == "none"
+    assert native_tool_segment.metadata["native_tool_binding_reason"] == "stable_tool_index_does_not_match_tool_catalog_manifest"

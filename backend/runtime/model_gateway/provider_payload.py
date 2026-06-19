@@ -139,8 +139,8 @@ def build_provider_payload_manifest(
         payload = canonical_json({"tools": [dict(item) for item in tools]})
         segments.append(
             ProviderPayloadSegment(
-                segment_id=_segment_id(request_id, ordinal, "tool_schema_catalog", payload),
-                kind="tool_schema_catalog",
+                segment_id=_segment_id(request_id, ordinal, str(profile.get("kind") or "native_tool_binding_schema"), payload),
+                kind=str(profile.get("kind") or "native_tool_binding_schema"),
                 transport_location="tools",
                 ordinal=ordinal,
                 source_ref=str(profile.get("source_ref") or "model_request.tools"),
@@ -255,17 +255,17 @@ def _tool_schema_cache_profile(
 ) -> dict[str, Any]:
     tool_index = next((segment for segment in segments if segment.kind == "tool_index_stable"), None)
     if tool_index is None:
-        return _tool_schema_never_cache("missing_stable_tool_index")
+        return _native_tool_binding_schema_never_cache("missing_stable_tool_index")
     message_index = _int(dict(tool_index.metadata or {}).get("message_index"), default=-1)
     if message_index < 0 or message_index >= len(messages):
-        return _tool_schema_never_cache("stable_tool_index_message_missing")
+        return _native_tool_binding_schema_never_cache("stable_tool_index_message_missing")
     payload = _parse_titled_json_payload(str(dict(messages[message_index]).get("content") or ""))
     manifest_payload = dict(tool_catalog_manifest or {})
     manifest_ref = str(manifest_payload.get("manifest_id") or "")
     expected = _tool_catalog_manifest_fingerprint(manifest_payload) if manifest_payload else _tool_index_fingerprint(payload)
     message_expected = _tool_index_fingerprint(payload)
     if manifest_payload and message_expected.get("tools") and message_expected != expected:
-        return _tool_schema_never_cache(
+        return _native_tool_binding_schema_never_cache(
             "stable_tool_index_does_not_match_tool_catalog_manifest",
             expected_tool_names=list(expected.get("tool_names") or []),
             message_tool_names=list(message_expected.get("tool_names") or []),
@@ -279,7 +279,7 @@ def _tool_schema_cache_profile(
             if manifest_payload
             else "provider_tools_do_not_match_tool_index"
         )
-        return _tool_schema_never_cache(
+        return _native_tool_binding_schema_never_cache(
             reason,
             expected_tool_names=list(expected.get("tool_names") or []),
             actual_tool_names=list(actual.get("tool_names") or []),
@@ -287,25 +287,26 @@ def _tool_schema_cache_profile(
             stable_tool_index_segment_id=tool_index.segment_id,
         )
     if tool_index.cache_role not in {"cacheable_prefix", "session_stable"}:
-        return _tool_schema_never_cache(
+        return _native_tool_binding_schema_never_cache(
             "matched_tool_index_is_not_stable",
             stable_tool_index_segment_id=tool_index.segment_id,
         )
     return {
-        "source_ref": tool_index.source_ref or "model_request.tools",
-        "cache_scope": tool_index.cache_scope,
-        "cache_role": tool_index.cache_role,
-        "prefix_tier": tool_index.prefix_tier,
+        "kind": "native_tool_binding_schema",
+        "source_ref": "model_request.tools",
+        "cache_scope": "none",
+        "cache_role": "never_cache",
+        "prefix_tier": "none",
         "metadata": {
-            "tool_schema_cache_decision": (
-                "derived_from_tool_catalog_manifest"
+            "native_tool_binding_decision": (
+                "validated_against_tool_catalog_manifest"
                 if manifest_payload
-                else "derived_from_stable_tool_index"
+                else "validated_against_stable_tool_index"
             ),
             "cache_note": (
-                "tool_schema_cache_role_derived_from_matching_tool_catalog_manifest"
+                "native_tool_binding_schema_is_not_provider_prefix_cacheable; stable schema is carried by tool_schema_catalog message"
                 if manifest_payload
-                else "tool_schema_cache_role_derived_from_matching_stable_tool_index"
+                else "native_tool_binding_schema_is_not_provider_prefix_cacheable"
             ),
             "tool_catalog_manifest_ref": manifest_ref,
             "tool_catalog_manifest_hash": str(manifest_payload.get("tool_catalog_hash") or ""),
@@ -317,16 +318,17 @@ def _tool_schema_cache_profile(
     }
 
 
-def _tool_schema_never_cache(reason: str, **metadata: Any) -> dict[str, Any]:
+def _native_tool_binding_schema_never_cache(reason: str, **metadata: Any) -> dict[str, Any]:
     return {
+        "kind": "native_tool_binding_schema",
         "source_ref": "model_request.tools",
         "cache_scope": "none",
         "cache_role": "never_cache",
         "prefix_tier": "none",
         "metadata": {
-            "tool_schema_cache_decision": "not_promoted",
-            "tool_schema_cache_reason": str(reason or "unknown"),
-            "cache_note": "tool_schema_is_recorded_but_not_promoted_without_matching_stable_tool_index",
+            "native_tool_binding_decision": "not_promoted",
+            "native_tool_binding_reason": str(reason or "unknown"),
+            "cache_note": "native_tool_binding_schema_is_recorded_but_not_provider_prefix_cacheable",
             **dict(metadata),
         },
     }
@@ -386,10 +388,10 @@ def _short_schema_ref(schema: Any) -> str:
 
 def _cache_boundary(segments: tuple[ProviderPayloadSegment, ...]) -> dict[str, Any]:
     stable_message_prefix = _contiguous_stable_message_prefix(segments)
-    stable_tools = [
+    stable_tool_catalog_segments = [
         segment
         for segment in segments
-        if segment.transport_location == "tools"
+        if segment.kind == "tool_schema_catalog"
         and is_cache_eligible_prefix(cache_role=segment.cache_role, prefix_tier=segment.prefix_tier)
     ]
     tier_prefixes = {
@@ -416,7 +418,7 @@ def _cache_boundary(segments: tuple[ProviderPayloadSegment, ...]) -> dict[str, A
         "stable_message_prefix_hash": _segments_hash(stable_message_prefix),
         "stable_message_prefix_segment_count": len(stable_message_prefix),
         "tool_catalog_hash": _segments_hash(tool_segments),
-        "stable_tool_catalog_hash": _segments_hash(stable_tools),
+        "stable_tool_catalog_hash": _segments_hash(stable_tool_catalog_segments),
         "cache_sensitive_params_hash": _segments_hash(cache_sensitive_segments),
         "provider_params_hash": _segments_hash(request_param_segments),
         "tool_call_options_hash": _segments_hash(tool_option_segments),

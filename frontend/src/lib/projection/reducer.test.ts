@@ -263,6 +263,53 @@ describe("chronological projection frame reducer contract", () => {
     expect(tool?.output).not.toBe("系统调用已完成。");
   });
 
+  it("does not let a generic completion frame overwrite a concrete tool request", () => {
+    let transition = startBoundProjectionTurn();
+
+    transition = project(transition, {
+      source_event_type: "tool_call_requested",
+      event_offset: 10,
+      op: "item_upsert",
+      slot: "current_action",
+      source_authority: "model",
+      main_visibility: "visible_live",
+      retention: "transient",
+      item_id: "call:read-parser",
+      tool_call_id: "call:read-parser",
+      tool_lifecycle_id: "call:read-parser",
+      tool_name: "read_file",
+      title: "读取文件",
+      state: "running",
+    });
+    transition = project(transition, {
+      source_event_type: "tool_item_completed",
+      event_offset: 20,
+      op: "item_retire",
+      slot: "trace",
+      source_authority: "tool",
+      main_visibility: "trace_only",
+      retention: "trace",
+      item_id: "call:read-parser",
+      tool_call_id: "call:read-parser",
+      tool_lifecycle_id: "toolinv:read-parser",
+      tool_name: "tool",
+      target: "backend/capability_system/capabilities/retrieval/parser_adapter.py",
+      arguments_preview: "path=backend/capability_system/capabilities/retrieval/parser_adapter.py",
+      state: "done",
+    });
+
+    const tool = latestProjection(transition.state)?.blocks.find((block) => block.kind === "tool_event");
+    expect(tool).toMatchObject({
+      kind: "tool_event",
+      toolName: "read_file",
+      target: "backend/capability_system/capabilities/retrieval/parser_adapter.py",
+      commandLine: "read_file backend/capability_system/capabilities/retrieval/parser_adapter.py path=backend/capability_system/capabilities/retrieval/parser_adapter.py",
+      output: "读取文件完成：backend/capability_system/capabilities/retrieval/parser_adapter.py",
+      state: "done",
+    });
+    expect(tool?.commandLine).not.toBe("tool");
+  });
+
   it("keeps body and tool activity as ordered render blocks", () => {
     let transition = startBoundProjectionTurn();
     transition = project(transition, {

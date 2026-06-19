@@ -332,15 +332,15 @@ def _unmanifested_tool_schema_profile(
         else "missing_provider_payload_manifest"
     )
     return {
-        "kind": "tool_schema_catalog",
+        "kind": "native_tool_binding_schema",
         "cache_role": "never_cache",
         "prefix_tier": "none",
         "source": "model_request.tools",
         "metadata": {
             "tool_count": len(normalized_tools),
-            "cache_note": "tool_schema_cache_role_requires_provider_payload_manifest",
-            "tool_schema_cache_decision": "not_promoted",
-            "tool_schema_cache_reason": reason,
+            "cache_note": "native_tool_binding_schema_requires_provider_payload_manifest",
+            "native_tool_binding_decision": "not_promoted",
+            "native_tool_binding_reason": reason,
             "provider_payload_manifest_required": True,
         },
     }
@@ -407,7 +407,7 @@ def _provider_payload_tool_segment(manifest: dict[str, Any]) -> dict[str, Any]:
             continue
         metadata = dict(item.get("metadata") or {})
         return {
-            "kind": str(item.get("kind") or "tool_schema_catalog"),
+            "kind": str(item.get("kind") or "native_tool_binding_schema"),
             "cache_role": _cache_role(item.get("cache_role")),
             "prefix_tier": _prefix_tier(
                 item.get("prefix_tier"),

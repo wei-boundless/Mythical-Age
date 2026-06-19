@@ -547,17 +547,8 @@ def _provider_payload_prefix_token_diagnostics(
 
 
 def _provider_payload_tool_prefix_predicted_tokens(segment_map: PromptSegmentMap, *, tier: str) -> int:
-    total = 0
-    for segment in segment_map.segments:
-        if str(segment.kind or "") != "tool_schema_catalog":
-            continue
-        if is_prefix_eligible_for_tier(
-            cache_role=segment.cache_role,
-            prefix_tier=segment.prefix_tier,
-            tier=tier,
-        ):
-            total += int(segment.predicted_tokens or 0)
-    return total
+    del segment_map, tier
+    return 0
 
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:

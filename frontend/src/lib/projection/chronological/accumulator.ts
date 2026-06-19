@@ -355,6 +355,17 @@ function mergeTool(existing: ToolLifecycle, incoming: ToolLifecycle): ToolLifecy
     pinned: existing.pinned || incoming.pinned,
     state: mergeLifecycleState(existing.state, incoming.state, incomingIsOlder),
   };
+  if (
+    !incomingIsOlder
+    && isGenericToolName(incoming.toolName)
+    && existing.toolName
+    && !isGenericToolName(existing.toolName)
+  ) {
+    merged.toolName = existing.toolName;
+    if (isGenericToolCommand(incoming.commandLine) || !merged.commandLine) {
+      merged.commandLine = toolCommandLine(merged.toolName, merged.target, merged.argumentsPreview);
+    }
+  }
   const incomingCommandIsOnlyToolName = sameCompactText(incoming.commandLine, incoming.toolName);
   if (!incomingIsOlder && incomingCommandIsOnlyToolName && existing.commandLine && existing.commandLine !== incoming.commandLine) {
     merged.commandLine = existing.commandLine;
@@ -493,6 +504,16 @@ function toolCommandLine(toolName: string, target: string, argumentsPreview: str
   return [toolName || "tool", target ? quote(target) : "", argumentsPreview && argumentsPreview !== target ? argumentsPreview : ""]
     .filter(Boolean)
     .join(" ");
+}
+
+function isGenericToolName(value: string) {
+  const normalized = compactText(value);
+  return !normalized || normalized === "tool" || normalized === "工具";
+}
+
+function isGenericToolCommand(value: string) {
+  const normalized = text(value).toLowerCase();
+  return !normalized || normalized === "tool" || normalized.startsWith("tool ") || normalized.startsWith("tool\"");
 }
 
 function toolOutput(normalized: NormalizedProjectionFrame, state: string) {

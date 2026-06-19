@@ -63,6 +63,7 @@ from .environment_storage import ensure_environment_storage_dirs
 from .environment_prompt_controller import GENERAL_ENVIRONMENT_ID, prompt_mount_plan_for_invocation, prompt_mount_plan_from_payload
 from .prompt_segment_plan import build_prompt_segment_plan
 from .project_instructions import ProjectInstructionBundle, collect_project_instruction_bundle
+from .provider_tool_schema import stable_tool_schema_catalog_payload
 from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
 from .task_contract_manifest import TaskContractManifest, build_task_contract_manifest_from_contract
 from .tool_catalog_manifest import ToolCatalogManifest, build_tool_catalog_manifest
@@ -531,6 +532,10 @@ class RuntimeCompiler:
             if single_turn_tools
             else {}
         )
+        tool_schema_catalog_payload = stable_tool_schema_catalog_payload(
+            tool_payloads=single_turn_tools,
+            tool_catalog_manifest=tool_catalog_manifest,
+        )
         packet_id = f"rtpacket:{turn_id}:single_agent_turn:1"
         turn_input_facts = dict(session_context_payload.get("turn_input_facts") or {})
         file_evidence_scope = session_file_evidence_scope(session_id)
@@ -644,6 +649,22 @@ class RuntimeCompiler:
                     compression_role="preserve",
                 )
                 if tool_index_payload
+                else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Single agent turn tool schema catalog",
+                    payload=tool_schema_catalog_payload,
+                    kind="tool_schema_catalog",
+                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "provider_tool_schema_catalog",
+                        "content_source": "harness.runtime.compiler.stable_tool_schema_catalog",
+                    },
+                )
+                if tool_schema_catalog_payload
                 else None,
                 _runtime_payload_spec(
                     role="system",
@@ -1155,6 +1176,10 @@ class RuntimeCompiler:
             environment_stable_payload["capability_directory"] = capability_directory_payload
         project_instruction_payload = _project_instruction_model_payload(project_instruction_bundle)
         tool_index_payload = tool_catalog_manifest.to_model_visible_payload(include_catalog_hash=True)
+        tool_schema_catalog_payload = stable_tool_schema_catalog_payload(
+            tool_payloads=tool_payloads,
+            tool_catalog_manifest=tool_catalog_manifest,
+        )
         packet_id = f"rtpacket:{task_run_id}:task_execution:{executor_epoch}:{invocation_index}"
         projection_policy = _dynamic_context_projection_policy(
             invocation_kind="task_execution",
@@ -1371,6 +1396,22 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task execution tool schema catalog",
+                    payload=tool_schema_catalog_payload,
+                    kind="tool_schema_catalog",
+                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "provider_tool_schema_catalog",
+                        "content_source": "harness.runtime.compiler.stable_tool_schema_catalog",
+                    },
+                )
+                if tool_schema_catalog_payload
+                else None,
                 _runtime_payload_spec(
                     role="system",
                     title="Task execution graph shared context",
@@ -1800,6 +1841,10 @@ class RuntimeCompiler:
             source_ref="tool_observation_followup.available_tools",
             prompt_mount_plan=prompt_mount_plan,
         )
+        tool_schema_catalog_payload = stable_tool_schema_catalog_payload(
+            tool_payloads=tool_payloads,
+            tool_catalog_manifest=tool_catalog_manifest,
+        )
         agent_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="tool_observation_followup",
             prompt_refs=_agent_prompt_refs_for_invocation(assembly_payload, invocation_kind="tool_observation_followup"),
@@ -1908,6 +1953,22 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
+                _runtime_payload_spec(
+                    role="system",
+                    title="Observation followup tool schema catalog",
+                    payload=tool_schema_catalog_payload,
+                    kind="tool_schema_catalog",
+                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "provider_tool_schema_catalog",
+                        "content_source": "harness.runtime.compiler.stable_tool_schema_catalog",
+                    },
+                )
+                if tool_schema_catalog_payload
+                else None,
                 _message_spec(
                     role="system",
                     content=environment_instruction,

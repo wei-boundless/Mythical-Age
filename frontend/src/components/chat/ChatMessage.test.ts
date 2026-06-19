@@ -193,6 +193,33 @@ describe("ChatMessage", () => {
     expect(html).toContain("public-run-activity");
   });
 
+  it("renders non-shell tool details without the generic shell placeholder", () => {
+    const html = renderChatMessage({
+      streamingContent: true,
+      projectionView: projectionView({
+        displayMode: "live",
+        blocks: [{
+          ...toolBlock(),
+          id: "tool:parser-adapter",
+          title: "读取文件完成：backend/capability_system/capabilities/retrieval/parser_adapter.py",
+          detail: "读取文件完成：backend/capability_system/capabilities/retrieval/parser_adapter.py",
+          target: "backend/capability_system/capabilities/retrieval/parser_adapter.py",
+          toolName: "",
+          actionKind: "",
+          commandLine: "tool",
+          output: "读取文件完成：backend/capability_system/capabilities/retrieval/parser_adapter.py",
+        }],
+        canonicalContent: "",
+        copyText: "",
+        bodyState: "streaming",
+      }),
+    });
+
+    expect(html).toContain("工具操作");
+    expect(html).toContain("backend/capability_system/capabilities/retrieval/parser_adapter.py");
+    expect(html).not.toContain("$ tool");
+  });
+
   it("renders live todo plan projection as a task checklist", () => {
     const html = renderChatMessage({
       streamingContent: false,

@@ -3401,6 +3401,8 @@ def _record_task_tool_item_started(
 ) -> Any:
     tool_call_id = _canonical_tool_call_id(action_request)
     permission_decision_id_value = permission_decision_id(admission, tool_call_id=tool_call_id)
+    tool_call = dict(getattr(action_request, "tool_call", {}) or {})
+    tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
     event = runtime_host.event_log.append(
         task_run.task_run_id,
         "tool_item_started",
@@ -3411,6 +3413,8 @@ def _record_task_tool_item_started(
             "tool_call_id": tool_call_id,
             "permission_decision_id": permission_decision_id_value,
             "tool_name": tool_name,
+            "target": _tool_target_preview(tool_args),
+            "arguments_preview": _tool_arguments_preview(tool_args),
             "state": "running",
             "action_request_ref": action_request.request_id,
             "packet_ref": packet_ref,
@@ -8893,6 +8897,26 @@ def _tool_target_preview(args: dict[str, Any]) -> str:
         if value:
             return " ".join(value.split())[:120].rstrip()
     return ""
+
+
+def _tool_arguments_preview(args: dict[str, Any]) -> str:
+    if not args:
+        return ""
+    priority = ("path", "file_path", "target_path", "prompt", "query", "command", "start_line", "line_count")
+    skipped = {"content", "replacement", "new_content", "old_content", "patch", "diff"}
+    ordered_keys = [key for key in priority if key in args]
+    ordered_keys.extend(key for key in sorted(args) if key not in ordered_keys and key not in skipped)
+    parts: list[str] = []
+    for key in ordered_keys:
+        value = args.get(key)
+        if isinstance(value, (dict, list, tuple)):
+            continue
+        text = public_runtime_progress_summary(f"{key}={value}").strip()
+        if text:
+            parts.append(text[:120] if key == "command" else text[:80])
+        if len(parts) >= 6:
+            break
+    return ", ".join(parts)[:240]
 
 
 def _not_found(task_run_id: str) -> dict[str, Any]:

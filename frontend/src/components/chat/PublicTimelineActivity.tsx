@@ -457,13 +457,17 @@ function firstDifferentText(summary: string, ...values: unknown[]) {
 function toolWindowTitle(block: ToolProjectionBlock) {
   const action = toolInvocationName(block);
   const target = toolInvocationTarget(block);
-  return [action, target].filter(Boolean).join(" ");
+  const structured = [action, target].filter(Boolean).join(" ");
+  if (structured && !sameCompactText(structured, "工具操作")) return structured;
+  return firstText(block.title, block.detail, structured || "工具操作");
 }
 
 function toolInvocationName(block: ToolProjectionBlock) {
   const rawTool = cleanText(block.toolName || block.actionKind);
   const normalized = rawTool.toLowerCase();
-  if (!rawTool) return "tool";
+  if (!rawTool || normalized === "tool") {
+    return actionLabelFromText(block.title) || actionLabelFromText(block.detail) || "工具操作";
+  }
   if (["terminal", "shell", "cmd", "command", "powershell", "bash"].includes(normalized)) {
     return "运行命令";
   }
@@ -525,7 +529,7 @@ function toolWindowConsoleLabel(block: ToolProjectionBlock) {
   if (["terminal", "shell", "cmd", "command", "powershell", "bash"].includes(tool)) {
     return "命令行";
   }
-  return "命令行";
+  return "工具操作";
 }
 
 function displayTargetLabel(value: unknown) {
@@ -549,11 +553,18 @@ function isInternalToolWindowSection(label: string) {
 
 function toolWindowCommandLine(block: ToolProjectionBlock, sections: Array<{ label: string; text: string }>) {
   const explicit = cleanText(block.commandLine);
-  if (explicit) return explicit;
-  const rawTool = cleanText(block.toolName || block.actionKind || "tool");
+  const rawTool = cleanText(block.toolName || block.actionKind);
   const target = firstSectionText(sections, "目标") || displayTargetLabel(block.target);
   const params = firstSectionText(sections, "参数") || cleanText(block.argumentsPreview);
-  return [rawTool, target ? quoteCommandPart(target) : "", params && !sameCompactText(params, target) ? params : ""]
+  const explicitIsGeneric = isGenericToolText(explicit);
+  const shellTool = isShellTool(block);
+  const explicitUsesRawTool = rawTool
+    && (sameCompactText(explicit, rawTool) || cleanText(explicit).toLowerCase().startsWith(`${rawTool.toLowerCase()} `));
+  if (explicit && shellTool && !explicitIsGeneric) return explicit;
+  if (explicit && !explicitIsGeneric && !explicitUsesRawTool) return explicit;
+  const action = toolInvocationName(block);
+  const commandHead = shellTool ? (rawTool || "command") : action;
+  return [commandHead, target ? quoteCommandPart(target) : "", params && !sameCompactText(params, target) ? params : ""]
     .filter(Boolean)
     .join(" ");
 }
@@ -583,6 +594,28 @@ function quoteCommandPart(value: string) {
 
 function sameCompactText(left: string, right: string) {
   return Boolean(left) && Boolean(right) && compactText(left) === compactText(right);
+}
+
+function isShellTool(block: ToolProjectionBlock) {
+  const tool = cleanText(block.toolName || block.actionKind).toLowerCase();
+  return ["terminal", "shell", "cmd", "command", "powershell", "bash"].includes(tool);
+}
+
+function isGenericToolText(value: string) {
+  const normalized = cleanText(value).toLowerCase();
+  return !normalized || normalized === "tool" || normalized.startsWith("tool ") || normalized.startsWith("tool\"");
+}
+
+function actionLabelFromText(value: unknown) {
+  const text = cleanText(value).replace(/完成[:：]?.*$/u, "").trim();
+  for (const label of TOOL_ACTION_LABELS) {
+    if (text === label) return label;
+    if (text.startsWith(`${label} `) || text.startsWith(`${label}：`)) return label;
+  }
+  if (text.startsWith("文件读取")) return "读取文件";
+  if (text.startsWith("文件更新")) return "更新文件";
+  if (text.startsWith("搜索完成")) return "搜索文件";
+  return "";
 }
 
 function compactText(value: string) {

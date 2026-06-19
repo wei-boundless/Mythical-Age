@@ -255,7 +255,6 @@ class EvidenceOrchestrator:
         evidence_pack = build_rag_evidence_pack(
             user_query=query,
             retrieval_results=raw_results,
-            max_items=3,
         )
         if self.output_policy.rag_evidence_pack_can_finalize(evidence_pack):
             finalization = await self.output_policy.rewrite_rag_answer_with_model(evidence_pack=evidence_pack)

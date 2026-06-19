@@ -370,6 +370,9 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "turn_run_id",
         "task_run_id",
         "tool_name",
+        "title",
+        "target",
+        "arguments_preview",
         "state",
         "observation",
         "error",
@@ -2770,6 +2773,13 @@ def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     operation_gate = _record(tool_observation.get("operation_gate") or observation.get("operation_gate"))
     admission = _record(operation_gate.get("admission"))
     refs = _record(raw_event.get("refs"))
+    tool_args = _tool_args_from_observation(
+        tool_observation,
+        observation,
+        result_envelope=result_envelope,
+        execution_receipt=execution_receipt,
+        tool_call_id=tool_call_id,
+    )
     error_source = (
         tool_observation.get("error")
         or observation.get("error")
@@ -2794,6 +2804,9 @@ def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
         "turn_run_id": str(tool_observation.get("caller_ref") or observation.get("caller_ref") or execution_receipt.get("caller_ref") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
         "task_run_id": str(observation.get("task_run_id") or tool_observation.get("task_run_id") or execution_receipt.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
         "tool_name": tool_name,
+        "title": _safe_public_action_text(tool_observation.get("title") or observation.get("title") or result_envelope.get("title")),
+        "target": _safe_public_tool_target(tool_args),
+        "arguments_preview": _tool_arguments_preview(tool_args),
         "state": state,
         "observation": observation_text,
         "error": error if state == "error" else "",
@@ -2991,6 +3004,60 @@ def _tool_call_id_from_observation(observation: dict[str, Any]) -> str:
         or tool_call.get("id")
         or ""
     ).strip()
+
+
+def _tool_args_from_observation(
+    observation: dict[str, Any],
+    raw_observation: dict[str, Any],
+    *,
+    result_envelope: dict[str, Any],
+    execution_receipt: dict[str, Any],
+    tool_call_id: str,
+) -> dict[str, Any]:
+    for source in (observation, raw_observation, result_envelope, execution_receipt):
+        args = _tool_args_from_payload(source)
+        if args:
+            return args
+    for source in (observation, raw_observation, result_envelope, execution_receipt):
+        diagnostics = _record(source.get("diagnostics"))
+        action_request = _record(diagnostics.get("action_request"))
+        args = _tool_args_from_action_request(action_request, tool_call_id=tool_call_id)
+        if args:
+            return args
+    operation_gate = _record(observation.get("operation_gate") or raw_observation.get("operation_gate") or result_envelope.get("operation_gate"))
+    action_permit = _record(operation_gate.get("action_permit"))
+    return _tool_args_from_payload(action_permit)
+
+
+def _tool_args_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    source = _record(payload)
+    for key in ("tool_args", "args", "arguments", "input"):
+        parsed = _record_or_json_object(source.get(key))
+        if parsed:
+            return parsed
+    tool_call = _record(source.get("tool_call"))
+    if tool_call:
+        return _tool_call_args(tool_call, request={})
+    return {}
+
+
+def _tool_args_from_action_request(action_request: dict[str, Any], *, tool_call_id: str) -> dict[str, Any]:
+    request = _record(action_request)
+    if not request:
+        return {}
+    tool_calls = _model_action_tool_calls(request)
+    if not tool_calls and _record(request.get("tool_call")):
+        tool_calls = [_record(request.get("tool_call"))]
+    normalized_call_id = str(tool_call_id or "").strip()
+    for tool in tool_calls:
+        candidate_id = str(tool.get("id") or tool.get("tool_call_id") or "").strip()
+        if normalized_call_id and candidate_id == normalized_call_id:
+            args = _tool_call_args(tool, request=request if len(tool_calls) == 1 else {})
+            if args:
+                return args
+    if len(tool_calls) == 1:
+        return _tool_call_args(tool_calls[0], request=request)
+    return _tool_call_args({}, request=request)
 
 
 def _tool_lifecycle_id(*, tool_call_id: str, tool_name: str) -> str:
@@ -3212,6 +3279,12 @@ def _public_runtime_reason_label(reason: str) -> str:
         "missing_terminal_event": "输出流没有正常收口",
         "stream_exception": "输出流异常中断",
         "stream_cancelled": "输出流已取消",
+        "agent_contract_feedback_required": "需要 agent 重新收口",
+        "tool_budget_exhausted": "本轮工具预算已用完",
+        "single_turn_tool_iteration_limit": "本轮工具预算已用完",
+        "single_agent_turn_empty_response": "agent 未生成可发布回复",
+        "tool_limit_closeout_protocol_failed": "agent 收口动作未满足要求",
+        "tool_limit_missing_answer": "agent 收口缺少可发布回复",
         "completed": "已完成",
         "failed": "处理失败",
         "stopped": "运行已停止",

@@ -23,6 +23,7 @@ from harness.runtime import RuntimeCompiler, ToolBatchGroup, build_runtime_tool_
 from harness.runtime.environment_storage import ensure_environment_storage_dirs
 from harness.runtime.file_management_policy import compile_tool_file_management_policy
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
+from harness.runtime.provider_tool_schema import provider_tool_bindings_for_available_tools
 from harness.runtime.public_progress import public_runtime_progress_summary
 from harness.runtime.sandbox_artifacts import (
     logical_path_publish_allowed,
@@ -287,7 +288,10 @@ def _tool_limit_closeout_messages(
         "action_type 只能是 respond、ask_user 或 block。\n"
         "如果当前事实足以告知用户进展或结果，选择 respond 并填写 final_answer。\n"
         "如果任务还没完成但需要用户决定是否继续，选择 ask_user 并填写 user_question。\n"
-        "如果当前事实不足以可靠继续或可靠总结，选择 block 并填写 blocking_reason。"
+        "如果当前事实不足以可靠继续或可靠总结，选择 block 并填写 blocking_reason。\n"
+        "无论选择哪一种，都要把工具预算耗尽后的收口问题写成用户能理解的 agent 判断："
+        "哪些已经确认、哪些没完成、为什么本轮不能继续工具、下一步如何恢复；"
+        "不要泄露错误码、JSON schema、action 字段或系统拦截过程。"
     )
     return _sanitize_model_messages(
         [
@@ -509,6 +513,9 @@ def _agent_authored_closeout_messages(
         "系统已经停止继续执行工具；现在必须由你亲自向用户收口。\n"
         "你只能输出给用户看的自然语言正文，不要输出 JSON、action_request、tool_calls、内部协议、工具调用片段或开发者说明。\n"
         "如果当前信息足够，请说明你已经确认的事实、完成了什么、还缺什么、下一步应该怎么继续。\n"
+        "如果收口原因是工具预算耗尽、工具通道关闭、连续工具失败或前一次收口没有形成可发布回复，"
+        "必须把它写成你自己的用户可见判断：本轮已不能继续执行工具、已确认哪些事实、哪些仍未确认、继续需要什么。"
+        "不要把错误码、JSON schema、action 字段或系统拦截过程写给用户。\n"
         "如果遇到搜索参数、路径、权限、读取窗口、上下文预算或大文件边界，请把它当作可恢复的运行事实："
         "说明应缩小范围、把目录放在 roots、把具体文件放在 paths、按 read_file 窗口继续读取、提高上下文预算，"
         "或把工作升级为项目级任务继续处理。\n"
@@ -661,6 +668,9 @@ def _agent_contract_feedback_items(
         reason = str(protocol_error.get("reason") or protocol_error.get("code") or "").strip()
         if reason:
             items.append(_contract_feedback_item_for_reason(reason, diagnostics=diagnostics))
+    runtime_control_item = _contract_feedback_item_for_runtime_control_signal(control_signal)
+    if runtime_control_item:
+        items.append(runtime_control_item)
     commit_reason = str(control_signal.get("commit_reason") or "").strip()
     if commit_reason:
         leak_flags = [str(item) for item in list(control_signal.get("answer_leak_flags") or []) if str(item)]
@@ -675,6 +685,57 @@ def _agent_contract_feedback_items(
             }
         )
     return _unique_feedback_items(items)
+
+
+def _contract_feedback_item_for_runtime_control_signal(control_signal: dict[str, Any]) -> dict[str, str]:
+    signal = dict(control_signal or {})
+    signal_kind = str(signal.get("signal_kind") or "").strip()
+    if signal_kind != "tool_budget_exhausted":
+        return {}
+    attempted = _attempted_tool_feedback_summary(signal.get("attempted_actions_not_executed"))
+    used = _int_feedback_value(signal.get("used_tool_iterations"))
+    max_allowed = _int_feedback_value(signal.get("max_tool_iterations"))
+    budget = f"{used}/{max_allowed}" if used and max_allowed else ""
+    budget_text = f"（{budget}）" if budget else ""
+    attempted_text = f"你随后又请求了 {attempted}，该工具意图没有被执行。" if attempted else "你随后又请求了新的工具调用，该工具意图没有被执行。"
+    return {
+        "category": "runtime_control_boundary",
+        "code": "tool_budget_exhausted",
+        "reason": "tool_budget_exhausted",
+        "situation_feedback": f"本轮已经达到单轮工具预算上限{budget_text}；{attempted_text}",
+        "repair_instruction": "停止继续请求工具，把当前边界写成 agent 自己的收口：说明已确认事实、未完成项、验证状态和继续条件。",
+        "expected_next_action": "事实足够时用 respond.final_answer 收口；需要用户决定是否继续时用 ask_user.user_question；证据不足时用 block.blocking_reason。",
+    }
+
+
+def _attempted_tool_feedback_summary(value: Any) -> str:
+    actions = list(value or []) if isinstance(value, list) else []
+    for action in actions:
+        payload = dict(action or {})
+        tool_call = dict(payload.get("tool_call") or {})
+        name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
+        args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
+        target = str(
+            args.get("path")
+            or args.get("file_path")
+            or args.get("target_path")
+            or args.get("pattern")
+            or args.get("query")
+            or args.get("url")
+            or ""
+        ).strip()
+        if name and target:
+            return f"{name}({target})"
+        if name:
+            return name
+    return ""
+
+
+def _int_feedback_value(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _contract_feedback_item_from_action_issue(action_issue: dict[str, Any], *, fallback_reason: Any = "") -> dict[str, str]:
@@ -971,6 +1032,17 @@ async def run_single_agent_turn(
 ) -> AsyncIterator[dict[str, Any]]:
     turn_run = None
     terminal_recorded = False
+    assistant_visible_stream_continuity: dict[str, Any] = {}
+
+    def terminal_payload_with_stream_continuity(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        continuity = dict(assistant_visible_stream_continuity or {})
+        if not continuity:
+            return dict(payload or {})
+        return {
+            **dict(payload or {}),
+            "assistant_visible_stream_continuity": continuity,
+        }
+
     try:
         if runtime_host is not None:
             turn_run, start_event = _start_turn_runtime(
@@ -1043,7 +1115,7 @@ async def run_single_agent_turn(
         )
         api_protocol_messages: list[dict[str, Any]] = []
         assistant_stream_normalizer: AssistantStreamNormalizer | None = None
-        assistant_visible_stream_continuity: dict[str, Any] = {}
+        assistant_visible_stream_continuity = {}
         current_packet_ref = str(compilation.packet.packet_id)
         current_allowed_action_types = tuple(compilation.packet.allowed_action_types)
         current_available_tools = tuple(compilation.packet.available_tools or ())
@@ -1058,15 +1130,6 @@ async def run_single_agent_turn(
                 event,
                 turn_id=turn_id,
             )
-
-        def terminal_payload_with_stream_continuity(payload: dict[str, Any] | None = None) -> dict[str, Any]:
-            continuity = dict(assistant_visible_stream_continuity or {})
-            if not continuity:
-                return dict(payload or {})
-            return {
-                **dict(payload or {}),
-                "assistant_visible_stream_continuity": continuity,
-            }
 
         async def emit_terminal_then_final(
             *,
@@ -4079,35 +4142,9 @@ def _single_agent_protocol_error(*, code: str, reason: str, diagnostics: dict[st
 
 def _native_tools_for_packet(allowed_action_types: tuple[str, ...], *, available_tools: tuple[dict[str, Any], ...] = ()) -> list[dict[str, Any]]:
     allowed = set(allowed_action_types or ())
-    tools: list[dict[str, Any]] = []
-    if "tool_call" in allowed:
-        tools.extend(_runtime_native_tools(available_tools))
-    return tools
-
-
-def _runtime_native_tools(available_tools: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
-    tools: list[dict[str, Any]] = []
-    for item in available_tools:
-        tool = dict(item or {})
-        name = str(tool.get("tool_name") or tool.get("name") or "").strip()
-        if not name:
-            continue
-        schema = dict(tool.get("input_schema") or {}) if isinstance(tool.get("input_schema"), dict) else {}
-        if not schema:
-            properties = {str(value): {"type": "string"} for value in list(tool.get("required_inputs") or []) if str(value)}
-            schema = {
-                "type": "object",
-                "properties": properties,
-                "required": list(properties),
-            }
-        tools.append(
-            {
-                "name": name,
-                "description": str(tool.get("description") or tool.get("display_name") or name),
-                "input_schema": schema,
-            }
-        )
-    return tools
+    if "tool_call" not in allowed:
+        return []
+    return provider_tool_bindings_for_available_tools(available_tools)
 
 
 def _tool_action_request_from_native_tool_calls(
@@ -4230,6 +4267,26 @@ def _native_tool_public_target(args: dict[str, Any]) -> str:
         if value:
             return value[:120]
     return ""
+
+
+def _native_tool_arguments_preview(args: dict[str, Any]) -> str:
+    if not args:
+        return ""
+    priority = ("path", "file_path", "target_path", "query", "pattern", "url", "start_line", "line_count", "command")
+    skipped = {"content", "replacement", "new_content", "old_content", "patch", "diff"}
+    ordered_keys = [key for key in priority if key in args]
+    ordered_keys.extend(key for key in sorted(args) if key not in ordered_keys and key not in skipped)
+    parts: list[str] = []
+    for key in ordered_keys:
+        value = args.get(key)
+        if isinstance(value, (dict, list, tuple)):
+            continue
+        text = public_runtime_progress_summary(f"{key}={value}").strip()
+        if text:
+            parts.append(text[:120] if key == "command" else text[:80])
+        if len(parts) >= 6:
+            break
+    return ", ".join(parts)[:240]
 
 
 def _stable_action_suffix(value: str) -> str:
@@ -5957,6 +6014,7 @@ def _tool_item_started_events_for_group(
             continue
         tool_call = dict(row.get("tool_call") or _tool_call_from_action_request(action_request))
         tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
+        tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
         tool_call_id = _canonical_action_tool_call_id(action_request)
         if not tool_name or not tool_call_id:
             continue
@@ -5977,6 +6035,8 @@ def _tool_item_started_events_for_group(
                 "tool_call_id": tool_call_id,
                 "permission_decision_id": permission_decision_id_value,
                 "tool_name": tool_name,
+                "target": _native_tool_public_target(tool_args),
+                "arguments_preview": _native_tool_arguments_preview(tool_args),
                 "state": "running",
                 "action_request_ref": str(getattr(action_request, "request_id", "") or ""),
             },

@@ -43,6 +43,9 @@ export function ToolWindow({ entry, nested = false }: { entry: ActivityEntry; ne
   const defaultOpen = false;
   const [open, setOpen] = useState(defaultOpen);
   const statusTone = entry.statusTone ?? "running";
+  const consoleLabel = entry.consoleLabel || "工具操作";
+  const commandText = entry.commandLine || entry.text || "工具调用";
+  const commandPrefix = consoleLabel === "命令行" ? "$ " : "";
   const outputText = entry.outputText
     || (statusTone === "running" || statusTone === "waiting" ? "等待系统返回" : "无输出");
 
@@ -69,9 +72,9 @@ export function ToolWindow({ entry, nested = false }: { entry: ActivityEntry; ne
       <div className="public-run-activity__tool-window-body">
         <div className="public-run-activity__tool-console" role="group" aria-label="工具调用窗口">
           <div className="public-run-activity__tool-console-row public-run-activity__tool-console-row--command">
-            <div className="public-run-activity__tool-console-label">{entry.consoleLabel || "命令行"}</div>
+            <div className="public-run-activity__tool-console-label">{consoleLabel}</div>
             <pre className="public-run-activity__tool-console-command">
-              <code>{entry.commandLine ? `$ ${entry.commandLine}` : "$ tool"}</code>
+              <code>{commandPrefix}{commandText}</code>
             </pre>
           </div>
           <div className="public-run-activity__tool-console-row public-run-activity__tool-console-row--output">

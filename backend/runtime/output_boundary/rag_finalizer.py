@@ -29,12 +29,37 @@ class RAGEvidencePack:
     items: list[RAGEvidenceItem] = field(default_factory=list)
 
 
+def _dynamic_max_items(
+    retrieval_results: list[dict[str, Any]] | None,
+    *,
+    user_query: str = "",
+    min_items: int = 2,
+    max_items: int = 5,
+) -> int:
+    """根据检索结果得分分布和查询复杂度动态决定证据条数。"""
+    results = list(retrieval_results or [])
+    if not results:
+        return min_items
+    scores = [float(r.get("score", 0) or 0) for r in results]
+    top_score = max(scores) if scores else 0.0
+    if top_score <= 0.0:
+        return min_items
+    threshold = top_score * 0.5
+    high_quality_count = sum(1 for s in scores if s >= threshold)
+    query_len = len(user_query.strip())
+    length_bonus = 1 if query_len > 30 else 0
+    dynamic = high_quality_count + length_bonus
+    return max(min_items, min(dynamic, max_items))
+
+
 def build_rag_evidence_pack(
     *,
     user_query: str,
     retrieval_results: list[dict[str, Any]] | None,
-    max_items: int = 3,
+    max_items: int | None = None,
 ) -> RAGEvidencePack | None:
+    if max_items is None:
+        max_items = _dynamic_max_items(retrieval_results, user_query=user_query)
     items: list[RAGEvidenceItem] = []
     seen: set[str] = set()
     for result in list(retrieval_results or []):

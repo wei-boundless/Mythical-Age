@@ -80,6 +80,7 @@ class ProjectionLifecycleState:
                 "scope": _tool_lifecycle_scope(data),
                 "requested_offset": offset,
                 "item_id": text(spec.get("item_id")) or tool_call_id,
+                **_tool_lifecycle_public_fields(spec),
             }
             return spec
         if event_type == TOOL_PERMISSION_DECIDED_EVENT:
@@ -128,16 +129,18 @@ class ProjectionLifecycleState:
                     code="tool_started_before_permission",
                     detail="tool_item_started 的 event_offset 不晚于 tool_permission_decided，不能进入公开工具生命周期。",
                 )
-            started_data = {
-                **data,
-                "permission_decision_id": text(record.get("permission_decision_id")) or text(data.get("permission_decision_id")),
-            }
+            started_data = _data_with_tool_record_public_fields(
+                data,
+                record=record,
+                permission_decision_id=text(record.get("permission_decision_id")) or text(data.get("permission_decision_id")),
+            )
             spec = _tool_started_spec(started_data)
             record.update(
                 {
                     "started_offset": offset,
                     "started": True,
                     "tool_lifecycle_id": text(data.get("tool_lifecycle_id")),
+                    **_tool_lifecycle_public_fields(spec),
                 }
             )
             return spec
@@ -161,10 +164,11 @@ class ProjectionLifecycleState:
                     code="tool_completed_before_started",
                     detail="tool_item_completed 的 event_offset 不晚于 tool_item_started，不能进入公开工具生命周期。",
                 )
-            completed_data = {
-                **data,
-                "permission_decision_id": text(record.get("permission_decision_id")) or text(data.get("permission_decision_id")),
-            }
+            completed_data = _data_with_tool_record_public_fields(
+                data,
+                record=record,
+                permission_decision_id=text(record.get("permission_decision_id")) or text(data.get("permission_decision_id")),
+            )
             spec = _tool_completed_spec(completed_data)
             record.update({"completed_offset": offset, "completed": True})
             return spec
@@ -403,6 +407,41 @@ def _trace_only_tool_title(tool_name: str, *, failed: bool) -> str:
     return "内部工具执行失败" if failed else "内部工具执行"
 
 
+def _tool_lifecycle_public_fields(source: dict[str, Any]) -> dict[str, Any]:
+    fields: dict[str, Any] = {}
+    for key in (
+        "tool_name",
+        "action_kind",
+        "title",
+        "text",
+        "detail",
+        "subject_label",
+        "arguments_preview",
+        "target",
+        "source_item_id",
+    ):
+        value = text(source.get(key))
+        if value:
+            fields[key] = value
+    return fields
+
+
+def _data_with_tool_record_public_fields(
+    data: dict[str, Any],
+    *,
+    record: dict[str, Any],
+    **overrides: Any,
+) -> dict[str, Any]:
+    merged = dict(data or {})
+    for key, value in _tool_lifecycle_public_fields(record).items():
+        if not text(merged.get(key)):
+            merged[key] = value
+    for key, value in overrides.items():
+        if text(value):
+            merged[key] = value
+    return merged
+
+
 def _agent_todo_hidden_trace_spec(data: dict[str, Any], *, state: str) -> dict[str, Any]:
     return {
         "op": "item_upsert",
@@ -592,6 +631,13 @@ def _tool_started_spec(data: dict[str, Any]) -> dict[str, Any]:
     tool_call_id = text(data.get("tool_call_id"))
     permission_decision_id = text(data.get("permission_decision_id"))
     tool_name = text(data.get("tool_name")) or "tool"
+    subject = public_text(data.get("target") or data.get("subject_label") or data.get("arguments_preview"), limit=180)
+    action_kind = text(data.get("action_kind")) or action_kind_for_tool(tool_name, subject)
+    title = public_text(data.get("title") or data.get("text"), limit=180) or _tool_request_text(
+        data,
+        tool_name=tool_name,
+        subject=subject,
+    )
     if _is_agent_todo_tool(tool_name):
         return _agent_todo_hidden_trace_spec(data, state="running")
     if not tool_call_id or not permission_decision_id:
@@ -611,6 +657,13 @@ def _tool_started_spec(data: dict[str, Any]) -> dict[str, Any]:
         "permission_decision_id": permission_decision_id,
         "tool_name": tool_name,
         "tool_lifecycle_id": text(data.get("tool_lifecycle_id")) or tool_call_id,
+        "action_kind": action_kind,
+        "title": title,
+        "text": title,
+        "detail": subject,
+        "subject_label": subject,
+        "arguments_preview": text(data.get("arguments_preview")),
+        "target": text(data.get("target")),
         "state": "running",
         "trace_refs": _trace_refs(data),
     }
@@ -623,6 +676,13 @@ def _tool_completed_spec(data: dict[str, Any]) -> dict[str, Any]:
     raw_state = text(data.get("state")).lower()
     failed = raw_state in {"error", "failed", "blocked"}
     detail = _tool_completion_detail(data.get("error") or data.get("observation"), limit=360)
+    subject = public_text(data.get("target") or data.get("subject_label") or data.get("arguments_preview"), limit=180)
+    common_fields = {
+        "action_kind": text(data.get("action_kind")) or action_kind_for_tool(tool_name, subject),
+        "subject_label": subject,
+        "arguments_preview": text(data.get("arguments_preview")),
+        "target": text(data.get("target")),
+    }
     if _is_agent_todo_tool(tool_name):
         return _agent_todo_completed_status_spec(data, detail=detail, failed=failed)
     if not tool_call_id or not permission_decision_id:
@@ -653,6 +713,7 @@ def _tool_completed_spec(data: dict[str, Any]) -> dict[str, Any]:
             "permission_decision_id": permission_decision_id,
             "tool_name": tool_name,
             "tool_lifecycle_id": text(data.get("tool_lifecycle_id")) or tool_call_id,
+            **common_fields,
             "title": title,
             "text": title,
             "detail": detail,
@@ -670,6 +731,7 @@ def _tool_completed_spec(data: dict[str, Any]) -> dict[str, Any]:
         "permission_decision_id": permission_decision_id,
         "tool_name": tool_name,
         "tool_lifecycle_id": text(data.get("tool_lifecycle_id")) or tool_call_id,
+        **common_fields,
         "detail": detail,
         "state": "done",
         "trace_refs": _trace_refs(data),

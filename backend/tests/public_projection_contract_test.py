@@ -10,6 +10,7 @@ from api.chat import (
     _append_chat_public_event,
     _is_task_executor_handoff_terminal,
     _project_public_stream_event,
+    _public_terminal_reason,
     _resolve_after_offset,
     _run_chat_to_event_log,
     get_chat_run_events,
@@ -1246,7 +1247,14 @@ def test_task_tool_observation_wrapper_projects_inner_tool_completion_identity()
                             "diagnostics": {
                                 "action_request": {
                                     "request_id": "request:read",
-                                    "tool_call": {"id": "call:read", "tool_name": "read_file"},
+                                    "tool_call": {
+                                        "id": "call:read",
+                                        "tool_name": "read_file",
+                                        "args": {
+                                            "path": "backend/capability_system/capabilities/retrieval/parser_adapter.py",
+                                            "line_count": 80,
+                                        },
+                                    },
                                 }
                             },
                         },
@@ -1263,6 +1271,10 @@ def test_task_tool_observation_wrapper_projects_inner_tool_completion_identity()
     assert completed["tool_lifecycle_id"] == "toolinv:read:1"
     assert completed["permission_decision_id"] == "admission:request:read"
     assert completed["tool_name"] == "read_file"
+    assert completed["target"] == "backend/capability_system/capabilities/retrieval/parser_adapter.py"
+    assert completed["arguments_preview"] == (
+        "path=backend/capability_system/capabilities/retrieval/parser_adapter.py, line_count=80"
+    )
 
 
 def test_agent_todo_summary_ignores_envelope_metadata_before_text_payload() -> None:
@@ -1380,28 +1392,43 @@ def test_tool_failure_feedback_survives_completion_projection_detail() -> None:
 
 
 def test_agent_contract_feedback_projection_initializes_raw_data_before_branch() -> None:
-    events = _project_public_stream_event(
-        "agent_contract_feedback_required",
-        {
-            "event": {
-                "event_id": "event:agent-contract-feedback",
-                "payload": {
-                    "turn_id": "turn:test:feedback",
-                    "model_visible": True,
-                    "agent_contract_feedback": {
-                        "signal_kind": "agent_contract_feedback_required",
-                        "agent_feedback": "这是一条执行契约反馈，不是用户消息。",
-                    },
+    raw_event = {
+        "event": {
+            "event_id": "event:agent-contract-feedback",
+            "payload": {
+                "turn_id": "turn:test:feedback",
+                "model_visible": True,
+                "agent_contract_feedback": {
+                    "signal_kind": "agent_contract_feedback_required",
+                    "agent_feedback": "这是一条执行契约反馈，不是用户消息。",
                 },
-            }
-        },
-    )
+            },
+        }
+    }
+    events = _project_public_stream_event("agent_contract_feedback_required", raw_event)
 
     assert [event_type for event_type, _ in events] == ["agent_contract_feedback_required"]
     data = events[0][1]
     assert data["turn_id"] == "turn:test:feedback"
     assert data["runtime_event_id"] == "event:agent-contract-feedback"
     assert data["agent_contract_feedback"]["signal_kind"] == "agent_contract_feedback_required"
+
+    frame = project_public_projection_event(
+        events[0][0],
+        data,
+        session_id="session:test",
+        sequence=1,
+    )["public_projection_frame"]
+
+    assert frame["main_visibility"] == "hidden"
+    assert frame["slot"] == "trace"
+
+
+def test_public_terminal_reason_names_agent_closeout_boundaries() -> None:
+    assert _public_terminal_reason("agent_contract_feedback_required") == "需要 agent 重新收口"
+    assert _public_terminal_reason("tool_budget_exhausted") == "本轮工具预算已用完"
+    assert _public_terminal_reason("single_turn_tool_iteration_limit") == "本轮工具预算已用完"
+    assert _public_terminal_reason("single_agent_turn_empty_response") == "agent 未生成可发布回复"
 
 
 def test_lifecycle_closes_completion_by_tool_call_id_even_when_completion_permission_ref_drifts() -> None:
@@ -1418,6 +1445,8 @@ def test_lifecycle_closes_completion_by_tool_call_id_even_when_completion_permis
             "event_offset": 1,
             "tool_call_id": "call:read",
             "tool_name": "read_file",
+            "target": "backend/harness/graph/flow_edges.py",
+            "arguments_preview": "path=backend/harness/graph/flow_edges.py, line_count=80",
         },
         session_id="session:test",
         sequence=1,
@@ -1468,4 +1497,7 @@ def test_lifecycle_closes_completion_by_tool_call_id_even_when_completion_permis
     assert frame["op"] == "item_retire"
     assert frame["tool_call_id"] == "call:read"
     assert frame["permission_decision_id"] == "admission:request:read"
+    assert frame["tool_name"] == "read_file"
+    assert frame["target"] == "backend/harness/graph/flow_edges.py"
+    assert frame["arguments_preview"] == "path=backend/harness/graph/flow_edges.py, line_count=80"
     assert "diagnostics" not in frame

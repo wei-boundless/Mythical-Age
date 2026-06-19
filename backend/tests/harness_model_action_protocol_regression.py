@@ -534,6 +534,42 @@ def test_agent_contract_feedback_lifecycle_separates_json_and_empty_respond_fail
     assert json_specific["situation_feedback"] != empty_specific["situation_feedback"]
 
 
+def test_agent_contract_feedback_lifecycle_describes_tool_budget_exhaustion() -> None:
+    from harness.loop.single_agent_turn import _agent_contract_feedback_required_lifecycle
+
+    feedback = _agent_contract_feedback_required_lifecycle(
+        reason="tool_budget_exhausted",
+        phase="tool_limit_tool_loop",
+        turn_id="turn:test:tool-budget-feedback",
+        packet_ref="packet:test:tool-budget-feedback",
+        control_signal={
+            "signal_kind": "tool_budget_exhausted",
+            "used_tool_iterations": 16,
+            "max_tool_iterations": 16,
+            "attempted_actions_not_executed": [
+                {
+                    "action_type": "tool_call",
+                    "tool_call": {
+                        "tool_name": "read_file",
+                        "args": {"path": "backend/evidence/orchestrator.py"},
+                    },
+                }
+            ],
+        },
+        previous_invalid_response="<tool_call read_file>",
+    )
+
+    feedback_text = str(feedback["agent_feedback"])
+    specific = dict(feedback["contract_failure"])["specific_feedback"]
+    tool_budget = next(item for item in specific if item["code"] == "tool_budget_exhausted")
+
+    assert "工具预算" in feedback_text
+    assert "16/16" in tool_budget["situation_feedback"]
+    assert "read_file(backend/evidence/orchestrator.py)" in tool_budget["situation_feedback"]
+    assert "agent 自己的收口" in tool_budget["repair_instruction"]
+    assert "respond.final_answer" in tool_budget["expected_next_action"]
+
+
 def test_agent_contract_feedback_lifecycle_gives_natural_internal_leak_feedback() -> None:
     from harness.loop.single_agent_turn import _agent_contract_feedback_required_lifecycle
 
@@ -768,6 +804,21 @@ def test_single_agent_turn_tool_limit_noncompliant_closeout_records_contract_fee
     assert "不是用户消息" in str(feedback["agent_feedback"])
     assert "不会被运行时代写成用户正文" in str(feedback["agent_feedback"])
     assert "harness.loop.model_action_request" in str(feedback["agent_feedback"])
+    specific = dict(feedback["contract_failure"])["specific_feedback"]
+    assert any(
+        item.get("code") == "tool_budget_exhausted"
+        and "工具预算" in str(item.get("situation_feedback") or "")
+        and "path_exists" in str(item.get("situation_feedback") or "")
+        for item in specific
+    )
+    closeout_prompt_text = "\n".join(
+        str(message.get("content") or "")
+        for batch in model.seen_messages
+        for message in batch
+        if isinstance(message, dict)
+    )
+    assert "本轮已不能继续执行工具" in closeout_prompt_text
+    assert "不要把错误码、JSON schema、action 字段或系统拦截过程写给用户" in closeout_prompt_text
     assert dict(feedback["observed_facts"])["successful_tool_observation_count"] >= 1
     assert not assistant_messages
 
