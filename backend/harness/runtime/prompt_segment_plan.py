@@ -135,11 +135,13 @@ def build_prompt_segment_plan(
             for item in segments
         ],
     }
+    provider_policy_ref = _assembly_plan_ref(segments)
     return PromptSegmentPlan(
         segment_plan_id="segplan:" + _digest(json.dumps(seed, ensure_ascii=False, sort_keys=True)),
         packet_id=str(packet_id or ""),
         invocation_kind=str(invocation_kind or ""),
         segments=tuple(segments),
+        provider_policy_ref=provider_policy_ref,
         stable_prefix_hash=stable_text_hash("|".join(stable_hash_parts)) if stable_hash_parts else "",
         provider_global_prefix_hash=stable_text_hash("|".join(provider_global_hash_parts)) if provider_global_hash_parts else "",
         session_prefix_hash=stable_text_hash("|".join(session_hash_parts)) if session_hash_parts else "",
@@ -154,6 +156,15 @@ def stable_text_hash(text: str) -> str:
 def _segment_id(*, packet_id: str, ordinal: int, kind: str, content_hash: str) -> str:
     digest = str(content_hash or "").split(":", 1)[-1][:12]
     return f"segplan:{packet_id}:{ordinal}:{kind}:{digest}"
+
+
+def _assembly_plan_ref(segments: list[PromptSegmentPlanSegment]) -> str:
+    for segment in segments:
+        metadata = dict(segment.metadata or {})
+        value = str(metadata.get("prompt_assembly_plan_id") or "").strip()
+        if value:
+            return value
+    return ""
 
 
 def _digest(value: str) -> str:

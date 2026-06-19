@@ -266,10 +266,40 @@ def _prefix_diagnostics(
         for segment in segment_map.segments
         if str(segment.kind or "") == "read_evidence_injection"
     )
+    editor_context_index_tokens = sum(
+        int(segment.predicted_tokens or 0)
+        for segment in segment_map.segments
+        if str(segment.kind or "") == "editor_context_index"
+    )
+    attachment_context_index_tokens = sum(
+        int(segment.predicted_tokens or 0)
+        for segment in segment_map.segments
+        if str(segment.kind or "") == "attachment_context_index"
+    )
+    evidence_index_cursor_tokens = sum(
+        int(segment.predicted_tokens or 0)
+        for segment in segment_map.segments
+        if str(segment.kind or "") == "evidence_index_cursor"
+    )
+    task_plan_context_tokens = sum(
+        int(segment.predicted_tokens or 0)
+        for segment in segment_map.segments
+        if str(segment.kind or "") == "task_plan_context"
+    )
+    current_editor_evidence_delta_tokens = sum(
+        int(segment.predicted_tokens or 0)
+        for segment in segment_map.segments
+        if str(segment.kind or "") == "current_editor_evidence_delta"
+    )
     volatile_task_state_tokens = sum(
         int(segment.predicted_tokens or 0)
         for segment in segment_map.segments
         if str(segment.kind or "") == "volatile_task_state"
+    )
+    runtime_memory_context_tokens = sum(
+        int(segment.predicted_tokens or 0)
+        for segment in segment_map.segments
+        if str(segment.kind or "") == "runtime_memory_context"
     )
     return {
         "combined_stable_prefix_hash": stable_text_hash("|".join(segment.content_hash for segment in combined_stable_prefix)) if combined_stable_prefix else "",
@@ -298,7 +328,13 @@ def _prefix_diagnostics(
         "append_only_replay_task_prefix_predicted_tokens": replay_stable_tokens,
         "append_only_replay_volatile_predicted_tokens": replay_volatile_tokens,
         "read_evidence_exact_predicted_tokens": read_evidence_tokens,
+        "attachment_context_index_predicted_tokens": attachment_context_index_tokens,
+        "evidence_index_cursor_predicted_tokens": evidence_index_cursor_tokens,
+        "task_plan_context_predicted_tokens": task_plan_context_tokens,
+        "editor_context_index_predicted_tokens": editor_context_index_tokens,
+        "current_editor_evidence_delta_predicted_tokens": current_editor_evidence_delta_tokens,
         "volatile_task_state_predicted_tokens": volatile_task_state_tokens,
+        "runtime_memory_context_predicted_tokens": runtime_memory_context_tokens,
         **_stable_segment_boundary_diagnostics(segment_map),
         **_cache_read_target_diagnostics(
             segment_map=segment_map,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import mimetypes
+import hashlib
 import time
 import uuid
 from io import BytesIO
@@ -76,6 +77,7 @@ async def upload_chat_attachment(
         "filename": filename,
         "mime_type": content_type or mimetypes.guess_type(filename)[0] or str(image_info.get("mime_type") or ""),
         "size_bytes": size_bytes,
+        "content_sha256": "sha256:" + hashlib.sha256(data).hexdigest(),
         "path": relative_path,
         "created_at": time.time(),
         "width": image_info.get("width"),

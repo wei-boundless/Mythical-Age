@@ -20,6 +20,7 @@ class ExecutionStateProjector:
             "historical_failures": _bounded_dicts(system_projection.get("historical_failures"), limit=8),
             "repair_focus": _bounded_dicts(system_projection.get("repair_focus"), limit=8),
             "file_state": _bounded_dicts(system_projection.get("file_state"), limit=20),
+            "file_state_source": compact_text(system_projection.get("file_state_source") or "", limit=160),
             "last_action_receipts": _bounded_dicts(system_projection.get("last_action_receipts"), limit=12),
             "pending_user_steers": _bounded_dicts(system_projection.get("pending_user_steers"), limit=8),
             "active_contract_revisions": _bounded_dicts(system_projection.get("active_contract_revisions"), limit=8),

@@ -7,6 +7,11 @@ from typing import Any
 
 from artifact_system.artifact_authority import model_visible_artifact_refs, normalize_artifact_ref
 
+from .dynamic_context.evidence_index_cursor import (
+    file_evidence_decisions_from_evidence_index_cursor,
+    file_state_from_evidence_index_cursor,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class BoundTaskContext:
@@ -178,8 +183,15 @@ def _task_state_payload(value: Any) -> dict[str, Any]:
     payload = dict(value or {}) if isinstance(value, dict) else {}
     nested = payload.get("task_state")
     if isinstance(nested, dict):
-        return dict(nested)
-    return payload
+        result = dict(nested)
+    else:
+        result = dict(payload)
+    evidence_payload = {"evidence_index_cursor": payload.get("evidence_index_cursor")}
+    if "file_state" not in result and payload.get("evidence_index_cursor"):
+        result["file_state"] = file_state_from_evidence_index_cursor(evidence_payload)
+    if "file_evidence_decisions" not in result and payload.get("evidence_index_cursor"):
+        result["file_evidence_decisions"] = file_evidence_decisions_from_evidence_index_cursor(evidence_payload)
+    return result
 
 
 def _task_files(value: Any, *, file_evidence_decisions: dict[str, dict[str, Any]] | None = None) -> list[dict[str, Any]]:

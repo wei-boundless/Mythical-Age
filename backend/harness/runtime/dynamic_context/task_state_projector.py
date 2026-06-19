@@ -156,52 +156,35 @@ class TaskStateProjector:
 
 
 def _task_state_replay_entries(task_state: dict[str, Any], *, limit: int) -> list[dict[str, Any]]:
-    entries: list[dict[str, Any]] = []
-    index_by_key: dict[str, int] = {}
+    entries_by_key: dict[str, dict[str, Any]] = {}
+    order_by_key: dict[str, tuple[int, int, str]] = {}
     fallback_order = 0
     for entry_kind, items in (
         ("subagent_result", dict_tuple(task_state.get("authoritative_subagent_results"))),
         ("tool_result", dict_tuple(task_state.get("latest_tool_results"))),
-        ("active_failure", dict_tuple(task_state.get("active_failures"))),
-        ("historical_failure", dict_tuple(task_state.get("historical_failures"))),
     ):
-        category_entries: list[dict[str, Any]] = []
-        category_index_by_key: dict[str, int] = {}
-        category_order_by_key: dict[str, tuple[int, int, str]] = {}
         for item in items:
             fallback_order += 1
+            if _is_runtime_control_observation(item):
+                continue
             entry = _replay_entry_projection(entry_kind, item)
             if not entry:
                 continue
             key = _replay_entry_key(entry)
             order = _replay_entry_order(item, fallback_order=fallback_order)
-            if key in category_index_by_key:
-                index = category_index_by_key[key]
-                merged = _merge_projection(category_entries[index], entry)
-                merged["entry_kind"] = _merged_entry_kind(category_entries[index].get("entry_kind"), entry.get("entry_kind"))
-                category_entries[index] = merged
-                category_order_by_key[key] = min(category_order_by_key[key], order)
+            if key in entries_by_key:
+                merged = _merge_projection(entries_by_key[key], entry)
+                merged["entry_kind"] = _merged_entry_kind(entries_by_key[key].get("entry_kind"), entry.get("entry_kind"))
+                entries_by_key[key] = merged
+                order_by_key[key] = min(order_by_key[key], order)
                 continue
-            category_index_by_key[key] = len(category_entries)
-            category_order_by_key[key] = order
-            category_entries.append(entry)
-        ordered_category = sorted(
-            category_entries,
-            key=lambda entry: category_order_by_key.get(
-                _replay_entry_key(entry),
-                (1, 0, _replay_entry_key(entry)),
-            ),
-        )
-        for entry in ordered_category:
-            key = _replay_entry_key(entry)
-            if key in index_by_key:
-                index = index_by_key[key]
-                merged = _merge_projection(entries[index], entry)
-                merged["entry_kind"] = _merged_entry_kind(entries[index].get("entry_kind"), entry.get("entry_kind"))
-                entries[index] = merged
-                continue
-            index_by_key[key] = len(entries)
-            entries.append(entry)
+            entries_by_key[key] = entry
+            order_by_key[key] = order
+    ordered_keys = sorted(
+        entries_by_key,
+        key=lambda key: order_by_key.get(key, (1, 0, key)),
+    )
+    entries = [entries_by_key[key] for key in ordered_keys]
     return _bounded_replay_entries(entries, limit=limit)
 
 
@@ -278,6 +261,7 @@ def _task_state_cursor_projection(
     latest_results = dict_tuple(cursor.get("latest_tool_results"))
     subagent_results = dict_tuple(cursor.get("authoritative_subagent_results"))
     active_failures = dict_tuple(cursor.get("active_failures"))
+    current_facts = dict_tuple(cursor.get("current_facts"))
     file_state = _cursor_file_state_projection(dict_tuple(cursor.get("file_state")))
     if file_state:
         cursor["file_state"] = file_state
@@ -285,13 +269,16 @@ def _task_state_cursor_projection(
         cursor.pop("file_state", None)
     if latest_results:
         latest_cursor_results = list(latest_results[-result_limit:])
-        cursor["latest_tool_results"] = (
-            [_cursor_tool_result_projection(item) for item in latest_cursor_results]
-            if replay_entries
-            else latest_cursor_results
-        )
+        if replay_entries:
+            cursor["latest_tool_results"] = _cursor_latest_tool_result_refs(latest_cursor_results)
+        else:
+            cursor["latest_tool_results"] = latest_cursor_results
     else:
         cursor.pop("latest_tool_results", None)
+    cursor["current_facts"] = _cursor_current_facts_projection(
+        current_facts,
+        replay_entries=replay_entries,
+    )
     if subagent_results:
         cursor["authoritative_subagent_results"] = [
             _cursor_tool_result_projection(item)
@@ -307,6 +294,9 @@ def _task_state_cursor_projection(
     else:
         cursor.pop("active_failures", None)
     cursor.pop("historical_failures", None)
+    cursor.pop("pending_user_steers", None)
+    cursor.pop("runtime_control_signals", None)
+    cursor.pop("runtime_boundary", None)
     cursor["file_evidence_decisions"] = _cursor_file_evidence_decisions_projection(
         dict(cursor.get("file_evidence_decisions") or {})
     )
@@ -332,6 +322,58 @@ def _task_state_cursor_projection(
     return drop_empty(cursor)
 
 
+def _cursor_latest_tool_result_refs(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if not _result_succeeded(item):
+            refs.append(_cursor_tool_result_projection(item))
+            continue
+        observation_ref = str(item.get("observation_ref") or item.get("observation_id") or "")
+        refs.append(
+            drop_empty(
+                {
+                    "observation_ref": observation_ref,
+                    "tool_name": _tool_name(str(item.get("tool_name") or item.get("source") or "")),
+                    "status": str(item.get("status") or ""),
+                    "path": _projection_path(item),
+                    "replay_ref": f"task_state_replay:{observation_ref}" if observation_ref else _semantic_projection_key(item),
+                    "cursor_code": "details_available_in_task_state_replay",
+                }
+            )
+        )
+    return [item for item in refs if item]
+
+
+def _cursor_current_facts_projection(
+    items: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    replay_entries: tuple[dict[str, Any], ...],
+) -> list[dict[str, Any]]:
+    if not items:
+        return []
+    replay_observation_refs = {
+        str(entry.get("observation_ref") or "").strip()
+        for entry in replay_entries
+        if str(entry.get("observation_ref") or "").strip()
+    }
+    replay_semantic_keys = {_semantic_projection_key(entry) for entry in replay_entries if _semantic_projection_key(entry)}
+    projected: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        observation_ref = str(item.get("observation_ref") or item.get("observation_id") or "").strip()
+        semantic_key = _semantic_projection_key(item)
+        if observation_ref and observation_ref in replay_observation_refs:
+            continue
+        if semantic_key and semantic_key in replay_semantic_keys:
+            continue
+        fallback = _current_fact_projection([item])
+        projected.append(fallback[0] if fallback else {})
+    return [item for item in projected if item][-6:]
+
+
 def _cursor_tool_result_projection(item: dict[str, Any]) -> dict[str, Any]:
     error = _dict_value(item.get("error")) or _dict_value(item.get("structured_error"))
     content_range = _replay_content_range(dict(item.get("content_range") or {}))
@@ -344,23 +386,24 @@ def _cursor_tool_result_projection(item: dict[str, Any]) -> dict[str, Any]:
             "tool_call_id": str(item.get("tool_call_id") or ""),
             "status": str(item.get("status") or ""),
             "path": _projection_path(item),
-            "visibility": str(item.get("visibility") or ""),
             "reason": str(item.get("reason") or error.get("code") or ""),
             "summary": summary,
             "error": _cursor_error_projection(error),
             "structured_error": _cursor_error_projection(_dict_value(item.get("structured_error"))),
             "code_structure": _replay_code_structure_summary(dict(item.get("code_structure") or {})),
             "content_range": content_range,
-            "evidence_policy": _cursor_evidence_policy_projection(
+            "evidence_policy": {}
+            if content_range
+            else _cursor_evidence_policy_projection(
                 dict(item.get("evidence_policy") or {}),
                 content_range=bool(content_range),
             ),
             "evidence_confidence": {}
             if content_range
             else _replay_evidence_confidence(dict(item.get("evidence_confidence") or {})),
-            "todo_plan": project_todo_plan(dict(item.get("todo_plan") or {})),
             "subagent_result": _cursor_subagent_result_projection(dict(item.get("subagent_result") or {})),
-            "rehydration_plan": _replay_rehydration_plan(dict(item.get("rehydration_plan") or {})),
+            "rehydration_plan": {} if content_range else _replay_rehydration_plan(dict(item.get("rehydration_plan") or {})),
+            "rehydration_action": "read_file_range_if_exact_needed" if content_range else "",
             "current_runtime_fact": item.get("current_runtime_fact") if isinstance(item.get("current_runtime_fact"), bool) else None,
         }
     )
@@ -429,14 +472,22 @@ def _replay_entry_projection(entry_kind: str, item: dict[str, Any]) -> dict[str,
             "error": _replay_safe_value(error),
             "structured_error": _replay_safe_value(_dict_value(item.get("structured_error"))),
             "artifact_refs": _replay_artifact_refs(item.get("artifact_refs")),
-            "todo_plan": project_todo_plan(dict(item.get("todo_plan") or {})),
             "code_structure": _replay_code_structure_summary(dict(item.get("code_structure") or {})),
             "content_range": _replay_content_range(dict(item.get("content_range") or {})),
-            "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or {})),
-            "evidence_confidence": _replay_evidence_confidence(dict(item.get("evidence_confidence") or {})),
+            "evidence_policy": {}
+            if _replay_content_range(dict(item.get("content_range") or {}))
+            else _replay_evidence_policy(dict(item.get("evidence_policy") or {})),
+            "evidence_confidence": {}
+            if _replay_content_range(dict(item.get("content_range") or {}))
+            else _replay_evidence_confidence(dict(item.get("evidence_confidence") or {})),
             "preview": _replay_preview(item),
             "subagent_result": _subagent_result_projection(dict(item.get("subagent_result") or {}), include_final_answer=True),
-            "rehydration_plan": _replay_rehydration_plan(dict(item.get("rehydration_plan") or {})),
+            "rehydration_plan": {}
+            if _replay_content_range(dict(item.get("content_range") or {}))
+            else _replay_rehydration_plan(dict(item.get("rehydration_plan") or {})),
+            "rehydration_action": "read_file_range_if_exact_needed"
+            if _replay_content_range(dict(item.get("content_range") or {}))
+            else "",
             "current_runtime_fact": item.get("current_runtime_fact") if isinstance(item.get("current_runtime_fact"), bool) else None,
             "authority": "harness.runtime.dynamic_context.task_state_replay_entry",
         }
@@ -454,6 +505,21 @@ def _replay_entry_key(entry: dict[str, Any]) -> str:
     if semantic:
         return semantic
     return _ref_projection_key(entry)
+
+
+def _is_runtime_control_observation(item: dict[str, Any]) -> bool:
+    ref = str(item.get("observation_ref") or item.get("observation_id") or "").strip()
+    if ref.startswith(("rtobs:", "runtime-control:")):
+        return True
+    if item.get("current_runtime_fact") is True:
+        return True
+    tool_name = _tool_name(str(item.get("tool_name") or item.get("source") or ""))
+    if tool_name in {"runtime_control", "model_action_protocol", "action_protocol"}:
+        return True
+    error = _dict_value(item.get("error")) or _dict_value(item.get("structured_error"))
+    code = str(error.get("code") or item.get("reason") or "").strip()
+    origin = str(error.get("origin") or "").strip()
+    return origin == "model_protocol" or code.startswith("model_action_")
 
 
 def _replay_entry_order(item: dict[str, Any], *, fallback_order: int) -> tuple[int, int, str]:
@@ -629,7 +695,9 @@ def _replay_content_range(value: dict[str, Any]) -> dict[str, Any]:
 
 
 def _replay_evidence_policy(value: dict[str, Any]) -> dict[str, Any]:
-    return drop_empty(
+    if not value:
+        return {}
+    payload = drop_empty(
         {
             "source_kind": str(value.get("source_kind") or ""),
             "source_authority": str(value.get("source_authority") or ""),
@@ -644,9 +712,14 @@ def _replay_evidence_policy(value: dict[str, Any]) -> dict[str, Any]:
             "policy_ref": str(value.get("policy_ref") or "file_evidence_policy_stable.tool_result_evidence"),
         }
     )
+    if set(payload) <= {"policy_ref"}:
+        return {}
+    return payload
 
 
 def _replay_evidence_confidence(value: dict[str, Any]) -> dict[str, Any]:
+    if not value:
+        return {}
     files = []
     for item in dict_tuple(value.get("files"))[:8]:
         files.append(
@@ -661,7 +734,7 @@ def _replay_evidence_confidence(value: dict[str, Any]) -> dict[str, Any]:
                 }
             )
         )
-    return drop_empty(
+    payload = drop_empty(
         {
             "authority": str(value.get("authority") or "harness.runtime.dynamic_context.evidence_confidence"),
             "source_kind": str(value.get("source_kind") or ""),
@@ -672,6 +745,9 @@ def _replay_evidence_confidence(value: dict[str, Any]) -> dict[str, Any]:
             "files": [item for item in files if item],
         }
     )
+    if set(payload) <= {"authority"}:
+        return {}
+    return payload
 
 
 def _replay_preview(item: dict[str, Any]) -> str:
@@ -762,14 +838,12 @@ def _task_progress_facts_projection(
     file_evidence_decisions: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     files = [_task_progress_file_fact(item) for item in list(file_state or [])]
-    todos = _task_progress_todo_facts(latest_results)
     recent_tool_observations = _task_progress_tool_observations(latest_results)
     return drop_empty(
         {
             "authority": "harness.runtime.dynamic_context.task_progress_facts",
             "files": [item for item in files if item][-8:],
             "file_evidence": _task_progress_file_evidence_facts(dict(file_evidence_decisions or {})),
-            "todos": todos,
             "recent_tool_observations": recent_tool_observations[-8:],
         }
     )
@@ -830,46 +904,6 @@ def _file_reusable_result_ref(item: dict[str, Any]) -> str:
             if value.startswith("read_observation:"):
                 return value
     return ""
-
-
-def _task_progress_todo_facts(latest_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    latest_plan: dict[str, Any] = {}
-    for item in latest_results:
-        if _tool_name(str(item.get("tool_name") or "")) != "agent_todo":
-            continue
-        plan = project_todo_plan(dict(item.get("todo_plan") or {}))
-        if plan:
-            latest_plan = plan
-    if not latest_plan:
-        return []
-    allowed_operations = list(latest_plan.get("allowed_operations") or [])
-    result: list[dict[str, Any]] = []
-    for item in dict_tuple(latest_plan.get("items")):
-        todo_id = str(item.get("todo_id") or "").strip()
-        if not todo_id:
-            continue
-        result.append(
-            drop_empty(
-                {
-                    "todo_id": todo_id,
-                    "title": compact_text(item.get("content") or "", limit=180),
-                    "active_form": compact_text(item.get("active_form") or "", limit=120),
-                    "status": str(item.get("status") or ""),
-                    "notes": compact_text(item.get("notes") or "", limit=180),
-                    "allowed_operations": allowed_operations,
-                    "evidence_refs": [
-                        str(value)
-                        for value in [
-                            *list(item.get("contract_refs") or []),
-                            *list(item.get("evidence_expectations") or []),
-                        ]
-                        if str(value).strip()
-                    ][-6:],
-                    "plan_id": str(latest_plan.get("plan_id") or ""),
-                }
-            )
-        )
-    return result[-20:]
 
 
 def _task_progress_tool_observations(latest_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1003,6 +1037,9 @@ def _is_context_only_tool(tool_name: str) -> bool:
         "read_file",
         "read_resource_state",
         "read_persisted_tool_result",
+        "list_dir",
+        "path_exists",
+        "glob_paths",
         "search_text",
         "search_files",
         "codebase_search",
@@ -1053,7 +1090,6 @@ def _exploration_advisory_projection(value: dict[str, Any]) -> dict[str, Any]:
                     "tool_name": _tool_name(str(item.get("tool_name") or item.get("source") or "")),
                     "status": str(item.get("status") or ""),
                     "path": _projection_path(item),
-                    "summary": compact_text(item.get("summary") or "", limit=100),
                 }
             )
         )
@@ -1374,24 +1410,34 @@ def _cursor_decision_windows(value: Any) -> list[dict[str, Any]]:
 def _cursor_task_progress_facts_projection(value: dict[str, Any]) -> dict[str, Any]:
     if not value:
         return {}
+    raw_observations = dict_tuple(value.get("recent_tool_observations"))
+    context_observations = [
+        item
+        for item in raw_observations
+        if isinstance(item, dict) and item.get("trace_only") is True
+    ]
+    observations = [
+        drop_empty(
+            {
+                "tool_name": str(item.get("tool_name") or ""),
+                "outcome": str(item.get("outcome") or ""),
+                "observation_ref": str(item.get("observation_ref") or ""),
+                "trace_only": item.get("trace_only") if isinstance(item.get("trace_only"), bool) else None,
+                "reason": str(item.get("reason") or ""),
+            }
+        )
+        for item in raw_observations[-6:]
+        if item.get("trace_only") is not True
+    ]
+    observations = [item for item in observations if item]
+    latest_context_observation = context_observations[-1] if context_observations else {}
     return drop_empty(
         {
             "authority": str(value.get("authority") or "harness.runtime.dynamic_context.task_progress_facts"),
             "file_evidence": dict(value.get("file_evidence") or {}),
-            "todos": list(value.get("todos") or [])[-8:],
-            "recent_tool_observations": [
-                drop_empty(
-                    {
-                        "tool_name": str(item.get("tool_name") or ""),
-                        "outcome": str(item.get("outcome") or ""),
-                        "observation_ref": str(item.get("observation_ref") or ""),
-                        "path": str(item.get("path") or ""),
-                        "trace_only": item.get("trace_only") if isinstance(item.get("trace_only"), bool) else None,
-                        "reason": str(item.get("reason") or ""),
-                    }
-                )
-                for item in dict_tuple(value.get("recent_tool_observations"))[-6:]
-            ],
+            "recent_tool_observation_refs": observations,
+            "context_observation_count": len(context_observations) or None,
+            "latest_context_observation_ref": str(latest_context_observation.get("observation_ref") or ""),
         }
     )
 
@@ -1694,7 +1740,6 @@ def _file_state_projection(value: Any) -> list[dict[str, Any]]:
             for segment in dict_tuple(item.get("read_ranges"))
             if segment.get("start_line") not in (None, "") and segment.get("end_line") not in (None, "")
         ]
-        editor_state = _editor_file_state_projection(dict(item.get("editor_state") or {}))
         projected = drop_empty(
             {
                 "path": path,
@@ -1708,7 +1753,6 @@ def _file_state_projection(value: Any) -> list[dict[str, Any]]:
                 "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
                 "status": str(item.get("status") or ""),
                 "stale_reason": compact_text(item.get("stale_reason") or "", limit=180),
-                "editor_state": editor_state,
                 "search_hit_count": len(dict_tuple(item.get("search_hits"))),
                 "write_event_count": len(dict_tuple(item.get("write_events"))),
                 "next_suggested_read": dict(item.get("next_suggested_read") or {}),
@@ -2055,39 +2099,6 @@ def _read_resource_evidence_refs(file_state: list[dict[str, Any]], *, include_st
             if text and text not in refs:
                 refs.append(text)
     return refs[-6:]
-
-
-def _editor_file_state_projection(value: dict[str, Any]) -> dict[str, Any]:
-    if not value:
-        return {}
-    preview = dict(value.get("content_preview") or {})
-    selection = dict(value.get("selection") or {})
-    return drop_empty(
-        {
-            "source": str(value.get("source") or ""),
-            "active": value.get("active") if isinstance(value.get("active"), bool) else None,
-            "open": value.get("open") if isinstance(value.get("open"), bool) else None,
-            "visible": value.get("visible") if isinstance(value.get("visible"), bool) else None,
-            "dirty": value.get("dirty") if isinstance(value.get("dirty"), bool) else None,
-            "language_id": str(value.get("language_id") or ""),
-            "content_preview": drop_empty(
-                {
-                    "source": str(preview.get("source") or ""),
-                    "chars": preview.get("chars"),
-                    "truncated": preview.get("truncated") if isinstance(preview.get("truncated"), bool) else None,
-                    "content_sha256": str(preview.get("content_sha256") or ""),
-                }
-            ),
-            "selection": drop_empty(
-                {
-                    "start_line": selection.get("start_line"),
-                    "end_line": selection.get("end_line"),
-                    "chars": selection.get("chars"),
-                    "truncated": selection.get("truncated") if isinstance(selection.get("truncated"), bool) else None,
-                }
-            ),
-        }
-    )
 
 
 def _projection_path(item: dict[str, Any]) -> str:

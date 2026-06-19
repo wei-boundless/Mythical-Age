@@ -23,12 +23,14 @@ from prompt_composition import (
     PromptCompositionContentFragment,
     build_content_fragments_from_message_specs,
     build_model_message_spec as _message_spec,
+    build_prompt_assembly_plan,
+    build_prompt_source_bundle,
     build_runtime_context_load_plan,
     build_runtime_prompt_source_manifest,
     build_runtime_payload_message_spec as _runtime_payload_spec,
     build_runtime_prompt_slot_plan,
+    materialize_prompt_packet,
     build_runtime_slot_prompt_composition_manifest,
-    materialize_runtime_context_load_plan,
     materialize_runtime_prompt_sources,
     render_agent_prompt_instruction,
     render_environment_instruction,
@@ -49,6 +51,7 @@ from task_system.contracts.runtime_contracts import expand_selected_skill_bodies
 from .context_budget_policy import build_model_aware_context_budget_policy
 from .artifact_scope import runtime_artifact_scope_from_environment
 from .dynamic_context import DynamicContextInput, DynamicContextManager, DynamicContextProjection, dynamic_context_storage_root
+from .dynamic_context.evidence_index_cursor import file_state_from_evidence_index_cursor
 from .dynamic_context.read_evidence_projector import build_read_evidence_projection_payload
 from .envelope import RuntimeEnvelope
 from .invocation_packet import RuntimeInvocationPacket
@@ -275,6 +278,7 @@ class RuntimeCompiler:
             "rendered_prompt_refs": list(prompt_manifest["rendered_prompt_refs"]),
         }
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["prompt_assembly_plan_ref"] = segment_plan.provider_policy_ref
         prompt_manifest["runtime_prompt_source_manifest_ref"] = source_manifest.manifest_id
         prompt_manifest["runtime_prompt_sources"] = source_manifest.to_dict()
         prompt_manifest["prompt_slot_plan_ref"] = slot_plan.plan_id
@@ -573,11 +577,9 @@ class RuntimeCompiler:
             )
         )
         dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or {})
-        memory_context_payload = _memory_context_model_visible_payload(
+        runtime_memory_context_payload = _memory_context_model_visible_payload(
             memory_context or session_context_payload.get("memory_context")
         )
-        if memory_context_payload:
-            dynamic_payload["memory_context"] = memory_context_payload
         if active_work_context:
             dynamic_payload["active_work_context"] = _active_work_model_visible_payload(
                 active_work_context,
@@ -612,6 +614,9 @@ class RuntimeCompiler:
             dynamic_payload["turn_input_facts"] = _turn_input_facts_model_visible_payload(turn_input_facts)
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
+        attachment_context_payload, current_request_payload = _extract_attachment_context_payload(current_request_payload)
+        task_plan_context_payload, current_request_payload = _extract_task_plan_context_payload(current_request_payload)
+        editor_context_payload, current_request_payload = _extract_editor_context_payload(current_request_payload)
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="single_agent_turn",
@@ -754,6 +759,24 @@ class RuntimeCompiler:
                 )
                 if runtime_lifecycle_instruction.strip()
                 else None,
+                *_attachment_context_message_specs(
+                    attachment_context_payload,
+                    title_prefix="Single agent turn",
+                    source_ref_prefix="single_agent_turn",
+                    dynamic_context=dynamic_context,
+                ),
+                *_task_plan_context_message_specs(
+                    task_plan_context_payload,
+                    title_prefix="Single agent turn",
+                    source_ref_prefix="single_agent_turn",
+                    dynamic_context=dynamic_context,
+                ),
+                *_editor_context_message_specs(
+                    editor_context_payload,
+                    title_prefix="Single agent turn",
+                    source_ref_prefix="single_agent_turn",
+                    dynamic_context=dynamic_context,
+                ),
                 _runtime_payload_spec(
                     role="system",
                     title="Task current exact read evidence",
@@ -798,6 +821,24 @@ class RuntimeCompiler:
                     compression_role="summarize",
                     metadata=_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
                 ),
+                _runtime_payload_spec(
+                    role="system",
+                    title="Single agent turn runtime memory context",
+                    payload=runtime_memory_context_payload,
+                    kind="runtime_memory_context",
+                    source_ref=_runtime_memory_context_source_ref(runtime_memory_context_payload),
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="summarize",
+                    metadata={
+                        "authority_class": "runtime_memory_context",
+                        "content_source": "memory_system.runtime_memory_context",
+                        "volatility_reason": "selected memory context can change every invocation; keep it in the volatile tail",
+                        "cache_impact": "volatile_suffix_tail",
+                    },
+                )
+                if runtime_memory_context_payload
+                else None,
                 _runtime_payload_spec(
                     role="user",
                     title="Single agent turn current request",
@@ -844,7 +885,9 @@ class RuntimeCompiler:
             "history",
             "user_message",
             "recent_work_outcome",
-            "editor_context",
+            "task_plan_context",
+            "editor_context_index",
+            "current_editor_evidence_delta",
             "lifecycle_runtime_guidance",
         )
         prompt_manifest = build_runtime_prompt_manifest(
@@ -863,6 +906,7 @@ class RuntimeCompiler:
             volatile_state_refs=single_turn_volatile_refs,
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["prompt_assembly_plan_ref"] = segment_plan.provider_policy_ref
         prompt_manifest["runtime_prompt_source_manifest_ref"] = source_manifest.manifest_id
         prompt_manifest["runtime_prompt_sources"] = source_manifest.to_dict()
         prompt_manifest["prompt_slot_plan_ref"] = slot_plan.plan_id
@@ -1207,9 +1251,8 @@ class RuntimeCompiler:
         )
         dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or {})
         inherited_start_context_payload = dict(dynamic_context.inherited_start_context_projection or {})
-        memory_context_payload = _memory_context_model_visible_payload(memory_context)
-        if memory_context_payload:
-            dynamic_payload["memory_context"] = memory_context_payload
+        attachment_context_payload, inherited_start_context_payload = _extract_attachment_context_payload(inherited_start_context_payload)
+        runtime_memory_context_payload = _memory_context_model_visible_payload(memory_context)
         recovery_packet_payload = _recovery_packet_model_visible_payload(
             task_run_diagnostics.get("recovery_packet")
         )
@@ -1229,25 +1272,31 @@ class RuntimeCompiler:
                 if isinstance(execution_projection.get("latest_runtime_control_signal"), dict)
                 else runtime_control_signals[-1]
             )
+        task_plan_context_payload, volatile_payload = _extract_task_plan_context_payload(volatile_payload)
+        evidence_index_cursor_payload, volatile_payload = _extract_evidence_index_cursor_payload(volatile_payload)
+        editor_context_payload, volatile_payload = _extract_editor_context_payload(volatile_payload)
         bound_task_context = build_bound_task_context(
             contract=contract,
             planning_protocol=planning_protocol,
             dynamic_context=dynamic_context,
-            task_state_projection=volatile_payload,
+            task_state_projection=_drop_empty_payload({**volatile_payload, **evidence_index_cursor_payload}),
             task_run_id=task_run_id,
         )
         bound_task_context_payload = bound_task_context.to_stable_model_visible_payload()
         bound_task_runtime_context_payload = bound_task_context.to_runtime_model_visible_payload()
         task_state_replay_specs = _task_state_replay_message_specs(dynamic_context.task_state_replay_entries)
         task_state_payload = dict(volatile_payload.get("task_state") or {})
+        evidence_file_state = file_state_from_evidence_index_cursor(evidence_index_cursor_payload)
         read_evidence_payload = _read_evidence_injection_payload(
             base_dir=self.base_dir,
             runtime_assembly=assembly_payload,
-            file_state=[dict(item) for item in list(task_state_payload.get("file_state") or []) if isinstance(item, dict)],
+            file_state=evidence_file_state
+            or [dict(item) for item in list(task_state_payload.get("file_state") or []) if isinstance(item, dict)],
             file_evidence_scope=task_run_file_evidence_scope(task_run_id, session_id=session_id),
             packet_id=packet_id,
             budget_policy=projection_policy,
             current_observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
+            include_historical_refs=False,
         )
         user_steering_payload = _user_steering_updates_payload(execution_state)
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
@@ -1494,6 +1543,30 @@ class RuntimeCompiler:
                 )
                 if runtime_lifecycle_instruction.strip()
                 else None,
+                *_attachment_context_message_specs(
+                    attachment_context_payload,
+                    title_prefix="Task execution",
+                    source_ref_prefix="task_execution",
+                    dynamic_context=dynamic_context,
+                ),
+                *_task_plan_context_message_specs(
+                    task_plan_context_payload,
+                    title_prefix="Task execution",
+                    source_ref_prefix="task_execution",
+                    dynamic_context=dynamic_context,
+                ),
+                *_evidence_index_cursor_message_specs(
+                    evidence_index_cursor_payload,
+                    title_prefix="Task execution",
+                    source_ref_prefix="task_execution",
+                    dynamic_context=dynamic_context,
+                ),
+                *_editor_context_message_specs(
+                    editor_context_payload,
+                    title_prefix="Task execution",
+                    source_ref_prefix="task_execution",
+                    dynamic_context=dynamic_context,
+                ),
                 *task_state_replay_specs,
                 _runtime_payload_spec(
                     role="system",
@@ -1592,6 +1665,24 @@ class RuntimeCompiler:
                     metadata=_dynamic_context_segment_metadata(dynamic_context, source="task_state"),
                 ),
                 _runtime_payload_spec(
+                    role="system",
+                    title="Task runtime memory context",
+                    payload=runtime_memory_context_payload,
+                    kind="runtime_memory_context",
+                    source_ref=_runtime_memory_context_source_ref(runtime_memory_context_payload),
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="summarize",
+                    metadata={
+                        "authority_class": "runtime_memory_context",
+                        "content_source": "memory_system.runtime_memory_context",
+                        "volatility_reason": "selected task memory can change every invocation; keep it in the volatile tail so runtime boundary and append-only replay remain cache-readable",
+                        "cache_impact": "volatile_suffix_tail",
+                    },
+                )
+                if runtime_memory_context_payload
+                else None,
+                _runtime_payload_spec(
                     role="user",
                     title="User steering updates for this task",
                     payload=user_steering_payload,
@@ -1657,7 +1748,10 @@ class RuntimeCompiler:
             "active_contract_revisions",
             "runtime_control_signals",
             "lifecycle_runtime_guidance",
-            "editor_context",
+            "task_plan_context",
+            "evidence_index_cursor",
+            "editor_context_index",
+            "current_editor_evidence_delta",
         )
         prompt_manifest = build_runtime_prompt_manifest(
             invocation_kind="task_execution",
@@ -1676,6 +1770,7 @@ class RuntimeCompiler:
             volatile_state_refs=task_volatile_refs,
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["prompt_assembly_plan_ref"] = segment_plan.provider_policy_ref
         prompt_manifest["runtime_prompt_source_manifest_ref"] = source_manifest.manifest_id
         prompt_manifest["runtime_prompt_sources"] = source_manifest.to_dict()
         prompt_manifest["prompt_slot_plan_ref"] = slot_plan.plan_id
@@ -1926,13 +2021,14 @@ class RuntimeCompiler:
             current_observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
         )
         dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or {})
-        memory_context_payload = _memory_context_model_visible_payload(
+        runtime_memory_context_payload = _memory_context_model_visible_payload(
             dict(session_context or {}).get("memory_context")
         )
-        if memory_context_payload:
-            dynamic_payload["memory_context"] = memory_context_payload
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
+        attachment_context_payload, current_request_payload = _extract_attachment_context_payload(current_request_payload)
+        task_plan_context_payload, current_request_payload = _extract_task_plan_context_payload(current_request_payload)
+        editor_context_payload, current_request_payload = _extract_editor_context_payload(current_request_payload)
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="tool_observation_followup",
@@ -2092,6 +2188,24 @@ class RuntimeCompiler:
                 )
                 if read_evidence_payload
                 else None,
+                *_attachment_context_message_specs(
+                    attachment_context_payload,
+                    title_prefix="Observation followup",
+                    source_ref_prefix="observation_followup",
+                    dynamic_context=dynamic_context,
+                ),
+                *_task_plan_context_message_specs(
+                    task_plan_context_payload,
+                    title_prefix="Observation followup",
+                    source_ref_prefix="observation_followup",
+                    dynamic_context=dynamic_context,
+                ),
+                *_editor_context_message_specs(
+                    editor_context_payload,
+                    title_prefix="Observation followup",
+                    source_ref_prefix="observation_followup",
+                    dynamic_context=dynamic_context,
+                ),
                 *_session_history_message_specs(
                     session_history_payload,
                     title="Observation followup session history",
@@ -2118,6 +2232,24 @@ class RuntimeCompiler:
                     metadata=_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
                 ),
                 _runtime_payload_spec(
+                    role="system",
+                    title="Observation followup runtime memory context",
+                    payload=runtime_memory_context_payload,
+                    kind="runtime_memory_context",
+                    source_ref=_runtime_memory_context_source_ref(runtime_memory_context_payload),
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="summarize",
+                    metadata={
+                        "authority_class": "runtime_memory_context",
+                        "content_source": "memory_system.runtime_memory_context",
+                        "volatility_reason": "selected followup memory can change every invocation; keep it in the volatile tail",
+                        "cache_impact": "volatile_suffix_tail",
+                    },
+                )
+                if runtime_memory_context_payload
+                else None,
+                _runtime_payload_spec(
                     role="user",
                     title="Observation followup current request",
                     payload=current_request_payload,
@@ -2143,7 +2275,9 @@ class RuntimeCompiler:
             "history",
             "user_message",
             "observations",
-            "editor_context",
+            "task_plan_context",
+            "editor_context_index",
+            "current_editor_evidence_delta",
             "lifecycle_runtime_guidance",
         )
         prompt_manifest = build_runtime_prompt_manifest(
@@ -2162,6 +2296,7 @@ class RuntimeCompiler:
             volatile_state_refs=observation_volatile_refs,
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["prompt_assembly_plan_ref"] = segment_plan.provider_policy_ref
         prompt_manifest["runtime_prompt_source_manifest_ref"] = source_manifest.manifest_id
         prompt_manifest["runtime_prompt_sources"] = source_manifest.to_dict()
         prompt_manifest["prompt_slot_plan_ref"] = slot_plan.plan_id
@@ -3276,6 +3411,189 @@ def _split_volatile_request_payload(payload: dict[str, Any] | None) -> tuple[dic
     return _drop_empty_payload(session_history), _drop_empty_payload(current_request)
 
 
+def _extract_editor_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
+    current = dict(payload or {})
+    editor_payload = _drop_empty_payload(
+        {
+            "editor_context_index": current.pop("editor_context_index", None),
+            "current_editor_evidence_delta": current.pop("current_editor_evidence_delta", None),
+        }
+    )
+    return editor_payload, _drop_empty_payload(current)
+
+
+def _extract_attachment_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
+    current = dict(payload or {})
+    attachment_payload = _drop_empty_payload(
+        {
+            "attachment_context_index": current.pop("attachment_context_index", None),
+        }
+    )
+    return attachment_payload, _drop_empty_payload(current)
+
+
+def _extract_task_plan_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
+    current = dict(payload or {})
+    task_plan_payload = _drop_empty_payload(
+        {
+            "task_plan_context": current.pop("task_plan_context", None),
+        }
+    )
+    return task_plan_payload, _drop_empty_payload(current)
+
+
+def _extract_evidence_index_cursor_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
+    current = dict(payload or {})
+    evidence_payload = _drop_empty_payload(
+        {
+            "evidence_index_cursor": current.pop("evidence_index_cursor", None),
+        }
+    )
+    return evidence_payload, _drop_empty_payload(current)
+
+
+def _attachment_context_message_specs(
+    payload: dict[str, Any] | None,
+    *,
+    title_prefix: str,
+    source_ref_prefix: str,
+    dynamic_context: DynamicContextProjection,
+) -> list[dict[str, Any]]:
+    attachment_context_index = dict(payload or {}).get("attachment_context_index")
+    if not attachment_context_index:
+        return []
+    return [
+        _runtime_payload_spec(
+            role="system",
+            title=f"{title_prefix} attachment context index",
+            payload={"attachment_context_index": attachment_context_index},
+            kind="attachment_context_index",
+            source_ref=f"{source_ref_prefix}:attachment_context_index",
+            cache_scope="none",
+            cache_role="volatile",
+            compression_role="ref_only",
+            metadata={
+                **_dynamic_context_segment_metadata(dynamic_context, source="attachment_context_index"),
+                "authority_class": "attachment_context_index",
+                "content_source": "harness.runtime.dynamic_context.attachment_context_index",
+                "runtime_fragment_role": "attachment_context_index",
+            },
+        )
+    ]
+
+
+def _evidence_index_cursor_message_specs(
+    payload: dict[str, Any] | None,
+    *,
+    title_prefix: str,
+    source_ref_prefix: str,
+    dynamic_context: DynamicContextProjection,
+) -> list[dict[str, Any]]:
+    evidence_index_cursor = dict(payload or {}).get("evidence_index_cursor")
+    if not evidence_index_cursor:
+        return []
+    return [
+        _runtime_payload_spec(
+            role="system",
+            title=f"{title_prefix} evidence index cursor",
+            payload={"evidence_index_cursor": evidence_index_cursor},
+            kind="evidence_index_cursor",
+            source_ref=f"{source_ref_prefix}:evidence_index_cursor",
+            cache_scope="none",
+            cache_role="volatile",
+            compression_role="ref_only",
+            metadata={
+                **_dynamic_context_segment_metadata(dynamic_context, source="evidence_index_cursor"),
+                "authority_class": "evidence_index_cursor",
+                "content_source": "harness.runtime.dynamic_context.evidence_index_cursor",
+                "runtime_fragment_role": "evidence_index_cursor",
+            },
+        )
+    ]
+
+
+def _task_plan_context_message_specs(
+    payload: dict[str, Any] | None,
+    *,
+    title_prefix: str,
+    source_ref_prefix: str,
+    dynamic_context: DynamicContextProjection,
+) -> list[dict[str, Any]]:
+    task_plan_context = dict(payload or {}).get("task_plan_context")
+    if not task_plan_context:
+        return []
+    return [
+        _runtime_payload_spec(
+            role="system",
+            title=f"{title_prefix} task plan context",
+            payload={"task_plan_context": task_plan_context},
+            kind="task_plan_context",
+            source_ref=f"{source_ref_prefix}:task_plan_context",
+            cache_scope="none",
+            cache_role="volatile",
+            compression_role="ref_only",
+            metadata={
+                **_dynamic_context_segment_metadata(dynamic_context, source="task_plan_context"),
+                "authority_class": "task_plan_context",
+                "content_source": "harness.runtime.dynamic_context.task_plan_context",
+                "runtime_fragment_role": "task_plan_context",
+            },
+        )
+    ]
+
+
+def _editor_context_message_specs(
+    payload: dict[str, Any] | None,
+    *,
+    title_prefix: str,
+    source_ref_prefix: str,
+    dynamic_context: DynamicContextProjection,
+) -> list[dict[str, Any]]:
+    editor_payload = dict(payload or {})
+    specs: list[dict[str, Any]] = []
+    editor_context_index = editor_payload.get("editor_context_index")
+    if editor_context_index:
+        specs.append(
+            _runtime_payload_spec(
+                role="system",
+                title=f"{title_prefix} editor context index",
+                payload={"editor_context_index": editor_context_index},
+                kind="editor_context_index",
+                source_ref=f"{source_ref_prefix}:editor_context_index",
+                cache_scope="none",
+                cache_role="volatile",
+                compression_role="ref_only",
+                metadata={
+                    **_dynamic_context_segment_metadata(dynamic_context, source="editor_context_index"),
+                    "authority_class": "editor_context_index",
+                    "content_source": "harness.runtime.dynamic_context.editor_context_index",
+                    "runtime_fragment_role": "editor_context_index",
+                },
+            )
+        )
+    editor_evidence_delta = editor_payload.get("current_editor_evidence_delta")
+    if editor_evidence_delta:
+        specs.append(
+            _runtime_payload_spec(
+                role="system",
+                title=f"{title_prefix} current editor evidence delta",
+                payload={"current_editor_evidence_delta": editor_evidence_delta},
+                kind="current_editor_evidence_delta",
+                source_ref=f"{source_ref_prefix}:current_editor_evidence_delta",
+                cache_scope="none",
+                cache_role="volatile",
+                compression_role="preserve",
+                metadata={
+                    **_dynamic_context_segment_metadata(dynamic_context, source="editor_exact_evidence_delta"),
+                    "authority_class": "editor_evidence_delta",
+                    "content_source": "harness.runtime.dynamic_context.current_editor_evidence_delta",
+                    "runtime_fragment_role": "current_editor_evidence_delta",
+                },
+            )
+        )
+    return specs
+
+
 def _session_history_message_specs(
     payload: dict[str, Any] | None,
     *,
@@ -3752,7 +4070,7 @@ def _model_messages_and_segment_plan(
     specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
     enforce_dynamic_context_reports: bool = False,
 ) -> tuple[list[dict[str, Any]], Any, tuple[dict[str, Any], ...], Any, Any, Any]:
-    clean_specs: list[dict[str, Any]] = []
+    source_specs: list[dict[str, Any]] = []
     for raw_spec in list(specs or []):
         if not isinstance(raw_spec, dict):
             continue
@@ -3763,20 +4081,30 @@ def _model_messages_and_segment_plan(
         spec["role"] = str(model_message.get("role") or spec.get("role") or "user")
         spec["content"] = str(model_message.get("content") or spec.get("content") or "")
         spec["model_message"] = model_message
-        clean_specs.append(spec)
+        source_specs.append(spec)
+    source_bundle = build_prompt_source_bundle(
+        packet_id=packet_id,
+        invocation_kind=invocation_kind,
+        message_specs=source_specs,
+    )
+    assembly_plan = build_prompt_assembly_plan(
+        source_bundle=source_bundle,
+        provider_profile={"provider_payload_boundary_source": "prompt_materialized_packet"},
+    )
+    materialized_packet = materialize_prompt_packet(assembly_plan=assembly_plan)
+    clean_specs = [dict(item) for item in tuple(materialized_packet.message_specs or ())]
     source_manifest = build_runtime_prompt_source_manifest(
         packet_id=packet_id,
         invocation_kind=invocation_kind,
         message_specs=clean_specs,
     )
-    source_specs = [dict(item) for item in materialize_runtime_prompt_sources(source_manifest)]
+    clean_specs = [dict(item) for item in materialize_runtime_prompt_sources(source_manifest)]
     slot_plan = build_runtime_prompt_slot_plan(
         packet_id=packet_id,
         invocation_kind=invocation_kind,
-        message_specs=source_specs,
+        message_specs=clean_specs,
     )
     load_plan = build_runtime_context_load_plan(slot_plan)
-    clean_specs = [dict(item) for item in materialize_runtime_context_load_plan(load_plan)]
     if enforce_dynamic_context_reports:
         _validate_dynamic_context_metadata(clean_specs)
     model_messages = [dict(spec.get("model_message") or {}) for spec in clean_specs]
@@ -4040,6 +4368,7 @@ def _context_window_report(
             "active_history_message_count": len(active_history),
             "active_history_fingerprint": _stable_json_hash(active_history) if active_history else "",
             "budget_report": dict(dynamic_report.get("budget_report") or {}),
+            "stable_runtime_baseline_refs": dict(dynamic_report.get("stable_runtime_baseline_refs") or {}),
             "dynamic_context_diagnostics": dict(dynamic_report.get("diagnostics") or {}),
             "authority": "harness.runtime.compiler.context_window_report",
         }
@@ -4220,8 +4549,7 @@ def _file_evidence_policy_stable_payload() -> dict[str, Any]:
                 ),
             },
             "dynamic_fact_refs": [
-                "file_evidence_decisions",
-                "read_resource_state",
+                "evidence_index_cursor",
                 "bound_task_runtime_context.rehydration_refs",
             ],
             "enforcement": "runtime.tool_runtime.file_evidence_admission",
@@ -4386,6 +4714,7 @@ def _read_evidence_injection_payload(
     packet_id: str,
     budget_policy: dict[str, Any] | None = None,
     current_observations: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
+    include_historical_refs: bool = True,
 ) -> dict[str, Any]:
     scope = dict(file_evidence_scope or {})
     if not scope:
@@ -4400,6 +4729,7 @@ def _read_evidence_injection_payload(
         packet_id=packet_id,
         budget_policy=budget_payload,
         current_observations=current_observations,
+        include_historical_refs=include_historical_refs,
     )
 
 
@@ -5124,7 +5454,7 @@ def _memory_context_model_visible_payload(memory_context: Any) -> dict[str, Any]
         return {}
     sections = memory_context.get("model_visible_sections")
     if not isinstance(sections, dict):
-        return {}
+        sections = {}
     allowed_sections = (
         "active_process_context",
         "hot_truth_window",
@@ -5142,9 +5472,10 @@ def _memory_context_model_visible_payload(memory_context: Any) -> dict[str, Any]
         for section in allowed_sections
     }
     visible_sections = {section: items for section, items in visible_sections.items() if items}
-    if not visible_sections:
-        return {}
+    status = dict(memory_context.get("memory_context_status") or {}) if isinstance(memory_context.get("memory_context_status"), dict) else {}
     diagnostics = dict(memory_context.get("diagnostics") or {}) if isinstance(memory_context.get("diagnostics"), dict) else {}
+    if not visible_sections and not status and not diagnostics:
+        return {}
     return _drop_empty_payload(
         {
             "model_visible_sections": visible_sections,
@@ -5155,11 +5486,28 @@ def _memory_context_model_visible_payload(memory_context: Any) -> dict[str, Any]
             ],
             "memory_runtime_view_ref": str(memory_context.get("memory_runtime_view_ref") or ""),
             "context_package_ref": str(memory_context.get("context_package_ref") or ""),
+            "memory_context_status": status,
             "read_namespaces": list(diagnostics.get("read_namespaces") or ()),
+            "requested_memory_layers": list(diagnostics.get("requested_memory_layers") or ()),
+            "context_candidate_count": int(diagnostics.get("context_candidate_count") or 0),
+            "state_candidate_count": int(diagnostics.get("state_candidate_count") or 0),
+            "long_term_candidate_count": int(diagnostics.get("long_term_candidate_count") or 0),
             "requires_verification_before_use": True,
             "authority": str(memory_context.get("authority") or "memory_system.runtime_memory_context"),
         }
     )
+
+
+def _runtime_memory_context_source_ref(payload: dict[str, Any] | None) -> str:
+    data = dict(payload or {})
+    for key in ("memory_runtime_view_ref", "context_package_ref"):
+        value = str(data.get(key) or "").strip()
+        if value:
+            return value
+    selected = ",".join(str(item) for item in list(data.get("selected_sections") or []) if str(item).strip())
+    if selected:
+        return f"runtime_memory_context:{_short_hash(selected)}"
+    return "runtime_memory_context"
 
 
 def _skill_candidate_instruction(assembly_payload: dict[str, Any]) -> str:

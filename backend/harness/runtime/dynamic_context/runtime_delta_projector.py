@@ -123,8 +123,8 @@ def _task_execution_runtime_context_projection(
     return drop_empty(
         {
             **({"task_environment_id": str(environment.get("environment_id") or "")} if show_environment else {}),
-            "model_decision_contract": model_decision_contract,
-            "service_surface": service_surface,
+            "model_decision_contract": _task_execution_model_decision_cursor(model_decision_contract),
+            "service_surface": _task_execution_service_surface_cursor(service_surface),
             "execution_boundary": execution_boundary,
             "permission_scope": str(permission_boundary.get("permission_scope") or ""),
             "tool_boundary": drop_empty(
@@ -140,6 +140,66 @@ def _task_execution_runtime_context_projection(
                 }
             ),
             "authority": "harness.runtime.task_execution_context.model_visible",
+        }
+    )
+
+
+def _task_execution_model_decision_cursor(value: dict[str, Any]) -> dict[str, Any]:
+    task_entry_rule = dict(value.get("task_entry_rule") or {})
+    return drop_empty(
+        {
+            "protocol_ref": "action_schema_static",
+            "semantic_actions": [
+                str(item)
+                for item in list(value.get("semantic_actions") or [])
+                if str(item)
+            ],
+            "control_actions": [
+                str(item)
+                for item in list(value.get("control_actions") or [])
+                if str(item)
+            ],
+            "task_run_allowed": task_entry_rule.get("request_task_run_allowed")
+            if isinstance(task_entry_rule.get("request_task_run_allowed"), bool)
+            else None,
+            "json_action_contract_ref": "action_schema_static.json_action_shape_rules",
+            "feedback_contract_ref": "action_schema_static.public_response_obligation",
+            "authority": "harness.runtime.model_decision_contract.cursor",
+        }
+    )
+
+
+def _task_execution_service_surface_cursor(value: dict[str, Any]) -> dict[str, Any]:
+    mounted_tools = [
+        dict(item)
+        for item in list(value.get("mounted_tools") or [])
+        if isinstance(item, dict)
+    ]
+    unmounted = [
+        _unmounted_service_cursor(dict(item))
+        for item in list(value.get("unmounted_services") or [])
+        if isinstance(item, dict)
+    ]
+    return drop_empty(
+        {
+            "tool_call_transport_available": value.get("tool_call_transport_available")
+            if isinstance(value.get("tool_call_transport_available"), bool)
+            else None,
+            "mounted_tool_count": len(mounted_tools),
+            "mounted_tools_ref": "tool_index_stable.available_tools",
+            "unmounted_services": [item for item in unmounted if item][:8],
+            "authority": "harness.runtime.service_surface.cursor",
+        }
+    )
+
+
+def _unmounted_service_cursor(value: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "service": str(value.get("service") or ""),
+            "tool_name": str(value.get("tool_name") or ""),
+            "category": str(value.get("category") or ""),
+            "required_action": str(value.get("required_action") or ""),
         }
     )
 

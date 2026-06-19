@@ -1321,13 +1321,14 @@ def test_task_run_read_file_commits_file_state_and_dynamic_context_projects_inje
             },
         )
     )
-    file_state = projection.volatile_state_projection["task_state"]["file_state"]
-    read_resource_state = projection.volatile_state_projection["task_state"]["read_resource_state"]
+    evidence_index = projection.volatile_state_projection["evidence_index_cursor"]
+    file_state = evidence_index["files"]
+    read_resource_state = evidence_index["read_resource"]
 
+    assert "file_state" not in projection.volatile_state_projection["task_state"]
     assert file_state[0]["path"] == "src/app.py"
     assert file_state[0]["status"] == "partial"
     assert file_state[0]["next_suggested_read"]["start_line"] == 3
-    assert read_resource_state["authority_boundary"] == "resource_state_only"
     assert read_resource_state["status"] == "available"
     assert read_resource_state["available_range_count"] == 1
     assert "recommended_next_actions" not in read_resource_state

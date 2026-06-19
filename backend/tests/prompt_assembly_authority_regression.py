@@ -1,0 +1,319 @@
+from __future__ import annotations
+
+from prompt_composition import (
+    build_model_message_spec,
+    build_prompt_assembly_plan,
+    build_prompt_source_bundle,
+    materialize_prompt_packet,
+)
+from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
+from runtime.model_gateway.model_request import ModelRequestBuilder
+from harness.runtime.compiler import RuntimeCompiler
+
+
+def _spec(*, kind: str, content: str, cache_scope: str, cache_role: str) -> dict[str, object]:
+    return build_model_message_spec(
+        role="system",
+        content=content,
+        kind=kind,
+        source_ref=kind,
+        cache_scope=cache_scope,
+        cache_role=cache_role,
+        compression_role="preserve",
+    )
+
+
+def test_prompt_assembly_plan_is_the_topology_authority() -> None:
+    source_bundle = build_prompt_source_bundle(
+        invocation_kind="task_execution",
+        packet_id="packet:assembly-authority",
+        message_specs=[
+            _spec(
+                kind="task_contract_stable",
+                content="Task contract\n{\"goal\":\"fix cache\"}",
+                cache_scope="task",
+                cache_role="session_stable",
+            ),
+            _spec(
+                kind="volatile_task_state",
+                content="Current state\n{\"step\":\"diagnose\"}",
+                cache_scope="none",
+                cache_role="volatile",
+            ),
+            _spec(
+                kind="global_static",
+                content="Global protocol",
+                cache_scope="global",
+                cache_role="cacheable_prefix",
+            ),
+            _spec(
+                kind="agent_stable",
+                content="You are a coding agent.",
+                cache_scope="session",
+                cache_role="session_stable",
+            ),
+        ],
+    )
+
+    assembly_plan = build_prompt_assembly_plan(source_bundle=source_bundle)
+    materialized = materialize_prompt_packet(assembly_plan=assembly_plan)
+
+    assert assembly_plan.diagnostics["status"] == "ok"
+    assert [slot.prefix_tier for slot in assembly_plan.slots] == [
+        "provider_global",
+        "session",
+        "task",
+        "volatile",
+    ]
+    assert [spec["kind"] for spec in materialized.message_specs] == [
+        "global_static",
+        "agent_stable",
+        "task_contract_stable",
+        "volatile_task_state",
+    ]
+
+
+def test_tool_schema_catalog_is_task_stable_before_volatile_suffix() -> None:
+    source_bundle = build_prompt_source_bundle(
+        invocation_kind="task_execution",
+        packet_id="packet:tool-schema-catalog",
+        message_specs=[
+            _spec(
+                kind="volatile_task_state",
+                content="Current state\n{\"step\":\"run\"}",
+                cache_scope="none",
+                cache_role="volatile",
+            ),
+            _spec(
+                kind="tool_schema_catalog",
+                content="Tool schema catalog\n{\"tools\":[{\"name\":\"read_file\"}]}",
+                cache_scope="task",
+                cache_role="session_stable",
+            ),
+            _spec(
+                kind="global_static",
+                content="Global protocol",
+                cache_scope="global",
+                cache_role="cacheable_prefix",
+            ),
+        ],
+    )
+
+    assembly_plan = build_prompt_assembly_plan(source_bundle=source_bundle)
+    tool_slot = next(slot for slot in assembly_plan.slots if slot.slot_kind == "tool_schema_catalog")
+
+    assert tool_slot.cache_role == "session_stable"
+    assert tool_slot.prefix_tier == "task"
+    assert [slot.slot_kind for slot in assembly_plan.slots] == [
+        "global_static",
+        "tool_schema_catalog",
+        "volatile_task_state",
+    ]
+
+
+def test_runtime_baseline_precedes_append_only_replay_and_cursors_follow_it() -> None:
+    source_bundle = build_prompt_source_bundle(
+        invocation_kind="task_execution",
+        packet_id="packet:append-only-topology",
+        message_specs=[
+            _spec(
+                kind="volatile_task_state",
+                content="Current cursor\n{\"step\":\"run\"}",
+                cache_scope="none",
+                cache_role="volatile",
+            ),
+            _spec(
+                kind="runtime_memory_context",
+                content="Runtime memory\n{\"selected_sections\":[\"relevant_durable_context\"]}",
+                cache_scope="none",
+                cache_role="volatile",
+            ),
+            _spec(
+                kind="bound_task_runtime_context",
+                content="Bound context\n{\"known_task_files\":[{\"path\":\"src/app.py\"}]}",
+                cache_scope="none",
+                cache_role="volatile",
+            ),
+            _spec(
+                kind="task_state_replay_entry",
+                content="Replay\n{\"observation_ref\":\"obs:1\"}",
+                cache_scope="none",
+                cache_role="volatile",
+            ),
+            _spec(
+                kind="task_runtime_boundary_dynamic",
+                content="Runtime boundary\n{\"allowed_actions\":[\"tool_call\"]}",
+                cache_scope="none",
+                cache_role="volatile",
+            ),
+            _spec(
+                kind="lifecycle_runtime_guidance",
+                content="Lifecycle guidance\n{\"prompt\":\"memory\"}",
+                cache_scope="none",
+                cache_role="volatile",
+            ),
+            _spec(
+                kind="task_start_inherited_context",
+                content="Task start\n{\"handoff_ref\":\"handoff:1\"}",
+                cache_scope="none",
+                cache_role="volatile",
+            ),
+        ],
+    )
+
+    assembly_plan = build_prompt_assembly_plan(source_bundle=source_bundle)
+    materialized = materialize_prompt_packet(assembly_plan=assembly_plan)
+    kinds = [spec["kind"] for spec in materialized.message_specs]
+
+    assert kinds.index("task_start_inherited_context") < kinds.index("task_state_replay_entry")
+    assert kinds.index("task_runtime_boundary_dynamic") < kinds.index("task_state_replay_entry")
+    assert kinds.index("task_state_replay_entry") < kinds.index("bound_task_runtime_context")
+    assert kinds.index("bound_task_runtime_context") < kinds.index("volatile_task_state")
+    assert kinds.index("volatile_task_state") < kinds.index("lifecycle_runtime_guidance")
+    assert kinds.index("volatile_task_state") < kinds.index("runtime_memory_context")
+
+
+def test_model_request_uses_provider_payload_plan_for_tool_schema_boundary() -> None:
+    source_bundle = build_prompt_source_bundle(
+        invocation_kind="task_execution",
+        packet_id="packet:provider-boundary",
+        message_specs=[
+            _spec(
+                kind="global_static",
+                content="Global protocol",
+                cache_scope="global",
+                cache_role="cacheable_prefix",
+            ),
+            _spec(
+                kind="tool_schema_catalog",
+                content="Tool schema catalog\n{\"tools\":[{\"name\":\"read_file\"}]}",
+                cache_scope="task",
+                cache_role="session_stable",
+            ),
+            _spec(
+                kind="volatile_task_state",
+                content="Current state\n{\"step\":\"run\"}",
+                cache_scope="none",
+                cache_role="volatile",
+            ),
+        ],
+    )
+    assembly_plan = build_prompt_assembly_plan(source_bundle=source_bundle)
+    materialized = materialize_prompt_packet(assembly_plan=assembly_plan)
+    segment_plan = build_prompt_segment_plan(
+        packet_id=materialized.packet_id,
+        invocation_kind=materialized.invocation_kind,
+        message_specs=materialized.message_specs,
+    )
+
+    request = ModelRequestBuilder().build(
+        request_id="request:provider-boundary",
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        messages=list(materialized.model_messages),
+        tools=[
+            {
+                "name": "read_file",
+                "description": "Read a file",
+                "schema": {"type": "object", "properties": {"path": {"type": "string"}}},
+            }
+        ],
+        segment_plan=segment_plan.to_dict(),
+    )
+
+    provider_plan = request.diagnostics["provider_payload_plan"]
+    boundary_status = provider_plan["diagnostics"]["tool_schema_boundary_status"]
+
+    assert provider_plan["assembly_plan_id"] == assembly_plan.plan_id
+    assert boundary_status["stable_tool_schema_catalog_segment_count"] == 1
+    assert boundary_status["native_tool_schema_segment_count"] == 1
+    assert request.provider_payload_manifest is not None
+
+
+def test_task_execution_cursor_does_not_duplicate_user_steers_or_runtime_controls() -> None:
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:cursor-dedupe",
+        task_run={"task_run_id": "taskrun:cursor-dedupe", "diagnostics": {"executor_status": "running"}},
+        contract={"task_run_goal": "fix cache", "completion_criteria": ["cache fixed"]},
+        observations=[],
+        execution_state={
+            "system_projection": {
+                "runtime_status": "running",
+                "pending_user_steers": [
+                    {
+                        "steer_id": "steer:1",
+                        "content": "Do not drop memory.",
+                        "priority": "high",
+                    }
+                ],
+                "runtime_control_signals": [
+                    {"signal_id": "sig:1", "kind": "continue", "reason": "probe"}
+                ],
+                "latest_runtime_control_signal": {"signal_id": "sig:1", "kind": "continue"},
+            }
+        },
+        runtime_assembly={
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    current_state = _payload_with_title(result.packet, "Task execution current state")
+    user_steer = _payload_with_title(result.packet, "User steering updates for this task")
+    task_state = current_state["task_state"]
+    baseline = result.packet.diagnostics["prompt_manifest"]["context_window"]["stable_runtime_baseline_refs"][
+        "task_context_baseline"
+    ]
+
+    assert "pending_user_steers" not in task_state
+    assert "runtime_control_signals" not in task_state
+    assert current_state["runtime_control_signals"][0]["signal_id"] == "sig:1"
+    assert user_steer["pending_user_steers"][0]["content"] == "Do not drop memory."
+    assert baseline["memory_contract"] == "baseline_plus_append_only_replay_plus_bounded_cursor"
+    assert baseline["baseline_id"].startswith("taskctx:")
+
+
+def test_task_runtime_boundary_uses_protocol_refs_not_repeated_rule_text() -> None:
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:runtime-boundary-cursor",
+        task_run={"task_run_id": "taskrun:runtime-boundary-cursor", "diagnostics": {"executor_status": "running"}},
+        contract={"task_run_goal": "fix cache", "completion_criteria": ["cache fixed"]},
+        observations=[],
+        available_tools=[
+            {
+                "tool_name": "read_file",
+                "description": "Read file",
+                "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}},
+            }
+        ],
+        runtime_assembly={
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    runtime_boundary = _payload_with_title(result.packet, "Task execution runtime boundary")
+    runtime_context = runtime_boundary["runtime_context"]
+    model_contract = runtime_context["model_decision_contract"]
+    service_surface = runtime_context["service_surface"]
+    serialized = __import__("json").dumps(runtime_boundary, ensure_ascii=False)
+
+    assert model_contract["protocol_ref"] == "action_schema_static"
+    assert model_contract["json_action_contract_ref"] == "action_schema_static.json_action_shape_rules"
+    assert service_surface["mounted_tools_ref"] == "tool_index_stable.available_tools"
+    assert "task_entry_conditions" not in serialized
+    assert "respond_requires_top_level_final_answer" not in serialized
+    assert "\"mounted_tools\":" not in serialized
+
+
+def _payload_with_title(packet, title: str) -> dict[str, object]:
+    import json
+
+    for message in packet.model_messages:
+        content = str(dict(message).get("content") or "")
+        if content.startswith(title + "\n"):
+            return json.loads(content.split("\n", 1)[1])
+        marker = "\n" + title + "\n"
+        if marker in content:
+            return json.loads(content.split(marker, 1)[1])
+    raise AssertionError(f"missing model message title: {title}")

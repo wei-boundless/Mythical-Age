@@ -21,6 +21,7 @@ def build_read_evidence_projection_payload(
     packet_id: str,
     budget_policy: dict[str, Any] | None = None,
     current_observations: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
+    include_historical_refs: bool = True,
 ) -> dict[str, Any]:
     current_refs = _current_exact_read_refs(current_observations)
     budget_payload = _read_evidence_budget_payload(budget_policy)
@@ -58,7 +59,8 @@ def build_read_evidence_projection_payload(
             }
             if should_inject:
                 ref_payload["model_visible_exact_in_current_packet"] = True
-            evidence_refs.append(_drop_empty(ref_payload))
+            if include_historical_refs or should_inject:
+                evidence_refs.append(_drop_empty(ref_payload))
             if not should_inject:
                 continue
             try:
@@ -111,7 +113,7 @@ def build_read_evidence_projection_payload(
             "read_required_windows": read_required[-8:],
             "projection_policy": {
                 "exact_content_injection": "current_packet_exact_refs_only",
-                "historical_read_evidence": "ref_only",
+                "historical_read_evidence": "ref_only" if include_historical_refs else "evidence_index_cursor",
                 "rehydration": "read_again_or_artifact_lookup_when_exact_text_is_needed",
             },
         }

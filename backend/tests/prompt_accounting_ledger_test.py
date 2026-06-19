@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 from runtime.prompt_accounting import (
@@ -783,6 +784,7 @@ def test_task_execution_memory_payload_stays_volatile_when_memory_lifecycle_moun
 
     environment_content = _message_content_with_title(with_memory.packet, "Task execution environment boundary")
     runtime_boundary_content = _message_content_with_title(with_memory.packet, "Task execution runtime boundary")
+    runtime_memory_content = _message_content_with_title(with_memory.packet, "Task runtime memory context")
     without_refs = without_memory.packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_prompt_refs"]
     with_refs = with_memory.packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_prompt_refs"]
     with_runtime_refs = with_memory.packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["runtime_lifecycle_prompt_refs"]
@@ -791,7 +793,8 @@ def test_task_execution_memory_payload_stays_volatile_when_memory_lifecycle_moun
     assert "environment.coding.lifecycle.memory_read_context" not in with_refs
     assert "environment.coding.lifecycle.memory_read_context" in with_runtime_refs
     assert "durable memory marker for prefix regression" not in environment_content
-    assert "durable memory marker for prefix regression" in runtime_boundary_content
+    assert "durable memory marker for prefix regression" not in runtime_boundary_content
+    assert "durable memory marker for prefix regression" in runtime_memory_content
     lifecycle_runtime_segment = _segment_by_kind(with_memory.packet, "lifecycle_runtime_guidance")
     assert lifecycle_runtime_segment["cache_role"] == "volatile"
     assert lifecycle_runtime_segment["prefix_tier"] == "volatile"
@@ -813,6 +816,59 @@ def test_task_execution_memory_payload_stays_volatile_when_memory_lifecycle_moun
         segment_plan=with_memory.packet.segment_plan,
     )
     assert without_request.stable_prefix_hash == with_request.stable_prefix_hash
+
+
+def test_single_agent_turn_keeps_empty_memory_context_as_independent_volatile_layer() -> None:
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:empty-memory-layer",
+        turn_id="turn:empty-memory-layer",
+        agent_invocation_id="aginvoke:empty-memory-layer",
+        user_message="审查控制系统",
+        history=[],
+        runtime_assembly={
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {"environment_id": "env.coding.vibe_workspace"},
+        },
+        memory_context={
+            "authority": "memory_system.runtime_memory_context",
+            "memory_runtime_view_ref": "memory-runtime:session-empty-memory-layer",
+            "context_package_ref": "context-receipt:empty-memory-layer",
+            "selected_sections": [],
+            "model_visible_sections": {},
+            "memory_context_status": {
+                "status": "empty",
+                "reason_code": "memory_read_plan_evaluated_no_visible_records",
+                "has_model_visible_records": False,
+                "visible_section_count": 0,
+                "visible_item_count": 0,
+                "context_candidate_count": 0,
+                "requested_memory_layers": ["state"],
+                "agent_use_contract": "Use listed memory records when present; if none are listed, do not infer that previous facts are known from memory.",
+            },
+            "diagnostics": {
+                "read_namespaces": ["memory:env.coding.vibe_workspace"],
+                "requested_memory_layers": ["state"],
+                "context_candidate_count": 0,
+                "state_candidate_count": 0,
+                "long_term_candidate_count": 0,
+            },
+        },
+    )
+
+    runtime_memory_content = _message_content_with_title(result.packet, "Single agent turn runtime memory context")
+    runtime_memory_payload = _payload_after_title(
+        runtime_memory_content,
+        "Single agent turn runtime memory context",
+    )
+    dynamic_runtime_content = _message_content_with_title(result.packet, "Single agent turn dynamic runtime")
+    runtime_memory_segment = _segment_by_kind(result.packet, "runtime_memory_context")
+
+    assert runtime_memory_segment["cache_role"] == "volatile"
+    assert runtime_memory_segment["prefix_tier"] == "volatile"
+    assert runtime_memory_payload["memory_context_status"]["reason_code"] == "memory_read_plan_evaluated_no_visible_records"
+    assert runtime_memory_payload["requested_memory_layers"] == ["state"]
+    assert "memory_read_plan_evaluated_no_visible_records" not in dynamic_runtime_content
+    assert "memory_read_plan_evaluated_no_visible_records" not in _stable_prompt_text(result.packet)
 
 
 def test_lifecycle_prompt_selection_changes_only_on_memory_context_structure() -> None:
@@ -994,8 +1050,9 @@ def test_task_execution_replay_entries_are_volatile_before_current_state() -> No
 
     second_kinds = [segment["kind"] for segment in second.packet.segment_plan["segments"]]
     assert "lifecycle_runtime_guidance" in second_kinds
-    assert second_kinds.index("lifecycle_runtime_guidance") < second_kinds.index("task_state_replay_entry")
+    assert second_kinds.index("task_runtime_boundary_dynamic") < second_kinds.index("task_state_replay_entry")
     assert second_kinds.index("task_state_replay_entry") < second_kinds.index("volatile_task_state")
+    assert second_kinds.index("volatile_task_state") < second_kinds.index("lifecycle_runtime_guidance")
     for segment in second.packet.segment_plan["segments"]:
         if segment["kind"] in {"task_state_replay_entry", "task_runtime_boundary_dynamic", "volatile_task_state"}:
             assert segment["cache_role"] == "volatile"
@@ -1145,6 +1202,8 @@ def test_task_execution_replay_prefix_keeps_observations_beyond_current_state_cu
     assert replay_sources[-1] == "task_state_replay:obs:10"
     assert len(replay_sources) == 10
     assert [item["observation_ref"] for item in latest_cursor_results] == ["obs:09", "obs:10"]
+    assert all("summary" not in item for item in latest_cursor_results)
+    assert all(item["cursor_code"] == "details_available_in_task_state_replay" for item in latest_cursor_results)
 
 
 def test_task_execution_replay_entries_keep_source_content_stable_when_new_failure_is_projected_first() -> None:
@@ -1210,10 +1269,17 @@ def test_task_execution_replay_entries_keep_source_content_stable_when_new_failu
         for segment in second.packet.segment_plan["segments"]
         if segment["kind"] == "task_state_replay_entry"
     ]
-    assert second_sources.index(old_source) < second_sources.index(new_source)
+    volatile_payload = _message_payload_with_title(second.packet, "Task execution current state")
+    active_failure_refs = [
+        item["observation_ref"]
+        for item in volatile_payload["task_state"]["active_failures"]
+    ]
+    assert old_source in second_sources
+    assert new_source not in second_sources
+    assert "rtobs:model-action-invalid" in active_failure_refs
 
 
-def test_task_execution_replay_entries_append_late_runtime_control_even_with_earlier_event_offset() -> None:
+def test_task_execution_keeps_runtime_control_out_of_replay_even_when_projected_with_tool_results() -> None:
     base_kwargs = {
         "session_id": "session:late-runtime-control-replay",
         "task_run": {
@@ -1270,7 +1336,7 @@ def test_task_execution_replay_entries_append_late_runtime_control_even_with_ear
         observations=[],
         execution_state={
             "system_projection": {
-                "last_action_receipts": [first_tool_result, second_tool_result],
+                "last_action_receipts": [late_runtime_control, first_tool_result, second_tool_result],
                 "active_failures": [late_runtime_control],
             }
         },
@@ -1294,10 +1360,84 @@ def test_task_execution_replay_entries_append_late_runtime_control_even_with_ear
     assert second_sources == [
         "task_state_replay:toolobs:first-read",
         "task_state_replay:toolobs:second-search",
-        "task_state_replay:runtime-control:late-repair",
     ]
+    volatile_payload = _message_payload_with_title(second.packet, "Task execution current state")
+    assert [
+        item["observation_ref"]
+        for item in volatile_payload["task_state"]["active_failures"]
+    ] == ["runtime-control:late-repair"]
     assert _message_content_for_source(second.packet, first_sources[0]) == _message_content_for_source(first.packet, first_sources[0])
     assert _message_content_for_source(second.packet, first_sources[1]) == _message_content_for_source(first.packet, first_sources[1])
+
+
+def test_task_execution_replay_order_ledger_preserves_first_seen_order(tmp_path: Path) -> None:
+    runtime_state_root = tmp_path / "runtime_state"
+    base_kwargs = {
+        "session_id": "session:replay-order-ledger",
+        "task_run": {
+            "task_run_id": "taskrun:replay-order-ledger",
+            "task_id": "task:replay-order-ledger",
+            "task_contract_ref": "contract:replay-order-ledger",
+            "diagnostics": {"executor_status": "running"},
+        },
+        "contract": {
+            "contract_id": "contract:replay-order-ledger",
+            "task_run_goal": "验证 replay 首次出现顺序账本",
+            "completion_criteria": ["replay 旧项不被新项插队"],
+        },
+        "runtime_assembly": {
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {
+                "environment_id": "env.general.workspace",
+                "storage_space": {"runtime_state_root": str(runtime_state_root)},
+            },
+        },
+    }
+    old_result = {
+        "observation_ref": "toolobs:old",
+        "tool_name": "read_file",
+        "status": "ok",
+        "summary": "old result",
+        "event_offset": 100,
+    }
+    new_result = {
+        "observation_ref": "toolobs:new",
+        "tool_name": "read_file",
+        "status": "ok",
+        "summary": "new result",
+        "event_offset": 1,
+    }
+    compiler = RuntimeCompiler()
+    first = compiler.compile_task_execution_packet(
+        **base_kwargs,
+        invocation_index=1,
+        observations=[],
+        execution_state={"system_projection": {"last_action_receipts": [old_result]}},
+    )
+    second = compiler.compile_task_execution_packet(
+        **base_kwargs,
+        invocation_index=2,
+        observations=[],
+        execution_state={"system_projection": {"last_action_receipts": [new_result, old_result]}},
+    )
+
+    first_sources = [
+        segment["source_ref"]
+        for segment in first.packet.segment_plan["segments"]
+        if segment["kind"] == "task_state_replay_entry"
+    ]
+    second_sources = [
+        segment["source_ref"]
+        for segment in second.packet.segment_plan["segments"]
+        if segment["kind"] == "task_state_replay_entry"
+    ]
+
+    assert first_sources == ["task_state_replay:toolobs:old"]
+    assert second_sources == [
+        "task_state_replay:toolobs:old",
+        "task_state_replay:toolobs:new",
+    ]
+    assert _message_content_for_source(second.packet, first_sources[0]) == _message_content_for_source(first.packet, first_sources[0])
 
 
 def test_task_state_replay_overflow_preserves_prefix_and_summarizes_tail() -> None:
@@ -1819,15 +1959,21 @@ def test_task_execution_prompt_matrix_has_no_task_entry_conflict_and_keeps_state
     )
     projection = runtime_payload["runtime_context"]
     decision_contract = projection["model_decision_contract"]
-    mounted_tool_names = {item["tool_name"] for item in projection["service_surface"]["mounted_tools"]}
+    tool_index_payload = _payload_after_title(
+        _message_content_with_title(result.packet, "Task execution tool index"),
+        "Task execution tool index",
+    )
+    mounted_tool_names = {item["tool_name"] for item in tool_index_payload["available_tools"]}
     stable_text = _stable_prompt_text(result.packet)
 
     assert decision_contract["semantic_actions"] == ["respond", "ask_user", "tool_call", "block"]
     assert "request_task_run" not in decision_contract["semantic_actions"]
+    assert projection["service_surface"]["mounted_tools_ref"] == "tool_index_stable.available_tools"
+    assert projection["service_surface"]["mounted_tool_count"] == 3
     assert "agent_todo" in mounted_tool_names
     assert not any(
         item["tool_name"] == "agent_todo" and item["category"] == "requires_task_run"
-        for item in projection["service_surface"]["unmounted_services"]
+        for item in projection["service_surface"].get("unmounted_services", [])
     )
     assert _segment_by_kind(result.packet, "task_runtime_boundary_dynamic")["cache_scope"] == "none"
     assert _segment_by_kind(result.packet, "volatile_task_state")["cache_scope"] == "none"

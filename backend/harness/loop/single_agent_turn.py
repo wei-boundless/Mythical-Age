@@ -54,9 +54,11 @@ from runtime.output_boundary import (
 )
 from runtime.model_gateway.stream_recovery import (
     VISIBLE_PREFIX_RECOVERY_MODE,
+    build_visible_prefix_plain_continuation_messages,
     build_visible_prefix_recovery_messages,
     build_visible_prefix_recovery_segment_plan,
     continuation_after_visible_prefix,
+    model_selection_for_visible_prefix_plain_continuation,
     model_selection_for_visible_prefix_recovery,
     recovery_attempts_from_policy,
     should_recover_partial_visible_stream,
@@ -3184,10 +3186,94 @@ async def _invoke_single_turn_model_with_stream_events(
                 }
                 return
             recovery_error_reason = str(recovery_response.get("reason") or recovery_response.get("code") or "partial_stream_recovery_failed") if isinstance(recovery_response, dict) else "partial_stream_recovery_failed"
+            plain_recovery_messages = build_visible_prefix_plain_continuation_messages(
+                model_messages,
+                visible_prefix=raw_content,
+                turn_id=str(accounting_context.get("turn_id") or ""),
+                source=_PARTIAL_STREAM_RECOVERY_SOURCE,
+            )
+            for recovery_attempt in range(1, recovery_attempts + 1):
+                plain_recovery_segment_plan = build_visible_prefix_recovery_segment_plan(
+                    base_segment_plan=dict(accounting_context.get("segment_plan") or {}),
+                    recovery_messages=plain_recovery_messages,
+                    packet_id=str(accounting_context.get("packet_ref") or stream_ref),
+                    recovery_attempt=recovery_attempt,
+                    source=_PARTIAL_STREAM_RECOVERY_SOURCE,
+                )
+                recovery_response = await _invoke_single_turn_model(
+                    model_runtime=model_runtime,
+                    model_messages=plain_recovery_messages,
+                    model_selection=model_selection_for_visible_prefix_plain_continuation(model_selection),
+                    accounting_context={
+                        **recovery_context,
+                        "request_id": f"{stream_ref}:partial-stream-plain-continuation:{recovery_attempt}",
+                        "segment_plan": plain_recovery_segment_plan,
+                        "prompt_manifest": {
+                            **dict(recovery_context.get("prompt_manifest") or {}),
+                            "invocation_kind": "single_agent_turn_partial_stream_plain_continuation",
+                            "segment_plan_ref": str(plain_recovery_segment_plan.get("segment_plan_id") or ""),
+                        },
+                        "stream_recovery": {
+                            **dict(recovery_context.get("stream_recovery") or {}),
+                            "attempt": recovery_attempt,
+                            "max_attempts": recovery_attempts,
+                            "fallback_mode": "plain_continuation",
+                        },
+                    },
+                    native_tools=[],
+                )
+                if not (isinstance(recovery_response, dict) and recovery_response.get("type") == "error"):
+                    break
+                recovery_error_reason = str(
+                    recovery_response.get("reason")
+                    or recovery_response.get("code")
+                    or "partial_stream_recovery_failed"
+                )
+            if not (isinstance(recovery_response, dict) and recovery_response.get("type") == "error"):
+                recovered_text = stringify_content(getattr(recovery_response, "content", recovery_response))
+                continuation = continuation_after_visible_prefix(raw_content, recovered_text)
+                if continuation:
+                    if assistant_normalizer is not None:
+                        for frame_event in assistant_normalizer.observe_delta(continuation):
+                            yield frame_event
+                        for frame_event in assistant_normalizer.flush():
+                            yield frame_event
+                    yield {
+                        "type": "stream_recovery",
+                        "status": "completed",
+                        "reason": "continued_from_visible_prefix",
+                        "stream_ref": stream_ref,
+                        "partial_utf8_bytes": visible_prefix_utf8_bytes(raw_content),
+                        "continuation_utf8_bytes": visible_prefix_utf8_bytes(continuation),
+                        "recovery_mode": VISIBLE_PREFIX_RECOVERY_MODE,
+                        "fallback_mode": "plain_continuation",
+                    }
+                    yield {
+                        "type": _INTERNAL_MODEL_RESPONSE_EVENT,
+                        "assistant_stream_normalizer": assistant_normalizer,
+                        "response": SimpleNamespace(content=raw_content + continuation),
+                    }
+                    return
+                yield {
+                    "type": "stream_recovery",
+                    "status": "completed",
+                    "reason": "visible_prefix_committed_without_extra_continuation",
+                    "stream_ref": stream_ref,
+                    "partial_utf8_bytes": visible_prefix_utf8_bytes(raw_content),
+                    "continuation_utf8_bytes": 0,
+                    "recovery_mode": VISIBLE_PREFIX_RECOVERY_MODE,
+                    "fallback_mode": "plain_continuation",
+                }
+                yield {
+                    "type": _INTERNAL_MODEL_RESPONSE_EVENT,
+                    "assistant_stream_normalizer": assistant_normalizer,
+                    "response": SimpleNamespace(content=raw_content),
+                }
+                return
             yield {
                 "type": "stream_recovery",
-                "status": "completed",
-                "reason": "visible_prefix_committed_after_recovery_error",
+                "status": "failed",
+                "reason": "partial_stream_recovery_failed",
                 "code": stream_error_code(exc),
                 "detail": recovery_error_reason,
                 "stream_ref": stream_ref,
@@ -3199,7 +3285,18 @@ async def _invoke_single_turn_model_with_stream_events(
             yield {
                 "type": _INTERNAL_MODEL_RESPONSE_EVENT,
                 "assistant_stream_normalizer": assistant_normalizer,
-                "response": SimpleNamespace(content=raw_content),
+                "response": error_event(
+                    content="运行中断",
+                    code="partial_stream_recovery_failed",
+                    reason=recovery_error_reason,
+                    extra={
+                        "original_stream_error_code": stream_error_code(exc),
+                        "partial_utf8_bytes": visible_prefix_utf8_bytes(raw_content),
+                        "recovery_mode": VISIBLE_PREFIX_RECOVERY_MODE,
+                        "recovery_call_status": "failed",
+                        "answer_persist_policy": "runtime_status_only",
+                    },
+                ),
             }
             return
         yield {

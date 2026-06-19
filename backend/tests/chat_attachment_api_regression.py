@@ -38,6 +38,7 @@ def test_chat_attachment_upload_stores_workspace_readable_image() -> None:
             assert payload["path"].startswith(f"storage/chat_attachments/{session_id}/")
             assert payload["path"].endswith(".png")
             assert payload["size_bytes"] > 0
+            assert payload["content_sha256"].startswith("sha256:")
             assert payload["width"] == 64
             assert payload["height"] == 32
             assert (PROJECT_ROOT / payload["path"]).is_file()

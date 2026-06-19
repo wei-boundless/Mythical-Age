@@ -398,7 +398,7 @@ class HarnessRuntimeFacade:
         attachments = _normalized_turn_attachments(getattr(request, "attachments", []) or [])
         if attachments:
             session_context["turn_input_attachments"] = attachments
-        model_user_message = _model_user_message_with_attachments(request.message, attachments)
+        model_user_message = str(request.message or "")
         semantic_request = replace(request, message=model_user_message)
         turn_index = len(history_record.get("messages", [])) + 1
         turn_id = f"turn:{request.session_id}:{turn_index}"
@@ -3270,6 +3270,7 @@ def _normalized_turn_attachments(value: Any) -> list[dict[str, Any]]:
                 "filename": _attachment_text(raw.get("filename"), limit=180),
                 "mime_type": _attachment_text(raw.get("mime_type"), limit=120),
                 "size_bytes": _attachment_int(raw.get("size_bytes")),
+                "content_sha256": _attachment_text(raw.get("content_sha256"), limit=120),
                 "path": path.replace("\\", "/"),
                 "created_at": _attachment_float(raw.get("created_at")),
                 "width": _attachment_int(raw.get("width")),
@@ -3279,37 +3280,6 @@ def _normalized_turn_attachments(value: Any) -> list[dict[str, Any]]:
             }
         )
     return result
-
-
-def _model_user_message_with_attachments(message: str, attachments: list[dict[str, Any]]) -> str:
-    base = str(message or "").strip()
-    if not attachments:
-        return base
-    lines = [
-        "用户随本轮上传了图片附件。它们是受控本地资源，不是已识别内容：",
-    ]
-    for attachment in attachments:
-        filename = _attachment_text(attachment.get("filename"), limit=180) or "未命名图片"
-        path = _attachment_text(attachment.get("path"), limit=500)
-        mime_type = _attachment_text(attachment.get("mime_type"), limit=120) or "unknown"
-        size_bytes = _attachment_int(attachment.get("size_bytes"))
-        width = _attachment_int(attachment.get("width"))
-        height = _attachment_int(attachment.get("height"))
-        lines.append(f"- 文件名：{filename}")
-        lines.append(f"  可读取路径：{path}")
-        lines.append(f"  MIME：{mime_type}")
-        if size_bytes:
-            lines.append(f"  大小：{size_bytes} bytes")
-        if width and height:
-            lines.append(f"  尺寸：{width}x{height}")
-    lines.extend(
-        [
-            "如果用户要求识别、读取或转写图片文字，你需要调用 attachment_extract_text，并只基于工具返回的 OCR 结果回答。",
-            "不要声称看到了工具没有返回的视觉细节；OCR 为空或失败时说明限制和下一步处理建议。",
-        ]
-    )
-    attachment_note = "\n".join(lines).strip()
-    return f"{base}\n\n{attachment_note}" if base else attachment_note
 
 
 def _attachment_text(value: Any, *, limit: int) -> str:

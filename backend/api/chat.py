@@ -801,6 +801,7 @@ def _normalize_chat_attachments(
                 "filename": _clean_attachment_text(raw.get("filename"), limit=180),
                 "mime_type": _clean_attachment_text(raw.get("mime_type"), limit=120),
                 "size_bytes": _safe_int(raw.get("size_bytes")),
+                "content_sha256": _clean_attachment_text(raw.get("content_sha256"), limit=120),
                 "path": path,
                 "created_at": _safe_float(raw.get("created_at")),
                 "width": _safe_int(raw.get("width")),

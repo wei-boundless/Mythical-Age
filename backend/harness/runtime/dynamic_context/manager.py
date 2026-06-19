@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs
 
 from .execution_state_projector import ExecutionStateProjector
+from .evidence_index_cursor import split_evidence_index_cursor
 from .history_projector import HistoryProjector
 from .models import (
     DynamicContextInput,
@@ -16,11 +18,14 @@ from .models import (
     drop_empty,
     estimate_chars,
     json_clone,
+    stable_json_hash,
     string_tuple,
 )
 from .observation_projector import ObservationProjector
 from .replacement_store import MemoryReplacementStore, ReplacementStore
 from .runtime_delta_projector import RuntimeDeltaProjector
+from .task_context_baseline import build_task_context_baseline_receipt
+from .task_plan_context import build_task_plan_context
 from .task_state_projector import TaskStateProjector
 from .token_budget import build_budget_report
 from .tool_result_projector import ToolResultProjector
@@ -63,10 +68,6 @@ class DynamicContextManager:
         execution_projection = self.execution_state_projector.project(
             request.execution_state,
             task_run=request.task_run,
-        )
-        execution_projection = self._with_file_state_authority_projection(
-            execution_projection,
-            editor_context=request.editor_context,
         )
         history_projection = self.history_projector.project(
             request.history,
@@ -112,6 +113,21 @@ class DynamicContextManager:
         context_refs = [
             str(baseline_refs.get("runtime_baseline_hash") or ""),
         ]
+        task_context_baseline = build_task_context_baseline_receipt(
+            invocation_kind=request.invocation_kind,
+            session_id=request.session_id,
+            task_run_id=request.task_run_id,
+            runtime_baseline_refs=baseline_refs,
+            task_state_replay_entries=task_state_replay_entries,
+            volatile_state_projection=volatile_state,
+            dynamic_runtime_projection=dynamic_payload,
+        )
+        if task_context_baseline:
+            baseline_refs = {
+                **dict(baseline_refs or {}),
+                "task_context_baseline": task_context_baseline,
+            }
+            context_refs.append(str(task_context_baseline.get("baseline_hash") or ""))
         artifact_refs = dedupe_artifact_refs(
             [
                 *observation_artifacts,
@@ -145,6 +161,7 @@ class DynamicContextManager:
                 {
                     "tool_projection_replacement_count": len(tool_records),
                     "observation_projection_replacement_count": len(observation_records),
+                    "task_context_baseline_ref": str(task_context_baseline.get("baseline_id") or ""),
                 }
             ),
         )
@@ -165,33 +182,15 @@ class DynamicContextManager:
             "history": history_projection,
             "user_message": str(request.current_user_message or ""),
         }
-        editor_context = _editor_context_projection(request.editor_context)
-        if editor_context:
-            payload["editor_context"] = editor_context
+        attachment_context_index = _attachment_context_index_projection(
+            dict(request.session_context or {}).get("turn_input_attachments")
+        )
+        if attachment_context_index:
+            payload["attachment_context_index"] = attachment_context_index
+        payload.update(_editor_context_dynamic_projection(request.editor_context))
         if request.invocation_kind == "tool_observation_followup":
             payload["observations"] = observation_projection
         return drop_empty(payload)
-
-    def _with_file_state_authority_projection(
-        self,
-        execution_projection: dict[str, Any],
-        *,
-        editor_context: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        projection = dict(execution_projection or {})
-        file_state = [dict(item) for item in list(projection.get("file_state") or []) if isinstance(item, dict)]
-        editor_file_state = _editor_file_state_projection(editor_context)
-        if not file_state and not editor_file_state:
-            return projection
-        return {
-            **projection,
-            "file_state": _merge_file_state_projection(file_state, editor_file_state, limit=20),
-            "file_state_source": _file_state_source(
-                persisted=bool(file_state),
-                editor=bool(editor_file_state),
-                existing=str(projection.get("file_state_source") or ""),
-            ),
-        }
 
     def _session_file_state_projection(self, request: DynamicContextInput) -> dict[str, Any]:
         if request.invocation_kind == "task_execution":
@@ -239,17 +238,60 @@ class DynamicContextManager:
             envelope_projection=envelope_projection,
             include_task_run_context=bool(dict(request.projection_policy or {}).get("include_task_run_context", True)),
         )
+        task_plan_context = build_task_plan_context(task_state, task_run_id=request.task_run_id)
         replay_entries, task_state_cursor = self.task_state_projector.split_for_prompt_cache(
             task_state,
             replay_entry_limit=_task_state_replay_entry_limit(request.projection_policy),
         )
+        replay_entries = self._ordered_task_state_replay_entries(request, replay_entries)
+        evidence_index_cursor, task_state_cursor = split_evidence_index_cursor(task_state_cursor)
         payload = {
             "task_state": task_state_cursor,
         }
-        editor_context = _editor_context_projection(request.editor_context)
-        if editor_context:
-            payload["editor_context"] = editor_context
+        if task_plan_context:
+            payload.update(task_plan_context)
+        if evidence_index_cursor:
+            payload.update(evidence_index_cursor)
+        payload.update(_editor_context_dynamic_projection(request.editor_context))
         return drop_empty(payload), replay_entries
+
+    def _ordered_task_state_replay_entries(
+        self,
+        request: DynamicContextInput,
+        replay_entries: tuple[dict[str, Any], ...],
+    ) -> tuple[dict[str, Any], ...]:
+        if request.invocation_kind != "task_execution" or not replay_entries:
+            return replay_entries
+        entry_by_ref = {
+            ref: dict(entry)
+            for entry in replay_entries
+            for ref in (str(entry.get("observation_ref") or entry.get("entry_ref") or "").strip(),)
+            if ref
+        }
+        if not entry_by_ref:
+            return replay_entries
+        fallback_order = _initial_replay_refs_first([ref for ref in entry_by_ref])
+        ledger_path = self._task_state_replay_order_path(request)
+        if ledger_path is None:
+            return tuple(entry_by_ref[ref] for ref in fallback_order if ref in entry_by_ref)
+        stored_order = _read_replay_order_ledger(ledger_path)
+        ordered_refs: list[str] = [ref for ref in stored_order if ref in entry_by_ref]
+        for ref in fallback_order:
+            if ref not in ordered_refs:
+                ordered_refs.append(ref)
+        if ordered_refs != stored_order:
+            _write_replay_order_ledger(ledger_path, ordered_refs)
+        return tuple(entry_by_ref[ref] for ref in ordered_refs if ref in entry_by_ref)
+
+    def _task_state_replay_order_path(self, request: DynamicContextInput) -> Path | None:
+        task_run_id = str(request.task_run_id or "").strip()
+        if not task_run_id:
+            return None
+        storage_root = dynamic_context_storage_root(self.base_dir, dict(request.runtime_assembly or {}))
+        if storage_root is None:
+            return None
+        digest = hashlib.sha256(task_run_id.encode("utf-8", errors="ignore")).hexdigest()[:24]
+        return storage_root / "dynamic_context" / "task_state_replay_order" / f"{digest}.json"
 
     def _inherited_start_context_projection(self, request: DynamicContextInput) -> dict[str, Any]:
         if request.invocation_kind != "task_execution":
@@ -260,6 +302,8 @@ class DynamicContextManager:
         memory_context = _inherited_memory_context_projection(payload.get("memory_context"))
         observations = _inherited_observation_summaries(payload.get("observations"))
         file_state = _inherited_file_state_projection(payload.get("file_state"))
+        editor_context_payload = _editor_context_dynamic_projection(payload.get("editor_context"))
+        attachment_context_index = _attachment_context_index_projection(payload.get("attachments"))
         return drop_empty(
             {
                 "handoff_id": compact_text(payload.get("handoff_id") or "", limit=160),
@@ -274,7 +318,8 @@ class DynamicContextManager:
                 "observations": observations,
                 "file_state": file_state,
                 "turn_input_facts": _bounded_projection_dict(payload.get("turn_input_facts"), limit=12, chars=1200),
-                "editor_context": _bounded_projection_dict(payload.get("editor_context"), limit=8, chars=1200),
+                "attachment_context_index": attachment_context_index,
+                "editor_context_index": editor_context_payload.get("editor_context_index"),
                 "current_work_boundary_receipt": _bounded_projection_dict(
                     payload.get("current_work_boundary_receipt"),
                     limit=8,
@@ -383,17 +428,90 @@ class DynamicContextManager:
                     refs=tuple(_task_state_replay_refs(task_state_replay_entries)),
                 )
             )
-        editor_context = _editor_context_projection(request.editor_context)
-        if editor_context:
+        task_plan_context = dict(volatile_state.get("task_plan_context") or {}) if isinstance(volatile_state.get("task_plan_context"), dict) else {}
+        if task_plan_context:
+            baseline = dict(task_plan_context.get("task_plan_baseline") or {})
+            cursor = dict(task_plan_context.get("task_plan_cursor") or {})
+            delta = dict(task_plan_context.get("task_plan_delta") or {})
             reports.append(
                 VolatileSectionReport(
-                    section_id=f"dynamic_context:{request.invocation_kind}:editor_context",
-                    source=str(editor_context.get("source") or "editor"),
+                    section_id=f"dynamic_context:{request.invocation_kind}:task_plan_context",
+                    source="task_plan_context",
+                    volatility_reason="task plan status can change during execution; baseline content, cursor, and delta are isolated from tool result replay",
+                    input_chars=estimate_chars({"execution_state": request.execution_state, "observations": request.observations}),
+                    output_chars=estimate_chars(task_plan_context),
+                    projection_strategy="task_plan_baseline_cursor_delta_projection",
+                    cache_impact="task_plan_dynamic_layer",
+                    refs=tuple(
+                        ref
+                        for ref in (
+                            str(baseline.get("plan_baseline_ref") or ""),
+                            str(cursor.get("active_step_ref") or ""),
+                            str(delta.get("cursor_hash") or ""),
+                        )
+                        if ref
+                    ),
+                )
+            )
+        evidence_index_cursor = dict(volatile_state.get("evidence_index_cursor") or {}) if isinstance(volatile_state.get("evidence_index_cursor"), dict) else {}
+        if evidence_index_cursor:
+            reports.append(
+                VolatileSectionReport(
+                    section_id=f"dynamic_context:{request.invocation_kind}:evidence_index_cursor",
+                    source="evidence_index_cursor",
+                    volatility_reason="file and tool evidence freshness changes with reads and writes; exact content stays in current exact evidence or rehydration refs",
+                    input_chars=estimate_chars({"execution_state": request.execution_state, "observations": request.observations}),
+                    output_chars=estimate_chars(evidence_index_cursor),
+                    projection_strategy="ref_hash_range_freshness_evidence_index",
+                    cache_impact="evidence_index_dynamic_layer",
+                    refs=tuple(
+                        str(item.get("latest_evidence_ref") or "")
+                        for item in list(evidence_index_cursor.get("files") or [])
+                        if isinstance(item, dict) and str(item.get("latest_evidence_ref") or "")
+                    ),
+                )
+            )
+        editor_context_payload = _editor_context_dynamic_projection(request.editor_context)
+        editor_context_index = editor_context_payload.get("editor_context_index")
+        if editor_context_index:
+            reports.append(
+                VolatileSectionReport(
+                    section_id=f"dynamic_context:{request.invocation_kind}:editor_context_index",
+                    source="editor_context_index",
                     volatility_reason="editor workspace snapshot is captured per invocation and may change between turns",
                     input_chars=estimate_chars(request.editor_context),
-                    output_chars=estimate_chars(editor_context),
-                    projection_strategy="bounded_editor_context_snapshot",
-                    refs=tuple(_editor_context_refs(editor_context)),
+                    output_chars=estimate_chars(editor_context_index),
+                    projection_strategy="editor_context_index_ref_projection",
+                    refs=tuple(_editor_context_index_refs(editor_context_index)),
+                )
+            )
+        editor_evidence_delta = editor_context_payload.get("current_editor_evidence_delta")
+        if editor_evidence_delta:
+            reports.append(
+                VolatileSectionReport(
+                    section_id=f"dynamic_context:{request.invocation_kind}:editor_exact_evidence_delta",
+                    source="editor_exact_evidence_delta",
+                    volatility_reason="current editor selection or preview exact text is invocation-local evidence and must not enter file_state",
+                    input_chars=estimate_chars(request.editor_context),
+                    output_chars=estimate_chars(editor_evidence_delta),
+                    projection_strategy="current_editor_exact_evidence_delta",
+                    cache_impact="volatile_suffix_current_exact_evidence",
+                    refs=tuple(_editor_evidence_refs(editor_evidence_delta)),
+                )
+            )
+        attachment_context_index = _attachment_context_index_projection(
+            dict(request.session_context or {}).get("turn_input_attachments")
+        ) or list(inherited_start_context_projection.get("attachment_context_index") or [])
+        if attachment_context_index:
+            reports.append(
+                VolatileSectionReport(
+                    section_id=f"dynamic_context:{request.invocation_kind}:attachment_context_index",
+                    source="attachment_context_index",
+                    volatility_reason="turn attachments are current request resources; metadata is indexed separately from user text and extracted evidence",
+                    input_chars=estimate_chars(dict(request.session_context or {}).get("turn_input_attachments")),
+                    output_chars=estimate_chars(attachment_context_index),
+                    projection_strategy="attachment_context_index_ref_projection",
+                    refs=tuple(_attachment_context_refs(attachment_context_index)),
                 )
             )
         if tool_record_count:
@@ -666,234 +784,395 @@ def _editor_context_projection(value: Any) -> dict[str, Any]:
     return result if any(result.get(key) for key in ("workspace_roots", "active_file", "visible_files", "open_tabs", "diagnostics")) else {}
 
 
-def _editor_file_state_projection(value: Any) -> list[dict[str, Any]]:
+def _editor_context_dynamic_projection(value: Any) -> dict[str, Any]:
     editor_context = _editor_context_projection(value)
     if not editor_context:
-        return []
-    workspace_roots = [str(item or "").strip() for item in list(editor_context.get("workspace_roots") or []) if str(item or "").strip()]
-    active_file = dict(editor_context.get("active_file") or {})
-    states: list[dict[str, Any]] = []
-    active_state = _active_editor_file_state(active_file, workspace_roots=workspace_roots)
-    if active_state:
-        states.append(active_state)
-    active_path = str(active_state.get("path") or "") if active_state else ""
-    seen_paths = {active_path} if active_path else set()
-    for item in list(editor_context.get("visible_files") or [])[:20]:
-        if not isinstance(item, dict):
-            continue
-        path = _workspace_relative_path(str(item.get("path") or ""), workspace_roots=workspace_roots)
-        if not path or path in seen_paths:
-            continue
-        seen_paths.add(path)
-        states.append(
-            drop_empty(
-                {
-                    "path": path,
-                    "status": "editor_dirty" if item.get("dirty") is True else "editor_visible",
-                    "editor_state": {
-                        "source": "vscode.editor_context",
-                        "visible": True,
-                        "dirty": bool(item.get("dirty") is True),
-                        "language_id": str(item.get("language_id") or ""),
-                    },
-                    "authority": "harness.runtime.dynamic_context.editor_file_state",
-                }
-            )
-        )
-    for item in list(editor_context.get("open_tabs") or [])[:100]:
-        if not isinstance(item, dict):
-            continue
-        path = _workspace_relative_path(str(item.get("path") or ""), workspace_roots=workspace_roots)
-        if not path or path in seen_paths:
-            continue
-        seen_paths.add(path)
-        states.append(
-            drop_empty(
-                {
-                    "path": path,
-                    "status": "editor_open",
-                    "editor_state": {
-                        "source": "vscode.editor_context",
-                        "open": True,
-                        "active": bool(item.get("active") is True),
-                        "visible": bool(item.get("visible") is True),
-                        "dirty": bool(item.get("dirty") is True),
-                        "language_id": str(item.get("language_id") or ""),
-                    },
-                    "authority": "harness.runtime.dynamic_context.editor_file_state",
-                }
-            )
-        )
-        if len(states) >= 20:
-            break
-    return states[:20]
-
-
-def _active_editor_file_state(active_file: dict[str, Any], *, workspace_roots: list[str]) -> dict[str, Any]:
-    path = _workspace_relative_path(str(active_file.get("path") or ""), workspace_roots=workspace_roots)
-    if not path:
         return {}
-    preview = dict(active_file.get("content_preview") or {})
-    selection = dict(active_file.get("selection") or {})
-    visible_ranges = [
-        _editor_state_range(item)
-        for item in list(active_file.get("visible_ranges") or [])[:8]
-        if isinstance(item, dict)
-    ]
-    visible_ranges = [item for item in visible_ranges if item]
-    preview_text = str(preview.get("text") or "")
-    preview_range = _preview_read_range(preview_text, truncated=bool(preview.get("truncated") is True))
-    selection_range = _selection_read_range(selection)
-    read_ranges = [item for item in (selection_range, preview_range, *visible_ranges) if item]
-    dirty = bool(active_file.get("dirty") is True)
-    preview_source = str(preview.get("source") or "")
-    state = {
-        "source": "vscode.editor_context",
-        "active": True,
-        "dirty": dirty,
-        "language_id": str(active_file.get("language_id") or ""),
-        "content_preview": drop_empty(
-            {
-                "source": preview_source,
-                "chars": len(preview_text),
-                "truncated": bool(preview.get("truncated") is True),
-                "content_sha256": _text_sha256(preview_text) if preview_text else "",
-            }
-        ),
-        "selection": drop_empty(
-            {
-                "start_line": _position_line(dict(selection.get("start") or {})),
-                "end_line": _position_line(dict(selection.get("end") or {})),
-                "chars": len(str(selection.get("text") or "")),
-                "truncated": bool(selection.get("truncated") is True),
-            }
-        ),
-    }
     return drop_empty(
         {
-            "path": path,
-            "status": "editor_dirty" if dirty else "editor_preview",
-            "read_ranges": read_ranges[:24],
-            "content_sha256": _text_sha256(preview_text) if preview_text else "",
-            "has_more": bool(preview.get("truncated") is True),
-            "editor_state": state,
-            "stale_reason": "editor buffer is dirty; disk reads may be stale" if dirty else "",
-            "next_suggested_read": {
-                "start_line": 1,
-                "line_count": 500,
-                "reason": "active editor buffer is dirty; confirm saved source before disk edit",
-            }
-            if dirty
-            else {},
-            "authority": "harness.runtime.dynamic_context.editor_file_state",
+            "editor_context_index": _editor_context_index_projection(editor_context),
+            "current_editor_evidence_delta": _current_editor_evidence_delta_projection(editor_context),
         }
     )
 
 
-def _merge_file_state_projection(
-    persisted: list[dict[str, Any]],
-    editor: list[dict[str, Any]],
-    *,
-    limit: int,
-) -> list[dict[str, Any]]:
-    merged: dict[str, dict[str, Any]] = {}
-    order: list[str] = []
-    for item in [*persisted, *editor]:
-        path = str(dict(item).get("path") or "").strip()
-        if not path:
-            continue
-        if path not in merged:
-            order.append(path)
-            merged[path] = dict(item)
-            continue
-        current = dict(merged[path])
-        incoming = dict(item)
-        merged[path] = drop_empty(
-            {
-                **current,
-                "editor_state": incoming.get("editor_state") or current.get("editor_state"),
-                "stale_reason": incoming.get("stale_reason") or current.get("stale_reason"),
-                "status": _merged_file_status(current, incoming),
-                "read_ranges": _merge_read_ranges(current.get("read_ranges"), incoming.get("read_ranges")),
-                "next_suggested_read": incoming.get("next_suggested_read") or current.get("next_suggested_read"),
-                "authority": "harness.runtime.dynamic_context.file_state_projection",
-            }
-        )
-    return [merged[path] for path in order][-max(1, int(limit or 20)):]
-
-
-def _file_state_source(*, persisted: bool, editor: bool, existing: str) -> str:
-    if persisted and editor:
-        return "runtime.memory.file_state_store+editor_context"
-    if editor:
-        return "editor_context"
-    return existing or "runtime.memory.file_state_store"
-
-
-def _merged_file_status(current: dict[str, Any], incoming: dict[str, Any]) -> str:
-    incoming_status = str(incoming.get("status") or "")
-    current_status = str(current.get("status") or "")
-    if incoming_status == "editor_dirty":
-        return "editor_dirty"
-    return current_status or incoming_status
-
-
-def _merge_read_ranges(left: Any, right: Any) -> list[dict[str, Any]]:
-    ranges: list[dict[str, Any]] = []
-    seen: set[tuple[int, int, str]] = set()
-    for raw in [*list(left or []), *list(right or [])]:
+def _attachment_context_index_projection(value: Any) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in list(value or [])[:12]:
         if not isinstance(raw, dict):
             continue
         item = dict(raw)
-        start = _safe_int(item.get("start_line"))
-        end = _safe_int(item.get("end_line"))
-        source = str(item.get("source") or "")
-        key = (start, end, source)
-        if start <= 0 or end <= 0 or key in seen:
+        attachment_id = compact_text(item.get("attachment_id") or "", limit=100)
+        storage_ref = compact_text(item.get("path") or item.get("storage_ref") or "", limit=600)
+        key = attachment_id or storage_ref
+        if not key or key in seen:
             continue
         seen.add(key)
-        ranges.append(item)
-    return ranges[-24:]
+        mime_type = compact_text(item.get("mime_type") or "", limit=120)
+        content_sha256 = str(item.get("content_sha256") or "").strip()
+        records.append(
+            drop_empty(
+                {
+                    "attachment_id": attachment_id,
+                    "attachment_kind": _attachment_kind(mime_type=mime_type, filename=str(item.get("filename") or "")),
+                    "filename": compact_text(item.get("filename") or "", limit=220),
+                    "mime_type": mime_type,
+                    "storage_ref": storage_ref,
+                    "content_sha256": content_sha256,
+                    "size_bytes": item.get("size_bytes"),
+                    "width": item.get("width"),
+                    "height": item.get("height"),
+                    "extraction_status": str(item.get("extraction_status") or "not_extracted"),
+                    "freshness": "fresh" if content_sha256 else "metadata_only",
+                    "rehydration_action": "attachment_extract_text" if _attachment_is_extractable(mime_type) else "",
+                    "authority": "harness.runtime.dynamic_context.attachment_context_index",
+                }
+            )
+        )
+    return records
 
 
-def _preview_read_range(text: str, *, truncated: bool) -> dict[str, Any]:
-    if not text:
+def _attachment_kind(*, mime_type: str, filename: str) -> str:
+    mime = str(mime_type or "").lower()
+    suffix = Path(str(filename or "")).suffix.lower()
+    if mime.startswith("image/") or suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}:
+        return "image"
+    if mime == "application/pdf" or suffix == ".pdf":
+        return "pdf"
+    return "file"
+
+
+def _attachment_is_extractable(mime_type: str) -> bool:
+    return str(mime_type or "").lower().startswith("image/")
+
+
+def _editor_context_index_projection(editor_context: dict[str, Any]) -> list[dict[str, Any]]:
+    workspace_roots = [str(item or "").strip() for item in list(editor_context.get("workspace_roots") or []) if str(item or "").strip()]
+    active_file = dict(editor_context.get("active_file") or {})
+    records: list[dict[str, Any]] = []
+    by_path: dict[str, int] = {}
+    active_record = _editor_index_record(
+        active_file,
+        workspace_roots=workspace_roots,
+        open_state="active",
+        active_tab=True,
+        visible=True,
+        open_file=True,
+    )
+    if active_record:
+        by_path[str(active_record.get("path") or "")] = len(records)
+        records.append(active_record)
+    for item in list(editor_context.get("visible_files") or [])[:20]:
+        if not isinstance(item, dict):
+            continue
+        record = _editor_index_record(
+            dict(item),
+            workspace_roots=workspace_roots,
+            open_state="visible",
+            active_tab=False,
+            visible=True,
+            open_file=True,
+        )
+        if not record:
+            continue
+        _merge_editor_index_record(records, by_path, record)
+    for item in list(editor_context.get("open_tabs") or [])[:100]:
+        if not isinstance(item, dict):
+            continue
+        record = _editor_index_record(
+            dict(item),
+            workspace_roots=workspace_roots,
+            open_state="open",
+            active_tab=bool(item.get("active") is True),
+            visible=bool(item.get("visible") is True),
+            open_file=True,
+        )
+        if not record:
+            continue
+        _merge_editor_index_record(records, by_path, record)
+        if len(records) >= 20:
+            break
+    diagnostics = _editor_diagnostics_index(editor_context.get("diagnostics"), workspace_roots=workspace_roots)
+    if diagnostics:
+        diagnostics_by_path = {
+            str(item.get("path") or ""): item
+            for item in diagnostics
+            if str(item.get("path") or "")
+        }
+        records = [
+            _merge_editor_diagnostics_ref(record, diagnostics_by_path.get(str(record.get("path") or "")))
+            for record in records
+        ]
+    return records[:20]
+
+
+def _editor_index_record(
+    value: dict[str, Any],
+    *,
+    workspace_roots: list[str],
+    open_state: str,
+    active_tab: bool,
+    visible: bool,
+    open_file: bool,
+) -> dict[str, Any]:
+    path = _workspace_relative_path(str(value.get("path") or value.get("uri") or ""), workspace_roots=workspace_roots)
+    if not path:
         return {}
-    returned_lines = max(1, len(str(text).splitlines()) or 1)
+    selection = dict(value.get("selection") or {})
+    preview = dict(value.get("content_preview") or {})
+    preview_text = str(preview.get("text") or "")
+    buffer_hash = _sha256_ref(preview_text) if preview_text else ""
+    visible_ranges = _editor_visible_range_projection(value.get("visible_ranges"))
+    selection_range = _editor_selection_range(selection)
+    diagnostics_version = str(value.get("diagnostics_version") or "")
+    dirty = bool(value.get("dirty") is True)
     return drop_empty(
         {
-            "start_line": 1,
-            "end_line": returned_lines,
-            "source": "editor_content_preview",
-            "content_sha256": _text_sha256(text),
-            "stale": False,
-            "truncated": bool(truncated),
+            "path": path,
+            "language_id": str(value.get("language_id") or ""),
+            "open_state": open_state,
+            "active_tab": bool(active_tab),
+            "visible": bool(visible),
+            "open": bool(open_file),
+            "dirty": dirty,
+            "buffer_version": str(value.get("buffer_version") or value.get("version") or _editor_buffer_version(path, buffer_hash)),
+            "buffer_content_sha256": buffer_hash,
+            "disk_content_sha256": str(value.get("disk_content_sha256") or ""),
+            "selection_ranges_ref": _editor_range_ref("edsel", path, selection_range, selection.get("text")),
+            "visible_ranges_ref": _editor_ranges_ref("edvis", path, visible_ranges),
+            "diagnostics_ref": diagnostics_version,
+            "freshness": _editor_freshness(value, buffer_hash=buffer_hash),
+            "rehydration_action": "editor_buffer_rehydrate_before_disk_claim" if dirty else "",
+            "authority": "harness.runtime.dynamic_context.editor_context_index",
         }
     )
 
 
-def _selection_read_range(selection: dict[str, Any]) -> dict[str, Any]:
+def _merge_editor_index_record(
+    records: list[dict[str, Any]],
+    by_path: dict[str, int],
+    incoming: dict[str, Any],
+) -> None:
+    path = str(incoming.get("path") or "")
+    if not path:
+        return
+    if path not in by_path:
+        by_path[path] = len(records)
+        records.append(dict(incoming))
+        return
+    index = by_path[path]
+    current = dict(records[index])
+    records[index] = drop_empty(
+        {
+            **current,
+            "language_id": current.get("language_id") or incoming.get("language_id"),
+            "open_state": _merged_editor_open_state(current.get("open_state"), incoming.get("open_state")),
+            "active_tab": bool(current.get("active_tab") is True or incoming.get("active_tab") is True),
+            "visible": bool(current.get("visible") is True or incoming.get("visible") is True),
+            "open": bool(current.get("open") is True or incoming.get("open") is True),
+            "dirty": bool(current.get("dirty") is True or incoming.get("dirty") is True),
+            "buffer_version": current.get("buffer_version") or incoming.get("buffer_version"),
+            "buffer_content_sha256": current.get("buffer_content_sha256") or incoming.get("buffer_content_sha256"),
+            "disk_content_sha256": current.get("disk_content_sha256") or incoming.get("disk_content_sha256"),
+            "selection_ranges_ref": current.get("selection_ranges_ref") or incoming.get("selection_ranges_ref"),
+            "visible_ranges_ref": current.get("visible_ranges_ref") or incoming.get("visible_ranges_ref"),
+            "diagnostics_ref": current.get("diagnostics_ref") or incoming.get("diagnostics_ref"),
+            "freshness": current.get("freshness") if current.get("dirty") is True else incoming.get("freshness") or current.get("freshness"),
+            "rehydration_action": current.get("rehydration_action") or incoming.get("rehydration_action"),
+            "authority": "harness.runtime.dynamic_context.editor_context_index",
+        }
+    )
+
+
+def _merged_editor_open_state(left: Any, right: Any) -> str:
+    rank = {"active": 3, "visible": 2, "open": 1}
+    left_text = str(left or "")
+    right_text = str(right or "")
+    return left_text if rank.get(left_text, 0) >= rank.get(right_text, 0) else right_text
+
+
+def _merge_editor_diagnostics_ref(record: dict[str, Any], diagnostics: dict[str, Any] | None) -> dict[str, Any]:
+    if not diagnostics:
+        return record
+    return drop_empty(
+        {
+            **dict(record),
+            "diagnostics_ref": str(diagnostics.get("diagnostics_ref") or record.get("diagnostics_ref") or ""),
+            "diagnostic_count": diagnostics.get("diagnostic_count"),
+        }
+    )
+
+
+def _editor_diagnostics_index(value: Any, *, workspace_roots: list[str]) -> list[dict[str, Any]]:
+    by_path: dict[str, list[dict[str, Any]]] = {}
+    for item in list(value or [])[:50]:
+        if not isinstance(item, dict):
+            continue
+        path = _workspace_relative_path(str(item.get("path") or item.get("uri") or ""), workspace_roots=workspace_roots)
+        if not path:
+            continue
+        by_path.setdefault(path, []).append(dict(item))
+    result: list[dict[str, Any]] = []
+    for path, items in sorted(by_path.items()):
+        digest = stable_json_hash(
+            [
+                {
+                    "severity": str(item.get("severity") or ""),
+                    "message": str(item.get("message") or ""),
+                    "range": dict(item.get("range") or {}),
+                }
+                for item in items
+            ]
+        ).removeprefix("sha256:")[:12]
+        result.append(
+            {
+                "path": path,
+                "diagnostics_ref": f"eddiag:{path}:{digest}",
+                "diagnostic_count": len(items),
+            }
+        )
+    return result
+
+
+def _current_editor_evidence_delta_projection(editor_context: dict[str, Any]) -> dict[str, Any]:
+    workspace_roots = [str(item or "").strip() for item in list(editor_context.get("workspace_roots") or []) if str(item or "").strip()]
+    active_file = dict(editor_context.get("active_file") or {})
+    path = _workspace_relative_path(str(active_file.get("path") or ""), workspace_roots=workspace_roots)
+    if not path:
+        return {}
+    selection = dict(active_file.get("selection") or {})
+    selection_text = str(selection.get("text") or "")
+    preview = dict(active_file.get("content_preview") or {})
+    preview_text = str(preview.get("text") or "")
+    preview_hash = _sha256_ref(preview_text) if preview_text else ""
+    buffer_version = str(active_file.get("buffer_version") or active_file.get("version") or _editor_buffer_version(path, preview_hash))
+    events: list[dict[str, Any]] = []
+    if selection_text:
+        selection_range = _editor_selection_range(selection)
+        events.append(
+            _editor_exact_evidence_event(
+                event="editor_selection_visible",
+                path=path,
+                text=selection_text,
+                range_payload=selection_range,
+                source="editor_selection",
+                truncated=bool(selection.get("truncated") is True),
+                buffer_version=buffer_version,
+            )
+        )
+    elif preview_text:
+        preview_range = {
+            "start_line": 1,
+            "end_line": max(1, len(preview_text.splitlines()) or 1),
+        }
+        events.append(
+            _editor_exact_evidence_event(
+                event="editor_preview_visible",
+                path=path,
+                text=preview_text,
+                range_payload=preview_range,
+                source=str(preview.get("source") or "editor_content_preview"),
+                truncated=bool(preview.get("truncated") is True),
+                buffer_version=buffer_version,
+            )
+        )
+    events = [item for item in events if item]
+    if not events:
+        return {}
+    return drop_empty(
+        {
+            "events": events,
+            "event_count": len(events),
+            "authority": "harness.runtime.dynamic_context.current_editor_evidence_delta",
+        }
+    )
+
+
+def _editor_exact_evidence_event(
+    *,
+    event: str,
+    path: str,
+    text: str,
+    range_payload: dict[str, Any],
+    source: str,
+    truncated: bool,
+    buffer_version: str,
+) -> dict[str, Any]:
+    if not text:
+        return {}
+    text_hash = _sha256_ref(text)
+    buffer_ref = buffer_version or _editor_buffer_version(path, text_hash)
+    evidence_ref = _editor_evidence_ref(path=path, event=event, range_payload=range_payload, text_hash=text_hash)
+    return drop_empty(
+        {
+            "event": event,
+            "path": path,
+            "buffer_version": buffer_ref,
+            "range": range_payload,
+            "evidence_ref": evidence_ref,
+            "content_sha256": text_hash,
+            "visible_text_status": "exact_visible_in_current_packet",
+            "source": source,
+            "text": text,
+            "truncated": truncated,
+            "authority": "harness.runtime.dynamic_context.current_editor_evidence_delta",
+        }
+    )
+
+
+def _editor_selection_range(selection: dict[str, Any]) -> dict[str, Any]:
     start_line = _position_line(dict(selection.get("start") or {}))
     end_line = _position_line(dict(selection.get("end") or {}))
     if start_line <= 0 or end_line <= 0:
         return {}
-    return drop_empty(
-        {
-            "start_line": start_line,
-            "end_line": max(start_line, end_line),
-            "source": "editor_selection",
-            "stale": False,
-            "truncated": bool(selection.get("truncated") is True),
-        }
-    )
+    return {"start_line": start_line, "end_line": max(start_line, end_line)}
 
 
-def _editor_state_range(value: dict[str, Any]) -> dict[str, Any]:
-    start_line = _position_line(dict(dict(value).get("start") or {}))
-    end_line = _position_line(dict(dict(value).get("end") or {}))
-    if start_line <= 0 or end_line <= 0:
-        return {}
-    return {"start_line": start_line, "end_line": max(start_line, end_line), "source": "editor_visible_range", "stale": False}
+def _editor_visible_range_projection(value: Any) -> list[dict[str, Any]]:
+    ranges: list[dict[str, Any]] = []
+    for item in list(value or [])[:8]:
+        if not isinstance(item, dict):
+            continue
+        start_line = _position_line(dict(item.get("start") or {}))
+        end_line = _position_line(dict(item.get("end") or {}))
+        if start_line <= 0 or end_line <= 0:
+            continue
+        ranges.append({"start_line": start_line, "end_line": max(start_line, end_line)})
+    return ranges
+
+
+def _editor_range_ref(prefix: str, path: str, range_payload: dict[str, Any], text: Any = "") -> str:
+    if not range_payload:
+        return ""
+    digest = stable_json_hash({"path": path, "range": range_payload, "text_hash": _sha256_ref(str(text or "")) if text else ""})
+    return f"{prefix}:{path}:{digest.removeprefix('sha256:')[:12]}"
+
+
+def _editor_ranges_ref(prefix: str, path: str, ranges: list[dict[str, Any]]) -> str:
+    if not ranges:
+        return ""
+    digest = stable_json_hash({"path": path, "ranges": ranges})
+    return f"{prefix}:{path}:{digest.removeprefix('sha256:')[:12]}"
+
+
+def _editor_evidence_ref(*, path: str, event: str, range_payload: dict[str, Any], text_hash: str) -> str:
+    digest = stable_json_hash({"path": path, "event": event, "range": range_payload, "text_hash": text_hash})
+    return f"ev:editor:{path}:{digest.removeprefix('sha256:')[:12]}"
+
+
+def _editor_buffer_version(path: str, buffer_hash: str) -> str:
+    if not buffer_hash:
+        return ""
+    return f"edbuf:{path}:{buffer_hash.removeprefix('sha256:')[:12]}"
+
+
+def _editor_freshness(value: dict[str, Any], *, buffer_hash: str) -> str:
+    if bool(value.get("dirty") is True):
+        return "buffer_newer_than_disk"
+    if buffer_hash:
+        return "editor_snapshot_saved_document"
+    return "navigation_context_only"
 
 
 def _position_line(value: dict[str, Any]) -> int:
@@ -912,8 +1191,8 @@ def _workspace_relative_path(path: str, *, workspace_roots: list[str]) -> str:
     return normalized.strip("/")
 
 
-def _text_sha256(value: str) -> str:
-    return hashlib.sha256(str(value or "").encode("utf-8", errors="replace")).hexdigest()
+def _sha256_ref(value: str) -> str:
+    return "sha256:" + hashlib.sha256(str(value or "").encode("utf-8", errors="replace")).hexdigest()
 
 
 def _editor_active_file(value: Any) -> dict[str, Any]:
@@ -1068,24 +1347,37 @@ def _bounded_strings(value: Any, *, limit: int, chars: int) -> list[str]:
     return result
 
 
-def _editor_context_refs(editor_context: dict[str, Any]) -> list[str]:
-    refs = []
-    active_file = dict(editor_context.get("active_file") or {})
-    active_path = str(active_file.get("path") or "").strip()
-    if active_path:
-        refs.append(active_path)
-    for item in list(editor_context.get("visible_files") or [])[:8]:
+def _editor_context_index_refs(editor_context_index: Any) -> list[str]:
+    refs: list[str] = []
+    for item in list(editor_context_index or [])[:20]:
         if not isinstance(item, dict):
             continue
         path = str(item.get("path") or "").strip()
         if path and path not in refs:
             refs.append(path)
-    for item in list(editor_context.get("open_tabs") or [])[:12]:
+
+    return refs
+
+
+def _attachment_context_refs(attachment_context_index: Any) -> list[str]:
+    refs: list[str] = []
+    for item in list(attachment_context_index or [])[:12]:
         if not isinstance(item, dict):
             continue
-        path = str(item.get("path") or "").strip()
-        if path and path not in refs:
-            refs.append(path)
+        ref = str(item.get("attachment_id") or item.get("storage_ref") or "").strip()
+        if ref and ref not in refs:
+            refs.append(ref)
+    return refs
+
+
+def _editor_evidence_refs(editor_evidence_delta: Any) -> list[str]:
+    refs: list[str] = []
+    for item in list(dict(editor_evidence_delta or {}).get("events") or [])[:8]:
+        if not isinstance(item, dict):
+            continue
+        ref = str(item.get("evidence_ref") or "").strip()
+        if ref and ref not in refs:
+            refs.append(ref)
     return refs
 
 
@@ -1096,6 +1388,46 @@ def _task_state_replay_refs(entries: tuple[dict[str, Any], ...]) -> list[str]:
         if ref and ref not in refs:
             refs.append(ref)
     return refs
+
+
+def _initial_replay_refs_first(refs: list[str]) -> list[str]:
+    return sorted(
+        [str(ref) for ref in refs if str(ref)],
+        key=lambda ref: (0 if ref.startswith("todoobs:") and ref.endswith(":initial") else 1),
+    )
+
+
+def _read_replay_order_ledger(path: Path) -> list[str]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    values = payload.get("ordered_refs") if isinstance(payload, dict) else payload
+    result: list[str] = []
+    for value in list(values or []):
+        ref = str(value or "").strip()
+        if ref and ref not in result:
+            result.append(ref)
+    return result
+
+
+def _write_replay_order_ledger(path: Path, ordered_refs: list[str]) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "authority": "harness.runtime.dynamic_context.task_state_replay_order_ledger",
+                    "ordered_refs": ordered_refs,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            encoding="utf-8",
+        )
+    except Exception:
+        return
 
 
 def _safe_int(value: Any) -> int:

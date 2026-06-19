@@ -7,6 +7,12 @@ from .models import PromptCompositionSegmentBinding, PromptCompositionSlot
 
 DYNAMIC_SEGMENT_KINDS = {
     "dynamic_projection",
+    "attachment_context_index",
+    "evidence_index_cursor",
+    "task_plan_context",
+    "editor_context_index",
+    "current_editor_evidence_delta",
+    "runtime_memory_context",
     "graph_node_completion_prefix",
     "graph_node_runtime_context",
     "provider_protocol_history",
@@ -34,8 +40,19 @@ RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
     "task_runtime_boundary_stable": "runtime_task_boundary",
     "task_state_replay_entry": "runtime_task_state_replay",
     "task_stable": "runtime_contract",
+    "tool_schema_catalog": "tool_catalog",
     "tool_index_stable": "tool_catalog",
     "turn_stable": "runtime_protocol",
+    "attachment_context_index": "runtime_attachment_context_index",
+    "evidence_index_cursor": "runtime_evidence_index_cursor",
+    "task_plan_context": "runtime_task_plan_context",
+    "editor_context_index": "runtime_editor_context_index",
+    "current_editor_evidence_delta": "runtime_editor_evidence_delta",
+    "runtime_memory_context": "runtime_memory_context",
+    "read_evidence_injection": "runtime_read_evidence",
+    "bound_task_runtime_context": "runtime_bound_task_context",
+    "task_runtime_boundary_dynamic": "runtime_dynamic_boundary",
+    "active_skills": "runtime_active_skills",
 }
 
 
@@ -150,6 +167,26 @@ def _binding_reason(*, status: str, kind: str, source_ref: str) -> str:
         return "segment is compiler-generated task/runtime contract and should become a registered contract slot"
     if status == "runtime_task_state_replay":
         return "segment is compiler-generated append-only task state replay evidence"
+    if status == "runtime_read_evidence":
+        return "segment is current exact read evidence plus historical evidence refs"
+    if status == "runtime_editor_context_index":
+        return "segment is the current editor open-file index; it must not carry full editor buffer text"
+    if status == "runtime_attachment_context_index":
+        return "segment is the current turn attachment index; it must not carry extracted attachment text"
+    if status == "runtime_evidence_index_cursor":
+        return "segment is evidence refs, hashes, ranges, freshness, and rehydration hints without exact historical content"
+    if status == "runtime_task_plan_context":
+        return "segment is task plan baseline, cursor, and delta isolated from tool result replay"
+    if status == "runtime_editor_evidence_delta":
+        return "segment is current editor selection or preview exact evidence visible for this invocation"
+    if status == "runtime_memory_context":
+        return "segment is selected runtime memory context; it belongs in the volatile tail, not inside runtime boundary"
+    if status == "runtime_bound_task_context":
+        return "segment is bound runtime context refs and recovery handles"
+    if status == "runtime_dynamic_boundary":
+        return "segment is current runtime facts and action boundary state"
+    if status == "runtime_active_skills":
+        return "segment is active skill body content selected for this invocation"
     if status == "runtime_task_boundary":
         return "segment is compiler-generated task runtime boundary and authorization summary"
     if status == "runtime_protocol":

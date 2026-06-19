@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 
 from memory_system import MemoryFacade
 from memory_system.contracts import MemoryContextCandidate
+from memory_system.runtime_context_provider import RuntimeMemoryContextProvider
 from memory_system.runtime_view import MemoryRuntimeView
 from context_system.policy import build_context_package_result
 from context_system.models.context_models import hash_context_section_package
@@ -90,6 +92,71 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
     assert result.sealed_receipt.memory_runtime_view_ref == result.diagnostics["memory_runtime_view_ref"]
     assert result.sealed_receipt.package_sha256 == hash_context_section_package(package.model_visible_sections)
     assert set(result.sealed_receipt.included_candidate_ids) == {decision.candidate_id for decision in result.decisions}
+
+
+def test_runtime_memory_context_keeps_structural_status_when_no_records_are_visible(tmp_path) -> None:
+    session_id = "session-empty-runtime-memory-context"
+    facade = MemoryFacade(tmp_path)
+    provider = RuntimeMemoryContextProvider(
+        bundle_service_getter=lambda: facade.bundle_service,
+        session_record_loader=lambda _session_id: {},
+        recent_messages_loader=lambda _session_id: [],
+    )
+
+    payload = asyncio.run(
+        provider.for_turn(
+            session_id=session_id,
+            turn_id="turn:empty-runtime-memory-context",
+            user_message="审查控制系统",
+            session_context={},
+            agent_runtime_profile=SimpleNamespace(
+                agent_profile_id="main_interactive_agent",
+                allowed_memory_scopes=("conversation_readonly", "state_readonly", "long_term_candidate"),
+            ),
+            runtime_assembly={"task_environment": {"environment_id": "env.coding.vibe_workspace"}},
+            environment_binding=None,
+            active_work_context=None,
+            recent_work_outcome=None,
+        )
+    )
+
+    assert payload["authority"] == "memory_system.runtime_memory_context"
+    assert payload["model_visible_sections"] == {}
+    assert payload["selected_sections"] == []
+    assert payload["memory_context_status"]["status"] == "empty"
+    assert payload["memory_context_status"]["reason_code"] == "memory_read_plan_evaluated_no_visible_records"
+    assert payload["memory_context_status"]["has_model_visible_records"] is False
+    assert payload["diagnostics"]["requested_memory_layers"] == ["state"]
+
+
+def test_runtime_memory_context_reports_unavailable_supply_without_silent_drop() -> None:
+    provider = RuntimeMemoryContextProvider(
+        bundle_service_getter=lambda: None,
+        session_record_loader=lambda _session_id: {},
+        recent_messages_loader=lambda _session_id: [],
+    )
+
+    payload = asyncio.run(
+        provider.for_turn(
+            session_id="session-memory-service-unavailable",
+            turn_id="turn-memory-service-unavailable",
+            user_message="审查控制系统",
+            session_context={},
+            agent_runtime_profile=SimpleNamespace(
+                agent_profile_id="main_interactive_agent",
+                allowed_memory_scopes=("conversation_readonly", "state_readonly", "long_term_candidate"),
+            ),
+            runtime_assembly={"task_environment": {"environment_id": "env.coding.vibe_workspace"}},
+            environment_binding=None,
+            active_work_context=None,
+            recent_work_outcome=None,
+        )
+    )
+
+    assert payload["memory_context_status"]["status"] == "unavailable"
+    assert payload["memory_context_status"]["reason_code"] == "memory_bundle_service_unavailable"
+    assert payload["model_visible_sections"] == {}
+    assert payload["diagnostics"]["requested_memory_layers"] == ["state"]
 
 
 def test_context_policy_result_reuses_supplied_memory_runtime_view(tmp_path) -> None:

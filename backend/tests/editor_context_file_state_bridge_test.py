@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
+from harness.runtime.compiler import RuntimeCompiler
 from harness.runtime.dynamic_context.manager import DynamicContextManager
 from harness.runtime.dynamic_context.models import DynamicContextInput
 from runtime.memory.file_evidence_scope import task_run_file_evidence_scope
 from runtime.memory.file_state_store import FileStateAuthorityStore
 
 
-def test_editor_context_bridges_active_file_into_task_file_state(tmp_path: Path) -> None:
+def test_editor_context_projects_as_index_and_current_evidence_delta(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     storage_root = tmp_path / "runtime-state"
     active_path = workspace / "src" / "app.py"
@@ -20,9 +22,9 @@ def test_editor_context_bridges_active_file_into_task_file_state(tmp_path: Path)
     projection = DynamicContextManager(base_dir=workspace).project(
         DynamicContextInput(
             invocation_kind="task_execution",
-            session_id="session:editor-bridge",
-            task_run_id="taskrun:editor-bridge",
-            task_run={"task_run_id": "taskrun:editor-bridge"},
+            session_id="session:editor-index",
+            task_run_id="taskrun:editor-index",
+            task_run={"task_run_id": "taskrun:editor-index"},
             execution_state={"system_projection": {"runtime_status": "running"}},
             runtime_assembly={
                 "task_environment": {
@@ -37,8 +39,8 @@ def test_editor_context_bridges_active_file_into_task_file_state(tmp_path: Path)
                     "language_id": "python",
                     "dirty": True,
                     "selection": {
-                        "start": {"line": 1, "character": 0},
-                        "end": {"line": 1, "character": 12},
+                        "start": {"line": 0, "character": 0},
+                        "end": {"line": 0, "character": 14},
                         "text": "print('dirty')",
                         "truncated": False,
                     },
@@ -66,26 +68,37 @@ def test_editor_context_bridges_active_file_into_task_file_state(tmp_path: Path)
         )
     )
 
-    file_state = projection.volatile_state_projection["task_state"]["file_state"]
+    volatile = projection.volatile_state_projection
+    task_state = volatile["task_state"]
+    editor_index = volatile["editor_context_index"]
+    editor_delta = volatile["current_editor_evidence_delta"]
 
-    assert projection.volatile_state_projection["task_state"]["file_state_source"] == "editor_context"
-    assert file_state[0]["path"] == "src/app.py"
-    assert file_state[0]["status"] == "editor_dirty"
-    assert file_state[0]["editor_state"]["source"] == "vscode.editor_context"
-    assert file_state[0]["editor_state"]["dirty"] is True
-    assert file_state[0]["editor_state"]["content_preview"]["source"] == "dirty_buffer"
-    assert file_state[0]["stale_reason"] == "editor buffer is dirty; disk reads may be stale"
-    assert any(item["source"] == "editor_selection" for item in file_state[0]["read_ranges"])
-    assert file_state[1]["path"] == "src/settings.py"
-    assert file_state[1]["status"] == "editor_open"
-    assert file_state[1]["editor_state"]["open"] is True
+    assert "file_state" not in task_state
+    assert editor_index[0]["path"] == "src/app.py"
+    assert editor_index[0]["active_tab"] is True
+    assert editor_index[0]["dirty"] is True
+    assert editor_index[0]["freshness"] == "buffer_newer_than_disk"
+    assert editor_index[0]["selection_ranges_ref"].startswith("edsel:src/app.py:")
+    assert editor_index[0]["visible_ranges_ref"].startswith("edvis:src/app.py:")
+    assert editor_index[1]["path"] == "src/settings.py"
+    assert editor_index[1]["open"] is True
+    assert "print('dirty')" not in json.dumps(editor_index, ensure_ascii=False)
+    assert "content_preview" not in json.dumps(editor_index, ensure_ascii=False)
+
+    event = editor_delta["events"][0]
+    assert event["event"] == "editor_selection_visible"
+    assert event["path"] == "src/app.py"
+    assert event["range"] == {"start_line": 1, "end_line": 1}
+    assert event["visible_text_status"] == "exact_visible_in_current_packet"
+    assert event["text"] == "print('dirty')"
+    assert event["evidence_ref"].startswith("ev:editor:src/app.py:")
 
 
-def test_editor_context_file_state_does_not_replace_stored_read_file_state(tmp_path: Path) -> None:
+def test_editor_context_does_not_replace_stored_read_file_state(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     storage_root = tmp_path / "runtime-state"
     workspace.mkdir()
-    scope = task_run_file_evidence_scope("taskrun:editor-merge")
+    scope = task_run_file_evidence_scope("taskrun:editor-separate")
     FileStateAuthorityStore(storage_root).apply_events_scope(
         scope,
         [
@@ -107,9 +120,9 @@ def test_editor_context_file_state_does_not_replace_stored_read_file_state(tmp_p
     projection = DynamicContextManager(base_dir=workspace).project(
         DynamicContextInput(
             invocation_kind="task_execution",
-            session_id="session:editor-merge",
-            task_run_id="taskrun:editor-merge",
-            task_run={"task_run_id": "taskrun:editor-merge"},
+            session_id="session:editor-separate",
+            task_run_id="taskrun:editor-separate",
+            task_run={"task_run_id": "taskrun:editor-separate"},
             execution_state={
                 "system_projection": {
                     "runtime_status": "running",
@@ -118,8 +131,7 @@ def test_editor_context_file_state_does_not_replace_stored_read_file_state(tmp_p
                 }
             },
             runtime_assembly={
-                "task_environment": {
-                },
+                "task_environment": {},
             },
             editor_context={
                 "source": "vscode",
@@ -137,13 +149,19 @@ def test_editor_context_file_state_does_not_replace_stored_read_file_state(tmp_p
         )
     )
 
-    file_state = projection.volatile_state_projection["task_state"]["file_state"]
+    volatile = projection.volatile_state_projection
+    evidence_index = volatile["evidence_index_cursor"]
+    file_state = evidence_index["files"]
+    editor_index = volatile["editor_context_index"]
 
-    assert projection.volatile_state_projection["task_state"]["file_state_source"] == "runtime.memory.file_state_store+editor_context"
+    assert "file_state" not in volatile["task_state"]
+    assert evidence_index["file_state_source"] == "runtime.memory.file_state_store"
     assert file_state[0]["path"] == "src/app.py"
     assert file_state[0]["status"] == "partial"
-    assert file_state[0]["read_ranges"][0]["observation_ref"] == "obs:read"
-    assert file_state[0]["editor_state"]["active"] is True
+    assert file_state[0]["read_window_refs"][0]["observation_ref"] == "obs:read"
+    assert "editor_state" not in file_state[0]
+    assert editor_index[0]["path"] == "src/app.py"
+    assert editor_index[0]["freshness"] == "editor_snapshot_saved_document"
 
 
 def test_file_state_still_absent_without_vscode_or_read_file_state(tmp_path: Path) -> None:
@@ -181,3 +199,84 @@ def test_file_state_still_absent_without_vscode_or_read_file_state(tmp_path: Pat
     )
 
     assert "file_state" not in projection.volatile_state_projection["task_state"]
+    assert "editor_context_index" not in projection.volatile_state_projection
+
+
+def test_runtime_compiler_emits_editor_context_segments_outside_current_state() -> None:
+    editor_context = {
+        "source": "vscode",
+        "workspace_roots": ["D:/repo"],
+        "active_file": {
+            "path": "D:/repo/src/app.py",
+            "language_id": "python",
+            "dirty": True,
+            "selection": {
+                "start": {"line": 0, "character": 0},
+                "end": {"line": 0, "character": 8},
+                "text": "print(1)",
+                "truncated": False,
+            },
+            "content_preview": {
+                "text": "print(1)\n",
+                "truncated": False,
+                "source": "dirty_buffer",
+            },
+            "visible_ranges": [
+                {
+                    "start": {"line": 0, "character": 0},
+                    "end": {"line": 1, "character": 0},
+                }
+            ],
+        },
+        "open_tabs": [
+            {"path": "D:/repo/src/app.py", "language_id": "python", "dirty": True, "active": True, "visible": True}
+        ],
+        "diagnostics": [],
+    }
+
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:editor-compiler",
+        task_run={
+            "task_run_id": "taskrun:editor-compiler",
+            "diagnostics": {"executor_status": "running", "editor_context": editor_context},
+        },
+        contract={"task_run_goal": "verify editor context assembly", "completion_criteria": ["compiled"]},
+        observations=[],
+        runtime_assembly={
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    kinds = [segment["kind"] for segment in result.packet.segment_plan["segments"]]
+    editor_index_segment = _segment_by_kind(result.packet, "editor_context_index")
+    editor_delta_segment = _segment_by_kind(result.packet, "current_editor_evidence_delta")
+    current_state = _payload_with_title(result.packet, "Task execution current state")
+    editor_index = _payload_with_title(result.packet, "Task execution editor context index")
+    editor_delta = _payload_with_title(result.packet, "Task execution current editor evidence delta")
+
+    assert kinds.index("editor_context_index") < kinds.index("current_editor_evidence_delta")
+    assert kinds.index("current_editor_evidence_delta") < kinds.index("volatile_task_state")
+    assert editor_index_segment["cache_role"] == "volatile"
+    assert editor_index_segment["metadata"]["prompt_assembly_layer"] == "editor_context_index"
+    assert editor_delta_segment["metadata"]["prompt_assembly_layer"] == "current_exact_evidence"
+    assert "editor_context_index" not in current_state
+    assert "current_editor_evidence_delta" not in current_state
+    assert editor_index["editor_context_index"][0]["path"] == "src/app.py"
+    assert "print(1)" not in json.dumps(editor_index, ensure_ascii=False)
+    assert editor_delta["current_editor_evidence_delta"]["events"][0]["text"] == "print(1)"
+
+
+def _segment_by_kind(packet, kind: str) -> dict[str, object]:
+    for segment in packet.segment_plan["segments"]:
+        if segment["kind"] == kind:
+            return dict(segment)
+    raise AssertionError(f"missing segment kind: {kind}")
+
+
+def _payload_with_title(packet, title: str) -> dict[str, object]:
+    for message in packet.model_messages:
+        content = str(dict(message).get("content") or "")
+        if content.startswith(title + "\n"):
+            return json.loads(content.split("\n", 1)[1])
+    raise AssertionError(f"missing model message title: {title}")

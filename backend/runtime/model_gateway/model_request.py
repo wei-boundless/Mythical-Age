@@ -4,9 +4,10 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from runtime.prompt_accounting.serializer import canonical_json, normalize_messages, normalize_tools
+from prompt_composition.provider_payload_plan import build_provider_payload_plan
 
 from .provider_cache_policy import ProviderCachePolicy, ProviderCachePolicyResolver
-from .provider_payload import ProviderPayloadManifest, build_provider_payload_manifest
+from .provider_payload import ProviderPayloadManifest
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,7 +112,7 @@ class ModelRequestBuilder:
             }
         )
         cache_policy = self.cache_policy_resolver.resolve(provider=provider, model=model, base_url=base_url)
-        provider_payload_manifest = build_provider_payload_manifest(
+        provider_payload_plan = build_provider_payload_plan(
             request_id=str(request_id or ""),
             provider=str(provider or ""),
             model=str(model or ""),
@@ -120,7 +121,16 @@ class ModelRequestBuilder:
             segment_bindings=bindings,
             request_params=dict(metadata_payload.get("cache_relevant_params") or {}),
             tool_catalog_manifest=tool_catalog_manifest_payload,
+            assembly_plan_id=str(
+                dict(metadata_payload.get("prompt_manifest") or {}).get("prompt_assembly_plan_ref")
+                or dict(plan.get("diagnostics") or {}).get("prompt_assembly_plan_ref")
+                or plan.get("provider_policy_ref")
+                or ""
+            ),
         )
+        provider_payload_manifest = provider_payload_plan.provider_payload_manifest
+        if provider_payload_manifest is None:
+            raise ValueError("provider payload plan did not produce a manifest")
         provider_payload_boundary = dict(provider_payload_manifest.cache_boundary or {})
         provider_payload_tiers = dict(provider_payload_boundary.get("tier_prefixes") or {})
         return ModelRequestPacket(
@@ -150,8 +160,10 @@ class ModelRequestBuilder:
             diagnostics={
                 "planned_segment_count": len(list(plan.get("segments") or [])),
                 "bound_segment_count": len(bindings),
+                "provider_payload_plan_ref": provider_payload_plan.plan_id,
                 "provider_payload_manifest_ref": provider_payload_manifest.manifest_id,
                 "provider_payload_cache_boundary": provider_payload_boundary,
+                "provider_payload_plan": provider_payload_plan.to_dict(),
                 "tool_catalog_manifest_ref": str(tool_catalog_manifest_payload.get("manifest_id") or ""),
                 "tool_catalog_manifest_hash": str(tool_catalog_manifest_payload.get("tool_catalog_hash") or ""),
                 "unplanned_message_count": max(0, len(normalized_messages) - len(bindings)),

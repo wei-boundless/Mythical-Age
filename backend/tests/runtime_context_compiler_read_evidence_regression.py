@@ -110,6 +110,79 @@ def test_task_execution_compiler_injects_current_exact_read_observation_text_onc
     assert payload["read_evidence_refs"][0]["artifact_ref"] == artifact["artifact_ref"]
 
 
+def test_task_execution_read_evidence_uses_evidence_index_for_historical_refs(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime_state"
+    task_run_id = "taskrun:read-evidence-history-index"
+    session_id = "session:read-evidence-history-index"
+    scope = task_run_file_evidence_scope(task_run_id, session_id=session_id)
+    artifact = ReadObservationArtifactStore(runtime_root).write_read_observation(
+        task_run_id=task_run_id,
+        scope=scope,
+        path="notes.txt",
+        text="1 | alpha\n2 | beta",
+        start_line=1,
+        end_line=2,
+        returned_lines=2,
+        line_count=2,
+        total_lines=2,
+        has_more=False,
+        content_sha256="sha256:notes",
+        tool_call_id="call:read:historical",
+    )
+    FileStateAuthorityStore(runtime_root).apply_events_scope(
+        scope,
+        [
+            {
+                "event_type": "read",
+                "path": "notes.txt",
+                "start_line": 1,
+                "end_line": 2,
+                "returned_lines": 2,
+                "line_count": 2,
+                "total_lines": 2,
+                "has_more": False,
+                "content_sha256": "sha256:notes",
+                "exact_artifact_ref": artifact["artifact_ref"],
+                "artifact_ref_status": "exact",
+                "visible_exact": True,
+            }
+        ],
+        observation_ref="obs:read:historical",
+        tool_call_id="call:read:historical",
+    )
+
+    result = RuntimeCompiler(base_dir=Path(__file__).resolve().parents[1]).compile_task_execution_packet(
+        session_id=session_id,
+        task_run={"task_run_id": task_run_id, "diagnostics": {"executor_status": "running"}},
+        contract={"task_run_goal": "continue notes", "completion_criteria": ["continue notes"]},
+        observations=[],
+        execution_state={
+            "system_projection": {
+                "runtime_status": "running",
+                "file_state": FileStateAuthorityStore(runtime_root).snapshot_scope(scope),
+                "file_state_source": "runtime.memory.file_state_store",
+            }
+        },
+        runtime_assembly={
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {
+                "environment_id": "env.general.workspace",
+                "storage_space": {"runtime_state_root": str(runtime_root)},
+            },
+        },
+    )
+
+    read_payload = _payload_after_title(result.packet, "Task current exact read evidence")
+    evidence_payload = _payload_after_title(result.packet, "Task execution evidence index cursor")
+    evidence_file = evidence_payload["evidence_index_cursor"]["files"][0]
+
+    assert read_payload["visible_exact_in_packet"] is False
+    assert "read_evidence_refs" not in read_payload
+    assert read_payload["projection_policy"]["historical_read_evidence"] == "evidence_index_cursor"
+    assert evidence_file["path"] == "notes.txt"
+    assert evidence_file["read_window_refs"][0]["exact_artifact_ref"] == artifact["artifact_ref"]
+
+
 def test_single_agent_turn_compiler_inherits_session_read_evidence_as_ref_only(tmp_path: Path) -> None:
     runtime_root = tmp_path / "runtime_state"
     session_id = "session:single-turn-read-evidence"

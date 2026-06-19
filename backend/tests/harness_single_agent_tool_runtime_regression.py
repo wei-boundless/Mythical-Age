@@ -477,7 +477,88 @@ def test_single_agent_turn_recovers_partial_provider_stream_from_visible_prefix(
     }
 
 
-def test_single_agent_turn_commits_visible_prefix_when_partial_stream_recovery_call_fails(tmp_path: Path) -> None:
+def test_single_agent_turn_falls_back_to_plain_continuation_when_prefix_recovery_fails(tmp_path: Path) -> None:
+    from runtime.model_gateway.model_runtime import ModelRuntimeError
+
+    class PrefixFailingStreamingModel:
+        def __init__(self) -> None:
+            self.invoke_messages_seen: list[list[dict[str, object]]] = []
+            self.invoke_model_specs_seen: list[dict[str, object]] = []
+
+        async def astream_messages(self, _messages, **_kwargs):
+            yield SimpleNamespace(content="你的任务")
+            raise ModelRuntimeError(
+                code="provider_unavailable",
+                provider="test",
+                model="stream",
+                detail="provider stream disconnected",
+                retryable=True,
+                user_message="provider stream disconnected",
+            )
+
+        async def invoke_messages(self, messages, **_kwargs):
+            model_spec = dict(_kwargs.get("model_spec") or {})
+            self.invoke_messages_seen.append([dict(item) for item in list(messages or []) if isinstance(item, dict)])
+            self.invoke_model_specs_seen.append(model_spec)
+            completion_profile = dict(model_spec.get("completion_profile") or {})
+            if completion_profile.get("mode") == "chat_prefix":
+                return {
+                    "type": "error",
+                    "code": "single_agent_turn_model_failed",
+                    "reason": "prefix recovery failed",
+                }
+            return SimpleNamespace(content="你的任务已经继续完成。")
+
+    model = PrefixFailingStreamingModel()
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-partial-stream-recovery-plain-fallback",
+                message="继续输出。",
+                model_selection={
+                    "stream_policy": {
+                        "enabled": True,
+                        "emit_assistant_text_delta": True,
+                        "upstream_reconnect_enabled": True,
+                        "partial_stream_recovery": "continue_from_visible_prefix",
+                        "chunk_strategy": "typing",
+                        "max_flush_interval_ms": 0,
+                        "max_pending_utf8_bytes": 24,
+                    }
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    streamed_text = "".join(
+        str(event.get("content") or "")
+        for event in events
+        if event.get("type") == "assistant_text_delta"
+    )
+    recovery_events = [dict(event) for event in events if event.get("type") == "stream_recovery"]
+    done = dict(next(event for event in events if event.get("type") == "done"))
+
+    assert streamed_text == "你的任务已经继续完成。"
+    assert recovery_events[-1]["reason"] == "continued_from_visible_prefix"
+    assert recovery_events[-1]["fallback_mode"] == "plain_continuation"
+    assert done["content"] == "你的任务已经继续完成。"
+    assert len(model.invoke_messages_seen) >= 3
+    assert dict(model.invoke_model_specs_seen[0]["completion_profile"])["mode"] == "chat_prefix"
+    assert dict(model.invoke_model_specs_seen[1]["completion_profile"])["mode"] == "chat_prefix"
+    assert "completion_profile" not in model.invoke_model_specs_seen[-1]
+    assert model.invoke_messages_seen[-1][-1]["role"] == "user"
+    assert "不要重复已经公开的文字" in model.invoke_messages_seen[-1][-1]["content"]
+
+
+def test_single_agent_turn_fails_when_partial_stream_recovery_call_fails(tmp_path: Path) -> None:
     from runtime.model_gateway.model_runtime import ModelRuntimeError
 
     class RecoveryFailingStreamingModel:
@@ -534,14 +615,16 @@ def test_single_agent_turn_commits_visible_prefix_when_partial_stream_recovery_c
         if event.get("type") == "assistant_text_delta"
     )
     recovery_events = [dict(event) for event in events if event.get("type") == "stream_recovery"]
-    done = dict(next(event for event in events if event.get("type") == "done"))
+    error_events = [dict(event) for event in events if event.get("type") == "error"]
+    done_events = [dict(event) for event in events if event.get("type") == "done"]
 
     assert streamed_text == "已经公开的正文"
-    assert [event.get("status") for event in recovery_events] == ["started", "completed"]
-    assert recovery_events[-1]["reason"] == "visible_prefix_committed_after_recovery_error"
+    assert [event.get("status") for event in recovery_events] == ["started", "failed"]
+    assert recovery_events[-1]["reason"] == "partial_stream_recovery_failed"
     assert recovery_events[-1]["recovery_call_status"] == "failed"
-    assert done["status"] == "completed"
-    assert done["content"] == "已经公开的正文"
+    assert error_events[-1]["code"] == "partial_stream_recovery_failed"
+    assert error_events[-1]["content"] == "运行中断"
+    assert all(event.get("content") != "已经公开的正文" for event in done_events)
 
 
 def test_single_agent_turn_mid_turn_context_replacement_persists_recovery_package_and_recompiles_followup(tmp_path: Path) -> None:

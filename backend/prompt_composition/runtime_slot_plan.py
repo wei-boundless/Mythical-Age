@@ -151,6 +151,19 @@ def _render_contract(spec: dict[str, Any], *, source_kind: str) -> dict[str, Any
 def _layer_for_source_kind(source_kind: str) -> str:
     if source_kind == "dynamic_context_fragment":
         return "runtime_dynamic"
+    if source_kind in {
+        "runtime_read_evidence",
+        "runtime_bound_task_context",
+        "runtime_dynamic_boundary",
+        "runtime_active_skills",
+        "runtime_attachment_context_index",
+        "runtime_evidence_index_cursor",
+        "runtime_task_plan_context",
+        "runtime_editor_context_index",
+        "runtime_editor_evidence_delta",
+        "runtime_memory_context",
+    }:
+        return "runtime_dynamic"
     if source_kind in {"runtime_action_schema", "tool_catalog"}:
         return "capability_stable"
     if source_kind in {"semantic_compaction_boundary", "runtime_lifecycle"}:
@@ -167,6 +180,10 @@ def _layer_for_source_kind(source_kind: str) -> str:
         return "task_runtime_boundary_stable"
     if source_kind == "runtime_task_state_replay":
         return "append_only_task_evidence"
+    if source_kind == "runtime_evidence_index_cursor":
+        return "runtime_dynamic"
+    if source_kind == "runtime_task_plan_context":
+        return "runtime_dynamic"
     if source_kind == "runtime_protocol":
         return "runtime_protocol_stable"
     return "legacy_runtime_stable"
@@ -185,6 +202,12 @@ def _authority_class_for_source_kind(source_kind: str) -> str:
         "runtime_project_instructions": "project_instruction_boundary",
         "runtime_task_boundary": "runtime_boundary",
         "runtime_task_state_replay": "runtime_task_state_replay",
+        "runtime_attachment_context_index": "attachment_context_index",
+        "runtime_evidence_index_cursor": "evidence_index_cursor",
+        "runtime_task_plan_context": "task_plan_context",
+        "runtime_editor_context_index": "editor_context_index",
+        "runtime_editor_evidence_delta": "editor_evidence_delta",
+        "runtime_memory_context": "runtime_memory_context",
         "runtime_protocol": "runtime_protocol",
         "tool_catalog": "tool_catalog",
     }.get(source_kind, "runtime_prompt_slot")
@@ -193,14 +216,30 @@ def _authority_class_for_source_kind(source_kind: str) -> str:
 def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str) -> str:
     if source_kind == "runtime_task_state_replay" or kind == "task_state_replay_entry":
         return "append_only_task_evidence"
-    if kind in {"lifecycle_runtime_guidance", "task_start_inherited_context"}:
+    if kind == "lifecycle_runtime_guidance":
+        return "dynamic_context_tail"
+    if kind in {"task_start_inherited_context", "task_runtime_boundary_dynamic"}:
         return "runtime_cursor_prefix"
+    if source_kind == "runtime_attachment_context_index" or kind == "attachment_context_index":
+        return "attachment_context_index"
+    if source_kind == "runtime_evidence_index_cursor" or kind == "evidence_index_cursor":
+        return "evidence_index_cursor"
+    if source_kind == "runtime_task_plan_context" or kind == "task_plan_context":
+        return "task_plan_context"
+    if source_kind == "runtime_editor_context_index" or kind == "editor_context_index":
+        return "editor_context_index"
     if kind == "graph_node_completion_prefix":
         return "assistant_completion_prefix"
     if kind in {"active_skills", "skill_candidates"}:
         return "active_skills"
     if kind in {"bound_task_runtime_context"}:
         return "file_evidence_cursor"
+    if source_kind == "runtime_memory_context" or kind == "runtime_memory_context":
+        return "runtime_memory_context"
+    if source_kind == "runtime_editor_evidence_delta" or kind == "current_editor_evidence_delta":
+        return "current_exact_evidence"
+    if kind == "read_evidence_injection":
+        return "current_exact_evidence"
     if kind in {"session_history", "provider_protocol_history"}:
         return "history_replay"
     if kind in {"user_steering_updates", "volatile_user", "tool_observations", "semantic_compaction_request"}:

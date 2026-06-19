@@ -108,7 +108,57 @@ def test_model_response_recovers_partial_provider_stream_from_visible_prefix() -
     }
 
 
-def test_model_response_commits_visible_prefix_when_recovery_call_fails() -> None:
+def test_model_response_falls_back_to_plain_continuation_when_prefix_recovery_fails() -> None:
+    class PrefixFailingModel:
+        def __init__(self) -> None:
+            self.invoke_messages_seen: list[list[dict[str, object]]] = []
+            self.invoke_model_specs_seen: list[object] = []
+
+        async def astream_messages(self, _messages, **_kwargs):
+            yield SimpleNamespace(content="Already")
+            raise _retryable_stream_error()
+
+        async def invoke_messages(self, messages, **kwargs):
+            model_spec = kwargs.get("model_spec")
+            self.invoke_messages_seen.append([dict(item) for item in list(messages or []) if isinstance(item, dict)])
+            self.invoke_model_specs_seen.append(model_spec)
+            completion_profile = (
+                dict(model_spec.get("completion_profile") or {})
+                if isinstance(model_spec, dict)
+                else dict(getattr(model_spec, "completion_profile", {}) or {})
+            )
+            if completion_profile.get("mode") == "chat_prefix":
+                raise ModelRuntimeError(
+                    code="provider_unavailable",
+                    provider="deepseek",
+                    model="deepseek-chat",
+                    detail="prefix recovery unavailable",
+                    retryable=True,
+                    user_message="prefix recovery unavailable",
+                )
+            return SimpleNamespace(content="Already done")
+
+    model = PrefixFailingModel()
+    events = asyncio.run(_collect(model))
+    streamed_text = "".join(str(event.get("content") or "") for event in events if event.get("type") == "assistant_text_delta")
+    recovery_events = [event for event in events if event.get("type") == "stream_recovery"]
+    done = next(event for event in events if event.get("type") == "done")
+
+    assert streamed_text == "Already done"
+    assert recovery_events[-1]["reason"] == "continued_from_visible_prefix"
+    assert recovery_events[-1]["fallback_mode"] == "plain_continuation"
+    assert done["content"] == "Already done"
+    assert len(model.invoke_messages_seen) >= 3
+    assert model.invoke_messages_seen[-1][-1]["role"] == "user"
+    assert "不要重复已经公开的文字" in model.invoke_messages_seen[-1][-1]["content"]
+    last_spec = model.invoke_model_specs_seen[-1]
+    if isinstance(last_spec, dict):
+        assert "completion_profile" not in last_spec
+    else:
+        assert getattr(last_spec, "completion_profile", None) is None
+
+
+def test_model_response_fails_when_recovery_call_fails() -> None:
     class RecoveryFailingModel:
         async def astream_messages(self, _messages, **_kwargs):
             yield SimpleNamespace(content="Visible prefix")
@@ -127,13 +177,16 @@ def test_model_response_commits_visible_prefix_when_recovery_call_fails() -> Non
     events = asyncio.run(_collect(RecoveryFailingModel()))
     streamed_text = "".join(str(event.get("content") or "") for event in events if event.get("type") == "assistant_text_delta")
     recovery_events = [event for event in events if event.get("type") == "stream_recovery"]
-    done = next(event for event in events if event.get("type") == "done")
+    error_events = [event for event in events if event.get("type") == "error"]
+    done_events = [event for event in events if event.get("type") == "done"]
 
     assert streamed_text == "Visible prefix"
-    assert recovery_events[-1]["reason"] == "visible_prefix_committed_after_recovery_error"
+    assert recovery_events[-1]["status"] == "failed"
+    assert recovery_events[-1]["reason"] == "partial_stream_recovery_failed"
     assert recovery_events[-1]["recovery_call_status"] == "failed"
-    assert done["content"] == "Visible prefix"
-    assert not [event for event in events if event.get("type") == "error"]
+    assert error_events[-1]["code"] == "partial_stream_recovery_failed"
+    assert error_events[-1]["content"] == "运行中断"
+    assert done_events == []
 
 
 def test_model_response_keeps_non_stream_fallback_when_no_public_prefix_exists() -> None:

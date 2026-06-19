@@ -5,9 +5,11 @@ from types import SimpleNamespace
 from runtime.model_gateway.model_runtime import ModelRuntimeError
 from runtime.model_gateway.stream_recovery import (
     VISIBLE_PREFIX_RECOVERY_MODE,
+    build_visible_prefix_plain_continuation_messages,
     build_visible_prefix_recovery_messages,
     build_visible_prefix_recovery_segment_plan,
     continuation_after_visible_prefix,
+    model_selection_for_visible_prefix_plain_continuation,
     model_selection_for_visible_prefix_recovery,
     should_recover_partial_visible_stream,
 )
@@ -33,6 +35,89 @@ def test_visible_prefix_recovery_messages_end_with_assistant_prefix() -> None:
         "prefix": True,
     }
     assert "不要重复已经公开的文字" in messages[-2]["content"]
+
+
+def test_visible_prefix_recovery_messages_strip_provider_tool_protocol() -> None:
+    messages = build_visible_prefix_recovery_messages(
+        [
+            {"role": "system", "content": "You are helpful."},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call-read",
+                        "type": "function",
+                        "function": {"name": "read_file", "arguments": {"path": "README.md"}},
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "name": "read_file",
+                "tool_call_id": "call-read",
+                "content": "README contents",
+            },
+            {
+                "role": "assistant",
+                "content": "I inspected the file.",
+                "tool_calls": [
+                    {
+                        "id": "call-search",
+                        "type": "function",
+                        "function": {"name": "search_text", "arguments": {"query": "TODO"}},
+                    }
+                ],
+            },
+            {"role": "user", "content": "Continue the report."},
+        ],
+        visible_prefix="Already visible",
+        turn_id="turn:prefix",
+        source="test.visible_prefix_recovery",
+    )
+
+    assert all(message["role"] != "tool" for message in messages)
+    assert all("tool_calls" not in message for message in messages)
+    assert all("function_call" not in message for message in messages)
+    assert all("tool_call_id" not in message for message in messages)
+    assert any(message.get("content") == "I inspected the file." for message in messages)
+    assert messages[-1]["role"] == "assistant"
+    assert messages[-1]["prefix"] is True
+
+
+def test_visible_prefix_plain_continuation_uses_normal_endpoint_without_prefix() -> None:
+    messages = build_visible_prefix_plain_continuation_messages(
+        [
+            {"role": "system", "content": "You are helpful."},
+            {
+                "role": "assistant",
+                "content": "Inspected.",
+                "tool_calls": [{"id": "call-read", "name": "read_file", "args": {"path": "README.md"}}],
+            },
+            {"role": "tool", "tool_call_id": "call-read", "content": "README contents"},
+            {"role": "user", "content": "Continue the report."},
+        ],
+        visible_prefix="Already visible",
+        turn_id="turn:prefix",
+        source="test.visible_prefix_recovery",
+    )
+    selection = model_selection_for_visible_prefix_plain_continuation(
+        {
+            "provider": "deepseek",
+            "completion_profile": {"mode": "chat_prefix", "provider_mode": "deepseek_chat_prefix"},
+            "stream_policy": {"enabled": True},
+            "response_format": {"type": "json_object"},
+        }
+    )
+
+    assert messages[-1]["role"] == "user"
+    assert "Already visible" in messages[-1]["content"]
+    assert all(message.get("prefix") is not True for message in messages)
+    assert all(message["role"] != "tool" for message in messages)
+    assert all("tool_calls" not in message for message in messages)
+    assert "completion_profile" not in selection
+    assert "response_format" not in selection
+    assert selection["stream_policy"] == {"enabled": False}
 
 
 def test_visible_prefix_recovery_segment_plan_covers_appended_recovery_messages() -> None:

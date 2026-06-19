@@ -74,7 +74,7 @@ def message_spec_content_source(*, kind: str, cache_role: str, source_ref: str) 
         return "runtime.dynamic_context_fragment"
     if normalized_kind in {"task_contract_stable"}:
         return "runtime.task_contract_manifest"
-    if normalized_kind in {"tool_index_stable"}:
+    if normalized_kind in {"tool_index_stable", "tool_schema_catalog"}:
         return "runtime.tool_catalog_manifest"
     if normalized_kind in {
         "agent_function_shared_stable",
@@ -86,12 +86,26 @@ def message_spec_content_source(*, kind: str, cache_role: str, source_ref: str) 
         return "runtime.stable_boundary"
     if normalized_kind in {"provider_protocol_history"}:
         return "runtime.provider_protocol_replay"
+    if normalized_kind == "editor_context_index":
+        return "harness.runtime.dynamic_context.editor_context_index"
+    if normalized_kind == "attachment_context_index":
+        return "harness.runtime.dynamic_context.attachment_context_index"
+    if normalized_kind == "evidence_index_cursor":
+        return "harness.runtime.dynamic_context.evidence_index_cursor"
+    if normalized_kind == "task_plan_context":
+        return "harness.runtime.dynamic_context.task_plan_context"
+    if normalized_kind == "current_editor_evidence_delta":
+        return "harness.runtime.dynamic_context.current_editor_evidence_delta"
+    if normalized_kind == "runtime_memory_context":
+        return "memory_system.runtime_memory_context"
     if normalized_kind in {
         "dynamic_projection",
         "graph_node_completion_prefix",
         "graph_node_runtime_context",
         "semantic_compaction_request",
         "session_history",
+        "read_evidence_injection",
+        "task_runtime_boundary_dynamic",
         "tool_observations",
         "user_steering_updates",
         "volatile_task_state",

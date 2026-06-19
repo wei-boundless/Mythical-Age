@@ -211,7 +211,10 @@ class RuntimeMemoryContextProvider:
     ) -> dict[str, Any]:
         bundle_service = self._bundle_service_getter()
         if bundle_service is None:
-            return {}
+            return _unavailable_runtime_memory_context_payload(
+                memory_request_profile,
+                reason_code="memory_bundle_service_unavailable",
+            )
         try:
             memory_view = await bundle_service.abuild_memory_runtime_view(
                 session_id=session_id,
@@ -233,7 +236,10 @@ class RuntimeMemoryContextProvider:
             raise
         except Exception as exc:
             self._logger.warning("runtime memory context supply failed: %s", exc, exc_info=True)
-            return {}
+            return _unavailable_runtime_memory_context_payload(
+                memory_request_profile,
+                reason_code="memory_context_supply_failed",
+            )
         return _runtime_memory_context_payload(context_result, memory_view)
 
     def _load_session_record(self, session_id: str) -> dict[str, Any]:
@@ -614,28 +620,100 @@ def _runtime_memory_context_payload(context_result: Any, memory_view: Any) -> di
     package = dict(result_payload.get("package") or {})
     sections = dict(package.get("model_visible_sections") or {})
     visible_sections = _filtered_model_visible_memory_sections(sections)
-    if not visible_sections:
-        return {}
     memory_view_payload = memory_view.to_dict() if hasattr(memory_view, "to_dict") else dict(memory_view or {})
     diagnostics = dict(memory_view_payload.get("diagnostics") or {})
     read_plan = dict(diagnostics.get("read_plan") or {})
     sealed_receipt = dict(package.get("sealed_receipt") or result_payload.get("sealed_receipt") or {})
+    selected_sections = [
+        str(item)
+        for item in list(package.get("selected_sections") or visible_sections.keys())
+        if str(item) in visible_sections
+    ]
+    status = _memory_context_status(
+        visible_sections=visible_sections,
+        diagnostics=diagnostics,
+        read_plan=read_plan,
+    )
     return {
         "authority": "memory_system.runtime_memory_context",
         "memory_runtime_view_ref": str(memory_view_payload.get("view_id") or ""),
         "context_package_ref": str(sealed_receipt.get("receipt_id") or ""),
-        "selected_sections": [
-            str(item)
-            for item in list(package.get("selected_sections") or visible_sections.keys())
-            if str(item) in visible_sections
-        ],
+        "selected_sections": selected_sections,
         "model_visible_sections": visible_sections,
+        "memory_context_status": status,
         "diagnostics": {
             "read_namespaces": list(read_plan.get("read_namespaces") or ()),
             "requested_memory_layers": list(read_plan.get("requested_memory_layers") or ()),
             "long_term_candidate_count": int(diagnostics.get("long_term_candidate_count") or 0),
             "state_candidate_count": int(diagnostics.get("state_candidate_count") or 0),
             "context_candidate_count": int(diagnostics.get("context_candidate_count") or 0),
+        },
+    }
+
+
+def _memory_context_status(
+    *,
+    visible_sections: dict[str, list[str]],
+    diagnostics: dict[str, Any],
+    read_plan: dict[str, Any],
+) -> dict[str, Any]:
+    visible_item_count = sum(len(items) for items in visible_sections.values())
+    candidate_count = int(diagnostics.get("context_candidate_count") or 0)
+    requested_layers = [
+        str(item)
+        for item in list(read_plan.get("requested_memory_layers") or ())
+        if str(item).strip()
+    ]
+    if visible_item_count:
+        reason_code = "model_visible_memory_selected"
+    elif candidate_count:
+        reason_code = "memory_candidates_not_selected_for_context"
+    elif requested_layers:
+        reason_code = "memory_read_plan_evaluated_no_visible_records"
+    else:
+        reason_code = "memory_read_plan_not_requested"
+    return {
+        "status": "available" if visible_item_count else "empty",
+        "reason_code": reason_code,
+        "has_model_visible_records": bool(visible_item_count),
+        "visible_section_count": len(visible_sections),
+        "visible_item_count": visible_item_count,
+        "context_candidate_count": candidate_count,
+        "requested_memory_layers": requested_layers,
+        "agent_use_contract": "Use listed memory records when present; if none are listed, do not infer that previous facts are known from memory.",
+    }
+
+
+def _unavailable_runtime_memory_context_payload(
+    memory_request_profile: dict[str, Any],
+    *,
+    reason_code: str,
+) -> dict[str, Any]:
+    requested_layers = [
+        str(item)
+        for item in list(dict(memory_request_profile or {}).get("requested_memory_layers") or ())
+        if str(item).strip()
+    ]
+    return {
+        "authority": "memory_system.runtime_memory_context",
+        "selected_sections": [],
+        "model_visible_sections": {},
+        "memory_context_status": {
+            "status": "unavailable",
+            "reason_code": str(reason_code or "memory_context_unavailable"),
+            "has_model_visible_records": False,
+            "visible_section_count": 0,
+            "visible_item_count": 0,
+            "context_candidate_count": 0,
+            "requested_memory_layers": requested_layers,
+            "agent_use_contract": "Memory context was requested but is unavailable; do not assume prior memory facts are visible.",
+        },
+        "diagnostics": {
+            "read_namespaces": [],
+            "requested_memory_layers": requested_layers,
+            "long_term_candidate_count": 0,
+            "state_candidate_count": 0,
+            "context_candidate_count": 0,
         },
     }
 

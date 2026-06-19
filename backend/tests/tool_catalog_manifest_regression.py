@@ -445,7 +445,7 @@ def test_task_execution_tool_index_uses_tool_catalog_manifest_payload() -> None:
     assert int(action_schema_segment["ordinal"]) < int(schema_segment["ordinal"])
     assert int(schema_segment["ordinal"]) < int(tool_segment["ordinal"])
     assert int(tool_segment["ordinal"]) < int(task_contract_segment["ordinal"])
-    assert int(task_contract_segment["ordinal"]) < int(environment_segment["ordinal"])
+    assert int(environment_segment["ordinal"]) < int(task_contract_segment["ordinal"])
 
 
 def test_observation_followup_stable_contract_uses_tool_catalog_manifest_payload() -> None:

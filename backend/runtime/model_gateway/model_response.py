@@ -17,9 +17,11 @@ from runtime.model_gateway.model_response_protocol import model_response_protoco
 from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_content, utility_accounting_context
 from runtime.model_gateway.stream_recovery import (
     VISIBLE_PREFIX_RECOVERY_MODE,
+    build_visible_prefix_plain_continuation_messages,
     build_visible_prefix_recovery_messages,
     build_visible_prefix_recovery_segment_plan,
     continuation_after_visible_prefix,
+    model_selection_for_visible_prefix_plain_continuation,
     model_selection_for_visible_prefix_recovery,
     recovery_attempts_from_policy,
     should_recover_partial_visible_stream,
@@ -233,6 +235,9 @@ class ModelResponseRuntimeExecutor:
                     for recovery_event in recovery.events:
                         yield recovery_event
                     response = recovery.response
+                    if isinstance(response, dict) and response.get("type") == "error":
+                        yield response
+                        return
                 elif public_delta_count > 0:
                     yield {
                         "type": "stream_recovery",
@@ -424,6 +429,9 @@ class ModelResponseRuntimeExecutor:
                     for recovery_event in recovery.events:
                         yield recovery_event
                     response = recovery.response
+                    if isinstance(response, dict) and response.get("type") == "error":
+                        yield response
+                        return
                 else:
                     yield {
                         "type": "error",
@@ -922,11 +930,118 @@ async def _recover_visible_prefix_stream(
         )
         return VisiblePrefixRecoveryResult(handled=True, response=SimpleNamespace(content=raw_content), events=tuple(events))
 
+    plain_recovery_model_spec = model_selection_for_visible_prefix_plain_continuation(model_spec)
+    plain_recovery_messages = build_visible_prefix_plain_continuation_messages(
+        model_messages,
+        visible_prefix=raw_content,
+        turn_id=str(accounting_context.get("turn_id") or ""),
+        source=_MODEL_RESPONSE_PARTIAL_STREAM_RECOVERY_SOURCE,
+    )
+    for recovery_attempt in range(1, recovery_attempts + 1):
+        plain_recovery_segment_plan = build_visible_prefix_recovery_segment_plan(
+            base_segment_plan=dict(accounting_context.get("segment_plan") or {}),
+            recovery_messages=plain_recovery_messages,
+            packet_id=str(accounting_context.get("packet_ref") or stream_ref),
+            recovery_attempt=recovery_attempt,
+            source=_MODEL_RESPONSE_PARTIAL_STREAM_RECOVERY_SOURCE,
+        )
+        try:
+            recovery_response = await _await_model_invocation(
+                lambda: _call_invoker_with_optional_model_spec(
+                    invoker,
+                    plain_recovery_messages,
+                    model_spec=plain_recovery_model_spec,
+                    accounting_context={
+                        **recovery_context,
+                        "request_id": f"{stream_ref}:partial-stream-plain-continuation:{recovery_attempt}",
+                        "segment_plan": plain_recovery_segment_plan,
+                        "prompt_manifest": {
+                            **dict(recovery_context.get("prompt_manifest") or {}),
+                            "invocation_kind": "runtime_directive_model_response_partial_stream_plain_continuation",
+                            "segment_plan_ref": str(plain_recovery_segment_plan.get("segment_plan_id") or ""),
+                        },
+                        "stream_recovery": {
+                            **dict(recovery_context.get("stream_recovery") or {}),
+                            "attempt": recovery_attempt,
+                            "max_attempts": recovery_attempts,
+                            "fallback_mode": "plain_continuation",
+                        },
+                    },
+                ),
+                timeout_seconds=recovery_timeout_seconds,
+                policy=stream_policy,
+            )
+        except asyncio.TimeoutError:
+            recovery_error_reason = "partial_stream_plain_continuation_timeout"
+            continue
+        except ModelRuntimeError as exc:
+            recovery_error_reason = str(exc.user_message or exc.code or "partial_stream_recovery_failed")
+            continue
+        except Exception as exc:
+            recovery_error_reason = str(exc) or exc.__class__.__name__ or "partial_stream_recovery_failed"
+            continue
+        if not (isinstance(recovery_response, dict) and recovery_response.get("type") == "error"):
+            break
+        recovery_error_reason = str(
+            recovery_response.get("reason")
+            or recovery_response.get("code")
+            or "partial_stream_recovery_failed"
+        )
+
+    if not (isinstance(recovery_response, dict) and recovery_response.get("type") == "error") and recovery_response is not None:
+        recovered_text = stringify_content(getattr(recovery_response, "content", recovery_response))
+        continuation = continuation_after_visible_prefix(raw_content, recovered_text)
+        if continuation:
+            if assistant_normalizer is not None:
+                for frame_event in assistant_normalizer.observe_delta(continuation):
+                    events.append(frame_event)
+                for frame_event in assistant_normalizer.flush():
+                    events.append(frame_event)
+            events.append(
+                {
+                    "type": "stream_recovery",
+                    "status": "completed",
+                    "reason": "continued_from_visible_prefix",
+                    "provider": provider,
+                    "model": model,
+                    "stream_ref": stream_ref,
+                    "partial_utf8_bytes": visible_prefix_utf8_bytes(raw_content),
+                    "continuation_utf8_bytes": visible_prefix_utf8_bytes(continuation),
+                    "recovery_mode": VISIBLE_PREFIX_RECOVERY_MODE,
+                    "fallback_mode": "plain_continuation",
+                    "directive_ref": directive_ref,
+                }
+            )
+            return VisiblePrefixRecoveryResult(
+                handled=True,
+                response=SimpleNamespace(
+                    content=raw_content + continuation,
+                    additional_kwargs=dict(getattr(recovery_response, "additional_kwargs", {}) or {}),
+                ),
+                events=tuple(events),
+            )
+        events.append(
+            {
+                "type": "stream_recovery",
+                "status": "completed",
+                "reason": "visible_prefix_committed_without_extra_continuation",
+                "provider": provider,
+                "model": model,
+                "stream_ref": stream_ref,
+                "partial_utf8_bytes": visible_prefix_utf8_bytes(raw_content),
+                "continuation_utf8_bytes": 0,
+                "recovery_mode": VISIBLE_PREFIX_RECOVERY_MODE,
+                "fallback_mode": "plain_continuation",
+                "directive_ref": directive_ref,
+            }
+        )
+        return VisiblePrefixRecoveryResult(handled=True, response=SimpleNamespace(content=raw_content), events=tuple(events))
+
     events.append(
         {
             "type": "stream_recovery",
-            "status": "completed",
-            "reason": "visible_prefix_committed_after_recovery_error",
+            "status": "failed",
+            "reason": "partial_stream_recovery_failed",
             "code": code,
             "provider": provider,
             "model": model,
@@ -939,7 +1054,28 @@ async def _recover_visible_prefix_stream(
             "directive_ref": directive_ref,
         }
     )
-    return VisiblePrefixRecoveryResult(handled=True, response=SimpleNamespace(content=raw_content), events=tuple(events))
+    return VisiblePrefixRecoveryResult(
+        handled=True,
+        response={
+            "type": "error",
+            "error": "运行中断",
+            "content": "运行中断",
+            "code": "partial_stream_recovery_failed",
+            "reason": recovery_error_reason or "partial_stream_recovery_failed",
+            "provider": provider,
+            "model": model,
+            "detail": recovery_error_reason or "partial_stream_recovery_failed",
+            "original_stream_error_code": code,
+            "partial_utf8_bytes": visible_prefix_utf8_bytes(raw_content),
+            "recovery_mode": VISIBLE_PREFIX_RECOVERY_MODE,
+            "recovery_call_status": "failed",
+            "answer_channel": "orchestration_fail_closed",
+            "answer_source": "runtime_directive_executor",
+            "answer_persist_policy": "runtime_status_only",
+            "directive_ref": directive_ref,
+        },
+        events=tuple(events),
+    )
 
 
 def _model_spec_value(model_spec: Any | None, key: str) -> str:

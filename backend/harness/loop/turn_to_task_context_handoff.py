@@ -64,6 +64,11 @@ def build_turn_to_task_context_handoff_seed(
         editor_context = _bounded_mapping(turn_input_facts.get("editor_context"), max_chars=20000)
     elif isinstance(session_payload.get("editor_context"), dict):
         editor_context = _bounded_mapping(session_payload.get("editor_context"), max_chars=20000)
+    attachments = [
+        _bounded_mapping(item, max_chars=4000)
+        for item in list(session_payload.get("turn_input_attachments") or [])[:12]
+        if isinstance(item, dict)
+    ]
     return _drop_empty(
         {
             "session_id": str(session_id or ""),
@@ -81,6 +86,7 @@ def build_turn_to_task_context_handoff_seed(
             "inherited_memory_context_refs": _memory_context_refs(memory_context),
             "inherited_turn_input_facts": turn_input_facts,
             "inherited_editor_context": editor_context,
+            "inherited_attachments": attachments,
             "inherited_current_work_boundary_receipt": _bounded_mapping(
                 current_work_boundary_receipt or session_payload.get("current_work_boundary_receipt"),
                 max_chars=12000,
@@ -177,6 +183,7 @@ def handoff_summary(handoff: dict[str, Any] | None) -> dict[str, Any]:
     memory_context = dict(payload.get("inherited_memory_context") or {})
     file_state = [dict(item) for item in list(payload.get("inherited_file_state_snapshot") or []) if isinstance(item, dict)]
     observations = [dict(item) for item in list(payload.get("inherited_observations") or []) if isinstance(item, dict)]
+    attachments = [dict(item) for item in list(payload.get("inherited_attachments") or []) if isinstance(item, dict)]
     return _drop_empty(
         {
             "handoff_id": str(payload.get("handoff_id") or ""),
@@ -187,6 +194,7 @@ def handoff_summary(handoff: dict[str, Any] | None) -> dict[str, Any]:
             "inherited_observation_refs": list(payload.get("inherited_observation_refs") or [])[:_MAX_OBSERVATIONS],
             "inherited_observation_count": len(observations),
             "inherited_file_state_count": len(file_state),
+            "inherited_attachment_count": len(attachments),
             "inherited_memory_context_refs": _memory_context_refs(memory_context),
             "selected_memory_sections": list(memory_context.get("selected_sections") or []),
             "empty_reason": str(payload.get("empty_reason") or ""),
@@ -228,6 +236,11 @@ def inherited_start_context_for_model(handoff: dict[str, Any] | None) -> dict[st
             ],
             "turn_input_facts": dict(payload.get("inherited_turn_input_facts") or {}),
             "editor_context": dict(payload.get("inherited_editor_context") or {}),
+            "attachments": [
+                dict(item)
+                for item in list(payload.get("inherited_attachments") or [])[:12]
+                if isinstance(item, dict)
+            ],
             "current_work_boundary_receipt": dict(payload.get("inherited_current_work_boundary_receipt") or {}),
             "artifact_refs": [
                 dict(item)
@@ -543,6 +556,7 @@ def _empty_handoff_reason(seed: dict[str, Any]) -> str:
         or seed.get("inherited_file_state_snapshot")
         or seed.get("inherited_turn_input_facts")
         or seed.get("inherited_editor_context")
+        or seed.get("inherited_attachments")
         or seed.get("inherited_current_work_boundary_receipt")
     ):
         return ""

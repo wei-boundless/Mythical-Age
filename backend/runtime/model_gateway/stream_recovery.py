@@ -15,6 +15,7 @@ from runtime.output_boundary import (
 
 
 VISIBLE_PREFIX_RECOVERY_MODE = "continue_from_visible_prefix"
+VISIBLE_PREFIX_PLAIN_CONTINUATION_MODE = "continue_from_visible_prefix_instruction"
 VISIBLE_PREFIX_RECOVERY_PROFILE_SOURCE = "partial_stream_recovery"
 VISIBLE_PREFIX_RECOVERY_DEFAULT_ATTEMPTS = 2
 
@@ -64,18 +65,41 @@ def build_visible_prefix_recovery_messages(
         "additional_kwargs": {"prefix": True},
     }
     messages = [
-        *_normalize_recovery_input_messages(model_messages),
+        *_normalize_visible_prefix_recovery_input_messages(model_messages),
         {"role": "system", "content": instruction, "turn_id": str(turn_id or "")},
         prefix_message,
     ]
-    return [
-        dict(item)
-        for item in sanitize_messages_for_prompt(
-            messages,
-            turn_id=str(turn_id or ""),
-            source=str(source or VISIBLE_PREFIX_RECOVERY_PROFILE_SOURCE),
-        ).messages
+    return _sanitize_visible_prefix_recovery_messages(
+        messages,
+        turn_id=str(turn_id or ""),
+        source=str(source or VISIBLE_PREFIX_RECOVERY_PROFILE_SOURCE),
+    )
+
+
+def build_visible_prefix_plain_continuation_messages(
+    model_messages: list[Any],
+    *,
+    visible_prefix: str,
+    turn_id: str = "",
+    source: str = VISIBLE_PREFIX_RECOVERY_PROFILE_SOURCE,
+) -> list[dict[str, Any]]:
+    prefix = str(visible_prefix or "")
+    instruction = (
+        "上一条助手回复的模型流在网络层中断。下面这段文字已经公开显示给用户：\n\n"
+        f"{prefix}\n\n"
+        "你仍然是同一个助手。请只输出断点之后还没有公开显示的剩余正文。"
+        "不要重复已经公开的文字，不要从头改写，不要解释网络错误。"
+        "如果无法可靠判断断点后的内容，请输出你能可靠继续的最小后续正文。"
+    )
+    messages = [
+        *_normalize_visible_prefix_recovery_input_messages(model_messages),
+        {"role": "user", "content": instruction, "turn_id": str(turn_id or "")},
     ]
+    return _sanitize_visible_prefix_recovery_messages(
+        messages,
+        turn_id=str(turn_id or ""),
+        source=str(source or VISIBLE_PREFIX_RECOVERY_PROFILE_SOURCE),
+    )
 
 
 def build_visible_prefix_recovery_segment_plan(
@@ -183,6 +207,56 @@ def model_selection_for_visible_prefix_recovery(
     return SimpleNamespace(**payload)
 
 
+def model_selection_for_visible_prefix_plain_continuation(
+    model_selection: Any,
+) -> Any:
+    if model_selection is None or isinstance(model_selection, dict):
+        selection = dict(model_selection or {})
+        selection.pop("structured_output", None)
+        selection.pop("response_format", None)
+        selection.pop("completion_profile", None)
+        stream_policy = dict(selection.get("stream_policy") or {})
+        stream_policy["enabled"] = False
+        selection["stream_policy"] = stream_policy
+        return selection
+
+    stream_policy = dict(getattr(model_selection, "stream_policy", {}) or {})
+    stream_policy["enabled"] = False
+    updates = {
+        "stream_policy": stream_policy,
+        "response_format": None,
+        "structured_output": None,
+        "completion_profile": None,
+    }
+    if is_dataclass(model_selection):
+        try:
+            return replace(model_selection, **updates)
+        except TypeError:
+            pass
+    payload = {
+        key: getattr(model_selection, key)
+        for key in (
+            "provider",
+            "model",
+            "api_key",
+            "base_url",
+            "max_output_tokens",
+            "timeout_seconds",
+            "long_output_timeout_seconds",
+            "max_retries",
+            "temperature",
+            "thinking_mode",
+            "reasoning_effort",
+            "provider_extensions",
+            "source_chain",
+            "diagnostics",
+        )
+        if hasattr(model_selection, key)
+    }
+    payload.update(updates)
+    return SimpleNamespace(**payload)
+
+
 def recovery_attempts_from_policy(stream_policy: dict[str, Any], *, default: int = VISIBLE_PREFIX_RECOVERY_DEFAULT_ATTEMPTS) -> int:
     try:
         attempts = int(dict(stream_policy or {}).get("partial_stream_recovery_attempts") or default)
@@ -233,6 +307,65 @@ def _normalize_recovery_input_messages(messages: list[Any]) -> list[dict[str, An
         if item:
             normalized.append(item)
     return normalized
+
+
+def _normalize_visible_prefix_recovery_input_messages(messages: list[Any]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for message in _normalize_recovery_input_messages(messages):
+        item = _message_without_provider_tool_protocol(message)
+        if item:
+            normalized.append(item)
+    return normalized
+
+
+def _sanitize_visible_prefix_recovery_messages(
+    messages: list[dict[str, Any]],
+    *,
+    turn_id: str,
+    source: str,
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for raw in sanitize_messages_for_prompt(
+        messages,
+        turn_id=str(turn_id or ""),
+        source=str(source or VISIBLE_PREFIX_RECOVERY_PROFILE_SOURCE),
+    ).messages:
+        message = _message_without_provider_tool_protocol(dict(raw))
+        if not message:
+            continue
+        result.append(message)
+    return result
+
+
+def _message_without_provider_tool_protocol(message: dict[str, Any]) -> dict[str, Any]:
+    role = str(message.get("role") or "").strip()
+    if role == "tool":
+        return {}
+    item = dict(message)
+    for key in (
+        "tool_calls",
+        "function_call",
+        "tool_call_id",
+        "protocol_status",
+    ):
+        item.pop(key, None)
+    if role == "assistant":
+        additional_kwargs = dict(item.get("additional_kwargs") or {})
+        for key in ("tool_calls", "function_call", "tool_call_id"):
+            additional_kwargs.pop(key, None)
+        if additional_kwargs:
+            item["additional_kwargs"] = additional_kwargs
+        else:
+            item.pop("additional_kwargs", None)
+        if (
+            item.get("prefix") is not True
+            and not str(item.get("content") or "").strip()
+            and not str(item.get("reasoning_content") or "").strip()
+        ):
+            return {}
+    if role in {"system", "user"} and not str(item.get("content") or "").strip():
+        return {}
+    return item
 
 
 def _base_segments_by_message_index(segment_plan: dict[str, Any]) -> dict[int, dict[str, Any]]:
