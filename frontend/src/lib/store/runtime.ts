@@ -103,7 +103,7 @@ import {
 import { streamEventStopsActiveWork } from "./runtime/streamEvents";
 import { isCatalogEnvironmentVisible, taskEnvironmentIdOf, taskEnvironmentLabelOf } from "./runtime/taskEnvironmentCatalog";
 import { errorDetailMessage, runtimeText } from "./runtime/text";
-import type { ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeLogCenterWorkspaceTarget, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
+import type { ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, FileChangeDiffCenterWorkspaceTarget, Message, PermissionMode, RuntimeLogCenterWorkspaceTarget, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
 
 type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
@@ -327,6 +327,9 @@ export class WorkspaceRuntime {
       },
       openWorkspaceFile: (path) => {
         this.openWorkspaceFile(path);
+      },
+      openFileChangeDiff: (target) => {
+        this.openFileChangeDiff(target);
       },
       openRuntimeLog: (target) => {
         this.openRuntimeLog(target);
@@ -4579,6 +4582,29 @@ export class WorkspaceRuntime {
       centerWorkspaceTarget: {
         layer: "file",
         file_path: filePath,
+        requested_at: Date.now(),
+      },
+    }));
+  }
+
+  private openFileChangeDiff(target: Omit<FileChangeDiffCenterWorkspaceTarget, "layer" | "requested_at">) {
+    const recordId = String(target?.record_id || "").trim();
+    if (!recordId) {
+      return;
+    }
+    const view = this.centerWorkspaceHostView(this.store.getState().activeWorkspaceView);
+    this.syncWorkspaceViewUrl(view);
+    this.store.setState((prev) => ({
+      ...prev,
+      activeWorkspaceView: view,
+      centerWorkspaceTarget: {
+        layer: "file-change-diff",
+        record_id: recordId,
+        baseline_record_id: String(target.baseline_record_id || "").trim() || undefined,
+        mode: target.mode === "final" ? "final" : "single",
+        change_count: finiteNumber(target.change_count),
+        title: String(target.title || "").trim() || undefined,
+        subtitle: String(target.subtitle || "").trim() || undefined,
         requested_at: Date.now(),
       },
     }));

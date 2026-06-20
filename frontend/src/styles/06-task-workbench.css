@@ -1,3 +1,5 @@
+/* Task and graph workbench. */
+
 /* Graph task foreground rebuild: project manager + project console */
 .graph-task-system-page {
   min-height: 0;
@@ -429,7 +431,7 @@
   color: #475569;
   font-size: 12px;
   font-style: normal;
-  font-weight: 760;
+  font-weight: 700;
   padding: 5px 9px;
   white-space: nowrap;
 }
@@ -837,7 +839,7 @@
   background: rgba(100, 116, 139, 0.1);
   color: #475569;
   font-size: 11px;
-  font-weight: 760;
+  font-weight: 700;
   padding: 3px 7px;
 }
 

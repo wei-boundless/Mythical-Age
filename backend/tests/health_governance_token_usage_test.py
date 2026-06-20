@@ -184,6 +184,89 @@ def test_health_token_usage_prefers_prompt_accounting_provider_usage(tmp_path) -
     assert token_usage["summary"]["trace_estimate_total_tokens"] == 0
 
 
+def test_health_token_usage_daily_trend_uses_record_dates_not_task_update_date(tmp_path) -> None:
+    now = time.time()
+    today_start = int(now // 86400) * 86400
+    day_one = today_start - 2 * 86400 + 3600
+    day_two = today_start - 86400 + 3600
+    task_run = TaskRun(
+        task_run_id="taskrun:multi-day",
+        session_id="session:multi-day",
+        task_id="task.multi_day",
+        created_at=day_one - 60,
+        updated_at=now - 10,
+    )
+    ledger = PromptAccountingLedger(tmp_path)
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:multi-day:one:local_prediction",
+            request_id="modelreq:multi-day:one",
+            task_run_id="taskrun:multi-day",
+            session_id="session:multi-day",
+            source="local_prediction",
+            prompt_tokens=300,
+            total_tokens=300,
+            created_at=day_one + 1,
+        )
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:multi-day:one:provider_usage",
+            request_id="modelreq:multi-day:one",
+            task_run_id="taskrun:multi-day",
+            session_id="session:multi-day",
+            source="provider_usage",
+            prompt_tokens=100,
+            completion_tokens=20,
+            total_tokens=120,
+            created_at=day_one + 2,
+        )
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:multi-day:two:local_prediction",
+            request_id="modelreq:multi-day:two",
+            task_run_id="taskrun:multi-day",
+            session_id="session:multi-day",
+            source="local_prediction",
+            prompt_tokens=900,
+            total_tokens=900,
+            created_at=day_two + 1,
+        )
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:multi-day:two:provider_usage",
+            request_id="modelreq:multi-day:two",
+            task_run_id="taskrun:multi-day",
+            session_id="session:multi-day",
+            source="provider_usage",
+            prompt_tokens=400,
+            completion_tokens=50,
+            total_tokens=450,
+            created_at=day_two + 2,
+        )
+    )
+    (ledger.ledger_dir / "segment_maps.jsonl").write_text("x" * (ledger.SUMMARY_SCAN_MAX_BYTES + 1), encoding="utf-8")
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([task_run]),
+        event_log=EventLogStub({"taskrun:multi-day": [EventStub("step_summary_recorded", {"summary": "multi day"})]}),
+        runtime_objects=RuntimeObjectsStub(),
+        prompt_accounting_ledger=ledger,
+        list_global_live_monitor=lambda limit: {"summary": {}, "task_runs": []},
+    )
+    runtime = SimpleNamespace(harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
+
+    token_usage = HealthGovernanceBuilder(runtime).build_token_usage(limit=10)
+    buckets = {int(item["bucket_start"]): item for item in token_usage["daily"]}
+
+    assert token_usage["tasks"][0]["token_total"] == 570
+    assert token_usage["summary"]["week_total_tokens"] == 570
+    assert buckets[int(day_one // 86400) * 86400]["tokens"] == 120
+    assert buckets[int(day_two // 86400) * 86400]["tokens"] == 450
+    assert buckets[today_start]["tokens"] == 0
+
+
 def test_health_token_usage_reads_prompt_accounting_summary_index_for_large_ledgers(tmp_path) -> None:
     now = time.time()
     task_run = TaskRun(

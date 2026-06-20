@@ -24,6 +24,7 @@ def _turn_runtime_gateway_signals(
         signal = dict(dict(event.payload or {}).get("signal") or {})
         if signal.get("signal_type") != signal_type:
             continue
+        signal["_event_id"] = str(event.event_id or "")
         signals.append(signal)
     return signals
 

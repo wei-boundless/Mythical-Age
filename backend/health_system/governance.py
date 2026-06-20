@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from runtime.prompt_accounting import TokenCounterRegistry
+from runtime.prompt_accounting import ModelTokenUsageRecord, PromptCacheRecord, TokenCounterRegistry
 from runtime.prompt_accounting.ledger import summarize_usage_records
 
 from .artifact_governance_view import HealthArtifactGovernanceViewBuilder
@@ -1046,7 +1046,7 @@ class HealthGovernanceBuilder:
         trace_total = sum(int(item.get("trace_estimate_token_total") or 0) for item in tasks)
         cached_total = sum(int(item.get("cached_tokens") or 0) for item in tasks)
         cache_savings_total = sum(int(item.get("cache_savings_tokens") or 0) for item in tasks)
-        daily = self._token_buckets(tasks, bucket_seconds=86400, bucket_count=7, label_mode="day")
+        daily = self._token_daily_buckets(tasks, bucket_seconds=86400, bucket_count=7, label_mode="day")
         week_total = sum(int(item.get("tokens") or 0) for item in daily)
         return {
             "authority": "health_system.governance.token_usage",
@@ -1094,9 +1094,195 @@ class HealthGovernanceBuilder:
                 reverse=True,
             )[:80],
             "daily": daily,
-            "note": "按 PromptAccounting 账本聚合：趋势只显示最近 7 天，summary.total_tokens 为当前账本总量；provider_usage 为精确消耗，local_prediction 为请求前预测，trace_estimate 只用于旧任务迁移回退。",
+            "note": "按 PromptAccounting 账本聚合：最近 7 天趋势优先按每条模型账本记录的 created_at 分日；provider_usage 为精确消耗，local_prediction 为请求前预测，trace_estimate 只用于无逐条账本的旧任务迁移回退。",
             "updated_at": self.now,
         }
+
+    def _token_daily_buckets(self, tasks: list[dict[str, Any]], *, bucket_seconds: int, bucket_count: int, label_mode: str) -> list[dict[str, Any]]:
+        ledger_daily = self._ledger_token_record_buckets(
+            bucket_seconds=bucket_seconds,
+            bucket_count=bucket_count,
+            label_mode=label_mode,
+        )
+        if ledger_daily is None:
+            return self._token_buckets(tasks, bucket_seconds=bucket_seconds, bucket_count=bucket_count, label_mode=label_mode)
+        fallback_tasks = [
+            task
+            for task in tasks
+            if not str(dict(task.get("record_refs") or {}).get("prompt_accounting") or "").strip()
+        ]
+        if not fallback_tasks:
+            return ledger_daily
+        return self._merge_token_buckets(
+            ledger_daily,
+            self._token_buckets(fallback_tasks, bucket_seconds=bucket_seconds, bucket_count=bucket_count, label_mode=label_mode),
+        )
+
+    def _ledger_token_record_buckets(self, *, bucket_seconds: int, bucket_count: int, label_mode: str) -> list[dict[str, Any]] | None:
+        timeline = self._ledger_token_timeline_records()
+        if timeline is None:
+            return None
+        usage_records, cache_records = timeline
+        return self._token_record_buckets(
+            usage_records,
+            cache_records=cache_records,
+            bucket_seconds=bucket_seconds,
+            bucket_count=bucket_count,
+            label_mode=label_mode,
+        )
+
+    def _ledger_token_timeline_records(self) -> tuple[list[ModelTokenUsageRecord], list[PromptCacheRecord]] | None:
+        ledger = self.prompt_accounting_ledger
+        if ledger is None:
+            return None
+        usage_records: list[ModelTokenUsageRecord] = []
+        cache_records: list[PromptCacheRecord] = []
+        list_payloads = getattr(ledger, "list_run_summary_payloads", None)
+        if callable(list_payloads):
+            try:
+                for payload in list(list_payloads(limit=500)):
+                    usage_records.extend(
+                        ModelTokenUsageRecord.from_dict(dict(item))
+                        for item in dict(payload.get("usage_records") or {}).values()
+                        if isinstance(item, dict)
+                    )
+                    cache_records.extend(
+                        PromptCacheRecord.from_dict(dict(item))
+                        for item in dict(payload.get("cache_records") or {}).values()
+                        if isinstance(item, dict)
+                    )
+            except Exception:
+                usage_records = []
+                cache_records = []
+        if usage_records or cache_records:
+            return usage_records, cache_records
+        reads_are_expensive = getattr(ledger, "scoped_reads_are_expensive", None)
+        if callable(reads_are_expensive):
+            try:
+                if bool(reads_are_expensive()):
+                    return None
+            except Exception:
+                return None
+        list_usage = getattr(ledger, "list_token_usage", None)
+        if not callable(list_usage):
+            return None
+        try:
+            usage_records = list(list_usage())
+        except Exception:
+            return None
+        list_cache = getattr(ledger, "list_prompt_cache", None)
+        try:
+            cache_records = list(list_cache()) if callable(list_cache) else []
+        except Exception:
+            cache_records = []
+        return usage_records, cache_records
+
+    def _token_record_buckets(
+        self,
+        usage_records: list[ModelTokenUsageRecord],
+        *,
+        cache_records: list[PromptCacheRecord],
+        bucket_seconds: int,
+        bucket_count: int,
+        label_mode: str,
+    ) -> list[dict[str, Any]]:
+        now_bucket = int(self.now // bucket_seconds) * bucket_seconds
+        starts = [now_bucket - bucket_seconds * index for index in range(bucket_count - 1, -1, -1)]
+        range_start = starts[0] if starts else now_bucket
+        range_end = (starts[-1] + bucket_seconds) if starts else (now_bucket + bucket_seconds)
+        buckets = {
+            start: {
+                "bucket": self._bucket_label(start, label_mode=label_mode),
+                "bucket_start": start,
+                "bucket_end": start + bucket_seconds,
+                "tokens": 0,
+                "exact_tokens": 0,
+                "predicted_tokens": 0,
+                "trace_estimate_tokens": 0,
+                "cache_savings_tokens": 0,
+                "records": 0,
+                "effective_records": 0,
+                "sessions": set(),
+            }
+            for start in starts
+        }
+        selected_by_request: dict[str, ModelTokenUsageRecord] = {}
+        source_rank = {"provider_usage": 3, "local_prediction": 2, "trace_estimate": 1}
+        for record in sorted(list(usage_records or []), key=lambda item: float(item.created_at or 0.0)):
+            created_at = float(record.created_at or 0.0)
+            if range_start <= created_at < range_end:
+                bucket = buckets.get(int(created_at // bucket_seconds) * bucket_seconds)
+                if bucket is not None:
+                    source = str(record.source or "")
+                    if source == "provider_usage":
+                        bucket["exact_tokens"] = int(bucket["exact_tokens"]) + int(record.total_tokens or 0)
+                    elif source == "local_prediction":
+                        bucket["predicted_tokens"] = int(bucket["predicted_tokens"]) + int(record.total_tokens or 0)
+                    elif source == "trace_estimate":
+                        bucket["trace_estimate_tokens"] = int(bucket["trace_estimate_tokens"]) + int(record.total_tokens or 0)
+                    bucket["records"] = int(bucket["records"]) + 1
+                    if record.session_id:
+                        bucket["sessions"].add(str(record.session_id))
+            request_key = str(record.request_id or record.usage_id or "").strip()
+            if not request_key:
+                continue
+            previous = selected_by_request.get(request_key)
+            previous_rank = source_rank.get(str(getattr(previous, "source", "") or ""), 0) if previous is not None else 0
+            current_rank = source_rank.get(str(record.source or ""), 0)
+            if previous is None or current_rank > previous_rank or (
+                current_rank == previous_rank and float(record.created_at or 0.0) >= float(previous.created_at or 0.0)
+            ):
+                selected_by_request[request_key] = record
+        for record in selected_by_request.values():
+            created_at = float(record.created_at or 0.0)
+            if not (range_start <= created_at < range_end):
+                continue
+            bucket = buckets.get(int(created_at // bucket_seconds) * bucket_seconds)
+            if bucket is None:
+                continue
+            bucket["tokens"] = int(bucket["tokens"]) + int(record.total_tokens or 0)
+            bucket["effective_records"] = int(bucket["effective_records"]) + 1
+            if record.session_id:
+                bucket["sessions"].add(str(record.session_id))
+        for record in list(cache_records or []):
+            created_at = float(record.created_at or 0.0)
+            if not (range_start <= created_at < range_end):
+                continue
+            bucket = buckets.get(int(created_at // bucket_seconds) * bucket_seconds)
+            if bucket is None:
+                continue
+            bucket["cache_savings_tokens"] = int(bucket["cache_savings_tokens"]) + int(record.cache_savings_tokens or 0)
+            if record.session_id:
+                bucket["sessions"].add(str(record.session_id))
+        rows: list[dict[str, Any]] = []
+        for start in starts:
+            bucket = dict(buckets[start])
+            bucket["sessions"] = len(set(bucket.get("sessions") or set()))
+            rows.append(bucket)
+        return rows
+
+    @staticmethod
+    def _merge_token_buckets(left: list[dict[str, Any]], right: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        by_start = {int(item.get("bucket_start") or 0): dict(item) for item in list(left or [])}
+        numeric_keys = (
+            "tokens",
+            "exact_tokens",
+            "predicted_tokens",
+            "trace_estimate_tokens",
+            "cache_savings_tokens",
+            "records",
+            "effective_records",
+            "sessions",
+        )
+        for item in list(right or []):
+            start = int(item.get("bucket_start") or 0)
+            target = by_start.get(start)
+            if target is None:
+                by_start[start] = dict(item)
+                continue
+            for key in numeric_keys:
+                target[key] = int(target.get(key) or 0) + int(item.get(key) or 0)
+        return [by_start[start] for start in sorted(by_start)]
 
     def _token_buckets(self, tasks: list[dict[str, Any]], *, bucket_seconds: int, bucket_count: int, label_mode: str) -> list[dict[str, Any]]:
         now_bucket = int(self.now // bucket_seconds) * bucket_seconds

@@ -78,7 +78,8 @@ class RuntimeStreamReplayService:
         for event in self.list_public_events(run):
             payload = dict(event.payload or {})
             data = dict(payload.get("data") or {})
-            data = _data_with_sanitized_public_projection_frame(data)
+            public_event_type = str(payload.get("public_event_type") or "message").strip() or "message"
+            data = sanitize_public_stream_event_data_for_replay(public_event_type, data)
             records.append(
                 {
                     "stream_run_id": run.stream_run_id,
@@ -86,7 +87,7 @@ class RuntimeStreamReplayService:
                     "event_id": event.event_id,
                     "event_offset": event.offset,
                     "created_at": event.created_at,
-                    "public_event_type": str(payload.get("public_event_type") or "message").strip() or "message",
+                    "public_event_type": public_event_type,
                     "terminal": bool(payload.get("terminal") is True),
                     "data": data,
                     "public_projection_frame": dict(data.get("public_projection_frame") or {})
@@ -106,7 +107,7 @@ class RuntimeStreamReplayService:
         payload = dict(event.payload or {})
         event_name = str(payload.get("public_event_type") or "message").strip() or "message"
         data = dict(payload.get("data") or {})
-        data = _data_with_sanitized_public_projection_frame(data)
+        data = sanitize_public_stream_event_data_for_replay(event_name, data)
         diagnostics = data.get("diagnostics") if isinstance(data.get("diagnostics"), dict) else {}
         data.update(
             {
@@ -210,6 +211,11 @@ def sanitized_public_projection_frame(frame: dict[str, Any] | None) -> dict[str,
     return sanitized
 
 
+def sanitize_public_stream_event_data_for_replay(public_event_type: str, data: dict[str, Any]) -> dict[str, Any]:
+    payload = _data_with_sanitized_public_projection_frame(dict(data or {}))
+    return _data_with_sanitized_runtime_control_signal(public_event_type, payload)
+
+
 def _data_with_sanitized_public_projection_frame(data: dict[str, Any]) -> dict[str, Any]:
     frame = data.get("public_projection_frame")
     if not isinstance(frame, dict):
@@ -218,6 +224,41 @@ def _data_with_sanitized_public_projection_frame(data: dict[str, Any]) -> dict[s
     if sanitized == frame:
         return data
     return {**data, "public_projection_frame": sanitized}
+
+
+def _data_with_sanitized_runtime_control_signal(event_name: str, data: dict[str, Any]) -> dict[str, Any]:
+    if str(event_name or "").strip() not in {
+        "turn_runtime_control_signal_observed",
+        "task_runtime_control_signal_observed",
+    }:
+        return data
+    signal = _public_runtime_control_signal_index(data.get("runtime_control_signal"))
+    if signal:
+        return {**data, "runtime_control_signal": signal}
+    if "runtime_control_signal" not in data:
+        return data
+    payload = dict(data)
+    payload.pop("runtime_control_signal", None)
+    return payload
+
+
+def _public_runtime_control_signal_index(value: Any) -> dict[str, str]:
+    signal = dict(value) if isinstance(value, dict) else {}
+    if not signal:
+        return {}
+    index: dict[str, str] = {}
+    for source_key, target_key in (
+        ("runtime_control_signal_ref", "runtime_control_signal_ref"),
+        ("signal_ref", "runtime_control_signal_ref"),
+        ("signal_id", "runtime_control_signal_ref"),
+        ("signal_kind", "signal_kind"),
+        ("kind", "signal_kind"),
+        ("control_kind", "signal_kind"),
+    ):
+        text = str(signal.get(source_key) or "").strip()
+        if text and target_key not in index:
+            index[target_key] = text
+    return index
 
 
 def _is_legacy_protocol_repair_public_frame(frame: dict[str, Any]) -> bool:

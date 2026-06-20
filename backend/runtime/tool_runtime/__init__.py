@@ -8,6 +8,7 @@ from runtime.tool_runtime.tool_control_plane import RuntimeToolControlPlane
 from runtime.tool_runtime.tool_executor import ToolRuntimeExecutor
 from runtime.tool_runtime.tool_invocation_request import ToolInvocationRequest
 from runtime.tool_runtime.tool_invocation_control import (
+    ToolInvocationAlreadyStartedError,
     ToolInvocationContext,
     ToolInvocationControlRegistry,
     ToolInvocationRecord,
@@ -31,6 +32,7 @@ __all__ = [
     "RuntimeToolControlPlane",
     "ToolPermissionResult",
     "ToolInvocationRequest",
+    "ToolInvocationAlreadyStartedError",
     "ToolInvocationContext",
     "ToolInvocationControlRegistry",
     "ToolInvocationRecord",

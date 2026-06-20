@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from harness.graph.lifecycle_manager import GraphTaskLifecycleManager
-from harness.loop.task_run_execution_control import request_executor_stop
+from harness.loop.task_run_execution_control import executor_control_signal_effect, request_executor_control_signal
 
 
 class TaskRecordLifecycleNotFound(LookupError):
@@ -103,7 +103,7 @@ class TaskRecordLifecycleManager:
     ) -> dict[str, Any]:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "")
         session_id = str(getattr(task_run, "session_id", "") or "")
-        self._stop_executors({task_run_id})
+        executor_stop = self._stop_executors({task_run_id}, reason="task_record_deleted")
         tombstone = self.host.state_index.mark_task_run_deleted(task_run_id)
         cancel = await self.host.cancel_background_tasks(
             names=_executor_task_names({task_run_id}),
@@ -122,6 +122,7 @@ class TaskRecordLifecycleManager:
             "task_run_id": task_run_id,
             "session_id": session_id,
             "tombstone": tombstone,
+            "executor_stop": executor_stop,
             "cancel_background_tasks": cancel,
             "active_turn": active_turn,
         }
@@ -156,7 +157,7 @@ class TaskRecordLifecycleManager:
             for item in list(manager.preview_delete_graph_run(graph_run_id).get("task_run_ids") or [])
             if str(item).strip()
         } | {task_run_id}
-        self._stop_executors(task_run_ids)
+        executor_stop = self._stop_executors(task_run_ids, reason="task_record_deleted")
         await self.host.cancel_background_tasks(names=_executor_task_names(task_run_ids), reason="graph_root_task_record_deleted")
         manager.delete_graph_run(graph_run_id)
         return {
@@ -165,6 +166,7 @@ class TaskRecordLifecycleManager:
             "task_run_id": task_run_id,
             "graph_run_id": graph_run_id,
             "task_run_ids": sorted(task_run_ids),
+            "executor_stop": executor_stop,
             "deleted": True,
         }
 
@@ -177,14 +179,34 @@ class TaskRecordLifecycleManager:
             return root_task_run_id == task_run_id
         return str(dict(self.graph_harness.get_checkpoint_state(graph_run_id) or {}).get("task_run_id") or "").strip() == task_run_id
 
-    def _stop_executors(self, task_run_ids: set[str]) -> None:
+    def _stop_executors(self, task_run_ids: set[str], *, reason: str) -> dict[str, Any]:
+        accepted: list[str] = []
+        signals: list[dict[str, Any]] = []
+        failed: list[str] = []
         for task_run_id in task_run_ids:
-            request_executor_stop(
+            signal = request_executor_control_signal(
                 self.host,
                 task_run_id=task_run_id,
-                reason="task_record_deleted",
+                kind="stop",
+                reason=reason,
                 requested_by="task_record_lifecycle",
+                unavailable_reason=reason,
             )
+            if signal is None:
+                failed.append(task_run_id)
+                continue
+            if signal.signal_id:
+                accepted.append(task_run_id)
+                signals.append(executor_control_signal_effect(signal))
+            else:
+                failed.append(task_run_id)
+        return {
+            "authority": f"{self.authority}.executor_stop",
+            "requested_task_run_ids": sorted(task_run_ids),
+            "accepted_task_run_ids": sorted(accepted),
+            "control_signals": sorted(signals, key=lambda item: str(item.get("task_run_id") or "")),
+            "failed_task_run_ids": sorted(failed),
+        }
 
 
 def _origin_kind(diagnostics: dict[str, Any]) -> str:

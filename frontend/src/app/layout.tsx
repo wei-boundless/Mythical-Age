@@ -2,20 +2,13 @@ import type { Metadata } from "next";
 
 import "./globals.css";
 import "../styles/00-foundation.css";
-import "../styles/01-chat-workbench.css";
-import "../styles/02-memory.css";
-import "../styles/03-orchestration-and-controls.css";
-import "../styles/04-workspace-shell-base.css";
-import "../styles/05-capability-system.css";
-import "../styles/06-system-config.css";
-import "../styles/07-health-system.css";
-import "../styles/08-orchestration-console.css";
-import "../styles/09-practical-workspace-shell.css";
-import "../styles/10-console-unification.css";
-import "../styles/11-final-chat-workbench.css";
-import "../styles/12-soft-agent-console.css";
-import "../styles/13-graph-foreground.css";
-import "../styles/14-crisp-agent-console.css";
+import "../styles/01-theme-templates.css";
+import "../styles/02-workbench-shell.css";
+import "../styles/03-workbench-primitives.css";
+import "../styles/04-chat-workbench.css";
+import "../styles/05-system-pages.css";
+import "../styles/06-task-workbench.css";
+import "../styles/07-agent-management.css";
 
 export const metadata: Metadata = {
   title: "Mythical Age | 洪荒智能",
@@ -33,7 +26,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN">
+    <html data-workbench-density="standard" data-workbench-theme="clean-light" lang="zh-CN" suppressHydrationWarning>
       <body>{children}</body>
     </html>
   );

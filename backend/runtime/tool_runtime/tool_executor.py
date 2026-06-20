@@ -18,6 +18,7 @@ from runtime.tool_runtime.sandbox_backend import DEFAULT_SIDE_EFFECT_TOOL_NAMES,
 from runtime.tool_runtime.native_tools import build_native_runtime_tool
 from runtime.tool_runtime.tool_adapter import RuntimeToolAdapter
 from runtime.tool_runtime.tool_invocation_control import (
+    ToolInvocationAlreadyStartedError,
     ToolInvocationContext,
     build_tool_invocation_id,
     build_tool_invocation_idempotency_key,
@@ -614,21 +615,46 @@ class ToolRuntimeExecutor:
         try:
             registry = registry_for(getattr(self.tool_runtime, "runtime_host", None))
             if registry is not None:
-                registry.start(
-                    tool_invocation_id=invocation_context.tool_invocation_id,
-                    caller_kind=invocation_context.caller_kind,
-                    caller_ref=invocation_context.caller_ref,
-                    agent_run_id=invocation_context.agent_run_id,
-                    run_cell_id=invocation_context.run_cell_id,
-                    session_id=invocation_context.session_id,
-                    turn_id=invocation_context.turn_id,
-                    task_run_id=invocation_context.task_run_id,
-                    tool_name=tool_name,
-                    tool_args=tool_args,
-                    tool_call_id=tool_call_id,
-                    idempotency_key=invocation_context.idempotency_key,
-                    diagnostics={"action_request_ref": action_request.request_id, "directive_ref": directive.directive_id},
-                )
+                try:
+                    registry.start(
+                        tool_invocation_id=invocation_context.tool_invocation_id,
+                        caller_kind=invocation_context.caller_kind,
+                        caller_ref=invocation_context.caller_ref,
+                        agent_run_id=invocation_context.agent_run_id,
+                        run_cell_id=invocation_context.run_cell_id,
+                        session_id=invocation_context.session_id,
+                        turn_id=invocation_context.turn_id,
+                        task_run_id=invocation_context.task_run_id,
+                        tool_name=tool_name,
+                        tool_args=tool_args,
+                        tool_call_id=tool_call_id,
+                        idempotency_key=invocation_context.idempotency_key,
+                        diagnostics={"action_request_ref": action_request.request_id, "directive_ref": directive.directive_id},
+                    )
+                except ToolInvocationAlreadyStartedError as exc:
+                    error = "tool_invocation_already_started"
+                    return {
+                        "observation": build_tool_execution_error_observation(
+                            task_run_id=task_run_id,
+                            request_ref=action_request.request_id,
+                            directive_ref=directive.directive_id,
+                            tool_name=tool_name,
+                            tool_call_id=tool_call_id,
+                            tool_args=tool_args,
+                            error=error,
+                            execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
+                            failure_kind="duplicate_tool_invocation",
+                            error_code=error,
+                            repair_instruction="Use a new tool invocation id after reconciling the in-flight or terminal tool call.",
+                            diagnostics={
+                                "tool_invocation_id": exc.tool_invocation_id,
+                                "existing_status": exc.status,
+                                "authority": "runtime.tool_invocation_control",
+                            },
+                        ),
+                        "execution_record": current_record,
+                        "recoverable_error": error,
+                    }
             envelope = await _call_runtime_tool_with_control(
                 runtime_tool,
                 tool_args,
@@ -1022,21 +1048,38 @@ class ToolRuntimeExecutor:
         try:
             registry = registry_for(getattr(self.tool_runtime, "runtime_host", None))
             if registry is not None:
-                registry.start(
-                    tool_invocation_id=invocation_context.tool_invocation_id,
-                    caller_kind=invocation_context.caller_kind,
-                    caller_ref=invocation_context.caller_ref,
-                    agent_run_id=invocation_context.agent_run_id,
-                    run_cell_id=invocation_context.run_cell_id,
-                    session_id=invocation_context.session_id,
-                    turn_id=invocation_context.turn_id,
-                    task_run_id=invocation_context.task_run_id,
-                    tool_name=tool_name,
-                    tool_args=tool_args,
-                    tool_call_id=tool_call_id,
-                    idempotency_key=invocation_context.idempotency_key,
-                    diagnostics={"operation_id": operation_id, "core_dispatch": True},
-                )
+                try:
+                    registry.start(
+                        tool_invocation_id=invocation_context.tool_invocation_id,
+                        caller_kind=invocation_context.caller_kind,
+                        caller_ref=invocation_context.caller_ref,
+                        agent_run_id=invocation_context.agent_run_id,
+                        run_cell_id=invocation_context.run_cell_id,
+                        session_id=invocation_context.session_id,
+                        turn_id=invocation_context.turn_id,
+                        task_run_id=invocation_context.task_run_id,
+                        tool_name=tool_name,
+                        tool_args=tool_args,
+                        tool_call_id=tool_call_id,
+                        idempotency_key=invocation_context.idempotency_key,
+                        diagnostics={"operation_id": operation_id, "core_dispatch": True},
+                    )
+                except ToolInvocationAlreadyStartedError as exc:
+                    error = "tool_invocation_already_started"
+                    return _core_error_result(
+                        invocation_context,
+                        tool_name=tool_name,
+                        tool_args=tool_args,
+                        operation_id=operation_id or expected_operation_id,
+                        text=error,
+                        recoverable_error=error,
+                        sandbox=sandbox_context.to_dict() if sandbox_context else {},
+                        diagnostics={
+                            "tool_invocation_id": exc.tool_invocation_id,
+                            "existing_status": exc.status,
+                            "authority": "runtime.tool_invocation_control",
+                        },
+                    )
             envelope = await _call_runtime_tool_with_control(
                 runtime_tool,
                 tool_args,

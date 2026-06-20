@@ -89,8 +89,16 @@ def _gateway_signal_event(
     created_at: float,
     signal_id: str,
     signal_payload: dict,
-    event_type: str = "runtime_control_signal_observed",
+    event_type: str = "runtime_control_signal_published",
 ) -> dict:
+    consumption_state = "pending"
+    consumed_by = ""
+    if event_type == "runtime_control_signal_observed":
+        consumption_state = "observed"
+        consumed_by = "test.session_timeline"
+    elif event_type == "runtime_control_signal_consumed":
+        consumption_state = "consumed"
+        consumed_by = "test.session_timeline"
     return {
         "event_id": event_id,
         "event_type": event_type,
@@ -105,8 +113,8 @@ def _gateway_signal_event(
                 "source_authority": "test.session_timeline",
                 "payload": dict(signal_payload),
                 "visibility": "runtime_private",
-                "consumption_state": "observed",
-                "consumed_by": "test.session_timeline",
+                "consumption_state": consumption_state,
+                "consumed_by": consumed_by,
                 "causation_id": "",
                 "correlation_id": "",
                 "created_at": created_at,
@@ -1044,6 +1052,75 @@ def test_turn_recovery_required_ignores_diagnostics_only_signal() -> None:
     timeline = build_session_runtime_timeline(
         session_id="session-a",
         history={"messages": [{"role": "user", "content": "继续", "turn_id": "turn:session-a:4"}]},
+        runtime_host=runtime_host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+
+    assert "runtime_control_signal" not in attachment
+
+
+def test_turn_recovery_required_ignores_derived_gateway_signal_without_published_source() -> None:
+    turn_run_id = "turnrun:turn:session-a:5"
+    signal = {
+        "signal_kind": "agent_closeout_recovery_required",
+        "runtime_control_state": "agent_recovery_required",
+        "reason": "derived_only",
+    }
+    turn_run = SimpleNamespace(
+        turn_run_id=turn_run_id,
+        session_id="session-a",
+        turn_id="turn:session-a:5",
+        status="failed",
+        terminal_reason="single_turn_tool_iteration_limit",
+        created_at=10.0,
+        updated_at=11.0,
+        latest_event_offset=3,
+        diagnostics={},
+    )
+    runtime_host = _runtime_host(
+        task_runs=[],
+        turn_runs=[turn_run],
+        events_by_run={
+            turn_run_id: [
+                _gateway_signal_event(
+                    event_id="event:turn:observed-derived-only",
+                    run_id=turn_run_id,
+                    offset=1,
+                    created_at=10.2,
+                    signal_id="turnsig:derived-only:test",
+                    signal_payload=signal,
+                    event_type="runtime_control_signal_observed",
+                ),
+                _gateway_signal_event(
+                    event_id="event:turn:consumed-derived-only",
+                    run_id=turn_run_id,
+                    offset=2,
+                    created_at=10.4,
+                    signal_id="turnsig:derived-only:test",
+                    signal_payload=signal,
+                    event_type="runtime_control_signal_consumed",
+                ),
+                {
+                    "event_id": "event:turn:derived-only-terminal",
+                    "event_type": "agent_turn_terminal",
+                    "run_id": turn_run_id,
+                    "offset": 3,
+                    "created_at": 11.0,
+                    "payload": {
+                        "turn_id": "turn:session-a:5",
+                        "status": "failed",
+                        "terminal_reason": "single_turn_tool_iteration_limit",
+                    },
+                    "refs": {"turn_ref": "turn:session-a:5"},
+                },
+            ]
+        },
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id="session-a",
+        history={"messages": [{"role": "user", "content": "继续", "turn_id": "turn:session-a:5"}]},
         runtime_host=runtime_host,
     )
 

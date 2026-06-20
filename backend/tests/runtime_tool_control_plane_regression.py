@@ -10,6 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from harness.runtime import build_runtime_tool_plan
+from harness.runtime.control_events import RuntimeSignalScope
 from harness.runtime.runtime_gateway import RuntimeGateway
 from harness.loop.task_tool_approval import (
     append_task_tool_approval_grant,
@@ -713,6 +714,7 @@ def test_runtime_tool_control_plane_publishes_task_run_tool_lifecycle_signals(tm
         assert payload["authority"] == "runtime.tool_runtime.tool_control_plane"
     assert signals[0]["payload"]["decision"] == "allow"
     assert signals[1]["payload"]["handler_id"] == "task_tool_runtime"
+    assert str(dict(signals[1]["payload"])["execution_attempt_ref"]).startswith("toolexec-attempt:toolinvoke:task:gateway-read:")
     assert signals[2]["payload"]["handler_id"] == "task_tool_runtime"
     assert signals[2]["payload"]["status"] == "ok"
     assert signals[2]["payload"]["observation_ref"] == observation.observation_id
@@ -727,6 +729,142 @@ def test_runtime_tool_control_plane_publishes_task_run_tool_lifecycle_signals(tm
     assert replayed.diagnostics["requires_new_invocation_id"] is True
     assert executor.run_calls == 1
     assert len(_runtime_gateway_signals(event_log, "taskrun:gateway-read")) == 3
+
+
+def test_runtime_tool_control_plane_rejects_inflight_duplicate_invocation(tmp_path: Path) -> None:
+    gate = _AllowingGate()
+    executor = _RecordingToolExecutor()
+    event_log = RuntimeEventLog(tmp_path)
+    runtime_host = SimpleNamespace(
+        execution_store=None,
+        backend_dir=BACKEND_DIR,
+        runtime_gateway=RuntimeGateway(event_log),
+        tool_authorization_index=SimpleNamespace(
+            definitions_by_name={"write_file": SimpleNamespace(operation_id="op.write_file", is_read_only=False)}
+        ),
+    )
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"tool_name": "write_file", "operation_id": "op.write_file", "read_only": False}]),
+        invocation_kind="task_execution",
+        tool_definitions_by_name={"write_file": SimpleNamespace(operation_id="op.write_file", is_read_only=False)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:task:gateway-inflight",
+        caller_kind="task_run",
+        caller_ref="taskrun:gateway-inflight",
+        session_id="session:gateway-inflight",
+        turn_id="turn:gateway-inflight:1",
+        task_run_id="taskrun:gateway-inflight",
+        agent_run_id="agrun:gateway-inflight",
+        run_cell_id="runcell:gateway-inflight",
+        action_request_ref="action:gateway-inflight",
+        packet_ref="packet:gateway-inflight",
+        tool_name="write_file",
+        tool_call_id="call:gateway-inflight",
+        tool_args={"path": "reports/summary.md", "content": "one write only"},
+        operation_id="op.write_file",
+        action_permit=_permit(
+            action_request_ref="action:gateway-inflight",
+            invocation_kind="task_execution",
+            tool_name="write_file",
+            operation_id="op.write_file",
+            read_only=False,
+            session_id="session:gateway-inflight",
+            turn_id="turn:gateway-inflight:1",
+            task_run_id="taskrun:gateway-inflight",
+        ),
+        requested_constraints={"runtime_host": runtime_host},
+    )
+    runtime_host.runtime_gateway.publish(
+        "taskrun:gateway-inflight",
+        signal_type="tool.execution.started",
+        signal_id="toolexec:toolinvoke:task:gateway-inflight:started",
+        scope=RuntimeSignalScope(
+            session_id="session:gateway-inflight",
+            task_run_id="taskrun:gateway-inflight",
+            agent_run_id="agrun:gateway-inflight",
+            run_cell_id="runcell:gateway-inflight",
+        ),
+        source_authority="test.inflight_tool_lifecycle",
+        payload={
+            "tool_invocation_id": "toolinvoke:task:gateway-inflight",
+            "tool_call_id": "call:gateway-inflight",
+            "handler_id": "task_tool_runtime",
+            "directive_ref": "runtime-directive:taskrun:gateway-inflight:tool:action:gateway-inflight",
+        },
+    )
+
+    observation = asyncio.run(RuntimeToolControlPlane(tool_runtime_executor=executor, operation_gate=gate).invoke(request, tool_plan=plan))
+    signals = _runtime_gateway_signals(event_log, "taskrun:gateway-inflight")
+
+    assert observation.status == "error"
+    assert observation.text == "tool_lifecycle_duplicate_invocation_in_progress"
+    assert observation.diagnostics["started_signal_ref"] == "toolexec:toolinvoke:task:gateway-inflight:started"
+    assert observation.diagnostics["requires_new_invocation_id"] is True
+    assert executor.run_calls == 0
+    assert [signal["signal_type"] for signal in signals].count("tool.execution.started") == 1
+    assert [signal["signal_type"] for signal in signals].count("tool.execution.completed") == 0
+
+
+def test_runtime_tool_control_plane_rejects_started_lock_lost_race(tmp_path: Path) -> None:
+    gate = _AllowingGate()
+    executor = _RecordingToolExecutor()
+    event_log = RuntimeEventLog(tmp_path)
+    runtime_host = SimpleNamespace(
+        execution_store=None,
+        backend_dir=BACKEND_DIR,
+        runtime_gateway=_RaceStartedRuntimeGateway(event_log, competing_attempt_ref="toolexec-attempt:other-thread"),
+        tool_authorization_index=SimpleNamespace(
+            definitions_by_name={"write_file": SimpleNamespace(operation_id="op.write_file", is_read_only=False)}
+        ),
+    )
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"tool_name": "write_file", "operation_id": "op.write_file", "read_only": False}]),
+        invocation_kind="task_execution",
+        tool_definitions_by_name={"write_file": SimpleNamespace(operation_id="op.write_file", is_read_only=False)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:task:gateway-start-race",
+        caller_kind="task_run",
+        caller_ref="taskrun:gateway-start-race",
+        session_id="session:gateway-start-race",
+        turn_id="turn:gateway-start-race:1",
+        task_run_id="taskrun:gateway-start-race",
+        agent_run_id="agrun:gateway-start-race",
+        run_cell_id="runcell:gateway-start-race",
+        action_request_ref="action:gateway-start-race",
+        packet_ref="packet:gateway-start-race",
+        tool_name="write_file",
+        tool_call_id="call:gateway-start-race",
+        tool_args={"path": "reports/summary.md", "content": "one write only"},
+        operation_id="op.write_file",
+        action_permit=_permit(
+            action_request_ref="action:gateway-start-race",
+            invocation_kind="task_execution",
+            tool_name="write_file",
+            operation_id="op.write_file",
+            read_only=False,
+            session_id="session:gateway-start-race",
+            turn_id="turn:gateway-start-race:1",
+            task_run_id="taskrun:gateway-start-race",
+        ),
+        requested_constraints={"runtime_host": runtime_host},
+    )
+
+    observation = asyncio.run(RuntimeToolControlPlane(tool_runtime_executor=executor, operation_gate=gate).invoke(request, tool_plan=plan))
+    signals = _runtime_gateway_signals(event_log, "taskrun:gateway-start-race")
+
+    assert observation.status == "error"
+    assert observation.text == "tool_lifecycle_duplicate_invocation_in_progress"
+    assert observation.diagnostics["start_lock_acquired"] is False
+    assert observation.diagnostics["started_execution_attempt_ref"] == "toolexec-attempt:other-thread"
+    assert str(observation.diagnostics["execution_attempt_ref"]).startswith("toolexec-attempt:toolinvoke:task:gateway-start-race:")
+    assert executor.run_calls == 0
+    assert [signal["signal_type"] for signal in signals] == [
+        "tool.permission.decided",
+        "tool.execution.started",
+    ]
+    assert [signal["signal_type"] for signal in signals].count("tool.execution.completed") == 0
 
 
 def test_runtime_tool_control_plane_permission_denial_publishes_no_execution_lifecycle(tmp_path: Path) -> None:
@@ -2147,6 +2285,59 @@ def _runtime_gateway_signals(event_log: RuntimeEventLog, run_id: str) -> list[di
         for event in event_log.list_events(run_id)
         if event.event_type == "runtime_control_signal_published"
     ]
+
+
+class _RaceStartedRuntimeGateway:
+    def __init__(self, event_log: RuntimeEventLog, *, competing_attempt_ref: str) -> None:
+        self.inner = RuntimeGateway(event_log)
+        self.competing_attempt_ref = competing_attempt_ref
+
+    def signal_by_id(self, run_id: str, *, signal_id: str):
+        return self.inner.signal_by_id(run_id, signal_id=signal_id)
+
+    def publish(
+        self,
+        run_id: str,
+        *,
+        signal_type: str,
+        signal_id: str = "",
+        scope=None,
+        source_authority: str = "",
+        payload: dict[str, object] | None = None,
+        visibility: str = "runtime_private",
+        causation_id: str = "",
+        correlation_id: str = "",
+        refs: dict[str, object] | None = None,
+    ):
+        if signal_type == "tool.execution.started":
+            competing_payload = {
+                **dict(payload or {}),
+                "execution_attempt_ref": self.competing_attempt_ref,
+            }
+            return self.inner.publish(
+                run_id,
+                signal_type=signal_type,
+                signal_id=signal_id,
+                scope=scope,
+                source_authority=source_authority,
+                payload=competing_payload,
+                visibility=visibility,
+                causation_id=causation_id,
+                correlation_id=correlation_id,
+                refs=refs,
+            )
+        return self.inner.publish(
+            run_id,
+            signal_type=signal_type,
+            signal_id=signal_id,
+            scope=scope,
+            source_authority=source_authority,
+            payload=payload,
+            visibility=visibility,
+            causation_id=causation_id,
+            correlation_id=correlation_id,
+            refs=refs,
+        )
 
 
 class _GatewayRejectingApprovalConsumed:

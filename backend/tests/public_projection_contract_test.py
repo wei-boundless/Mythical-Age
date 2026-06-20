@@ -814,6 +814,115 @@ def test_assistant_final_and_protocol_feedback_projection_do_not_cross_body_chan
     assert "OCR 已读取题目" not in str(protocol_frame)
 
 
+def test_runtime_control_observation_public_replay_keeps_only_signal_index() -> None:
+    for event_type in ("turn_runtime_control_signal_observed", "task_runtime_control_signal_observed"):
+        run = RuntimeRun(
+            stream_run_id=f"strun:{event_type}",
+            session_id="session:test",
+            event_log_id=f"chatrun:{event_type}",
+            root_request_ref="chatreq:test",
+            status="running",
+            created_at=1.0,
+            updated_at=1.0,
+            latest_event_offset=-1,
+        )
+        registry = _RegistrySpy()
+        replay = _ReplaySpy()
+
+        _append_chat_public_event(
+            registry=registry,
+            replay=replay,
+            current=run,
+            public_event_type=event_type,
+            data={
+                "runtime_event_id": f"rtevt:{event_type}:1",
+                "turn_run_id": "turnrun:test",
+                "task_run_id": "taskrun:test",
+                "runtime_control_signal": {
+                    "runtime_control_signal_ref": "rtsig:protocol",
+                    "signal_kind": "model_protocol_violation",
+                    "protocol_error": {
+                        "code": "single_agent_turn_invalid_json_action",
+                        "raw_model_output": "{\"action_type\":\"tool_call\",\"args\":{\"secret\":\"runtime-private\"}}",
+                    },
+                    "closeout_instruction": "Do not expose this internal repair prompt.",
+                },
+            },
+            session_id="session:test",
+            projection_lifecycle=ProjectionLifecycleState(),
+        )
+
+        replay_data = replay.append_public_event_calls[0]["data"]
+        signal = replay_data["runtime_control_signal"]
+        frame = replay_data["public_projection_frame"]
+
+        assert signal == {
+            "runtime_control_signal_ref": "rtsig:protocol",
+            "signal_kind": "model_protocol_violation",
+        }
+        assert "protocol_error" not in str(replay_data)
+        assert "closeout_instruction" not in str(replay_data)
+        assert frame["slot"] == "trace"
+        assert frame["main_visibility"] == "hidden"
+
+
+def test_runtime_control_observation_replay_read_path_sanitizes_legacy_payload() -> None:
+    run = RuntimeRun(
+        stream_run_id="strun:legacy",
+        session_id="session:test",
+        event_log_id="chatrun:legacy",
+        root_request_ref="chatreq:test",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+        latest_event_offset=0,
+    )
+    event = RuntimeEvent(
+        event_id="rtevt:legacy:0",
+        run_id="chatrun:legacy",
+        event_type="chat_stream_event",
+        offset=0,
+        created_at=1.0,
+        payload={
+            "stream_run_id": "strun:legacy",
+            "public_event_type": "turn_runtime_control_signal_observed",
+            "terminal": False,
+            "data": {
+                "turn_run_id": "turnrun:test",
+                "runtime_control_signal": {
+                    "runtime_control_signal_ref": "rtsig:legacy",
+                    "signal_kind": "agent_closeout_recovery_required",
+                    "protocol_error": {"raw_model_output": "private model output"},
+                    "closeout_instruction": "private closeout instruction",
+                },
+                "public_projection_frame": {
+                    "op": "item_upsert",
+                    "slot": "status",
+                    "status_kind": "protocol_repair_status",
+                    "title": "private title",
+                    "detail": "private detail",
+                },
+            },
+        },
+        refs={},
+    )
+    service = RuntimeStreamReplayService(SimpleNamespace(list_events=lambda _run_id: [event]))
+
+    envelope = service.to_public_envelope(run, event)
+    records = service.list_public_event_records(run)
+
+    assert envelope["data"]["runtime_control_signal"] == {
+        "runtime_control_signal_ref": "rtsig:legacy",
+        "signal_kind": "agent_closeout_recovery_required",
+    }
+    assert records[0]["data"]["runtime_control_signal"] == envelope["data"]["runtime_control_signal"]
+    assert envelope["public_projection_frame"]["slot"] == "trace"
+    assert "protocol_error" not in str(envelope)
+    assert "closeout_instruction" not in str(envelope)
+    assert "private model output" not in str(records)
+    assert "private closeout instruction" not in str(records)
+
+
 def test_runtime_step_summary_never_directly_projects_as_assistant_body() -> None:
     frame = _frame(
         "runtime_step_summary",

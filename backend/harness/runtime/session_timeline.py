@@ -5,8 +5,6 @@ from typing import Any
 from .control_events import runtime_signal_from_event_payload
 from .event_query import list_runtime_events, runtime_event_count
 from .runtime_gateway import (
-    CONTROL_SIGNAL_CONSUMED_EVENT,
-    CONTROL_SIGNAL_OBSERVED_EVENT,
     CONTROL_SIGNAL_PUBLISHED_EVENT,
 )
 from .session_output_commit_projection import project_session_output_commit_state
@@ -785,11 +783,7 @@ def _turn_recovery_control_signal(*, events: list[dict[str, Any]]) -> dict[str, 
 
 
 def _runtime_gateway_signal_payload(event: dict[str, Any]) -> dict[str, Any]:
-    if str(event.get("event_type") or "") not in {
-        CONTROL_SIGNAL_PUBLISHED_EVENT,
-        CONTROL_SIGNAL_OBSERVED_EVENT,
-        CONTROL_SIGNAL_CONSUMED_EVENT,
-    }:
+    if str(event.get("event_type") or "") != CONTROL_SIGNAL_PUBLISHED_EVENT:
         return {}
     signal = runtime_signal_from_event_payload(_dict_record(event.get("payload")))
     if signal is None or signal.signal_type != "control.signal.requested":

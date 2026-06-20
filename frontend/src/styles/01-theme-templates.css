@@ -1,6 +1,6 @@
-:root {
-  --font-display: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Source Han Sans SC", "Noto Sans SC", system-ui, sans-serif;
-  --font-mono: "Cascadia Mono", "Consolas", "SFMono-Regular", monospace;
+:root,
+:root[data-workbench-theme="clean-light"] {
+  color-scheme: light;
   --console-bg: #f3f6f9;
   --console-bg-raised: #f8fafc;
   --console-surface: #ffffff;
@@ -27,17 +27,61 @@
   --console-danger-soft: #fff0ee;
   --console-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   --console-shadow-soft: 0 1px 1px rgba(15, 23, 42, 0.035);
-  --console-radius-sm: 9px;
-  --console-radius-md: 11px;
-  --console-radius-lg: 14px;
-  --console-radius-xl: 16px;
+}
+
+:root[data-workbench-theme="focus-dark"] {
+  color-scheme: dark;
+  --console-bg: #0f1720;
+  --console-bg-raised: #111c27;
+  --console-surface: #17212d;
+  --console-surface-muted: #1d2a37;
+  --console-surface-strong: #263544;
+  --console-hover: #203147;
+  --console-selected: #233957;
+  --console-line: #334556;
+  --console-line-soft: #263646;
+  --console-line-strong: #506579;
+  --console-active-ring: #3d628d;
+  --console-text: #edf4ff;
+  --console-text-soft: #d6e0ea;
+  --console-muted: #a7b6c7;
+  --console-faint: #8091a4;
+  --console-accent: #7fb2ff;
+  --console-accent-hover: #a8ccff;
+  --console-accent-soft: #1e3654;
+  --console-success: #75d6b3;
+  --console-success-soft: #17382f;
+  --console-warning: #f1c46b;
+  --console-warning-soft: #3d3017;
+  --console-danger: #ff9b91;
+  --console-danger-soft: #44201f;
+  --console-shadow: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --console-shadow-soft: 0 1px 1px rgba(0, 0, 0, 0.18);
+}
+
+:root[data-workbench-density="standard"] {
   --console-panel-gap: 10px;
   --console-panel-padding: 12px;
   --console-list-row: 52px;
   --console-control-height: 38px;
-  --console-font-size-ui: 14px;
-  --console-font-size-page: 15px;
-  --console-font-size-body: 16px;
+}
+
+:root[data-workbench-density="compact"] {
+  --console-panel-gap: 7px;
+  --console-panel-padding: 9px;
+  --console-list-row: 46px;
+  --console-control-height: 34px;
+}
+
+:root,
+.system-page-shell,
+.agent-workbench,
+.workspace-view,
+.boundary-console,
+.task-system-boundary,
+.capability-system-console,
+.health-system-workbench,
+.system-config-workbench {
   --workbench-bg: var(--console-bg);
   --workbench-surface: var(--console-surface);
   --workbench-surface-soft: var(--console-surface-muted);
@@ -74,71 +118,4 @@
   --radius-card: var(--console-radius-lg);
   --radius-inner: var(--console-radius-md);
   --radius-control: var(--console-radius-md);
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  margin: 0;
-  min-height: 100%;
-  background: var(--console-bg);
-  color: var(--console-text);
-}
-
-html {
-  font-size: 15px;
-  text-size-adjust: 100%;
-}
-
-body {
-  min-height: 100dvh;
-  font-family: var(--font-display);
-  font-size: var(--console-font-size-page);
-  font-weight: 400;
-  line-height: 1.45;
-  letter-spacing: 0;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: subpixel-antialiased;
-}
-
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
-
-button {
-  cursor: pointer;
-}
-
-button:disabled {
-  cursor: not-allowed;
-}
-
-a {
-  color: inherit;
-  text-decoration: none;
-}
-
-svg {
-  flex: 0 0 auto;
-}
-
-.panel {
-  background: var(--console-surface);
-  border: 1px solid var(--console-line-soft);
-  border-radius: var(--console-radius-lg);
-  box-shadow: var(--console-shadow);
-}
-
-.spin {
-  animation: spin 900ms linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }

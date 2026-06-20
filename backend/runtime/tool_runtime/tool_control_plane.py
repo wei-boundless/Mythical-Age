@@ -81,6 +81,13 @@ class ToolDispatchHandler:
 
 
 @dataclass(frozen=True, slots=True)
+class ToolExecutionStartLock:
+    event: Any | None
+    attempt_ref: str
+    acquired: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ToolDispatchHandlerRegistry:
     handlers: tuple[ToolDispatchHandler, ...]
 
@@ -305,18 +312,18 @@ class RuntimeToolControlPlane:
                     "supervision": supervision.to_dict(),
                 },
             )
-        duplicate_completed = _duplicate_completed_tool_lifecycle_observation(
+        duplicate_lifecycle = _duplicate_tool_lifecycle_observation(
             request,
             tool_plan=tool_plan,
             handler_id=handler.handler_id,
             operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
         )
-        if duplicate_completed is not None:
-            return duplicate_completed
+        if duplicate_lifecycle is not None:
+            return duplicate_lifecycle
         normalized_args = dict(supervision.normalized_args or request.tool_args or {})
         runtime_action = _runtime_action_with_args(runtime_action, tool_name=request.tool_name, tool_call_id=request.tool_call_id, tool_args=normalized_args)
         if handler.handler_id == "subagent_control":
-            started_event = _publish_tool_execution_started(
+            started_lock = _publish_tool_execution_started_lock(
                 request,
                 tool_plan=tool_plan,
                 handler_id=handler.handler_id,
@@ -324,13 +331,22 @@ class RuntimeToolControlPlane:
                 operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
                 execution_receipt=_execution_receipt(execution_record),
             )
-            if lifecycle_required and started_event is None:
+            if lifecycle_required and started_lock.event is None:
                 return _tool_lifecycle_unavailable_observation(
                     request,
                     tool_plan=tool_plan,
                     phase="execution_started",
                     operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
                     handler_id=handler.handler_id,
+                )
+            if started_lock.event is not None and not started_lock.acquired:
+                return _tool_lifecycle_start_lock_lost_observation(
+                    request,
+                    tool_plan=tool_plan,
+                    handler_id=handler.handler_id,
+                    operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
+                    started_event=started_lock.event,
+                    execution_attempt_ref=started_lock.attempt_ref,
                 )
             observation = await _invoke_subagent_control(
                 request,
@@ -399,7 +415,7 @@ class RuntimeToolControlPlane:
                     "tool_plan_ref": tool_plan.plan_id,
                 },
             )
-        started_event = _publish_tool_execution_started(
+        started_lock = _publish_tool_execution_started_lock(
             request,
             tool_plan=tool_plan,
             handler_id=handler.handler_id,
@@ -407,13 +423,22 @@ class RuntimeToolControlPlane:
             operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
             execution_receipt=_execution_receipt(execution_record),
         )
-        if lifecycle_required and started_event is None:
+        if lifecycle_required and started_lock.event is None:
             return _tool_lifecycle_unavailable_observation(
                 request,
                 tool_plan=tool_plan,
                 phase="execution_started",
                 operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
                 handler_id=handler.handler_id,
+            )
+        if started_lock.event is not None and not started_lock.acquired:
+            return _tool_lifecycle_start_lock_lost_observation(
+                request,
+                tool_plan=tool_plan,
+                handler_id=handler.handler_id,
+                operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
+                started_event=started_lock.event,
+                execution_attempt_ref=started_lock.attempt_ref,
             )
         result = await dispatch(
             request=request,
@@ -566,14 +591,14 @@ class RuntimeToolControlPlane:
                     "supervision": supervision.to_dict(),
                 },
             )
-        duplicate_completed = _duplicate_completed_tool_lifecycle_observation(
+        duplicate_lifecycle = _duplicate_tool_lifecycle_observation(
             request,
             tool_plan=tool_plan,
             handler_id="agent_turn_core",
             operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
         )
-        if duplicate_completed is not None:
-            return duplicate_completed
+        if duplicate_lifecycle is not None:
+            return duplicate_lifecycle
         if self.tool_runtime_executor is None or not hasattr(self.tool_runtime_executor, "execute_control_plane_request"):
             return _observation(
                 request,
@@ -607,20 +632,29 @@ class RuntimeToolControlPlane:
         tool_runtime = getattr(self.tool_runtime_executor, "tool_runtime", None)
         if tool_runtime is not None and getattr(tool_runtime, "runtime_host", None) is None and runtime_host is not None:
             setattr(tool_runtime, "runtime_host", runtime_host)
-        started_event = _publish_tool_execution_started(
+        started_lock = _publish_tool_execution_started_lock(
             request,
             tool_plan=tool_plan,
             handler_id="agent_turn_core",
             directive_ref=str(getattr(directive, "directive_id", "") or ""),
             operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
         )
-        if lifecycle_required and started_event is None:
+        if lifecycle_required and started_lock.event is None:
             return _tool_lifecycle_unavailable_observation(
                 request,
                 tool_plan=tool_plan,
                 phase="execution_started",
                 operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
                 handler_id="agent_turn_core",
+            )
+        if started_lock.event is not None and not started_lock.acquired:
+            return _tool_lifecycle_start_lock_lost_observation(
+                request,
+                tool_plan=tool_plan,
+                handler_id="agent_turn_core",
+                operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
+                started_event=started_lock.event,
+                execution_attempt_ref=started_lock.attempt_ref,
             )
         result = await self.tool_runtime_executor.execute_control_plane_request(
             request=request,
@@ -735,6 +769,7 @@ def _publish_tool_execution_started(
     directive_ref: str = "",
     operation_gate: dict[str, Any] | None = None,
     execution_receipt: dict[str, Any] | None = None,
+    execution_attempt_ref: str = "",
 ) -> Any | None:
     payload = _tool_lifecycle_base_payload(request, tool_plan=tool_plan)
     payload.update(
@@ -744,6 +779,7 @@ def _publish_tool_execution_started(
             "directive_ref": str(directive_ref or "").strip(),
             "operation_gate": dict(operation_gate or {}),
             "execution_receipt": dict(execution_receipt or {}),
+            "execution_attempt_ref": str(execution_attempt_ref or "").strip(),
         }
     )
     return _publish_tool_lifecycle_signal(
@@ -751,6 +787,35 @@ def _publish_tool_execution_started(
         signal_type="tool.execution.started",
         signal_id=f"toolexec:{request.invocation_id}:started",
         payload=payload,
+    )
+
+
+def _publish_tool_execution_started_lock(
+    request: ToolInvocationRequest,
+    *,
+    tool_plan: Any,
+    handler_id: str,
+    directive_ref: str = "",
+    operation_gate: dict[str, Any] | None = None,
+    execution_receipt: dict[str, Any] | None = None,
+) -> ToolExecutionStartLock:
+    attempt_ref = f"toolexec-attempt:{request.invocation_id}:{uuid.uuid4().hex[:12]}"
+    event = _publish_tool_execution_started(
+        request,
+        tool_plan=tool_plan,
+        handler_id=handler_id,
+        directive_ref=directive_ref,
+        operation_gate=operation_gate,
+        execution_receipt=execution_receipt,
+        execution_attempt_ref=attempt_ref,
+    )
+    if event is None:
+        return ToolExecutionStartLock(event=None, attempt_ref=attempt_ref, acquired=False)
+    payload = _tool_lifecycle_event_payload(event)
+    return ToolExecutionStartLock(
+        event=event,
+        attempt_ref=attempt_ref,
+        acquired=str(payload.get("execution_attempt_ref") or "") == attempt_ref,
     )
 
 
@@ -785,47 +850,108 @@ def _publish_tool_execution_completed(
     )
 
 
-def _completed_tool_lifecycle_signal(request: ToolInvocationRequest) -> Any | None:
+def _tool_lifecycle_signal(request: ToolInvocationRequest, *, signal_type: str, signal_id: str) -> Any | None:
     runtime_host = _runtime_host(request)
     runtime_gateway = getattr(runtime_host, "runtime_gateway", None) if runtime_host is not None else None
     signal_by_id = getattr(runtime_gateway, "signal_by_id", None)
     if not callable(signal_by_id):
         return None
     run_id = _tool_lifecycle_run_id(request)
-    if not run_id or not request.invocation_id:
+    normalized_signal_type = str(signal_type or "").strip()
+    normalized_signal_id = str(signal_id or "").strip()
+    if not run_id or not normalized_signal_type or not normalized_signal_id:
         return None
     try:
-        signal = signal_by_id(run_id, signal_id=f"toolexec:{request.invocation_id}:completed")
+        signal = signal_by_id(run_id, signal_id=normalized_signal_id)
     except Exception:
         return None
-    if signal is None or str(getattr(signal, "signal_type", "") or "") != "tool.execution.completed":
+    if signal is None or str(getattr(signal, "signal_type", "") or "") != normalized_signal_type:
         return None
     return signal
 
 
-def _duplicate_completed_tool_lifecycle_observation(
+def _duplicate_tool_lifecycle_observation(
     request: ToolInvocationRequest,
     *,
     tool_plan: Any,
     handler_id: str,
     operation_gate: dict[str, Any] | None = None,
 ) -> ToolObservation | None:
-    signal = _completed_tool_lifecycle_signal(request)
-    if signal is None:
+    completed = _tool_lifecycle_signal(
+        request,
+        signal_type="tool.execution.completed",
+        signal_id=f"toolexec:{request.invocation_id}:completed",
+    )
+    if completed is not None:
+        payload = dict(getattr(completed, "payload", {}) or {})
+        return _observation(
+            request,
+            status="error",
+            text="tool_lifecycle_duplicate_invocation_completed",
+            operation_gate=dict(operation_gate or {}),
+            diagnostics={
+                "stage": "tool_lifecycle_duplicate_invocation_completed",
+                "handler_id": str(handler_id or ""),
+                "tool_plan_ref": str(getattr(tool_plan, "plan_id", "") or ""),
+                "completed_signal_ref": str(getattr(completed, "signal_id", "") or ""),
+                "completed_observation_ref": str(payload.get("observation_ref") or ""),
+                "completed_result_ref": str(payload.get("result_ref") or ""),
+                "requires_new_invocation_id": True,
+                "authority": "runtime.tool_runtime.tool_control_plane",
+            },
+        )
+    started = _tool_lifecycle_signal(
+        request,
+        signal_type="tool.execution.started",
+        signal_id=f"toolexec:{request.invocation_id}:started",
+    )
+    if started is None:
         return None
-    payload = dict(getattr(signal, "payload", {}) or {})
+    payload = dict(getattr(started, "payload", {}) or {})
     return _observation(
         request,
         status="error",
-        text="tool_lifecycle_duplicate_invocation_completed",
+        text="tool_lifecycle_duplicate_invocation_in_progress",
         operation_gate=dict(operation_gate or {}),
         diagnostics={
-            "stage": "tool_lifecycle_duplicate_invocation_completed",
+            "stage": "tool_lifecycle_duplicate_invocation_in_progress",
             "handler_id": str(handler_id or ""),
             "tool_plan_ref": str(getattr(tool_plan, "plan_id", "") or ""),
-            "completed_signal_ref": str(getattr(signal, "signal_id", "") or ""),
-            "completed_observation_ref": str(payload.get("observation_ref") or ""),
-            "completed_result_ref": str(payload.get("result_ref") or ""),
+            "started_signal_ref": str(getattr(started, "signal_id", "") or ""),
+            "started_directive_ref": str(payload.get("directive_ref") or ""),
+            "started_handler_id": str(payload.get("handler_id") or ""),
+            "requires_new_invocation_id": True,
+            "authority": "runtime.tool_runtime.tool_control_plane",
+        },
+    )
+
+
+def _tool_lifecycle_start_lock_lost_observation(
+    request: ToolInvocationRequest,
+    *,
+    tool_plan: Any,
+    handler_id: str,
+    operation_gate: dict[str, Any] | None = None,
+    started_event: Any,
+    execution_attempt_ref: str,
+) -> ToolObservation:
+    signal = _tool_lifecycle_event_signal(started_event)
+    payload = dict(signal.get("payload") or {})
+    return _observation(
+        request,
+        status="error",
+        text="tool_lifecycle_duplicate_invocation_in_progress",
+        operation_gate=dict(operation_gate or {}),
+        diagnostics={
+            "stage": "tool_lifecycle_duplicate_invocation_in_progress",
+            "handler_id": str(handler_id or ""),
+            "tool_plan_ref": str(getattr(tool_plan, "plan_id", "") or ""),
+            "started_signal_ref": str(signal.get("signal_id") or ""),
+            "started_directive_ref": str(payload.get("directive_ref") or ""),
+            "started_handler_id": str(payload.get("handler_id") or ""),
+            "started_execution_attempt_ref": str(payload.get("execution_attempt_ref") or ""),
+            "execution_attempt_ref": str(execution_attempt_ref or ""),
+            "start_lock_acquired": False,
             "requires_new_invocation_id": True,
             "authority": "runtime.tool_runtime.tool_control_plane",
         },
@@ -853,6 +979,14 @@ def _tool_lifecycle_base_payload(request: ToolInvocationRequest, *, tool_plan: A
         "permission_mode": str(request.permission_mode or ""),
         "authority": "runtime.tool_runtime.tool_control_plane",
     }
+
+
+def _tool_lifecycle_event_signal(event: Any) -> dict[str, Any]:
+    return dict(dict(getattr(event, "payload", {}) or {}).get("signal") or {})
+
+
+def _tool_lifecycle_event_payload(event: Any) -> dict[str, Any]:
+    return dict(_tool_lifecycle_event_signal(event).get("payload") or {})
 
 
 def _publish_tool_lifecycle_signal(

@@ -10,8 +10,8 @@ import {
   isWorkspaceQueryView,
   isWorkspaceView,
   shouldShowTaskGraphRunInteractionDock,
-  WORKSPACE_TONES,
 } from "./workspaceViews";
+import { applyWorkbenchAppearance } from "./workbenchThemes";
 
 export function WorkspaceRouter() {
   const {
@@ -34,13 +34,8 @@ export function WorkspaceRouter() {
   const [locationSearch, setLocationSearch] = useState("");
 
   useEffect(() => {
-    const storedTone = window.localStorage.getItem("workspaceTone");
-    if (storedTone && WORKSPACE_TONES.has(storedTone)) {
-      document.documentElement.dataset.workspaceTone = storedTone;
-    } else {
-      delete document.documentElement.dataset.workspaceTone;
-    }
-  }, [setWorkspaceView]);
+    applyWorkbenchAppearance();
+  }, []);
 
   useEffect(() => {
     function syncLocationSearch() {

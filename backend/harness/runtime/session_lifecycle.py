@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 
 from harness.graph.lifecycle_manager import GraphTaskLifecycleManager
-from harness.loop.task_run_execution_control import request_executor_stop
+from harness.loop.task_run_execution_control import executor_control_signal_effect, request_executor_control_signal
 
 
 class SessionRuntimeLifecycleManager:
@@ -51,6 +51,8 @@ class SessionRuntimeLifecycleManager:
             "authority": "harness.runtime.session_lifecycle.executor_stop",
             "requested_task_run_ids": [],
             "accepted_task_run_ids": [],
+            "control_signals": [],
+            "failed_task_run_ids": [],
         }
         if late_task_run_ids or late_runtime_runs:
             late_executor_stop_effect = self._request_executor_stop(task_run_ids=late_task_run_ids)
@@ -152,18 +154,31 @@ class SessionRuntimeLifecycleManager:
 
     def _request_executor_stop(self, *, task_run_ids: set[str]) -> dict[str, Any]:
         accepted: list[str] = []
+        signals: list[dict[str, Any]] = []
+        failed: list[str] = []
         for task_run_id in sorted(task_run_ids):
-            if request_executor_stop(
+            signal = request_executor_control_signal(
                 self.host,
                 task_run_id=task_run_id,
+                kind="stop",
                 reason="session_deleted",
                 requested_by="session_lifecycle",
-            ):
+                unavailable_reason="session_deleted",
+            )
+            if signal is None:
+                failed.append(task_run_id)
+                continue
+            if signal.signal_id:
                 accepted.append(task_run_id)
+                signals.append(executor_control_signal_effect(signal))
+            else:
+                failed.append(task_run_id)
         return {
             "authority": "harness.runtime.session_lifecycle.executor_stop",
             "requested_task_run_ids": sorted(task_run_ids),
             "accepted_task_run_ids": accepted,
+            "control_signals": signals,
+            "failed_task_run_ids": failed,
         }
 
     @staticmethod

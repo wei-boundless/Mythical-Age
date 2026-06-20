@@ -263,7 +263,7 @@ const TEMPLATES = {
             const languagesHtml = (d.languages || []).map(l =>
                 `<div class="language-item"><span>${escapeHtml(l.name || '')}</span><span class="level">${escapeHtml(l.level || '')}</span></div>`
             ).join('');
-            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2><p>${escapeHtml(d.about)}</p></section>` : '';
+            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2>${sanitizeHtml(d.about)}</section>` : '';
             const expHtml = (d.experiences || []).length ? `
                 <section class="section">
                     <h2 class="section-title">工作经验</h2>
@@ -333,7 +333,7 @@ const TEMPLATES = {
             const languagesHtml = (d.languages || []).map(l =>
                 `<div class="language-item inline"><span>${escapeHtml(l.name || '')}</span><span class="level">${escapeHtml(l.level || '')}</span></div>`
             ).join('');
-            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2><p>${escapeHtml(d.about)}</p></section>` : '';
+            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2>${sanitizeHtml(d.about)}</section>` : '';
             const expHtml = (d.experiences || []).length ? `
                 <section class="section">
                     <h2 class="section-title">工作经验</h2>
@@ -433,7 +433,7 @@ const TEMPLATES = {
                     ${d.contacts && d.contacts.length ? `<div class="cg-card"><h2>联系方式</h2>${contactsHtml}</div>` : ''}
                     ${d.skills && d.skills.length ? `<div class="cg-card"><h2>技能</h2><div class="skill-tags">${skillsHtml}</div></div>` : ''}
                     ${d.languages && d.languages.length ? `<div class="cg-card"><h2>语言</h2>${languagesHtml}</div>` : ''}
-                    ${d.about ? `<div class="cg-card"><h2>关于我</h2><p>${escapeHtml(d.about)}</p></div>` : ''}
+                    ${d.about ? `<div class="cg-card"><h2>关于我</h2>${sanitizeHtml(d.about)}</div>` : ''}
                     ${d.experiences && d.experiences.length ? `<div class="cg-card cg-card-wide">${expHtml}</div>` : ''}
                     ${d.education && d.education.length ? `<div class="cg-card">${eduHtml}</div>` : ''}
                     ${d.projects && d.projects.length ? `<div class="cg-card cg-card-wide">${projHtml}</div>` : ''}
@@ -470,7 +470,7 @@ const TEMPLATES = {
             const languagesHtml = (d.languages || []).map(l =>
                 `<div class="language-item inline"><span>${escapeHtml(l.name || '')}</span><span class="level">${escapeHtml(l.level || '')}</span></div>`
             ).join('');
-            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2><p>${escapeHtml(d.about)}</p></section>` : '';
+            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2>${sanitizeHtml(d.about)}</section>` : '';
             const expHtml = (d.experiences || []).length ? `
                 <section class="section">
                     <h2 class="section-title">工作经验</h2>
@@ -539,7 +539,7 @@ const TEMPLATES = {
             const languagesHtml = (d.languages || []).map(l =>
                 `<div class="pl-lang-item"><span>${escapeHtml(l.name || '')}</span><span class="level">${escapeHtml(l.level || '')}</span></div>`
             ).join('');
-            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2><p>${escapeHtml(d.about)}</p></section>` : '';
+            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2>${sanitizeHtml(d.about)}</section>` : '';
             const expHtml = (d.experiences || []).length ? `
                 <section class="section">
                     <h2 class="section-title">工作经验</h2>
@@ -608,7 +608,7 @@ const TEMPLATES = {
             const languagesHtml = (d.languages || []).map(l =>
                 `<div class="language-item inline"><span>${escapeHtml(l.name || '')}</span><span class="level">${escapeHtml(l.level || '')}</span></div>`
             ).join('');
-            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2><p>${escapeHtml(d.about)}</p></section>` : '';
+            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2>${sanitizeHtml(d.about)}</section>` : '';
             const expHtml = (d.experiences || []).length ? `
                 <section class="section">
                     <h2 class="section-title">工作经验</h2>
@@ -686,7 +686,7 @@ const TEMPLATES = {
             const languagesHtml = (d.languages || []).map(l =>
                 `<div class=\"language-item\"><span>${escapeHtml(l.name || '')}</span><span class=\"level\">${escapeHtml(l.level || '')}</span></div>`
             ).join('');
-            const aboutHtml = d.about ? `<section class=\"section\"><h2 class=\"section-title\">关于我</h2><p>${escapeHtml(d.about)}</p></section>` : '';
+            const aboutHtml = d.about ? `<section class=\"section\"><h2 class=\"section-title\">关于我</h2>${sanitizeHtml(d.about)}</section>` : '';
             const expHtml = (d.experiences || []).length ? `
                 <section class=\"section\">
                     <h2 class=\"section-title\">工作经验</h2>
@@ -827,9 +827,23 @@ const DEFAULT_RESUME_DATA = {
     typography: {
         fontFamily: '',
         fontSize: 13,
-        lineHeight: 'normal'
+        lineHeight: 'normal',
+        primaryColor: '',
+        headingColor: '',
+        textColor: '',
+        bgColor: '',
+        cardColor: ''
     }
 };
+
+// ===== 一键配色预设 =====
+const COLOR_PRESETS = [
+    { name: '沉稳蓝调', primary: '#2563eb', heading: '#1e293b', text: '#334155', bg: '#f8fafc', card: '#ffffff' },
+    { name: '清新绿',   primary: '#059669', heading: '#064e3b', text: '#374151', bg: '#f0fdf4', card: '#ffffff' },
+    { name: '暖橙商务', primary: '#ea580c', heading: '#431407', text: '#3d3d3d', bg: '#fff7ed', card: '#ffffff' },
+    { name: '极简灰白', primary: '#1f2937', heading: '#111827', text: '#4b5563', bg: '#f9fafb', card: '#ffffff' },
+    { name: '玫瑰紫',   primary: '#9333ea', heading: '#3b0764', text: '#374151', bg: '#faf5ff', card: '#ffffff' },
+];
 
 // ===== 存储 key =====
 const COPIES_KEY = 'resume-copies';
@@ -1026,7 +1040,7 @@ function getCurrentTemplate() {
 // ===== 共用 HTML 构建函数 =====
 function buildTimelineItemHTML(item, isExperience) {
     const pointsHtml = item.points && item.points.length
-        ? `<ul>${item.points.filter(Boolean).map(p => `<li>${escapeHtml(p)}</li>`).join('')}</ul>`
+        ? `<ul>${item.points.filter(Boolean).map(p => `<li>${sanitizeHtml(p)}</li>`).join('')}</ul>`
         : '';
 
     const companyHtml = (isExperience ? item.company : item.school) || '';
@@ -1049,7 +1063,7 @@ function buildTimelineItemHTML(item, isExperience) {
 
 function buildProjectCardHTML(project) {
     const pointsHtml = project.points && project.points.length
-        ? `<ul>${project.points.filter(Boolean).map(p => `<li>${escapeHtml(p)}</li>`).join('')}</ul>`
+        ? `<ul>${project.points.filter(Boolean).map(p => `<li>${sanitizeHtml(p)}</li>`).join('')}</ul>`
         : '';
 
     const card = document.createElement('div');
@@ -1183,6 +1197,14 @@ function initRichToolbar(editorId) {
             document.execCommand(sel.dataset.cmd, false, sel.value);
         });
     });
+    container.querySelectorAll('.rich-toolbar input[type="color"][data-cmd]').forEach(function(inp) {
+        inp.addEventListener('change', function(e) {
+            var editor = inp.closest('.rich-editor');
+            var content = editor ? editor.querySelector('[contenteditable]') : null;
+            if (content) content.focus();
+            document.execCommand('foreColor', false, inp.value);
+        });
+    });
 }
 
 function pointsToHtml(points) {
@@ -1230,6 +1252,8 @@ function makeRichToolbarHtml() {
         '<button data-cmd="insertOrderedList" title="编号列表">1. 列表</button>' +
         '<span class="toolbar-sep"></span>' +
         '<button data-cmd="insertSVG" title="插入SVG图标">SVG</button>' +
+        '<span class="toolbar-sep"></span>' +
+        '<input type="color" data-cmd="foreColor" title="文字颜色" value="#2563eb" style="width:28px;height:24px;padding:0;border:1px solid #ccc;border-radius:3px;cursor:pointer;vertical-align:middle" />' +
     '</div>';
 }
 
@@ -1435,10 +1459,11 @@ function renderEditorForm(data) {
         <div class="form-group"><label>意向岗位</label><input class="form-input" id="edit-subtitle" value="${escapeHtml(d.subtitle || '')}" /></div>
     </section>`;
 
-    // 字体设置
-    const typo = d.typography || { fontFamily: '', fontSize: 13, lineHeight: 'normal' };
+    // 排版与配色
+    const typo = d.typography || { fontFamily: '', fontSize: 13, lineHeight: 'normal', primaryColor: '', headingColor: '', textColor: '', bgColor: '', cardColor: '' };
+    function pc(val, fallback) { return val || fallback || ''; }
     html += `<section class="editor-section">
-        <h3 class="editor-section-title">字体设置</h3>
+        <h3 class="editor-section-title">排版与配色</h3>
         <div class="form-row">
             <div class="form-group" style="flex:1"><label>字体</label><input class="form-input" id="edit-font-family" value="${escapeHtml(typo.fontFamily || '')}" placeholder="例如：微软雅黑, Arial, sans-serif" /></div>
             <div class="form-group" style="flex:1"><label>字号（px）</label><input class="form-input" id="edit-font-size" type="number" min="8" max="72" value="${typo.fontSize || 13}" placeholder="13" /></div>
@@ -1450,7 +1475,37 @@ function renderEditorForm(data) {
                 <option value="relaxed" ${typo.lineHeight === 'relaxed' ? 'selected' : ''}>宽松</option>
             </select></div>
         </div>
-        <p style="font-size:12px;color:var(--text-secondary);margin:0">字体为空则使用模板默认字体。调整后保存即可预览效果。</p>
+        <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
+            <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+                <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer">
+                    <span>主色调</span>
+                    <input type="color" id="edit-color-primary" value="${pc(typo.primaryColor, '#2563eb')}" style="width:32px;height:28px;padding:0;border:1px solid #ccc;border-radius:3px;cursor:pointer" />
+                </label>
+                <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer">
+                    <span>标题色</span>
+                    <input type="color" id="edit-color-heading" value="${pc(typo.headingColor, '#1e293b')}" style="width:32px;height:28px;padding:0;border:1px solid #ccc;border-radius:3px;cursor:pointer" />
+                </label>
+                <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer">
+                    <span>正文色</span>
+                    <input type="color" id="edit-color-text" value="${pc(typo.textColor, '#334155')}" style="width:32px;height:28px;padding:0;border:1px solid #ccc;border-radius:3px;cursor:pointer" />
+                </label>
+                <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer">
+                    <span>背景色</span>
+                    <input type="color" id="edit-color-bg" value="${pc(typo.bgColor, '#f8fafc')}" style="width:32px;height:28px;padding:0;border:1px solid #ccc;border-radius:3px;cursor:pointer" />
+                </label>
+                <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer">
+                    <span>卡片色</span>
+                    <input type="color" id="edit-color-card" value="${pc(typo.cardColor, '#ffffff')}" style="width:32px;height:28px;padding:0;border:1px solid #ccc;border-radius:3px;cursor:pointer" />
+                </label>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+                <span style="font-size:12px;color:var(--text-secondary);align-self:center">一键配色：</span>
+                ${COLOR_PRESETS.map(function(preset) {
+                    return '<button type="button" class="btn-preset" data-primary="' + preset.primary + '" data-heading="' + preset.heading + '" data-text="' + preset.text + '" data-bg="' + preset.bg + '" data-card="' + preset.card + '" onclick="applyColorPreset(this)" style="font-size:11px;padding:2px 10px;border:1px solid #ccc;border-radius:4px;cursor:pointer;background:' + preset.primary + ';color:#fff">' + preset.name + '</button>';
+                }).join('')}
+            </div>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin:6px 0 0 0">颜色留空则使用当前模板默认配色。点击一键配色按钮快速切换风格，可在此基础上微调。</p>
     </section>`;
 
     // 联系方式
@@ -1645,7 +1700,12 @@ function saveEditorData() {
         typography: {
             fontFamily: fontFamily,
             fontSize: fontSizeVal,
-            lineHeight: lineHeight
+            lineHeight: lineHeight,
+            primaryColor: document.getElementById('edit-color-primary')?.value || '',
+            headingColor: document.getElementById('edit-color-heading')?.value || '',
+            textColor: document.getElementById('edit-color-text')?.value || '',
+            bgColor: document.getElementById('edit-color-bg')?.value || '',
+            cardColor: document.getElementById('edit-color-card')?.value || ''
         }
     };
 
@@ -1852,7 +1912,41 @@ function showToast(message) {
     }, 2000);
 }
 
-// ===== 字体设置辅助函数 =====
+// ===== 一键配色预设按钮回调 =====
+window.applyColorPreset = function(btn) {
+    document.getElementById('edit-color-primary').value = btn.dataset.primary;
+    document.getElementById('edit-color-heading').value = btn.dataset.heading;
+    document.getElementById('edit-color-text').value = btn.dataset.text;
+    document.getElementById('edit-color-bg').value = btn.dataset.bg;
+    document.getElementById('edit-color-card').value = btn.dataset.card;
+    // 实时预览应用到当前页面
+    var typo = {
+        primaryColor: btn.dataset.primary,
+        headingColor: btn.dataset.heading,
+        textColor: btn.dataset.text,
+        bgColor: btn.dataset.bg,
+        cardColor: btn.dataset.card
+    };
+    applyColors(typo);
+    if (typeof showToast === 'function') showToast('已应用配色「' + btn.textContent + '」');
+};
+
+// ===== 应用全局配色到模板 =====
+function applyColors(typo) {
+    if (!typo) return;
+    var root = document.documentElement;
+    if (typo.primaryColor) root.style.setProperty('--primary', typo.primaryColor);
+    if (typo.headingColor) root.style.setProperty('--heading', typo.headingColor);
+    if (typo.textColor) root.style.setProperty('--text', typo.textColor);
+    if (typo.bgColor) root.style.setProperty('--bg', typo.bgColor);
+    if (typo.cardColor) root.style.setProperty('--white', typo.cardColor);
+    // 根据背景色自动调整 primary-light
+    if (typo.primaryColor) {
+        root.style.setProperty('--primary-light', typo.primaryColor + '18');
+    }
+}
+
+// ===== 字体/配色设置辅助函数 =====
 function applyTypography(container, typo) {
     const lineHeightMap = { compact: '1.35', normal: '1.45', relaxed: '1.6' };
     // 自定义字体：设置到容器，子元素继承
@@ -1870,14 +1964,38 @@ function applyTypography(container, typo) {
     if (typo.lineHeight && lineHeightMap[typo.lineHeight]) {
         container.style.lineHeight = lineHeightMap[typo.lineHeight];
     }
+    // 应用全局配色
+    if (typo.primaryColor || typo.headingColor || typo.textColor || typo.bgColor || typo.cardColor) {
+        applyColors(typo);
+    }
 }
 
-// 注入 toast 动画样式
+// 注入 toast 动画样式 + --heading CSS 变量支持 + 一键配色按钮样式
 const style = document.createElement('style');
 style.textContent = `
     @keyframes fadeInUp {
         from { opacity: 0; transform: translateX(-50%) translateY(10px); }
         to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+    /* --heading CSS 变量支持：所有标题默认使用 --heading，回退到 --text */
+    .section-title,
+    .sidebar-section h2,
+    .sidebar h1, .sidebar h2,
+    .fw-header h1,
+    .cg-card h2,
+    .vs-header h1,
+    .pl-name, .pl-subtitle,
+    .dt-header h1,
+    .lg-name, .lg-subtitle,
+    h1, h2, h3, h4 {
+        color: var(--heading, var(--text)) !important;
+    }
+    .editor-section-title {
+        color: var(--heading, var(--text));
+    }
+    .btn-preset:hover {
+        opacity: 0.85;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.2);
     }
 `;
 document.head.appendChild(style);

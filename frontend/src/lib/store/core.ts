@@ -86,7 +86,7 @@ export function getDefaultState(): StoreState {
     inspectorDirty: false,
     sessionEditorContexts: {},
     sidebarWidth: 308,
-    inspectorWidth: 300,
+    inspectorWidth: 340,
     tokenStats: null,
     memoryInspectorTarget: null,
     orchestrationSnapshot: null,

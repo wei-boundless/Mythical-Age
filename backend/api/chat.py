@@ -57,6 +57,7 @@ from runtime.shared.queued_user_input_dispatcher import (
 )
 from runtime.shared.queued_user_input_store import QueuedUserInput
 from runtime.shared.runtime_run_registry import RuntimeRun
+from runtime.shared.stream_replay import sanitize_public_stream_event_data_for_replay
 from sessions import SessionProjectBindingConflict, validate_session_id
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 from capability_system.capabilities.attachments import SUPPORTED_ATTACHMENT_IMAGE_SUFFIXES
@@ -1525,7 +1526,8 @@ def _append_chat_public_event(
             lifecycle_state=projection_lifecycle,
             public_anchor=public_anchor,
         )
-    logged = replay.append_public_event(current, public_event_type=public_event_type, data=payload)
+    replay_payload = _public_replay_stream_data(public_event_type, payload)
+    logged = replay.append_public_event(current, public_event_type=public_event_type, data=replay_payload)
     diagnostics = {
         key: value
         for key, value in {
@@ -3250,6 +3252,11 @@ def _redact_public_stream_data(value: Any) -> Any:
     if isinstance(value, list):
         return [_redact_public_stream_data(item) for item in value]
     return value
+
+
+def _public_replay_stream_data(public_event_type: str, data: dict[str, Any]) -> dict[str, Any]:
+    payload = _redact_public_stream_data(dict(data or {}))
+    return sanitize_public_stream_event_data_for_replay(public_event_type, payload)
 
 
 def _stream_event_id(event: dict[str, Any]) -> str:

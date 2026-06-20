@@ -19,6 +19,7 @@ def _turn_runtime_gateway_signals(
         signal = dict(dict(event.payload or {}).get("signal") or {})
         if signal.get("signal_type") != signal_type:
             continue
+        signal["_event_id"] = str(event.event_id or "")
         signals.append(signal)
     return signals
 
@@ -918,7 +919,7 @@ def test_single_agent_turn_tool_loop_hands_budget_closeout_to_agent_without_nint
     assert [str(item.get("signal_id") or "") for item in gateway_observed] == [signal_ref]
     assert dict(gateway_requested[0].get("payload") or {}).get("adapter") == "single_agent_turn_runtime_control_boundary"
     assert dict(gateway_requested[0].get("payload") or {}).get("signal_kind") == "tool_budget_exhausted"
-    assert dict(gateway_observed[0].get("payload") or {}).get("turn_runtime_control_event_ref") == control_signal_event["event"]["event_id"]
+    assert control_refs["runtime_gateway_observed_event_ref"] == gateway_observed[0]["_event_id"]
     assert "latest_runtime_control_signal" not in stored_diagnostics
     assert stored_diagnostics["latest_runtime_control_signal_ref"] == signal_ref
     assert stored_diagnostics["latest_runtime_control_signal_kind"] == "tool_budget_exhausted"

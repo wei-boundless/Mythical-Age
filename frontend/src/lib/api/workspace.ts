@@ -1,5 +1,6 @@
 import { request, sessionScopeQuery } from "./shared";
 import type {
+  FileChangeDiffPayload,
   FileChangeRecord,
   SessionScope,
   WorkspaceContext,
@@ -72,6 +73,13 @@ export async function openFileChangeDiffInVSCode(sessionId: string, recordId: st
     method: "POST",
     body: JSON.stringify({ record_id: recordId }),
   });
+}
+
+export async function getFileChangeDiff(recordId: string) {
+  return request<{
+    diff: FileChangeDiffPayload;
+    authority: string;
+  }>(`/file-changes/${encodeURIComponent(recordId)}/diff`);
 }
 
 export async function rollbackFileChange(recordId: string, options: { force?: boolean } = {}) {

@@ -342,6 +342,14 @@ class PromptAccountingLedger:
         combined_rows = _merge_summary_rows([*retained_rows, *manifest_rows])
         return sorted(combined_rows, key=lambda item: float(item.get("updated_at") or 0.0), reverse=True)[: max(1, int(limit or 100))]
 
+    def list_run_summary_payloads(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        payloads: list[dict[str, Any]] = []
+        for row in self.list_run_summaries(limit=max(1, int(limit or 100))):
+            key = str(row.get("key") or row.get("task_run_id") or row.get("run_id") or "").strip()
+            payload = self._read_summary_payload(key) if key else None
+            payloads.append(dict(payload or row))
+        return payloads
+
     def list_retained_token_summaries(self, *, limit: int = 100) -> list[dict[str, Any]]:
         stats = self._read_retained_token_stats()
         rows = [

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import threading
 import time
@@ -9,12 +10,13 @@ from types import SimpleNamespace
 from harness.loop.task_run_execution_control import _latest_requested_control_signal, request_executor_stop
 from harness.loop.task_executor_controller import TaskExecutorController
 from harness.runtime.agent_scope import build_agent_run_scope
-from harness.runtime.control_events import RuntimeSignalScope
+from harness.runtime.control_events import RuntimeSignalScope, build_runtime_signal_envelope
 from harness.runtime.agent_worker_backend import AgentWorkerHandle
 from harness.runtime.agent_runtime_cell import AgentRuntimeCell
 from harness.runtime.single_agent_host import SingleAgentRuntimeHost
 from runtime.shared.models import TaskRun
 from runtime.tool_runtime.tool_invocation_control import (
+    ToolInvocationAlreadyStartedError,
     ToolInvocationControlRegistry,
     build_tool_invocation_id,
     build_tool_invocation_idempotency_key,
@@ -79,6 +81,247 @@ def test_runtime_gateway_publish_is_idempotent_for_explicit_signal_id(tmp_path) 
     assert len(host.event_log.list_events("taskrun:idempotent")) == 1
     assert [signal.signal_id for signal in snapshot.pending_signals] == ["rtsig:test:idempotent"]
     assert snapshot.pending_signals[0].payload["reason"] == "first"
+
+
+def test_runtime_gateway_publish_is_atomic_for_explicit_signal_id(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    scope = RuntimeSignalScope(session_id="session:gateway", task_run_id="taskrun:atomic", agent_run_id="agent:atomic", run_cell_id="cell:atomic")
+    barrier = threading.Barrier(8)
+
+    def publish(attempt: int):
+        barrier.wait(timeout=3)
+        return host.runtime_gateway.publish(
+            "taskrun:atomic",
+            signal_type="tool.execution.started",
+            signal_id="toolexec:atomic:started",
+            scope=scope,
+            source_authority="test.concurrent_publish",
+            payload={"attempt": attempt},
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        events = list(pool.map(publish, range(8)))
+
+    stored_events = host.event_log.list_events("taskrun:atomic")
+    snapshot = host.runtime_gateway.drain("taskrun:atomic", scope=scope)
+
+    assert len({event.event_id for event in events}) == 1
+    assert len(stored_events) == 1
+    assert [signal.signal_id for signal in snapshot.pending_signals] == ["toolexec:atomic:started"]
+    assert snapshot.pending_signals[0].payload["attempt"] in set(range(8))
+
+
+def test_runtime_gateway_rejects_signal_id_reuse_across_signal_types(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    scope = RuntimeSignalScope(session_id="session:gateway", task_run_id="taskrun:id-conflict", agent_run_id="agent:id-conflict", run_cell_id="cell:id-conflict")
+    host.runtime_gateway.publish(
+        "taskrun:id-conflict",
+        signal_type="tool.permission.decided",
+        signal_id="rtsig:test:conflict",
+        scope=scope,
+        source_authority="test",
+        payload={"phase": "permission"},
+    )
+
+    try:
+        host.runtime_gateway.publish(
+            "taskrun:id-conflict",
+            signal_type="tool.execution.started",
+            signal_id="rtsig:test:conflict",
+            scope=scope,
+            source_authority="test",
+            payload={"phase": "started"},
+        )
+    except ValueError as error:
+        assert "signal_id conflict" in str(error)
+    else:
+        raise AssertionError("RuntimeGateway accepted one signal_id for two signal types")
+
+
+def test_runtime_gateway_ignores_derived_signal_events_without_published_source(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    scope = RuntimeSignalScope(session_id="session:gateway", task_run_id="taskrun:derived-only", agent_run_id="agent:derived-only", run_cell_id="cell:derived-only")
+    signal_id = "rtsig:test:derived-only"
+    for event_type, state, actor in (
+        ("runtime_control_signal_observed", "observed", "test.observer"),
+        ("runtime_control_signal_consumed", "consumed", "test.consumer"),
+    ):
+        derived = build_runtime_signal_envelope(
+            signal_type="control.signal.requested",
+            signal_id=signal_id,
+            scope=scope,
+            source_authority="test",
+            payload={"signal_kind": "stop", "origin": event_type},
+            consumption_state=state,
+            consumed_by=actor,
+        )
+        host.event_log.append(
+            "taskrun:derived-only",
+            event_type,  # type: ignore[arg-type]
+            payload={"signal": derived.to_dict()},
+            refs={"signal_ref": signal_id},
+        )
+
+    assert host.runtime_gateway.signal_by_id("taskrun:derived-only", signal_id=signal_id) is None
+    assert host.runtime_gateway.can_consume_by_id("taskrun:derived-only", signal_id=signal_id) is False
+    assert (
+        host.runtime_gateway.mark_observed_by_id(
+            "taskrun:derived-only",
+            signal_id=signal_id,
+            observed_by="test.safe_boundary",
+        )
+        is None
+    )
+    assert (
+        host.runtime_gateway.mark_consumed_by_id(
+            "taskrun:derived-only",
+            signal_id=signal_id,
+            consumed_by="test.closeout",
+        )
+        is None
+    )
+
+
+def test_runtime_gateway_signal_lookup_and_consumption_use_published_source(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    scope = RuntimeSignalScope(session_id="session:gateway", task_run_id="taskrun:published-source", agent_run_id="agent:published-source", run_cell_id="cell:published-source")
+    signal_id = "rtsig:test:published-source"
+    for event_type, state, actor in (
+        ("runtime_control_signal_observed", "observed", "test.observer"),
+        ("runtime_control_signal_consumed", "consumed", "test.consumer"),
+    ):
+        derived_first = build_runtime_signal_envelope(
+            signal_type="control.signal.requested",
+            signal_id=signal_id,
+            scope=scope,
+            source_authority="test",
+            payload={"signal_kind": "stop", "origin": event_type},
+            consumption_state=state,
+            consumed_by=actor,
+        )
+        host.event_log.append(
+            "taskrun:published-source",
+            event_type,  # type: ignore[arg-type]
+            payload={"signal": derived_first.to_dict()},
+            refs={"signal_ref": signal_id},
+        )
+    host.runtime_gateway.publish(
+        "taskrun:published-source",
+        signal_type="control.signal.requested",
+        signal_id=signal_id,
+        scope=scope,
+        source_authority="test",
+        payload={"signal_kind": "stop", "origin": "published"},
+    )
+
+    signal = host.runtime_gateway.signal_by_id("taskrun:published-source", signal_id=signal_id)
+    drained = host.runtime_gateway.drain(
+        "taskrun:published-source",
+        scope=scope,
+        signal_types={"control.signal.requested"},
+    )
+    assert host.runtime_gateway.can_consume_by_id("taskrun:published-source", signal_id=signal_id) is True
+    consumed = host.runtime_gateway.mark_consumed_by_id(
+        "taskrun:published-source",
+        signal_id=signal_id,
+        consumed_by="test.closeout",
+        payload={"terminal_reason": "done"},
+    )
+
+    assert signal is not None
+    assert signal.payload["origin"] == "published"
+    assert [item.signal_id for item in drained.pending_signals] == [signal_id]
+    assert drained.pending_signals[0].payload["origin"] == "published"
+    assert consumed is not None
+    consumed_payload = dict(dict(dict(consumed.payload or {}).get("signal") or {}).get("payload") or {})
+    assert consumed_payload["origin"] == "published"
+    assert consumed_payload["terminal_reason"] == "done"
+
+
+def test_runtime_gateway_direct_mark_requires_published_source(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    scope = RuntimeSignalScope(session_id="session:gateway", task_run_id="taskrun:direct-missing", agent_run_id="agent:direct-missing", run_cell_id="cell:direct-missing")
+    signal = build_runtime_signal_envelope(
+        signal_type="control.signal.requested",
+        signal_id="rtsig:test:direct-missing",
+        scope=scope,
+        source_authority="test",
+        payload={"origin": "unpublished"},
+    )
+
+    try:
+        host.runtime_gateway.mark_observed("taskrun:direct-missing", signal=signal, observed_by="test.observer")
+    except ValueError as error:
+        assert "canonical published source" in str(error)
+    else:
+        raise AssertionError("RuntimeGateway observed an unpublished signal")
+
+    try:
+        host.runtime_gateway.mark_consumed("taskrun:direct-missing", signal=signal, consumed_by="test.consumer")
+    except ValueError as error:
+        assert "canonical published source" in str(error)
+    else:
+        raise AssertionError("RuntimeGateway consumed an unpublished signal")
+
+    assert host.event_log.list_events("taskrun:direct-missing") == []
+
+
+def test_runtime_gateway_direct_mark_uses_published_source_payload(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    scope = RuntimeSignalScope(session_id="session:gateway", task_run_id="taskrun:direct-source", agent_run_id="agent:direct-source", run_cell_id="cell:direct-source")
+    signal_id = "rtsig:test:direct-source"
+    host.runtime_gateway.publish(
+        "taskrun:direct-source",
+        signal_type="control.signal.requested",
+        signal_id=signal_id,
+        scope=scope,
+        source_authority="test.published",
+        payload={"origin": "published"},
+    )
+    forged = build_runtime_signal_envelope(
+        signal_type="control.signal.requested",
+        signal_id=signal_id,
+        scope=scope,
+        source_authority="test.forged",
+        payload={"origin": "forged"},
+    )
+
+    observed = host.runtime_gateway.mark_observed(
+        "taskrun:direct-source",
+        signal=forged,
+        observed_by="test.observer",
+        payload={"observation_ref": "rtobs:direct-source"},
+    )
+    consumed = host.runtime_gateway.mark_consumed(
+        "taskrun:direct-source",
+        signal=forged,
+        consumed_by="test.consumer",
+        payload={"terminal_reason": "done"},
+    )
+    duplicate = host.runtime_gateway.mark_consumed(
+        "taskrun:direct-source",
+        signal=forged,
+        consumed_by="test.consumer",
+        payload={"terminal_reason": "duplicate"},
+    )
+
+    observed_signal = dict(dict(observed.payload or {}).get("signal") or {})
+    consumed_signal = dict(dict(consumed.payload or {}).get("signal") or {})
+    consumed_payload = dict(consumed_signal.get("payload") or {})
+    consumed_events = [
+        event
+        for event in host.event_log.list_events("taskrun:direct-source")
+        if event.event_type == "runtime_control_signal_consumed"
+    ]
+
+    assert observed_signal["source_authority"] == "test.published"
+    assert dict(observed_signal["payload"])["origin"] == "published"
+    assert dict(observed_signal["payload"])["observation_ref"] == "rtobs:direct-source"
+    assert consumed_signal["source_authority"] == "test.published"
+    assert consumed_payload["origin"] == "published"
+    assert consumed_payload["terminal_reason"] == "done"
+    assert duplicate.event_id == consumed.event_id
+    assert len(consumed_events) == 1
 
 
 def test_runtime_gateway_observed_signal_is_not_drained_again(tmp_path) -> None:
@@ -280,6 +523,83 @@ def test_completed_tool_invocation_record_is_terminal_for_late_cancel() -> None:
     assert record.status == "completed"
     assert record.result_ref == "result:done"
     assert record.error == ""
+
+
+def test_completed_tool_invocation_record_is_terminal_for_late_failure() -> None:
+    registry = ToolInvocationControlRegistry(agent_run_id="agent:a", run_cell_id="cell:a")
+    registry.start(
+        tool_invocation_id="toolinv:completed-fail",
+        caller_kind="task_run",
+        caller_ref="taskrun:a",
+        task_run_id="taskrun:a",
+        tool_name="read_file",
+    )
+    completed = registry.complete("toolinv:completed-fail", result_ref="result:done")
+
+    failed = registry.fail("toolinv:completed-fail", error="late-error")
+    record = registry.record("toolinv:completed-fail")
+
+    assert completed.status == "completed"
+    assert failed.status == "completed"
+    assert record.status == "completed"
+    assert record.result_ref == "result:done"
+    assert record.error == ""
+
+
+def test_failed_tool_invocation_record_is_terminal_for_late_completion() -> None:
+    registry = ToolInvocationControlRegistry(agent_run_id="agent:a", run_cell_id="cell:a")
+    registry.start(
+        tool_invocation_id="toolinv:failed-complete",
+        caller_kind="task_run",
+        caller_ref="taskrun:a",
+        task_run_id="taskrun:a",
+        tool_name="read_file",
+    )
+    failed = registry.fail("toolinv:failed-complete", error="first-error")
+
+    completed = registry.complete("toolinv:failed-complete", result_ref="late-result")
+    record = registry.record("toolinv:failed-complete")
+
+    assert failed.status == "failed"
+    assert completed.status == "failed"
+    assert record.status == "failed"
+    assert record.error == "first-error"
+    assert record.result_ref == ""
+
+
+def test_tool_invocation_registry_rejects_duplicate_start_without_rewriting_record() -> None:
+    registry = ToolInvocationControlRegistry(agent_run_id="agent:a", run_cell_id="cell:a")
+    first = registry.start(
+        tool_invocation_id="toolinv:duplicate",
+        caller_kind="task_run",
+        caller_ref="taskrun:a",
+        task_run_id="taskrun:a",
+        tool_name="write_file",
+        tool_args={"path": "a.txt"},
+        idempotency_key="idem:first",
+    )
+
+    try:
+        registry.start(
+            tool_invocation_id="toolinv:duplicate",
+            caller_kind="task_run",
+            caller_ref="taskrun:a",
+            task_run_id="taskrun:a",
+            tool_name="write_file",
+            tool_args={"path": "b.txt"},
+            idempotency_key="idem:second",
+        )
+    except ToolInvocationAlreadyStartedError as exc:
+        assert exc.tool_invocation_id == "toolinv:duplicate"
+        assert exc.status == "running"
+    else:
+        raise AssertionError("duplicate tool invocation start must fail closed")
+
+    current = registry.record("toolinv:duplicate")
+    assert current.status == "running"
+    assert current.started_at == first.started_at
+    assert current.tool_args == {"path": "a.txt"}
+    assert current.idempotency_key == "idem:first"
 
 
 def test_cancelled_tool_invocation_record_is_terminal() -> None:
@@ -488,6 +808,181 @@ def test_task_executor_controller_schedules_task_runs_in_isolated_cells(tmp_path
     assert diagnostics_a["agent_run_scope"]["run_cell_id"] == result_a["run_cell_id"]
     assert diagnostics_b["executor_status"] == "scheduled"
     assert diagnostics_b["agent_run_scope"]["run_cell_id"] == result_b["run_cell_id"]
+
+
+def test_task_executor_controller_commits_schedule_with_claimed_cell_identity(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    task_run_id = "taskrun:claimed-schedule"
+    _insert_task_run(host, task_run_id)
+    started = threading.Event()
+    release = threading.Event()
+
+    async def execute(task_run_id: str, *, max_steps: int) -> dict[str, str]:
+        started.set()
+        while not release.is_set():
+            await asyncio.sleep(0.01)
+        return {"status": "completed"}
+
+    controller = TaskExecutorController(runtime_host=host, execute_task_run_callback=execute)
+    result = controller.schedule(task_run_id, scheduler="test", turn_id="turn:claimed-schedule", max_steps=3)
+    cell = host.agent_run_supervisor.active_cell_for_task_run(task_run_id)
+    try:
+        assert result["scheduled"] is True
+        assert result["agent_run_id"]
+        assert result["run_cell_id"]
+        assert cell is not None
+        assert cell.scope.agent_run_id == result["agent_run_id"]
+        assert cell.scope.run_cell_id == result["run_cell_id"]
+        assert cell.scope.turn_id == "turn:claimed-schedule"
+        assert started.wait(timeout=3)
+
+        task_run = host.state_index.get_task_run(task_run_id)
+        diagnostics = dict(task_run.diagnostics or {})
+        scheduled_events = [
+            event for event in host.event_log.list_events(task_run_id)
+            if event.event_type == "task_run_executor_scheduled"
+        ]
+
+        assert len(scheduled_events) == 1
+        scheduled_payload = dict(scheduled_events[0].payload or {})
+        scheduled_scope = dict(scheduled_payload.get("agent_scope") or {})
+        assert scheduled_payload["agent_run_id"] == result["agent_run_id"]
+        assert scheduled_payload["run_cell_id"] == result["run_cell_id"]
+        assert scheduled_scope["turn_id"] == "turn:claimed-schedule"
+        assert scheduled_events[0].refs["agent_run_ref"] == result["agent_run_id"]
+        assert scheduled_events[0].refs["run_cell_ref"] == result["run_cell_id"]
+        assert diagnostics["executor_status"] == "scheduled"
+        assert diagnostics["executor_lease_state"] == "scheduled"
+        assert diagnostics["latest_interaction_turn_id"] == "turn:claimed-schedule"
+        assert diagnostics["agent_run_id"] == result["agent_run_id"]
+        assert diagnostics["run_cell_id"] == result["run_cell_id"]
+        assert dict(diagnostics["agent_run_scope"])["run_cell_id"] == result["run_cell_id"]
+    finally:
+        release.set()
+        if cell is not None and cell.worker_handle is not None:
+            cell.worker_handle.join(timeout=3)
+
+
+def test_task_executor_controller_does_not_mark_backpressured_task_scheduled(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    host.agent_run_supervisor.max_active_cells = 1
+    _insert_task_run(host, "taskrun:active")
+    _insert_task_run(host, "taskrun:backpressured")
+    started = threading.Event()
+    release = threading.Event()
+
+    async def execute(task_run_id: str, *, max_steps: int) -> dict[str, str]:
+        started.set()
+        while not release.is_set():
+            await asyncio.sleep(0.01)
+        return {"status": "completed"}
+
+    controller = TaskExecutorController(runtime_host=host, execute_task_run_callback=execute)
+    result_active = controller.schedule("taskrun:active", scheduler="test", max_steps=1)
+    cell_active = host.agent_run_supervisor.active_cell_for_task_run("taskrun:active")
+    try:
+        assert result_active["scheduled"] is True
+        assert cell_active is not None
+        assert started.wait(timeout=3)
+
+        result_blocked = controller.schedule("taskrun:backpressured", scheduler="test", max_steps=1)
+        blocked_task_run = host.state_index.get_task_run("taskrun:backpressured")
+        blocked_diagnostics = dict(blocked_task_run.diagnostics or {})
+        scheduled_events = [
+            event for event in host.event_log.list_events("taskrun:backpressured")
+            if event.event_type == "task_run_executor_scheduled"
+        ]
+        backpressure_events = [
+            event for event in host.event_log.list_events("taskrun:backpressured")
+            if event.event_type == "agent_runtime_cell_backpressure"
+        ]
+        drained = host.runtime_gateway.drain(
+            "taskrun:backpressured",
+            scope=RuntimeSignalScope(
+                session_id="session:cell-isolation",
+                task_run_id="taskrun:backpressured",
+                agent_run_id=result_blocked["agent_run_id"],
+                run_cell_id=result_blocked["run_cell_id"],
+            ),
+            signal_types={"agent_runtime_cell_backpressure"},
+        )
+
+        assert result_blocked["scheduled"] is False
+        assert result_blocked["ok"] is False
+        assert result_blocked["reason"] == "max_active_cells_reached"
+        assert result_blocked["agent_run_id"]
+        assert result_blocked["run_cell_id"]
+        assert host.agent_run_supervisor.active_cell_for_task_run("taskrun:backpressured") is None
+        assert scheduled_events == []
+        assert blocked_diagnostics.get("executor_status") in {None, ""}
+        assert blocked_diagnostics.get("executor_lease_state") in {None, ""}
+        assert "agent_run_scope" not in blocked_diagnostics
+        assert len(backpressure_events) == 1
+        assert dict(backpressure_events[0].payload)["reason"] == "max_active_cells_reached"
+        assert dict(dict(backpressure_events[0].payload)["agent_scope"])["run_cell_id"] == result_blocked["run_cell_id"]
+        assert len(drained.pending_signals) == 1
+        assert drained.pending_signals[0].scope.run_cell_id == result_blocked["run_cell_id"]
+        assert drained.pending_signals[0].payload["reason"] == "max_active_cells_reached"
+    finally:
+        release.set()
+        if cell_active is not None and cell_active.worker_handle is not None:
+            cell_active.worker_handle.join(timeout=3)
+
+
+def test_task_executor_controller_cleans_cell_claim_when_worker_start_fails(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    task_run_id = "taskrun:worker-start-fails"
+    _insert_task_run(host, task_run_id)
+    executed = threading.Event()
+
+    class FailingWorkerBackend:
+        backend_name = "failing-worker"
+
+        def start(self, *, run_cell_id: str, work_factory, on_done=None):
+            raise RuntimeError("worker backend offline")
+
+    async def execute(task_run_id: str, *, max_steps: int) -> dict[str, str]:
+        executed.set()
+        return {"status": "completed"}
+
+    host.agent_run_supervisor.worker_backend = FailingWorkerBackend()
+    controller = TaskExecutorController(runtime_host=host, execute_task_run_callback=execute)
+    result = controller.schedule(task_run_id, scheduler="test", max_steps=1)
+    task_run = host.state_index.get_task_run(task_run_id)
+    diagnostics = dict(task_run.diagnostics or {})
+    events = host.event_log.list_events(task_run_id)
+    event_types = [event.event_type for event in events]
+    schedule_failed = [
+        event for event in events
+        if event.event_type == "task_run_executor_schedule_failed"
+    ]
+    start_failed = [
+        event for event in events
+        if event.event_type == "agent_runtime_cell_start_failed"
+    ]
+
+    assert result["ok"] is False
+    assert result["scheduled"] is False
+    assert result["reason"] == "worker_start_failed"
+    assert result["error"] == "worker backend offline"
+    assert result["run_cell_id"]
+    assert executed.is_set() is False
+    assert host.agent_run_supervisor.active_cell_for_task_run(task_run_id) is None
+    assert host.agent_run_supervisor.cell_by_id(result["run_cell_id"]) is None
+    assert task_run.status == "blocked"
+    assert task_run.terminal_reason == "task_executor_schedule_failed"
+    assert diagnostics["executor_status"] == "blocked"
+    assert diagnostics["executor_lease_state"] == "blocked"
+    assert "agent_run_scope" not in diagnostics
+    assert "agent_run_id" not in diagnostics
+    assert "run_cell_id" not in diagnostics
+    assert "agent_runtime_cell_created" in event_types
+    assert "task_run_executor_scheduled" in event_types
+    assert "agent_runtime_cell_started" not in event_types
+    assert len(start_failed) == 1
+    assert dict(start_failed[0].payload)["error"] == "worker backend offline"
+    assert len(schedule_failed) == 1
+    assert schedule_failed[0].refs["run_cell_ref"] == result["run_cell_id"]
 
 
 def test_cell_mailbox_overflow_publishes_scoped_backpressure_event(tmp_path) -> None:

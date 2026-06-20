@@ -1,19 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
-import { Gauge } from "lucide-react";
+import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
-import { VSCodeStatusPanel } from "@/features/vscode-connection/VSCodeStatusPanel";
 import { sessionSummaryIsRunning } from "@/lib/sessionTaskPresentation";
 import { useAppStoreActions, useAppStoreSelector } from "@/lib/store";
 import { shallowEqual } from "@/lib/store/hooks";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
-import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 import type { HarnessTaskRunLiveMonitor } from "@/lib/api";
-import type { ActiveTurnSnapshot, ChatStreamConnectionStatus, Message, StoreActions, StoreState, TokenStats } from "@/lib/store/types";
+import type { ActiveTurnSnapshot, Message, StoreActions, StoreState, TokenStats } from "@/lib/store/types";
 
 export function ChatPanel() {
   const {
@@ -22,18 +19,15 @@ export function ChatPanel() {
     activeStreamSessionIds,
     sessionActivity,
     currentSessionId,
-    conversationActiveEnvironment,
     workspaceInitializing,
     modelProviderConfig,
     imageAssetConfig,
     permissionMode,
     supportedPermissionModes,
     chatThinkingMode,
-    chatStreamDisplayEnabled,
     selectedChatModelId,
     sessions,
     tokenStats,
-    chatStreamConnectionStatus,
     activeTurnSnapshot,
     taskGraphLiveMonitor,
   } = useAppStoreSelector((state) => ({
@@ -42,18 +36,15 @@ export function ChatPanel() {
     activeStreamSessionIds: state.activeStreamSessionIds,
     sessionActivity: state.sessionActivity,
     currentSessionId: state.currentSessionId,
-    conversationActiveEnvironment: state.conversationActiveEnvironment,
     workspaceInitializing: state.workspaceInitializing,
     modelProviderConfig: state.modelProviderConfig,
     imageAssetConfig: state.imageAssetConfig,
     permissionMode: state.permissionMode,
     supportedPermissionModes: state.supportedPermissionModes,
     chatThinkingMode: state.chatThinkingMode,
-    chatStreamDisplayEnabled: state.chatStreamDisplayEnabled,
     selectedChatModelId: state.selectedChatModelId,
     sessions: state.sessions,
     tokenStats: state.tokenStats,
-    chatStreamConnectionStatus: state.chatStreamConnectionStatus,
     activeTurnSnapshot: state.activeTurnSnapshot,
     taskGraphLiveMonitor: state.taskGraphLiveMonitor,
   }), shallowEqual);
@@ -63,7 +54,6 @@ export function ChatPanel() {
     resendEditedMessage,
     setPermissionMode,
     setChatThinkingMode,
-    setChatStreamDisplayEnabled,
     openRuntimeLog,
     setSelectedChatModel,
   } = useAppStoreActions();
@@ -176,27 +166,8 @@ export function ChatPanel() {
         <div className="chat-panel-status-row">
           {suppressFooterActivity ? null : <SessionActivityBar activity={sessionActivity} active={currentSessionActive} />}
           <div className="chat-panel-status-row__right">
-            {conversationActiveEnvironment ? (
-              <div className="chat-task-environment-binding" title={conversationActiveEnvironment.task_environment_id}>
-                <span>环境</span>
-                <strong>
-                  {taskEnvironmentDisplayName(
-                    conversationActiveEnvironment.task_environment_id,
-                    conversationActiveEnvironment.environment_label,
-                  )}
-                </strong>
-              </div>
-            ) : null}
-            <ChatStreamStatusBadge
-              status={chatStreamConnectionStatus}
-              streaming={currentSessionReceivingStream}
-            />
-            <VSCodeStatusPanel
-              sessionId={currentSessionId}
-              projectBinding={currentSession?.conversation_state?.project_binding ?? null}
-            />
+            <SessionTokenMeter tokenStats={tokenStats} />
           </div>
-          <SessionTokenMeter tokenStats={tokenStats} />
         </div>
         <ChatInput
           disabled={workspaceInitializing}
@@ -211,9 +182,7 @@ export function ChatPanel() {
           onSelectChatModel={setSelectedChatModel}
           selectedChatModelId={selectedChatModelId}
           chatThinkingMode={chatThinkingMode}
-          chatStreamDisplayEnabled={chatStreamDisplayEnabled}
           onSelectThinkingMode={setChatThinkingMode}
-          onSelectStreamDisplayEnabled={setChatStreamDisplayEnabled}
         />
       </div>
     </section>
@@ -266,93 +235,6 @@ function messagesWithActiveProjectionViews(
     }
     return { ...message, projectionView };
   });
-}
-
-function ChatStreamStatusBadge({
-  status,
-  streaming,
-}: {
-  status: ChatStreamConnectionStatus;
-  streaming: boolean;
-}) {
-  const presentation = chatStreamStatusPresentation(status, streaming);
-  if (!presentation) {
-    return null;
-  }
-  return (
-    <div
-      className={`chat-stream-status chat-stream-status--${presentation.state}`}
-      title={presentation.title}
-    >
-      <span className="chat-stream-status__dot" />
-      <span>{presentation.label}</span>
-      {presentation.detail ? <strong>{presentation.detail}</strong> : null}
-    </div>
-  );
-}
-
-function chatStreamStatusPresentation(status: ChatStreamConnectionStatus, streaming: boolean) {
-  const state = status.state === "idle" && streaming ? "streaming" : status.state;
-  if (state === "idle") {
-    return null;
-  }
-  if (state === "reconnecting") {
-    const attempt = status.attempt
-      ? `第 ${status.attempt} 次`
-      : "";
-    return {
-      state,
-      label: "输出流",
-      detail: attempt ? `重连中 ${attempt}` : "重连中",
-      title: status.reason ? `输出流连接中断，正在重连：${status.reason}` : "输出流连接中断，正在重连。",
-    };
-  }
-  if (state === "failed") {
-    return {
-      state,
-      label: "输出流",
-      detail: "已断开",
-      title: status.reason ? `输出流已断开：${status.reason}` : "输出流已断开。",
-    };
-  }
-  if (state === "stopped") {
-    return {
-      state,
-      label: "输出流",
-      detail: "已停止",
-      title: status.reason ? `输出流已停止：${status.reason}` : "输出流已停止。",
-    };
-  }
-  if (state === "reconnected") {
-    return {
-      state,
-      label: "输出流",
-      detail: "已恢复",
-      title: "输出流已恢复，继续接收事件。",
-    };
-  }
-  if (state === "streaming" && status.reason === "partial_stream_recovery") {
-    return {
-      state,
-      label: "输出流",
-      detail: "恢复中",
-      title: "模型输出连接中断，正在从已显示内容继续。",
-    };
-  }
-  if (state === "streaming" && status.reason === "partial_stream_recovery_failed") {
-    return {
-      state,
-      label: "输出流",
-      detail: "整理中",
-      title: "模型续写请求未完成，正在提交已显示内容。",
-    };
-  }
-  return {
-    state,
-    label: "输出流",
-    detail: "正常",
-    title: "正在接收输出流事件。",
-  };
 }
 
 export function shouldSuppressSessionActivityBar(messages: Message[], active: boolean) {
@@ -564,11 +446,15 @@ function SessionTokenMeter({ tokenStats }: { tokenStats: TokenStats | null }) {
     return null;
   }
   return (
-    <div className={`chat-token-meter chat-token-meter--${presentation.levelClass}`} title={presentation.title}>
-      <Gauge size={14} />
-      <span>{presentation.label}</span>
-      <strong>{presentation.tokenRatioText}</strong>
-      <span>{presentation.thresholdPercentText}</span>
+    <div
+      aria-label={`上下文 ${presentation.usedTokenText} / ${presentation.thresholdTokenText}`}
+      className={`chat-token-meter chat-token-meter--${presentation.levelClass}`}
+      style={{ "--chat-token-meter-used": `${presentation.usedPercent}%` } as CSSProperties}
+      title={presentation.title}
+    >
+      <strong>{presentation.usedTokenText}</strong>
+      <span className="chat-token-meter__separator" aria-hidden="true">/</span>
+      <strong>{presentation.thresholdTokenText}</strong>
     </div>
   );
 }
@@ -576,10 +462,9 @@ function SessionTokenMeter({ tokenStats }: { tokenStats: TokenStats | null }) {
 export function sessionContextMeterPresentation(tokenStats: TokenStats | null) {
   if (!tokenStats) {
     return {
-      label: "上下文",
       usedPercent: 0,
-      thresholdPercentText: "--",
-      tokenRatioText: "--",
+      usedTokenText: "--",
+      thresholdTokenText: "--",
       title: "正在读取当前 session 上下文状态",
       levelClass: "pending",
     };
@@ -587,37 +472,38 @@ export function sessionContextMeterPresentation(tokenStats: TokenStats | null) {
   const contextMeter = tokenStats.context_meter;
   if (!contextMeter) {
     return {
-      label: "上下文",
       usedPercent: 0,
-      thresholdPercentText: "--",
-      tokenRatioText: "--",
+      usedTokenText: "--",
+      thresholdTokenText: "--",
       title: "正在读取当前 session 上下文状态",
       levelClass: "pending",
     };
   }
   const currentTokens = currentContextTokens(tokenStats);
+  const displayContext = displayContextTokens(tokenStats);
+  const displayTokens = displayContext.tokens;
   const contextWindowTokens = currentContextWindowTokens(tokenStats);
   const thresholdTokens = compactionThresholdTokens(tokenStats);
-  const thresholdRatio = currentContextThresholdRatio(currentTokens, thresholdTokens);
+  const thresholdRatio = currentContextThresholdRatio(displayTokens, thresholdTokens);
   const usedPercent = percentFromRatio(thresholdRatio);
   const thresholdPercentText = thresholdTokens > 0 ? `${usedPercent}%` : "--";
   const levelClass = contextThresholdLevelClass(thresholdRatio);
-  const remainingTokens = Math.max(0, thresholdTokens - currentTokens);
-  const tokenRatioText = thresholdTokens > 0
-    ? `${formatTokenCount(currentTokens)}/${formatTokenCount(thresholdTokens)}`
-    : formatTokenCount(currentTokens);
+  const remainingTokens = Math.max(0, thresholdTokens - displayTokens);
+  const usedTokenText = formatTokenCount(displayTokens);
+  const thresholdTokenText = thresholdTokens > 0 ? formatTokenCount(thresholdTokens) : "--";
+  const isCumulativeDisplay = displayContext.source === "cumulative";
   const title = [
-    `当前上下文 ${formatExactTokenCount(currentTokens)} tokens`,
+    `${isCumulativeDisplay ? "累计上下文" : "当前上下文"} ${formatExactTokenCount(displayTokens)} tokens`,
+    isCumulativeDisplay ? `当前模型上下文 ${formatExactTokenCount(currentTokens)} tokens` : "",
     thresholdTokens > 0 ? `自动压缩阈值 ${formatExactTokenCount(thresholdTokens)} tokens` : "",
     thresholdTokens > 0 ? `阈值占比 ${thresholdPercentText}` : "",
     contextWindowTokens > 0 ? `模型窗口 ${formatExactTokenCount(contextWindowTokens)} tokens` : "",
     thresholdTokens > 0 ? `距自动压缩还剩 ${formatExactTokenCount(remainingTokens)} tokens` : "",
   ].filter(Boolean).join("；");
   return {
-    label: "上下文",
     usedPercent,
-    thresholdPercentText,
-    tokenRatioText,
+    usedTokenText,
+    thresholdTokenText,
     title,
     levelClass,
   };
@@ -630,6 +516,17 @@ function percentFromRatio(value: unknown) {
 function currentContextTokens(tokenStats: TokenStats) {
   const value = Number(tokenStats.context_meter?.current_context_tokens ?? 0);
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+}
+
+function displayContextTokens(tokenStats: TokenStats) {
+  const rawValue = tokenStats.cumulative_transcript_tokens;
+  if (rawValue !== undefined && rawValue !== null) {
+    const value = Number(rawValue);
+    if (Number.isFinite(value)) {
+      return { tokens: Math.max(0, Math.round(value)), source: "cumulative" as const };
+    }
+  }
+  return { tokens: currentContextTokens(tokenStats), source: "current" as const };
 }
 
 function currentContextWindowTokens(tokenStats: TokenStats) {

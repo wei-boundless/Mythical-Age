@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, BrainCircuit, ImagePlus, Radio, ShieldCheck, Square, X } from "lucide-react";
+import { ArrowUp, BrainCircuit, ImagePlus, ShieldCheck, Square, X, Zap } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ModelProviderConfig, ImageAssetConfig } from "@/lib/api";
@@ -15,10 +15,8 @@ export function ChatInput({
   onStop,
   onSelectChatModel,
   onSelectPermissionMode,
-  onSelectStreamDisplayEnabled,
   onSelectThinkingMode,
   chatThinkingMode,
-  chatStreamDisplayEnabled,
   permissionMode,
   supportedPermissionModes,
   selectedChatModelId,
@@ -31,10 +29,8 @@ export function ChatInput({
   onStop: () => void;
   onSelectChatModel: (selectionId: string) => void;
   onSelectPermissionMode: (mode: string) => Promise<void> | void;
-  onSelectStreamDisplayEnabled: (enabled: boolean) => void;
   onSelectThinkingMode: (mode: ChatThinkingMode) => void;
   chatThinkingMode: ChatThinkingMode;
-  chatStreamDisplayEnabled: boolean;
   permissionMode: string;
   supportedPermissionModes: string[];
   selectedChatModelId: string;
@@ -53,10 +49,6 @@ export function ChatInput({
   const activeModel = resolveActiveChatModel(activeModelId, modelProviderConfig);
   const activeModelSupportsReasoning = Boolean(activeModel && supportsHiddenReasoning(activeModel.provider, activeModel.model, modelProviderConfig));
   const activeThinkingMode = activeModelSupportsReasoning ? chatThinkingMode : "normal";
-  const modelModeOptions = useMemo(
-    () => buildChatModelModeOptions(modelOptions, modelProviderConfig),
-    [modelOptions, modelProviderConfig]
-  );
   const permissionOptions = useMemo(
     () => buildPermissionModeOptions(supportedPermissionModes),
     [supportedPermissionModes]
@@ -64,7 +56,6 @@ export function ChatInput({
   const activePermissionMode = permissionOptions.some((option) => option.value === permissionMode)
     ? permissionMode
     : permissionOptions[0]?.value ?? "default";
-  const activeModelModeValue = encodeChatModelModeSelection(activeModelId, activeThinkingMode);
   const panelClassName = `chat-input-panel chat-input-panel--inline${streaming ? " chat-input-panel--streaming" : ""}`;
   const primaryAction = trimmedValue || hasSelectedFiles
     ? "send"
@@ -81,11 +72,6 @@ export function ChatInput({
     "chat-send-button",
     primaryAction === "stop_stream" ? "chat-stop-button chat-send-button--stop" : "",
   ].filter(Boolean).join(" ");
-  const streamToggleTitle = streaming
-    ? "本轮运行中，下一轮可切换流式显示"
-    : chatStreamDisplayEnabled
-      ? "流式显示已开启"
-      : "流式显示已关闭";
 
   useEffect(() => {
     if (!activeModelSupportsReasoning && chatThinkingMode !== "normal") {
@@ -178,20 +164,35 @@ export function ChatInput({
       <div className="chat-input-panel__footer">
         <div className="chat-input-panel__controls">
           <div className="chat-control-cluster chat-control-cluster--model">
-            <span className="chat-control-cluster__name">模型</span>
-            <label className="chat-model-select chat-model-select--compound">
+            <label className="chat-model-select chat-model-select--model" title="选择本轮模型">
               <BrainCircuit size={16} />
               <select
-                aria-label="选择本轮模型和模式"
-                disabled={inputDisabled || modelModeOptions.length <= 1}
-                onChange={(event) => {
-                  const selection = decodeChatModelModeSelection(event.target.value);
-                  onSelectChatModel(selection.modelId);
-                  onSelectThinkingMode(selection.thinkingMode);
-                }}
-                value={activeModelModeValue}
+                aria-label="选择本轮模型"
+                disabled={inputDisabled || modelOptions.length <= 1}
+                onChange={(event) => onSelectChatModel(event.target.value)}
+                value={activeModelId}
               >
-                {modelModeOptions.map((option) => (
+                {modelOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="chat-control-cluster chat-control-cluster--thinking">
+            <label
+              className="chat-model-select chat-model-select--thinking"
+              title={activeModelSupportsReasoning ? "选择本轮 Thinking 模式" : "当前模型不支持 Thinking"}
+            >
+              <Zap size={15} />
+              <select
+                aria-label="选择思考模式"
+                disabled={inputDisabled || !activeModelSupportsReasoning}
+                onChange={(event) => onSelectThinkingMode(event.target.value as ChatThinkingMode)}
+                value={activeThinkingMode}
+              >
+                {(activeModelSupportsReasoning ? THINKING_MODE_OPTIONS : [THINKING_MODE_OPTIONS[0]]).map((option) => (
                   <option key={option.value} title={option.title} value={option.value}>
                     {option.label}
                   </option>
@@ -219,20 +220,6 @@ export function ChatInput({
                 ))}
               </select>
             </label>
-          </div>
-          <div className="chat-control-cluster chat-control-cluster--stream">
-            <button
-              aria-label={chatStreamDisplayEnabled ? "关闭流式显示" : "开启流式显示"}
-              aria-pressed={chatStreamDisplayEnabled}
-              className={`chat-stream-toggle${chatStreamDisplayEnabled ? " chat-stream-toggle--active" : ""}`}
-              disabled={disabled || streaming}
-              onClick={() => onSelectStreamDisplayEnabled(!chatStreamDisplayEnabled)}
-              title={streamToggleTitle}
-              type="button"
-            >
-              <Radio size={14} />
-              <span>流式</span>
-            </button>
           </div>
         </div>
         <div className="chat-input-panel__actions">
@@ -377,7 +364,7 @@ function permissionModeTitle(mode: string) {
 function buildChatModelOptions(config: ModelProviderConfig | null, imageConfig: ImageAssetConfig | null) {
   const systemLabel = config?.provider && config?.model
     ? config.model
-    : "系统默认模型";
+    : "系统默认";
   const options: Array<{ id: string; label: string }> = [{ id: "system-default", label: systemLabel }];
   if (config?.provider) {
     const provider = String(config.provider || "").trim().toLowerCase();
@@ -413,22 +400,6 @@ function buildChatModelOptions(config: ModelProviderConfig | null, imageConfig: 
   return options;
 }
 
-function buildChatModelModeOptions(
-  modelOptions: Array<{ id: string; label: string }>,
-  config: ModelProviderConfig | null
-) {
-  return modelOptions.flatMap((option) => {
-    const model = resolveActiveChatModel(option.id, config);
-    const supportsReasoning = Boolean(model && supportsHiddenReasoning(model.provider, model.model, config));
-    const modeOptions = supportsReasoning ? THINKING_MODE_OPTIONS : [THINKING_MODE_OPTIONS[0]];
-    return modeOptions.map((mode) => ({
-      value: encodeChatModelModeSelection(option.id, mode.value),
-      label: supportsReasoning ? `${option.label} · ${mode.label}` : option.label,
-      title: supportsReasoning ? mode.title : "使用标准调用模式",
-    }));
-  });
-}
-
 function addConfiguredModelOption(
   options: Array<{ id: string; label: string }>,
   item: { id?: string; label?: string; baseUrl?: string | null }
@@ -461,25 +432,6 @@ const THINKING_MODE_OPTIONS: Array<{ value: ChatThinkingMode; label: string; tit
   { value: "normal", label: "标准", title: "关闭 Thinking" },
   { value: "thinking", label: "Thinking", title: "开启 Thinking，推理强度由 DeepSeek 自动调度" },
 ];
-
-const MODEL_MODE_SEPARATOR = "::mode::";
-
-function encodeChatModelModeSelection(modelId: string, thinkingMode: ChatThinkingMode) {
-  return `${encodeURIComponent(modelId)}${MODEL_MODE_SEPARATOR}${thinkingMode}`;
-}
-
-function decodeChatModelModeSelection(value: string): { modelId: string; thinkingMode: ChatThinkingMode } {
-  const [encodedModelId, rawThinkingMode] = value.split(MODEL_MODE_SEPARATOR);
-  const modelId = decodeURIComponent(encodedModelId || "system-default");
-  return {
-    modelId,
-    thinkingMode: isChatThinkingMode(rawThinkingMode) ? rawThinkingMode : "normal",
-  };
-}
-
-function isChatThinkingMode(value: string | undefined): value is ChatThinkingMode {
-  return value === "normal" || value === "thinking";
-}
 
 function supportsHiddenReasoning(provider: string, model: string, config: ModelProviderConfig | null) {
   const normalizedProvider = provider.trim().toLowerCase();

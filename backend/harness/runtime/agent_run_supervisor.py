@@ -13,6 +13,7 @@ from .control_events import signal_scope_from_agent_scope
 
 
 AsyncWorkFactory = Callable[[], Coroutine[Any, Any, Any]]
+ScheduleCommittedCallback = Callable[[AgentRunScope, str], None]
 
 
 class AgentRunSupervisor:
@@ -47,6 +48,8 @@ class AgentRunSupervisor:
         scheduler: str,
         max_steps: int,
         recovered_from: str = "",
+        turn_id: str = "",
+        on_scheduled: ScheduleCommittedCallback | None = None,
     ) -> dict[str, Any]:
         task_run = self.runtime_host.state_index.get_task_run(task_run_id)
         if task_run is None:
@@ -65,7 +68,7 @@ class AgentRunSupervisor:
                 )
             active_count = len([cell for cell in self._cells_by_id.values() if _counts_against_active_limit(cell)])
             if active_count >= self.max_active_cells:
-                scope = agent_scope_from_task_run(task_run)
+                scope = agent_scope_from_task_run(task_run, turn_id=turn_id)
                 self._publish_cell_event(
                     "agent_runtime_cell_backpressure",
                     scope,
@@ -83,7 +86,7 @@ class AgentRunSupervisor:
                     scope=scope,
                     worker_backend=self.worker_backend.backend_name,
                 )
-            scope = agent_scope_from_task_run(task_run)
+            scope = agent_scope_from_task_run(task_run, turn_id=turn_id)
             cell = AgentRuntimeCell(
                 scope=scope,
                 worker_backend=self.worker_backend,
@@ -91,22 +94,53 @@ class AgentRunSupervisor:
             )
             self._cells_by_id[scope.run_cell_id] = cell
             self._task_run_cells[task_run_id] = scope.run_cell_id
-            self._record_scope_on_task_run(task_run, scope, scheduler=scheduler, max_steps=max_steps, recovered_from=recovered_from)
+            self._record_scope_on_task_run(
+                task_run,
+                scope,
+                scheduler=scheduler,
+                max_steps=max_steps,
+                recovered_from=recovered_from,
+                turn_id=turn_id,
+            )
             self._publish_cell_event(
                 "agent_runtime_cell_created",
                 scope,
                 payload={"scheduler": scheduler, "max_steps": max_steps, "recovered_from": recovered_from},
             )
+            if callable(on_scheduled):
+                on_scheduled(scope, cell.worker_backend.backend_name)
 
-        def _done(handle: AgentWorkerHandle) -> None:
-            self._on_cell_done(cell, handle)
+            def _done(handle: AgentWorkerHandle) -> None:
+                self._on_cell_done(cell, handle)
 
-        cell.start(work_factory, on_done=_done)
-        self._publish_cell_event(
-            "agent_runtime_cell_started",
-            scope,
-            payload={"scheduler": scheduler, "worker_backend": cell.worker_backend.backend_name},
-        )
+            try:
+                cell.start(work_factory, on_done=_done)
+            except Exception as exc:
+                if self._task_run_cells.get(task_run_id) == scope.run_cell_id:
+                    self._task_run_cells.pop(task_run_id, None)
+                self._cells_by_id.pop(scope.run_cell_id, None)
+                cell.status = "failed"
+                cell.completed_at = time.time()
+                error = str(exc) or exc.__class__.__name__
+                self._publish_cell_event(
+                    "agent_runtime_cell_start_failed",
+                    scope,
+                    payload={"scheduler": scheduler, "worker_backend": cell.worker_backend.backend_name, "error": error},
+                )
+                return _supervisor_result(
+                    ok=False,
+                    scheduled=False,
+                    reason="worker_start_failed",
+                    task_run_id=task_run_id,
+                    scope=scope,
+                    worker_backend=cell.worker_backend.backend_name,
+                    error=error,
+                )
+            self._publish_cell_event(
+                "agent_runtime_cell_started",
+                scope,
+                payload={"scheduler": scheduler, "worker_backend": cell.worker_backend.backend_name},
+            )
         return _supervisor_result(
             ok=True,
             scheduled=True,
@@ -361,6 +395,7 @@ class AgentRunSupervisor:
         scheduler: str,
         max_steps: int,
         recovered_from: str,
+        turn_id: str,
     ) -> None:
         current = self.runtime_host.state_index.get_task_run(scope.task_run_id) or task_run
         diagnostics = dict(getattr(current, "diagnostics", {}) or {})
@@ -375,6 +410,7 @@ class AgentRunSupervisor:
                     "agent_cell_status": "scheduled",
                     "agent_cell_scheduler": scheduler,
                     "agent_cell_max_steps": max_steps,
+                    **({"latest_interaction_turn_id": turn_id} if turn_id else {}),
                     **({"agent_cell_recovered_from": recovered_from} if recovered_from else {}),
                 },
             )
@@ -388,6 +424,7 @@ def _supervisor_result(
     task_run_id: str,
     scope: AgentRunScope | None = None,
     worker_backend: str = "",
+    error: str = "",
 ) -> dict[str, Any]:
     return {
         "ok": bool(ok),
@@ -396,6 +433,7 @@ def _supervisor_result(
         "reason": str(reason or ""),
         **({"agent_run_id": scope.agent_run_id, "run_cell_id": scope.run_cell_id, "agent_scope": scope.to_dict()} if scope is not None else {}),
         **({"worker_backend": worker_backend} if worker_backend else {}),
+        **({"error": error} if error else {}),
         "authority": "harness.runtime.agent_run_supervisor",
     }
 

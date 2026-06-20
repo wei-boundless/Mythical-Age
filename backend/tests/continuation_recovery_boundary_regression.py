@@ -17,6 +17,7 @@ from harness.loop.model_action_protocol import (
     task_execution_action_request_from_payload,
 )
 from harness.runtime import RuntimeCompiler, RuntimeGateway, RuntimeSignalScope
+from harness.runtime.control_events import build_runtime_signal_envelope
 from harness.runtime.request_facts import build_turn_input_facts
 
 
@@ -217,6 +218,44 @@ def test_selector_ignores_diagnostics_only_signal_for_generic_interrupted_turn()
         _Host([], turn_runs=[_generic_interrupted_turn_with_diagnostic_signal()]),
         session_id="session-continuation",
     )
+
+    assert selection.interrupted_turn is None
+    assert selection.reason == "session_task_run_missing_or_interrupted_turn_missing"
+
+
+def test_selector_ignores_derived_gateway_signal_without_published_source(tmp_path) -> None:
+    turn = _generic_interrupted_turn_with_diagnostic_signal()
+    event_log = RuntimeEventLog(tmp_path)
+    host = _Host([], turn_runs=[turn], event_log=event_log)
+    scope = RuntimeSignalScope(
+        session_id=turn.session_id,
+        turn_id=turn.turn_id,
+        turn_run_id=turn.turn_run_id,
+    )
+    for event_type, state, actor in (
+        ("runtime_control_signal_observed", "observed", "test.observer"),
+        ("runtime_control_signal_consumed", "consumed", "test.consumer"),
+    ):
+        signal = build_runtime_signal_envelope(
+            signal_type="control.signal.requested",
+            signal_id="rtsig:derived-only",
+            scope=scope,
+            source_authority="test.derived",
+            payload={
+                "signal_kind": "model_protocol_violation",
+                "message": "derived signal must not decide continuation",
+            },
+            consumption_state=state,
+            consumed_by=actor,
+        )
+        event_log.append(
+            turn.turn_run_id,
+            event_type,  # type: ignore[arg-type]
+            payload={"signal": signal.to_dict()},
+            refs={"signal_ref": signal.signal_id},
+        )
+
+    selection = select_session_continuation(host, session_id="session-continuation")
 
     assert selection.interrupted_turn is None
     assert selection.reason == "session_task_run_missing_or_interrupted_turn_missing"

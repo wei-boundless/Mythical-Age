@@ -26,6 +26,19 @@ class ExecutorControlSignal:
     control_event_ref: str = ""
 
 
+def executor_control_signal_effect(signal: ExecutorControlSignal) -> dict[str, Any]:
+    return {
+        "task_run_id": signal.task_run_id,
+        "signal_kind": signal.kind,
+        "runtime_control_signal_ref": signal.signal_id,
+        "control_event_ref": signal.control_event_ref,
+        "executor_epoch": int(signal.executor_epoch or 0),
+        "requested_by": signal.requested_by,
+        "reason": signal.reason,
+        "authority": "harness.loop.task_run_execution_control",
+    }
+
+
 @dataclass(slots=True)
 class ExecutorEpochRecord:
     task_run_id: str
@@ -60,12 +73,45 @@ def attach_model_task(runtime_host: Any, *, task_run_id: str, executor_epoch: in
         _cancel_model_task(record, reason=record.signal.reason or record.signal.kind)
 
 
+def request_executor_control_signal(
+    runtime_host: Any,
+    *,
+    task_run_id: str,
+    kind: ExecutorSignalKind,
+    reason: str = "",
+    requested_by: str = "user",
+    steer_ref: str = "",
+    unavailable_reason: str = "target_cell_unavailable",
+) -> ExecutorControlSignal | None:
+    return _request_signal(
+        runtime_host,
+        task_run_id=task_run_id,
+        kind=kind,
+        reason=reason,
+        requested_by=requested_by,
+        steer_ref=steer_ref,
+        unavailable_reason=unavailable_reason,
+    )
+
+
 def request_executor_pause(runtime_host: Any, *, task_run_id: str, reason: str = "", requested_by: str = "user") -> bool:
-    return _request_signal(runtime_host, task_run_id=task_run_id, kind="pause", reason=reason, requested_by=requested_by)
+    return request_executor_control_signal(
+        runtime_host,
+        task_run_id=task_run_id,
+        kind="pause",
+        reason=reason,
+        requested_by=requested_by,
+    ) is not None
 
 
 def request_executor_stop(runtime_host: Any, *, task_run_id: str, reason: str = "", requested_by: str = "user") -> bool:
-    return _request_signal(runtime_host, task_run_id=task_run_id, kind="stop", reason=reason, requested_by=requested_by)
+    return request_executor_control_signal(
+        runtime_host,
+        task_run_id=task_run_id,
+        kind="stop",
+        reason=reason,
+        requested_by=requested_by,
+    ) is not None
 
 
 def request_executor_replan(
@@ -76,13 +122,80 @@ def request_executor_replan(
     requested_by: str = "user",
     steer_ref: str = "",
 ) -> bool:
-    return _request_signal(
+    return request_executor_control_signal(
         runtime_host,
         task_run_id=task_run_id,
         kind="replan",
         reason=reason,
         requested_by=requested_by,
         steer_ref=steer_ref,
+    ) is not None
+
+
+def ensure_executor_control_signal(
+    runtime_host: Any,
+    *,
+    task_run_id: str,
+    kind: ExecutorSignalKind,
+    reason: str = "",
+    requested_by: str = "system",
+    steer_ref: str = "",
+    unavailable_reason: str = "target_cell_unavailable",
+) -> ExecutorControlSignal | None:
+    if not _runtime_gateway_publish_available(runtime_host):
+        return None
+    task_run = getattr(getattr(runtime_host, "state_index", None), "get_task_run", lambda _task_run_id: None)(task_run_id)
+    existing = _latest_requested_control_signal(
+        runtime_host,
+        task_run_id=task_run_id,
+        kind=kind,
+        steer_ref=steer_ref,
+    )
+    if existing is not None:
+        signal_id = str(existing.get("signal_id") or "")
+        control_event_ref = str(existing.get("control_event_ref") or "")
+        if _control_signal_is_closed(runtime_host, task_run_id=task_run_id, signal_id=signal_id):
+            return None
+        payload = dict(existing.get("payload") or {})
+        signal_reason = reason or str(payload.get("reason") or "")
+        signal_requested_by = requested_by or str(payload.get("requested_by") or "system")
+        signal_steer_ref = steer_ref or str(payload.get("steer_ref") or "")
+        signal_requested_at = float(payload.get("requested_at") or time.time())
+        scope = _runtime_signal_scope_for_task_run(runtime_host, task_run_id=task_run_id)
+        _publish_executor_control_signal_target_unavailable(
+            runtime_host,
+            task_run_id=task_run_id,
+            scope=scope,
+            signal_id=signal_id,
+            control_event_ref=control_event_ref,
+            kind=kind,
+            executor_epoch=_executor_epoch_from_task_run(task_run),
+            reason=signal_reason,
+            requested_by=signal_requested_by,
+            requested_at=signal_requested_at,
+            steer_ref=signal_steer_ref,
+            unavailable_reason=unavailable_reason,
+            host_registry_cancel_count=0,
+        )
+        return ExecutorControlSignal(
+            kind=kind,
+            task_run_id=task_run_id,
+            executor_epoch=_executor_epoch_from_task_run(task_run),
+            reason=signal_reason,
+            requested_by=signal_requested_by,
+            requested_at=signal_requested_at,
+            steer_ref=signal_steer_ref,
+            signal_id=signal_id,
+            control_event_ref=control_event_ref,
+        )
+    return request_executor_control_signal(
+        runtime_host,
+        task_run_id=task_run_id,
+        kind=kind,
+        reason=reason,
+        requested_by=requested_by,
+        steer_ref=steer_ref,
+        unavailable_reason=unavailable_reason,
     )
 
 
@@ -98,37 +211,7 @@ def ensure_executor_control_signal_requested(
 ) -> bool:
     if not _runtime_gateway_publish_available(runtime_host):
         return False
-    existing = _latest_requested_control_signal(
-        runtime_host,
-        task_run_id=task_run_id,
-        kind=kind,
-        steer_ref=steer_ref,
-    )
-    if existing is not None:
-        signal_id = str(existing.get("signal_id") or "")
-        control_event_ref = str(existing.get("control_event_ref") or "")
-        if _control_signal_is_closed(runtime_host, task_run_id=task_run_id, signal_id=signal_id):
-            return bool(signal_id)
-        scope = _runtime_signal_scope_for_task_run(runtime_host, task_run_id=task_run_id)
-        _publish_executor_control_signal_target_unavailable(
-            runtime_host,
-            task_run_id=task_run_id,
-            scope=scope,
-            signal_id=signal_id,
-            control_event_ref=control_event_ref,
-            kind=kind,
-            executor_epoch=_executor_epoch_from_task_run(
-                getattr(getattr(runtime_host, "state_index", None), "get_task_run", lambda _task_run_id: None)(task_run_id)
-            ),
-            reason=reason or str(dict(existing.get("payload") or {}).get("reason") or ""),
-            requested_by=requested_by or str(dict(existing.get("payload") or {}).get("requested_by") or "system"),
-            requested_at=float(dict(existing.get("payload") or {}).get("requested_at") or time.time()),
-            steer_ref=steer_ref or str(dict(existing.get("payload") or {}).get("steer_ref") or ""),
-            unavailable_reason=unavailable_reason,
-            host_registry_cancel_count=0,
-        )
-        return bool(signal_id)
-    return _request_signal(
+    signal = ensure_executor_control_signal(
         runtime_host,
         task_run_id=task_run_id,
         kind=kind,
@@ -136,6 +219,22 @@ def ensure_executor_control_signal_requested(
         requested_by=requested_by,
         steer_ref=steer_ref,
         unavailable_reason=unavailable_reason,
+    )
+    if signal is not None:
+        return True
+    existing = _latest_requested_control_signal(
+        runtime_host,
+        task_run_id=task_run_id,
+        kind=kind,
+        steer_ref=steer_ref,
+    )
+    return bool(
+        existing is not None
+        and _control_signal_is_closed(
+            runtime_host,
+            task_run_id=task_run_id,
+            signal_id=str(existing.get("signal_id") or ""),
+        )
     )
 
 
@@ -188,11 +287,11 @@ def _request_signal(
     requested_by: str,
     steer_ref: str = "",
     unavailable_reason: str = "target_cell_unavailable",
-) -> bool:
+) -> ExecutorControlSignal | None:
     record = _registry(runtime_host).get(task_run_id)
     task_run = getattr(getattr(runtime_host, "state_index", None), "get_task_run", lambda _task_run_id: None)(task_run_id)
     if record is None and task_run is None:
-        return False
+        return None
     executor_epoch = record.executor_epoch if record is not None else _executor_epoch_from_task_run(task_run)
     requested_at = time.time()
     signal_id, control_event_ref = _publish_executor_control_signal_requested(
@@ -206,7 +305,7 @@ def _request_signal(
         steer_ref=steer_ref,
     )
     if not signal_id:
-        return False
+        return None
     signal = ExecutorControlSignal(
         kind=kind,
         task_run_id=task_run_id,
@@ -264,7 +363,7 @@ def _request_signal(
                 unavailable_reason=unavailable_reason,
                 host_registry_cancel_count=host_registry_cancel_count,
             )
-    return bool(signal_id or record is not None)
+    return signal
 
 
 def _publish_executor_control_signal_requested(

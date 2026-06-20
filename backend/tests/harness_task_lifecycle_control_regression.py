@@ -1143,6 +1143,12 @@ def test_stop_signal_publishes_runtime_gateway_without_executor_registry() -> No
     assert len(requested) == 1
     assert len(unavailable) == 1
     assert requested[0]["signal_id"]
+    stop_requested_event = next(event for event in events if event.get("event_type") == "task_run_stop_requested")
+    stored_control = dict(dict(host.state_index.get_task_run(task_run_id).diagnostics or {}).get("runtime_control") or {})
+    assert dict(stop_result["control"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
+    assert stored_control["runtime_control_signal_ref"] == requested[0]["signal_id"]
+    assert dict(stop_requested_event["payload"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
+    assert dict(stop_requested_event["refs"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
     assert dict(unavailable[0]["payload"])["requested_signal_id"] == requested[0]["signal_id"]
     assert dict(unavailable[0]["payload"])["signal_kind"] == "stop"
     assert dict(unavailable[0]["payload"])["unavailable_reason"] == "target_cell_unavailable"
@@ -1183,6 +1189,8 @@ def test_pause_signal_publishes_runtime_gateway_without_executor_registry() -> N
     )
 
     pause_result = request_task_run_pause(host, task_run_id, reason="registry_missing_pause", requested_by="user")
+    trace = host.get_trace(task_run_id, include_payloads=True)
+    events = [dict(item) for item in list(dict(trace or {}).get("events") or [])]
     requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
     unavailable = _runtime_gateway_signals(
         host,
@@ -1195,6 +1203,12 @@ def test_pause_signal_publishes_runtime_gateway_without_executor_registry() -> N
     assert len(requested) == 1
     assert len(unavailable) == 1
     assert requested[0]["signal_id"]
+    pause_requested_event = next(event for event in events if event.get("event_type") == "task_run_pause_requested")
+    stored_control = dict(dict(host.state_index.get_task_run(task_run_id).diagnostics or {}).get("runtime_control") or {})
+    assert dict(pause_result["control"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
+    assert stored_control["runtime_control_signal_ref"] == requested[0]["signal_id"]
+    assert dict(pause_requested_event["payload"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
+    assert dict(pause_requested_event["refs"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
     assert dict(unavailable[0]["payload"])["requested_signal_id"] == requested[0]["signal_id"]
     assert dict(unavailable[0]["payload"])["signal_kind"] == "pause"
     assert dict(unavailable[0]["payload"])["unavailable_reason"] == "target_cell_unavailable"
@@ -1241,6 +1255,8 @@ def test_replan_signal_publishes_runtime_gateway_without_executor_registry_and_p
         intent="append_instruction_to_active_work",
     )
     steer_ref = str(dict(replan_result["steer"])["steer_id"])
+    trace = host.get_trace(task_run_id, include_payloads=True)
+    events = [dict(item) for item in list(dict(trace or {}).get("events") or [])]
     requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
     unavailable = _runtime_gateway_signals(
         host,
@@ -1253,6 +1269,13 @@ def test_replan_signal_publishes_runtime_gateway_without_executor_registry_and_p
     assert len(requested) == 1
     assert len(unavailable) == 1
     assert requested[0]["signal_id"]
+    replan_requested_event = next(event for event in events if event.get("event_type") == "task_run_replan_requested")
+    stored_control = dict(dict(host.state_index.get_task_run(task_run_id).diagnostics or {}).get("runtime_control") or {})
+    result_control = dict(dict(replan_result["task_run"]).get("diagnostics") or {}).get("runtime_control") or {}
+    assert dict(result_control)["runtime_control_signal_ref"] == requested[0]["signal_id"]
+    assert stored_control["runtime_control_signal_ref"] == requested[0]["signal_id"]
+    assert dict(replan_requested_event["payload"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
+    assert dict(replan_requested_event["refs"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
     assert dict(unavailable[0]["payload"])["requested_signal_id"] == requested[0]["signal_id"]
     assert dict(unavailable[0]["payload"])["signal_kind"] == "replan"
     assert dict(unavailable[0]["payload"])["steer_ref"] == steer_ref
@@ -2154,6 +2177,8 @@ def test_runtime_start_recovery_does_not_reconnect_user_controlled_interruption(
     assert dict(unchanged.diagnostics)["executor_status"] == "running"
     assert len(requested) == 1
     assert len(unavailable) == 1
+    runtime_control = dict(dict(unchanged.diagnostics)["runtime_control"])
+    assert runtime_control["runtime_control_signal_ref"] == requested[0]["signal_id"]
     assert dict(requested[0]["payload"])["signal_kind"] == "replan"
     assert dict(unavailable[0]["payload"])["requested_signal_id"] == requested[0]["signal_id"]
     assert dict(unavailable[0]["payload"])["signal_kind"] == "replan"

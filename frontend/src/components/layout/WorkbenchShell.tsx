@@ -13,7 +13,6 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Plus,
-  RefreshCw,
   Trash2,
   Unlink,
 } from "lucide-react";
@@ -21,7 +20,7 @@ import { useEffect, useState, type CSSProperties, type PointerEvent as ReactPoin
 
 import { RunMonitorPanel } from "@/components/layout/RunMonitorPanel";
 import { FileChangesPanel } from "@/components/layout/FileChangesPanel";
-import { openProjectWorkspaceInVSCode, type CodeEnvironmentTreeNode } from "@/lib/api";
+import type { CodeEnvironmentTreeNode } from "@/lib/api";
 import type { SessionSummary } from "@/lib/api";
 import { sessionSummaryIsRunning, sessionSummaryTask, sessionTaskActivityKind, sessionTaskStatusLabel } from "@/lib/sessionTaskPresentation";
 import { useAppStore } from "@/lib/store";
@@ -35,6 +34,7 @@ const RESIZE_HANDLE_WIDTH = 8;
 const WORKBENCH_CENTER_MIN_WIDTH = 520;
 const WORKBENCH_CENTER_COMPACT_MIN_WIDTH = 340;
 const WORKBENCH_EDGE_GUTTER = 10;
+const RIGHT_PANEL_MIN_WIDTH = 320;
 const DEFAULT_SESSION_TITLE = "New Session";
 
 function clamp(value: number, min: number, max: number) {
@@ -46,7 +46,7 @@ function clampLeftWidth(value: number) {
 }
 
 function clampRightWidth(value: number) {
-  return clamp(value, 240, 1180);
+  return clamp(value, RIGHT_PANEL_MIN_WIDTH, 1180);
 }
 
 function workbenchCenterMinWidth(viewportWidth: number) {
@@ -71,7 +71,7 @@ function fitWorkbenchPanelWidths({
 }) {
   const centerMinWidth = workbenchCenterMinWidth(viewportWidth);
   const leftMin = leftCollapsed ? PANEL_RAIL_WIDTH : 180;
-  const rightMin = rightCollapsed ? PANEL_RAIL_WIDTH : 240;
+  const rightMin = rightCollapsed ? PANEL_RAIL_WIDTH : RIGHT_PANEL_MIN_WIDTH;
   let leftWidth = leftCollapsed ? PANEL_RAIL_WIDTH : clampLeftWidth(sidebarWidth);
   let rightWidth = rightCollapsed ? PANEL_RAIL_WIDTH : clampRightWidth(inspectorWidth);
   const handleWidth = (leftCollapsed ? 0 : RESIZE_HANDLE_WIDTH) + (rightCollapsed ? 0 : RESIZE_HANDLE_WIDTH);
@@ -348,7 +348,6 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
   const {
     activeProjectKey,
     activeProjectRoot,
-    activeStreamSessionIds,
     currentSessionId,
     inspectorPath,
     projectSessions,
@@ -357,7 +356,6 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
     projectWorkspacesLoading,
     sessions,
     createNewSession,
-    refreshWorkspaceTree,
     removeProjectWorkspace,
     removeSession,
     selectProjectWorkspace,
@@ -378,13 +376,14 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
       : sessions.filter((session) => !projectRootFromSession(session))),
   ].sort((a, b) => b.updated_at - a.updated_at);
   const boundProjectRoot = activeProjectKey ? activeProjectRoot : currentSessionProjectRoot;
-  const projectRoot = boundProjectRoot || "普通会话不会访问项目文件";
-  const projectName = boundProjectRoot ? projectNameFromRoot(boundProjectRoot) : "未绑定会话";
+  const workspaceSummary = workspaceTree
+    ? `${workspaceTree.total_entries} 项 · ${workspaceTree.root_name}`
+    : workspaceTreeLoading
+      ? "项目文件加载中"
+      : "项目文件未加载";
   const projectWorkspacesErrorLabel = projectSelectionErrorMessage(projectWorkspacesError);
   const projectTreeNodes = workspaceTree?.tree.children || [];
   const unboundSessionCount = sessions.filter((session) => !projectRootFromSession(session)).length;
-  const [openingProjectRoot, setOpeningProjectRoot] = useState(false);
-  const [openProjectRootError, setOpenProjectRootError] = useState("");
   const [bindingProjectBusy, setBindingProjectBusy] = useState(false);
   const [bindingProjectError, setBindingProjectError] = useState("");
   const [pendingRemoveProjectKey, setPendingRemoveProjectKey] = useState("");
@@ -398,22 +397,6 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
     }
     setBindingProjectError("");
   }, [boundProjectRoot]);
-
-  async function handleOpenProjectRoot(projectKey = activeProjectKey) {
-    setOpeningProjectRoot(true);
-    setOpenProjectRootError("");
-    try {
-      if (projectKey) {
-        await openProjectWorkspaceInVSCode(projectKey);
-      } else {
-        setOpenProjectRootError("请先选择项目。");
-      }
-    } catch (error) {
-      setOpenProjectRootError(error instanceof Error ? error.message : "无法打开项目。");
-    } finally {
-      setOpeningProjectRoot(false);
-    }
-  }
 
   async function handleBindProject() {
     setBindingProjectBusy(true);
@@ -447,26 +430,19 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
           <strong>项目</strong>
           <span>{projectWorkspaces.length ? `${projectWorkspaces.length} 个可选项目` : "可直接对话"}</span>
         </div>
+        <button
+          aria-label="添加项目"
+          className="workbench-panel-head__action"
+          disabled={bindingProjectBusy || projectWorkspacesLoading}
+          onClick={() => void handleBindProject()}
+          title="添加项目"
+          type="button"
+        >
+          <Plus size={14} />
+        </button>
       </header>
 
       <section className="workbench-project-context workbench-project-switcher" aria-label="会话范围">
-        <div className="workbench-project-switcher__head">
-          <div>
-            <span>范围</span>
-            <strong>{projectName}</strong>
-          </div>
-          <button
-            className="workbench-project-switcher__add"
-            disabled={bindingProjectBusy || projectWorkspacesLoading}
-            onClick={() => void handleBindProject()}
-            title="添加项目"
-            type="button"
-          >
-            <Plus size={14} />
-            <span>{bindingProjectBusy || projectWorkspacesLoading ? "选择中" : "添加"}</span>
-          </button>
-        </div>
-
         <div className="workbench-project-switcher__list">
           <button
             aria-current={!projectScopeActive ? "page" : undefined}
@@ -522,27 +498,11 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
                       <strong>{project.name}</strong>
                       <small>{project.workspace_root}</small>
                     </span>
-                    <span className="workbench-project-scope-row__count">{project.session_count}</span>
+                    <span className="workbench-project-scope-row__count" title={`${project.session_count} 个项目对话`}>
+                      {project.session_count}
+                    </span>
                   </button>
                   <div className="workbench-project-scope-row__actions">
-                    <button
-                      disabled={openingProjectRoot || removing}
-                      onClick={() => void handleOpenProjectRoot(project.key)}
-                      title="在 VS Code 打开"
-                      type="button"
-                    >
-                      <FolderOpen size={13} />
-                    </button>
-                    {active ? (
-                      <button
-                        disabled={workspaceTreeLoading || removing}
-                        onClick={() => void refreshWorkspaceTree()}
-                        title="刷新项目文件"
-                        type="button"
-                      >
-                        <RefreshCw size={13} />
-                      </button>
-                    ) : null}
                     <button
                       disabled={removing}
                       onClick={() => setPendingRemoveProjectKey(pendingRemove ? "" : project.key)}
@@ -569,7 +529,6 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
 
         {bindingProjectError ? <small className="workbench-project-bind-error">{bindingProjectError}</small> : null}
         {projectWorkspacesErrorLabel ? <small className="workbench-project-bind-error">{projectWorkspacesErrorLabel}</small> : null}
-        {openProjectRootError ? <small className="workbench-project-bind-error">{openProjectRootError}</small> : null}
         {removeProjectError ? <small className="workbench-project-bind-error">{removeProjectError}</small> : null}
       </section>
 
@@ -640,34 +599,13 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
             >
               {filesOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
               <div>
-                <strong>{boundProjectRoot ? "绑定项目文件" : "项目文件"}</strong>
-                <span>{workspaceTree ? `${workspaceTree.total_entries} 项 · ${workspaceTree.root_name}` : workspaceTreeLoading ? "加载中" : "未加载"}</span>
+                <strong>项目文件</strong>
+                <span>{workspaceSummary}</span>
               </div>
             </button>
-            <div className="workbench-file-tree__actions">
-              <button
-                disabled={!boundProjectRoot || workspaceTreeLoading}
-                title={boundProjectRoot ? "刷新绑定项目文件" : "当前会话未绑定项目"}
-                type="button"
-                onClick={() => void refreshWorkspaceTree()}
-              >
-                <RefreshCw size={14} />
-              </button>
-              <button
-                aria-label={boundProjectRoot ? "在新的 VS Code 窗口打开当前会话项目" : "打开项目目录"}
-                className="workbench-file-tree__open-project"
-                disabled={!boundProjectRoot || openingProjectRoot}
-                onClick={() => void handleOpenProjectRoot()}
-                title={boundProjectRoot ? `在新的 VS Code 窗口打开当前会话项目：${projectRoot}` : "当前会话未绑定项目"}
-                type="button"
-              >
-                <FolderOpen size={15} />
-              </button>
-            </div>
           </div>
           {filesOpen ? (
             <div className="workbench-project-file-list">
-              {openProjectRootError ? <div className="workbench-tree-state workbench-tree-state--error">{openProjectRootError}</div> : null}
               {workspaceTreeError ? <div className="workbench-tree-state workbench-tree-state--error">{workspaceTreeError}</div> : null}
               {workspaceTreeLoading && !workspaceTree ? <div className="workbench-tree-state">正在读取项目目录。</div> : null}
               {!workspaceTreeLoading && !workspaceTreeError && workspaceTree && !projectTreeNodes.length ? (

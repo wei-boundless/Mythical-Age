@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import Any
 
 from runtime.shared.event_log import RuntimeEventLog
@@ -44,31 +45,34 @@ class RuntimeGateway:
         correlation_id: str = "",
         refs: dict[str, Any] | None = None,
     ) -> RuntimeEvent:
-        normalized_run_id = str(run_id or "").strip() or _run_id_from_scope(scope)
-        normalized_signal_id = str(signal_id or "").strip()
-        if normalized_signal_id:
-            for event in self.event_log.list_events(normalized_run_id):
-                if event.event_type != CONTROL_SIGNAL_PUBLISHED_EVENT:
-                    continue
-                signal = runtime_signal_from_event_payload(dict(event.payload or {}))
-                if signal is not None and signal.signal_id == normalized_signal_id:
-                    return event
-        envelope = build_runtime_signal_envelope(
-            signal_type=signal_type,
-            scope=scope,
-            source_authority=source_authority,
-            signal_id=normalized_signal_id,
-            payload=payload,
-            visibility=visibility,  # type: ignore[arg-type]
-            causation_id=causation_id,
-            correlation_id=correlation_id,
-        )
-        return self.event_log.append(
-            normalized_run_id,
-            CONTROL_SIGNAL_PUBLISHED_EVENT,  # type: ignore[arg-type]
-            payload={"signal": envelope.to_dict()},
-            refs={**dict(refs or {}), "signal_ref": envelope.signal_id},
-        )
+        with _event_log_write_guard(self.event_log):
+            normalized_run_id = str(run_id or "").strip() or _run_id_from_scope(scope)
+            normalized_signal_id = str(signal_id or "").strip()
+            if normalized_signal_id:
+                for event in self.event_log.list_events(normalized_run_id):
+                    if event.event_type != CONTROL_SIGNAL_PUBLISHED_EVENT:
+                        continue
+                    signal = runtime_signal_from_event_payload(dict(event.payload or {}))
+                    if signal is not None and signal.signal_id == normalized_signal_id:
+                        if signal.signal_type != str(signal_type or "").strip():
+                            raise ValueError("RuntimeGateway signal_id conflict across signal types")
+                        return event
+            envelope = build_runtime_signal_envelope(
+                signal_type=signal_type,
+                scope=scope,
+                source_authority=source_authority,
+                signal_id=normalized_signal_id,
+                payload=payload,
+                visibility=visibility,  # type: ignore[arg-type]
+                causation_id=causation_id,
+                correlation_id=correlation_id,
+            )
+            return self.event_log.append(
+                normalized_run_id,
+                CONTROL_SIGNAL_PUBLISHED_EVENT,  # type: ignore[arg-type]
+                payload={"signal": envelope.to_dict()},
+                refs={**dict(refs or {}), "signal_ref": envelope.signal_id},
+            )
 
     def publish_evidence_projection(
         self,
@@ -79,33 +83,34 @@ class RuntimeGateway:
         payload: dict[str, Any],
         refs: dict[str, Any] | None = None,
     ) -> RuntimeEvent:
-        normalized_run_id = str(run_id or "").strip() or _run_id_from_scope(scope)
-        normalized_ref = str(projection_ref or "").strip()
-        if not normalized_ref:
-            raise ValueError("publish_evidence_projection requires projection_ref")
-        for event in self.event_log.list_events(normalized_run_id):
-            if event.event_type != RUNTIME_EVIDENCE_PROJECTION_PUBLISHED_EVENT:
-                continue
-            if str(dict(event.refs or {}).get("evidence_projection_ref") or "") == normalized_ref:
-                return event
-        event_payload = {
-            "evidence_projection": {
-                **dict(payload or {}),
-                "projection_ref": normalized_ref,
-                "scope": scope.to_dict(),
-                "event_family": "runtime_evidence_projection",
+        with _event_log_write_guard(self.event_log):
+            normalized_run_id = str(run_id or "").strip() or _run_id_from_scope(scope)
+            normalized_ref = str(projection_ref or "").strip()
+            if not normalized_ref:
+                raise ValueError("publish_evidence_projection requires projection_ref")
+            for event in self.event_log.list_events(normalized_run_id):
+                if event.event_type != RUNTIME_EVIDENCE_PROJECTION_PUBLISHED_EVENT:
+                    continue
+                if str(dict(event.refs or {}).get("evidence_projection_ref") or "") == normalized_ref:
+                    return event
+            event_payload = {
+                "evidence_projection": {
+                    **dict(payload or {}),
+                    "projection_ref": normalized_ref,
+                    "scope": scope.to_dict(),
+                    "event_family": "runtime_evidence_projection",
+                }
             }
-        }
-        return self.event_log.append(
-            normalized_run_id,
-            RUNTIME_EVIDENCE_PROJECTION_PUBLISHED_EVENT,  # type: ignore[arg-type]
-            payload=event_payload,
-            refs={
-                **dict(refs or {}),
-                "evidence_projection_ref": normalized_ref,
-                "runtime_invocation_packet_ref": str(dict(payload or {}).get("packet_id") or ""),
-            },
-        )
+            return self.event_log.append(
+                normalized_run_id,
+                RUNTIME_EVIDENCE_PROJECTION_PUBLISHED_EVENT,  # type: ignore[arg-type]
+                payload=event_payload,
+                refs={
+                    **dict(refs or {}),
+                    "evidence_projection_ref": normalized_ref,
+                    "runtime_invocation_packet_ref": str(dict(payload or {}).get("packet_id") or ""),
+                },
+            )
 
     def mark_consumed(
         self,
@@ -116,25 +121,34 @@ class RuntimeGateway:
         payload: dict[str, Any] | None = None,
         refs: dict[str, Any] | None = None,
     ) -> RuntimeEvent:
-        consumed = build_runtime_signal_envelope(
-            signal_id=signal.signal_id,
-            signal_type=signal.signal_type,
-            scope=signal.scope,
-            source_authority=signal.source_authority,
-            payload={**dict(signal.payload or {}), **dict(payload or {})},
-            visibility=signal.visibility,
-            consumption_state="consumed",
-            consumed_by=consumed_by,
-            causation_id=signal.causation_id,
-            correlation_id=signal.correlation_id,
-            created_at=signal.created_at,
-        )
-        return self.event_log.append(
-            str(run_id or "").strip() or _run_id_from_scope(signal.scope),
-            CONTROL_SIGNAL_CONSUMED_EVENT,  # type: ignore[arg-type]
-            payload={"signal": consumed.to_dict()},
-            refs={**dict(refs or {}), "signal_ref": signal.signal_id},
-        )
+        with _event_log_write_guard(self.event_log):
+            normalized_run_id = str(run_id or "").strip() or _run_id_from_scope(signal.scope)
+            events = self.event_log.list_events(normalized_run_id)
+            canonical_signal = _published_signal_for_closure(events, signal)
+            if canonical_signal is None:
+                raise ValueError("RuntimeGateway cannot consume a signal without a canonical published source")
+            existing_consumed = _consumed_signal_event_by_id(events, canonical_signal.signal_id)
+            if existing_consumed is not None:
+                return existing_consumed
+            consumed = build_runtime_signal_envelope(
+                signal_id=canonical_signal.signal_id,
+                signal_type=canonical_signal.signal_type,
+                scope=canonical_signal.scope,
+                source_authority=canonical_signal.source_authority,
+                payload={**dict(canonical_signal.payload or {}), **dict(payload or {})},
+                visibility=canonical_signal.visibility,
+                consumption_state="consumed",
+                consumed_by=consumed_by,
+                causation_id=canonical_signal.causation_id,
+                correlation_id=canonical_signal.correlation_id,
+                created_at=canonical_signal.created_at,
+            )
+            return self.event_log.append(
+                normalized_run_id,
+                CONTROL_SIGNAL_CONSUMED_EVENT,  # type: ignore[arg-type]
+                payload={"signal": consumed.to_dict()},
+                refs={**dict(refs or {}), "signal_ref": canonical_signal.signal_id},
+            )
 
     def mark_observed(
         self,
@@ -145,35 +159,40 @@ class RuntimeGateway:
         payload: dict[str, Any] | None = None,
         refs: dict[str, Any] | None = None,
     ) -> RuntimeEvent:
-        observed = build_runtime_signal_envelope(
-            signal_id=signal.signal_id,
-            signal_type=signal.signal_type,
-            scope=signal.scope,
-            source_authority=signal.source_authority,
-            payload={**dict(signal.payload or {}), **dict(payload or {})},
-            visibility=signal.visibility,
-            consumption_state="observed",
-            consumed_by=observed_by,
-            causation_id=signal.causation_id,
-            correlation_id=signal.correlation_id,
-            created_at=signal.created_at,
-        )
-        return self.event_log.append(
-            str(run_id or "").strip() or _run_id_from_scope(signal.scope),
-            CONTROL_SIGNAL_OBSERVED_EVENT,  # type: ignore[arg-type]
-            payload={"signal": observed.to_dict()},
-            refs={**dict(refs or {}), "signal_ref": signal.signal_id},
-        )
+        with _event_log_write_guard(self.event_log):
+            normalized_run_id = str(run_id or "").strip() or _run_id_from_scope(signal.scope)
+            events = self.event_log.list_events(normalized_run_id)
+            canonical_signal = _published_signal_for_closure(events, signal)
+            if canonical_signal is None:
+                raise ValueError("RuntimeGateway cannot observe a signal without a canonical published source")
+            existing_closed = _closed_signal_event_by_id(events, canonical_signal.signal_id)
+            if existing_closed is not None:
+                return existing_closed
+            observed = build_runtime_signal_envelope(
+                signal_id=canonical_signal.signal_id,
+                signal_type=canonical_signal.signal_type,
+                scope=canonical_signal.scope,
+                source_authority=canonical_signal.source_authority,
+                payload={**dict(canonical_signal.payload or {}), **dict(payload or {})},
+                visibility=canonical_signal.visibility,
+                consumption_state="observed",
+                consumed_by=observed_by,
+                causation_id=canonical_signal.causation_id,
+                correlation_id=canonical_signal.correlation_id,
+                created_at=canonical_signal.created_at,
+            )
+            return self.event_log.append(
+                normalized_run_id,
+                CONTROL_SIGNAL_OBSERVED_EVENT,  # type: ignore[arg-type]
+                payload={"signal": observed.to_dict()},
+                refs={**dict(refs or {}), "signal_ref": canonical_signal.signal_id},
+            )
 
     def signal_by_id(self, run_id: str, *, signal_id: str) -> RuntimeSignalEnvelope | None:
         wanted = str(signal_id or "").strip()
         if not wanted:
             return None
-        for event in self.event_log.list_events(run_id):
-            signal = runtime_signal_from_event_payload(dict(event.payload or {}))
-            if signal is not None and signal.signal_id == wanted:
-                return signal
-        return None
+        return _published_signal_by_id(self.event_log.list_events(run_id), wanted)
 
     def can_consume_by_id(self, run_id: str, *, signal_id: str) -> bool:
         normalized_run_id = str(run_id or "").strip()
@@ -183,13 +202,7 @@ class RuntimeGateway:
         events = self.event_log.list_events(normalized_run_id)
         if normalized_signal_id in _consumed_signal_ids(events):
             return False
-        for event in events:
-            if event.event_type != CONTROL_SIGNAL_PUBLISHED_EVENT:
-                continue
-            signal = runtime_signal_from_event_payload(dict(event.payload or {}))
-            if signal is not None and signal.signal_id == normalized_signal_id:
-                return True
-        return False
+        return _published_signal_by_id(events, normalized_signal_id) is not None
 
     def mark_observed_by_id(
         self,
@@ -207,12 +220,7 @@ class RuntimeGateway:
         events = self.event_log.list_events(normalized_run_id)
         if normalized_signal_id in _closed_signal_ids(events):
             return None
-        signal = None
-        for event in events:
-            candidate = runtime_signal_from_event_payload(dict(event.payload or {}))
-            if candidate is not None and candidate.signal_id == normalized_signal_id:
-                signal = candidate
-                break
+        signal = _published_signal_by_id(events, normalized_signal_id)
         if signal is None:
             return None
         return self.mark_observed(
@@ -239,12 +247,7 @@ class RuntimeGateway:
         events = self.event_log.list_events(normalized_run_id)
         if normalized_signal_id in _consumed_signal_ids(events):
             return None
-        signal = None
-        for event in events:
-            candidate = runtime_signal_from_event_payload(dict(event.payload or {}))
-            if candidate is not None and candidate.signal_id == normalized_signal_id:
-                signal = candidate
-                break
+        signal = _published_signal_by_id(events, normalized_signal_id)
         if signal is None:
             return None
         return self.mark_consumed(
@@ -296,23 +299,109 @@ class RuntimeGateway:
 
 
 def _closed_signal_ids(events: list[RuntimeEvent]) -> set[str]:
+    published_facts = _published_signal_facts_by_id(events)
     closed: set[str] = set()
     for event in events:
         if event.event_type not in {CONTROL_SIGNAL_OBSERVED_EVENT, CONTROL_SIGNAL_CONSUMED_EVENT}:
             continue
         signal = runtime_signal_from_event_payload(dict(event.payload or {}))
-        if signal is not None:
+        if signal is not None and _is_closure_for_published_signal(event, signal, published_facts):
             closed.add(signal.signal_id)
     return closed
 
 
+def _published_signal_facts_by_id(events: list[RuntimeEvent]) -> dict[str, tuple[int, str]]:
+    facts: dict[str, tuple[int, str]] = {}
+    for event in events:
+        if event.event_type != CONTROL_SIGNAL_PUBLISHED_EVENT:
+            continue
+        signal = runtime_signal_from_event_payload(dict(event.payload or {}))
+        if signal is None or signal.signal_id in facts:
+            continue
+        facts[signal.signal_id] = (int(event.offset), signal.signal_type)
+    return facts
+
+
+def _published_signal_for_closure(
+    events: list[RuntimeEvent],
+    signal: RuntimeSignalEnvelope,
+) -> RuntimeSignalEnvelope | None:
+    published = _published_signal_by_id(events, signal.signal_id)
+    if published is None or published.signal_type != signal.signal_type:
+        return None
+    return published
+
+
+def _is_closure_for_published_signal(
+    event: RuntimeEvent,
+    signal: RuntimeSignalEnvelope,
+    published_facts: dict[str, tuple[int, str]],
+) -> bool:
+    published = published_facts.get(signal.signal_id)
+    if published is None:
+        return False
+    published_offset, published_type = published
+    return signal.signal_type == published_type and int(event.offset) > published_offset
+
+
+def _closed_signal_event_by_id(events: list[RuntimeEvent], signal_id: str) -> RuntimeEvent | None:
+    return _closure_signal_event_by_id(
+        events,
+        signal_id=signal_id,
+        event_types={CONTROL_SIGNAL_OBSERVED_EVENT, CONTROL_SIGNAL_CONSUMED_EVENT},
+    )
+
+
+def _consumed_signal_event_by_id(events: list[RuntimeEvent], signal_id: str) -> RuntimeEvent | None:
+    return _closure_signal_event_by_id(
+        events,
+        signal_id=signal_id,
+        event_types={CONTROL_SIGNAL_CONSUMED_EVENT},
+    )
+
+
+def _closure_signal_event_by_id(
+    events: list[RuntimeEvent],
+    *,
+    signal_id: str,
+    event_types: set[str],
+) -> RuntimeEvent | None:
+    wanted = str(signal_id or "").strip()
+    if not wanted:
+        return None
+    published_facts = _published_signal_facts_by_id(events)
+    for event in events:
+        if event.event_type not in event_types:
+            continue
+        signal = runtime_signal_from_event_payload(dict(event.payload or {}))
+        if signal is None or signal.signal_id != wanted:
+            continue
+        if _is_closure_for_published_signal(event, signal, published_facts):
+            return event
+    return None
+
+
+def _published_signal_by_id(events: list[RuntimeEvent], signal_id: str) -> RuntimeSignalEnvelope | None:
+    wanted = str(signal_id or "").strip()
+    if not wanted:
+        return None
+    for event in events:
+        if event.event_type != CONTROL_SIGNAL_PUBLISHED_EVENT:
+            continue
+        signal = runtime_signal_from_event_payload(dict(event.payload or {}))
+        if signal is not None and signal.signal_id == wanted:
+            return signal
+    return None
+
+
 def _consumed_signal_ids(events: list[RuntimeEvent]) -> set[str]:
+    published_facts = _published_signal_facts_by_id(events)
     consumed: set[str] = set()
     for event in events:
         if event.event_type != CONTROL_SIGNAL_CONSUMED_EVENT:
             continue
         signal = runtime_signal_from_event_payload(dict(event.payload or {}))
-        if signal is not None:
+        if signal is not None and _is_closure_for_published_signal(event, signal, published_facts):
             consumed.add(signal.signal_id)
     return consumed
 
@@ -328,3 +417,10 @@ def _scope_matches(candidate: RuntimeSignalScope, expected: RuntimeSignalScope) 
 
 def _run_id_from_scope(scope: RuntimeSignalScope) -> str:
     return scope.task_run_id or scope.turn_run_id or scope.turn_id or scope.session_id or "runtime"
+
+
+def _event_log_write_guard(event_log: RuntimeEventLog) -> Any:
+    lock = getattr(event_log, "_write_lock", None)
+    if hasattr(lock, "__enter__") and hasattr(lock, "__exit__"):
+        return lock
+    return nullcontext()

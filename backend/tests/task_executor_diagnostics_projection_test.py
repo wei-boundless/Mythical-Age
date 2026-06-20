@@ -5,8 +5,18 @@ from types import SimpleNamespace
 from runtime.shared.models import AgentRun, TaskRun
 from harness.runtime.runtime_gateway import RuntimeGateway
 from harness.runtime.control_events import RuntimeSignalScope
-from harness.loop.task_executor import _mark_replan_control_signals_consumed_by_model_action, _step_summary_diagnostics_update
-from harness.loop.task_executor import _pause_executor_for_step_budget, _runtime_control_signal_projection_from_observations
+from harness.loop.task_executor import (
+    _executor_control_signal_from_task_run,
+    _mark_replan_control_signals_consumed_by_model_action,
+    _mark_runtime_control_signal_delivered,
+    _matching_runtime_control_signal_observation,
+    _pause_executor_for_step_budget,
+    _runtime_control_signal_already_delivered,
+    _runtime_control_signal_fingerprint,
+    _runtime_control_signal_projection_from_observations,
+    _step_summary_diagnostics_update,
+)
+from harness.loop.task_run_execution_control import ExecutorControlSignal
 
 
 class _EventStub:
@@ -215,6 +225,236 @@ def test_step_budget_boundary_records_model_visible_control_observation_and_publ
     assert projection[0]["signal_kind"] == "budget_exhausted"
     assert projection[0]["runtime_control_state"] == "waiting_executor"
     assert "预算" in projection[0]["repair_instruction"]
+
+
+def test_runtime_control_signal_projection_requires_gateway_signal_ref() -> None:
+    projection = _runtime_control_signal_projection_from_observations(
+        [
+            {
+                "observation_id": "obs:runtime-control:missing-ref",
+                "source": "system:runtime_control_signal",
+                "summary": "missing Gateway ref must not become model-visible control fact",
+                "payload": {
+                    "signal_kind": "replan",
+                    "runtime_control_state": "waiting_executor",
+                    "reason": "legacy_observation_without_gateway_ref",
+                },
+            },
+            {
+                "observation_id": "obs:runtime-control:canonical",
+                "source": "system:runtime_control_signal",
+                "summary": "canonical Gateway-backed signal",
+                "payload": {
+                    "runtime_control_signal_ref": "rtsig:canonical",
+                    "signal_kind": "replan",
+                    "runtime_control_state": "waiting_executor",
+                    "reason": "gateway_backed",
+                },
+            },
+        ]
+    )
+
+    assert len(projection) == 1
+    assert projection[0]["runtime_control_signal_ref"] == "rtsig:canonical"
+    assert projection[0]["signal_id"] == "rtsig:canonical"
+    assert projection[0]["signal_kind"] == "replan"
+
+
+def test_runtime_control_signal_existing_observation_must_match_gateway_signal_ref() -> None:
+    signal = ExecutorControlSignal(
+        kind="replan",
+        task_run_id="taskrun:test:control-match",
+        executor_epoch=1,
+        reason="test",
+        requested_by="test",
+        requested_at=1.0,
+        signal_id="rtsig:canonical",
+    )
+    observations = [
+        {
+            "observation_id": "obs:missing-ref",
+            "source": "system:runtime_control_signal",
+            "payload": {"runtime_control_signal_fingerprint": "sha256:same"},
+        },
+        {
+            "observation_id": "obs:wrong-ref",
+            "source": "system:runtime_control_signal",
+            "payload": {
+                "runtime_control_signal_ref": "rtsig:other",
+                "runtime_control_signal_fingerprint": "sha256:same",
+            },
+        },
+        {
+            "observation_id": "obs:canonical",
+            "source": "system:runtime_control_signal",
+            "payload": {
+                "runtime_control_signal_ref": "rtsig:canonical",
+                "runtime_control_signal_fingerprint": "sha256:same",
+            },
+        },
+    ]
+
+    matched = _matching_runtime_control_signal_observation(
+        observations,
+        signal=signal,
+        fingerprint="sha256:same",
+    )
+    no_signal_id = _matching_runtime_control_signal_observation(
+        observations,
+        signal=ExecutorControlSignal(
+            kind="replan",
+            task_run_id="taskrun:test:control-match",
+            executor_epoch=1,
+            reason="test",
+            requested_by="test",
+            requested_at=1.0,
+        ),
+        fingerprint="sha256:same",
+    )
+
+    assert matched is not None
+    assert matched["observation_id"] == "obs:canonical"
+    assert no_signal_id is None
+
+
+def test_runtime_control_signal_delivered_diagnostics_must_match_gateway_signal_ref() -> None:
+    signal = ExecutorControlSignal(
+        kind="replan",
+        task_run_id="taskrun:test:control-delivered",
+        executor_epoch=1,
+        reason="test",
+        requested_by="test",
+        requested_at=1.0,
+        signal_id="rtsig:canonical",
+    )
+    fingerprint = "sha256:same"
+
+    missing_ref = TaskRun(
+        task_run_id=signal.task_run_id,
+        session_id="session-test",
+        task_id="task:test:control-delivered",
+        execution_runtime_kind="single_agent_task",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+        diagnostics={
+            "runtime_control": {
+                "agent_signal_kind": "replan",
+                "agent_signal_fingerprint": fingerprint,
+                "agent_signal_observation_ref": "obs:legacy",
+            }
+        },
+    )
+    wrong_ref = TaskRun(
+        task_run_id=signal.task_run_id,
+        session_id="session-test",
+        task_id="task:test:control-delivered",
+        execution_runtime_kind="single_agent_task",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+        diagnostics={
+            "runtime_control": {
+                "agent_signal_ref": "rtsig:other",
+                "agent_signal_kind": "replan",
+                "agent_signal_fingerprint": fingerprint,
+                "agent_signal_observation_ref": "obs:other",
+            }
+        },
+    )
+    matching_ref = TaskRun(
+        task_run_id=signal.task_run_id,
+        session_id="session-test",
+        task_id="task:test:control-delivered",
+        execution_runtime_kind="single_agent_task",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+        diagnostics={
+            "runtime_control": {
+                "agent_signal_ref": "rtsig:canonical",
+                "agent_signal_kind": "replan",
+                "agent_signal_fingerprint": fingerprint,
+                "agent_signal_observation_ref": "obs:canonical",
+            }
+        },
+    )
+
+    assert _runtime_control_signal_already_delivered(missing_ref, signal=signal, fingerprint=fingerprint) is False
+    assert _runtime_control_signal_already_delivered(wrong_ref, signal=signal, fingerprint=fingerprint) is False
+    assert _runtime_control_signal_already_delivered(matching_ref, signal=signal, fingerprint=fingerprint) is True
+    assert (
+        _runtime_control_signal_already_delivered(
+            matching_ref,
+            signal=ExecutorControlSignal(
+                kind="replan",
+                task_run_id=signal.task_run_id,
+                executor_epoch=1,
+                reason="test",
+                requested_by="test",
+                requested_at=1.0,
+            ),
+            fingerprint=fingerprint,
+        )
+        is False
+    )
+
+
+def test_mark_runtime_control_signal_delivered_persists_gateway_signal_ref() -> None:
+    task_run = TaskRun(
+        task_run_id="taskrun:test:control-delivered-mark",
+        session_id="session-test",
+        task_id="task:test:control-delivered-mark",
+        execution_runtime_kind="single_agent_task",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+        diagnostics={
+            "runtime_control": {
+                "state": "replan_requested",
+                "requested_by": "test",
+                "requested_at": 1.0,
+                "reason": "test",
+            }
+        },
+    )
+    signal = ExecutorControlSignal(
+        kind="replan",
+        task_run_id=task_run.task_run_id,
+        executor_epoch=1,
+        reason="test",
+        requested_by="test",
+        requested_at=1.0,
+        signal_id="rtsig:delivered",
+    )
+    fingerprint = _runtime_control_signal_fingerprint(task_run, signal=signal)
+    observation = {
+        "observation_id": "obs:delivered",
+        "source": "system:runtime_control_signal",
+        "created_at": 2.0,
+        "payload": {
+            "runtime_control_signal_ref": "rtsig:delivered",
+            "runtime_control_signal_fingerprint": fingerprint,
+        },
+    }
+    runtime_host = SimpleNamespace(state_index=_StateIndexStub(task_run))
+
+    updated = _mark_runtime_control_signal_delivered(
+        runtime_host,
+        task_run,
+        signal=signal,
+        observation=observation,
+        fingerprint=fingerprint,
+        boundary="test",
+        event_offset=7,
+    )
+
+    control = dict(updated.diagnostics["runtime_control"])
+    assert control["agent_signal_ref"] == "rtsig:delivered"
+    assert control["agent_signal_observation_ref"] == "obs:delivered"
+    assert _runtime_control_signal_already_delivered(updated, signal=signal, fingerprint=fingerprint) is True
+    assert _executor_control_signal_from_task_run(updated, executor_epoch=1, default_reason="test") is None
+    assert runtime_host.state_index.get_task_run(task_run.task_run_id) == updated
 
 
 def test_step_budget_boundary_requires_runtime_gateway_for_model_visible_control_observation() -> None:

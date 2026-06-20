@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from harness.loop.task_run_execution_control import request_executor_stop
+from harness.loop.task_run_execution_control import ExecutorControlSignal, request_executor_control_signal
 from harness.loop.work_rollout import append_work_rollout_item
 from harness.runtime.dynamic_context.manager import dynamic_context_storage_root
 from harness.runtime.dynamic_context.replacement_store import ReplacementStore
@@ -77,15 +77,23 @@ class TaskRunLifecycleRetention:
             results.append(self._finalize_expired_task_run(task_run, now=current_time, decision=decision))
         terminal_updates = [item for item in results if item.get("terminal_update")]
         stop_requests = [item for item in results if item.get("stop_requested")]
+        stop_request_failures = [
+            item
+            for item in results
+            if str(item.get("authority") or "") == f"{self.authority}.stop_request"
+            and item.get("stop_requested") is False
+        ]
         return {
             "authority": self.authority,
             "scanned_count": len(task_runs),
             "expired_count": len(results),
             "terminal_update_count": len(terminal_updates),
             "stop_request_count": len(stop_requests),
+            "stop_request_failure_count": len(stop_request_failures),
             "expired_task_run_ids": [str(item.get("task_run_id") or "") for item in results if str(item.get("task_run_id") or "")],
             "terminal_updates": terminal_updates,
             "stop_requests": stop_requests,
+            "stop_request_failures": stop_request_failures,
             "skipped_reasons": skipped[:80],
             "updated_at": current_time,
         }
@@ -172,24 +180,39 @@ class TaskRunLifecycleRetention:
     def _request_retention_stop(self, task_run: Any, *, now: float, decision: dict[str, Any]) -> dict[str, Any]:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
         reason = str(decision.get("reason") or "runtime_retention_expired")
-        signal_requested = request_executor_stop(
+        control_signal = request_executor_control_signal(
             self.runtime_host,
             task_run_id=task_run_id,
+            kind="stop",
             reason=reason,
             requested_by="runtime_retention",
         )
+        if control_signal is None:
+            return {
+                "authority": f"{self.authority}.stop_request",
+                "task_run_id": task_run_id,
+                "reason": reason,
+                "stop_requested": False,
+                "executor_signal_requested": False,
+                "error": "runtime_gateway_control_signal_unavailable",
+                "retryable": True,
+                "task_run": _to_dict(task_run),
+            }
         updated = self._update_task_run_control(
             task_run_id=task_run_id,
             now=now,
             reason=reason,
             terminal=False,
+            control_signal=control_signal,
         )
         return {
             "authority": f"{self.authority}.stop_request",
             "task_run_id": task_run_id,
             "reason": reason,
             "stop_requested": True,
-            "executor_signal_requested": bool(signal_requested),
+            "executor_signal_requested": True,
+            "runtime_control_signal_ref": str(getattr(control_signal, "signal_id", "") or ""),
+            "runtime_control_event_ref": str(getattr(control_signal, "control_event_ref", "") or ""),
             "task_run": _to_dict(updated),
         }
 
@@ -227,7 +250,15 @@ class TaskRunLifecycleRetention:
             "released_cache_effects": release,
         }
 
-    def _update_task_run_control(self, *, task_run_id: str, now: float, reason: str, terminal: bool) -> Any | None:
+    def _update_task_run_control(
+        self,
+        *,
+        task_run_id: str,
+        now: float,
+        reason: str,
+        terminal: bool,
+        control_signal: ExecutorControlSignal | None = None,
+    ) -> Any | None:
         state_index = self.runtime_host.state_index
 
         def updater(current: Any) -> Any:
@@ -236,6 +267,7 @@ class TaskRunLifecycleRetention:
                 now=now,
                 reason=reason,
                 terminal=terminal,
+                control_signal=control_signal,
             )
             patch = {
                 "updated_at": now,
@@ -341,9 +373,11 @@ class TaskRunLifecycleRetention:
             "expired_count": 0,
             "terminal_update_count": 0,
             "stop_request_count": 0,
+            "stop_request_failure_count": 0,
             "expired_task_run_ids": [],
             "terminal_updates": [],
             "stop_requests": [],
+            "stop_request_failures": [],
             "skipped_reasons": [{"reason": reason}],
             "updated_at": time.time(),
         }
@@ -481,7 +515,27 @@ class EphemeralRuntimeCacheReleaser:
         return result
 
 
-def _retention_diagnostics(task_run: Any, *, now: float, reason: str, terminal: bool) -> dict[str, Any]:
+def _control_signal_trace_payload(signal: ExecutorControlSignal | None) -> dict[str, str]:
+    if signal is None:
+        return {}
+    signal_ref = str(getattr(signal, "signal_id", "") or "").strip()
+    if not signal_ref:
+        return {}
+    event_ref = str(getattr(signal, "control_event_ref", "") or "").strip()
+    return {
+        "runtime_control_signal_ref": signal_ref,
+        **({"runtime_control_event_ref": event_ref} if event_ref else {}),
+    }
+
+
+def _retention_diagnostics(
+    task_run: Any,
+    *,
+    now: float,
+    reason: str,
+    terminal: bool,
+    control_signal: ExecutorControlSignal | None = None,
+) -> dict[str, Any]:
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     control = {
         "state": "stopped" if terminal else "stop_requested",
@@ -489,6 +543,7 @@ def _retention_diagnostics(task_run: Any, *, now: float, reason: str, terminal: 
         "requested_at": now,
         "reason": reason,
         "authority": "harness.runtime.task_run_lifecycle_retention",
+        **_control_signal_trace_payload(control_signal),
     }
     for key in (
         "recoverable_error",

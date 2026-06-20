@@ -15,13 +15,11 @@ function renderChatInput(
       modelProviderConfig: null,
       onSelectChatModel: () => undefined,
       onSelectPermissionMode: () => undefined,
-      onSelectStreamDisplayEnabled: () => undefined,
       onSelectThinkingMode: () => undefined,
       onSend: async () => undefined,
       onStop: () => undefined,
       permissionMode: "default",
       selectedChatModelId: "system-default",
-      chatStreamDisplayEnabled: true,
       streaming: false,
       supportedPermissionModes: ["default"],
       ...props,
@@ -40,12 +38,38 @@ describe("ChatInput", () => {
     expect(html).not.toContain("chat-send-button--resume");
   });
 
-  it("renders a stream display toggle", () => {
-    const html = renderChatInput({ chatStreamDisplayEnabled: false });
+  it("renders model and thinking mode as separate controls", () => {
+    const html = renderChatInput({
+      chatThinkingMode: "thinking",
+      modelProviderConfig: {
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        base_url: "https://api.deepseek.com",
+        api_key_configured: true,
+        fallback_provider: "",
+        fallback_model: "",
+        fallback_base_url: "",
+        fallback_api_key_configured: false,
+        supported_providers: {
+          deepseek: {
+            provider: "deepseek",
+            default_model: "deepseek-v4-flash",
+            default_base_url: "https://api.deepseek.com",
+            model_presets: ["deepseek-v4-pro"],
+            capability_tags: ["reasoning"],
+          },
+        },
+        authority: "test",
+      },
+    });
 
-    expect(html).toContain("aria-label=\"开启流式显示\"");
-    expect(html).toContain("aria-pressed=\"false\"");
-    expect(html).toContain("流式");
+    expect(html).toContain("aria-label=\"选择本轮模型\"");
+    expect(html).toContain("aria-label=\"选择思考模式\"");
+    expect(html).toContain("deepseek-v4-flash");
+    expect(html).toContain("Thinking");
+    expect(html).not.toContain("deepseek-v4-flash · Thinking");
+    expect(html).not.toContain("aria-label=\"开启流式显示\"");
+    expect(html).not.toContain("aria-label=\"关闭流式显示\"");
   });
 
   it("renders an image input for uploads and pasted image handoff", () => {
@@ -57,11 +81,10 @@ describe("ChatInput", () => {
     expect(html).toContain("type=\"file\"");
   });
 
-  it("locks the stream display toggle to the next turn while streaming", () => {
+  it("uses the primary action as stop while streaming without showing a stream toggle", () => {
     const html = renderChatInput({ streaming: true });
 
-    expect(html).toContain("aria-label=\"关闭流式显示\"");
-    expect(html).toContain("title=\"本轮运行中，下一轮可切换流式显示\"");
+    expect(html).not.toContain("流式");
     expect(html).toContain("aria-label=\"停止本轮生成\"");
   });
 });

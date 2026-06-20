@@ -18,8 +18,6 @@ export const WORKSPACE_QUERY_VIEW_VALUES = WORKSPACE_VIEW_VALUES;
 
 export const WORKSPACE_QUERY_VIEWS: ReadonlySet<WorkspaceView> = new Set(WORKSPACE_QUERY_VIEW_VALUES);
 
-export const WORKSPACE_TONES: ReadonlySet<string> = new Set(["water", "leaf", "gold", "ember", "lumen"]);
-
 export const TASK_ENVIRONMENT_VIEWS: ReadonlySet<WorkspaceView> = new Set(["chat", "code-environment"]);
 
 export type SystemNavItem = {

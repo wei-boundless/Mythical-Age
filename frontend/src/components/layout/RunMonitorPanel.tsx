@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, RefreshCw, RadioTower, Terminal } from "lucide-react";
+import { AlertTriangle, RefreshCw, RadioTower } from "lucide-react";
 import { useMemo } from "react";
 
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
@@ -21,18 +21,9 @@ export function RunMonitorPanel() {
     runMonitorActionLoading,
     runMonitorError,
     runMonitorLoading,
-    runMonitorSelectedSignalId,
-    runMonitorSelectedTaskRunId,
     runMonitorStreamStatus,
   } = useAppStore();
   const tasks = useMemo(() => selectRunMonitorTaskLane(runMonitor), [runMonitor]);
-  const selectedSignal = useMemo(
-    () => tasks.find((signal) =>
-      signal.signal_id === runMonitorSelectedSignalId
-      || signal.task_run_id === runMonitorSelectedTaskRunId
-    ) ?? null,
-    [runMonitorSelectedSignalId, runMonitorSelectedTaskRunId, tasks],
-  );
   const summary = runMonitor?.summary;
   const headline = summary?.active
     ? `${summary.active} 运行中`
@@ -81,14 +72,14 @@ export function RunMonitorPanel() {
     await runMonitorAction(payload);
   }
 
-  function openSignalLog(signal: RunMonitorSignal | null) {
-    const runId = String(signal?.task_run_id || runMonitorSelectedTaskRunId || "").trim();
+  function openSignalLog(signal: RunMonitorSignal) {
+    const runId = String(signal.task_run_id || "").trim();
     if (!runId) return;
     openRuntimeLog({
       scope: "task_run",
       run_id: runId,
-      title: signal?.title || "TaskRun",
-      subtitle: signal?.line || runId,
+      title: signal.title || "TaskRun",
+      subtitle: signal.line || runId,
     });
   }
 
@@ -100,15 +91,6 @@ export function RunMonitorPanel() {
           <strong>{headline}</strong>
         </div>
         <div className="run-monitor-panel__head-actions">
-          <button
-            aria-label="打开选中运行日志"
-            disabled={!selectedSignal?.task_run_id && !runMonitorSelectedTaskRunId}
-            onClick={() => openSignalLog(selectedSignal)}
-            title="运行日志"
-            type="button"
-          >
-            <Terminal size={15} />
-          </button>
           <button aria-label="刷新运行状态" disabled={runMonitorLoading} onClick={() => void refreshRunMonitor()} type="button">
             <RefreshCw size={15} />
           </button>

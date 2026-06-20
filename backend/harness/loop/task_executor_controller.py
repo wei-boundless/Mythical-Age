@@ -5,7 +5,7 @@ import time
 from dataclasses import replace
 from typing import Any
 
-from .task_run_execution_control import ensure_executor_control_signal_requested
+from .task_run_execution_control import ExecutorControlSignal, ensure_executor_control_signal
 from .task_run_recovery_state import recovery_state_for_task_run, should_auto_continue_task_run
 from .work_rollout import append_work_rollout_item
 
@@ -78,30 +78,51 @@ class TaskExecutorController:
                 scheduler=scheduler,
                 recovered_from=recovered_from,
             )
-        self._mark_scheduled(
-            task_run,
-            task_run_id=task_run_id,
-            scheduler=scheduler,
-            turn_id=turn_id,
-            max_steps=max_steps,
-            recovered_from=recovered_from,
-        )
+        def _commit_scheduled(scope: Any, worker_backend: str) -> None:
+            current = runtime_host.state_index.get_task_run(task_run_id) or task_run
+            scope_payload = scope.to_dict() if hasattr(scope, "to_dict") else dict(scope or {})
+            self._mark_scheduled(
+                current,
+                task_run_id=task_run_id,
+                scheduler=scheduler,
+                turn_id=turn_id,
+                max_steps=max_steps,
+                recovered_from=recovered_from,
+                agent_scope=scope_payload,
+                agent_run_id=str(scope_payload.get("agent_run_id") or ""),
+                run_cell_id=str(scope_payload.get("run_cell_id") or ""),
+                worker_backend=worker_backend,
+            )
+
         supervisor_result = _agent_run_supervisor(runtime_host).schedule_task_run(
             task_run_id=task_run_id,
             work_factory=lambda: self._runner(task_run_id=task_run_id, scheduler=scheduler, max_steps=max_steps),
             scheduler=scheduler,
             max_steps=max_steps,
             recovered_from=recovered_from,
+            turn_id=turn_id,
+            on_scheduled=_commit_scheduled,
         )
+        supervisor_reason = str(supervisor_result.get("reason") or "scheduled")
+        if not bool(supervisor_result.get("ok")) and supervisor_reason == "worker_start_failed":
+            self._mark_scheduled_task_failed(
+                task_run_id=task_run_id,
+                error=str(supervisor_result.get("error") or supervisor_reason),
+                scheduler=scheduler,
+                agent_run_id=str(supervisor_result.get("agent_run_id") or ""),
+                run_cell_id=str(supervisor_result.get("run_cell_id") or ""),
+                worker_backend=str(supervisor_result.get("worker_backend") or ""),
+            )
         return _schedule_result(
             ok=bool(supervisor_result.get("ok")),
             scheduled=bool(supervisor_result.get("scheduled")),
             task_run_id=task_run_id,
-            reason=str(supervisor_result.get("reason") or "scheduled"),
+            reason=supervisor_reason,
             scheduler=scheduler,
             agent_run_id=str(supervisor_result.get("agent_run_id") or ""),
             run_cell_id=str(supervisor_result.get("run_cell_id") or ""),
             worker_backend=str(supervisor_result.get("worker_backend") or ""),
+            error=str(supervisor_result.get("error") or ""),
             recovered_from=recovered_from,
         )
 
@@ -305,7 +326,25 @@ class TaskExecutorController:
         turn_id: str,
         max_steps: int,
         recovered_from: str,
+        agent_scope: dict[str, Any] | None = None,
+        agent_run_id: str = "",
+        run_cell_id: str = "",
+        worker_backend: str = "",
     ) -> None:
+        scope_payload = dict(agent_scope or {}) if isinstance(agent_scope, dict) else {}
+        normalized_agent_run_id = str(agent_run_id or scope_payload.get("agent_run_id") or "").strip()
+        normalized_run_cell_id = str(run_cell_id or scope_payload.get("run_cell_id") or "").strip()
+        normalized_worker_backend = str(worker_backend or "").strip()
+        identity_payload = {
+            **({"agent_scope": scope_payload} if scope_payload else {}),
+            **({"agent_run_id": normalized_agent_run_id} if normalized_agent_run_id else {}),
+            **({"run_cell_id": normalized_run_cell_id} if normalized_run_cell_id else {}),
+            **({"worker_backend": normalized_worker_backend} if normalized_worker_backend else {}),
+        }
+        identity_refs = {
+            **({"agent_run_ref": normalized_agent_run_id} if normalized_agent_run_id else {}),
+            **({"run_cell_ref": normalized_run_cell_id} if normalized_run_cell_id else {}),
+        }
         scheduled_event = self.runtime_host.event_log.append(
             task_run_id,
             "task_run_executor_scheduled",
@@ -315,8 +354,9 @@ class TaskExecutorController:
                 "scheduler": scheduler,
                 **({"turn_id": turn_id} if turn_id else {}),
                 **({"recovered_from": recovered_from} if recovered_from else {}),
+                **identity_payload,
             },
-            refs={"task_run_ref": task_run_id, **({"turn_ref": turn_id} if turn_id else {})},
+            refs={"task_run_ref": task_run_id, **({"turn_ref": turn_id} if turn_id else {}), **identity_refs},
         )
         progress_summary = ""
         progress_event = self.runtime_host.event_log.append(
@@ -328,8 +368,9 @@ class TaskExecutorController:
                 "summary": progress_summary,
                 "visibility": "internal",
                 "presentation_source": "conversation_task_schedule",
+                **identity_payload,
             },
-            refs={"task_run_ref": task_run_id, **({"turn_ref": turn_id} if turn_id else {})},
+            refs={"task_run_ref": task_run_id, **({"turn_ref": turn_id} if turn_id else {}), **identity_refs},
         )
         self.runtime_host.state_index.upsert_task_run(
             replace(
@@ -341,6 +382,7 @@ class TaskExecutorController:
                 diagnostics={
                     **dict(task_run.diagnostics or {}),
                     "executor_status": "scheduled",
+                    "executor_lease_state": "scheduled",
                     "latest_step": "task_executor_scheduled",
                     "latest_step_status": "running",
                     "latest_step_summary": progress_summary,
@@ -348,20 +390,54 @@ class TaskExecutorController:
                     **({"latest_interaction_turn_id": turn_id} if turn_id else {}),
                     **({"executor_scheduler": scheduler} if scheduler else {}),
                     **({"executor_recovered_from": recovered_from} if recovered_from else {}),
+                    **({"agent_run_scope": scope_payload} if scope_payload else {}),
+                    **({"agent_run_id": normalized_agent_run_id} if normalized_agent_run_id else {}),
+                    **({"run_cell_id": normalized_run_cell_id} if normalized_run_cell_id else {}),
+                    **({"agent_cell_worker_backend": normalized_worker_backend} if normalized_worker_backend else {}),
                 },
             )
         )
 
-    def _mark_scheduled_task_failed(self, *, task_run_id: str, error: str, scheduler: str) -> None:
+    def _mark_scheduled_task_failed(
+        self,
+        *,
+        task_run_id: str,
+        error: str,
+        scheduler: str,
+        agent_run_id: str = "",
+        run_cell_id: str = "",
+        worker_backend: str = "",
+    ) -> None:
+        identity_payload = {
+            **({"agent_run_id": agent_run_id} if agent_run_id else {}),
+            **({"run_cell_id": run_cell_id} if run_cell_id else {}),
+            **({"worker_backend": worker_backend} if worker_backend else {}),
+        }
+        identity_refs = {
+            **({"agent_run_ref": agent_run_id} if agent_run_id else {}),
+            **({"run_cell_ref": run_cell_id} if run_cell_id else {}),
+        }
         event = self.runtime_host.event_log.append(
             task_run_id,
             "task_run_executor_schedule_failed",
-            payload={"task_run_id": task_run_id, "error": error, "scheduler": scheduler},
-            refs={"task_run_ref": task_run_id},
+            payload={"task_run_id": task_run_id, "error": error, "scheduler": scheduler, **identity_payload},
+            refs={"task_run_ref": task_run_id, **identity_refs},
         )
         current = self.runtime_host.state_index.get_task_run(task_run_id)
         if current is None:
             return
+        diagnostics = dict(current.diagnostics or {})
+        for stale_key in (
+            "agent_run_scope",
+            "agent_run_id",
+            "run_cell_id",
+            "agent_cell_status",
+            "agent_cell_scheduler",
+            "agent_cell_max_steps",
+            "agent_cell_recovered_from",
+            "agent_cell_worker_backend",
+        ):
+            diagnostics.pop(stale_key, None)
         self.runtime_host.state_index.upsert_task_run(
             replace(
                 current,
@@ -370,8 +446,9 @@ class TaskExecutorController:
                 latest_event_offset=event.offset,
                 terminal_reason="task_executor_schedule_failed",
                 diagnostics={
-                    **dict(current.diagnostics or {}),
+                    **diagnostics,
                     "executor_status": "blocked",
+                    "executor_lease_state": "blocked",
                     "latest_step": "task_executor_schedule_failed",
                     "latest_step_status": "blocked",
                     "latest_step_summary": f"继续处理时遇到调度失败：{error}",
@@ -445,7 +522,7 @@ def _ensure_user_controlled_interruption_signal_on_gateway(
     else:
         return
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    ensure_executor_control_signal_requested(
+    signal = ensure_executor_control_signal(
         runtime_host,
         task_run_id=task_run_id,
         kind=kind,  # type: ignore[arg-type]
@@ -454,6 +531,34 @@ def _ensure_user_controlled_interruption_signal_on_gateway(
         steer_ref=str(runtime_control.get("steer_ref") or diagnostics.get("latest_user_steer_ref") or ""),
         unavailable_reason="runtime_start_recovery_user_controlled_interruption",
     )
+    if signal is not None:
+        _record_runtime_control_signal_ref(runtime_host, task_run=task_run, signal=signal)
+
+
+def _record_runtime_control_signal_ref(runtime_host: Any, *, task_run: Any, signal: ExecutorControlSignal) -> None:
+    signal_ref = str(getattr(signal, "signal_id", "") or "").strip()
+    if not signal_ref:
+        return
+    task_run_id = str(getattr(task_run, "task_run_id", "") or getattr(signal, "task_run_id", "") or "").strip()
+    if not task_run_id:
+        return
+    state_index = getattr(runtime_host, "state_index", None)
+    get_task_run = getattr(state_index, "get_task_run", None)
+    upsert_task_run = getattr(state_index, "upsert_task_run", None)
+    if not callable(get_task_run) or not callable(upsert_task_run):
+        return
+    current = get_task_run(task_run_id) or task_run
+    diagnostics = dict(getattr(current, "diagnostics", {}) or {})
+    control = dict(diagnostics.get("runtime_control") or {}) if isinstance(diagnostics.get("runtime_control"), dict) else {}
+    if str(control.get("runtime_control_signal_ref") or "").strip() == signal_ref:
+        return
+    event_ref = str(getattr(signal, "control_event_ref", "") or "").strip()
+    diagnostics["runtime_control"] = {
+        **control,
+        "runtime_control_signal_ref": signal_ref,
+        **({"runtime_control_event_ref": event_ref} if event_ref else {}),
+    }
+    upsert_task_run(replace(current, diagnostics=diagnostics))
 
 
 def _origin_kind(task_run: Any) -> str:
@@ -491,6 +596,7 @@ def _schedule_result(
     agent_run_id: str = "",
     run_cell_id: str = "",
     worker_backend: str = "",
+    error: str = "",
     recovered_from: str = "",
 ) -> dict[str, Any]:
     return {
@@ -502,5 +608,6 @@ def _schedule_result(
         "agent_run_id": agent_run_id,
         "run_cell_id": run_cell_id,
         "worker_backend": worker_backend,
+        "error": error,
         "recovered_from": recovered_from,
     }

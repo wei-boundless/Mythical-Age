@@ -12,6 +12,7 @@ from typing import Any, Literal
 ToolInvocationStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
 ToolInvocationCallerKind = Literal["agent_turn", "task_run", "graph_node", "direct_route"]
 ToolInvocationSignalKind = Literal["pause", "stop", "replan", "cancel"]
+TERMINAL_TOOL_INVOCATION_STATUSES = {"completed", "failed", "cancelled"}
 
 _THREAD_LOCAL = threading.local()
 
@@ -138,6 +139,12 @@ class ToolInvocationControlRegistry:
             diagnostics=dict(diagnostics or {}),
         )
         with self._lock:
+            existing = self._entries.get(record.tool_invocation_id)
+            if existing is not None:
+                raise ToolInvocationAlreadyStartedError(
+                    record.tool_invocation_id,
+                    status=existing.record.status,
+                )
             self._entries[record.tool_invocation_id] = _InvocationEntry(record=record)
         return record
 
@@ -268,7 +275,7 @@ class ToolInvocationControlRegistry:
             entry = self._entries.get(str(tool_invocation_id or ""))
             if entry is None:
                 return None
-            if entry.record.status == "cancelled":
+            if entry.record.status in TERMINAL_TOOL_INVOCATION_STATUSES:
                 return entry.record
             entry.record = replace(
                 entry.record,
@@ -292,7 +299,7 @@ class ToolInvocationControlRegistry:
             entry = self._entries.get(str(tool_invocation_id or ""))
             if entry is None:
                 return None
-            if entry.record.status == "cancelled":
+            if entry.record.status in TERMINAL_TOOL_INVOCATION_STATUSES:
                 return entry.record
             entry.record = replace(
                 entry.record,
@@ -342,6 +349,13 @@ def bind_thread_tool_invocation_registry(registry: ToolInvocationControlRegistry
 def clear_thread_tool_invocation_registry() -> None:
     if hasattr(_THREAD_LOCAL, "tool_invocation_registry"):
         delattr(_THREAD_LOCAL, "tool_invocation_registry")
+
+
+class ToolInvocationAlreadyStartedError(RuntimeError):
+    def __init__(self, tool_invocation_id: str, *, status: str) -> None:
+        self.tool_invocation_id = str(tool_invocation_id or "").strip()
+        self.status = str(status or "").strip()
+        super().__init__(f"tool_invocation_already_started:{self.tool_invocation_id}:{self.status}")
 
 
 def _cancel_task(task: asyncio.Task[Any], loop: asyncio.AbstractEventLoop | None) -> None:

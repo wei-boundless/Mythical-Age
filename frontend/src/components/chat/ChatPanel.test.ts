@@ -113,7 +113,7 @@ describe("ChatPanel", () => {
     ], true)).toBe(true);
   });
 
-  it("shows current context usage against the auto-compaction threshold", () => {
+  it("shows cumulative context usage against the auto-compaction threshold", () => {
     expect(sessionContextMeterPresentation(tokenStats({
       context_meter: {
         current_context_ratio: 0.03,
@@ -128,11 +128,10 @@ describe("ChatPanel", () => {
       },
       cumulative_transcript_tokens: 52000,
     }))).toEqual({
-      label: "上下文",
-      usedPercent: 4,
-      thresholdPercentText: "4%",
-      tokenRatioText: "34.0K/900.0K",
-      title: "当前上下文 34,000 tokens；自动压缩阈值 900,000 tokens；阈值占比 4%；模型窗口 1,000,000 tokens；距自动压缩还剩 866,000 tokens",
+      usedPercent: 6,
+      usedTokenText: "52.0K",
+      thresholdTokenText: "900.0K",
+      title: "累计上下文 52,000 tokens；当前模型上下文 34,000 tokens；自动压缩阈值 900,000 tokens；阈值占比 6%；模型窗口 1,000,000 tokens；距自动压缩还剩 848,000 tokens",
       levelClass: "normal",
     });
   });
@@ -158,10 +157,9 @@ describe("ChatPanel", () => {
 
   it("keeps the context status slot visible while token stats are loading", () => {
     expect(sessionContextMeterPresentation(null)).toEqual({
-      label: "上下文",
       usedPercent: 0,
-      thresholdPercentText: "--",
-      tokenRatioText: "--",
+      usedTokenText: "--",
+      thresholdTokenText: "--",
       title: "正在读取当前 session 上下文状态",
       levelClass: "pending",
     });
@@ -174,10 +172,9 @@ describe("ChatPanel", () => {
       history_usage_ratio: 0.8,
       history_pressure_level: "warning",
     }))).toEqual({
-      label: "上下文",
       usedPercent: 0,
-      thresholdPercentText: "--",
-      tokenRatioText: "--",
+      usedTokenText: "--",
+      thresholdTokenText: "--",
       title: "正在读取当前 session 上下文状态",
       levelClass: "pending",
     });
@@ -296,10 +293,9 @@ describe("ChatPanel", () => {
         pressure_level: "normal",
       },
     }))).toEqual({
-      label: "上下文",
       usedPercent: 1,
-      thresholdPercentText: "1%",
-      tokenRatioText: "12.6K/850.0K",
+      usedTokenText: "12.6K",
+      thresholdTokenText: "850.0K",
       title: "当前上下文 12,598 tokens；自动压缩阈值 850,000 tokens；阈值占比 1%；模型窗口 1,000,000 tokens；距自动压缩还剩 837,402 tokens",
       levelClass: "normal",
     });

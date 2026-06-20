@@ -372,6 +372,17 @@ export type FileCenterWorkspaceTarget = {
   requested_at: number;
 };
 
+export type FileChangeDiffCenterWorkspaceTarget = {
+  layer: "file-change-diff";
+  record_id: string;
+  baseline_record_id?: string;
+  mode?: "final" | "single";
+  change_count?: number;
+  title?: string;
+  subtitle?: string;
+  requested_at: number;
+};
+
 export type ActiveProjectionState = {
   keyString: string;
   ledger: ChronologicalProjectionLedger;
@@ -387,7 +398,7 @@ export type RuntimeLogCenterWorkspaceTarget = {
   requested_at: number;
 };
 
-export type CenterWorkspaceTarget = FileCenterWorkspaceTarget | RuntimeLogCenterWorkspaceTarget;
+export type CenterWorkspaceTarget = FileCenterWorkspaceTarget | FileChangeDiffCenterWorkspaceTarget | RuntimeLogCenterWorkspaceTarget;
 
 export type SessionEditorContext = {
   activeFilePath: string;
@@ -533,6 +544,7 @@ export type StoreActions = {
   runMonitorAction: (payload: RuntimeMonitorActionPayload) => Promise<RuntimeMonitorActionResult | null>;
   openTaskGraphWorkspace: (target?: Omit<TaskGraphWorkspaceTarget, "layer" | "requested_at">) => void;
   openWorkspaceFile: (path: string) => void;
+  openFileChangeDiff: (target: Omit<FileChangeDiffCenterWorkspaceTarget, "layer" | "requested_at">) => void;
   openRuntimeLog: (target: Omit<RuntimeLogCenterWorkspaceTarget, "layer" | "requested_at">) => void;
   clearTaskGraphWorkspaceTarget: () => void;
   clearCenterWorkspaceTarget: () => void;

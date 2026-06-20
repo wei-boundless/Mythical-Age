@@ -5931,6 +5931,15 @@ def _record_turn_runtime_control_signal(
         packet_ref=packet_ref,
         signal=signal,
     )
+    observed_event = _mark_turn_runtime_control_signal_gateway_observed(
+        runtime_host,
+        turn_run=turn_run,
+        turn_id=turn_id,
+        packet_ref=packet_ref,
+        signal_id=str(signal["runtime_control_signal_ref"] or ""),
+    )
+    if observed_event is None:
+        raise RuntimeError("runtime_gateway.mark_observed_by_id did not record turn runtime control signal")
     event = runtime_host.event_log.append(
         turn_run.turn_run_id,
         "turn_runtime_control_signal_observed",
@@ -5949,23 +5958,15 @@ def _record_turn_runtime_control_signal(
                 if published_event is not None
                 else {}
             ),
+            "runtime_gateway_observed_event_ref": str(getattr(observed_event, "event_id", "") or ""),
         },
     )
-    observed_event = _mark_turn_runtime_control_signal_gateway_observed(
-        runtime_host,
-        turn_run=turn_run,
-        turn_id=turn_id,
-        packet_ref=packet_ref,
-        signal_id=str(signal["runtime_control_signal_ref"] or ""),
-        turn_event=event,
-    )
-    latest_event = observed_event or event
     current = runtime_host.state_index.get_turn_run(turn_run.turn_run_id) or turn_run
     runtime_host.state_index.upsert_turn_run(
         replace(
             current,
-            updated_at=getattr(latest_event, "created_at", event.created_at),
-            latest_event_offset=getattr(latest_event, "offset", event.offset),
+            updated_at=event.created_at,
+            latest_event_offset=event.offset,
             diagnostics={
                 **dict(current.diagnostics or {}),
                 "latest_runtime_control_signal_ref": str(signal["runtime_control_signal_ref"] or ""),
@@ -6031,7 +6032,6 @@ def _mark_turn_runtime_control_signal_gateway_observed(
     turn_id: str,
     packet_ref: str,
     signal_id: str,
-    turn_event: Any,
 ) -> Any | None:
     normalized_signal_id = str(signal_id or "").strip()
     if not normalized_signal_id:
@@ -6045,14 +6045,12 @@ def _mark_turn_runtime_control_signal_gateway_observed(
         signal_id=normalized_signal_id,
         observed_by="harness.loop.single_agent_turn.runtime_control_boundary",
         payload={
-            "turn_runtime_control_event_ref": str(getattr(turn_event, "event_id", "") or ""),
             "runtime_invocation_packet_ref": str(packet_ref or ""),
             "boundary": "single_agent_turn_runtime_control",
         },
         refs={
             "turn_ref": str(turn_id or ""),
             "turn_run_ref": str(getattr(turn_run, "turn_run_id", "") or ""),
-            "turn_runtime_control_event_ref": str(getattr(turn_event, "event_id", "") or ""),
             "runtime_invocation_packet_ref": str(packet_ref or ""),
         },
     )

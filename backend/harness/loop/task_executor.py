@@ -100,9 +100,7 @@ from .task_run_execution_control import (
     executor_epoch_is_live,
     peek_executor_signal,
     register_executor_epoch,
-    request_executor_pause,
-    request_executor_replan,
-    request_executor_stop,
+    request_executor_control_signal,
 )
 from .task_contract_revision import (
     apply_contract_revision_decisions,
@@ -351,6 +349,23 @@ def _task_run_session_deleted(runtime_host: Any, task_run: Any) -> bool:
         return False
 
 
+def _executor_control_signal_trace_payload(signal: ExecutorControlSignal | None) -> dict[str, str]:
+    if signal is None:
+        return {}
+    signal_ref = str(getattr(signal, "signal_id", "") or "").strip()
+    if not signal_ref:
+        return {}
+    event_ref = str(getattr(signal, "control_event_ref", "") or "").strip()
+    return {
+        "runtime_control_signal_ref": signal_ref,
+        **({"runtime_control_event_ref": event_ref} if event_ref else {}),
+    }
+
+
+def _executor_control_signal_trace_refs(signal: ExecutorControlSignal | None) -> dict[str, str]:
+    return _executor_control_signal_trace_payload(signal)
+
+
 def request_task_run_pause(runtime_host: Any, task_run_id: str, *, reason: str = "", requested_by: str = "user") -> dict[str, Any]:
     task_run = runtime_host.state_index.get_task_run(task_run_id)
     if task_run is None:
@@ -374,18 +389,27 @@ def request_task_run_pause(runtime_host: Any, task_run_id: str, *, reason: str =
         updated_status = status
         control_state = _TASK_RUN_PAUSE_REQUESTED
         latest_step_status = "running"
-    if control_state == _TASK_RUN_PAUSE_REQUESTED and not request_executor_pause(
-        runtime_host,
-        task_run_id=task_run_id,
-        reason=reason,
-        requested_by=requested_by,
-    ):
-        return _conflict(task_run_id, "runtime_gateway_control_signal_unavailable")
+    control_signal: ExecutorControlSignal | None = None
+    if control_state == _TASK_RUN_PAUSE_REQUESTED:
+        control_signal = request_executor_control_signal(
+            runtime_host,
+            task_run_id=task_run_id,
+            kind="pause",
+            reason=reason,
+            requested_by=requested_by,
+        )
+        if control_signal is None:
+            return _conflict(task_run_id, "runtime_gateway_control_signal_unavailable")
     event = runtime_host.event_log.append(
         task_run_id,
         "task_run_pause_requested",
-        payload={"task_run_id": task_run_id, "reason": reason, "requested_by": requested_by},
-        refs={"task_run_ref": task_run_id},
+        payload={
+            "task_run_id": task_run_id,
+            "reason": reason,
+            "requested_by": requested_by,
+            **_executor_control_signal_trace_payload(control_signal),
+        },
+        refs={"task_run_ref": task_run_id, **_executor_control_signal_trace_refs(control_signal)},
     )
     updated = replace(
         task_run,
@@ -406,6 +430,7 @@ def request_task_run_pause(runtime_host: Any, task_run_id: str, *, reason: str =
                 if control_state == _TASK_RUN_PAUSE_REQUESTED
                 else "任务已暂停，后续可以继续执行。"
             ),
+            control_signal=control_signal,
         ),
     )
     runtime_host.state_index.upsert_task_run(updated)
@@ -555,20 +580,30 @@ def stop_task_run(runtime_host: Any, task_run_id: str, *, reason: str = "", requ
     if is_stopped_or_terminal_task_run(task_run):
         return {"ok": True, "accepted": False, "task_run": task_run.to_dict(), "control": _runtime_control_payload(task_run)}
     now = time.time()
-    if is_task_run_executor_claimed(task_run) and not request_executor_stop(
-        runtime_host,
-        task_run_id=task_run_id,
-        reason=reason,
-        requested_by=requested_by,
-    ):
-        return _conflict(task_run_id, "runtime_gateway_control_signal_unavailable")
+    executor_claimed = is_task_run_executor_claimed(task_run)
+    control_signal: ExecutorControlSignal | None = None
+    if executor_claimed:
+        control_signal = request_executor_control_signal(
+            runtime_host,
+            task_run_id=task_run_id,
+            kind="stop",
+            reason=reason,
+            requested_by=requested_by,
+        )
+        if control_signal is None:
+            return _conflict(task_run_id, "runtime_gateway_control_signal_unavailable")
     event = runtime_host.event_log.append(
         task_run_id,
         "task_run_stop_requested",
-        payload={"task_run_id": task_run_id, "reason": reason, "requested_by": requested_by},
-        refs={"task_run_ref": task_run_id},
+        payload={
+            "task_run_id": task_run_id,
+            "reason": reason,
+            "requested_by": requested_by,
+            **_executor_control_signal_trace_payload(control_signal),
+        },
+        refs={"task_run_ref": task_run_id, **_executor_control_signal_trace_refs(control_signal)},
     )
-    if is_task_run_executor_claimed(task_run):
+    if executor_claimed:
         updated = replace(
             task_run,
             updated_at=event.created_at or now,
@@ -582,6 +617,7 @@ def stop_task_run(runtime_host: Any, task_run_id: str, *, reason: str = "", requ
                 latest_step="task_run_stop_requested",
                 latest_step_status="running",
                 latest_step_summary="停止请求已记录；当前步骤收口后任务会结束。",
+                control_signal=control_signal,
             ),
         )
         runtime_host.state_index.upsert_task_run(updated)
@@ -667,14 +703,15 @@ def append_user_work_instruction(
     updated = runtime_host.state_index.get_task_run(task_run_id) or task_run
     steer_ref = str(dict(result.get("steer") or {}).get("steer_id") or "")
     if is_task_run_executor_claimed(updated):
-        signalled = request_executor_replan(
+        control_signal = request_executor_control_signal(
             runtime_host,
             task_run_id=task_run_id,
+            kind="replan",
             reason=intent,
             requested_by="user",
             steer_ref=steer_ref,
         )
-        if not signalled:
+        if control_signal is None:
             return {
                 **result,
                 "ok": False,
@@ -685,8 +722,18 @@ def append_user_work_instruction(
         event = runtime_host.event_log.append(
             task_run_id,
             "task_run_replan_requested",
-            payload={"task_run_id": task_run_id, "reason": intent, "steer_ref": steer_ref, "signalled": signalled},
-            refs={"task_run_ref": task_run_id, "steer_ref": steer_ref},
+            payload={
+                "task_run_id": task_run_id,
+                "reason": intent,
+                "steer_ref": steer_ref,
+                "signalled": True,
+                **_executor_control_signal_trace_payload(control_signal),
+            },
+            refs={
+                "task_run_ref": task_run_id,
+                "steer_ref": steer_ref,
+                **_executor_control_signal_trace_refs(control_signal),
+            },
         )
         updated = replace(
             updated,
@@ -701,6 +748,7 @@ def append_user_work_instruction(
                 latest_step="task_run_replan_requested",
                 latest_step_status="running",
                 latest_step_summary="",
+                control_signal=control_signal,
             ),
         )
         runtime_host.state_index.upsert_task_run(updated)
@@ -2714,6 +2762,7 @@ def _record_pending_runtime_control_signal_for_agent(
         return None
     existing_observation = _matching_runtime_control_signal_observation(
         raw_observations,
+        signal=signal,
         fingerprint=fingerprint,
     )
     if existing_observation is not None:
@@ -3129,12 +3178,16 @@ def _runtime_control_signal_already_delivered(
     signal: ExecutorControlSignal,
     fingerprint: str,
 ) -> bool:
+    signal_ref = str(getattr(signal, "signal_id", "") or "").strip()
+    if not signal_ref:
+        return False
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     control = diagnostics.get(_TASK_RUN_CONTROL_KEY)
     if not isinstance(control, dict):
         return False
     return (
-        str(control.get("agent_signal_fingerprint") or "") == fingerprint
+        str(control.get("agent_signal_ref") or "").strip() == signal_ref
+        and str(control.get("agent_signal_fingerprint") or "") == fingerprint
         and str(control.get("agent_signal_kind") or "") == str(signal.kind or "")
         and bool(str(control.get("agent_signal_observation_ref") or "").strip())
     )
@@ -3143,12 +3196,18 @@ def _runtime_control_signal_already_delivered(
 def _matching_runtime_control_signal_observation(
     observations: list[dict[str, Any]],
     *,
+    signal: ExecutorControlSignal,
     fingerprint: str,
 ) -> dict[str, Any] | None:
+    signal_id = str(getattr(signal, "signal_id", "") or "").strip()
+    if not signal_id:
+        return None
     for observation in list(observations or []):
         if str(observation.get("source") or "") != "system:runtime_control_signal":
             continue
         payload = dict(observation.get("payload") or {})
+        if str(payload.get("runtime_control_signal_ref") or "").strip() != signal_id:
+            continue
         if str(payload.get("runtime_control_signal_fingerprint") or "") == fingerprint:
             return dict(observation)
     return None
@@ -3186,6 +3245,7 @@ def _mark_runtime_control_signal_delivered(
             "reason": str(control.get("reason") or signal.reason or ""),
             "authority": "orchestration.task_run_control",
             "agent_signal_kind": str(signal.kind or ""),
+            "agent_signal_ref": str(getattr(signal, "signal_id", "") or ""),
             "agent_signal_fingerprint": fingerprint,
             "agent_signal_observation_ref": str(observation.get("observation_id") or ""),
             "agent_signal_requested_at": float(control.get("requested_at") or signal.requested_at or now),
@@ -5996,6 +6056,8 @@ def _executor_control_signal_from_task_run(
     else:
         return None
     control = _runtime_control_payload(task_run)
+    raw_control = diagnostics.get(_TASK_RUN_CONTROL_KEY)
+    control_refs = dict(raw_control or {}) if isinstance(raw_control, dict) else {}
     signal = ExecutorControlSignal(
         kind=kind,  # type: ignore[arg-type]
         task_run_id=str(getattr(task_run, "task_run_id", "") or ""),
@@ -6004,6 +6066,8 @@ def _executor_control_signal_from_task_run(
         requested_by=str(control.get("requested_by") or "system"),
         requested_at=float(control.get("requested_at") or time.time()),
         steer_ref=str(control.get("steer_ref") or diagnostics.get("latest_user_steer_ref") or ""),
+        signal_id=str(control_refs.get("runtime_control_signal_ref") or control_refs.get("agent_signal_ref") or ""),
+        control_event_ref=str(control_refs.get("runtime_control_event_ref") or control_refs.get("agent_signal_event_ref") or ""),
     )
     if _runtime_control_signal_already_delivered(
         task_run,
@@ -7383,6 +7447,9 @@ def _runtime_control_signal_projection_from_observations(observations: list[dict
         if str(observation.get("source") or "") != "system:runtime_control_signal":
             continue
         payload = dict(observation.get("payload") or {})
+        signal_ref = str(payload.get("runtime_control_signal_ref") or "").strip()
+        if not signal_ref:
+            continue
         fingerprint = str(payload.get("runtime_control_signal_fingerprint") or observation.get("observation_id") or "")
         if fingerprint and fingerprint in seen:
             continue
@@ -7391,6 +7458,8 @@ def _runtime_control_signal_projection_from_observations(observations: list[dict
         signals.append(
             {
                 "observation_ref": str(observation.get("observation_id") or ""),
+                "runtime_control_signal_ref": signal_ref,
+                "signal_id": signal_ref,
                 "signal_kind": str(payload.get("signal_kind") or ""),
                 "runtime_control_state": str(payload.get("runtime_control_state") or ""),
                 "requested_by": str(payload.get("requested_by") or ""),
@@ -8232,12 +8301,16 @@ def _runtime_control_payload(task_run: Any) -> dict[str, Any]:
     control = diagnostics.get(_TASK_RUN_CONTROL_KEY)
     if not isinstance(control, dict):
         return {}
+    signal_ref = str(control.get("runtime_control_signal_ref") or control.get("agent_signal_ref") or "").strip()
+    event_ref = str(control.get("runtime_control_event_ref") or control.get("agent_signal_event_ref") or "").strip()
     return {
         "state": task_run_control_state(task_run),
         "requested_by": str(control.get("requested_by") or ""),
         "requested_at": float(control.get("requested_at") or 0.0),
         "reason": str(control.get("reason") or ""),
         "authority": "orchestration.task_run_control",
+        **({"runtime_control_signal_ref": signal_ref} if signal_ref else {}),
+        **({"runtime_control_event_ref": event_ref} if event_ref else {}),
     }
 
 
@@ -8263,16 +8336,19 @@ def _diagnostics_with_runtime_control(
     latest_step: str,
     latest_step_status: str,
     latest_step_summary: str,
+    control_signal: ExecutorControlSignal | None = None,
 ) -> dict[str, Any]:
+    control_payload = {
+        "state": state,
+        "requested_by": requested_by or "user",
+        "requested_at": float(requested_at or time.time()),
+        "reason": reason,
+        "authority": "orchestration.task_run_control",
+        **_executor_control_signal_trace_payload(control_signal),
+    }
     return {
         **dict(diagnostics or {}),
-        _TASK_RUN_CONTROL_KEY: {
-            "state": state,
-            "requested_by": requested_by or "user",
-            "requested_at": float(requested_at or time.time()),
-            "reason": reason,
-            "authority": "orchestration.task_run_control",
-        },
+        _TASK_RUN_CONTROL_KEY: control_payload,
         "latest_step": latest_step,
         "latest_step_status": latest_step_status,
         "latest_step_summary": latest_step_summary,

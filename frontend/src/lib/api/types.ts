@@ -533,6 +533,22 @@ export type FileChangeRecord = {
   authority?: string;
 };
 
+export type FileChangeDiffPayload = {
+  diff_id: string;
+  logical_path: string;
+  before_exists: boolean;
+  after_exists: boolean;
+  before_content: string;
+  after_content: string;
+  before_sha256: string;
+  after_sha256: string;
+  truncated: boolean;
+  metadata?: {
+    record?: FileChangeRecord;
+    [key: string]: unknown;
+  };
+};
+
 export type CodeEnvironmentGitStatus = {
   authority: string;
   available: boolean;

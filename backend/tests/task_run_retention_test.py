@@ -13,6 +13,7 @@ from runtime.shared.event_log import RuntimeEventLog
 from runtime.shared.models import TaskRun
 from runtime.shared.runtime_object_store import RuntimeObjectStore
 from runtime.tool_runtime.tool_invocation_control import registry_for
+from harness.runtime.runtime_gateway import RuntimeGateway
 from runtime_objects.tool_result_storage import ToolResultStore
 
 
@@ -46,6 +47,7 @@ class _RuntimeHost:
         }
         self.state_index = RuntimeStateIndex(root_dir)
         self.event_log = RuntimeEventLog(root_dir)
+        self.runtime_gateway = RuntimeGateway(self.event_log)
         self.runtime_objects = RuntimeObjectStore(root_dir)
         self.file_state_store = FileStateAuthorityStore(root_dir)
         self.runtime_cache = RuntimeCacheManager.from_runtime_root(root_dir)
@@ -133,6 +135,72 @@ def test_retention_stops_old_blocked_and_releases_ephemeral_state(tmp_path: Path
     assert not (host.root_dir / "tool_results" / "taskrun-blocked-old").exists()
     assert registry.record("toolinv:blocked-old").status == "cancelled"
     assert host.active_turn_registry.completed[-1]["terminal_reason"] == "blocked_expired"
+
+
+def test_retention_active_claim_stop_preserves_gateway_signal_identity(tmp_path: Path) -> None:
+    host = _RuntimeHost(tmp_path / "runtime_state")
+    task_run_id = "taskrun:blocked-active-claim"
+    host.state_index.upsert_task_run(
+        _task_run(
+            task_run_id,
+            status="blocked",
+            updated_at=100.0,
+            diagnostics={"executor_status": "running", "executor_epoch": 9},
+        )
+    )
+
+    sweep = RuntimeMonitorService(runtime_host=host, freshness_seconds=300)._sweep_expired_task_runs(now=120.0, limit=20)
+    current = host.state_index.get_task_run(task_run_id)
+    requested = [
+        dict(dict(event.payload or {}).get("signal") or {})
+        for event in host.event_log.list_events(task_run_id)
+        if event.event_type == "runtime_control_signal_published"
+        and dict(dict(event.payload or {}).get("signal") or {}).get("signal_type") == "control.signal.requested"
+    ]
+    unavailable = [
+        dict(dict(event.payload or {}).get("signal") or {})
+        for event in host.event_log.list_events(task_run_id)
+        if event.event_type == "runtime_control_signal_published"
+        and dict(dict(event.payload or {}).get("signal") or {}).get("signal_type") == "control.signal.target_unavailable"
+    ]
+
+    assert current is not None
+    assert len(requested) == 1
+    assert len(unavailable) == 1
+    signal_id = requested[0]["signal_id"]
+    control = dict(current.diagnostics["runtime_control"])
+    stop_request = dict(sweep["stop_requests"][0])
+    assert control["state"] == "stop_requested"
+    assert control["runtime_control_signal_ref"] == signal_id
+    assert stop_request["runtime_control_signal_ref"] == signal_id
+    assert dict(unavailable[0]["payload"])["requested_signal_id"] == signal_id
+    assert dict(requested[0]["payload"])["executor_epoch"] == 9
+
+
+def test_retention_active_claim_stop_fails_closed_without_runtime_gateway(tmp_path: Path) -> None:
+    host = _RuntimeHost(tmp_path / "runtime_state")
+    task_run_id = "taskrun:blocked-active-no-gateway"
+    host.state_index.upsert_task_run(
+        _task_run(
+            task_run_id,
+            status="blocked",
+            updated_at=100.0,
+            diagnostics={"executor_status": "running", "executor_epoch": 10},
+        )
+    )
+    host.runtime_gateway = None
+
+    sweep = RuntimeMonitorService(runtime_host=host, freshness_seconds=300)._sweep_expired_task_runs(now=120.0, limit=20)
+    current = host.state_index.get_task_run(task_run_id)
+    stop_request = dict(sweep["stop_request_failures"][0])
+
+    assert current is not None
+    assert current.status == "blocked"
+    assert "runtime_control" not in dict(current.diagnostics or {})
+    assert sweep["stop_request_count"] == 0
+    assert sweep["stop_request_failure_count"] == 1
+    assert stop_request["stop_requested"] is False
+    assert stop_request["error"] == "runtime_gateway_control_signal_unavailable"
 
 
 def test_retention_keeps_fresh_blocked_visible(tmp_path: Path) -> None:

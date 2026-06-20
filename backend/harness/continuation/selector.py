@@ -7,8 +7,6 @@ from harness.loop.task_run_recovery_state import recovery_state_for_task_run
 from harness.loop.work_rollout import work_rollout_ref, work_rollout_summary
 from harness.runtime.control_events import runtime_signal_from_event_payload
 from harness.runtime.runtime_gateway import (
-    CONTROL_SIGNAL_CONSUMED_EVENT,
-    CONTROL_SIGNAL_OBSERVED_EVENT,
     CONTROL_SIGNAL_PUBLISHED_EVENT,
 )
 from harness.task_run_state_view import task_run_state_view
@@ -359,11 +357,7 @@ def _latest_turn_runtime_control_signal_from_gateway(
     except Exception:
         return {}
     for event in reversed(events):
-        if getattr(event, "event_type", "") not in {
-            CONTROL_SIGNAL_PUBLISHED_EVENT,
-            CONTROL_SIGNAL_OBSERVED_EVENT,
-            CONTROL_SIGNAL_CONSUMED_EVENT,
-        }:
+        if getattr(event, "event_type", "") != CONTROL_SIGNAL_PUBLISHED_EVENT:
             continue
         signal = runtime_signal_from_event_payload(dict(getattr(event, "payload", {}) or {}))
         if signal is None:

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   Check,
   ChevronDown,
@@ -22,6 +22,20 @@ import {
 } from "lucide-react";
 
 import {
+  DEFAULT_WORKBENCH_DENSITY,
+  DEFAULT_WORKBENCH_THEME_ID,
+  WORKBENCH_DENSITY_CHANGE_EVENT,
+  WORKBENCH_DENSITY_OPTIONS,
+  WORKBENCH_THEME_CHANGE_EVENT,
+  WORKBENCH_THEME_TEMPLATES,
+  getStoredWorkbenchDensity,
+  getStoredWorkbenchTheme,
+  setStoredWorkbenchDensity,
+  setStoredWorkbenchTheme,
+  type WorkbenchDensity,
+  type WorkbenchThemeId,
+} from "@/framework/workbenchThemes";
+import {
   getCapabilitySystemCatalog,
   getRuntimeConfigConsole,
   setContextBudgetPreset,
@@ -41,6 +55,7 @@ import { MetricCard } from "@/ui/MetricCard";
 import { Toggle } from "@/ui/Toggle";
 
 type SystemConfigGroupId =
+  | "appearance"
   | "model"
   | "embedding"
   | "retrieval"
@@ -57,6 +72,7 @@ const CONFIG_SECTIONS: Array<{
   icon: typeof Settings2;
   accent: string;
 }> = [
+  { id: "appearance", icon: Settings2, accent: "界面" },
   { id: "model", icon: ServerCog, accent: "主模型" },
   { id: "embedding", icon: Layers3, accent: "向量化" },
   { id: "retrieval", icon: Database, accent: "RAG" },
@@ -68,6 +84,16 @@ const CONFIG_SECTIONS: Array<{
   { id: "context", icon: Settings2, accent: "上下文" },
   { id: "capabilities", icon: ShieldCheck, accent: "能力治理" }
 ];
+
+const RUNTIME_CONFIG_GROUP_IDS: ReadonlySet<string> = new Set(
+  CONFIG_SECTIONS
+    .map((section) => section.id)
+    .filter((id) => id !== "appearance" && id !== "capabilities")
+);
+
+function isRuntimeConfigGroupId(value: SystemConfigGroupId) {
+  return RUNTIME_CONFIG_GROUP_IDS.has(value);
+}
 
 function fieldInitialValue(field: RuntimeConfigField) {
   if (field.type === "secret") return "";
@@ -126,7 +152,9 @@ function fieldDescription(group: RuntimeConfigGroup | null, field: RuntimeConfig
 export function SystemConfigView() {
   const [consoleConfig, setConsoleConfig] = useState<RuntimeConfigConsole | null>(null);
   const [capabilityCatalog, setCapabilityCatalog] = useState<CapabilitySystemCatalog | null>(null);
-  const [activeGroupId, setActiveGroupId] = useState<SystemConfigGroupId>("model");
+  const [activeGroupId, setActiveGroupId] = useState<SystemConfigGroupId>("appearance");
+  const [activeThemeId, setActiveThemeId] = useState<WorkbenchThemeId>(DEFAULT_WORKBENCH_THEME_ID);
+  const [activeDensity, setActiveDensity] = useState<WorkbenchDensity>(DEFAULT_WORKBENCH_DENSITY);
   const [draft, setDraft] = useState<Record<string, string | number | boolean>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -136,7 +164,7 @@ export function SystemConfigView() {
 
   const groups = useMemo(() => consoleConfig?.groups ?? [], [consoleConfig]);
   const activeGroup = useMemo(
-    () => groups.find((group) => group.group_id === activeGroupId) ?? groups[0] ?? null,
+    () => isRuntimeConfigGroupId(activeGroupId) ? groups.find((group) => group.group_id === activeGroupId) ?? groups[0] ?? null : null,
     [activeGroupId, groups]
   );
   const budgetConfig = contextMetadata(activeGroup);
@@ -153,11 +181,10 @@ export function SystemConfigView() {
     try {
       const payload = await getRuntimeConfigConsole();
       setConsoleConfig(payload);
-      const nextGroup =
-        payload.groups.find((group) => group.group_id === activeGroupId)
-        ?? payload.groups[0]
-        ?? null;
-      if (nextGroup && nextGroup.group_id !== activeGroupId) {
+      const nextGroup = isRuntimeConfigGroupId(activeGroupId)
+        ? payload.groups.find((group) => group.group_id === activeGroupId) ?? payload.groups[0] ?? null
+        : null;
+      if (isRuntimeConfigGroupId(activeGroupId) && nextGroup && nextGroup.group_id !== activeGroupId) {
         setActiveGroupId(nextGroup.group_id as SystemConfigGroupId);
       }
       setDraft(buildDraft(nextGroup));
@@ -178,6 +205,22 @@ export function SystemConfigView() {
     setDraft(buildDraft(activeGroup));
     setProviderMenuOpen(false);
   }, [activeGroup]);
+
+  useEffect(() => {
+    function syncAppearance() {
+      setActiveThemeId(getStoredWorkbenchTheme());
+      setActiveDensity(getStoredWorkbenchDensity());
+    }
+    syncAppearance();
+    window.addEventListener(WORKBENCH_THEME_CHANGE_EVENT, syncAppearance);
+    window.addEventListener(WORKBENCH_DENSITY_CHANGE_EVENT, syncAppearance);
+    window.addEventListener("storage", syncAppearance);
+    return () => {
+      window.removeEventListener(WORKBENCH_THEME_CHANGE_EVENT, syncAppearance);
+      window.removeEventListener(WORKBENCH_DENSITY_CHANGE_EVENT, syncAppearance);
+      window.removeEventListener("storage", syncAppearance);
+    };
+  }, []);
 
   async function saveGroup() {
     if (!activeGroup || activeGroup.group_id === "context") return;
@@ -292,6 +335,23 @@ export function SystemConfigView() {
   );
   const internalTools = (capabilityCatalog?.tools ?? []).filter((tool) => tool.runtime_visibility === "agent_internal");
   const highRiskTools = (capabilityCatalog?.tools ?? []).filter((tool) => ["高", "极高"].includes(tool.operation_metadata.risk_level));
+  const activeThemeLabel = WORKBENCH_THEME_TEMPLATES.find((theme) => theme.id === activeThemeId)?.label ?? "清爽工作台";
+  const activeDensityLabel = WORKBENCH_DENSITY_OPTIONS.find((density) => density.id === activeDensity)?.label ?? "标准";
+  const activePanelTitle = activeGroupId === "appearance"
+    ? "外观与布局"
+    : activeGroupId === "capabilities"
+      ? "能力治理"
+      : activeGroup?.title ?? "配置项";
+  const activePanelStatus = activeGroupId === "appearance"
+    ? `${activeThemeLabel} / ${activeDensityLabel}`
+    : activeGroupId === "capabilities"
+      ? `${validationIssues.length} 个校验项`
+      : activeGroup?.status ?? "等待配置";
+  const activePanelDescription = activeGroupId === "appearance"
+    ? "统一主题、字体清晰度、布局密度和基础面板偏好。"
+    : activeGroupId === "capabilities"
+      ? "治理工具、能力可见性和高风险操作授权。"
+      : groupDescription(activeGroup);
 
   function applyProviderPreset(provider: string, option: ModelProviderOption) {
     setDraft((current) => ({
@@ -376,6 +436,93 @@ export function SystemConfigView() {
           </div>
         </div>
       </section>
+    );
+  }
+
+  function chooseTheme(themeId: WorkbenchThemeId) {
+    setStoredWorkbenchTheme(themeId);
+    setActiveThemeId(themeId);
+    setNotice(`已切换主题：${WORKBENCH_THEME_TEMPLATES.find((theme) => theme.id === themeId)?.label ?? themeId}`);
+    setError("");
+  }
+
+  function chooseDensity(density: WorkbenchDensity) {
+    setStoredWorkbenchDensity(density);
+    setActiveDensity(density);
+    setNotice(`已切换布局密度：${WORKBENCH_DENSITY_OPTIONS.find((item) => item.id === density)?.label ?? density}`);
+    setError("");
+  }
+
+  function renderAppearancePanel() {
+    return (
+      <div className="system-config-appearance">
+        <section className="system-config-field-section">
+          <div className="system-config-field-section__head">
+            <strong>主题模板</strong>
+            <em>模板只改变 token，不改变页面结构。</em>
+          </div>
+          <div className="system-config-theme-grid">
+            {WORKBENCH_THEME_TEMPLATES.map((theme) => {
+              const active = activeThemeId === theme.id;
+              return (
+                <button
+                  aria-pressed={active}
+                  className={`system-config-theme-card ${active ? "system-config-theme-card--active" : ""}`}
+                  key={theme.id}
+                  onClick={() => chooseTheme(theme.id)}
+                  type="button"
+                >
+                  <span
+                    className="system-config-theme-card__preview"
+                    style={{
+                      "--theme-preview-accent": theme.preview.accent,
+                      "--theme-preview-bg": theme.preview.background,
+                      "--theme-preview-surface": theme.preview.surface,
+                      "--theme-preview-text": theme.preview.text,
+                    } as CSSProperties}
+                  >
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                  <span className="system-config-theme-card__body">
+                    <strong>{theme.label}</strong>
+                    <small>{theme.description}</small>
+                  </span>
+                  <em>{active ? "当前" : "可切换"}</em>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="system-config-field-section">
+          <div className="system-config-field-section__head">
+            <strong>基本界面布局</strong>
+            <em>控制列表密度和面板间距，保持所有页面同一标准。</em>
+          </div>
+          <div className="system-config-density-grid">
+            {WORKBENCH_DENSITY_OPTIONS.map((density) => {
+              const active = activeDensity === density.id;
+              return (
+                <button
+                  aria-pressed={active}
+                  className={`system-config-density-card ${active ? "system-config-density-card--active" : ""}`}
+                  key={density.id}
+                  onClick={() => chooseDensity(density.id)}
+                  type="button"
+                >
+                  <span>
+                    <strong>{density.label}</strong>
+                    <small>{density.description}</small>
+                  </span>
+                  <em>{active ? "当前" : "应用"}</em>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      </div>
     );
   }
 
@@ -498,7 +645,7 @@ export function SystemConfigView() {
       ) : null}
 
       <section className="system-config-overview">
-        <MetricCard detail={activeGroup?.status ?? "等待配置"} detailAs="em" label="当前面板" value={activeGroup?.title ?? "未加载"} />
+        <MetricCard detail={activePanelStatus} detailAs="em" label="当前面板" value={activePanelTitle} />
         <MetricCard detail="当前由前端配置覆盖的字段" detailAs="em" label="运行时覆盖" value={overriddenCount} />
         <MetricCard detail="新密钥只在保存时写入" detailAs="em" label="密钥策略" value="不回显密钥" />
       </section>
@@ -508,6 +655,16 @@ export function SystemConfigView() {
           {CONFIG_SECTIONS.map((section) => {
             const group = groups.find((item) => item.group_id === section.id);
             const Icon = section.icon;
+            const sectionTitle = section.id === "appearance"
+              ? "外观与布局"
+              : section.id === "capabilities"
+                ? "能力治理"
+                : group?.title ?? section.id;
+            const sectionStatus = section.id === "appearance"
+              ? `${activeThemeLabel} / ${activeDensityLabel}`
+              : section.id === "capabilities"
+                ? `${validationIssues.length} 个校验项`
+                : group?.status ?? "未加载";
             return (
               <button
                 className={`system-config-nav__item ${activeGroupId === section.id ? "system-config-nav__item--active" : ""}`}
@@ -518,8 +675,8 @@ export function SystemConfigView() {
                 <span className="system-config-nav__icon"><Icon size={17} /></span>
                 <span>
                   <em>{section.accent}</em>
-                  <strong>{section.id === "capabilities" ? "能力治理" : group?.title ?? section.id}</strong>
-                  <small>{section.id === "capabilities" ? `${validationIssues.length} 个校验项` : group?.status ?? "未加载"}</small>
+                  <strong>{sectionTitle}</strong>
+                  <small>{sectionStatus}</small>
                 </span>
               </button>
             );
@@ -533,12 +690,12 @@ export function SystemConfigView() {
             </div>
             <div>
               <span>{sectionMeta.accent}</span>
-              <strong>{activeGroup?.title ?? "配置项"}</strong>
-              <p>{groupDescription(activeGroup)}</p>
+              <strong>{activePanelTitle}</strong>
+              <p>{activePanelDescription}</p>
             </div>
           </div>
 
-          {activeGroupId === "capabilities" ? renderCapabilitiesPanel() : activeGroup?.group_id === "context" && budgetConfig ? (
+          {activeGroupId === "appearance" ? renderAppearancePanel() : activeGroupId === "capabilities" ? renderCapabilitiesPanel() : activeGroup?.group_id === "context" && budgetConfig ? (
             <div className="system-config-budget-grid">
               {budgetConfig.presets.map((preset) => (
                 <button
