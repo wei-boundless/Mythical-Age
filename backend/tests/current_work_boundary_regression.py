@@ -8,6 +8,8 @@ from harness.entrypoint.current_work_boundary import (
     current_work_boundary_receipt_from_decision,
     decide_current_work_boundary,
 )
+from harness.loop.admission import admit_model_action
+from harness.loop.model_action_protocol import ModelActionRequest
 from harness.runtime import RuntimeCompiler
 
 
@@ -68,8 +70,7 @@ def test_no_current_work_allows_ordinary_turn_without_active_work_control() -> N
 
     assert decision.action == "no_current_work"
     assert decision.requires_model_boundary_decision is False
-    assert "active_work_control" not in receipt.available_action_types_for_next_packet
-    assert "request_task_run" in receipt.available_action_types_for_next_packet
+    assert list(receipt.operation_availability.keys()) == ["active_work_control"]
     assert current_work_boundary_receipt_allows_active_work_control(receipt) is False
 
 
@@ -85,8 +86,6 @@ def test_steer_without_expected_active_turn_becomes_model_visible_state() -> Non
     assert decision.action == "current_work_unavailable"
     assert decision.reason == "expected_active_turn_unavailable"
     assert decision.requires_model_boundary_decision is False
-    assert "respond" in receipt.available_action_types_for_next_packet
-    assert "active_work_control" not in receipt.available_action_types_for_next_packet
     assert receipt.operation_availability["active_work_control"] is False
     assert receipt.observation_state == "read_only_or_unavailable"
 
@@ -106,16 +105,16 @@ def test_steer_without_active_work_does_not_promote_latest_task() -> None:
     assert decision.reason == "active_turn_steer_not_running"
     assert decision.task_run_id == ""
     assert receipt.operation_availability["active_work_control"] is False
-    assert "request_task_run" not in receipt.available_action_types_for_next_packet
 
 
-def test_active_turn_bound_current_work_issues_control_permit_without_boundary_model() -> None:
+def test_active_turn_bound_current_work_reports_control_operation_available_without_boundary_model() -> None:
     boundary_input = build_current_work_boundary_input(
         turn_input_facts=_facts(policy="steer", expected_turn_id="turn:active"),
         active_turn_input_policy="steer",
         expected_active_turn_id="turn:active",
         active_work_context=_active_work(),
         active_turn_check=_accepted_check(),
+        control_capabilities={"may_control_active_work": True},
     )
 
     decision = decide_current_work_boundary(boundary_input)
@@ -125,9 +124,7 @@ def test_active_turn_bound_current_work_issues_control_permit_without_boundary_m
     assert decision.reason == "active_work_boundary_ready"
     assert decision.requires_model_boundary_decision is False
     assert receipt.boundary_decision == "current_work_control_required"
-    assert "respond" in receipt.available_action_types_for_next_packet
-    assert "active_work_control" in receipt.available_action_types_for_next_packet
-    assert "request_task_run" not in receipt.available_action_types_for_next_packet
+    assert receipt.operation_availability == {"active_work_control": True}
     assert current_work_boundary_receipt_allows_active_work_control(receipt) is True
 
 
@@ -146,7 +143,6 @@ def test_running_active_work_requires_steer_policy_for_control() -> None:
     assert decision.action == "new_independent_turn_allowed"
     assert decision.reason == "active_work_control_requires_steer_policy"
     assert receipt.operation_availability["active_work_control"] is False
-    assert "active_work_control" not in receipt.available_action_types_for_next_packet
 
 
 def test_terminal_active_work_is_read_only_for_ordinary_input() -> None:
@@ -162,10 +158,34 @@ def test_terminal_active_work_is_read_only_for_ordinary_input() -> None:
 
     assert decision.action == "new_independent_turn_allowed"
     assert decision.reason == "active_work_terminal"
-    assert "active_work_control" not in receipt.available_action_types_for_next_packet
 
 
-def test_compiler_does_not_open_active_work_control_from_context_alone() -> None:
+def test_admission_reports_active_work_unavailable_as_operation_observation() -> None:
+    action_request = ModelActionRequest(
+        request_id="model-action:active-work-unavailable",
+        turn_id="turn:active-work-unavailable",
+        action_type="active_work_control",
+        active_work_control={"action": "continue_active_work"},
+    )
+
+    admission = admit_model_action(
+        action_request,
+        packet_allowed_action_types=("respond", "ask_user", "block", "active_work_control"),
+        invocation_kind="single_agent_turn",
+        current_work_boundary_receipt={
+            "receipt_id": "cwreceipt:unavailable",
+            "boundary_decision": "current_work_unavailable",
+            "operation_availability": {"active_work_control": False},
+        },
+    )
+
+    assert admission.decision == "operation_unavailable"
+    assert admission.issue_category == "operation_unavailable"
+    assert admission.issue_code == "active_work_control_unavailable"
+    assert dict(admission.action_issue or {}).get("category") == "operation_unavailable"
+
+
+def test_compiler_does_not_open_active_work_control_from_context_when_capability_absent() -> None:
     result = RuntimeCompiler().compile_single_agent_turn_packet(
         session_id="session:compiler-boundary",
         turn_id="turn:compiler-boundary",
@@ -176,11 +196,51 @@ def test_compiler_does_not_open_active_work_control_from_context_alone() -> None
         runtime_assembly={
             "profile": {"mode": "conversation"},
             "task_environment": {"environment_id": "env.general.workspace"},
-            "control_capabilities": {"may_request_task_run": True, "may_control_active_work": True},
+            "control_capabilities": {"may_request_task_run": True, "may_control_active_work": False},
         },
     )
 
     assert "active_work_control" not in result.packet.allowed_action_types
+
+
+def test_compiler_does_not_project_active_work_controls_when_receipt_unavailable() -> None:
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:compiler-boundary",
+        turn_id="turn:compiler-boundary-unavailable",
+        agent_invocation_id="aginvoke:compiler-boundary-unavailable",
+        user_message="继续。",
+        history=[],
+        active_work_context=_active_work(),
+        current_work_boundary_receipt={
+            "receipt_id": "cwreceipt:unavailable",
+            "boundary_decision": "current_work_unavailable",
+            "observation_state": "read_only_or_unavailable",
+            "active_work_ref": {"task_run_id": "taskrun:active", "actual_active_turn_id": "turn:active"},
+            "operation_availability": {"active_work_control": False},
+            "diagnostics": {
+                "decision": {
+                    "reason": "expected_active_turn_mismatch",
+                    "relation_to_current_work": "stale_or_missing_active_turn",
+                }
+            },
+        },
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "control_capabilities": {"may_request_task_run": True, "may_control_active_work": True},
+        },
+    )
+
+    assert "active_work_control" in result.packet.allowed_action_types
+    dynamic_payload = _message_payload_with_title(result.packet, "Single agent turn dynamic runtime")
+    projected_active_work = dict(dynamic_payload["active_work_context"])
+    projected_receipt = dict(dynamic_payload["current_work_boundary_receipt"])
+    active_control_contract = dict(dict(result.packet.output_contract["control_actions"])["active_work_control"])
+    assert projected_active_work["available_controls"] == []
+    assert projected_active_work["read_only_context"] is True
+    assert projected_active_work["control_availability"] == "current_work_boundary_receipt_active_work_control_unavailable"
+    assert projected_receipt["operation_availability"]["active_work_control"] is False
+    assert "operation_availability.active_work_control" in active_control_contract["operation_availability_gate"]
 
 
 def test_compiler_uses_current_work_boundary_receipt_as_state_observation() -> None:
@@ -189,9 +249,7 @@ def test_compiler_uses_current_work_boundary_receipt_as_state_observation() -> N
         "boundary_decision": "current_work_control_required",
         "observation_state": "controllable_current_work",
         "active_work_ref": {"task_run_id": "taskrun:active", "actual_active_turn_id": "turn:active"},
-        "available_action_types_for_next_packet": ["respond", "ask_user", "block", "active_work_control"],
-        "unavailable_action_types_for_next_packet": ["request_task_run"],
-        "operation_availability": {"respond": True, "ask_user": True, "block": True, "active_work_control": True, "request_task_run": False, "tool_call": False},
+        "operation_availability": {"active_work_control": True},
         "diagnostics": {"decision": {"reason": "active_work_boundary_ready", "relation_to_current_work": "active_turn_bound_current_work"}},
     }
     result = RuntimeCompiler().compile_single_agent_turn_packet(
@@ -209,9 +267,13 @@ def test_compiler_uses_current_work_boundary_receipt_as_state_observation() -> N
         },
     )
 
-    assert result.packet.allowed_action_types == ("respond", "ask_user", "block", "active_work_control")
+    assert result.packet.allowed_action_types == ("respond", "ask_user", "block", "request_task_run", "active_work_control")
     assert result.packet.diagnostics["current_work_boundary_receipt"]["receipt_id"] == "cwreceipt:active"
     assert result.packet.diagnostics["current_work_boundary_receipt"]["operation_availability"]["active_work_control"] is True
+    dynamic_payload = _message_payload_with_title(result.packet, "Single agent turn dynamic runtime")
+    projected_active_work = dict(dynamic_payload["active_work_context"])
+    assert "continue_active_work" in projected_active_work["available_controls"]
+    assert projected_active_work["read_only_context"] is False
 
 
 def test_compiler_exposes_recoverable_work_as_model_decision_context_not_active_control() -> None:
@@ -243,12 +305,16 @@ def test_compiler_exposes_recoverable_work_as_model_decision_context_not_active_
     )
 
     assert "resume_recoverable_work" in result.packet.allowed_action_types
-    assert "active_work_control" not in result.packet.allowed_action_types
+    assert "active_work_control" in result.packet.allowed_action_types
+    resume_contract = dict(dict(result.packet.output_contract["control_actions"])["resume_recoverable_work"])
     dynamic_payload = _message_payload_with_title(result.packet, "Single agent turn dynamic runtime")
     projected = dict(dynamic_payload["recoverable_work"])
     assert projected["continuation_id"] == "cont:recoverable:17:0"
     assert projected["task_run_id"] == "taskrun:recoverable"
     assert projected["read_only_context"] is True
+    assert resume_contract["enabled"] is True
+    assert "recoverable_work.resume_allowed" in resume_contract["operation_availability_gate"]
+    assert "recovery_resume.continuation_id" in resume_contract["required_fields"]
     assert "recoverable_work" in result.packet.diagnostics["prompt_manifest"]["dynamic_projection_refs"]
 
 
@@ -297,7 +363,7 @@ def test_compiler_exposes_interrupted_turn_work_as_volatile_continuation_context
     )
 
     assert "resume_recoverable_work" not in result.packet.allowed_action_types
-    assert "active_work_control" not in result.packet.allowed_action_types
+    assert "active_work_control" in result.packet.allowed_action_types
     dynamic_payload = _message_payload_with_title(result.packet, "Single agent turn dynamic runtime")
     projected = dict(dynamic_payload["interrupted_turn_work"])
     assert projected["turn_run_id"] == "turnrun:interrupted"

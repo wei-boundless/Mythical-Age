@@ -282,6 +282,7 @@ _RUNTIME_EVENT_FACT_TYPES = {
     "runtime_admission_blocked",
     "runtime_admission_checked",
     "runtime_directive_issued",
+    "runtime_evidence_projection_published",
     "runtime_invocation_packet_compiled",
     "session_output_commit_ack",
     "session_output_commit_checked",

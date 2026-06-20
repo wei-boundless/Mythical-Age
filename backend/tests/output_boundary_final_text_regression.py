@@ -2,11 +2,39 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from harness.runtime.output_commit_authority import OutputCommitAuthority, OutputCommitRequest
 from harness.loop.presentation import final_answer_event
 from harness.loop.task_executor import _commit_task_run_final_message
 from memory_system.continuity import MemoryMessageAdapter
 from orchestration.commit_gate import build_assistant_session_message_commit_decision
 from runtime.output_boundary import canonical_output_decision_for_final_text
+
+
+class _EventLogStub:
+    def __init__(self) -> None:
+        self.events: list[SimpleNamespace] = []
+
+    def append(self, run_id, event_type, *, payload=None, refs=None):
+        event = SimpleNamespace(
+            event_id=f"event:{len(self.events) + 1}",
+            run_id=run_id,
+            event_type=event_type,
+            offset=len(self.events),
+            created_at=float(len(self.events) + 1),
+            payload=dict(payload or {}),
+            refs=dict(refs or {}),
+        )
+        event.to_dict = lambda event=event: {
+            "event_id": event.event_id,
+            "run_id": event.run_id,
+            "event_type": event.event_type,
+            "offset": event.offset,
+            "created_at": event.created_at,
+            "payload": event.payload,
+            "refs": event.refs,
+        }
+        self.events.append(event)
+        return event
 
 
 def test_final_text_boundary_sanitizes_protocol_without_marking_stable_answer() -> None:
@@ -79,6 +107,75 @@ def test_commit_gate_blocks_answer_with_leak_flags_even_if_marked_stable() -> No
     assert decision.reason == "answer_leak_not_committable"
     assert decision.commit_candidate.payload["answer_leak_flags"] == ["runtime_protocol_disclosure_final_text"]
     assert decision.diagnostics["answer_leak_blocked"] is True
+
+
+def test_output_commit_authority_sync_records_checked_and_ack_events() -> None:
+    committed: list[dict[str, object]] = []
+    event_log = _EventLogStub()
+    authority = OutputCommitAuthority(SimpleNamespace(event_log=event_log))
+
+    result = authority.commit_sync(
+        OutputCommitRequest(
+            run_id="taskrun:authority",
+            session_id="session:authority",
+            task_run_id="taskrun:authority",
+            task_id="task:authority",
+            turn_id="turn:authority",
+            content="结论：任务完成。",
+            answer_channel="final_answer",
+            answer_source="test.output_commit_authority",
+            execution_posture="task_run_completed",
+            has_tool_receipt=True,
+            completion_state="completed",
+            terminal_reason="completed",
+            commit_source="test.output_commit_authority",
+            refs={"task_run_ref": "taskrun:authority"},
+        ),
+        committer=lambda payload: committed.append(dict(payload)) or {"appended_messages": [{"id": "msg:authority"}]},
+    )
+
+    assert [event.event_type for event in event_log.events] == [
+        "session_output_commit_checked",
+        "session_output_commit_ack",
+    ]
+    assert committed[0]["content"] == "任务完成。"
+    assert result.receipt["state"] == "committed"
+    assert result.receipt["anchor_message_id"] == "msg:authority"
+    assert result.receipt["content_sha256"].startswith("sha256:")
+    assert event_log.events[0].payload["authority"] == "harness.session_output_commit"
+
+
+def test_output_commit_authority_blocks_debug_only_output_before_commit() -> None:
+    committed: list[dict[str, object]] = []
+    event_log = _EventLogStub()
+    authority = OutputCommitAuthority(SimpleNamespace(event_log=event_log))
+
+    result = authority.commit_sync(
+        OutputCommitRequest(
+            run_id="taskrun:authority-debug",
+            session_id="session:authority",
+            task_run_id="taskrun:authority-debug",
+            task_id="task:authority",
+            turn_id="turn:authority",
+            content="我会继续处理。",
+            answer_channel="task_control",
+            answer_source="test.output_commit_authority",
+            execution_posture="task_run_completed",
+            has_tool_receipt=False,
+            completion_state="completed",
+            terminal_reason="completed",
+            refs={"task_run_ref": "taskrun:authority-debug"},
+        ),
+        committer=lambda payload: committed.append(dict(payload)),
+    )
+
+    assert committed == []
+    assert [event.event_type for event in event_log.events] == [
+        "session_output_commit_checked",
+        "session_output_commit_skipped",
+    ]
+    assert result.receipt["state"] == "skipped"
+    assert result.receipt["reason"] == "control_channel_not_committable"
 
 
 def test_task_control_text_is_debug_only_not_canonical_memory() -> None:

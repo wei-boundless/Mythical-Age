@@ -12,6 +12,7 @@ import api.orchestration_harness as orchestration_harness
 from api.orchestration_harness import _assert_expected_active_turn, _schedule_result_allows_progress
 from harness.entrypoint.models import HarnessRuntimeRequest
 from harness.runtime import SingleAgentRuntimeHost
+from harness.runtime.control_events import runtime_signal_from_event_payload
 from harness.loop.task_executor import append_user_work_instruction, is_task_run_executable, request_task_run_pause, resume_paused_task_run
 from harness.loop.task_lifecycle import (
     TaskLifecycleRecord,
@@ -467,6 +468,22 @@ def test_active_turn_steer_records_lifecycle_without_model_decision(tmp_path: Pa
     assert int(dict(updated.diagnostics or {}).get("pending_user_steer_count") or 0) >= 1
     assert "user_submission_recorded" in event_types
     assert "active_task_steer_recorded" in event_types
+    steer_signal_events = [
+        event
+        for event in host.event_log.list_events("taskrun:current")
+        if event.event_type == "runtime_control_signal_published"
+    ]
+    steer_signals = [
+        runtime_signal_from_event_payload(dict(event.payload or {}))
+        for event in steer_signal_events
+    ]
+    steer_signal = next(signal for signal in steer_signals if signal is not None and signal.signal_type == "control.steer.recorded")
+    assert steer_signal.scope.session_id == "session:test"
+    assert steer_signal.scope.task_run_id == "taskrun:current"
+    assert steer_signal.scope.turn_id == "turn:session:test:1"
+    assert steer_signal.payload["signal_kind"] == "active_task_steer"
+    assert steer_signal.payload["steer_ref"]
+    assert steer_signal.payload["submission_ref"]
     assert "task_run_pause_requested" not in event_types
     messages = runtime.session_manager.load_session("session:test")
     assert len(messages) == 1

@@ -21,11 +21,13 @@ class DeepSeekProviderAdapter:
         model_kwargs: dict[str, Any] = {"extra_body": extra_body}
         request_params: dict[str, Any] = {
             "thinking_mode": "enabled" if thinking_enabled else "disabled",
-            "reasoning_effort": str(profile.reasoning_effort or "auto").strip().lower() or "auto",
             "stream_policy": dict(profile.stream_policy or {}),
             "completion_profile": dict(profile.completion_profile or {}),
             "structured_output": str(profile.structured_output or ""),
         }
+        reasoning_effort = _normalize_deepseek_reasoning_effort(profile.reasoning_effort)
+        if reasoning_effort:
+            request_params["reasoning_effort"] = reasoning_effort
         if strict_tool_schema:
             request_params["strict_tool_schema"] = True
         if response_format:
@@ -56,3 +58,12 @@ def _deepseek_effective_base_url(profile: ProviderRequestProfile, *, strict_tool
     if needs_beta and base_url and not base_url.endswith("/beta"):
         return f"{base_url}/beta"
     return base_url
+
+
+def _normalize_deepseek_reasoning_effort(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"", "auto", "default", "adaptive"}:
+        return ""
+    if normalized in {"max", "xhigh"}:
+        return "max"
+    return "high"

@@ -20,6 +20,7 @@ class ToolInvocationRequest:
     operation_id: str = ""
     task_run_id: str = ""
     agent_run_id: str = ""
+    run_cell_id: str = ""
     action_request_ref: str = ""
     packet_ref: str = ""
     tool_plan_ref: str = ""

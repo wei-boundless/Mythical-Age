@@ -379,13 +379,21 @@ class EphemeralRuntimeCacheReleaser:
             from runtime.tool_runtime.tool_invocation_control import registry_for
 
             registry = registry_for(self.runtime_host)
+            scope = _task_run_agent_scope(self.runtime_host, task_run_id)
             count = registry.cancel_by_caller(
                 task_run_id=task_run_id,
+                agent_run_id=str(scope.get("agent_run_id") or ""),
+                run_cell_id=str(scope.get("run_cell_id") or ""),
                 kind="cancel",
                 reason=reason or "runtime_retention_expired",
                 requested_by="runtime_retention",
             ) if registry is not None else 0
-            return {"authority": "runtime.tool_invocation_control.cancel_by_caller", "cancelled_count": count}
+            return {
+                "authority": "runtime.tool_invocation_control.cancel_by_caller",
+                "cancelled_count": count,
+                "agent_run_id": str(scope.get("agent_run_id") or ""),
+                "run_cell_id": str(scope.get("run_cell_id") or ""),
+            }
         except Exception as exc:
             return {"authority": "runtime.tool_invocation_control.cancel_by_caller", "error": str(exc)}
 
@@ -558,6 +566,17 @@ def _background_executor_tasks(runtime_host: Any, task_run_id: str) -> list[Any]
     for name in (f"task-run-executor:{task_run_id}", f"task-run-executor-recover:{task_run_id}"):
         result.extend(list(tasks_by_name.get(name, set()) or []))
     return result
+
+
+def _task_run_agent_scope(runtime_host: Any, task_run_id: str) -> dict[str, str]:
+    task_run = getattr(getattr(runtime_host, "state_index", None), "get_task_run", lambda _: None)(task_run_id)
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {}) if task_run is not None else {}
+    scope = diagnostics.get("agent_run_scope")
+    scope_payload = dict(scope or {}) if isinstance(scope, dict) else {}
+    return {
+        "agent_run_id": str(scope_payload.get("agent_run_id") or diagnostics.get("agent_run_id") or "").strip(),
+        "run_cell_id": str(scope_payload.get("run_cell_id") or diagnostics.get("run_cell_id") or "").strip(),
+    }
 
 
 def _replace_task_run(task_run: Any, **patch: Any) -> Any:

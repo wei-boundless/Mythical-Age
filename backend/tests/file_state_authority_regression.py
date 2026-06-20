@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from runtime.shared.file_observation_policy import FILE_OBSERVATION_POLICY_AUTHORITY
 from runtime.memory.file_state_authority import FileStateAuthority
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 
 
-def test_file_state_authority_tracks_read_windows_and_next_read() -> None:
+def test_file_state_authority_tracks_partial_read_without_implicit_next_read() -> None:
     envelope = build_tool_result_envelope(
         tool_name="read_file",
         tool_args={"path": "backend/app.py", "start_line": 1, "line_count": 2},
@@ -47,7 +48,7 @@ def test_file_state_authority_tracks_read_windows_and_next_read() -> None:
     assert projection[0]["coverage"]["complete"] is False
     assert projection[0]["coverage"]["missing_ranges"] == [{"start_line": 3, "end_line": 5}]
     assert projection[0]["read_ranges"][0]["read_intent"] == "edit_target"
-    assert projection[0]["next_suggested_read"]["start_line"] == 3
+    assert "next_suggested_read" not in projection[0]
     assert projection[0]["last_tool_call_id"] == "call:read"
 
 
@@ -144,7 +145,7 @@ def test_file_state_authority_keeps_complete_aggregate_after_later_partial_windo
     assert state["last_observation_ref"] == "obs:read:local-window"
 
 
-def test_file_state_authority_points_next_read_to_first_gap() -> None:
+def test_file_state_authority_reports_gap_without_implicit_next_read() -> None:
     authority = FileStateAuthority(task_run_id="taskrun:file-state-gap")
     for index, (start, end) in enumerate(((1, 100), (200, 300)), start=1):
         authority = authority.apply_event(
@@ -167,7 +168,7 @@ def test_file_state_authority_points_next_read_to_first_gap() -> None:
     assert state["has_more"] is True
     assert state["coverage"]["complete"] is False
     assert state["coverage"]["missing_ranges"] == [{"start_line": 101, "end_line": 199}]
-    assert state["next_suggested_read"]["start_line"] == 101
+    assert "next_suggested_read" not in state
 
 
 def test_file_state_authority_projection_keeps_recent_updates_over_path_sort() -> None:
@@ -237,3 +238,75 @@ def test_file_state_authority_tracks_search_hits_without_reading_full_file() -> 
     assert state["status"] == "matched"
     assert state["search_hits"][0]["query"] == "FileStateAuthority"
     assert "read_ranges" not in state
+
+
+def test_file_state_authority_stores_and_consumes_search_read_recommendations() -> None:
+    search_envelope = build_tool_result_envelope(
+        tool_name="search_text",
+        tool_args={"query": "needle", "paths": ["docs/plan.md"]},
+        result={
+            "text": "docs/plan.md:2:1:needle here",
+            "structured_payload": {
+                "matched_paths": ["docs/plan.md"],
+                "tool_result": {
+                    "kind": "text_search",
+                    "query": "needle",
+                    "matches": [
+                        {
+                            "path": "docs/plan.md",
+                            "line": 2,
+                            "column": 1,
+                            "text": "needle here",
+                        }
+                    ],
+                    "recommended_read_windows": [
+                        {
+                            "path": "docs/plan.md",
+                            "start_line": 1,
+                            "line_count": 4,
+                            "match_line": 2,
+                            "query": "needle",
+                            "reason": "small file contains match near line 2",
+                            "authority": FILE_OBSERVATION_POLICY_AUTHORITY,
+                        }
+                    ],
+                },
+            },
+        },
+        tool_call_id="call:search",
+    )
+
+    authority = FileStateAuthority.from_observations(
+        [{"observation_id": "obs:search", "payload": {"result_envelope": search_envelope.to_dict()}}],
+        task_run_id="taskrun:file-state",
+    )
+    matched = authority.projection()[0]
+
+    assert matched["status"] == "matched"
+    assert matched["recommended_read_windows"][0]["decision"] == "read_search_recommendation"
+    assert matched["recommended_read_windows"][0]["path"] == "docs/plan.md"
+    assert matched["recommended_read_windows"][0]["start_line"] == 1
+    assert matched["recommended_read_windows"][0]["line_count"] == 4
+    assert matched["recommended_read_windows"][0]["match_line"] == 2
+    assert matched["recommended_read_windows"][0]["source_observation_ref"] == "obs:search"
+    assert matched["next_suggested_read"]["decision"] == "read_search_recommendation"
+
+    authority = authority.apply_event(
+        {
+            "event_type": "read",
+            "path": "docs/plan.md",
+            "start_line": 1,
+            "end_line": 4,
+            "total_lines": 4,
+            "has_more": False,
+            "content_sha256": "sha256:plan",
+        },
+        observation_ref="obs:read",
+        tool_call_id="call:read",
+    )
+    consumed = authority.projection()[0]
+
+    assert consumed["status"] == "complete"
+    assert "recommended_read_windows" not in consumed
+    assert consumed["read_recommendations"][0]["status"] == "consumed"
+    assert "next_suggested_read" not in consumed

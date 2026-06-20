@@ -37,7 +37,7 @@ def main() -> int:
     parser.add_argument("--provider", default="deepseek")
     parser.add_argument("--model", default="deepseek-v4-pro")
     parser.add_argument("--thinking-mode", default="enabled")
-    parser.add_argument("--reasoning-effort", default="auto")
+    parser.add_argument("--reasoning-effort", default="")
     parser.add_argument("--max-output-tokens", type=int, default=8192)
     parser.add_argument("--min-provider-calls", type=int, default=2)
     parser.add_argument("--stop-after-provider-calls", type=int, default=2)
@@ -81,7 +81,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         "max_retries": 0,
         "temperature": 0,
         "thinking_mode": str(args.thinking_mode or "enabled"),
-        "reasoning_effort": str(args.reasoning_effort or "auto"),
+        "reasoning_effort": str(args.reasoning_effort or ""),
     }
     runtime_contract = _code_review_runtime_contract(run_id=run_id, model_selection=model_selection)
     request = HarnessRuntimeRequest(

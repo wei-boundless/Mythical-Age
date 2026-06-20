@@ -243,11 +243,11 @@ def _bound_file_evidence_decision(value: dict[str, Any]) -> dict[str, Any]:
         return {}
     return _drop_empty_payload(
         {
-            "visible_exact_windows": _bounded_decision_windows(value.get("visible_exact_windows")),
-            "artifact_available_windows": _bounded_decision_windows(value.get("artifact_available_windows")),
-            "read_missing_windows": _bounded_decision_windows(value.get("read_missing_windows")),
-            "read_after_stale_windows": _bounded_decision_windows(value.get("read_after_stale_windows")),
-            "read_required_windows": _bounded_decision_windows(value.get("read_required_windows")),
+            "facts": dict(value.get("facts") or {}),
+            "reusable_evidence": _bounded_decision_windows(value.get("reusable_evidence")),
+            "candidate_read_windows": _bounded_decision_windows(value.get("candidate_read_windows")),
+            "required_read_windows": _bounded_decision_windows(value.get("required_read_windows")),
+            "cautions": _bounded_decision_windows(value.get("cautions")),
             "authority": str(value.get("authority") or ""),
         }
     )
@@ -261,8 +261,11 @@ def _bounded_decision_windows(value: Any) -> list[dict[str, Any]]:
         windows.append(
             _drop_empty_payload(
                 {
+                    "candidate_kind": str(item.get("candidate_kind") or ""),
+                    "requirement_kind": str(item.get("requirement_kind") or ""),
+                    "caution_kind": str(item.get("caution_kind") or ""),
+                    "evidence_kind": str(item.get("evidence_kind") or ""),
                     "decision": str(item.get("decision") or ""),
-                    "decision_code": str(item.get("decision_code") or ""),
                     "path": _clean_path(item.get("path")),
                     "start_line": _int_or_none(item.get("start_line")),
                     "end_line": _int_or_none(item.get("end_line")),
@@ -271,6 +274,8 @@ def _bounded_decision_windows(value: Any) -> list[dict[str, Any]]:
                     "reusable_result_ref": str(item.get("reusable_result_ref") or "").strip(),
                     "exact_artifact_ref": str(item.get("exact_artifact_ref") or "").strip(),
                     "reason": str(item.get("reason") or "").strip(),
+                    "read_condition": str(item.get("read_condition") or "").strip(),
+                    "usage_condition": str(item.get("usage_condition") or "").strip(),
                 }
             )
         )

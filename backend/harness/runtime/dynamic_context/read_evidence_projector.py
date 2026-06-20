@@ -59,6 +59,9 @@ def build_read_evidence_projection_payload(
             }
             if should_inject:
                 ref_payload["model_visible_exact_in_current_packet"] = True
+            else:
+                ref_payload.pop("has_more", None)
+                ref_payload.pop("next_start_line", None)
             if include_historical_refs or should_inject:
                 evidence_refs.append(_drop_empty(ref_payload))
             if not should_inject:

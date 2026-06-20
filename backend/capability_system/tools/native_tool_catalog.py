@@ -396,7 +396,7 @@ def _tool_definitions() -> list[ToolDefinition]:
                 required_inputs=["query"],
                 optional_inputs=[
                     "roots",
-                    "paths",
+                "paths",
                     "glob",
                     "max_results",
                     "output_mode",
@@ -1083,5 +1083,4 @@ def build_tool_registry_payload() -> dict[str, Any]:
             if definition.operation_id not in operation_ids_in_packages
         ],
     }
-
 

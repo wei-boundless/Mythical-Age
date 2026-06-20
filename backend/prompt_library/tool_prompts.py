@@ -109,7 +109,8 @@ TOOL_LOCAL_SEARCH_GUIDANCE = """
 如果目标是文件名或路径关键词，例如 mario、计划书、task_understanding.py，使用 search_files。
 如果目标包含明确通配符，例如 *.html、**/*.py、backend/**/*.ts，使用 glob_paths。
 如果目标是文件内容、函数名、报错文本、标题或引用片段，使用 search_text；已知具体文件时把文件放进 paths，目录范围放进 roots，文件类型范围放进 glob。
-search_text.paths 只能放具体文件，不能放目录；如果手上是 frontend/src、backend/harness 这类目录，必须放 roots，或先用 glob_paths/search_files 定位文件。
+search_text.paths 只能放具体文件，不能放目录；不要传 path 或 pattern，单个已知文件也写成 paths=["..."]，内容关键词放 query，路径过滤放 glob。
+search_text 可能返回 recommended_read_windows，并在动态上下文中成为 candidate_read_windows；只有下一步需要精确上下文、修改、逐行引用或验收时，才按候选窗口调用 read_file。不要把 search_text 的命中预览当作当前可编辑的完整文件证据，也不要为了补全 coverage 而顺序读完整个文件。
 roots 只放目录，不放文件路径；一般先留空使用默认工作目录，或给已知窄目录。只有需要搜索项目根目录下的文件时，才使用 roots=["."]。
 搜索结果只是定位线索；修改、逐行引用或验收前，仍要读取目标文件的当前内容窗口。
 """.strip()

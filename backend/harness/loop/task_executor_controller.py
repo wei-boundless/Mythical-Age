@@ -5,6 +5,7 @@ import time
 from dataclasses import replace
 from typing import Any
 
+from .task_run_execution_control import ensure_executor_control_signal_requested
 from .task_run_recovery_state import recovery_state_for_task_run, should_auto_continue_task_run
 from .work_rollout import append_work_rollout_item
 
@@ -85,18 +86,22 @@ class TaskExecutorController:
             max_steps=max_steps,
             recovered_from=recovered_from,
         )
-        background_task_name = f"task-run-executor:{task_run_id}"
-        runtime_host.spawn_background_task(
-            self._runner(task_run_id=task_run_id, scheduler=scheduler, max_steps=max_steps),
-            name=background_task_name,
+        supervisor_result = _agent_run_supervisor(runtime_host).schedule_task_run(
+            task_run_id=task_run_id,
+            work_factory=lambda: self._runner(task_run_id=task_run_id, scheduler=scheduler, max_steps=max_steps),
+            scheduler=scheduler,
+            max_steps=max_steps,
+            recovered_from=recovered_from,
         )
         return _schedule_result(
-            ok=True,
-            scheduled=True,
+            ok=bool(supervisor_result.get("ok")),
+            scheduled=bool(supervisor_result.get("scheduled")),
             task_run_id=task_run_id,
-            reason="scheduled",
+            reason=str(supervisor_result.get("reason") or "scheduled"),
             scheduler=scheduler,
-            background_task_name=background_task_name,
+            agent_run_id=str(supervisor_result.get("agent_run_id") or ""),
+            run_cell_id=str(supervisor_result.get("run_cell_id") or ""),
+            worker_backend=str(supervisor_result.get("worker_backend") or ""),
             recovered_from=recovered_from,
         )
 
@@ -154,36 +159,42 @@ class TaskExecutorController:
                 scheduler=scheduler,
                 recovered_from=recovered_from,
             )
-        if _background_task_running(runtime_host, f"task-run-executor:{task_run_id}") or _background_task_running(
-            runtime_host,
-            f"task-run-executor-recover:{task_run_id}",
-        ):
+        active_cell = _agent_run_supervisor(runtime_host).active_cell_for_task_run(task_run_id)
+        if active_cell is not None:
             return _schedule_result(
                 ok=True,
                 scheduled=False,
                 task_run_id=task_run_id,
                 reason="already_running",
                 scheduler=scheduler,
+                agent_run_id=active_cell.scope.agent_run_id,
+                run_cell_id=active_cell.scope.run_cell_id,
+                worker_backend=active_cell.worker_backend.backend_name,
                 recovered_from=recovered_from,
             )
-        background_task_name = f"task-run-executor-recover:{task_run_id}"
-        runtime_host.spawn_background_task(
-            self._runner(task_run_id=task_run_id, scheduler=scheduler, max_steps=max_steps),
-            name=background_task_name,
+        supervisor_result = _agent_run_supervisor(runtime_host).schedule_task_run(
+            task_run_id=task_run_id,
+            work_factory=lambda: self._runner(task_run_id=task_run_id, scheduler=scheduler, max_steps=max_steps),
+            scheduler=scheduler,
+            max_steps=max_steps,
+            recovered_from=recovered_from,
         )
         return _schedule_result(
-            ok=True,
-            scheduled=True,
+            ok=bool(supervisor_result.get("ok")),
+            scheduled=bool(supervisor_result.get("scheduled")),
             task_run_id=task_run_id,
-            reason="recovered_scheduled_executor",
+            reason=str(supervisor_result.get("reason") or "recovered_scheduled_executor"),
             scheduler=scheduler,
-            background_task_name=background_task_name,
+            agent_run_id=str(supervisor_result.get("agent_run_id") or ""),
+            run_cell_id=str(supervisor_result.get("run_cell_id") or ""),
+            worker_backend=str(supervisor_result.get("worker_backend") or ""),
             recovered_from=recovered_from,
         )
 
     def recover_interrupted_executor_leases(self) -> dict[str, Any]:
         recovered: list[str] = []
         skipped_graph_node_task_run_ids: list[str] = []
+        user_controlled_interruption_task_run_ids: list[str] = []
         for task_run in self.runtime_host.state_index.list_task_runs():
             task_run_id = str(getattr(task_run, "task_run_id", "") or "")
             if _is_session_deleted(self.runtime_host, task_run):
@@ -197,6 +208,13 @@ class TaskExecutorController:
             runtime_control = diagnostics.get("runtime_control")
             control_state = str(runtime_control.get("state") or "").strip() if isinstance(runtime_control, dict) else ""
             if control_state in {"pause_requested", "paused", "stop_requested", "stopped", "replan_requested", "interrupted_for_replan"}:
+                _ensure_user_controlled_interruption_signal_on_bus(
+                    self.runtime_host,
+                    task_run=task_run,
+                    control_state=control_state,
+                    runtime_control=dict(runtime_control or {}) if isinstance(runtime_control, dict) else {},
+                )
+                user_controlled_interruption_task_run_ids.append(task_run_id)
                 continue
             if not _is_task_run_executor_claimed(task_run):
                 continue
@@ -249,6 +267,7 @@ class TaskExecutorController:
             "recovered_count": len(recovered),
             "task_run_ids": recovered,
             "skipped_graph_node_task_run_ids": skipped_graph_node_task_run_ids,
+            "user_controlled_interruption_task_run_ids": user_controlled_interruption_task_run_ids,
             "authority": "harness.loop.task_executor_controller.runtime_start_recovery",
         }
 
@@ -400,12 +419,41 @@ def _is_session_deleted(runtime_host: Any, task_run: Any) -> bool:
         return False
 
 
-def _background_task_running(runtime_host: Any, name: str) -> bool:
-    tasks_by_name = getattr(runtime_host, "_background_tasks_by_name", {})
-    if not isinstance(tasks_by_name, dict):
-        return False
-    tasks = tasks_by_name.get(name, set())
-    return any(not getattr(task, "done", lambda: True)() for task in list(tasks or []))
+def _agent_run_supervisor(runtime_host: Any) -> Any:
+    supervisor = getattr(runtime_host, "agent_run_supervisor", None)
+    if supervisor is None:
+        raise RuntimeError("TaskExecutorController requires AgentRunSupervisor")
+    return supervisor
+
+
+def _ensure_user_controlled_interruption_signal_on_bus(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    control_state: str,
+    runtime_control: dict[str, Any],
+) -> None:
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "")
+    if not task_run_id:
+        return
+    if control_state in {"stop_requested", "stopped"}:
+        kind = "stop"
+    elif control_state in {"pause_requested", "paused"}:
+        kind = "pause"
+    elif control_state in {"replan_requested", "interrupted_for_replan"}:
+        kind = "replan"
+    else:
+        return
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    ensure_executor_control_signal_requested(
+        runtime_host,
+        task_run_id=task_run_id,
+        kind=kind,  # type: ignore[arg-type]
+        reason=str(runtime_control.get("reason") or "runtime_start_recovery_user_controlled_interruption"),
+        requested_by=str(runtime_control.get("requested_by") or "user"),
+        steer_ref=str(runtime_control.get("steer_ref") or diagnostics.get("latest_user_steer_ref") or ""),
+        unavailable_reason="runtime_start_recovery_user_controlled_interruption",
+    )
 
 
 def _origin_kind(task_run: Any) -> str:
@@ -440,7 +488,9 @@ def _schedule_result(
     task_run_id: str,
     reason: str,
     scheduler: str,
-    background_task_name: str = "",
+    agent_run_id: str = "",
+    run_cell_id: str = "",
+    worker_backend: str = "",
     recovered_from: str = "",
 ) -> dict[str, Any]:
     return {
@@ -449,6 +499,8 @@ def _schedule_result(
         "task_run_id": task_run_id,
         "reason": reason,
         "scheduler": scheduler,
-        "background_task_name": background_task_name,
+        "agent_run_id": agent_run_id,
+        "run_cell_id": run_cell_id,
+        "worker_backend": worker_backend,
         "recovered_from": recovered_from,
     }

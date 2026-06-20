@@ -72,8 +72,9 @@ def build_evidence_index_cursor(
                         ]
                     )[-10:],
                     "missing_ranges": _missing_ranges(decision, item),
-                    "stale_windows": _decision_windows(decision.get("read_after_stale_windows")),
-                    "read_required_windows": _decision_windows(decision.get("read_required_windows")),
+                    "cautions": _decision_windows(decision.get("cautions")),
+                    "candidate_read_windows": _decision_windows(decision.get("candidate_read_windows")),
+                    "required_read_windows": _decision_windows(decision.get("required_read_windows")),
                     "next_suggested_read": _read_request_ref(dict(item.get("next_suggested_read") or {})),
                     "confidence": _file_confidence(confidence),
                     "rehydration_action": _rehydration_action(status=status, decision=decision, item=item),
@@ -128,17 +129,19 @@ def file_evidence_decisions_from_evidence_index_cursor(payload: dict[str, Any] |
                 {
                     "path": _clean_path(item.get("path")),
                     "status": str(item.get("status") or ""),
-                    "read_required_windows": _decision_windows(item.get("read_required_windows")),
-                    "read_missing_windows": _decision_windows(item.get("missing_ranges")),
-                    "read_after_stale_windows": _decision_windows(item.get("stale_windows")),
-                    "policy_ref": "file_evidence_policy_stable.read_window_admission",
+                    "required_read_windows": _decision_windows(item.get("required_read_windows")),
+                    "candidate_read_windows": _decision_windows(item.get("candidate_read_windows")),
+                    "cautions": _decision_windows(item.get("cautions")),
+                    "policy_ref": "file_evidence_policy_stable.read_window_contract",
                     "authority": EVIDENCE_INDEX_AUTHORITY,
                 }
             )
         )
     return drop_empty(
         {
-            "kind": "file_evidence_decisions",
+            "kind": "file_evidence_contract",
+            "contract_version": "file_evidence_contract.v2",
+            "authority_boundary": "observation_projection_only",
             "authority": EVIDENCE_INDEX_AUTHORITY,
             "files": files,
         }
@@ -225,7 +228,7 @@ def _covered_ranges_ref(*, path: str, item: dict[str, Any], windows: list[dict[s
 
 
 def _missing_ranges(decision: dict[str, Any], item: dict[str, Any]) -> list[dict[str, Any]]:
-    windows = _decision_windows(decision.get("read_missing_windows") or decision.get("read_required_windows"))
+    windows = _decision_windows(decision.get("required_read_windows"))
     if windows:
         return windows
     coverage = dict(item.get("coverage") or {})
@@ -248,14 +251,20 @@ def _decision_windows(value: Any) -> list[dict[str, Any]]:
         windows.append(
             drop_empty(
                 {
+                    "candidate_kind": str(item.get("candidate_kind") or ""),
+                    "requirement_kind": str(item.get("requirement_kind") or ""),
+                    "caution_kind": str(item.get("caution_kind") or ""),
+                    "evidence_kind": str(item.get("evidence_kind") or ""),
                     "decision": str(item.get("decision") or ""),
-                    "decision_code": str(item.get("decision_code") or ""),
                     "path": _clean_path(item.get("path")),
                     "start_line": item.get("start_line"),
                     "end_line": item.get("end_line"),
                     "line_count": item.get("line_count"),
                     "observation_ref": str(item.get("observation_ref") or ""),
+                    "source_observation_ref": str(item.get("source_observation_ref") or ""),
                     "exact_artifact_ref": str(item.get("exact_artifact_ref") or ""),
+                    "read_condition": compact_text(item.get("read_condition") or "", limit=160),
+                    "usage_condition": compact_text(item.get("usage_condition") or "", limit=160),
                     "reason": compact_text(item.get("reason") or "", limit=160),
                 }
             )
@@ -286,9 +295,14 @@ def _file_confidence(value: dict[str, Any]) -> dict[str, Any]:
 
 def _rehydration_action(*, status: str, decision: dict[str, Any], item: dict[str, Any]) -> str:
     normalized = str(status or "").strip().lower()
-    if normalized == "stale" or dict_tuple(decision.get("read_after_stale_windows")):
+    stale_cautions = [
+        caution
+        for caution in dict_tuple(decision.get("cautions"))
+        if str(caution.get("caution_kind") or "") == "stale_read_window"
+    ]
+    if normalized == "stale" or stale_cautions:
         return "read_file:stale_window"
-    if dict_tuple(decision.get("read_required_windows")) or dict(item.get("next_suggested_read") or {}):
+    if dict_tuple(decision.get("required_read_windows")) or dict(item.get("next_suggested_read") or {}):
         return "read_file:missing_window"
     if _latest_evidence_ref(item, windows=_read_window_refs(item)).startswith("read_observation:"):
         return "reuse_read_observation_ref"
@@ -306,8 +320,14 @@ def _read_resource_cursor(value: dict[str, Any] | None) -> dict[str, Any]:
             "active_file_count": source.get("active_file_count"),
             "available_range_count": source.get("available_range_count"),
             "available_evidence_refs": _dedupe_strings(source.get("available_evidence_refs"))[-10:],
-            "has_more": source.get("has_more") if isinstance(source.get("has_more"), bool) else None,
             "state_code": str(source.get("state_code") or ""),
+            "reuse_feedback": dict(source.get("reuse_feedback") or {}),
+            "collection_feedback": dict(source.get("collection_feedback") or {}),
+            "action_conditions": [
+                compact_text(item, limit=120)
+                for item in list(source.get("action_conditions") or [])[-4:]
+                if str(item).strip()
+            ],
         }
     )
 

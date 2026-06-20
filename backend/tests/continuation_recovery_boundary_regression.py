@@ -186,6 +186,9 @@ def test_recovery_boundary_requires_explicit_handle_for_resume() -> None:
     assert decision.action == "confirm_recoverable_work"
     assert decision.reason == "expected_recovery_handle_missing"
     assert receipt.operation_availability["resume_recoverable_work"] is False
+    assert "allowed_next_actions" not in decision.to_dict()
+    assert "forbidden_next_actions" not in decision.to_dict()
+    assert "available_action_types_for_next_packet" not in receipt.to_dict()
 
 
 def test_recovery_boundary_allows_resume_only_when_expected_handles_match() -> None:
@@ -209,8 +212,9 @@ def test_recovery_boundary_allows_resume_only_when_expected_handles_match() -> N
 
     assert decision.action == "resume_recoverable_work"
     assert decision.reason == "recovery_boundary_ready"
-    assert receipt.operation_availability["resume_recoverable_work"] is True
+    assert receipt.operation_availability == {"resume_recoverable_work": True}
     assert receipt.task_run_ref == record.task_run_id
+    assert "available_action_types_for_next_packet" not in receipt.to_dict()
 
 
 def test_public_turn_input_facts_do_not_accept_resume_as_recovery_decision() -> None:

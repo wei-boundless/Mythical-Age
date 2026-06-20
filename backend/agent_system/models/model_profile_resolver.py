@@ -160,8 +160,8 @@ class ModelProfileResolver:
         reasoning_effort = str(
             agent_model_profile.reasoning_effort
             or defaults.get("reasoning_effort")
-            or getattr(settings, "llm_reasoning_effort", "auto")
-            or "auto"
+            or getattr(settings, "llm_reasoning_effort", "")
+            or ""
         ).strip().lower()
         action_max_output_tokens = _optional_positive_int(
             requirement.action_max_output_tokens,
@@ -243,7 +243,7 @@ class ModelProfileResolver:
             max_retries=max_retries,
             temperature=temperature,
             thinking_mode=thinking_mode or "disabled",
-            reasoning_effort=reasoning_effort or "auto",
+            reasoning_effort=_normalize_reasoning_effort(reasoning_effort),
             action_max_output_tokens=action_max_output_tokens,
             action_timeout_seconds=action_timeout_seconds,
             action_long_output_timeout_seconds=action_long_output_timeout_seconds,
@@ -422,6 +422,15 @@ def _optional_positive_float(value: Any, default: float | None) -> float | None:
     except (TypeError, ValueError):
         return default
     return max(0.01, parsed)
+
+
+def _normalize_reasoning_effort(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"", "auto", "default", "adaptive"}:
+        return ""
+    if normalized in {"max", "xhigh"}:
+        return "max"
+    return "high"
 
 
 def _float_or(value: Any, default: float) -> float:

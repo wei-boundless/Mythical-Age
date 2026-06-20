@@ -18,6 +18,7 @@ from orchestration.runtime_directive import RuntimeDirective
 from runtime.shared.action_request import RuntimeActionRequest
 from runtime.shared.execution_record import RuntimeExecutionStore, build_idempotency_token, build_request_fingerprint
 from runtime.tool_runtime.tool_executor import ToolRuntimeExecutor
+from runtime.tool_runtime.tool_invocation_control import registry_for
 
 
 def test_tool_runtime_executor_does_not_depend_on_taskrun_tool_task_control() -> None:
@@ -1045,7 +1046,10 @@ def test_tool_runtime_control_plane_request_preserves_agent_turn_execution_recei
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"
     workspace.mkdir(parents=True)
-    executor = ToolRuntimeExecutor(tool_runtime=ToolRuntime(workspace))
+    runtime_host = SimpleNamespace()
+    tool_runtime = ToolRuntime(workspace)
+    setattr(tool_runtime, "runtime_host", runtime_host)
+    executor = ToolRuntimeExecutor(tool_runtime=tool_runtime)
 
     result = asyncio.run(
         executor.execute_control_plane_request(
@@ -1054,6 +1058,8 @@ def test_tool_runtime_control_plane_request_preserves_agent_turn_execution_recei
                 caller_ref="turnrun:receipt",
                 session_id="session:receipt",
                 turn_id="turn:receipt:1",
+                agent_run_id="agrun:receipt",
+                run_cell_id="runcell:receipt",
                 invocation_id="toolinvoke:receipt",
                 tool_name="write_file",
                 tool_call_id="call:write",
@@ -1073,6 +1079,8 @@ def test_tool_runtime_control_plane_request_preserves_agent_turn_execution_recei
 
     envelope = result["result_envelope"]
     receipt = envelope["execution_receipt"]
+    registry = registry_for(runtime_host)
+    record = registry.record("toolinvoke:receipt")
 
     assert result["status"] == "ok"
     assert (sandbox_root / "artifacts" / "note.txt").read_text(encoding="utf-8") == "hello"
@@ -1080,7 +1088,12 @@ def test_tool_runtime_control_plane_request_preserves_agent_turn_execution_recei
     assert receipt["status"] == "completed"
     assert receipt["operation_id"] == "op.write_file"
     assert receipt["caller_kind"] == "agent_turn"
+    assert receipt["agent_run_id"] == "agrun:receipt"
+    assert receipt["run_cell_id"] == "runcell:receipt"
     assert receipt["idempotency_key"]
+    assert record.agent_run_id == "agrun:receipt"
+    assert record.run_cell_id == "runcell:receipt"
+    assert record.status == "completed"
 
 
 def test_tool_runtime_control_plane_request_allows_image_generate_fixed_store_without_sandbox_context(tmp_path: Path, monkeypatch) -> None:
@@ -1462,4 +1475,3 @@ class _MissingInstanceRuntime:
 
 class _ControlRuntimeHost:
     pass
-

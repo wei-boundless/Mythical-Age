@@ -14,12 +14,30 @@ from types import SimpleNamespace
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 from project_layout import ProjectLayout
-from harness.loop.admission import AdmissionDecision, admit_model_action
-from harness.loop.action_permit import action_permit_from_admission
+from harness.loop.admission import AdmissionDecision
+from harness.loop.execution_kernel import (
+    ActionLifecycleDecision,
+    append_action_lifecycle_event,
+    build_action_admission_recovery_payload,
+    build_action_lifecycle_event_record,
+    build_action_tool_invocation_identity,
+    build_tool_lifecycle_started_event_record,
+    decide_model_action_lifecycle,
+)
 from harness.loop.model_action_protocol import ModelActionRequest, model_action_request_from_payload
 from harness.loop.model_action_runtime import call_model_invoker
 from harness.loop.presentation import error_event, final_answer_event
-from harness.runtime import RuntimeCompiler, ToolBatchGroup, build_runtime_tool_plan, build_tool_batch_plan
+from harness.runtime import (
+    OutputCommitAuthority,
+    OutputCommitRequest,
+    RuntimeCompiler,
+    ToolBatchGroup,
+    build_runtime_tool_plan,
+    build_tool_batch_plan,
+    runtime_packet_evidence_projection_event_payload,
+    runtime_packet_evidence_projection_ref,
+    runtime_packet_evidence_signal_scope,
+)
 from harness.runtime.environment_storage import ensure_environment_storage_dirs
 from harness.runtime.file_management_policy import compile_tool_file_management_policy
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
@@ -67,11 +85,10 @@ from runtime.model_gateway.stream_recovery import (
 )
 from runtime.output_stream.public_contract import ASSISTANT_PUBLIC_FEEDBACK_EVENT
 from runtime.shared.models import TurnRun
-from runtime.shared.tool_identity import canonical_action_tool_call_id, permission_decision_id
-from runtime.tool_runtime import ToolInvocationRequest, ToolObservation, build_round_tool_call_options, build_tool_invocation_id
+from runtime.shared.tool_identity import canonical_action_tool_call_id
+from runtime.tool_runtime import ToolInvocationRequest, ToolObservation, build_round_tool_call_options
 from runtime.memory.file_evidence_scope import session_file_evidence_scope
 from runtime.tool_runtime.provider_tool_call_adapter import tool_calls_for_langchain_messages
-from orchestration.commit_gate import build_assistant_session_message_commit_decision
 from permissions.policy import normalize_permission_mode
 from prompt_library import SINGLE_AGENT_ADMISSION_REPAIR_PROMPT
 
@@ -86,8 +103,8 @@ ApplyActiveWorkControl = Callable[[ModelActionRequest], AsyncIterator[dict[str, 
 ApplyRecoverableWorkResume = Callable[[ModelActionRequest], AsyncIterator[dict[str, Any]]]
 CompactSessionContext = Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]]
 
-_DEFAULT_SINGLE_TURN_TOOL_ITERATIONS = 16
-_MAX_CONFIGURED_SINGLE_TURN_TOOL_ITERATIONS = 32
+_DEFAULT_SINGLE_TURN_TOOL_ITERATIONS = 100
+_MAX_CONFIGURED_SINGLE_TURN_TOOL_ITERATIONS = 100
 _DEFAULT_INTERACTIVE_TOOL_BATCH_TIMEOUT_SECONDS = 45.0
 _TOOL_BATCH_CANCEL_DRAIN_SECONDS = 1.0
 _ASSISTANT_VISIBLE_STREAM_CONTEXT_MAX_CHARS = 12000
@@ -1092,6 +1109,15 @@ async def run_single_agent_turn(
             model_selection=dict(model_selection or {}),
             runtime_assembly=runtime_assembly,
         )
+        if runtime_host is not None:
+            evidence_event = _publish_packet_evidence_projection_event(
+                runtime_host,
+                run_id=turn_run.turn_run_id if turn_run is not None else turn_id,
+                packet_context=dict(compilation.packet.diagnostics.get("runtime_packet_context") or {}),
+                refs={"turn_ref": turn_id, "turn_run_ref": turn_run.turn_run_id if turn_run is not None else ""},
+            )
+            if turn_run is not None and evidence_event is not None:
+                _update_turn_run_event_offset(runtime_host, turn_run=turn_run, event=evidence_event)
         single_agent_requires_json_action = bool(
             dict(compilation.packet.diagnostics.get("control_capabilities") or {}).get("requires_json_action_protocol") is True
         )
@@ -1815,35 +1841,31 @@ async def run_single_agent_turn(
             tool_iteration += 1
             invocation_rows: list[dict[str, Any]] = []
             for tool_action in tool_actions:
-                admission = admit_model_action(
+                lifecycle = decide_model_action_lifecycle(
                     tool_action,
                     packet_allowed_action_types=current_allowed_action_types,
                     invocation_kind="single_agent_turn",
+                    permit_invocation_kind="agent_turn",
+                    packet_ref=current_packet_ref,
                     definitions_by_name=tool_definitions_by_name,
                     allowed_tool_names=set(runtime_tool_plan.dispatchable_tool_names),
                     runtime_profile=_runtime_profile_payload(runtime_assembly),
                     permission_mode=runtime_permission_mode,
                     side_effect_policy="runtime_authorized",
                     current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
-                )
-                action_permit = action_permit_from_admission(
-                    tool_action,
-                    admission,
-                    invocation_kind="agent_turn",
-                    packet_allowed_action_types=current_allowed_action_types,
-                    allowed_tool_names=set(runtime_tool_plan.dispatchable_tool_names),
-                    permission_mode=runtime_permission_mode,
-                    side_effect_policy="runtime_authorized",
                     session_id=session_id,
+                    turn_id=turn_id,
                     grant_scope="turn",
                 )
+                admission = lifecycle.admission
+                action_permit = lifecycle.action_permit
                 if runtime_host is not None and turn_run is not None:
                     event = _record_model_action_admission(
                         runtime_host,
                         turn_run=turn_run,
                         turn_id=turn_id,
                         action_request=tool_action,
-                        admission=admission,
+                        lifecycle=lifecycle,
                         packet_ref=current_packet_ref,
                     )
                     yield {"type": "model_action_admission", "event": event}
@@ -1851,6 +1873,7 @@ async def run_single_agent_turn(
                     "action_request": tool_action,
                     "tool_call": _tool_call_from_action_request(tool_action),
                     "admission": admission,
+                    "action_lifecycle": lifecycle.to_dict(),
                     "action_permit": action_permit.to_dict(),
                     "observation": None,
                 }
@@ -2370,10 +2393,12 @@ async def run_single_agent_turn(
         tool_calls = action_parse.native_tool_calls
         action_request = action_parse.action_request
         if action_request is not None:
-            admission = admit_model_action(
+            lifecycle = decide_model_action_lifecycle(
                 action_request,
                 packet_allowed_action_types=current_allowed_action_types,
                 invocation_kind="single_agent_turn",
+                permit_invocation_kind="agent_turn",
+                packet_ref=current_packet_ref,
                 definitions_by_name=getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {}),
                 allowed_tool_names=set(
                     str(item.get("tool_name") or item.get("name") or "")
@@ -2384,14 +2409,18 @@ async def run_single_agent_turn(
                 permission_mode=runtime_permission_mode,
                 side_effect_policy="runtime_authorized",
                 current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
+                session_id=session_id,
+                turn_id=turn_id,
+                grant_scope="turn",
             )
+            admission = lifecycle.admission
             if runtime_host is not None and turn_run is not None:
                 event = _record_model_action_admission(
                     runtime_host,
                     turn_run=turn_run,
                     turn_id=turn_id,
                     action_request=action_request,
-                    admission=admission,
+                    lifecycle=lifecycle,
                     packet_ref=current_packet_ref,
                 )
                 yield {"type": "model_action_admission", "event": event}
@@ -2423,10 +2452,12 @@ async def run_single_agent_turn(
                     action_parse = repaired_action_parse
                     tool_calls = action_parse.native_tool_calls
                     action_request = action_parse.action_request
-                    admission = admit_model_action(
+                    lifecycle = decide_model_action_lifecycle(
                         action_request,
                         packet_allowed_action_types=current_allowed_action_types,
                         invocation_kind="single_agent_turn",
+                        permit_invocation_kind="agent_turn",
+                        packet_ref=current_packet_ref,
                         definitions_by_name=getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {}),
                         allowed_tool_names=set(
                             str(item.get("tool_name") or item.get("name") or "")
@@ -2437,14 +2468,18 @@ async def run_single_agent_turn(
                         permission_mode=runtime_permission_mode,
                         side_effect_policy="runtime_authorized",
                         current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        grant_scope="turn",
                     )
+                    admission = lifecycle.admission
                     if runtime_host is not None and turn_run is not None:
                         event = _record_model_action_admission(
                             runtime_host,
                             turn_run=turn_run,
                             turn_id=turn_id,
                             action_request=action_request,
-                            admission=admission,
+                            lifecycle=lifecycle,
                             packet_ref=current_packet_ref,
                         )
                         yield {"type": "model_action_admission", "event": event}
@@ -4485,6 +4520,27 @@ def _canonical_action_tool_call_id(action_request: ModelActionRequest) -> str:
     return canonical_action_tool_call_id(action_request)
 
 
+def _turn_action_tool_invocation_identity(
+    runtime_host: Any,
+    *,
+    turn_run: TurnRun | None,
+    turn_id: str,
+    action_request: ModelActionRequest,
+    admission: AdmissionDecision,
+    action_permit: dict[str, Any],
+    action_lifecycle_ref: str = "",
+):
+    definitions = getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {})
+    return build_action_tool_invocation_identity(
+        action_request,
+        caller_ref=turn_run.turn_run_id if turn_run is not None else f"turnrun:{turn_id}",
+        definitions_by_name=dict(definitions or {}),
+        admission=admission,
+        action_permit=dict(action_permit or {}),
+        action_lifecycle_ref=action_lifecycle_ref,
+    )
+
+
 def _tool_observation_from_admission(
     *,
     runtime_host: Any,
@@ -4496,51 +4552,37 @@ def _tool_observation_from_admission(
     packet_ref: str,
     tool_plan: Any,
 ) -> ToolObservation:
-    tool_call = _tool_call_from_action_request(action_request)
-    tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
-    tool_call_id = _canonical_action_tool_call_id(action_request)
-    operation_id = _tool_operation_id(runtime_host, tool_name=tool_name)
-    invocation_id = build_tool_invocation_id(
-        caller_ref=turn_run.turn_run_id if turn_run is not None else f"turnrun:{turn_id}",
-        action_request_ref=action_request.request_id,
-        tool_name=tool_name,
-        tool_call_id=tool_call_id,
+    recovery = build_action_admission_recovery_payload(action_request, admission)
+    identity = _turn_action_tool_invocation_identity(
+        runtime_host,
+        turn_run=turn_run,
+        turn_id=turn_id,
+        action_request=action_request,
+        admission=admission,
+        action_permit=dict(action_permit or {}),
+        action_lifecycle_ref=str(dict(recovery.payload or {}).get("action_lifecycle_ref") or ""),
     )
-    status = _tool_observation_status_from_admission(admission)
-    system_reason = str(admission.system_reason or admission.decision or status)
-    user_reason = str(admission.user_visible_reason or system_reason)
+    status = recovery.status
+    system_reason = recovery.error_code
+    text = recovery.summary
     action_issue = dict(getattr(admission, "action_issue", {}) or {})
-    issue_category = str(action_issue.get("category") or getattr(admission, "issue_category", "") or "runtime_boundary")
-    if status == "needs_approval":
-        text = (
-            f"工具调用等待运行时人工确认。问题分类：{issue_category}；准入裁决：{admission.decision}；原因：{system_reason}。"
-            f"边界说明：{user_reason}。这属于 control-plane 审批状态，不应作为模型恢复观察进入下一轮。"
-        )
-    else:
-        text = (
-            f"工具调用未执行。问题分类：{issue_category}；准入裁决：{admission.decision}；原因：{system_reason}。"
-            f"边界说明：{user_reason}。请基于这条观察继续：改用本轮已开放工具、请求必要信息、请求持续任务，或直接说明无法执行的边界。"
-        )
     return ToolObservation(
-        observation_id=f"toolobs:{invocation_id}:{uuid.uuid4().hex[:8]}",
-        invocation_id=invocation_id,
+        observation_id=f"toolobs:{identity.invocation_id}:{uuid.uuid4().hex[:8]}",
+        invocation_id=identity.invocation_id,
         caller_kind="agent_turn",
-        caller_ref=turn_run.turn_run_id if turn_run is not None else f"turnrun:{turn_id}",
-        tool_name=tool_name,
-        operation_id=operation_id,
+        caller_ref=identity.caller_ref,
+        tool_name=identity.tool_name,
+        operation_id=identity.operation_id,
         status=status,
         text=text,
         result_envelope={
-            "tool_call_id": tool_call_id,
-            "error": system_reason,
-            "error_code": system_reason,
-            "admission_decision": admission.decision,
-            "action_issue": action_issue,
+            "tool_call_id": identity.tool_call_id,
+            **dict(recovery.payload or {}),
             "retryable": True,
         },
         operation_gate={
             "admission": admission.to_dict(),
-            "action_permit": dict(action_permit or {}),
+            "action_permit": identity.action_permit,
             "tool_plan_ref": str(getattr(tool_plan, "plan_id", "") or ""),
         },
         diagnostics={
@@ -4548,7 +4590,8 @@ def _tool_observation_from_admission(
             "packet_ref": packet_ref,
             "action_request": action_request.to_dict(),
             "action_issue": action_issue,
-            "model_visible_recovery_observation": status != "needs_approval",
+            "action_lifecycle_ref": str(dict(recovery.payload or {}).get("action_lifecycle_ref") or ""),
+            "model_visible_recovery_observation": recovery.model_visible_recovery_observation,
         },
     )
 
@@ -4565,35 +4608,36 @@ def _tool_observation_from_runtime_exception(
     tool_plan: Any,
     error: BaseException,
 ) -> ToolObservation:
-    tool_call = _tool_call_from_action_request(action_request)
-    tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
-    tool_call_id = _canonical_action_tool_call_id(action_request)
-    operation_id = _tool_operation_id(runtime_host, tool_name=tool_name)
-    invocation_id = build_tool_invocation_id(
-        caller_ref=turn_run.turn_run_id if turn_run is not None else f"turnrun:{turn_id}",
-        action_request_ref=action_request.request_id,
-        tool_name=tool_name,
-        tool_call_id=tool_call_id,
+    identity = _turn_action_tool_invocation_identity(
+        runtime_host,
+        turn_run=turn_run,
+        turn_id=turn_id,
+        action_request=action_request,
+        admission=admission,
+        action_permit=dict(action_permit or {}),
+        action_lifecycle_ref=str(dict(action_permit or {}).get("action_lifecycle_ref") or ""),
     )
     error_text = _compact_text(str(error), limit=1000) or type(error).__name__
     return ToolObservation(
-        observation_id=f"toolobs:{invocation_id}:{uuid.uuid4().hex[:8]}",
-        invocation_id=invocation_id,
+        observation_id=f"toolobs:{identity.invocation_id}:{uuid.uuid4().hex[:8]}",
+        invocation_id=identity.invocation_id,
         caller_kind="agent_turn",
-        caller_ref=turn_run.turn_run_id if turn_run is not None else f"turnrun:{turn_id}",
-        tool_name=tool_name,
-        operation_id=operation_id,
+        caller_ref=identity.caller_ref,
+        tool_name=identity.tool_name,
+        operation_id=identity.operation_id,
         status="error",
         text=f"工具调用返回运行时错误：{error_text}。请基于该错误调整下一步，不要重复同一失败动作。",
         result_envelope={
-            "tool_call_id": tool_call_id,
+            "tool_call_id": identity.tool_call_id,
+            "action_request_ref": identity.action_request_ref,
+            "action_lifecycle_ref": identity.action_lifecycle_ref,
             "error": error_text,
             "error_code": type(error).__name__,
             "retryable": True,
         },
         operation_gate={
             "admission": admission.to_dict(),
-            "action_permit": dict(action_permit or {}),
+            "action_permit": identity.action_permit,
             "tool_plan_ref": str(getattr(tool_plan, "plan_id", "") or ""),
         },
         diagnostics={
@@ -4601,6 +4645,7 @@ def _tool_observation_from_runtime_exception(
             "packet_ref": packet_ref,
             "exception_type": type(error).__name__,
             "action_request": action_request.to_dict(),
+            "action_lifecycle_ref": identity.action_lifecycle_ref,
             "model_visible_recovery_observation": True,
         },
     )
@@ -4637,23 +4682,6 @@ def _agent_turn_approval_requires_task_run_observation(observation: ToolObservat
             "original_status": "needs_approval",
         },
     )
-
-
-def _tool_observation_status_from_admission(admission: AdmissionDecision) -> str:
-    decision = str(admission.decision or "").strip()
-    if decision == "deny":
-        return "denied"
-    if decision == "ask_approval":
-        return "needs_approval"
-    if decision in {"needs_contract", "needs_task_run"}:
-        return "needs_contract"
-    return "error"
-
-
-def _tool_operation_id(runtime_host: Any, *, tool_name: str) -> str:
-    definitions = getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {})
-    definition = dict(definitions or {}).get(tool_name)
-    return str(getattr(definition, "operation_id", "") or tool_name)
 
 
 async def _execute_tool_batch_group(
@@ -4880,17 +4908,21 @@ async def _invoke_turn_tool(
 ):
     tool_call = _tool_call_from_action_request(action_request)
     tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
-    tool_call_id = _canonical_action_tool_call_id(action_request)
     tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
-    definitions = getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {})
-    definition = dict(definitions or {}).get(tool_name)
-    operation_id = str(getattr(definition, "operation_id", "") or tool_name)
-    invocation_id = build_tool_invocation_id(
-        caller_ref=turn_run.turn_run_id if turn_run is not None else f"turnrun:{turn_id}",
-        action_request_ref=action_request.request_id,
-        tool_name=tool_name,
-        tool_call_id=tool_call_id,
+    identity = _turn_action_tool_invocation_identity(
+        runtime_host,
+        turn_run=turn_run,
+        turn_id=turn_id,
+        action_request=action_request,
+        admission=admission,
+        action_permit=dict(action_permit or {}),
+        action_lifecycle_ref=str(dict(action_permit or {}).get("action_lifecycle_ref") or ""),
     )
+    tool_name = identity.tool_name
+    tool_call_id = identity.tool_call_id
+    tool_args = identity.tool_args
+    operation_id = identity.operation_id
+    invocation_id = identity.invocation_id
     assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
     sandbox_scope = _single_turn_sandbox_scope(assembly_payload, runtime_host=runtime_host, turn_id=turn_id)
     request = ToolInvocationRequest(
@@ -4906,8 +4938,8 @@ async def _invoke_turn_tool(
         tool_args=tool_args,
         operation_id=operation_id,
         tool_plan_ref=str(getattr(tool_plan, "plan_id", "") or ""),
-        admission_ref=admission.admission_id,
-        action_permit=dict(action_permit or {}),
+        admission_ref=identity.admission_ref,
+        action_permit=identity.action_permit,
         permission_mode=_turn_runtime_permission_mode(runtime_assembly, runtime_host=runtime_host),
         sandbox_scope=sandbox_scope,
         file_scope=compile_tool_file_management_policy(
@@ -5516,195 +5548,32 @@ async def _commit_final_message(
         turn_id=turn_id,
         source="harness.loop.single_agent_turn.commit_api_protocol_messages",
     )
-    decision = canonical_output_decision_for_final_text(
-        content,
+    request = OutputCommitRequest(
+        run_id=turn_run.turn_run_id if turn_run is not None else f"turnrun:{turn_id}",
+        session_id=session_id,
+        turn_id=turn_id,
+        turn_run_id=turn_run.turn_run_id if turn_run is not None else "",
+        content=content,
         answer_channel=answer_channel,
         answer_source=answer_source,
         execution_posture="single_agent_turn",
         has_tool_receipt=any(str(item.get("role") or "") == "tool" for item in sanitized_protocol_messages),
+        commit_source="harness.loop.single_agent_turn",
+        refs={"turn_ref": turn_id, "turn_run_ref": turn_run.turn_run_id if turn_run is not None else ""},
+        commit_payload_overrides={"api_protocol_messages": sanitized_protocol_messages},
     )
-    commit_gate = build_assistant_session_message_commit_decision(
-        session_id=session_id,
-        task_run_id="",
-        task_id="",
-        turn_id=turn_id,
-        content=decision.content,
-        answer_channel=decision.answer_channel,
-        answer_source=decision.answer_source,
-        answer_canonical_state=decision.canonical_state,
-        answer_persist_policy=decision.persist_policy,
-        answer_finalization_policy=decision.finalization_policy,
-        answer_fallback_reason=decision.fallback_reason,
-        answer_selected_channel=decision.selected_channel,
-        answer_selected_source=decision.selected_source,
-        answer_leak_flags=decision.leak_flags,
-        source="harness.loop.single_agent_turn",
+    result = await OutputCommitAuthority(runtime_host).commit_async(
+        request,
+        committer=commit_assistant_message,
     )
-    commit_gate_payload = commit_gate.to_dict()
-    checked_event: dict[str, Any] = {}
-    checked_offset = -1
-    if runtime_host is not None and turn_run is not None:
-        checked = runtime_host.event_log.append(
-            turn_run.turn_run_id,
-            "session_output_commit_checked",
-            payload={
-                "session_id": session_id,
-                "turn_id": turn_id,
-                "turn_run_id": turn_run.turn_run_id,
-                "commit_allowed": bool(commit_gate.commit_allowed),
-                "reason": str(commit_gate.reason or ""),
-                "answer_channel": decision.answer_channel,
-                "answer_source": decision.answer_source,
-                "answer_canonical_state": decision.canonical_state,
-                "answer_persist_policy": decision.persist_policy,
-                "answer_finalization_policy": decision.finalization_policy,
-                "content_sha256": _text_sha256(decision.content),
-                "commit_gate": commit_gate_payload,
-                "authority": "harness.session_output_commit",
-            },
-            refs={"turn_ref": turn_id, "turn_run_ref": turn_run.turn_run_id},
-        )
-        checked_event = _stream_event_from_runtime_event("session_output_commit_checked", checked)
-        checked_offset = _event_offset(checked)
-        _update_turn_run_event_offset(runtime_host, turn_run=turn_run, event=checked)
-
-    if not commit_gate.commit_allowed:
-        receipt = _record_single_turn_session_output_commit_terminal(
-            runtime_host,
-            turn_run=turn_run,
-            event_type="session_output_commit_skipped",
-            status="skipped",
-            session_id=session_id,
-            turn_id=turn_id,
-            content=decision.content,
-            commit_allowed=False,
-            reason=str(commit_gate.reason or "commit_gate_blocked"),
-            commit_gate=commit_gate_payload,
-            checked_event_offset=checked_offset,
-        )
-        return FinalMessageCommit(
-            decision=decision,
-            events=tuple(item for item in (checked_event, _commit_receipt_stream_event(receipt)) if item),
-            receipt=receipt,
-        )
-
-    commit_payload = dict(commit_gate.commit_candidate.payload)
-    commit_payload["api_protocol_messages"] = sanitized_protocol_messages
-    try:
-        maybe_result = commit_assistant_message(session_id, commit_payload)
-        committer_result = await maybe_result if inspect.isawaitable(maybe_result) else maybe_result
-    except Exception as exc:
-        logger.exception("single agent final message commit failed")
-        receipt = _record_single_turn_session_output_commit_terminal(
-            runtime_host,
-            turn_run=turn_run,
-            event_type="session_output_commit_failed",
-            status="failed",
-            session_id=session_id,
-            turn_id=turn_id,
-            content=decision.content,
-            commit_allowed=True,
-            reason=str(exc) or "assistant_message_commit_failed",
-            commit_gate=commit_gate_payload,
-            checked_event_offset=checked_offset,
-        )
-        return FinalMessageCommit(
-            decision=decision,
-            events=tuple(item for item in (checked_event, _commit_receipt_stream_event(receipt)) if item),
-            receipt=receipt,
-        )
-
-    receipt = _record_single_turn_session_output_commit_terminal(
-        runtime_host,
-        turn_run=turn_run,
-        event_type="session_output_commit_ack",
-        status="committed",
-        session_id=session_id,
-        turn_id=turn_id,
-        content=decision.content,
-        commit_allowed=True,
-        reason="committed",
-        commit_gate=commit_gate_payload,
-        checked_event_offset=checked_offset,
-        committer_result=committer_result,
-    )
+    for event in (result.checked_event, result.terminal_event):
+        if runtime_host is not None and turn_run is not None and event is not None:
+            _update_turn_run_event_offset(runtime_host, turn_run=turn_run, event=event)
     return FinalMessageCommit(
-        decision=decision,
-        events=tuple(item for item in (checked_event, _commit_receipt_stream_event(receipt)) if item),
-        receipt=receipt,
+        decision=result.decision,
+        events=result.events,
+        receipt=result.receipt,
     )
-
-
-def _record_single_turn_session_output_commit_terminal(
-    runtime_host: Any | None,
-    *,
-    turn_run: TurnRun | None,
-    event_type: str,
-    status: str,
-    session_id: str,
-    turn_id: str,
-    content: str,
-    commit_allowed: bool,
-    reason: str,
-    commit_gate: dict[str, Any],
-    checked_event_offset: int = -1,
-    committer_result: Any = None,
-) -> dict[str, Any]:
-    normalized_status = str(status or "").strip() or "failed"
-    normalized_reason = str(reason or normalized_status).strip()
-    turn_run_id = str(getattr(turn_run, "turn_run_id", "") or "")
-    payload = {
-        "session_id": str(session_id or ""),
-        "turn_id": str(turn_id or ""),
-        "turn_run_id": turn_run_id,
-        "state": normalized_status,
-        "status": normalized_status,
-        "commit_allowed": bool(commit_allowed),
-        "reason": normalized_reason,
-        "content_sha256": _text_sha256(content),
-        "anchor_message_id": _assistant_anchor_message_id(turn_id=turn_id, committer_result=committer_result),
-        "checked_event_offset": checked_event_offset,
-        "committer_result": _public_committer_result(committer_result),
-        "commit_gate": dict(commit_gate or {}),
-        "authority": "harness.session_output_commit",
-    }
-    event_payload = {
-        **payload,
-        "event_type": event_type,
-    }
-    if runtime_host is None or turn_run is None:
-        return event_payload
-    event = runtime_host.event_log.append(
-        turn_run.turn_run_id,
-        event_type,
-        payload=payload,
-        refs={"turn_ref": turn_id, "turn_run_ref": turn_run.turn_run_id},
-    )
-    _update_turn_run_event_offset(runtime_host, turn_run=turn_run, event=event)
-    return {
-        **event_payload,
-        "event_id": str(getattr(event, "event_id", "") or ""),
-        "event_offset": _event_offset(event),
-        "created_at": float(getattr(event, "created_at", 0.0) or 0.0),
-        "event": event.to_dict() if hasattr(event, "to_dict") else {},
-    }
-
-
-def _commit_receipt_stream_event(receipt: dict[str, Any] | None) -> dict[str, Any]:
-    data = dict(receipt or {})
-    event_type = str(data.get("event_type") or "").strip()
-    if not event_type:
-        return {}
-    event = data.get("event")
-    if isinstance(event, dict) and event:
-        return {"type": event_type, "event": dict(event)}
-    payload = {key: value for key, value in data.items() if key not in {"event_type", "event"}}
-    return {"type": event_type, **payload}
-
-
-def _stream_event_from_runtime_event(event_type: str, event: Any) -> dict[str, Any]:
-    payload = event.to_dict() if hasattr(event, "to_dict") else {}
-    return {"type": event_type, "event": payload} if payload else {}
 
 
 def _update_turn_run_event_offset(runtime_host: Any, *, turn_run: TurnRun, event: Any) -> None:
@@ -5718,25 +5587,35 @@ def _update_turn_run_event_offset(runtime_host: Any, *, turn_run: TurnRun, event
     )
 
 
-def _assistant_anchor_message_id(*, turn_id: str, committer_result: Any = None) -> str:
-    result = dict(committer_result or {}) if isinstance(committer_result, dict) else {}
-    appended = list(result.get("appended_messages") or [])
-    for item in reversed(appended):
-        if not isinstance(item, dict):
-            continue
-        explicit = str(item.get("id") or item.get("message_id") or "").strip()
-        if explicit:
-            return explicit
-    return f"history-message:{turn_id}:assistant" if str(turn_id or "").strip() else ""
-
-
-def _public_committer_result(value: Any) -> dict[str, Any]:
-    payload = dict(value or {}) if isinstance(value, dict) else {}
-    return {
-        key: payload.get(key)
-        for key in ("file_work_context_writeback", "memory_maintenance_enqueued", "memory_commit_state")
-        if key in payload
-    }
+def _publish_packet_evidence_projection_event(
+    runtime_host: Any,
+    *,
+    run_id: str,
+    packet_context: dict[str, Any],
+    refs: dict[str, Any] | None = None,
+) -> Any | None:
+    control_bus = getattr(runtime_host, "control_bus", None)
+    publisher = getattr(control_bus, "publish_evidence_projection", None)
+    if not callable(publisher) or not packet_context:
+        return None
+    projection_ref = runtime_packet_evidence_projection_ref(packet_context)
+    payload = runtime_packet_evidence_projection_event_payload(packet_context)
+    scope = runtime_packet_evidence_signal_scope(packet_context)
+    try:
+        return publisher(
+            run_id,
+            projection_ref=projection_ref,
+            scope=scope,
+            payload=payload,
+            refs={
+                **dict(refs or {}),
+                "session_ref": str(packet_context.get("session_id") or ""),
+                "runtime_invocation_packet_ref": str(packet_context.get("packet_id") or ""),
+            },
+        )
+    except Exception:
+        logger.debug("failed to publish packet evidence projection event", exc_info=True)
+        return None
 
 
 def _text_sha256(value: str) -> str:
@@ -5997,24 +5876,20 @@ def _record_model_action_admission(
     turn_run: TurnRun,
     turn_id: str,
     action_request: ModelActionRequest,
-    admission: AdmissionDecision,
+    lifecycle: ActionLifecycleDecision,
     packet_ref: str,
 ) -> dict[str, Any]:
-    event = runtime_host.event_log.append(
-        turn_run.turn_run_id,
-        "model_action_admission_checked",
-        payload={
-            "turn_id": turn_id,
-            "model_action_request": action_request.to_dict(),
-            "admission": admission.to_dict(),
-        },
-        refs={
-            "turn_ref": turn_id,
-            "turn_run_ref": turn_run.turn_run_id,
-            "action_request_ref": action_request.request_id,
-            "runtime_invocation_packet_ref": packet_ref,
-        },
+    event_record = build_action_lifecycle_event_record(
+        lifecycle,
+        action_request,
+        run_id=turn_run.turn_run_id,
+        packet_ref=packet_ref,
+        session_id=str(getattr(turn_run, "session_id", "") or ""),
+        turn_id=turn_id,
+        turn_run_id=turn_run.turn_run_id,
     )
+    event = append_action_lifecycle_event(runtime_host, event_record)
+    admission = lifecycle.admission
     current = runtime_host.state_index.get_turn_run(turn_run.turn_run_id) or turn_run
     runtime_host.state_index.upsert_turn_run(
         replace(
@@ -6039,18 +5914,28 @@ def _record_turn_runtime_control_signal(
     packet_ref: str,
     control_signal: dict[str, Any],
 ) -> dict[str, Any]:
+    signal = _turn_runtime_control_signal_with_identity(
+        turn_run=turn_run,
+        turn_id=turn_id,
+        packet_ref=packet_ref,
+        control_signal=control_signal,
+    )
+    if isinstance(control_signal, dict):
+        control_signal.clear()
+        control_signal.update(signal)
     event = runtime_host.event_log.append(
         turn_run.turn_run_id,
         "turn_runtime_control_signal_observed",
         payload={
             "turn_id": turn_id,
             "model_visible": True,
-            "runtime_control_signal": dict(control_signal or {}),
+            "runtime_control_signal": signal,
         },
         refs={
             "turn_ref": turn_id,
             "turn_run_ref": turn_run.turn_run_id,
             "runtime_invocation_packet_ref": packet_ref,
+            "runtime_control_signal_ref": signal["runtime_control_signal_ref"],
         },
     )
     current = runtime_host.state_index.get_turn_run(turn_run.turn_run_id) or turn_run
@@ -6061,12 +5946,65 @@ def _record_turn_runtime_control_signal(
             latest_event_offset=event.offset,
             diagnostics={
                 **dict(current.diagnostics or {}),
-                "latest_runtime_control_signal": dict(control_signal or {}),
+                "latest_runtime_control_signal": signal,
                 "latest_step": "runtime_control_signal_observed",
             },
         )
     )
     return event.to_dict()
+
+
+def _turn_runtime_control_signal_with_identity(
+    *,
+    turn_run: TurnRun,
+    turn_id: str,
+    packet_ref: str,
+    control_signal: dict[str, Any],
+) -> dict[str, Any]:
+    signal = dict(control_signal or {})
+    signal_ref = str(signal.get("runtime_control_signal_ref") or signal.get("signal_id") or "").strip()
+    if not signal_ref:
+        kind = str(signal.get("signal_kind") or signal.get("observation_type") or "runtime_control_signal").strip()
+        structured = dict(signal.get("structured_signal") or {})
+        protocol_error = dict(signal.get("protocol_error") or {})
+        identity_payload = {
+            "turn_run_id": str(turn_run.turn_run_id or ""),
+            "turn_id": str(turn_id or signal.get("turn_id") or ""),
+            "packet_ref": str(packet_ref or signal.get("packet_ref") or ""),
+            "signal_kind": kind,
+            "runtime_control_state": str(signal.get("runtime_control_state") or ""),
+            "phase": str(signal.get("phase") or ""),
+            "recovery_attempt": signal.get("recovery_attempt"),
+            "used_tool_iterations": signal.get("used_tool_iterations"),
+            "consecutive_failure_rounds": signal.get("consecutive_failure_rounds"),
+            "commit_reason": str(signal.get("commit_reason") or ""),
+            "answer_channel": str(signal.get("answer_channel") or ""),
+            "answer_source": str(signal.get("answer_source") or ""),
+            "structured_code": str(structured.get("code") or ""),
+            "protocol_error_code": str(protocol_error.get("code") or ""),
+            "protocol_error_reason": str(protocol_error.get("reason") or ""),
+        }
+        digest = hashlib.sha256(
+            json.dumps(identity_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()[:16]
+        signal_ref = f"turnsig:{_runtime_control_signal_ref_fragment(kind)}:{digest}"
+    scope = dict(signal.get("runtime_control_scope") or {})
+    signal["signal_id"] = signal_ref
+    signal["runtime_control_signal_ref"] = signal_ref
+    signal["runtime_control_scope"] = {
+        **scope,
+        "session_id": str(turn_run.session_id or scope.get("session_id") or ""),
+        "turn_id": str(turn_id or scope.get("turn_id") or ""),
+        "turn_run_id": str(turn_run.turn_run_id or scope.get("turn_run_id") or ""),
+        "packet_ref": str(packet_ref or scope.get("packet_ref") or signal.get("packet_ref") or ""),
+    }
+    return signal
+
+
+def _runtime_control_signal_ref_fragment(kind: str) -> str:
+    fragment = "".join(ch if ch.isalnum() else "-" for ch in str(kind or "").strip().lower())
+    fragment = "-".join(part for part in fragment.split("-") if part)
+    return fragment[:48] or "runtime-control"
 
 
 def _record_agent_contract_feedback_required(
@@ -6165,39 +6103,35 @@ def _tool_item_started_events_for_group(
         if action_request is None:
             continue
         tool_call = dict(row.get("tool_call") or _tool_call_from_action_request(action_request))
-        tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
-        tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
-        tool_call_id = _canonical_action_tool_call_id(action_request)
-        if not tool_name or not tool_call_id:
+        if not str(tool_call.get("tool_name") or tool_call.get("name") or "").strip():
             continue
-        permission_decision_id_value = permission_decision_id(admission, tool_call_id=tool_call_id)
-        tool_lifecycle_id = build_tool_invocation_id(
-            caller_ref=turn_run.turn_run_id,
-            action_request_ref=str(getattr(action_request, "request_id", "") or tool_call_id),
-            tool_name=tool_name,
-            tool_call_id=tool_call_id,
+        try:
+            identity = _turn_action_tool_invocation_identity(
+                runtime_host,
+                turn_run=turn_run,
+                turn_id=turn_id,
+                action_request=action_request,
+                admission=admission,
+                action_permit=dict(row.get("action_permit") or {}),
+                action_lifecycle_ref=str(dict(row.get("action_lifecycle") or {}).get("lifecycle_id") or ""),
+            )
+        except ValueError:
+            continue
+        tool_args = dict(identity.tool_args or {})
+        record = build_tool_lifecycle_started_event_record(
+            identity,
+            run_id=turn_run.turn_run_id,
+            caller_kind="agent_turn",
+            turn_id=turn_id,
+            turn_run_id=turn_run.turn_run_id,
+            target=_native_tool_public_target(tool_args),
+            arguments_preview=_native_tool_arguments_preview(tool_args),
         )
         event = runtime_host.event_log.append(
-            turn_run.turn_run_id,
-            "tool_item_started",
-            payload={
-                "turn_id": turn_id,
-                "turn_run_id": turn_run.turn_run_id,
-                "tool_lifecycle_id": tool_lifecycle_id,
-                "tool_call_id": tool_call_id,
-                "permission_decision_id": permission_decision_id_value,
-                "tool_name": tool_name,
-                "target": _native_tool_public_target(tool_args),
-                "arguments_preview": _native_tool_arguments_preview(tool_args),
-                "state": "running",
-                "action_request_ref": str(getattr(action_request, "request_id", "") or ""),
-            },
-            refs={
-                "turn_ref": turn_id,
-                "turn_run_ref": turn_run.turn_run_id,
-                "action_request_ref": str(getattr(action_request, "request_id", "") or ""),
-                "tool_invocation_ref": tool_lifecycle_id,
-            },
+            record.run_id,
+            record.event_type,
+            payload=record.payload,
+            refs=record.refs,
         )
         _update_turn_run_event_offset(runtime_host, turn_run=turn_run, event=event)
         events.append({"type": "tool_item_started", "event": event.to_dict()})

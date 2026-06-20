@@ -5,6 +5,8 @@ import uuid
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Literal
 
+from harness.runtime.control_events import RuntimeSignalScope
+
 from .user_submission import UserSubmission, build_user_submission
 from .work_rollout import append_work_rollout_item
 
@@ -107,6 +109,14 @@ def create_active_task_steer(
             "steer_ref": steer.steer_id,
         },
     )
+    _publish_active_task_steer_signal(
+        runtime_host,
+        task_run=task_run,
+        steer=steer,
+        submission=submission,
+        turn_id=turn_id,
+        intent=intent,
+    )
     pending_count = len(list_pending_task_steers(runtime_host, task_run_id))
     updated = replace(
         task_run,
@@ -135,6 +145,62 @@ def create_active_task_steer(
         payload={"user_instruction": instruction, "intent": intent, "steer": steer.to_dict()},
     )
     return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "submission": submission.to_dict(), "steer": steer.to_dict(), "event": event.to_dict()}
+
+
+def _publish_active_task_steer_signal(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    steer: ActiveTaskSteer,
+    submission: UserSubmission,
+    turn_id: str,
+    intent: str,
+) -> None:
+    control_bus = getattr(runtime_host, "control_bus", None)
+    publisher = getattr(control_bus, "publish", None)
+    if not callable(publisher):
+        return
+    task_run_id = str(steer.task_run_id or getattr(task_run, "task_run_id", "") or "").strip()
+    if not task_run_id:
+        return
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    agent_scope = dict(diagnostics.get("agent_run_scope") or {})
+    try:
+        publisher(
+            task_run_id,
+            signal_type="control.steer.recorded",
+            signal_id=f"rtsig:active_task_steer:{steer.steer_id}",
+            scope=RuntimeSignalScope(
+                session_id=str(steer.session_id or getattr(task_run, "session_id", "") or ""),
+                agent_run_id=str(agent_scope.get("agent_run_id") or ""),
+                run_cell_id=str(agent_scope.get("run_cell_id") or ""),
+                turn_id=str(turn_id or ""),
+                turn_run_id=str(agent_scope.get("turn_run_id") or ""),
+                task_run_id=task_run_id,
+            ),
+            source_authority="harness.loop.active_task_steer",
+            payload={
+                "signal_kind": "active_task_steer",
+                "task_run_id": task_run_id,
+                "turn_id": str(turn_id or ""),
+                "steer_ref": steer.steer_id,
+                "submission_ref": submission.submission_id,
+                "intent": str(intent or ""),
+                "steer_kind": steer.steer_kind,
+                "priority": steer.priority,
+                "expected_executor_epoch": int(steer.expected_executor_epoch or 0),
+                "consumption_state": steer.consumption_state,
+            },
+            visibility="runtime_private",
+            refs={
+                "task_run_ref": task_run_id,
+                "turn_ref": str(turn_id or ""),
+                "submission_ref": submission.submission_id,
+                "steer_ref": steer.steer_id,
+            },
+        )
+    except Exception:
+        return
 
 
 def list_task_steers(runtime_host: Any, task_run_id: str) -> list[dict[str, Any]]:

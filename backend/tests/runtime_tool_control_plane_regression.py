@@ -10,6 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from harness.runtime import build_runtime_tool_plan
+from harness.runtime.control_bus import RuntimeControlBus
 from harness.loop.task_tool_approval import (
     append_task_tool_approval_grant,
     approval_state_for_task_run,
@@ -19,7 +20,10 @@ from harness.loop.task_tool_approval import (
 from permissions import OperationGate
 from permissions.operations import build_default_operation_registry
 from capability_system.tools.tool_units.subagent_control_tool import SpawnSubagentTool
+from runtime.shared.event_log import RuntimeEventLog
 from runtime.shared.models import TaskRun
+from runtime.memory.file_evidence_scope import session_file_evidence_scope
+from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.tool_runtime import RuntimeToolControlPlane, ToolInvocationRequest, ToolObservation
 from runtime.tool_runtime.tool_invocation_control import ToolInvocationContext
 
@@ -639,6 +643,126 @@ def test_runtime_tool_control_plane_dispatches_task_run_through_gate_and_executo
     assert executor.last_run["tool_invocation_context"].caller_kind == "task_run"
 
 
+def test_runtime_tool_control_plane_publishes_task_run_tool_lifecycle_signals(tmp_path: Path) -> None:
+    gate = _AllowingGate()
+    executor = _RecordingToolExecutor()
+    event_log = RuntimeEventLog(tmp_path)
+    runtime_host = SimpleNamespace(
+        execution_store=None,
+        backend_dir=BACKEND_DIR,
+        control_bus=RuntimeControlBus(event_log),
+        tool_authorization_index=SimpleNamespace(
+            definitions_by_name={"read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True)}
+        ),
+    )
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"tool_name": "read_file", "operation_id": "op.read_file"}]),
+        invocation_kind="task_execution",
+        tool_definitions_by_name={"read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:task:bus-read",
+        caller_kind="task_run",
+        caller_ref="taskrun:bus-read",
+        session_id="session:bus-read",
+        turn_id="turn:bus-read:1",
+        task_run_id="taskrun:bus-read",
+        agent_run_id="agrun:bus-read",
+        run_cell_id="runcell:bus-read",
+        action_request_ref="action:bus-read",
+        packet_ref="packet:bus-read",
+        tool_name="read_file",
+        tool_call_id="call:bus-read",
+        tool_args={"path": "README.md"},
+        operation_id="op.read_file",
+        action_permit=_permit(
+            action_request_ref="action:bus-read",
+            invocation_kind="task_execution",
+            tool_name="read_file",
+            operation_id="op.read_file",
+            session_id="session:bus-read",
+            turn_id="turn:bus-read:1",
+            task_run_id="taskrun:bus-read",
+        ),
+        requested_constraints={"runtime_host": runtime_host},
+    )
+
+    observation = asyncio.run(RuntimeToolControlPlane(tool_runtime_executor=executor, operation_gate=gate).invoke(request, tool_plan=plan))
+    signals = _control_bus_signals(event_log, "taskrun:bus-read")
+
+    assert observation.status == "ok"
+    assert [signal["signal_type"] for signal in signals] == [
+        "tool.permission.decided",
+        "tool.execution.started",
+        "tool.execution.completed",
+    ]
+    assert [signal["signal_id"] for signal in signals] == [
+        "toolperm:toolinvoke:task:bus-read",
+        "toolexec:toolinvoke:task:bus-read:started",
+        "toolexec:toolinvoke:task:bus-read:completed",
+    ]
+    for signal in signals:
+        scope = dict(signal["scope"])
+        payload = dict(signal["payload"])
+        assert scope["task_run_id"] == "taskrun:bus-read"
+        assert scope["agent_run_id"] == "agrun:bus-read"
+        assert scope["run_cell_id"] == "runcell:bus-read"
+        assert payload["tool_invocation_id"] == "toolinvoke:task:bus-read"
+        assert payload["tool_call_id"] == "call:bus-read"
+        assert payload["action_request_ref"] == "action:bus-read"
+        assert payload["authority"] == "runtime.tool_runtime.tool_control_plane"
+    assert signals[0]["payload"]["decision"] == "allow"
+    assert signals[1]["payload"]["handler_id"] == "task_tool_runtime"
+    assert signals[2]["payload"]["handler_id"] == "task_tool_runtime"
+    assert signals[2]["payload"]["status"] == "ok"
+    assert signals[2]["payload"]["observation_ref"] == observation.observation_id
+
+    replayed = asyncio.run(RuntimeToolControlPlane(tool_runtime_executor=executor, operation_gate=gate).invoke(request, tool_plan=plan))
+
+    assert replayed.status == "ok"
+    assert len(_control_bus_signals(event_log, "taskrun:bus-read")) == 3
+
+
+def test_runtime_tool_control_plane_permission_denial_publishes_no_execution_lifecycle(tmp_path: Path) -> None:
+    event_log = RuntimeEventLog(tmp_path)
+    runtime_host = SimpleNamespace(
+        backend_dir=BACKEND_DIR,
+        control_bus=RuntimeControlBus(event_log),
+        tool_authorization_index=SimpleNamespace(
+            definitions_by_name={"read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True)}
+        ),
+    )
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"name": "read_file", "operation_id": "op.read_file"}]),
+        invocation_kind="single_agent_turn",
+        tool_definitions_by_name={"read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:turn:bus-no-permit",
+        caller_kind="agent_turn",
+        caller_ref="turnrun:bus-no-permit",
+        session_id="session:bus-no-permit",
+        turn_id="turn:bus-no-permit:1",
+        agent_run_id="agrun:bus-no-permit",
+        run_cell_id="runcell:bus-no-permit",
+        action_request_ref="action:bus-no-permit",
+        tool_name="read_file",
+        tool_call_id="call:bus-no-permit",
+        operation_id="op.read_file",
+        requested_constraints={"runtime_host": runtime_host},
+    )
+
+    observation = asyncio.run(RuntimeToolControlPlane().invoke(request, tool_plan=plan))
+    signals = _control_bus_signals(event_log, "turnrun:bus-no-permit")
+
+    assert observation.status == "denied"
+    assert [signal["signal_type"] for signal in signals] == ["tool.permission.decided"]
+    assert signals[0]["payload"]["decision"] == "denied"
+    assert signals[0]["payload"]["stage"] == "action_permit"
+    assert signals[0]["scope"]["agent_run_id"] == "agrun:bus-no-permit"
+    assert signals[0]["scope"]["run_cell_id"] == "runcell:bus-no-permit"
+
+
 def test_runtime_tool_control_plane_allows_managed_artifact_write_without_sandbox_approval(tmp_path: Path) -> None:
     executor = _RecordingToolExecutor()
     plan = build_runtime_tool_plan(
@@ -865,8 +989,17 @@ def test_runtime_tool_control_plane_requires_and_accepts_task_run_approval_state
     assert executor.run_calls == 1
 
 
-def test_runtime_tool_control_plane_rejects_mismatched_approval_token() -> None:
+def test_runtime_tool_control_plane_rejects_mismatched_approval_token(tmp_path) -> None:
     executor = _RecordingToolExecutor()
+    event_log = RuntimeEventLog(tmp_path)
+    runtime_host = SimpleNamespace(
+        execution_store=None,
+        backend_dir=BACKEND_DIR,
+        control_bus=RuntimeControlBus(event_log),
+        tool_authorization_index=SimpleNamespace(
+            definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)}
+        ),
+    )
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(available_tools=[{"tool_name": "browser_control", "operation_id": "op.browser_control"}]),
         invocation_kind="task_execution",
@@ -907,13 +1040,7 @@ def test_runtime_tool_control_plane_rejects_mismatched_approval_token() -> None:
         },
         approval_risk_fingerprint="expected-fingerprint",
         requested_constraints={
-            "runtime_host": SimpleNamespace(
-                execution_store=None,
-                backend_dir=BACKEND_DIR,
-                tool_authorization_index=SimpleNamespace(
-                    definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)}
-                ),
-            )
+            "runtime_host": runtime_host,
         },
     )
 
@@ -927,9 +1054,15 @@ def test_runtime_tool_control_plane_rejects_mismatched_approval_token() -> None:
     assert observation.status == "denied"
     assert observation.operation_gate["pipeline_stage"] == "approval_token"
     assert executor.run_calls == 0
+    assert not [
+        event
+        for event in event_log.list_events("taskrun:approval")
+        if event.event_type == "runtime_control_signal_published"
+        and dict(dict(event.payload or {}).get("signal") or {}).get("signal_type") == "approval.consumed"
+    ]
 
 
-def test_runtime_tool_control_plane_consumes_task_run_approval_after_executor_error() -> None:
+def test_runtime_tool_control_plane_consumes_task_run_approval_after_executor_error(tmp_path) -> None:
     executor = _FailingToolExecutor()
     tool_args = {"action": "open", "url": "https://example.com"}
     action_request_ref = "action:browser-error"
@@ -954,7 +1087,18 @@ def test_runtime_tool_control_plane_consumes_task_run_approval_after_executor_er
         task_id="task:approval-error",
         execution_runtime_kind="single_agent_task",
         status="running",
-        diagnostics={"pending_approval": pending},
+        diagnostics={
+            "pending_approval": pending,
+            "agent_run_scope": {
+                "session_id": "session:approval-error",
+                "task_run_id": task_run_id,
+                "agent_run_id": "agrun:approval-error",
+                "run_cell_id": "runcell:approval-error",
+                "invocation_kind": "task_run",
+            },
+            "agent_run_id": "agrun:approval-error",
+            "run_cell_id": "runcell:approval-error",
+        },
     )
     grant = build_task_tool_approval_grant(
         task_run=task_run,
@@ -971,10 +1115,12 @@ def test_runtime_tool_control_plane_consumes_task_run_approval_after_executor_er
         diagnostics={**append_task_tool_approval_grant(task_run, grant), "pending_approval": pending},
     )
     state_index = _TaskRunStateIndex(task_run)
+    event_log = RuntimeEventLog(tmp_path)
     runtime_host = SimpleNamespace(
         execution_store=None,
         backend_dir=BACKEND_DIR,
         state_index=state_index,
+        control_bus=RuntimeControlBus(event_log),
         tool_authorization_index=SimpleNamespace(
             definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)}
         ),
@@ -992,6 +1138,7 @@ def test_runtime_tool_control_plane_consumes_task_run_approval_after_executor_er
         turn_id="turn:approval-error:1",
         task_run_id=task_run_id,
         agent_run_id="agrun:approval-error",
+        run_cell_id="runcell:approval-error",
         action_request_ref=action_request_ref,
         packet_ref="packet:task:approval-error",
         tool_name="browser_control",
@@ -1020,16 +1167,35 @@ def test_runtime_tool_control_plane_consumes_task_run_approval_after_executor_er
             operation_gate=OperationGate(build_default_operation_registry()),
         ).invoke(request, tool_plan=plan)
     )
+    replayed = asyncio.run(
+        RuntimeToolControlPlane(
+            tool_runtime_executor=executor,
+            operation_gate=OperationGate(build_default_operation_registry()),
+        ).invoke(request, tool_plan=plan)
+    )
 
     updated = state_index.get_task_run(task_run_id)
     approval_state = dict(dict(updated.diagnostics or {}).get("approval_state") or {}) if updated is not None else {}
     grants = [dict(item) for item in list(approval_state.get("grants") or [])]
+    approval_consumed = [
+        dict(dict(event.payload or {}).get("signal") or {})
+        for event in event_log.list_events(task_run_id)
+        if event.event_type == "runtime_control_signal_published"
+        and dict(dict(event.payload or {}).get("signal") or {}).get("signal_type") == "approval.consumed"
+    ]
 
     assert observation.status == "error"
+    assert replayed.status == "needs_approval"
     assert executor.run_calls == 1
     assert approval_state["status"] == "consumed"
+    assert approval_state["latest_consumed_grant_id"] == grant.grant_id
     assert grants and grants[0]["consumed"] is True
     assert dict(dict(updated.diagnostics or {}).get("pending_approval") or {}).get("status") == "consumed"
+    assert len(approval_consumed) == 1
+    assert dict(approval_consumed[0]["payload"])["grant_id"] == grant.grant_id
+    assert dict(approval_consumed[0]["payload"])["approval_risk_fingerprint"] == fingerprint
+    assert dict(approval_consumed[0]["scope"])["task_run_id"] == task_run_id
+    assert dict(approval_consumed[0]["scope"])["run_cell_id"] == "runcell:approval-error"
 
 
 def test_runtime_tool_control_plane_fail_closes_agent_turn_when_control_plane_dispatch_is_missing() -> None:
@@ -1126,6 +1292,149 @@ def test_runtime_tool_control_plane_dispatches_agent_turn_through_core_without_t
     assert executor.last_core["session_id"] == "session:one"
     assert executor.last_core["turn_id"] == "turn:one:1"
     assert "task_run_id" not in executor.last_core
+
+
+def test_runtime_tool_control_plane_publishes_agent_turn_core_lifecycle_signals(tmp_path: Path) -> None:
+    gate = _AllowingGate()
+    executor = _RecordingCoreToolExecutor()
+    event_log = RuntimeEventLog(tmp_path)
+    runtime_host = SimpleNamespace(
+        backend_dir=BACKEND_DIR,
+        control_bus=RuntimeControlBus(event_log),
+        tool_authorization_index=SimpleNamespace(
+            definitions_by_name={"read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True)}
+        ),
+    )
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"tool_name": "read_file", "operation_id": "op.read_file"}]),
+        invocation_kind="single_agent_turn",
+        tool_definitions_by_name={"read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:turn:bus-core",
+        caller_kind="agent_turn",
+        caller_ref="turnrun:bus-core",
+        session_id="session:bus-core",
+        turn_id="turn:bus-core:1",
+        agent_run_id="agrun:bus-core",
+        run_cell_id="runcell:bus-core",
+        tool_name="read_file",
+        tool_call_id="call:bus-core",
+        tool_args={"path": "README.md"},
+        operation_id="op.read_file",
+        action_request_ref="action:bus-core",
+        action_permit=_permit(
+            action_request_ref="action:bus-core",
+            invocation_kind="agent_turn",
+            tool_name="read_file",
+            operation_id="op.read_file",
+            session_id="session:bus-core",
+            turn_id="turn:bus-core:1",
+        ),
+        requested_constraints={
+            "runtime_host": runtime_host,
+            "backend_dir": str(BACKEND_DIR),
+            "runtime_assembly": _assembly(available_tools=[{"tool_name": "read_file", "operation_id": "op.read_file"}]).to_dict(),
+        },
+    )
+
+    observation = asyncio.run(RuntimeToolControlPlane(tool_runtime_executor=executor, operation_gate=gate).invoke(request, tool_plan=plan))
+    signals = _control_bus_signals(event_log, "turnrun:bus-core")
+
+    assert observation.status == "ok"
+    assert [signal["signal_type"] for signal in signals] == [
+        "tool.permission.decided",
+        "tool.execution.started",
+        "tool.execution.completed",
+    ]
+    assert [dict(signal["scope"]) for signal in signals] == [
+        {
+            "session_id": "session:bus-core",
+            "agent_run_id": "agrun:bus-core",
+            "run_cell_id": "runcell:bus-core",
+            "turn_id": "turn:bus-core:1",
+            "turn_run_id": "turnrun:bus-core",
+            "task_run_id": "",
+        },
+        {
+            "session_id": "session:bus-core",
+            "agent_run_id": "agrun:bus-core",
+            "run_cell_id": "runcell:bus-core",
+            "turn_id": "turn:bus-core:1",
+            "turn_run_id": "turnrun:bus-core",
+            "task_run_id": "",
+        },
+        {
+            "session_id": "session:bus-core",
+            "agent_run_id": "agrun:bus-core",
+            "run_cell_id": "runcell:bus-core",
+            "turn_id": "turn:bus-core:1",
+            "turn_run_id": "turnrun:bus-core",
+            "task_run_id": "",
+        },
+    ]
+    assert signals[0]["payload"]["decision"] == "allow"
+    assert signals[1]["payload"]["handler_id"] == "agent_turn_core"
+    assert signals[2]["payload"]["status"] == "ok"
+    assert signals[2]["payload"]["observation_ref"] == observation.observation_id
+
+
+def test_runtime_tool_control_plane_commits_tool_memory_events_for_agent_turn(tmp_path: Path) -> None:
+    gate = _AllowingGate()
+    executor = _FileStateCoreToolExecutor()
+    file_state_store = FileStateAuthorityStore(tmp_path)
+    runtime_host = SimpleNamespace(
+        backend_dir=BACKEND_DIR,
+        file_state_store=file_state_store,
+        tool_authorization_index=SimpleNamespace(
+            definitions_by_name={"read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True)}
+        ),
+    )
+    scope = session_file_evidence_scope("session:file-state-control")
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"tool_name": "read_file", "operation_id": "op.read_file"}]),
+        invocation_kind="single_agent_turn",
+        tool_definitions_by_name={"read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:turn:read-core-memory",
+        caller_kind="agent_turn",
+        caller_ref="turnrun:file-state-control",
+        session_id="session:file-state-control",
+        turn_id="turn:file-state-control:1",
+        tool_name="read_file",
+        tool_call_id="call:read",
+        tool_args={"path": "README.md"},
+        operation_id="op.read_file",
+        action_request_ref="action:read",
+        file_evidence_scope=scope,
+        action_permit=_permit(
+            action_request_ref="action:read",
+            invocation_kind="agent_turn",
+            tool_name="read_file",
+            operation_id="op.read_file",
+            session_id="session:file-state-control",
+            turn_id="turn:file-state-control:1",
+        ),
+        requested_constraints={
+            "runtime_host": runtime_host,
+            "backend_dir": str(BACKEND_DIR),
+            "runtime_assembly": _assembly(available_tools=[{"tool_name": "read_file", "operation_id": "op.read_file"}]).to_dict(),
+        },
+    )
+
+    observation = asyncio.run(RuntimeToolControlPlane(tool_runtime_executor=executor, operation_gate=gate).invoke(request, tool_plan=plan))
+    commit = dict(observation.diagnostics.get("tool_memory_commit") or {})
+    snapshot = file_state_store.snapshot_scope(scope)
+
+    assert observation.status == "ok"
+    assert commit["status"] == "committed"
+    assert commit["tool_memory_event_count"] == 1
+    assert commit["file_state_event_count"] == 1
+    assert commit["file_state_commit"]["file_count"] == 1
+    assert observation.diagnostics["file_state_commit"]["event_count"] == 1
+    assert snapshot[0]["path"] == "README.md"
+    assert snapshot[0]["read_ranges"][0]["observation_ref"] == observation.observation_id
 
 
 def test_runtime_tool_control_plane_routes_task_subagent_by_reserved_tool_name() -> None:
@@ -1552,6 +1861,14 @@ def test_runtime_tool_control_plane_agent_turn_browser_side_effect_runs_inside_s
     assert executor.last_core["tool_name"] == "browser_control"
 
 
+def _control_bus_signals(event_log: RuntimeEventLog, run_id: str) -> list[dict[str, object]]:
+    return [
+        dict(dict(event.payload or {}).get("signal") or {})
+        for event in event_log.list_events(run_id)
+        if event.event_type == "runtime_control_signal_published"
+    ]
+
+
 class _assembly:
     def __init__(
         self,
@@ -1820,11 +2137,61 @@ class _RecordingCoreToolExecutor(_RecordingToolExecutor):
         )
 
 
+class _FileStateCoreToolExecutor(_RecordingCoreToolExecutor):
+    async def _record_agent_turn_dispatch(self, **kwargs):
+        self.core_calls += 1
+        self.last_core = dict(kwargs)
+        return {
+            "status": "ok",
+            "text": "1 | read ok",
+            "result_ref": "tool-result:read",
+            "result_envelope": {
+                "tool_name": "read_file",
+                "tool_args": dict(kwargs.get("tool_args") or {}),
+                "tool_call_id": str(kwargs.get("tool_call_id") or ""),
+                "status": "ok",
+                "text": "1 | read ok",
+                "structured_payload": {
+                    "observed_paths": ["README.md"],
+                    "tool_result": {
+                        "kind": "text_file",
+                        "path": "README.md",
+                        "start_line": 1,
+                        "end_line": 1,
+                        "returned_lines": 1,
+                        "line_count": 1,
+                        "total_lines": 1,
+                        "has_more": False,
+                    },
+                },
+                "observed_paths": ["README.md"],
+                "file_state_events": [
+                    {
+                        "event_type": "read",
+                        "path": "README.md",
+                        "start_line": 1,
+                        "end_line": 1,
+                        "returned_lines": 1,
+                        "line_count": 1,
+                        "total_lines": 1,
+                        "has_more": False,
+                    }
+                ],
+                "artifact_refs": [],
+                "result_ref": "tool-result:read",
+            },
+            "artifact_refs": [],
+            "error": "",
+        }
+
+
 def _invocation_context_from_request(request) -> ToolInvocationContext:
     return ToolInvocationContext(
         tool_invocation_id=str(getattr(request, "invocation_id", "") or ""),
         caller_kind=str(getattr(request, "caller_kind", "") or ""),
         caller_ref=str(getattr(request, "caller_ref", "") or ""),
+        agent_run_id=str(getattr(request, "agent_run_id", "") or ""),
+        run_cell_id=str(getattr(request, "run_cell_id", "") or ""),
         session_id=str(getattr(request, "session_id", "") or ""),
         turn_id=str(getattr(request, "turn_id", "") or ""),
         task_run_id=str(getattr(request, "task_run_id", "") or ""),

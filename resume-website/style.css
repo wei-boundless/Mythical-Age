@@ -1,0 +1,2367 @@
+/* ===== 基础重置与变量 ===== */
+:root {
+    --primary: #2563eb;
+    --primary-light: #dbeafe;
+    --text: #1e293b;
+    --text-secondary: #64748b;
+    --bg: #f8fafc;
+    --white: #ffffff;
+    --border: #e2e8f0;
+    --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+    --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06);
+    --radius: 6px;
+    --sidebar-width: 250px;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+}
+
+/* ===== 经典双栏模板 ===== */
+.template-classic-blue {
+    display: flex;
+    min-height: 100vh;
+    max-width: 1100px;
+    margin: 0 auto;
+}
+
+.template-classic-blue .sidebar {
+    width: var(--sidebar-width);
+    background: var(--white);
+    border-right: 1px solid var(--border);
+    padding: 22px 20px;
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+}
+
+.template-classic-blue .avatar-section {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.template-classic-blue .avatar {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--primary), #7c3aed);
+    color: white;
+    font-size: 22px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 10px;
+    overflow: hidden;
+}
+
+.template-classic-blue .photo-avatar {
+    background: none !important;
+    color: transparent !important;
+    font-size: 0 !important;
+}
+
+.template-classic-blue .photo-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.template-classic-blue .avatar-section h1 {
+    font-size: 19px;
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+
+.template-classic-blue .subtitle {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.template-classic-blue .sidebar-section {
+    margin-bottom: 16px;
+}
+
+.template-classic-blue .sidebar-section h2 {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--primary-light);
+}
+
+.template-classic-blue .main-content {
+    flex: 1;
+    padding: 22px 32px;
+    max-width: calc(100% - var(--sidebar-width));
+}
+
+/* ===== 顶部通栏模板 ===== */
+.template-full-width {
+    min-height: 100vh;
+    max-width: 900px;
+    margin: 0 auto;
+    background: var(--white);
+}
+
+.template-full-width .fw-header {
+    background: linear-gradient(135deg, var(--primary), #0d9488);
+    color: white;
+    padding: 30px 40px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.template-full-width .fw-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    color: white;
+    font-size: 26px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 2px solid rgba(255,255,255,0.4);
+    overflow: hidden;
+}
+
+.template-full-width .photo-avatar {
+    background: none !important;
+    border: 2px solid rgba(255,255,255,0.6);
+}
+
+.template-full-width .photo-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.template-full-width .fw-title-block h1 {
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+
+.template-full-width .fw-title-block .subtitle {
+    font-size: 14px;
+    opacity: 0.85;
+}
+
+.template-full-width .fw-contacts {
+    margin-left: auto;
+    font-size: 12px;
+    line-height: 1.6;
+    text-align: right;
+    opacity: 0.9;
+}
+
+.template-full-width .fw-body {
+    padding: 24px 40px;
+}
+
+.template-full-width .fw-side-row {
+    display: flex;
+    gap: 32px;
+    margin-bottom: 22px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+}
+
+.template-full-width .fw-side-block h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.template-full-width .fw-side-block .language-item {
+    display: inline-flex;
+    gap: 6px;
+    margin-right: 16px;
+    font-size: 13px;
+}
+
+.template-full-width .fw-side-block .skill-tags {
+    gap: 4px;
+}
+
+.template-full-width .fw-copy-manager {
+    padding: 12px 40px 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+/* ===== 卡片网格模板 ===== */
+.template-card-grid {
+    min-height: 100vh;
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 24px 20px;
+}
+
+.template-card-grid .cg-header {
+    background: linear-gradient(135deg, var(--primary), #a855f7);
+    color: white;
+    padding: 28px 32px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-bottom: 20px;
+}
+
+.template-card-grid .cg-avatar {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    color: white;
+    font-size: 24px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 2px solid rgba(255,255,255,0.4);
+    overflow: hidden;
+}
+
+.template-card-grid .photo-avatar {
+    background: none !important;
+    border: 2px solid rgba(255,255,255,0.6);
+}
+
+.template-card-grid .photo-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.template-card-grid .cg-header h1 {
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.template-card-grid .cg-header .subtitle {
+    font-size: 14px;
+    opacity: 0.85;
+}
+
+.template-card-grid .sidebar-section {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 18px;
+}
+
+.template-card-grid .sidebar-section h2 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+}
+
+.template-card-grid .cg-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+}
+
+.template-card-grid .cg-card {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    box-shadow: var(--shadow);
+}
+
+.template-card-grid .cg-card h2 {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 12px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--primary-light);
+}
+
+.template-card-grid .cg-card p {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+}
+
+.template-card-grid .cg-card-wide {
+    grid-column: 1 / -1;
+}
+
+/* ===== 共享组件样式 ===== */
+.section {
+    margin-bottom: 22px;
+}
+
+.section-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 12px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--border);
+    position: relative;
+}
+
+.section-title::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    width: 36px;
+    height: 2px;
+    background: var(--primary);
+}
+
+.section p {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+.custom-content {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+}
+
+/* 联系方式块（经典双栏 + 卡片网格共用） */
+.contact-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+    font-size: 12px;
+    color: var(--text);
+}
+
+.contact-item .icon {
+    width: 18px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+/* 技能标签（所有模板共用） */
+.skill-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.skill-tag {
+    background: var(--primary-light);
+    color: var(--primary);
+    padding: 2px 8px;
+    border-radius: 16px;
+    font-size: 10px;
+    font-weight: 500;
+}
+
+/* 语言（所有模板共用） */
+.language-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 0;
+    font-size: 12px;
+}
+
+.language-item .level {
+    color: var(--text-secondary);
+    font-size: 11px;
+}
+
+/* 时间线（所有模板共用） */
+.timeline {
+    position: relative;
+    padding-left: 24px;
+}
+
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 7px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+}
+
+.timeline-item {
+    position: relative;
+    margin-bottom: 16px;
+}
+
+.timeline-item:last-child {
+    margin-bottom: 0;
+}
+
+.timeline-dot {
+    position: absolute;
+    left: -22px;
+    top: 5px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--white);
+    border: 2px solid var(--primary);
+    z-index: 1;
+}
+
+.timeline-content h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 1px;
+}
+
+.timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+}
+
+.timeline-header .date {
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.company {
+    font-size: 12px;
+    color: var(--primary);
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.timeline-content ul {
+    margin-top: 3px;
+    padding-left: 16px;
+}
+
+.timeline-content li {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+    line-height: 1.45;
+}
+
+/* 项目卡片（所有模板共用） */
+.project-card {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin-bottom: 12px;
+    box-shadow: var(--shadow);
+}
+
+.project-card h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 3px;
+}
+
+.project-tech {
+    font-size: 10px;
+    color: var(--primary);
+    font-weight: 500;
+    margin-bottom: 6px;
+}
+
+.project-card ul {
+    padding-left: 16px;
+}
+
+.project-card li {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+    line-height: 1.45;
+}
+
+/* ===== 简约纵向模板 ===== */
+.template-vertical-simple {
+    min-height: 100vh;
+    max-width: 800px;
+    margin: 0 auto;
+    background: var(--white);
+}
+
+.template-vertical-simple .vs-header {
+    text-align: center;
+    padding: 36px 32px 24px;
+    border-bottom: 2px solid var(--primary-light);
+}
+
+.template-vertical-simple .vs-avatar {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--text), var(--text-secondary));
+    color: white;
+    font-size: 28px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 14px;
+    overflow: hidden;
+}
+
+.template-vertical-simple .photo-avatar {
+    background: none !important;
+    color: transparent !important;
+    font-size: 0 !important;
+}
+
+.template-vertical-simple .photo-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.template-vertical-simple .vs-title-block h1 {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 4px;
+    color: var(--text);
+}
+
+.template-vertical-simple .vs-title-block .subtitle {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+.template-vertical-simple .vs-contacts {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px 16px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.template-vertical-simple .vs-contact {
+    white-space: nowrap;
+}
+
+.template-vertical-simple .vs-body {
+    padding: 24px 32px;
+}
+
+/* ===== 专业左栏模板 ===== */
+.template-professional-left {
+    display: flex;
+    min-height: 100vh;
+    max-width: 1100px;
+    margin: 0 auto;
+}
+
+.template-professional-left .pl-sidebar {
+    width: 260px;
+    background: #1e293b;
+    color: white;
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+}
+
+.template-professional-left .pl-sidebar-inner {
+    padding: 28px 22px;
+}
+
+.template-professional-left .pl-avatar {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+    color: white;
+    font-size: 28px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 14px;
+    overflow: hidden;
+    border: 2px solid var(--primary);
+}
+
+.template-professional-left .photo-avatar {
+    background: none !important;
+    color: transparent !important;
+    font-size: 0 !important;
+}
+
+.template-professional-left .photo-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.template-professional-left .pl-name {
+    text-align: center;
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+
+.template-professional-left .pl-subtitle {
+    text-align: center;
+    font-size: 12px;
+    color: var(--primary);
+    margin-bottom: 20px;
+    opacity: 0.9;
+}
+
+.template-professional-left .pl-contacts {
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.template-professional-left .pl-contact-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 12px;
+    color: rgba(255,255,255,0.85);
+}
+
+.template-professional-left .pl-contact-icon {
+    width: 18px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.template-professional-left .pl-skills {
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.template-professional-left .pl-skills h3,
+.template-professional-left .pl-langs h3 {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--primary);
+    margin-bottom: 10px;
+    opacity: 0.9;
+}
+
+.template-professional-left .pl-skill-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.template-professional-left .pl-skill-tag {
+    background: rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.9);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 500;
+}
+
+.template-professional-left .pl-langs {
+    margin-bottom: 16px;
+}
+
+.template-professional-left .pl-lang-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 0;
+    font-size: 12px;
+    color: rgba(255,255,255,0.85);
+}
+
+.template-professional-left .pl-lang-item .level {
+    color: rgba(255,255,255,0.5);
+    font-size: 11px;
+}
+
+.template-professional-left .pl-main {
+    flex: 1;
+    padding: 28px 36px;
+    background: var(--white);
+}
+
+/* ===== 双列时间线模板 ===== */
+.template-dual-timeline {
+    min-height: 100vh;
+    max-width: 1000px;
+    margin: 0 auto;
+    background: var(--white);
+}
+
+.template-dual-timeline .dt-header {
+    background: linear-gradient(135deg, var(--primary), #047857);
+    color: white;
+    padding: 28px 36px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.template-dual-timeline .dt-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    color: white;
+    font-size: 26px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 2px solid rgba(255,255,255,0.4);
+    overflow: hidden;
+}
+
+.template-dual-timeline .photo-avatar {
+    background: none !important;
+    border: 2px solid rgba(255,255,255,0.6);
+}
+
+.template-dual-timeline .photo-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.template-dual-timeline .dt-title-block h1 {
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+
+.template-dual-timeline .dt-title-block .subtitle {
+    font-size: 14px;
+    opacity: 0.85;
+}
+
+.template-dual-timeline .dt-contacts {
+    margin-left: auto;
+    font-size: 12px;
+    line-height: 1.6;
+    text-align: right;
+    opacity: 0.9;
+}
+
+.template-dual-timeline .dt-contact {
+    white-space: nowrap;
+}
+
+.template-dual-timeline .dt-body {
+    display: flex;
+    gap: 0;
+    padding: 0;
+}
+
+.template-dual-timeline .dt-col-left {
+    width: 280px;
+    padding: 24px 22px;
+    background: var(--bg);
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+}
+
+.template-dual-timeline .dt-col-right {
+    flex: 1;
+    padding: 24px 32px;
+}
+
+/* ===== 帝王金豪华版模板 ===== */
+.template-luxury-gold {
+    max-width: 1100px;
+    margin: 0 auto;
+    background: var(--white);
+    overflow: hidden;
+}
+
+/* --- 头部：深色渐变 + 金色点缀 --- */
+.template-luxury-gold .lg-header {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 40%, #0f3460 100%);
+    padding: 40px 48px 36px;
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    position: relative;
+    border-bottom: 3px solid var(--primary);
+}
+
+.template-luxury-gold .lg-header::after {
+    content: '';
+    position: absolute;
+    bottom: -3px;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--primary), transparent);
+}
+
+.template-luxury-gold .lg-avatar-wrap {
+    flex-shrink: 0;
+}
+
+.template-luxury-gold .lg-avatar-ring {
+    width: 88px;
+    height: 88px;
+    border-radius: 50%;
+    border: 3px solid var(--primary);
+    padding: 4px;
+    background: rgba(201, 168, 76, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.template-luxury-gold .lg-avatar {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #c9a84c, #f5d97e);
+    color: #1a1a2e;
+    font-size: 30px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.template-luxury-gold .lg-avatar.photo-avatar {
+    background: none !important;
+    color: transparent !important;
+    font-size: 0 !important;
+}
+
+.template-luxury-gold .lg-avatar.photo-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.template-luxury-gold .lg-title-block {
+    flex: 1;
+}
+
+.template-luxury-gold .lg-name {
+    color: #f5e6c8;
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+.template-luxury-gold .lg-subtitle {
+    color: var(--primary);
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: 3px;
+    margin-bottom: 14px;
+    text-transform: uppercase;
+}
+
+.template-luxury-gold .lg-contacts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+}
+
+.template-luxury-gold .lg-contact-item {
+    color: rgba(255,255,255,0.7);
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.template-luxury-gold .lg-contact-item .icon {
+    color: var(--primary);
+}
+
+/* --- 主体：侧栏 + 主内容 --- */
+.template-luxury-gold .lg-body {
+    display: flex;
+    gap: 0;
+    padding: 0;
+}
+
+.template-luxury-gold .lg-sidebar {
+    width: 250px;
+    padding: 28px 22px;
+    background: #faf6ee;
+    flex-shrink: 0;
+    border-right: 1px solid #e8dcc8;
+}
+
+.template-luxury-gold .lg-sidebar-section {
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #e8dcc8;
+}
+
+.template-luxury-gold .lg-sidebar-section:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.template-luxury-gold .lg-sidebar-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 12px;
+    position: relative;
+    padding-bottom: 8px;
+}
+
+.template-luxury-gold .lg-sidebar-title::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 30px;
+    height: 2px;
+    background: var(--primary);
+}
+
+.template-luxury-gold .lg-skill-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.template-luxury-gold .lg-skill-tag {
+    background: var(--white);
+    border: 1px solid #e0d5c0;
+    color: #5c4a2a;
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.template-luxury-gold .lg-skill-tag:hover {
+    border-color: var(--primary);
+    background: #faf3e0;
+}
+
+.template-luxury-gold .lg-sidebar .contact-item {
+    font-size: 12px;
+    padding: 4px 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #5c4a2a;
+}
+
+.template-luxury-gold .lg-sidebar .contact-item .icon {
+    color: var(--primary);
+    width: 18px;
+    text-align: center;
+}
+
+.template-luxury-gold .lg-sidebar .language-item {
+    font-size: 12px;
+    padding: 3px 0;
+    display: flex;
+    justify-content: space-between;
+    color: #5c4a2a;
+}
+
+.template-luxury-gold .lg-sidebar .language-item .level {
+    color: var(--text-secondary);
+    font-size: 11px;
+}
+
+.template-luxury-gold .lg-sidebar .section {
+    margin-bottom: 0;
+}
+
+.template-luxury-gold .lg-sidebar .section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e8dcc8;
+}
+
+.template-luxury-gold .lg-sidebar .section-title::after {
+    display: none;
+}
+
+.template-luxury-gold .lg-sidebar p {
+    font-size: 12px;
+    color: #5c4a2a;
+    line-height: 1.6;
+}
+
+/* --- 主内容区 --- */
+.template-luxury-gold .lg-main {
+    flex: 1;
+    padding: 28px 36px;
+}
+
+.template-luxury-gold .lg-main .section-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin-bottom: 14px;
+    padding-bottom: 8px;
+    position: relative;
+}
+
+.template-luxury-gold .lg-main .section-title::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 40px;
+    height: 3px;
+    background: linear-gradient(90deg, var(--primary), transparent);
+}
+
+.template-luxury-gold .lg-main .section {
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #f0e8d8;
+}
+
+.template-luxury-gold .lg-main .section:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.template-luxury-gold .lg-main .timeline-item {
+    margin-bottom: 18px;
+    position: relative;
+    padding-left: 16px;
+    border-left: 2px solid #e8dcc8;
+}
+
+.template-luxury-gold .lg-main .timeline-item:last-child {
+    margin-bottom: 0;
+}
+
+.template-luxury-gold .lg-main .timeline-dot {
+    display: none;
+}
+
+.template-luxury-gold .lg-main .timeline-content h3 {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1a1a2e;
+}
+
+.template-luxury-gold .lg-main .timeline-header .date {
+    color: var(--primary);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.template-luxury-gold .lg-main .company {
+    color: var(--text-secondary);
+    font-size: 13px;
+    margin-bottom: 6px;
+}
+
+.template-luxury-gold .lg-main .timeline-content li {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #4a4a5a;
+    margin-bottom: 4px;
+}
+
+.template-luxury-gold .lg-main .project-card {
+    border: 1px solid #e8dcc8;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 14px;
+    background: #fafaf5;
+    transition: all 0.2s;
+}
+
+.template-luxury-gold .lg-main .project-card:hover {
+    border-color: var(--primary);
+    box-shadow: 0 4px 16px rgba(201, 168, 76, 0.15);
+}
+
+.template-luxury-gold .lg-main .project-card h3 {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin-bottom: 4px;
+}
+
+.template-luxury-gold .lg-main .project-tech {
+    color: var(--primary);
+    font-size: 12px;
+    font-weight: 500;
+    margin-bottom: 8px;
+}
+
+.template-luxury-gold .lg-main .project-card li {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #4a4a5a;
+    margin-bottom: 3px;
+}
+
+.template-luxury-gold .lg-main .custom-content {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #4a4a5a;
+}
+
+.template-luxury-gold .lg-main .section p {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #4a4a5a;
+}
+
+/* ===== 编辑按钮 ===== */
+.edit-bar {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    max-width: 90vw;
+    justify-content: flex-end;
+}
+
+.edit-bar button {
+    padding: 6px 14px;
+    border: none;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-edit {
+    background: var(--primary);
+    color: white;
+}
+
+.btn-edit:hover {
+    background: #1d4ed8;
+    box-shadow: var(--shadow-md);
+}
+
+.btn-pdf {
+    background: #dc2626;
+    color: white;
+}
+
+.btn-pdf:hover {
+    background: #b91c1c;
+    box-shadow: var(--shadow-md);
+}
+
+.btn-print {
+    background: var(--white);
+    color: var(--text);
+    border: 1px solid var(--border) !important;
+}
+
+.btn-print:hover {
+    background: var(--bg);
+}
+
+.btn-template-library {
+    background: #8b5cf6;
+    color: white;
+}
+
+.btn-template-library:hover {
+    background: #7c3aed;
+    box-shadow: var(--shadow-md);
+}
+
+/* 模板选择器 */
+.template-select {
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text);
+    background: var(--white);
+    cursor: pointer;
+}
+
+.template-select:hover {
+    border-color: var(--primary);
+}
+
+/* 副本管理（编辑栏内行内布局） */
+.copy-separator {
+    color: var(--border);
+    font-size: 14px;
+    user-select: none;
+}
+
+.edit-bar .copy-select {
+    width: auto;
+    min-width: 100px;
+    max-width: 150px;
+    padding: 4px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--text);
+    background: var(--white);
+    cursor: pointer;
+}
+
+.edit-bar .btn-copy-action {
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    background: var(--white);
+    color: var(--text);
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.btn-copy-action:hover {
+    background: var(--primary-light);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.btn-delete-copy {
+    color: #ef4444;
+}
+
+.btn-delete-copy:hover {
+    background: #fef2f2;
+    border-color: #ef4444;
+    color: #dc2626;
+}
+
+.btn-delete-copy:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* ===== 打印样式 ===== */
+@page {
+    size: A4;
+    margin: 6mm;
+}
+
+@media print {
+    body {
+        background: white;
+        font-size: 11px;
+        line-height: 1.35;
+    }
+
+    .edit-bar, #copy-manager, .fw-copy-manager {
+        display: none !important;
+    }
+
+    /* 经典双栏打印 */
+    .template-classic-blue {
+        max-width: 100%;
+    }
+
+    .template-classic-blue .sidebar {
+        position: static;
+        height: auto;
+        overflow: visible;
+        width: 220px;
+        padding: 16px 16px;
+    }
+
+    .template-classic-blue .main-content {
+        padding: 16px 24px;
+        max-width: calc(100% - 220px);
+    }
+
+    .template-classic-blue .avatar {
+        width: 44px;
+        height: 44px;
+        font-size: 18px;
+    }
+
+    .template-classic-blue .avatar-section h1 {
+        font-size: 16px;
+    }
+
+    .template-classic-blue .subtitle {
+        font-size: 10px;
+    }
+
+    .template-classic-blue .sidebar-section h2 {
+        font-size: 9px;
+        margin-bottom: 6px;
+    }
+
+    .template-classic-blue .contact-item {
+        font-size: 10px;
+        padding: 1px 0;
+    }
+
+    .template-classic-blue .skill-tag {
+        font-size: 9px;
+        padding: 1px 6px;
+    }
+
+    .template-classic-blue .language-item {
+        font-size: 10px;
+        line-height: 1.3;
+    }
+
+    /* 顶部通栏打印 */
+    .template-full-width {
+        max-width: 100%;
+    }
+
+    .template-full-width .fw-header {
+        padding: 18px 24px;
+    }
+
+    .template-full-width .fw-avatar {
+        width: 44px;
+        height: 44px;
+        font-size: 18px;
+    }
+
+    .template-full-width .fw-title-block h1 {
+        font-size: 18px;
+    }
+
+    .template-full-width .fw-title-block .subtitle {
+        font-size: 11px;
+    }
+
+    .template-full-width .fw-contacts {
+        font-size: 10px;
+    }
+
+    .template-full-width .fw-body {
+        padding: 14px 24px;
+    }
+
+    .template-full-width .fw-side-row {
+        gap: 20px;
+        margin-bottom: 14px;
+        padding-bottom: 12px;
+    }
+
+    /* 卡片网格打印 */
+    .template-card-grid {
+        padding: 10px;
+        max-width: 100%;
+    }
+
+    .template-card-grid .cg-header {
+        padding: 16px 20px;
+        margin-bottom: 12px;
+    }
+
+    .template-card-grid .cg-avatar {
+        width: 44px;
+        height: 44px;
+        font-size: 18px;
+    }
+
+    .template-card-grid .cg-header h1 {
+        font-size: 17px;
+    }
+
+    .template-card-grid .cg-header .subtitle {
+        font-size: 11px;
+    }
+
+    .template-card-grid .cg-grid {
+        gap: 8px;
+    }
+
+    .template-card-grid .cg-card {
+        padding: 12px 14px;
+        box-shadow: none;
+        border: 1px solid #ccc;
+    }
+
+    .template-card-grid .cg-card h2 {
+        font-size: 12px;
+        margin-bottom: 8px;
+    }
+
+    /* 共享组件打印缩放 */
+    .section {
+        margin-bottom: 14px;
+    }
+
+    .section-title {
+        font-size: 14px;
+        margin-bottom: 8px;
+        padding-bottom: 4px;
+    }
+
+    .section-title::after {
+        width: 28px;
+    }
+
+    .section p {
+        font-size: 11px;
+        line-height: 1.35;
+    }
+
+    .custom-content {
+        font-size: 11px;
+        line-height: 1.35;
+    }
+
+    .timeline-item {
+        margin-bottom: 10px;
+    }
+
+    .timeline-content h3 {
+        font-size: 12px;
+    }
+
+    .timeline-header .date {
+        font-size: 10px;
+    }
+
+    .company {
+        font-size: 10px;
+        margin-bottom: 2px;
+    }
+
+    .timeline-content li {
+        font-size: 10px;
+        line-height: 1.35;
+    }
+
+    .project-card {
+        padding: 10px 14px;
+        margin-bottom: 8px;
+        box-shadow: none;
+        border: 1px solid #ccc;
+    }
+
+    .project-card h3 {
+        font-size: 12px;
+    }
+
+    .project-tech {
+        font-size: 9px;
+        margin-bottom: 4px;
+    }
+
+    .project-card li {
+        font-size: 10px;
+        line-height: 1.35;
+    }
+
+    .timeline-dot {
+        border-color: var(--primary);
+    }
+
+    .modal { display: none !important; }
+
+    /* 简约纵向打印 */
+    .template-vertical-simple {
+        max-width: 100%;
+    }
+
+    .template-vertical-simple .vs-header {
+        padding: 20px 20px 14px;
+    }
+
+    .template-vertical-simple .vs-avatar {
+        width: 50px;
+        height: 50px;
+        font-size: 20px;
+    }
+
+    .template-vertical-simple .vs-title-block h1 {
+        font-size: 18px;
+    }
+
+    .template-vertical-simple .vs-title-block .subtitle {
+        font-size: 11px;
+    }
+
+    .template-vertical-simple .vs-contacts {
+        font-size: 10px;
+        gap: 4px 10px;
+    }
+
+    .template-vertical-simple .vs-body {
+        padding: 14px 20px;
+    }
+
+    /* 专业左栏打印 */
+    .template-professional-left {
+        max-width: 100%;
+    }
+
+    .template-professional-left .pl-sidebar {
+        position: static;
+        height: auto;
+        overflow: visible;
+        width: 200px;
+    }
+
+    .template-professional-left .pl-sidebar-inner {
+        padding: 16px 14px;
+    }
+
+    .template-professional-left .pl-avatar {
+        width: 44px;
+        height: 44px;
+        font-size: 18px;
+    }
+
+    .template-professional-left .pl-name {
+        font-size: 16px;
+    }
+
+    .template-professional-left .pl-subtitle {
+        font-size: 10px;
+        margin-bottom: 12px;
+    }
+
+    .template-professional-left .pl-main {
+        padding: 16px 20px;
+    }
+
+    /* 双列时间线打印 */
+    .template-dual-timeline {
+        max-width: 100%;
+    }
+
+    .template-dual-timeline .dt-header {
+        padding: 16px 20px;
+    }
+
+    .template-dual-timeline .dt-avatar {
+        width: 44px;
+        height: 44px;
+        font-size: 18px;
+    }
+
+    .template-dual-timeline .dt-title-block h1 {
+        font-size: 18px;
+    }
+
+    .template-dual-timeline .dt-title-block .subtitle {
+        font-size: 11px;
+    }
+
+    .template-dual-timeline .dt-contacts {
+        font-size: 10px;
+    }
+
+    .template-dual-timeline .dt-col-left {
+        width: 200px;
+        padding: 14px 14px;
+    }
+
+    .template-dual-timeline .dt-col-right {
+        padding: 14px 20px;
+    }
+
+    /* 帝王金打印 */
+    .template-luxury-gold {
+        max-width: 100%;
+    }
+
+    .template-luxury-gold .lg-header {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 20px 22px 18px;
+        gap: 16px;
+    }
+
+    .template-luxury-gold .lg-avatar-ring {
+        width: 56px;
+        height: 56px;
+        padding: 3px;
+    }
+
+    .template-luxury-gold .lg-avatar {
+        font-size: 20px;
+    }
+
+    .template-luxury-gold .lg-name {
+        font-size: 20px;
+        letter-spacing: 1px;
+    }
+
+    .template-luxury-gold .lg-subtitle {
+        font-size: 11px;
+        letter-spacing: 2px;
+        margin-bottom: 10px;
+    }
+
+    .template-luxury-gold .lg-contacts {
+        gap: 4px 12px;
+    }
+
+    .template-luxury-gold .lg-contact-item {
+        font-size: 10px;
+    }
+
+    .template-luxury-gold .lg-body {
+        flex-direction: column;
+    }
+
+    .template-luxury-gold .lg-sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid #e8dcc8;
+        padding: 16px 20px;
+    }
+
+    .template-luxury-gold .lg-main {
+        padding: 16px 22px;
+    }
+}
+
+/* ===== 响应式 ===== */
+@media (max-width: 768px) {
+    /* 经典双栏响应式 */
+    .template-classic-blue {
+        flex-direction: column;
+    }
+
+    .template-classic-blue .sidebar {
+        width: 100%;
+        position: static;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        padding: 20px 18px;
+    }
+
+    .template-classic-blue .avatar {
+        width: 48px;
+        height: 48px;
+        font-size: 20px;
+    }
+
+    .template-classic-blue .main-content {
+        max-width: 100%;
+        padding: 20px 18px;
+    }
+
+    /* 顶部通栏响应式 */
+    .template-full-width .fw-header {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 20px 18px;
+        text-align: left;
+    }
+
+    .template-full-width .fw-contacts {
+        margin-left: 0;
+        text-align: left;
+        margin-top: 6px;
+    }
+
+    .template-full-width .fw-body {
+        padding: 16px 18px;
+    }
+
+    .template-full-width .fw-side-row {
+        flex-direction: column;
+        gap: 14px;
+    }
+
+    .template-full-width .fw-copy-manager {
+        flex-wrap: wrap;
+        padding: 12px 18px 18px;
+    }
+
+    /* 卡片网格响应式 */
+    .template-card-grid {
+        padding: 14px 10px;
+    }
+
+    .template-card-grid .cg-header {
+        padding: 18px 20px;
+    }
+
+    .template-card-grid .cg-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* 简约纵向响应式 */
+    .template-vertical-simple .vs-header {
+        padding: 24px 18px 18px;
+    }
+
+    .template-vertical-simple .vs-avatar {
+        width: 56px;
+        height: 56px;
+        font-size: 22px;
+    }
+
+    .template-vertical-simple .vs-title-block h1 {
+        font-size: 18px;
+    }
+
+    .template-vertical-simple .vs-body {
+        padding: 16px 18px;
+    }
+
+    .template-vertical-simple .vs-contacts {
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+    }
+
+    /* 专业左栏响应式 */
+    .template-professional-left {
+        flex-direction: column;
+    }
+
+    .template-professional-left .pl-sidebar {
+        width: 100%;
+        position: static;
+        height: auto;
+    }
+
+    .template-professional-left .pl-sidebar-inner {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+        padding: 20px 18px;
+    }
+
+    .template-professional-left .pl-avatar {
+        margin: 0;
+        width: 56px;
+        height: 56px;
+        font-size: 22px;
+    }
+
+    .template-professional-left .pl-name {
+        font-size: 18px;
+        text-align: left;
+        margin-bottom: 0;
+        width: auto;
+    }
+
+    .template-professional-left .pl-subtitle {
+        text-align: left;
+        margin-bottom: 0;
+        width: 100%;
+    }
+
+    .template-professional-left .pl-contacts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 16px;
+        border-bottom: none;
+        padding-bottom: 0;
+        margin-bottom: 0;
+        width: 100%;
+    }
+
+    .template-professional-left .pl-contact-item {
+        font-size: 11px;
+    }
+
+    .template-professional-left .pl-skills,
+    .template-professional-left .pl-langs {
+        border-bottom: none;
+        padding-bottom: 0;
+        margin-bottom: 0;
+        width: auto;
+    }
+
+    .template-professional-left .pl-main {
+        padding: 18px 18px;
+    }
+
+    /* 双列时间线响应式 */
+    .template-dual-timeline .dt-header {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 20px 18px;
+        text-align: left;
+    }
+
+    .template-dual-timeline .dt-contacts {
+        margin-left: 0;
+        text-align: left;
+        margin-top: 6px;
+    }
+
+    .template-dual-timeline .dt-body {
+        flex-direction: column;
+    }
+
+    .template-dual-timeline .dt-col-left {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        padding: 18px 18px;
+    }
+
+    .template-dual-timeline .dt-col-right {
+        padding: 18px 18px;
+    }
+
+    /* 帝王金响应式 */
+    .template-luxury-gold .lg-header {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 28px 24px 24px;
+        gap: 16px;
+    }
+
+    .template-luxury-gold .lg-avatar-ring {
+        width: 64px;
+        height: 64px;
+    }
+
+    .template-luxury-gold .lg-avatar {
+        font-size: 22px;
+    }
+
+    .template-luxury-gold .lg-name {
+        font-size: 24px;
+        letter-spacing: 1px;
+    }
+
+    .template-luxury-gold .lg-subtitle {
+        font-size: 13px;
+        letter-spacing: 2px;
+    }
+
+    .template-luxury-gold .lg-contacts {
+        gap: 4px 12px;
+    }
+
+    .template-luxury-gold .lg-contact-item {
+        font-size: 11px;
+    }
+
+    .template-luxury-gold .lg-body {
+        flex-direction: column;
+    }
+
+    .template-luxury-gold .lg-sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid #e8dcc8;
+    }
+
+    .template-luxury-gold .lg-main {
+        padding: 20px 24px;
+    }
+
+    /* 通用响应式 */
+    .edit-bar {
+        top: auto;
+        bottom: 12px;
+        right: 12px;
+    }
+
+    .timeline-header {
+        flex-direction: column;
+    }
+
+    .timeline-header .date {
+        margin-top: 2px;
+    }
+}
+
+/* ===== 弹窗编辑器 ===== */
+.modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: -1;
+}
+
+.modal-panel {
+    background: var(--white);
+    border-radius: 12px;
+    box-shadow: var(--shadow-md);
+    width: 100%;
+    max-width: 800px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    margin-top: 20px;
+    position: relative;
+    z-index: 1;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.modal-header h2 {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0;
+    color: var(--text);
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    padding: 0 4px;
+    line-height: 1;
+}
+
+.modal-close:hover {
+    color: var(--text);
+}
+
+.modal-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 24px;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 16px 24px 20px;
+    border-top: 1px solid var(--border);
+}
+
+.editor-section {
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+}
+
+.editor-section:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.editor-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.editor-section-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0 0 12px 0;
+}
+
+.editor-section-header .editor-section-title {
+    margin-bottom: 0;
+}
+
+.form-group {
+    margin-bottom: 12px;
+}
+
+.form-group label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+
+.form-input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 14px;
+    background: var(--bg);
+    color: var(--text);
+    box-sizing: border-box;
+    transition: border-color 0.2s;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-light);
+}
+
+.form-textarea {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 14px;
+    background: var(--bg);
+    color: var(--text);
+    box-sizing: border-box;
+    resize: vertical;
+    font-family: inherit;
+    line-height: 1.5;
+    transition: border-color 0.2s;
+}
+
+.form-textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-light);
+}
+
+.form-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.form-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 12px;
+    overflow: hidden;
+}
+
+.form-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+}
+
+.form-card-header > div {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.form-card-body {
+    padding: 14px;
+}
+
+.btn-add-sm {
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.btn-add-sm:hover {
+    opacity: 0.85;
+}
+
+.btn-remove-sm {
+    background: #ef4444;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.btn-remove-sm:hover {
+    background: #dc2626;
+}
+
+.btn-move-up,
+.btn-move-down {
+    background: var(--primary-light);
+    color: var(--primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-move-up:hover,
+.btn-move-down:hover {
+    background: var(--primary);
+    color: white;
+}
+
+.btn-move-up:disabled,
+.btn-move-down:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.btn-save-modal {
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 28px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.btn-save-modal:hover {
+    opacity: 0.9;
+}
+
+.btn-cancel {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 28px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.btn-cancel:hover {
+    background: var(--bg);
+}
+
+/* ===== 字体设置（用户自定义） ===== */
+/* 这些由 script.js 的 applyTypography() 通过内联 style 控制，
+   这里提供属性选择器 fallback 和打印适配 */
+[data-font-size="small"] .container { font-size: 12px; }
+[data-font-size="medium"] .container { font-size: 13px; }
+[data-font-size="large"] .container { font-size: 14px; }
+
+[data-line-height="compact"] .container { line-height: 1.35; }
+[data-line-height="normal"] .container { line-height: 1.45; }
+[data-line-height="relaxed"] .container { line-height: 1.6; }
+
+/* ===== 模板库弹窗 ===== */
+.tpl-modal-panel {
+    max-width: 720px !important;
+}
+
+.tpl-modal-body {
+    padding: 16px 24px !important;
+}
+
+.tpl-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+}
+
+.tpl-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    background: var(--white);
+}
+
+.tpl-card:hover {
+    border-color: var(--primary);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+
+.tpl-card-active {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-light);
+}
+
+.tpl-card-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: var(--primary);
+    color: white;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-weight: 600;
+    z-index: 2;
+}
+
+.tpl-card-preview {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.tpl-preview-bar {
+    height: 6px;
+    flex-shrink: 0;
+}
+
+.tpl-preview-body {
+    padding: 16px 18px 18px;
+    flex: 1;
+}
+
+.tpl-preview-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 4px;
+}
+
+.tpl-preview-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+/* 各模板预览色条 + 简约示意 */
+.tpl-preview-classic-blue .tpl-preview-body {
+    border-left: 3px solid #2563eb;
+    padding-left: 15px;
+}
+
+.tpl-preview-full-width .tpl-preview-body {
+    border-top: 3px solid #0891b2;
+    padding-top: 14px;
+}
+
+.tpl-preview-card-grid .tpl-preview-body {
+    background: repeating-linear-gradient(
+        90deg,
+        transparent,
+        transparent 49%,
+        #f1f5f9 49%,
+        #f1f5f9 50%
+    );
+}
+
+.tpl-preview-vertical-simple .tpl-preview-body {
+    background: #fafafa;
+}
+
+.tpl-preview-professional-left .tpl-preview-body {
+    border-left: 3px solid #f59e0b;
+    background: #f8fafc;
+    padding-left: 15px;
+}
+
+.tpl-preview-dual-timeline .tpl-preview-body {
+    background: linear-gradient(to right, #f0fdf4 30%, transparent 30%);
+}
+
+.tpl-preview-luxury-gold .tpl-preview-body {
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    border-left: 3px solid #c9a84c;
+    padding-left: 15px;
+    color: #f5e6c8;
+}
+
+.tpl-preview-luxury-gold .tpl-preview-bar {
+    background: linear-gradient(90deg, #c9a84c, #f5d97e) !important;
+}
+
+/* 模板库模态框打印时隐藏 */
+@media print {
+    .tpl-modal { display: none !important; }
+}

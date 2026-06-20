@@ -18,6 +18,7 @@ class ToolUseContext:
     task_run_id: str = ""
     session_id: str = ""
     agent_run_id: str = ""
+    run_cell_id: str = ""
     tool_call_id: str = ""
     read_scopes: tuple[str, ...] = ()
     write_scopes: tuple[str, ...] = ()
@@ -46,5 +47,4 @@ class ToolUseContext:
         payload["execution_receipt"] = dict(self.execution_receipt)
         payload["runtime_assembly"] = dict(self.runtime_assembly)
         return payload
-
 

@@ -567,11 +567,13 @@ def _resolve_llm_thinking_mode() -> str:
 
 
 def _resolve_llm_reasoning_effort() -> str:
-    value = str(_runtime_system_value("runtime", "llm_reasoning_effort") or os.getenv("LLM_REASONING_EFFORT") or "auto").strip().lower()
+    value = str(_runtime_system_value("runtime", "llm_reasoning_effort") or os.getenv("LLM_REASONING_EFFORT") or "").strip().lower()
     if value in {"", "auto", "default", "adaptive"}:
-        return "auto"
+        return ""
     if value in {"max", "xhigh"}:
         return "max"
+    if value in {"high", "low", "medium"}:
+        return "high"
     return "high"
 
 

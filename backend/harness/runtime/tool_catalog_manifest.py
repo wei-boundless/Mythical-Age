@@ -405,9 +405,13 @@ def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict
                 },
                 "usage_hint": (
                     "Use directly for known file paths, including file-like task_contract.working_scope.target_objects, "
-                    "source_refs, workspace_refs, or bound/editor paths. Do not call search_files first for a known path."
+                    "source_refs, workspace_refs, or bound/editor paths. line_count may be omitted; use returned window facts "
+                    "and the file evidence contract/read_resource_state before deciding whether another read is needed. "
+                    "has_more is a window fact, not a continuation command; continue only for target lines outside coverage, "
+                    "search recommendations, stale evidence, or an explicit need for broader context. "
+                    "Do not call search_files first for a known path."
                 ),
-                "output_facts": ["start_line", "end_line", "total_lines", "has_more", "next_start_line", "content_sha256", "exact_artifact_ref", "visible_exact"],
+                "output_facts": ["start_line", "end_line", "returned_lines", "line_count", "total_lines", "has_more", "next_start_line", "content_sha256", "exact_artifact_ref", "visible_exact"],
             }
         )
     elif name == "path_exists":
@@ -476,8 +480,10 @@ def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict
                 "usage_hint": (
                     "Use for file contents. Put known files in paths, directory scopes in roots, and file-type filters in glob. "
                     "Do not use search_text to rediscover a known file-like target object; read_file is the direct path tool. "
-                    "paths accepts files only; directories must go in roots."
+                    "paths accepts files only; directories must go in roots. Do not pass path or pattern. "
+                    "If recommended_read_windows are returned, treat them as candidate_read_windows and call read_file on a candidate only when exact source evidence is needed."
                 ),
+                "forbidden_fields": ["path", "pattern"],
                 "output_facts": ["matches", "recommended_read_windows", "applied_limit", "applied_offset"],
             }
         )

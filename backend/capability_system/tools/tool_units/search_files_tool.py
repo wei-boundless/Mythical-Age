@@ -51,7 +51,7 @@ class SearchTextInput(BaseModel):
     )
     paths: list[str] = Field(
         default_factory=list,
-        description="可选具体文件路径；当只想在一个或多个已知文件里搜索内容时使用；只能放文件，目录必须放 roots",
+        description="可选具体文件路径；当只想在一个或多个已知文件里搜索内容时使用；只能放文件，目录必须放 roots；不要传 path，单文件也写成 paths=[\"...\"]",
     )
     glob: str = Field(default="", description="可选文件范围过滤 glob，例如 **/*.md 或 backend/**/*.py；它过滤搜索文件，不是内容 query")
     max_results: int = Field(default=20, ge=1, le=100, description="最大返回条数")
@@ -322,6 +322,7 @@ class SearchTextTool(BaseTool):
             "--line-number",
             "--column",
             "--hidden",
+            "--no-ignore-parent",
             "--max-count",
             str(scan_limit),
         ]
@@ -336,7 +337,7 @@ class SearchTextTool(BaseTool):
         args.append(normalized_query)
         completed = None
         if self._files.search_root_args_are_workspace_relative(safe_roots):
-            args.extend(self._files.relative_path(root) for root in safe_roots)
+            args.extend(self._files.relative_path(root) or "." for root in safe_roots)
             completed = _run_rg(args, cwd=self._files.workspace_root)
         if completed is None:
             return self._fallback_search(

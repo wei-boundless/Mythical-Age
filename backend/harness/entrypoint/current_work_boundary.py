@@ -47,8 +47,6 @@ class CurrentWorkBoundaryDecision:
     task_run_id: str = ""
     expected_active_turn_id: str = ""
     actual_active_turn_id: str = ""
-    allowed_next_actions: tuple[str, ...] = ()
-    forbidden_next_actions: tuple[str, ...] = ()
     reason: str = ""
     evidence: str = ""
     public_response_obligation: str = "runtime_control_status"
@@ -61,10 +59,7 @@ class CurrentWorkBoundaryDecision:
     authority: str = "harness.entrypoint.current_work_boundary"
 
     def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["allowed_next_actions"] = list(self.allowed_next_actions)
-        payload["forbidden_next_actions"] = list(self.forbidden_next_actions)
-        return payload
+        return asdict(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,8 +71,6 @@ class CurrentWorkBoundaryReceipt:
     task_run_ref: str = ""
     turn_ref: str = ""
     runtime_branch_ref: dict[str, Any] = field(default_factory=dict)
-    available_action_types_for_next_packet: tuple[str, ...] = ()
-    unavailable_action_types_for_next_packet: tuple[str, ...] = ()
     operation_availability: dict[str, bool] = field(default_factory=dict)
     observation_state: str = "available"
     state_reason: str = ""
@@ -85,14 +78,10 @@ class CurrentWorkBoundaryReceipt:
     actual_active_turn_id: str = ""
     public_projection_policy: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    enforced: bool = False
     authority: str = "harness.entrypoint.current_work_boundary_receipt"
 
     def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["available_action_types_for_next_packet"] = list(self.available_action_types_for_next_packet)
-        payload["unavailable_action_types_for_next_packet"] = list(self.unavailable_action_types_for_next_packet)
-        return payload
+        return asdict(self)
 
 
 def build_current_work_boundary_input(
@@ -255,13 +244,10 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
 
 
 def current_work_boundary_receipt_from_decision(decision: CurrentWorkBoundaryDecision) -> CurrentWorkBoundaryReceipt:
+    control_capabilities = dict(decision.diagnostics.get("control_capabilities") or {})
+    may_control_active_work = bool(control_capabilities.get("may_control_active_work") is not False)
     operation_availability = {
-        "respond": "respond" in set(decision.allowed_next_actions),
-        "ask_user": "ask_user" in set(decision.allowed_next_actions),
-        "block": "block" in set(decision.allowed_next_actions),
-        "active_work_control": "active_work_control" in set(decision.allowed_next_actions),
-        "request_task_run": "request_task_run" in set(decision.allowed_next_actions),
-        "tool_call": "tool_call" in set(decision.allowed_next_actions),
+        "active_work_control": decision.action == "current_work_control_required" and may_control_active_work,
     }
     observation_state = (
         "controllable_current_work"
@@ -280,8 +266,6 @@ def current_work_boundary_receipt_from_decision(decision: CurrentWorkBoundaryDec
         task_run_ref=decision.task_run_id,
         turn_ref=decision.turn_id,
         runtime_branch_ref=dict(decision.diagnostics.get("runtime_branch") or {}),
-        available_action_types_for_next_packet=decision.allowed_next_actions,
-        unavailable_action_types_for_next_packet=decision.forbidden_next_actions,
         operation_availability=operation_availability,
         observation_state=observation_state,
         state_reason=decision.reason,
@@ -326,7 +310,6 @@ def _decision(
     requires_model: bool = False,
     diagnostics: dict[str, Any] | None = None,
 ) -> CurrentWorkBoundaryDecision:
-    allowed, forbidden = _allowed_next_actions(action, boundary_input=boundary_input)
     now_key = int(time.time() * 1000)
     return CurrentWorkBoundaryDecision(
         decision_id=f"cwbd:{turn_id}:{now_key}",
@@ -338,8 +321,6 @@ def _decision(
         task_run_id=task_run_id,
         expected_active_turn_id=expected_turn_id,
         actual_active_turn_id=actual_turn_id,
-        allowed_next_actions=allowed,
-        forbidden_next_actions=forbidden,
         reason=reason,
         evidence=evidence,
         public_response_obligation="direct_response_required" if action == "current_work_unavailable" else "runtime_control_status",
@@ -350,53 +331,11 @@ def _decision(
         active_turn_check=dict(active_check or {}),
         diagnostics={
             "runtime_branch": dict(boundary_input.runtime_branch or {}),
+            "control_capabilities": dict(boundary_input.control_capabilities or {}),
             "active_turn_input_policy": str(boundary_input.active_turn_input_policy or ""),
             **dict(diagnostics or {}),
         },
     )
-
-
-def _allowed_next_actions(
-    action: str,
-    *,
-    boundary_input: CurrentWorkBoundaryInput,
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    may_request_task = bool(dict(boundary_input.control_capabilities or {}).get("may_request_task_run") is True)
-    may_call_tools = bool(dict(boundary_input.control_capabilities or {}).get("may_call_tools") is not False)
-    may_control_active_work = bool(dict(boundary_input.control_capabilities or {}).get("may_control_active_work") is not False)
-    if action == "no_current_work":
-        allowed = ["respond", "ask_user", "block"]
-        if may_call_tools:
-            allowed.append("tool_call")
-        if may_request_task:
-            allowed.append("request_task_run")
-        return tuple(dict.fromkeys(allowed)), ("active_work_control",)
-    if action == "current_work_control_required":
-        allowed = ["respond", "ask_user", "block"]
-        if may_call_tools:
-            allowed.append("tool_call")
-        if may_control_active_work:
-            allowed.append("active_work_control")
-        if may_request_task:
-            allowed.append("request_task_run")
-        return tuple(dict.fromkeys(allowed)), ()
-    if action == "current_work_unavailable":
-        allowed = ["respond", "ask_user", "block"]
-        if may_call_tools:
-            allowed.append("tool_call")
-        if may_request_task:
-            allowed.append("request_task_run")
-        return tuple(dict.fromkeys(allowed)), ("active_work_control",)
-    if action == "new_independent_turn_allowed":
-        allowed = ["respond", "ask_user", "block"]
-        if may_call_tools:
-            allowed.append("tool_call")
-        if may_request_task:
-            allowed.append("request_task_run")
-        return tuple(dict.fromkeys(allowed)), ("active_work_control",)
-    if action in {"ask_user", "block"}:
-        return (action,), ("tool_call", "request_task_run", "active_work_control")
-    return (), ("tool_call", "request_task_run", "active_work_control")
 
 
 def _payload_from_object(value: Any | None) -> dict[str, Any]:

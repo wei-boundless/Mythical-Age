@@ -681,6 +681,16 @@ def _inherited_file_state_projection(value: Any) -> list[dict[str, Any]]:
                         for hit in list(item.get("search_hits") or [])[:8]
                         if isinstance(hit, dict)
                     ],
+                    "read_recommendations": [
+                        _bounded_projection_dict(recommendation, limit=10, chars=600)
+                        for recommendation in list(item.get("read_recommendations") or [])[:10]
+                        if isinstance(recommendation, dict)
+                    ],
+                    "recommended_read_windows": [
+                        _bounded_projection_dict(window, limit=10, chars=600)
+                        for window in list(item.get("recommended_read_windows") or [])[:10]
+                        if isinstance(window, dict)
+                    ],
                     "coverage": _bounded_projection_dict(item.get("coverage"), limit=12, chars=800),
                     "exact_coverage": _bounded_projection_dict(item.get("exact_coverage"), limit=12, chars=800),
                     "next_suggested_read": _bounded_projection_dict(item.get("next_suggested_read"), limit=8, chars=500),

@@ -9,7 +9,7 @@ import uuid
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Iterable, Literal
+from typing import Any, Iterable
 
 from artifact_system.artifact_authority import (
     artifact_ref_value,
@@ -22,7 +22,6 @@ from runtime.shared.models import AgentRun, AgentRunResult
 from runtime.memory.file_evidence_scope import task_run_file_evidence_scope
 from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.memory.tool_observation_ledger import build_tool_observation_record
-from runtime.output_boundary import canonical_output_decision_for_final_text
 from runtime.output_stream.public_contract import ASSISTANT_PUBLIC_FEEDBACK_EVENT
 from runtime.model_gateway.assistant_stream_frame import (
     allows_assistant_body_projection,
@@ -31,20 +30,27 @@ from runtime.model_gateway.assistant_stream_frame import (
 )
 from runtime.cache_manager import DEFAULT_SANDBOX_CACHE_TTL_SECONDS, runtime_cache_manager_for_host
 from runtime.shared.approval_fingerprint import build_approval_risk_fingerprint
-from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
+from runtime.shared.file_observation_policy import read_window_fingerprint_defaults
+from runtime.tool_runtime import ToolInvocationRequest
 from runtime.shared.tool_identity import (
     canonical_action_tool_call_id,
     ensure_tool_call_id,
     permission_decision_id,
 )
 
-from orchestration.commit_gate import build_assistant_session_message_commit_decision
 from permissions.policy import normalize_permission_mode
 from prompt_library import TASK_ACTION_JSON_REPAIR_PROMPT
 from project_layout import ProjectLayout
 from harness.task_run_status import is_stopped_or_terminal_task_run, runtime_control_state_from_task_run
 from harness.runtime.assembly import assemble_runtime
 from harness.runtime.compiler import RuntimeCompiler
+from harness.runtime.output_commit_authority import OutputCommitAuthority, OutputCommitRequest
+from harness.runtime.control_events import RuntimeSignalScope
+from harness.runtime.packet_context import (
+    runtime_packet_evidence_projection_event_payload,
+    runtime_packet_evidence_projection_ref,
+    runtime_packet_evidence_signal_scope,
+)
 from harness.runtime.dynamic_context.semantic_payload_classifier import (
     merge_pending_tool_control_actions,
     pending_tool_control_actions_from_observation,
@@ -65,8 +71,16 @@ from harness.runtime.sandbox_artifacts import (
     publish_sandbox_artifact_refs,
 )
 
-from .admission import admit_model_action
-from .action_permit import action_permit_from_admission
+from .execution_kernel import (
+    append_action_lifecycle_event,
+    action_admission_denial_fingerprint,
+    build_action_admission_recovery_payload,
+    build_action_lifecycle_event_record,
+    build_action_lifecycle_from_admission,
+    build_action_tool_invocation_identity,
+    build_tool_lifecycle_started_event_record,
+    decide_model_action_lifecycle,
+)
 from .executor_sequence import claim_executor_sequence, next_model_action_request_id
 from .model_action_runtime import (
     call_model_invoker,
@@ -115,6 +129,8 @@ from .task_tool_approval import (
     build_task_tool_approval_grant,
     matching_approval_grant_for_pending,
     pending_approval_from_task_run,
+    publish_task_tool_approval_granted,
+    publish_task_tool_approval_requested,
     tool_args_hash,
 )
 from .task_run_recovery_state import recovery_state_for_task_run, should_auto_continue_task_run
@@ -263,6 +279,13 @@ def approve_task_run_tool_call(
             "action_request_ref": grant.action_request_ref,
             **({"turn_ref": turn_id} if turn_id else {}),
         },
+    )
+    publish_task_tool_approval_granted(
+        runtime_host,
+        task_run=task_run,
+        grant=grant,
+        pending_approval=pending_approval,
+        event_ref=str(getattr(event, "event_id", "") or ""),
     )
     approved_pending = {
         **pending_approval,
@@ -897,16 +920,26 @@ async def _replay_approved_pending_tool_call(
             "execution_state": execution_state,
             "artifact_refs": artifact_refs,
         }
-    admission = admit_model_action(
+    replay_turn_id = str(dict(getattr(current_task, "diagnostics", {}) or {}).get("turn_id") or current_task.task_id or "")
+    lifecycle = decide_model_action_lifecycle(
         action_request,
+        packet_allowed_action_types=("tool_call",),
         definitions_by_name=getattr(runtime_host.tool_authorization_index, "definitions_by_name", {}),
         allowed_tool_names=allowed_tool_names,
         runtime_profile=dict(runtime_assembly.profile.to_dict() if hasattr(runtime_assembly, "profile") else dict(runtime_assembly or {}).get("profile") or {}),
+        invocation_kind="task_execution",
+        permit_invocation_kind="task_execution",
+        packet_ref=str(pending.get("directive_ref") or ""),
         permission_mode=runtime_permission_mode,
         side_effect_policy="runtime_authorized",
+        session_id=current_task.session_id,
+        turn_id=replay_turn_id,
+        task_run_id=current_task.task_run_id,
+        grant_scope="task_run",
     )
+    admission = lifecycle.admission
     if admission.decision != "allow":
-        admission_observation = _model_action_admission_observation(
+        admission_observation = _model_action_admission_recovery_observation(
             task_run_id=current_task.task_run_id,
             packet_ref=str(pending.get("directive_ref") or ""),
             action_request=action_request,
@@ -1153,10 +1186,27 @@ async def _execute_claimed_task_run(
                 "invocation_index": step_index,
             },
         )
+        evidence_event = _publish_packet_evidence_projection_event(
+            runtime_host,
+            run_id=current_task.task_run_id,
+            packet_context=dict(compilation.packet.diagnostics.get("runtime_packet_context") or {}),
+            refs={
+                "task_run_ref": current_task.task_run_id,
+                "runtime_envelope_ref": compilation.envelope.envelope_id,
+                "runtime_invocation_packet_ref": compilation.packet.packet_id,
+                "packet_compiled_event_ref": packet_event.event_id,
+                "executor_epoch": sequence.executor_epoch,
+                "invocation_index": step_index,
+            },
+        )
+        latest_packet_event_offset = max(
+            packet_event.offset,
+            int(getattr(evidence_event, "offset", packet_event.offset) or packet_event.offset),
+        )
         runtime_host.state_index.upsert_task_run(
             replace(
                 current_task,
-                latest_event_offset=packet_event.offset,
+                latest_event_offset=latest_packet_event_offset,
                 diagnostics={
                     **dict(getattr(current_task, "diagnostics", {}) or {}),
                     "executor_epoch": sequence.executor_epoch,
@@ -1178,6 +1228,27 @@ async def _execute_claimed_task_run(
                 steer_ids=included_steer_ids,
                 packet_ref=compilation.packet.packet_id,
             )
+        control_followup = _record_pending_runtime_control_signal_for_agent(
+            runtime_host,
+            current_task=current_task,
+            signal=None,
+            packet_ref=compilation.packet.packet_id,
+            boundary=f"before_model_action:{step_index}",
+            raw_observations=raw_observations,
+            observations=observations,
+            execution_state=execution_state,
+            artifact_refs=artifact_refs,
+            runtime_fingerprint=runtime_fingerprint,
+            step_index=step_index,
+            event_offset=packet_event.offset,
+        )
+        if control_followup is not None:
+            current_task = control_followup["current_task"]
+            raw_observations = list(control_followup["raw_observations"])
+            observations = list(control_followup["observations"])
+            execution_state = dict(control_followup["execution_state"])
+            artifact_refs = dedupe_artifact_refs(list(control_followup["artifact_refs"]))
+            continue
         _record_task_model_wait_heartbeat(
             runtime_host,
             task_run_id=current_task.task_run_id,
@@ -1349,6 +1420,13 @@ async def _execute_claimed_task_run(
                 steer_ids=consumed_steer_ids,
                 action_ref=action_request.request_id,
             )
+            _mark_replan_control_signals_consumed_by_model_action(
+                runtime_host,
+                task_run=current_task,
+                action_request=action_request,
+                observations=raw_observations,
+                consumed_steer_ids=consumed_steer_ids,
+            )
         if action_progress or action_brief:
             append_work_rollout_item(
                 runtime_host,
@@ -1423,24 +1501,34 @@ async def _execute_claimed_task_run(
             artifact_refs = dedupe_artifact_refs(list(batch_result["artifact_refs"]))
             continue
 
-        admission = admit_model_action(
+        action_turn_id = str(dict(getattr(current_task, "diagnostics", {}) or {}).get("turn_id") or current_task.task_id or "")
+        lifecycle = decide_model_action_lifecycle(
             action_request,
+            packet_allowed_action_types=tuple(compilation.packet.allowed_action_types or ()),
+            invocation_kind="task_execution",
+            permit_invocation_kind="task_execution",
+            packet_ref=compilation.packet.packet_id,
             definitions_by_name=getattr(runtime_host.tool_authorization_index, "definitions_by_name", {}),
             allowed_tool_names=allowed_tool_names,
             runtime_profile=dict(runtime_assembly.profile.to_dict()),
             permission_mode=runtime_permission_mode,
             side_effect_policy="runtime_authorized",
+            session_id=current_task.session_id,
+            turn_id=action_turn_id,
+            task_run_id=current_task.task_run_id,
+            grant_scope="task_run",
         )
-        runtime_host.event_log.append(
-            current_task.task_run_id,
-            "model_action_admission_checked",
-            payload={
-                "task_run_id": current_task.task_run_id,
-                "model_action_request": action_request.to_dict(),
-                "admission": admission.to_dict(),
-            },
-            refs={"task_run_ref": current_task.task_run_id, "action_request_ref": action_request.request_id},
+        admission = lifecycle.admission
+        event_record = build_action_lifecycle_event_record(
+            lifecycle,
+            action_request,
+            run_id=current_task.task_run_id,
+            packet_ref=compilation.packet.packet_id,
+            session_id=current_task.session_id,
+            turn_id=action_turn_id,
+            task_run_id=current_task.task_run_id,
         )
+        append_action_lifecycle_event(runtime_host, event_record)
         current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
         control_result = _apply_runtime_control_boundary(runtime_host, task_run=current_task, agent_run=agent_run, boundary=f"after_action_admission:{step_index}")
         if control_result is not None:
@@ -1467,99 +1555,28 @@ async def _execute_claimed_task_run(
             artifact_refs = dedupe_artifact_refs(list(control_followup["artifact_refs"]))
             continue
         if admission.decision != "allow":
-            previous_admission_denials = _matching_model_action_admission_denial_observations(
-                raw_observations,
+            admission_result = _record_task_admission_observation(
+                runtime_host,
+                current_task=current_task,
+                agent_run=agent_run,
                 action_request=action_request,
                 admission=admission,
                 runtime_fingerprint=runtime_fingerprint,
-            )
-            admission_denial_count = len(previous_admission_denials) + 1
-            pause_after_repeated_admission = admission_denial_count >= _REPEATED_ADMISSION_PAUSE_COUNT
-            if admission_denial_count >= _REPEATED_ADMISSION_GUARD_COUNT:
-                admission_observation = _repeated_model_action_admission_observation(
-                    task_run_id=current_task.task_run_id,
-                    packet_ref=compilation.packet.packet_id,
-                    action_request=action_request,
-                    admission=admission,
-                    runtime_fingerprint=runtime_fingerprint,
-                    step_index=step_index,
-                    repeat_count=admission_denial_count,
-                    previous_observations=previous_admission_denials,
-                    pause_after_observation=pause_after_repeated_admission,
-                )
-                admission_event_type = "task_repeated_model_action_admission_guarded"
-                admission_step = f"repeated_model_action_admission_guarded:{step_index}"
-                admission_summary = "模型重复请求同一个未获准动作，已返回恢复观察。"
-                admission_title = "重复运行边界"
-            else:
-                admission_observation = _model_action_admission_observation(
-                    task_run_id=current_task.task_run_id,
-                    packet_ref=compilation.packet.packet_id,
-                    action_request=action_request,
-                    admission=admission,
-                    runtime_fingerprint=runtime_fingerprint,
-                    step_index=step_index,
-                )
-                admission_event_type = "task_model_action_admission_observation_recorded"
-                admission_step = f"model_action_admission_observation:{step_index}"
-                admission_summary = "运行边界拒绝了当前动作，正在根据边界观察继续推进。"
-                admission_title = "运行边界"
-            raw_observations.append(admission_observation)
-            runtime_host.runtime_objects.put_object("observation", admission_observation["observation_id"], admission_observation)
-            runtime_host.event_log.append(
-                current_task.task_run_id,
-                admission_event_type,
-                payload={
-                    "observation": admission_observation,
-                    "admission": admission.to_dict(),
-                    "repeat_count": admission_denial_count,
-                },
-                refs={
-                    "task_run_ref": current_task.task_run_id,
-                    "action_request_ref": action_request.request_id,
-                    "observation_ref": admission_observation["observation_id"],
-                    "runtime_invocation_packet_ref": compilation.packet.packet_id,
-                },
-            )
-            _record_task_step_summary(
-                runtime_host,
-                task_run_id=current_task.task_run_id,
-                step=admission_step,
-                status="running",
-                summary=admission_summary,
-                refs={"observation_ref": admission_observation["observation_id"], "action_request_ref": action_request.request_id},
-            )
-            append_work_rollout_item(
-                runtime_host,
-                task_run=current_task,
-                item_type="progress",
-                title=admission_title,
-                status="running",
-                summary=admission_summary,
+                raw_observations=raw_observations,
+                observations=observations,
+                execution_state=execution_state,
+                artifact_refs=artifact_refs,
+                packet_ref=compilation.packet.packet_id,
+                step_index=step_index,
                 event_offset=action_event.offset,
-                refs={"observation_ref": admission_observation["observation_id"], "action_request_ref": action_request.request_id},
-                payload={"model_visible": False, "admission": admission.to_dict(), "repeat_count": admission_denial_count},
             )
-            observation_context = _observations_for_packet(
-                runtime_host,
-                current_task.task_run_id,
-                current_fingerprint=runtime_fingerprint,
-                pending_observations=raw_observations,
-            )
-            raw_observations = list(observation_context["raw_observations"])
-            observations = list(observation_context["packet_observations"])
-            execution_state = dict(observation_context["execution_state"])
-            artifact_refs = dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs])
-            if pause_after_repeated_admission:
-                return _pause_executor_for_repeated_admission_denial(
-                    runtime_host,
-                    task_run=current_task,
-                    agent_run=agent_run,
-                    action_request=action_request,
-                    admission=admission,
-                    observation=admission_observation,
-                    repeat_count=admission_denial_count,
-                )
+            if admission_result.get("return_result") is not None:
+                return admission_result["return_result"]
+            current_task = admission_result["current_task"]
+            raw_observations = list(admission_result["raw_observations"])
+            observations = list(admission_result["observations"])
+            execution_state = dict(admission_result["execution_state"])
+            artifact_refs = dedupe_artifact_refs(list(admission_result["artifact_refs"]))
             continue
 
         if action_request.action_type == "respond":
@@ -1863,22 +1880,15 @@ async def _process_task_tool_call_batch(
     invocation_rows: list[dict[str, Any]] = []
     tool_turn_id = str(dict(getattr(current_task, "diagnostics", {}) or {}).get("turn_id") or current_task.task_id or "")
     for child_request in child_requests:
-        admission = admit_model_action(
+        lifecycle = decide_model_action_lifecycle(
             child_request,
             packet_allowed_action_types=("respond", "ask_user", "tool_call", "block"),
             invocation_kind="task_execution",
+            permit_invocation_kind="task_execution",
+            packet_ref=packet_ref,
             definitions_by_name=getattr(runtime_host.tool_authorization_index, "definitions_by_name", {}),
             allowed_tool_names=allowed_tool_names,
             runtime_profile=dict(runtime_assembly.profile.to_dict()),
-            permission_mode=runtime_permission_mode,
-            side_effect_policy="runtime_authorized",
-        )
-        action_permit = action_permit_from_admission(
-            child_request,
-            admission,
-            invocation_kind="task_execution",
-            packet_allowed_action_types=("respond", "ask_user", "tool_call", "block"),
-            allowed_tool_names=allowed_tool_names,
             permission_mode=runtime_permission_mode,
             side_effect_policy="runtime_authorized",
             session_id=current_task.session_id,
@@ -1886,31 +1896,30 @@ async def _process_task_tool_call_batch(
             task_run_id=current_task.task_run_id,
             grant_scope="task_run",
         )
-        runtime_host.event_log.append(
-            current_task.task_run_id,
-            "model_action_admission_checked",
-            payload={
-                "task_run_id": current_task.task_run_id,
-                "model_action_request": child_request.to_dict(),
-                "admission": admission.to_dict(),
-                "batch_action_request_ref": action_request.request_id,
-            },
-            refs={
-                "task_run_ref": current_task.task_run_id,
-                "action_request_ref": child_request.request_id,
-                "batch_action_request_ref": action_request.request_id,
-            },
+        admission = lifecycle.admission
+        action_permit = lifecycle.action_permit
+        event_record = build_action_lifecycle_event_record(
+            lifecycle,
+            child_request,
+            run_id=current_task.task_run_id,
+            packet_ref=packet_ref,
+            session_id=current_task.session_id,
+            turn_id=tool_turn_id,
+            task_run_id=current_task.task_run_id,
+            batch_action_request_ref=action_request.request_id,
         )
+        append_action_lifecycle_event(runtime_host, event_record)
         row = {
             "action_request": child_request,
             "tool_call": dict(child_request.tool_call or {}),
             "admission": admission,
+            "action_lifecycle": lifecycle.to_dict(),
             "action_permit": action_permit.to_dict(),
             "observation": None,
         }
         if admission.decision != "allow":
             invocation_rows.append(row)
-            admission_result = _record_task_admission_observation_for_tool_child(
+            admission_result = _record_task_admission_observation(
                 runtime_host,
                 current_task=current_task,
                 agent_run=agent_run,
@@ -2045,6 +2054,23 @@ async def _process_task_tool_call_batch(
         completed_refs: list[str] = []
         completed_statuses: list[str] = []
         for row, observation in group_results:
+            scope_status = _task_tool_observation_scope_status(
+                runtime_host,
+                task_run=current_task,
+                observation=observation,
+            )
+            if scope_status.get("accepted") is not True:
+                _record_late_task_tool_observation_rejected(
+                    runtime_host,
+                    task_run=current_task,
+                    row=row,
+                    observation=observation,
+                    packet_ref=packet_ref,
+                    tool_batch_ref=batch_plan.batch_id,
+                    group=group,
+                    scope_status=scope_status,
+                )
+                continue
             raw_observations.append(observation)
             runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
             observation_event = runtime_host.event_log.append(
@@ -2277,7 +2303,7 @@ def _record_duplicate_tool_call_guard_observation_for_tool_child(
     }
 
 
-def _record_task_admission_observation_for_tool_child(
+def _record_task_admission_observation(
     runtime_host: Any,
     *,
     current_task: Any,
@@ -2302,7 +2328,7 @@ def _record_task_admission_observation_for_tool_child(
     admission_denial_count = len(previous_admission_denials) + 1
     pause_after_repeated_admission = admission_denial_count >= _REPEATED_ADMISSION_PAUSE_COUNT
     if admission_denial_count >= _REPEATED_ADMISSION_GUARD_COUNT:
-        admission_observation = _repeated_model_action_admission_observation(
+        admission_observation = _model_action_admission_recovery_observation(
             task_run_id=current_task.task_run_id,
             packet_ref=packet_ref,
             action_request=action_request,
@@ -2318,7 +2344,7 @@ def _record_task_admission_observation_for_tool_child(
         admission_summary = "模型重复请求同一个未获准动作，已返回恢复观察。"
         admission_title = "重复运行边界"
     else:
-        admission_observation = _model_action_admission_observation(
+        admission_observation = _model_action_admission_recovery_observation(
             task_run_id=current_task.task_run_id,
             packet_ref=packet_ref,
             action_request=action_request,
@@ -2332,6 +2358,12 @@ def _record_task_admission_observation_for_tool_child(
         admission_title = "运行边界"
     raw_observations.append(admission_observation)
     runtime_host.runtime_objects.put_object("observation", admission_observation["observation_id"], admission_observation)
+    admission_refs = _admission_observation_refs(
+        current_task=current_task,
+        action_request=action_request,
+        admission_observation=admission_observation,
+        packet_ref=packet_ref,
+    )
     runtime_host.event_log.append(
         current_task.task_run_id,
         admission_event_type,
@@ -2340,12 +2372,7 @@ def _record_task_admission_observation_for_tool_child(
             "admission": admission.to_dict(),
             "repeat_count": admission_denial_count,
         },
-        refs={
-            "task_run_ref": current_task.task_run_id,
-            "action_request_ref": action_request.request_id,
-            "observation_ref": admission_observation["observation_id"],
-            "runtime_invocation_packet_ref": packet_ref,
-        },
+        refs=admission_refs,
     )
     _record_task_step_summary(
         runtime_host,
@@ -2353,7 +2380,7 @@ def _record_task_admission_observation_for_tool_child(
         step=admission_step,
         status="running",
         summary=admission_summary,
-        refs={"observation_ref": admission_observation["observation_id"], "action_request_ref": action_request.request_id},
+        refs=_public_admission_observation_refs(admission_refs),
     )
     append_work_rollout_item(
         runtime_host,
@@ -2363,7 +2390,7 @@ def _record_task_admission_observation_for_tool_child(
         status="running",
         summary=admission_summary,
         event_offset=event_offset,
-        refs={"observation_ref": admission_observation["observation_id"], "action_request_ref": action_request.request_id},
+        refs=_public_admission_observation_refs(admission_refs),
         payload={"model_visible": False, "admission": admission.to_dict(), "repeat_count": admission_denial_count},
     )
     observation_context = _observations_for_packet(
@@ -2390,6 +2417,34 @@ def _record_task_admission_observation_for_tool_child(
             repeat_count=admission_denial_count,
         )
     return result
+
+
+def _admission_observation_refs(
+    *,
+    current_task: Any,
+    action_request: AnyModelActionRequest,
+    admission_observation: dict[str, Any],
+    packet_ref: str,
+) -> dict[str, Any]:
+    payload = dict(admission_observation.get("payload") or {})
+    refs = {
+        "task_run_ref": current_task.task_run_id,
+        "action_request_ref": action_request.request_id,
+        "observation_ref": admission_observation["observation_id"],
+        "runtime_invocation_packet_ref": packet_ref,
+    }
+    action_lifecycle_ref = str(payload.get("action_lifecycle_ref") or "")
+    if action_lifecycle_ref:
+        refs["action_lifecycle_ref"] = action_lifecycle_ref
+    return refs
+
+
+def _public_admission_observation_refs(refs: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in dict(refs or {}).items()
+        if key in {"observation_ref", "action_request_ref", "action_lifecycle_ref"}
+    }
 
 
 def _record_repeated_tool_failure_if_needed(
@@ -2474,6 +2529,98 @@ def _record_repeated_tool_failure_if_needed(
     return {}
 
 
+def _pending_runtime_control_signal_from_bus(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    executor_epoch: int,
+) -> ExecutorControlSignal | None:
+    control_bus = getattr(runtime_host, "control_bus", None)
+    drain = getattr(control_bus, "drain", None)
+    if not callable(drain):
+        return None
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
+    if not task_run_id:
+        return None
+    try:
+        snapshot = drain(
+            task_run_id,
+            scope=_runtime_signal_scope_for_task_run(task_run),
+            signal_types={"control.signal.requested"},
+        )
+    except Exception:
+        return None
+    for envelope in tuple(getattr(snapshot, "pending_signals", ()) or ()):
+        payload = dict(getattr(envelope, "payload", {}) or {})
+        kind = str(payload.get("signal_kind") or "").strip()
+        if kind not in {"pause", "stop", "replan"}:
+            continue
+        try:
+            signal_epoch = int(payload.get("executor_epoch") or executor_epoch or 0)
+        except (TypeError, ValueError):
+            signal_epoch = int(executor_epoch or 0)
+        return ExecutorControlSignal(
+            kind=kind,  # type: ignore[arg-type]
+            task_run_id=task_run_id,
+            executor_epoch=signal_epoch,
+            reason=str(payload.get("reason") or kind),
+            requested_by=str(payload.get("requested_by") or "system"),
+            requested_at=float(payload.get("requested_at") or getattr(envelope, "created_at", 0.0) or time.time()),
+            steer_ref=str(payload.get("steer_ref") or ""),
+            signal_id=str(getattr(envelope, "signal_id", "") or ""),
+            control_event_ref=_runtime_signal_event_ref(runtime_host, task_run_id=task_run_id, signal_id=str(getattr(envelope, "signal_id", "") or "")),
+        )
+    return None
+
+
+def _pending_runtime_control_signal_from_bus_for_task_id(
+    runtime_host: Any,
+    *,
+    task_run_id: str,
+    executor_epoch: int,
+) -> ExecutorControlSignal | None:
+    task_run = getattr(getattr(runtime_host, "state_index", None), "get_task_run", lambda _task_run_id: None)(task_run_id)
+    if task_run is None:
+        return None
+    return _pending_runtime_control_signal_from_bus(
+        runtime_host,
+        task_run=task_run,
+        executor_epoch=executor_epoch,
+    )
+
+
+def _runtime_signal_scope_for_task_run(task_run: Any) -> RuntimeSignalScope:
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    scope_payload = dict(diagnostics.get("agent_run_scope") or {})
+    return RuntimeSignalScope(
+        session_id=str(getattr(task_run, "session_id", "") or scope_payload.get("session_id") or ""),
+        task_run_id=str(getattr(task_run, "task_run_id", "") or scope_payload.get("task_run_id") or ""),
+        agent_run_id=str(scope_payload.get("agent_run_id") or diagnostics.get("agent_run_id") or ""),
+        run_cell_id=str(scope_payload.get("run_cell_id") or diagnostics.get("run_cell_id") or ""),
+        turn_id=str(scope_payload.get("turn_id") or diagnostics.get("turn_id") or diagnostics.get("latest_interaction_turn_id") or ""),
+        turn_run_id=str(scope_payload.get("turn_run_id") or diagnostics.get("turn_run_id") or ""),
+    )
+
+
+def _runtime_signal_event_ref(runtime_host: Any, *, task_run_id: str, signal_id: str) -> str:
+    normalized_signal_id = str(signal_id or "").strip()
+    if not normalized_signal_id:
+        return ""
+    event_log = getattr(runtime_host, "event_log", None)
+    list_events = getattr(event_log, "list_events", None)
+    if not callable(list_events):
+        return ""
+    try:
+        events = list_events(task_run_id)
+    except Exception:
+        return ""
+    for event in events:
+        signal = dict(dict(getattr(event, "payload", {}) or {}).get("signal") or {})
+        if str(signal.get("signal_id") or "") == normalized_signal_id:
+            return str(getattr(event, "event_id", "") or "")
+    return ""
+
+
 def _record_pending_runtime_control_signal_for_agent(
     runtime_host: Any,
     *,
@@ -2503,7 +2650,14 @@ def _record_pending_runtime_control_signal_for_agent(
             executor_epoch=executor_epoch,
         )
     if signal is None:
-        signal = _executor_control_signal_from_task_run(
+        signal = _pending_runtime_control_signal_from_bus(
+            runtime_host,
+            task_run=latest_task,
+            executor_epoch=executor_epoch,
+        )
+    if signal is None:
+        signal = _executor_control_signal_from_task_run_with_bus_backfill(
+            runtime_host,
             latest_task,
             executor_epoch=executor_epoch,
             default_reason=boundary or "runtime_control_signal",
@@ -2524,6 +2678,15 @@ def _record_pending_runtime_control_signal_for_agent(
         fingerprint=fingerprint,
     )
     if existing_observation is not None:
+        _mark_runtime_control_signal_bus_observed(
+            runtime_host,
+            task_run=latest_task,
+            signal=signal,
+            observation=existing_observation,
+            packet_ref=packet_ref,
+            boundary=boundary,
+            fingerprint=fingerprint,
+        )
         updated_task = _mark_runtime_control_signal_delivered(
             runtime_host,
             latest_task,
@@ -2571,6 +2734,15 @@ def _record_pending_runtime_control_signal_for_agent(
             "observation_ref": observation["observation_id"],
             "runtime_invocation_packet_ref": packet_ref,
         },
+    )
+    _mark_runtime_control_signal_bus_observed(
+        runtime_host,
+        task_run=latest_task,
+        signal=signal,
+        observation=observation,
+        packet_ref=packet_ref,
+        boundary=boundary,
+        fingerprint=fingerprint,
     )
     updated_task = _mark_runtime_control_signal_delivered(
         runtime_host,
@@ -2664,6 +2836,8 @@ def _runtime_control_signal_observation(
         "requested_at": float(control.get("requested_at") or signal.requested_at or time.time()),
         "reason": str(control.get("reason") or signal.reason or ""),
         "steer_ref": str(signal.steer_ref or ""),
+        "runtime_control_signal_ref": str(getattr(signal, "signal_id", "") or ""),
+        "runtime_control_event_ref": str(getattr(signal, "control_event_ref", "") or ""),
         "boundary": str(boundary or ""),
         "runtime_control_signal_fingerprint": fingerprint,
         "agent_closeout_required": bool(closeout_required),
@@ -2703,6 +2877,149 @@ def _runtime_control_signal_observation(
         "created_at": time.time(),
         "authority": "orchestration.runtime_observation",
     }
+
+
+def _mark_runtime_control_signal_bus_observed(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    signal: ExecutorControlSignal,
+    observation: dict[str, Any],
+    packet_ref: str,
+    boundary: str,
+    fingerprint: str,
+) -> Any | None:
+    signal_id = str(getattr(signal, "signal_id", "") or "").strip()
+    if not signal_id:
+        return None
+    control_bus = getattr(runtime_host, "control_bus", None)
+    marker = getattr(control_bus, "mark_observed_by_id", None)
+    if not callable(marker):
+        return None
+    try:
+        return marker(
+            str(getattr(task_run, "task_run_id", "") or signal.task_run_id or ""),
+            signal_id=signal_id,
+            observed_by="harness.loop.task_executor.runtime_control_boundary",
+            payload={
+                "observation_ref": str(observation.get("observation_id") or ""),
+                "runtime_invocation_packet_ref": str(packet_ref or ""),
+                "boundary": str(boundary or ""),
+                "runtime_control_signal_fingerprint": fingerprint,
+            },
+            refs={
+                "task_run_ref": str(getattr(task_run, "task_run_id", "") or signal.task_run_id or ""),
+                "observation_ref": str(observation.get("observation_id") or ""),
+                "runtime_invocation_packet_ref": str(packet_ref or ""),
+            },
+        )
+    except Exception:
+        return None
+
+
+def _mark_runtime_control_signal_bus_consumed(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    control_observation: dict[str, Any],
+    lifecycle_status: str,
+    terminal_reason: str,
+    output_commit: dict[str, Any],
+    lifecycle_event: Any,
+) -> Any | None:
+    observation_payload = dict(control_observation.get("payload") or {})
+    signal_id = str(observation_payload.get("runtime_control_signal_ref") or "").strip()
+    if not signal_id:
+        return None
+    control_bus = getattr(runtime_host, "control_bus", None)
+    marker = getattr(control_bus, "mark_consumed_by_id", None)
+    if not callable(marker):
+        return None
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "")
+    commit_payload = dict(output_commit or {})
+    lifecycle_event_payload = dict(lifecycle_event or {}) if isinstance(lifecycle_event, dict) else {}
+    lifecycle_event_ref = str(lifecycle_event_payload.get("event_id") or getattr(lifecycle_event, "event_id", "") or "")
+    try:
+        return marker(
+            task_run_id,
+            signal_id=signal_id,
+            consumed_by="harness.loop.task_executor.agent_controlled_runtime_boundary",
+            payload={
+                "observation_ref": str(control_observation.get("observation_id") or ""),
+                "lifecycle_status": str(lifecycle_status or ""),
+                "terminal_reason": str(terminal_reason or ""),
+                "output_commit_status": str(commit_payload.get("state") or commit_payload.get("status") or ""),
+                "task_lifecycle_event_ref": lifecycle_event_ref,
+                "task_lifecycle_event_offset": _event_offset(lifecycle_event),
+            },
+            refs={
+                "task_run_ref": task_run_id,
+                "observation_ref": str(control_observation.get("observation_id") or ""),
+                "task_lifecycle_event_ref": lifecycle_event_ref,
+                **(
+                    {"session_output_commit_event_ref": str(commit_payload.get("event_id") or "")}
+                    if commit_payload.get("event_id")
+                    else {}
+                ),
+            },
+        )
+    except Exception:
+        return None
+
+
+def _mark_replan_control_signals_consumed_by_model_action(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    action_request: AnyModelActionRequest,
+    observations: list[dict[str, Any]],
+    consumed_steer_ids: list[str],
+) -> list[Any]:
+    consumed_steer_refs = {str(item or "").strip() for item in consumed_steer_ids if str(item or "").strip()}
+    if not consumed_steer_refs:
+        return []
+    control_bus = getattr(runtime_host, "control_bus", None)
+    marker = getattr(control_bus, "mark_consumed_by_id", None)
+    if not callable(marker):
+        return []
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "")
+    consumed_events: list[Any] = []
+    for observation in list(observations or []):
+        if str(observation.get("source") or "") != "system:runtime_control_signal":
+            continue
+        payload = dict(observation.get("payload") or {})
+        if str(payload.get("signal_kind") or "") != "replan":
+            continue
+        steer_ref = str(payload.get("steer_ref") or "").strip()
+        signal_id = str(payload.get("runtime_control_signal_ref") or "").strip()
+        if not steer_ref or steer_ref not in consumed_steer_refs or not signal_id:
+            continue
+        try:
+            event = marker(
+                task_run_id,
+                signal_id=signal_id,
+                consumed_by="harness.loop.task_executor.model_action_replan_consumption",
+                payload={
+                    "observation_ref": str(observation.get("observation_id") or ""),
+                    "action_request_ref": str(action_request.request_id or ""),
+                    "signal_kind": "replan",
+                    "steer_ref": steer_ref,
+                    "lifecycle_status": str(getattr(task_run, "status", "") or "running"),
+                    "terminal_reason": str(getattr(task_run, "terminal_reason", "") or ""),
+                    "model_action_consumption": "consumed_steer_refs",
+                },
+                refs={
+                    "task_run_ref": task_run_id,
+                    "observation_ref": str(observation.get("observation_id") or ""),
+                    "action_request_ref": str(action_request.request_id or ""),
+                    "steer_ref": steer_ref,
+                },
+            )
+        except Exception:
+            event = None
+        if event is not None:
+            consumed_events.append(event)
+    return consumed_events
 
 
 def _runtime_control_signal_fingerprint(task_run: Any, *, signal: ExecutorControlSignal) -> str:
@@ -2964,6 +3281,7 @@ async def _execute_task_tool_batch_group(
                     invocation_rows[row_index],
                     _task_observation_from_batch_result(
                         results_by_index.get(row_index),
+                        runtime_host=runtime_host,
                         task_run=task_run,
                         packet_ref=packet_ref,
                         row=invocation_rows[row_index],
@@ -3000,11 +3318,11 @@ async def _execute_task_tool_batch_group(
             result = TimeoutError(f"task_tool_batch_group_timeout_after_{timeout_seconds:g}s")
         except BaseException as exc:
             result = exc
-        results.append((row, _task_observation_from_batch_result(result, task_run=task_run, packet_ref=packet_ref, row=row)))
+        results.append((row, _task_observation_from_batch_result(result, runtime_host=runtime_host, task_run=task_run, packet_ref=packet_ref, row=row)))
     return {"results": results, "interrupt": interrupt}
 
 
-def _task_observation_from_batch_result(result: Any, *, task_run: Any, packet_ref: str, row: dict[str, Any]) -> dict[str, Any]:
+def _task_observation_from_batch_result(result: Any, *, runtime_host: Any, task_run: Any, packet_ref: str, row: dict[str, Any]) -> dict[str, Any]:
     if isinstance(result, dict):
         return result
     error = result if isinstance(result, BaseException) else RuntimeError("task_tool_batch_invalid_observation")
@@ -3012,7 +3330,22 @@ def _task_observation_from_batch_result(result: Any, *, task_run: Any, packet_re
     tool_call = dict(getattr(action_request, "tool_call", {}) or {})
     tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
     tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
+    tool_args = _runtime_bound_tool_args(tool_name, tool_args, task_run=task_run)
     tool_call_id = _canonical_tool_call_id(action_request)
+    action_lifecycle_ref = str(dict(row.get("action_lifecycle") or {}).get("lifecycle_id") or f"action-lifecycle:{action_request.request_id}")
+    identity = None
+    try:
+        identity = _task_action_tool_invocation_identity(
+            runtime_host,
+            task_run=task_run,
+            action_request=action_request,
+            admission=row.get("admission"),
+            action_permit=dict(row.get("action_permit") or {}),
+            action_lifecycle_ref=action_lifecycle_ref,
+            tool_args_override=tool_args,
+        )
+    except ValueError:
+        identity = None
     return _executor_error_observation(
         task_run_id=task_run.task_run_id,
         request_ref=action_request.request_id,
@@ -3020,7 +3353,9 @@ def _task_observation_from_batch_result(result: Any, *, task_run: Any, packet_re
         tool_name=tool_name,
         tool_args=tool_args,
         tool_call_id=tool_call_id,
-        admission_ref=permission_decision_id(row.get("admission"), tool_call_id=tool_call_id),
+        admission_ref=str(getattr(identity, "admission_ref", "") or permission_decision_id(row.get("admission"), tool_call_id=tool_call_id)),
+        action_lifecycle_ref=action_lifecycle_ref,
+        identity=identity,
         action_request=action_request,
         error=str(error),
     )
@@ -3098,6 +3433,33 @@ def _task_tool_child_action_requests(action_request: AnyModelActionRequest) -> l
 
 def _canonical_tool_call_id(action_request: AnyModelActionRequest) -> str:
     return canonical_action_tool_call_id(action_request)
+
+
+def _task_action_tool_invocation_identity(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    action_request: AnyModelActionRequest,
+    admission: Any,
+    action_permit: Any,
+    action_lifecycle_ref: str = "",
+    tool_args_override: dict[str, Any] | None = None,
+    agent_run: Any | None = None,
+):
+    agent_scope = _agent_run_scope_payload(task_run)
+    scoped_agent_run_id = str(agent_scope.get("agent_run_id") or getattr(agent_run, "agent_run_id", "") or "")
+    scoped_run_cell_id = str(agent_scope.get("run_cell_id") or "")
+    return build_action_tool_invocation_identity(
+        action_request,
+        caller_ref=task_run.task_run_id,
+        definitions_by_name=getattr(runtime_host.tool_authorization_index, "definitions_by_name", {}),
+        admission=admission,
+        action_permit=action_permit,
+        action_lifecycle_ref=action_lifecycle_ref,
+        tool_args_override=tool_args_override,
+        agent_run_id=scoped_agent_run_id,
+        run_cell_id=scoped_run_cell_id,
+    )
 
 
 def _task_batch_workspace_root(runtime_assembly: Any, *, runtime_host: Any | None = None) -> str:
@@ -3337,6 +3699,12 @@ async def _await_task_model_action_with_status(
     try:
         while not task.done():
             signal = peek_executor_signal(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
+            if signal is None:
+                signal = _pending_runtime_control_signal_from_bus_for_task_id(
+                    runtime_host,
+                    task_run_id=task_run_id,
+                    executor_epoch=executor_epoch,
+                )
             if signal is not None:
                 task.cancel()
                 try:
@@ -3377,11 +3745,23 @@ async def _await_task_model_action_with_status(
                     refs={"runtime_invocation_packet_ref": packet_ref},
                 )
         signal = peek_executor_signal(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
+        if signal is None:
+            signal = _pending_runtime_control_signal_from_bus_for_task_id(
+                runtime_host,
+                task_run_id=task_run_id,
+                executor_epoch=executor_epoch,
+            )
         if signal is not None:
             raise TaskRunExecutorInterrupted(signal)
         return await task
     except asyncio.CancelledError:
         signal = peek_executor_signal(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
+        if signal is None:
+            signal = _pending_runtime_control_signal_from_bus_for_task_id(
+                runtime_host,
+                task_run_id=task_run_id,
+                executor_epoch=executor_epoch,
+            )
         if signal is not None:
             raise TaskRunExecutorInterrupted(signal) from None
         raise
@@ -3393,38 +3773,27 @@ def _record_task_tool_item_started(
     runtime_host: Any,
     *,
     task_run: Any,
-    action_request: AnyModelActionRequest,
-    admission: Any,
-    invocation_id: str,
-    tool_name: str,
+    identity: Any,
     packet_ref: str,
 ) -> Any:
-    tool_call_id = _canonical_tool_call_id(action_request)
-    permission_decision_id_value = permission_decision_id(admission, tool_call_id=tool_call_id)
-    tool_call = dict(getattr(action_request, "tool_call", {}) or {})
-    tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
+    tool_args = dict(getattr(identity, "tool_args", {}) or {})
+    turn_id = str(dict(getattr(task_run, "diagnostics", {}) or {}).get("turn_id") or getattr(task_run, "task_id", "") or "")
+    record = build_tool_lifecycle_started_event_record(
+        identity,
+        run_id=task_run.task_run_id,
+        caller_kind="task_run",
+        session_id=str(getattr(task_run, "session_id", "") or ""),
+        turn_id=turn_id,
+        task_run_id=task_run.task_run_id,
+        packet_ref=packet_ref,
+        target=_tool_target_preview(tool_args),
+        arguments_preview=_tool_arguments_preview(tool_args),
+    )
     event = runtime_host.event_log.append(
-        task_run.task_run_id,
-        "tool_item_started",
-        payload={
-            "task_run_id": task_run.task_run_id,
-            "turn_id": str(dict(getattr(task_run, "diagnostics", {}) or {}).get("turn_id") or getattr(task_run, "task_id", "") or ""),
-            "tool_lifecycle_id": invocation_id,
-            "tool_call_id": tool_call_id,
-            "permission_decision_id": permission_decision_id_value,
-            "tool_name": tool_name,
-            "target": _tool_target_preview(tool_args),
-            "arguments_preview": _tool_arguments_preview(tool_args),
-            "state": "running",
-            "action_request_ref": action_request.request_id,
-            "packet_ref": packet_ref,
-        },
-        refs={
-            "task_run_ref": task_run.task_run_id,
-            "action_request_ref": action_request.request_id,
-            "tool_invocation_ref": invocation_id,
-            "runtime_invocation_packet_ref": packet_ref,
-        },
+        record.run_id,
+        record.event_type,
+        payload=record.payload,
+        refs=record.refs,
     )
     current = runtime_host.state_index.get_task_run(task_run.task_run_id) or task_run
     runtime_host.state_index.upsert_task_run(
@@ -3453,7 +3822,15 @@ async def _execute_task_tool_call(
     if signal is not None:
         raise TaskRunExecutorInterrupted(signal)
     latest_task_run = runtime_host.state_index.get_task_run(task_run.task_run_id) or task_run
-    signal = _executor_control_signal_from_task_run(
+    signal = _pending_runtime_control_signal_from_bus(
+        runtime_host,
+        task_run=latest_task_run,
+        executor_epoch=executor_epoch,
+    )
+    if signal is not None:
+        raise TaskRunExecutorInterrupted(signal)
+    signal = _executor_control_signal_from_task_run_with_bus_backfill(
+        runtime_host,
         latest_task_run,
         executor_epoch=executor_epoch,
         default_reason="before_tool_execution",
@@ -3498,10 +3875,12 @@ async def _execute_task_tool_call(
         file_management_policy=file_policy,
     )
     agent_run = _ensure_executor_agent_run(runtime_host, task_run=task_run)
-    action_permit = action_permit_from_admission(
+    lifecycle = build_action_lifecycle_from_admission(
         action_request,
         admission,
         invocation_kind="task_execution",
+        permit_invocation_kind="task_execution",
+        packet_ref=packet_ref,
         packet_allowed_action_types=("respond", "ask_user", "tool_call", "block"),
         allowed_tool_names=set(getattr(runtime_tool_plan, "dispatchable_tool_names", ()) or ()),
         permission_mode=runtime_permission_mode,
@@ -3512,12 +3891,24 @@ async def _execute_task_tool_call(
         grant_scope="task_run",
         resource_scope={"approval_risk_fingerprint": approval_risk_fingerprint},
     )
-    invocation_id = build_tool_invocation_id(
-        caller_ref=task_run.task_run_id,
-        action_request_ref=action_request.request_id,
-        tool_name=tool_name,
-        tool_call_id=tool_call_id,
+    action_permit = lifecycle.action_permit
+    identity = _task_action_tool_invocation_identity(
+        runtime_host,
+        task_run=task_run,
+        action_request=action_request,
+        admission=admission,
+        action_permit=action_permit,
+        action_lifecycle_ref=lifecycle.lifecycle_id,
+        tool_args_override=tool_args,
+        agent_run=agent_run,
     )
+    scoped_agent_run_id = identity.agent_run_id
+    scoped_run_cell_id = identity.run_cell_id
+    tool_name = identity.tool_name
+    tool_call_id = identity.tool_call_id
+    tool_args = identity.tool_args
+    operation_id = identity.operation_id
+    invocation_id = identity.invocation_id
     request = ToolInvocationRequest(
         invocation_id=invocation_id,
         caller_kind="task_run",
@@ -3525,7 +3916,8 @@ async def _execute_task_tool_call(
         session_id=task_run.session_id,
         turn_id=tool_turn_id,
         task_run_id=task_run.task_run_id,
-        agent_run_id=str(getattr(agent_run, "agent_run_id", "") or ""),
+        agent_run_id=scoped_agent_run_id,
+        run_cell_id=scoped_run_cell_id,
         action_request_ref=action_request.request_id,
         packet_ref=packet_ref,
         tool_name=tool_name,
@@ -3533,8 +3925,8 @@ async def _execute_task_tool_call(
         tool_args=tool_args,
         operation_id=operation_id,
         tool_plan_ref=str(getattr(runtime_tool_plan, "plan_id", "") or ""),
-        admission_ref=permission_decision_id(admission, tool_call_id=tool_call_id),
-        action_permit=action_permit.to_dict(),
+        admission_ref=identity.admission_ref,
+        action_permit=identity.action_permit,
         permission_mode=runtime_permission_mode,
         caller_resource_scope={
             "task_id": task_run.task_id,
@@ -3559,10 +3951,7 @@ async def _execute_task_tool_call(
     _record_task_tool_item_started(
         runtime_host,
         task_run=task_run,
-        action_request=action_request,
-        admission=admission,
-        invocation_id=invocation_id,
-        tool_name=tool_name,
+        identity=identity,
         packet_ref=packet_ref,
     )
     tool_control_plane = getattr(services, "tool_control_plane", None) or getattr(runtime_host, "tool_control_plane", None)
@@ -3574,7 +3963,9 @@ async def _execute_task_tool_call(
             tool_name=tool_name,
             tool_args=tool_args,
             tool_call_id=tool_call_id,
-            admission_ref=permission_decision_id(admission, tool_call_id=tool_call_id),
+            admission_ref=identity.admission_ref,
+            action_lifecycle_ref=identity.action_lifecycle_ref,
+            identity=identity,
             action_request=action_request,
             error="runtime_tool_control_plane_unavailable",
         )
@@ -3615,6 +4006,37 @@ def _load_contract(runtime_host: Any, task_run: Any) -> dict[str, Any]:
     if contract:
         return dict(contract)
     return dict(dict(task_run.diagnostics or {}).get("contract") or {})
+
+
+def _publish_packet_evidence_projection_event(
+    runtime_host: Any,
+    *,
+    run_id: str,
+    packet_context: dict[str, Any],
+    refs: dict[str, Any] | None = None,
+) -> Any | None:
+    control_bus = getattr(runtime_host, "control_bus", None)
+    publisher = getattr(control_bus, "publish_evidence_projection", None)
+    if not callable(publisher) or not packet_context:
+        return None
+    projection_ref = runtime_packet_evidence_projection_ref(packet_context)
+    payload = runtime_packet_evidence_projection_event_payload(packet_context)
+    scope = runtime_packet_evidence_signal_scope(packet_context)
+    try:
+        return publisher(
+            run_id,
+            projection_ref=projection_ref,
+            scope=scope,
+            payload=payload,
+            refs={
+                **dict(refs or {}),
+                "session_ref": str(packet_context.get("session_id") or ""),
+                "task_run_ref": str(packet_context.get("task_run_id") or ""),
+                "runtime_invocation_packet_ref": str(packet_context.get("packet_id") or ""),
+            },
+        )
+    except Exception:
+        return None
 
 
 def _task_runtime_permission_mode(
@@ -4777,14 +5199,52 @@ def _finish_executor_agent_controlled_runtime_boundary(
             diagnostics={"artifact_refs": artifact_refs, "agent_controlled_runtime_boundary": dict(diagnostics["agent_controlled_runtime_boundary"])},
         )
     )
+    task_candidate = replace(task_run, diagnostics=diagnostics)
+    output_commit: dict[str, Any] = {}
+    if str(getattr(task_candidate, "execution_runtime_kind", "") or "") != "subagent_task":
+        output_commit = _commit_task_run_final_message(
+            services,
+            task_run=task_candidate,
+            final_answer=final_answer,
+            completion_state=lifecycle_status,
+            terminal_reason=terminal_reason,
+            answer_source="harness.loop.task_executor.agent_controlled_runtime_boundary",
+            execution_posture="task_run_agent_controlled_runtime_boundary",
+        )
+        diagnostics = {
+            **dict(diagnostics),
+            "output_commit": dict(output_commit),
+            "output_commit_status": _commit_receipt_status(output_commit),
+        }
+        task_candidate = replace(task_candidate, diagnostics=diagnostics)
+
+    consumed_event: Any | None = None
+
+    def _consume_control_signal_before_terminal_state(
+        updated_task: Any,
+        _updated_lifecycle: Any,
+        lifecycle_event: dict[str, Any],
+    ) -> None:
+        nonlocal consumed_event
+        consumed_event = _mark_runtime_control_signal_bus_consumed(
+            runtime_host,
+            task_run=updated_task,
+            control_observation=control_observation,
+            lifecycle_status=lifecycle_status,
+            terminal_reason=terminal_reason,
+            output_commit=output_commit,
+            lifecycle_event=lifecycle_event,
+        )
+
     lifecycle = _load_lifecycle(runtime_host, task_run)
     finished_task, finished_lifecycle, event = finish_task_lifecycle(
         runtime_host,
-        task_run=replace(task_run, diagnostics=diagnostics),
+        task_run=task_candidate,
         lifecycle=lifecycle,
         status=lifecycle_status,  # type: ignore[arg-type]
         terminal_reason=terminal_reason,
         observation_refs=tuple(str(item.get("observation_id") or "") for item in observations if item.get("observation_id")),
+        before_state_commit=_consume_control_signal_before_terminal_state,
     )
     _record_task_step_summary(
         runtime_host,
@@ -4811,16 +5271,6 @@ def _finish_executor_agent_controlled_runtime_boundary(
             "agent_controlled_runtime_boundary": dict(diagnostics["agent_controlled_runtime_boundary"]),
         },
     )
-    if str(getattr(finished_task, "execution_runtime_kind", "") or "") != "subagent_task":
-        _commit_task_run_final_message(
-            services,
-            task_run=finished_task,
-            final_answer=final_answer,
-            completion_state=lifecycle_status,
-            terminal_reason=terminal_reason,
-            answer_source="harness.loop.task_executor.agent_controlled_runtime_boundary",
-            execution_posture="task_run_agent_controlled_runtime_boundary",
-        )
     if lifecycle_status == "waiting_executor":
         _bind_active_turn_for_task_state(runtime_host, finished_task, state="waiting_executor")
     else:
@@ -4834,6 +5284,7 @@ def _finish_executor_agent_controlled_runtime_boundary(
         "artifact_refs": artifact_refs,
         "error": terminal_reason,
         "retryable": lifecycle_status == "waiting_executor",
+        "runtime_control_signal_consumed_event": consumed_event,
     }
 
 
@@ -4852,20 +5303,38 @@ def _commit_task_run_final_message(
     task_run_id = str(getattr(task_run, "task_run_id", "") or "")
     session_id = str(getattr(task_run, "session_id", "") or "")
     task_id = str(getattr(task_run, "task_id", "") or "")
+    agent_scope = _agent_run_scope_payload(task_run)
+    agent_run_id = str(agent_scope.get("agent_run_id") or "").strip()
+    run_cell_id = str(agent_scope.get("run_cell_id") or "").strip()
+    refs = {
+        "task_run_ref": task_run_id,
+        **({"agent_run_ref": agent_run_id} if agent_run_id else {}),
+        **({"run_cell_ref": run_cell_id} if run_cell_id else {}),
+    }
     if not callable(committer):
-        return _record_session_output_commit_terminal(
-            runtime_host,
-            task_run_id=task_run_id,
-            event_type="session_output_commit_skipped",
-            status="skipped",
-            session_id=session_id,
-            turn_id="",
-            task_id=task_id,
-            content="",
-            commit_allowed=False,
+        result = OutputCommitAuthority(runtime_host).record_skipped(
+            OutputCommitRequest(
+                run_id=task_run_id or "session-output-commit",
+                session_id=session_id,
+                task_run_id=task_run_id,
+                task_id=task_id,
+                agent_run_id=agent_run_id,
+                run_cell_id=run_cell_id,
+                turn_id="",
+                content="",
+                answer_channel="final_answer",
+                answer_source=answer_source,
+                execution_posture=execution_posture,
+                has_tool_receipt=True,
+                completion_state=completion_state,
+                terminal_reason=terminal_reason,
+                refs=refs,
+            ),
             reason="assistant_message_committer_missing",
+            content="",
             commit_gate={},
         )
+        return dict(result.receipt)
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     turn_id = str(diagnostics.get("turn_id") or "").strip() or _task_run_output_turn_id(task_run_id)
     runtime_control = dict(diagnostics.get(_TASK_RUN_CONTROL_KEY) or {})
@@ -4873,130 +5342,38 @@ def _commit_task_run_final_message(
     commit_source = "harness.loop.task_executor"
     if control_reason == "replaced_by_new_task_request" and terminal_reason == "user_aborted":
         commit_source = "harness.loop.task_executor.replacement_stop"
-    canonical = canonical_output_decision_for_final_text(
-        final_answer,
+    request = OutputCommitRequest(
+        run_id=task_run_id or "session-output-commit",
+        session_id=session_id,
+        task_run_id=task_run_id,
+        task_id=task_id,
+        agent_run_id=agent_run_id,
+        run_cell_id=run_cell_id,
+        turn_id=turn_id,
+        content=final_answer,
         answer_channel="final_answer",
         answer_source=answer_source,
         execution_posture=execution_posture,
         has_tool_receipt=True,
-        terminal_reason=terminal_reason,
-        completion_state=completion_state,
-    )
-    commit_content = canonical.content
-    decision = build_assistant_session_message_commit_decision(
-        session_id=session_id,
-        task_run_id=task_run_id,
-        task_id=task_id,
-        turn_id=turn_id,
-        content=commit_content,
-        answer_channel=canonical.answer_channel,
-        answer_source=canonical.answer_source,
-        answer_canonical_state=canonical.canonical_state,
-        answer_persist_policy=canonical.persist_policy,
-        answer_finalization_policy=canonical.finalization_policy,
-        answer_fallback_reason=canonical.fallback_reason,
-        answer_selected_channel=canonical.selected_channel,
-        answer_selected_source=canonical.selected_source,
-        answer_leak_flags=canonical.leak_flags,
         completion_state=completion_state,
         terminal_reason=terminal_reason,
-        source=commit_source,
+        commit_source=commit_source,
+        refs=refs,
     )
-    commit_gate = decision.to_dict()
-    _record_task_assistant_text_final(
-        runtime_host,
-        task_run=task_run,
-        content=commit_content,
-        decision=canonical,
-        completion_state=completion_state,
-        terminal_reason=terminal_reason,
-    )
-    checked_event = runtime_host.event_log.append(
-        task_run_id,
-        "session_output_commit_checked",
-        payload={
-            "session_id": session_id,
-            "turn_id": turn_id,
-            "task_run_id": task_run_id,
-            "task_id": task_id,
-            "commit_allowed": bool(decision.commit_allowed),
-            "reason": str(decision.reason or ""),
-            "answer_channel": canonical.answer_channel,
-            "answer_source": canonical.answer_source,
-            "answer_canonical_state": canonical.canonical_state,
-            "answer_persist_policy": canonical.persist_policy,
-            "answer_finalization_policy": canonical.finalization_policy,
-            "content_sha256": _text_sha256(commit_content),
-            "commit_gate": commit_gate,
-            "authority": "harness.session_output_commit",
-        },
-        refs={"task_run_ref": task_run_id},
-    )
-    if not decision.commit_allowed:
-        return _record_session_output_commit_terminal(
+    authority = OutputCommitAuthority(runtime_host)
+    result = authority.commit_sync(
+        request,
+        committer=committer,
+        before_checked=lambda prepared: _record_task_assistant_text_final(
             runtime_host,
-            task_run_id=task_run_id,
-            event_type="session_output_commit_skipped",
-            status="skipped",
-            session_id=session_id,
-            turn_id=turn_id,
-            task_id=task_id,
-            content=commit_content,
-            commit_allowed=False,
-            reason=str(decision.reason or "commit_gate_blocked"),
-            commit_gate=commit_gate,
-            checked_event_offset=_event_offset(checked_event),
-        )
-    try:
-        result = committer(dict(decision.commit_candidate.payload))
-        if inspect.isawaitable(result):
-            close = getattr(result, "close", None)
-            if callable(close):
-                close()
-            return _record_session_output_commit_terminal(
-                runtime_host,
-                task_run_id=task_run_id,
-                event_type="session_output_commit_failed",
-                status="failed",
-                session_id=session_id,
-                turn_id=turn_id,
-                task_id=task_id,
-                content=commit_content,
-                commit_allowed=True,
-                reason="async_committer_not_supported",
-                commit_gate=commit_gate,
-                checked_event_offset=_event_offset(checked_event),
-            )
-    except Exception as exc:
-        return _record_session_output_commit_terminal(
-            runtime_host,
-            task_run_id=task_run_id,
-            event_type="session_output_commit_failed",
-            status="failed",
-            session_id=session_id,
-            turn_id=turn_id,
-            task_id=task_id,
-            content=commit_content,
-            commit_allowed=True,
-            reason=str(exc),
-            commit_gate=commit_gate,
-            checked_event_offset=_event_offset(checked_event),
-        )
-    return _record_session_output_commit_terminal(
-        runtime_host,
-        task_run_id=task_run_id,
-        event_type="session_output_commit_ack",
-        status="committed",
-        session_id=session_id,
-        turn_id=turn_id,
-        task_id=task_id,
-        content=commit_content,
-        commit_allowed=True,
-        reason="committed",
-        commit_gate=commit_gate,
-        checked_event_offset=_event_offset(checked_event),
-        committer_result=result,
+            task_run=task_run,
+            content=prepared.commit_content,
+            decision=prepared.decision,
+            completion_state=completion_state,
+            terminal_reason=terminal_reason,
+        ),
     )
+    return dict(result.receipt)
 
 
 def _task_run_output_turn_id(task_run_id: str) -> str:
@@ -5016,90 +5393,25 @@ def _record_session_output_commit_skipped(
     task_id = str(getattr(task_run, "task_id", "") or "")
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     turn_id = str(diagnostics.get("turn_id") or "").strip()
-    return _record_session_output_commit_terminal(
-        runtime_host,
-        task_run_id=task_run_id,
-        event_type="session_output_commit_skipped",
-        status="skipped",
-        session_id=session_id,
-        turn_id=turn_id,
-        task_id=task_id,
-        content=final_answer,
-        commit_allowed=False,
+    result = OutputCommitAuthority(runtime_host).record_skipped(
+        OutputCommitRequest(
+            run_id=task_run_id or "session-output-commit",
+            session_id=session_id,
+            task_run_id=task_run_id,
+            task_id=task_id,
+            turn_id=turn_id,
+            content=final_answer,
+            answer_channel="final_answer",
+            answer_source="harness.loop.task_executor.skipped",
+            execution_posture="task_run_output_commit_skipped",
+            has_tool_receipt=True,
+            refs={"task_run_ref": task_run_id},
+        ),
         reason=reason,
+        content=final_answer,
         commit_gate={},
     )
-
-
-def _record_session_output_commit_terminal(
-    runtime_host: Any,
-    *,
-    task_run_id: str,
-    event_type: Literal[
-        "session_output_commit_ack",
-        "session_output_commit_failed",
-        "session_output_commit_skipped",
-    ],
-    status: str,
-    session_id: str,
-    turn_id: str,
-    task_id: str,
-    content: str,
-    commit_allowed: bool,
-    reason: str,
-    commit_gate: dict[str, Any],
-    checked_event_offset: int = -1,
-    committer_result: Any = None,
-) -> dict[str, Any]:
-    normalized_status = str(status or "").strip() or "failed"
-    normalized_reason = str(reason or normalized_status).strip()
-    content_hash = _text_sha256(content)
-    anchor_message_id = _assistant_anchor_message_id(
-        turn_id=turn_id,
-        committer_result=committer_result,
-    )
-    payload = {
-        "session_id": str(session_id or ""),
-        "turn_id": str(turn_id or ""),
-        "task_run_id": str(task_run_id or ""),
-        "task_id": str(task_id or ""),
-        "state": normalized_status,
-        "status": normalized_status,
-        "commit_allowed": bool(commit_allowed),
-        "reason": normalized_reason,
-        "content_sha256": content_hash,
-        "anchor_message_id": anchor_message_id,
-        "checked_event_offset": checked_event_offset,
-        "committer_result": _public_committer_result(committer_result),
-        "commit_gate": commit_gate,
-        "authority": "harness.session_output_commit",
-    }
-    event = runtime_host.event_log.append(
-        task_run_id or "session-output-commit",
-        event_type,
-        payload=payload,
-        refs={"task_run_ref": task_run_id},
-    )
-    return {
-        **payload,
-        "event_type": event_type,
-        "event_id": str(getattr(event, "event_id", "") or ""),
-        "event_offset": _event_offset(event),
-        "created_at": float(getattr(event, "created_at", 0.0) or 0.0),
-    }
-
-
-def _assistant_anchor_message_id(*, turn_id: str, committer_result: Any = None) -> str:
-    result = dict(committer_result or {}) if isinstance(committer_result, dict) else {}
-    appended = list(result.get("appended_messages") or [])
-    for item in reversed(appended):
-        if not isinstance(item, dict):
-            continue
-        explicit = str(item.get("id") or item.get("message_id") or "").strip()
-        if explicit:
-            return explicit
-    normalized_turn_id = str(turn_id or "").strip()
-    return f"history-message:{normalized_turn_id}:assistant" if normalized_turn_id else ""
+    return dict(result.receipt)
 
 
 def _record_task_assistant_text_final(
@@ -5183,20 +5495,6 @@ def _record_task_assistant_text_final(
             )
         )
     return event
-
-
-def _public_committer_result(committer_result: Any) -> dict[str, Any]:
-    if not isinstance(committer_result, dict):
-        return {}
-    appended = list(committer_result.get("appended_messages") or [])
-    return {
-        "appended_message_count": len(appended),
-        "file_work_context_writeback": bool(committer_result.get("file_work_context_writeback")),
-    }
-
-
-def _text_sha256(value: str) -> str:
-    return "sha256:" + hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
 
 
 def _commit_receipt_status(receipt: dict[str, Any]) -> str:
@@ -5588,6 +5886,7 @@ def _executor_control_signal_from_task_run(
     executor_epoch: int,
     default_reason: str,
 ) -> ExecutorControlSignal | None:
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     state = task_run_control_state(task_run)
     recovery_state = recovery_state_for_task_run(task_run)
     if recovery_state.stopped or state in {_TASK_RUN_STOP_REQUESTED, _TASK_RUN_STOPPED}:
@@ -5606,6 +5905,7 @@ def _executor_control_signal_from_task_run(
         reason=str(control.get("reason") or default_reason),
         requested_by=str(control.get("requested_by") or "system"),
         requested_at=float(control.get("requested_at") or time.time()),
+        steer_ref=str(control.get("steer_ref") or diagnostics.get("latest_user_steer_ref") or ""),
     )
     if _runtime_control_signal_already_delivered(
         task_run,
@@ -5614,6 +5914,78 @@ def _executor_control_signal_from_task_run(
     ):
         return None
     return signal
+
+
+def _executor_control_signal_from_task_run_with_bus_backfill(
+    runtime_host: Any,
+    task_run: Any,
+    *,
+    executor_epoch: int,
+    default_reason: str,
+) -> ExecutorControlSignal | None:
+    signal = _executor_control_signal_from_task_run(
+        task_run,
+        executor_epoch=executor_epoch,
+        default_reason=default_reason,
+    )
+    if signal is None or signal.signal_id:
+        return signal
+    backfilled = _publish_runtime_control_signal_backfill(runtime_host, task_run=task_run, signal=signal)
+    return backfilled or signal
+
+
+def _publish_runtime_control_signal_backfill(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    signal: ExecutorControlSignal,
+) -> ExecutorControlSignal | None:
+    control_bus = getattr(runtime_host, "control_bus", None)
+    publish = getattr(control_bus, "publish", None)
+    if not callable(publish):
+        return None
+    task_run_id = str(getattr(task_run, "task_run_id", "") or signal.task_run_id or "")
+    if not task_run_id:
+        return None
+    try:
+        event = publish(
+            task_run_id,
+            signal_type="control.signal.requested",
+            scope=_runtime_signal_scope_for_task_run(task_run),
+            source_authority="harness.loop.task_executor.runtime_control_backfill",
+            payload={
+                "signal_kind": str(signal.kind or ""),
+                "task_run_id": task_run_id,
+                "executor_epoch": int(signal.executor_epoch or 0),
+                "reason": str(signal.reason or ""),
+                "requested_by": str(signal.requested_by or "system"),
+                "requested_at": float(signal.requested_at or time.time()),
+                "steer_ref": str(signal.steer_ref or ""),
+                "adapter": "task_run_diagnostics_backfill",
+            },
+            visibility="runtime_private",
+            refs={
+                "task_run_ref": task_run_id,
+                **({"steer_ref": str(signal.steer_ref or "")} if str(signal.steer_ref or "").strip() else {}),
+            },
+        )
+    except Exception:
+        return None
+    signal_payload = dict(dict(getattr(event, "payload", {}) or {}).get("signal") or {})
+    signal_id = str(signal_payload.get("signal_id") or "")
+    if not signal_id:
+        return None
+    return ExecutorControlSignal(
+        kind=signal.kind,
+        task_run_id=task_run_id,
+        executor_epoch=int(signal.executor_epoch or 0),
+        reason=str(signal.reason or ""),
+        requested_by=str(signal.requested_by or "system"),
+        requested_at=float(signal.requested_at or time.time()),
+        steer_ref=str(signal.steer_ref or ""),
+        signal_id=signal_id,
+        control_event_ref=str(getattr(event, "event_id", "") or ""),
+    )
 
 
 def _executor_control_signal_from_boundary_result(
@@ -5999,6 +6371,13 @@ def _pause_executor_for_tool_approval(
             "observation_ref": observation_ref,
         },
     )
+    publish_task_tool_approval_requested(
+        runtime_host,
+        task_run=waiting_task,
+        pending_approval=pending_approval,
+        event_ref=str(getattr(event, "event_id", "") or ""),
+        observation_ref=observation_ref,
+    )
     waiting_task = replace(waiting_task, updated_at=event.created_at or now, latest_event_offset=event.offset)
     runtime_host.state_index.upsert_task_run(waiting_task)
     _record_task_step_summary(
@@ -6343,6 +6722,171 @@ def _ensure_executor_agent_run(runtime_host: Any, *, task_run: Any) -> Any:
     )
     runtime_host.state_index.upsert_agent_run(agent_run)
     return agent_run
+
+
+def _agent_run_scope_payload(task_run: Any) -> dict[str, Any]:
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    scope = diagnostics.get("agent_run_scope")
+    if isinstance(scope, dict):
+        return dict(scope)
+    return {
+        "agent_run_id": str(diagnostics.get("agent_run_id") or ""),
+        "run_cell_id": str(diagnostics.get("run_cell_id") or ""),
+    }
+
+
+def _task_tool_observation_scope_status(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    observation: dict[str, Any],
+) -> dict[str, Any]:
+    scope = _task_tool_observation_scope_payload(task_run=task_run, observation=observation)
+    return _agent_cell_scope_status(
+        runtime_host,
+        task_run_id=str(scope.get("task_run_id") or getattr(task_run, "task_run_id", "") or ""),
+        agent_run_id=str(scope.get("agent_run_id") or ""),
+        run_cell_id=str(scope.get("run_cell_id") or ""),
+    )
+
+
+def _task_tool_observation_scope_payload(*, task_run: Any, observation: dict[str, Any]) -> dict[str, str]:
+    payload = dict((observation or {}).get("payload") or {})
+    result_envelope = dict(payload.get("result_envelope") or {})
+    execution_receipt = {
+        **dict(result_envelope.get("execution_receipt") or {}),
+        **dict(payload.get("execution_receipt") or {}),
+    }
+    task_scope = _agent_run_scope_payload(task_run)
+    return {
+        "task_run_id": str(
+            execution_receipt.get("task_run_id")
+            or payload.get("task_run_id")
+            or (observation or {}).get("task_run_id")
+            or getattr(task_run, "task_run_id", "")
+            or ""
+        ).strip(),
+        "agent_run_id": str(
+            execution_receipt.get("agent_run_id")
+            or payload.get("agent_run_id")
+            or result_envelope.get("agent_run_id")
+            or task_scope.get("agent_run_id")
+            or ""
+        ).strip(),
+        "run_cell_id": str(
+            execution_receipt.get("run_cell_id")
+            or payload.get("run_cell_id")
+            or result_envelope.get("run_cell_id")
+            or task_scope.get("run_cell_id")
+            or ""
+        ).strip(),
+    }
+
+
+def _agent_cell_scope_status(
+    runtime_host: Any,
+    *,
+    task_run_id: str,
+    agent_run_id: str = "",
+    run_cell_id: str = "",
+) -> dict[str, Any]:
+    normalized_task_run_id = str(task_run_id or "").strip()
+    normalized_agent_run_id = str(agent_run_id or "").strip()
+    normalized_run_cell_id = str(run_cell_id or "").strip()
+    if not normalized_run_cell_id:
+        return {
+            "accepted": True,
+            "reason": "run_cell_scope_unscoped",
+            "active_scope": {},
+            "rejected_scope": {},
+            "authority": "harness.runtime.agent_run_supervisor.current_cell_gate",
+        }
+    supervisor = getattr(runtime_host, "agent_run_supervisor", None)
+    checker = getattr(supervisor, "current_scope_status_for_task_run", None)
+    if not callable(checker):
+        return {
+            "accepted": True,
+            "reason": "agent_scope_gate_unavailable",
+            "active_scope": {},
+            "rejected_scope": {
+                "task_run_id": normalized_task_run_id,
+                "agent_run_id": normalized_agent_run_id,
+                "run_cell_id": normalized_run_cell_id,
+            },
+            "authority": "harness.runtime.agent_run_supervisor.current_cell_gate",
+        }
+    return dict(
+        checker(
+            normalized_task_run_id,
+            agent_run_id=normalized_agent_run_id,
+            run_cell_id=normalized_run_cell_id,
+        )
+        or {}
+    )
+
+
+def _record_late_task_tool_observation_rejected(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    row: dict[str, Any],
+    observation: dict[str, Any],
+    packet_ref: str,
+    tool_batch_ref: str,
+    group: ToolBatchGroup,
+    scope_status: dict[str, Any],
+) -> Any | None:
+    scope = _task_tool_observation_scope_payload(task_run=task_run, observation=observation)
+    action_request = row.get("action_request")
+    payload = dict((observation or {}).get("payload") or {})
+    result_envelope = dict(payload.get("result_envelope") or {})
+    late_payload = {
+        "observation_id": str((observation or {}).get("observation_id") or ""),
+        "request_ref": str((observation or {}).get("request_ref") or getattr(action_request, "request_id", "") or ""),
+        "tool_name": str(payload.get("tool_name") or result_envelope.get("tool_name") or ""),
+        "tool_call_id": str((observation or {}).get("tool_call_id") or payload.get("tool_call_id") or result_envelope.get("tool_call_id") or ""),
+        "status": _observation_status(observation),
+        "result_ref": str(payload.get("result_ref") or result_envelope.get("result_ref") or ""),
+        "content_chars": int((observation or {}).get("content_chars") or len(str(payload.get("text") or ""))),
+        "packet_ref": str(packet_ref or ""),
+        "tool_batch_ref": str(tool_batch_ref or ""),
+        "tool_batch_group": group.to_dict() if hasattr(group, "to_dict") else {},
+    }
+    supervisor = getattr(runtime_host, "agent_run_supervisor", None)
+    recorder = getattr(supervisor, "record_late_event_rejected", None)
+    refs = {
+        "task_run_ref": str(scope.get("task_run_id") or getattr(task_run, "task_run_id", "") or ""),
+        "runtime_invocation_packet_ref": str(packet_ref or ""),
+        "tool_batch_ref": str(tool_batch_ref or ""),
+        "action_request_ref": str(getattr(action_request, "request_id", "") or ""),
+        "observation_ref": late_payload["observation_id"],
+        "agent_run_ref": str(scope.get("agent_run_id") or ""),
+        "run_cell_ref": str(scope.get("run_cell_id") or ""),
+    }
+    if callable(recorder):
+        return recorder(
+            task_run_id=str(scope.get("task_run_id") or getattr(task_run, "task_run_id", "") or ""),
+            agent_run_id=str(scope.get("agent_run_id") or ""),
+            run_cell_id=str(scope.get("run_cell_id") or ""),
+            event_kind="tool_observation",
+            reason=str(scope_status.get("reason") or "stale_agent_cell"),
+            payload=late_payload,
+            refs=refs,
+            scope_status=scope_status,
+        )
+    return runtime_host.event_log.append(
+        str(scope.get("task_run_id") or getattr(task_run, "task_run_id", "") or ""),
+        "agent_runtime_cell_late_event_rejected",  # type: ignore[arg-type]
+        payload={
+            "task_run_id": str(scope.get("task_run_id") or getattr(task_run, "task_run_id", "") or ""),
+            "event_kind": "tool_observation",
+            "reason": str(scope_status.get("reason") or "stale_agent_cell"),
+            "scope_status": dict(scope_status or {}),
+            "payload": late_payload,
+            "authority": "harness.runtime.agent_run_supervisor.current_cell_gate",
+        },
+        refs=refs,
+    )
 
 
 def _existing_observations(runtime_host: Any, task_run_id: str) -> list[dict[str, Any]]:
@@ -7582,7 +8126,7 @@ def _active_steer_completion_repair_observation(
     }
 
 
-def _model_action_admission_observation(
+def _model_action_admission_recovery_observation(
     *,
     task_run_id: str,
     packet_ref: str,
@@ -7590,164 +8134,53 @@ def _model_action_admission_observation(
     admission: Any,
     runtime_fingerprint: dict[str, Any],
     step_index: int,
+    repeat_count: int = 1,
+    previous_observations: list[dict[str, Any]] | None = None,
+    pause_after_observation: bool = False,
 ) -> dict[str, Any]:
-    admission_payload = admission.to_dict() if hasattr(admission, "to_dict") else dict(admission or {})
-    decision = str(admission_payload.get("decision") or "deny")
-    system_reason = str(admission_payload.get("system_reason") or decision)
-    user_reason = str(admission_payload.get("user_visible_reason") or system_reason)
-    tool_call = dict(getattr(action_request, "tool_call", {}) or {})
-    tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
-    admission_fingerprint = _model_action_admission_fingerprint(
-        action_request=action_request,
-        admission_payload=admission_payload,
-        runtime_fingerprint=runtime_fingerprint,
-    )
-    repair_instruction = (
-        f"运行边界没有执行当前动作。准入裁决：{decision}；原因：{system_reason}。"
-        f"边界说明：{user_reason}。你需要基于这条观察继续推进：改用已开放工具、补齐任务合同、询问用户，"
-        "或在无法继续时给出有证据的阻塞裁决；不要重复同一个未获准动作。"
-    )
-    payload = {
-        "tool_name": tool_name or action_request.action_type,
-        "tool_args": dict(tool_call.get("args") or tool_call.get("tool_args") or {}),
-        "error": system_reason,
-        "error_code": system_reason,
-        "admission": admission_payload,
-        "repair_instruction": repair_instruction,
-        "rejected_action_request": action_request.to_dict(),
-        "admission_denial_fingerprint": admission_fingerprint,
-        "admission_denial_repeat_count": 1,
-        "structured_error": {
-            "code": system_reason,
-            "message": repair_instruction,
-            "retryable": True,
-            "origin": "model_action_admission",
-            "repair_instruction": repair_instruction,
-        },
-        "runtime_fingerprint": dict(runtime_fingerprint or {}),
-    }
-    ref_raw = json.dumps(
-        {
-            "task_run_id": task_run_id,
-            "step_index": step_index,
-            "request_ref": action_request.request_id,
-            "decision": decision,
-            "system_reason": system_reason,
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    ref_digest = hashlib.sha256(ref_raw.encode("utf-8")).hexdigest()[:12]
-    return {
-        "observation_id": f"rtobs:{task_run_id}:admission:{uuid.uuid4().hex[:8]}",
-        "task_run_id": task_run_id,
-        "observation_type": "executor_error",
-        "source": "system:model_action_admission",
-        "request_ref": f"model-action-admission:{task_run_id}:invocation:{step_index}:{ref_digest}",
-        "directive_ref": packet_ref,
-        "content_chars": len(repair_instruction),
-        "summary": repair_instruction,
-        "payload": payload,
-        "needs_model_followup": True,
-        "created_at": time.time(),
-        "authority": "orchestration.runtime_observation",
-        "error": system_reason,
-    }
-
-
-def _repeated_model_action_admission_observation(
-    *,
-    task_run_id: str,
-    packet_ref: str,
-    action_request: AnyModelActionRequest,
-    admission: Any,
-    runtime_fingerprint: dict[str, Any],
-    step_index: int,
-    repeat_count: int,
-    previous_observations: list[dict[str, Any]],
-    pause_after_observation: bool,
-) -> dict[str, Any]:
-    admission_payload = admission.to_dict() if hasattr(admission, "to_dict") else dict(admission or {})
-    decision = str(admission_payload.get("decision") or "deny")
-    system_reason = str(admission_payload.get("system_reason") or decision)
-    user_reason = str(admission_payload.get("user_visible_reason") or system_reason)
-    tool_call = dict(getattr(action_request, "tool_call", {}) or {})
-    tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
-    tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
-    admission_fingerprint = _model_action_admission_fingerprint(
-        action_request=action_request,
-        admission_payload=admission_payload,
-        runtime_fingerprint=runtime_fingerprint,
-    )
     previous_refs = [
         str(item.get("observation_id") or item.get("observation_ref") or "")
         for item in list(previous_observations or [])
         if str(item.get("observation_id") or item.get("observation_ref") or "")
     ]
-    message = (
-        f"模型第 {int(repeat_count or 0)} 次请求同一个未获准动作，运行时仍未执行："
-        f"准入裁决 {decision}，原因 {system_reason}。"
+    recovery = build_action_admission_recovery_payload(
+        action_request=action_request,
+        admission=admission,
+        runtime_fingerprint=runtime_fingerprint,
+        repeat_count=repeat_count,
+        previous_observation_refs=previous_refs,
+        pause_after_observation=pause_after_observation,
     )
-    repair_instruction = (
-        f"{message} 边界说明：{user_reason}。你必须停止原样重试，改用本轮可见且获准的工具、修改参数、"
-        "询问用户、给出阻塞裁决，或在已有证据满足合同时直接收口。"
-    )
-    payload = {
-        "tool_name": "repeated_admission_guard",
-        "tool_args": {
-            "rejected_action_type": str(getattr(action_request, "action_type", "") or ""),
-            "rejected_tool_name": tool_name,
-            "rejected_tool_args": _normalize_tool_call_args_for_fingerprint(tool_name, tool_args),
-        },
-        "error": message,
-        "error_code": "repeated_admission_denial",
-        "admission": admission_payload,
-        "repair_instruction": repair_instruction,
-        "rejected_action_request": action_request.to_dict(),
-        "admission_denial_fingerprint": admission_fingerprint,
-        "admission_denial_repeat_count": int(repeat_count or 0),
-        "previous_observation_refs": previous_refs,
-        "pause_after_observation": bool(pause_after_observation),
-        "structured_error": {
-            "code": "repeated_admission_denial",
-            "message": repair_instruction,
-            "retryable": True,
-            "origin": "runtime_guard",
-            "tool_name": tool_name,
-            "tool_args": tool_args,
-            "previous_observation_refs": previous_refs,
-            "repair_instruction": repair_instruction,
-        },
-        "runtime_fingerprint": dict(runtime_fingerprint or {}),
-    }
+    is_repeated = int(repeat_count or 1) > 1
     ref_raw = json.dumps(
         {
             "task_run_id": task_run_id,
             "step_index": step_index,
             "request_ref": action_request.request_id,
-            "fingerprint": admission_fingerprint,
-            "repeat_count": int(repeat_count or 0),
+            "fingerprint": recovery.admission_denial_fingerprint,
+            **({"repeat_count": int(repeat_count or 0)} if is_repeated else {}),
         },
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
     )
     ref_digest = hashlib.sha256(ref_raw.encode("utf-8")).hexdigest()[:12]
+    observation_kind = "admission-guard" if is_repeated else "admission"
+    request_prefix = "repeated-model-action-admission" if is_repeated else "model-action-admission"
     return {
-        "observation_id": f"rtobs:{task_run_id}:admission-guard:{uuid.uuid4().hex[:8]}",
+        "observation_id": f"rtobs:{task_run_id}:{observation_kind}:{uuid.uuid4().hex[:8]}",
         "task_run_id": task_run_id,
-        "observation_type": "runtime_guard",
-        "source": "system:repeated_admission_guard",
-        "request_ref": f"repeated-model-action-admission:{task_run_id}:invocation:{step_index}:{ref_digest}",
+        "observation_type": recovery.observation_type,
+        "source": recovery.source,
+        "request_ref": f"{request_prefix}:{task_run_id}:invocation:{step_index}:{ref_digest}",
         "directive_ref": packet_ref,
-        "content_chars": len(repair_instruction),
-        "summary": repair_instruction,
-        "payload": payload,
+        "content_chars": recovery.content_chars,
+        "summary": recovery.summary,
+        "payload": recovery.payload,
         "needs_model_followup": True,
         "created_at": time.time(),
         "authority": "orchestration.runtime_observation",
-        "error": "repeated_admission_denial",
+        "error": recovery.error_code,
     }
 
 
@@ -7759,7 +8192,7 @@ def _matching_model_action_admission_denial_observations(
     runtime_fingerprint: dict[str, Any],
 ) -> list[dict[str, Any]]:
     admission_payload = admission.to_dict() if hasattr(admission, "to_dict") else dict(admission or {})
-    current_fingerprint = _model_action_admission_fingerprint(
+    current_fingerprint = action_admission_denial_fingerprint(
         action_request=action_request,
         admission_payload=admission_payload,
         runtime_fingerprint=runtime_fingerprint,
@@ -7778,70 +8211,6 @@ def _matching_model_action_admission_denial_observations(
                 matches.append(dict(observation))
         continue
     return matches
-
-
-def _model_action_admission_fingerprint(
-    *,
-    action_request: AnyModelActionRequest,
-    admission_payload: dict[str, Any],
-    runtime_fingerprint: dict[str, Any],
-) -> str:
-    payload = {
-        "action": _model_action_admission_identity(action_request),
-        "admission": {
-            "decision": str(admission_payload.get("decision") or ""),
-            "system_reason": str(admission_payload.get("system_reason") or ""),
-        },
-        "runtime": _admission_runtime_fingerprint_identity(runtime_fingerprint),
-    }
-    return "sha256:" + _stable_hash(payload)
-
-
-def _model_action_admission_identity(action_request: AnyModelActionRequest) -> dict[str, Any]:
-    return _model_action_admission_identity_from_payload(action_request.to_dict())
-
-
-def _model_action_admission_identity_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    action_payload = dict(payload or {})
-    action_type = str(action_payload.get("action_type") or "")
-    identity: dict[str, Any] = {"action_type": action_type}
-    if action_type == "tool_call":
-        tool_call = dict(action_payload.get("tool_call") or {})
-        tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
-        tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
-        identity["tool_name"] = tool_name
-        identity["tool_args"] = _normalize_tool_call_args_for_fingerprint(tool_name, tool_args)
-        return identity
-    if action_type == "respond":
-        identity["final_answer"] = str(action_payload.get("final_answer") or "")
-    elif action_type == "ask_user":
-        identity["user_question"] = str(action_payload.get("user_question") or "")
-    elif action_type == "block":
-        identity["blocking_reason"] = str(action_payload.get("blocking_reason") or "")
-    else:
-        normalized_payload = _normalize_tool_call_args(action_payload)
-        if isinstance(normalized_payload, dict):
-            normalized_payload.pop("request_id", None)
-            normalized_payload.pop("turn_id", None)
-        identity["payload"] = normalized_payload
-    return identity
-
-
-def _admission_runtime_fingerprint_identity(runtime_fingerprint: dict[str, Any]) -> dict[str, str]:
-    fingerprint = dict(runtime_fingerprint or {})
-    keys = (
-        "runtime_assembly_id",
-        "agent_profile_id",
-        "runtime_profile_ref",
-        "task_environment_id",
-        "tool_registry_hash",
-        "tool_config_hash",
-        "sandbox_policy_hash",
-        "permission_policy_hash",
-        "backend_config_hash",
-        "permission_mode",
-    )
-    return {key: str(fingerprint.get(key) or "") for key in keys}
 
 
 def _model_protocol_repair_observation(
@@ -7949,29 +8318,70 @@ def _executor_error_observation(
     error: str,
     tool_call_id: str = "",
     admission_ref: str = "",
+    action_lifecycle_ref: str = "",
+    identity: Any | None = None,
     action_request: AnyModelActionRequest | None = None,
 ) -> dict[str, Any]:
-    normalized_tool_call_id = str(tool_call_id or "").strip()
-    normalized_admission_ref = str(admission_ref or permission_decision_id(tool_call_id=normalized_tool_call_id)).strip()
+    identity_payload = identity.to_dict() if hasattr(identity, "to_dict") else dict(identity or {})
+    normalized_tool_call_id = str(identity_payload.get("tool_call_id") or tool_call_id or "").strip()
+    normalized_admission_ref = str(identity_payload.get("admission_ref") or admission_ref or permission_decision_id(tool_call_id=normalized_tool_call_id)).strip()
+    normalized_tool_name = str(identity_payload.get("tool_name") or tool_name or "").strip()
+    normalized_tool_args = dict(identity_payload.get("tool_args") or tool_args or {})
+    normalized_action_lifecycle_ref = str(
+        identity_payload.get("action_lifecycle_ref")
+        or action_lifecycle_ref
+        or (f"action-lifecycle:{request_ref}" if request_ref else "")
+    ).strip()
+    normalized_tool_invocation_ref = str(identity_payload.get("invocation_id") or "").strip()
+    normalized_agent_run_id = str(identity_payload.get("agent_run_id") or "").strip()
+    normalized_run_cell_id = str(identity_payload.get("run_cell_id") or "").strip()
     diagnostics: dict[str, Any] = {}
     if action_request is not None:
         diagnostics["action_request"] = action_request.to_dict()
+    if identity_payload:
+        diagnostics["action_tool_invocation_identity"] = identity_payload
+    if normalized_action_lifecycle_ref:
+        diagnostics["action_lifecycle_ref"] = normalized_action_lifecycle_ref
+    execution_receipt = {
+        "task_run_id": task_run_id,
+        "tool_call_id": normalized_tool_call_id,
+        "admission_ref": normalized_admission_ref,
+    }
+    if normalized_tool_invocation_ref:
+        execution_receipt["tool_invocation_ref"] = normalized_tool_invocation_ref
+    if normalized_action_lifecycle_ref:
+        execution_receipt["action_lifecycle_ref"] = normalized_action_lifecycle_ref
+    if normalized_agent_run_id:
+        execution_receipt["agent_run_id"] = normalized_agent_run_id
+    if normalized_run_cell_id:
+        execution_receipt["run_cell_id"] = normalized_run_cell_id
+    payload = {
+        "tool_name": normalized_tool_name,
+        "tool_args": normalized_tool_args,
+        "error": error,
+        "tool_call_id": normalized_tool_call_id,
+        "action_request_ref": request_ref,
+    }
+    if normalized_tool_invocation_ref:
+        payload["tool_invocation_ref"] = normalized_tool_invocation_ref
+    if normalized_action_lifecycle_ref:
+        payload["action_lifecycle_ref"] = normalized_action_lifecycle_ref
+    if normalized_agent_run_id:
+        payload["agent_run_id"] = normalized_agent_run_id
+    if normalized_run_cell_id:
+        payload["run_cell_id"] = normalized_run_cell_id
     return {
         "observation_id": f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
         "task_run_id": task_run_id,
         "observation_type": "executor_error",
-        "source": f"tool:{tool_name}",
+        "source": f"tool:{normalized_tool_name}",
         "request_ref": request_ref,
         "directive_ref": directive_ref,
-        "tool_name": tool_name,
+        "tool_name": normalized_tool_name,
         "tool_call_id": normalized_tool_call_id,
-        "execution_receipt": {
-            "task_run_id": task_run_id,
-            "tool_call_id": normalized_tool_call_id,
-            "admission_ref": normalized_admission_ref,
-        },
+        "execution_receipt": execution_receipt,
         "content_chars": len(error),
-        "payload": {"tool_name": tool_name, "tool_args": tool_args, "error": error},
+        "payload": payload,
         "diagnostics": diagnostics,
         "needs_model_followup": False,
         "created_at": time.time(),
@@ -7992,8 +8402,6 @@ _DUPLICATE_GUARDED_READ_ONLY_TOOLS = frozenset(
         "stat_path",
     }
 )
-_READ_FILE_FINGERPRINT_DEFAULT_START_LINE = 1
-_READ_FILE_FINGERPRINT_DEFAULT_LINE_COUNT = 500
 _DUPLICATE_READ_ONLY_TOOL_CALL_LIMIT = 5
 
 
@@ -8099,10 +8507,11 @@ def _normalize_tool_call_args_for_fingerprint(tool_name: str, tool_args: dict[st
     # duplicate fingerprint so read_file(path) and read_file(path, start_line=1)
     # are treated as the same line window, while unsupported args remain visible
     # to the validator instead of being accepted as compatibility shims.
+    defaults = read_window_fingerprint_defaults()
     if "start_line" not in normalized and not any(key in normalized for key in ("offset", "limit")):
-        normalized["start_line"] = _READ_FILE_FINGERPRINT_DEFAULT_START_LINE
+        normalized["start_line"] = defaults["start_line"]
     if "line_count" not in normalized and not any(key in normalized for key in ("offset", "limit")):
-        normalized["line_count"] = _READ_FILE_FINGERPRINT_DEFAULT_LINE_COUNT
+        normalized["line_count"] = defaults["line_count"]
     return normalized
 
 

@@ -43,16 +43,11 @@ from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifa
 from agent_system.identity import normalize_agent_id_sequence
 from project_layout import ProjectLayout
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
-from runtime.memory.file_evidence_scope import session_file_evidence_scope, task_run_file_evidence_scope
-from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime_objects.tool_result_storage import DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
-from .context_budget_policy import build_model_aware_context_budget_policy
 from .artifact_scope import runtime_artifact_scope_from_environment
 from .dynamic_context import DynamicContextInput, DynamicContextManager, DynamicContextProjection, dynamic_context_storage_root
-from .dynamic_context.evidence_index_cursor import file_state_from_evidence_index_cursor
-from .dynamic_context.read_evidence_projector import build_read_evidence_projection_payload
 from .envelope import RuntimeEnvelope
 from .invocation_packet import RuntimeInvocationPacket
 from .action_schema_manifest import ActionSchemaManifest, build_action_schema_manifest
@@ -60,22 +55,20 @@ from .artifact_scope_manifest import ArtifactScopeManifest, build_artifact_scope
 from .bound_task_context import build_bound_task_context
 from .environment_storage import ensure_environment_storage_dirs
 from .environment_prompt_controller import GENERAL_ENVIRONMENT_ID, prompt_mount_plan_for_invocation, prompt_mount_plan_from_payload
+from .packet_assembler import (
+    build_dynamic_context_projection_policy as _dynamic_context_projection_policy,
+    build_session_file_evidence_projection as _build_session_file_evidence_projection,
+    build_single_agent_turn_packet_context,
+    build_task_execution_packet_context,
+)
 from .prompt_segment_plan import build_prompt_segment_plan
 from .project_instructions import ProjectInstructionBundle, collect_project_instruction_bundle
 from .provider_tool_schema import stable_tool_schema_catalog_payload
 from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
 from .task_contract_manifest import TaskContractManifest, build_task_contract_manifest_from_contract
 from .tool_catalog_manifest import ToolCatalogManifest, build_tool_catalog_manifest
-from .tool_plan import build_runtime_tool_plan
 
 
-_SUBAGENT_TOOL_NAMES = {
-    "spawn_subagent",
-    "send_subagent_message",
-    "wait_subagent",
-    "list_subagents",
-    "close_subagent",
-}
 _GRAPH_AUTHORIZED_INPUT_CONTENT_LIMIT = 16000
 _GRAPH_AUTHORIZED_INPUT_PAYLOAD_LIMIT = 12000
 _GRAPH_ARTIFACT_PAYLOAD_LIMIT = 2
@@ -370,49 +363,45 @@ class RuntimeCompiler:
         model_selection: dict[str, Any] | None = None,
         runtime_assembly: Any | None = None,
     ) -> RuntimeCompilationResult:
-        assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
-        self._bind_assembly_base_dir(assembly_payload)
-        profile_payload = dict(assembly_payload.get("profile") or {})
-        environment_payload = dict(assembly_payload.get("task_environment") or {})
-        _ensure_environment_storage_dirs_for_runtime(self.base_dir, environment_payload)
-        control_capabilities = dict(assembly_payload.get("control_capabilities") or {})
-        agent_profile_ref = str(assembly_payload.get("agent_profile_ref") or agent_profile_ref or "main_interactive_agent")
-        task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
-        permission_mode = str(assembly_payload.get("permission_mode") or "default")
-        prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="single_agent_turn")
-        allowed_actions = _single_agent_turn_allowed_actions(
-            control_capabilities=control_capabilities,
+        initial_assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+        initial_profile_payload = dict(initial_assembly_payload.get("profile") or {})
+        prompt_pack_refs = _prompt_pack_refs_for_invocation(initial_profile_payload, invocation_kind="single_agent_turn")
+        packet_context = build_single_agent_turn_packet_context(
+            session_id=session_id,
+            turn_id=turn_id,
+            agent_invocation_id=agent_invocation_id,
+            user_message=user_message,
+            history=history,
+            session_context=session_context,
             active_work_context=active_work_context,
             current_work_boundary_receipt=current_work_boundary_receipt,
+            memory_context=memory_context,
+            agent_profile_ref=agent_profile_ref,
+            model_selection=model_selection,
+            runtime_assembly=initial_assembly_payload,
+            prompt_pack_refs=prompt_pack_refs,
+            base_dir=self.base_dir,
         )
-        session_context_payload = dict(session_context or {})
-        if (
-            _has_recoverable_work_candidate(session_context_payload)
-            and "resume_recoverable_work" not in set(allowed_actions)
-            and "active_work_control" not in set(allowed_actions)
-        ):
-            allowed_actions = (*allowed_actions, "resume_recoverable_work")
-        single_turn_tool_plan = _single_agent_turn_tool_plan(
-            assembly_payload=assembly_payload,
-            control_capabilities=control_capabilities,
-        )
-        single_turn_tools = tuple(dict(item) for item in single_turn_tool_plan.model_visible_tools)
-        if not single_turn_tools and "tool_call" in allowed_actions:
-            allowed_actions = tuple(item for item in allowed_actions if item != "tool_call")
-        if single_turn_tools and "tool_call" not in allowed_actions:
-            receipt_available = _receipt_available_action_types(current_work_boundary_receipt)
-            if not receipt_available or "tool_call" in receipt_available:
-                allowed_actions = (*allowed_actions, "tool_call")
-        effective_control_capabilities = _single_agent_turn_effective_control_capabilities(
-            control_capabilities=control_capabilities,
-            allowed_actions=allowed_actions,
-            visible_tool_count=len(single_turn_tools),
-            visible_tool_names=tuple(
-                str(item.get("tool_name") or item.get("name") or "")
-                for item in single_turn_tools
-                if str(item.get("tool_name") or item.get("name") or "")
-            ),
-        )
+        assembly_payload = packet_context.runtime_assembly
+        self._bind_assembly_base_dir(assembly_payload)
+        profile_payload = packet_context.profile_payload
+        environment_payload = packet_context.environment_payload
+        _ensure_environment_storage_dirs_for_runtime(self.base_dir, environment_payload)
+        control_capabilities = packet_context.control_capabilities
+        effective_control_capabilities = packet_context.effective_control_capabilities
+        agent_profile_ref = packet_context.agent_profile_ref
+        task_environment_ref = packet_context.task_environment_ref
+        permission_mode = packet_context.permission_mode
+        allowed_actions = packet_context.allowed_action_types
+        session_context_payload = packet_context.session_context
+        active_work_context = packet_context.active_work_context
+        current_work_boundary_receipt = packet_context.current_work_boundary_receipt
+        operation_availability = packet_context.operation_availability
+        active_work_controls_enabled = operation_availability.get("active_work_control") is True
+        memory_context = packet_context.memory_context
+        model_selection = packet_context.model_selection
+        single_turn_tool_plan = packet_context.tool_plan
+        single_turn_tools = packet_context.model_visible_tools
         planning_protocol = _planning_protocol_payload(
             invocation_kind="single_agent_turn",
             profile_payload=profile_payload,
@@ -471,6 +460,7 @@ class RuntimeCompiler:
             _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload),
             invocation_kind="single_agent_turn",
             allowed_actions=allowed_actions,
+            operation_availability=operation_availability,
             active_work_context=dict(active_work_context or {}),
             memory_context=memory_context or session_context_payload.get("memory_context"),
             visible_tools=single_turn_tools,
@@ -536,30 +526,15 @@ class RuntimeCompiler:
             tool_payloads=single_turn_tools,
             tool_catalog_manifest=tool_catalog_manifest,
         )
-        packet_id = f"rtpacket:{turn_id}:single_agent_turn:1"
+        packet_id = packet_context.packet_id
         turn_input_facts = dict(session_context_payload.get("turn_input_facts") or {})
-        file_evidence_scope = session_file_evidence_scope(session_id)
-        session_file_state = _file_state_snapshot_for_scope(self.base_dir, assembly_payload, file_evidence_scope)
-        projection_policy = _dynamic_context_projection_policy(
-            invocation_kind="single_agent_turn",
-            model_selection=model_selection,
-            assembly_payload=assembly_payload,
-            overrides={
-                "agent_visible_runtime_projection": agent_visible_runtime_projection,
-                "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
-                "active_work_context": dict(active_work_context or {}),
-                "current_work_boundary_receipt": dict(current_work_boundary_receipt or {}),
-            },
-        )
-        read_evidence_payload = _read_evidence_injection_payload(
-            base_dir=self.base_dir,
-            runtime_assembly=assembly_payload,
-            file_state=list(session_file_state),
-            file_evidence_scope=file_evidence_scope,
-            packet_id=packet_id,
-            budget_policy=projection_policy,
-            current_observations=(),
-        )
+        file_evidence_scope = packet_context.file_evidence_scope
+        session_file_state = packet_context.file_state
+        projection_policy = {
+            **dict(packet_context.projection_policy or {}),
+            "agent_visible_runtime_projection": agent_visible_runtime_projection,
+        }
+        read_evidence_payload = packet_context.read_evidence_payload
         dynamic_context = self.dynamic_context_manager.project(
             DynamicContextInput(
                 invocation_kind="single_agent_turn",
@@ -583,7 +558,7 @@ class RuntimeCompiler:
         if active_work_context:
             dynamic_payload["active_work_context"] = _active_work_model_visible_payload(
                 active_work_context,
-                controls_enabled="active_work_control" in set(allowed_actions),
+                controls_enabled=active_work_controls_enabled,
             )
         if current_work_boundary_receipt:
             dynamic_payload["current_work_boundary_receipt"] = _current_work_boundary_receipt_model_visible_payload(
@@ -964,6 +939,7 @@ class RuntimeCompiler:
                 "tool_catalog_manifest": tool_catalog_manifest_payload,
                 "model_input_authority": "prompt_composition.message_projection",
                 "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
+                "runtime_packet_context": packet_context.to_dict(),
                 "control_capabilities": dict(effective_control_capabilities),
                 "active_work_context_present": bool(active_work_context),
                 "current_work_boundary_receipt": dict(current_work_boundary_receipt or {}),
@@ -1025,9 +1001,25 @@ class RuntimeCompiler:
             contract=contract,
         )
         operation_authorization = dict(assembly_payload.get("operation_authorization") or {})
+        packet_context = build_task_execution_packet_context(
+            session_id=session_id,
+            task_run=task_run,
+            runtime_assembly=assembly_payload,
+            available_tools=tool_payloads,
+            agent_profile_ref=agent_profile_ref,
+            model_selection=model_selection,
+            prompt_pack_refs=prompt_pack_refs,
+            invocation_index=invocation_index,
+            base_dir=self.base_dir,
+            operation_authorization=operation_authorization,
+            prompt_policy=prompt_policy,
+            include_task_run_context=task_run_context_enabled,
+        )
+        tool_payloads = packet_context.model_visible_tools
+        allowed_actions = packet_context.allowed_action_types
         agent_visible_runtime_projection = _agent_visible_runtime_projection(
             invocation_kind="task_execution",
-            allowed_action_types=("respond", "ask_user", "tool_call", "block"),
+            allowed_action_types=allowed_actions,
             profile_payload=profile_payload,
             environment_payload=environment_payload,
             operation_authorization=operation_authorization,
@@ -1097,7 +1089,7 @@ class RuntimeCompiler:
         prompt_mount_plan = prompt_mount_plan_for_invocation(
             _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload),
             invocation_kind="task_execution",
-            allowed_actions=("respond", "ask_user", "tool_call", "block"),
+            allowed_actions=allowed_actions,
             memory_context=memory_context,
             observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
             visible_tools=tool_payloads,
@@ -1203,7 +1195,7 @@ class RuntimeCompiler:
         graph_node_completion_prefix = _graph_node_completion_prefix(
             graph_slot,
             invocation_kind="task_execution",
-            allowed_action_types=("respond", "ask_user", "tool_call", "block"),
+            allowed_action_types=allowed_actions,
         )
         artifact_execution_scope_payload = artifact_scope_manifest.to_model_visible_payload()
         environment_stable_payload = {}
@@ -1221,18 +1213,23 @@ class RuntimeCompiler:
             tool_catalog_manifest=tool_catalog_manifest,
         )
         tool_index_payload = tool_catalog_manifest.to_model_visible_payload(include_catalog_hash=True)
-        packet_id = f"rtpacket:{task_run_id}:task_execution:{executor_epoch}:{invocation_index}"
-        projection_policy = _dynamic_context_projection_policy(
-            invocation_kind="task_execution",
+        packet_context = build_task_execution_packet_context(
+            session_id=session_id,
+            task_run=task_run,
+            runtime_assembly=assembly_payload,
+            available_tools=tool_payloads,
+            agent_profile_ref=agent_profile_ref,
             model_selection=model_selection,
-            assembly_payload=assembly_payload,
-            overrides={
-                "agent_visible_runtime_projection": agent_visible_runtime_projection,
-                "operation_authorization": operation_authorization,
-                "prompt_policy": prompt_policy,
-                "include_task_run_context": task_run_context_enabled,
-            },
+            prompt_pack_refs=prompt_pack_refs,
+            invocation_index=invocation_index,
+            base_dir=self.base_dir,
+            agent_visible_runtime_projection=agent_visible_runtime_projection,
+            operation_authorization=operation_authorization,
+            prompt_policy=prompt_policy,
+            include_task_run_context=task_run_context_enabled,
         )
+        packet_id = packet_context.packet_id
+        projection_policy = packet_context.projection_policy
         dynamic_context = self.dynamic_context_manager.project(
             DynamicContextInput(
                 invocation_kind="task_execution",
@@ -1286,18 +1283,25 @@ class RuntimeCompiler:
         bound_task_runtime_context_payload = bound_task_context.to_runtime_model_visible_payload()
         task_state_replay_specs = _task_state_replay_message_specs(dynamic_context.task_state_replay_entries)
         task_state_payload = dict(volatile_payload.get("task_state") or {})
-        evidence_file_state = file_state_from_evidence_index_cursor(evidence_index_cursor_payload)
-        read_evidence_payload = _read_evidence_injection_payload(
-            base_dir=self.base_dir,
+        packet_context = build_task_execution_packet_context(
+            session_id=session_id,
+            task_run=task_run,
             runtime_assembly=assembly_payload,
-            file_state=evidence_file_state
-            or [dict(item) for item in list(task_state_payload.get("file_state") or []) if isinstance(item, dict)],
-            file_evidence_scope=task_run_file_evidence_scope(task_run_id, session_id=session_id),
-            packet_id=packet_id,
-            budget_policy=projection_policy,
+            available_tools=tool_payloads,
+            agent_profile_ref=agent_profile_ref,
+            model_selection=model_selection,
+            prompt_pack_refs=prompt_pack_refs,
+            invocation_index=invocation_index,
+            base_dir=self.base_dir,
+            agent_visible_runtime_projection=agent_visible_runtime_projection,
+            operation_authorization=operation_authorization,
+            prompt_policy=prompt_policy,
+            include_task_run_context=task_run_context_enabled,
+            task_state_payload=task_state_payload,
+            evidence_index_cursor_payload=evidence_index_cursor_payload,
             current_observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
-            include_historical_refs=False,
         )
+        read_evidence_payload = packet_context.read_evidence_payload
         user_steering_payload = _user_steering_updates_payload(execution_state)
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
@@ -1828,7 +1832,7 @@ class RuntimeCompiler:
             bound_task_context_manifest=bound_task_context_manifest_payload,
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
-            allowed_action_types=("respond", "ask_user", "tool_call", "block"),
+            allowed_action_types=allowed_actions,
             observation_refs=dynamic_context.observation_refs,
             artifact_refs=dynamic_context.artifact_refs,
             context_refs=dynamic_context.context_refs,
@@ -1843,6 +1847,7 @@ class RuntimeCompiler:
                 "task_contract_manifest": task_contract_manifest_payload,
                 "bound_task_context_manifest": bound_task_context_manifest_payload,
                 "model_input_authority": "prompt_composition.message_projection",
+                "runtime_packet_context": packet_context.to_dict(),
                 "artifact_scope": {
                     **sandbox_execution_scope.to_diagnostics(),
                     "artifact_root_authority": artifact_scope.authority,
@@ -1985,8 +1990,6 @@ class RuntimeCompiler:
             **_project_instruction_model_payload(project_instruction_bundle),
         }
         packet_id = f"rtpacket:{turn_id}:tool_observation_followup:{len(observations) + 1}"
-        file_evidence_scope = session_file_evidence_scope(session_id)
-        session_file_state = _file_state_snapshot_for_scope(self.base_dir, assembly_payload, file_evidence_scope)
         projection_policy = _dynamic_context_projection_policy(
             invocation_kind="tool_observation_followup",
             model_selection=model_selection,
@@ -1996,6 +1999,15 @@ class RuntimeCompiler:
                 "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
             },
         )
+        session_evidence_projection = _build_session_file_evidence_projection(
+            session_id=session_id,
+            base_dir=self.base_dir,
+            runtime_assembly=assembly_payload,
+            packet_id=packet_id,
+            budget_policy=projection_policy,
+            current_observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
+        )
+        read_evidence_payload = dict(session_evidence_projection.get("read_evidence_payload") or {})
         dynamic_context = self.dynamic_context_manager.project(
             DynamicContextInput(
                 invocation_kind="tool_observation_followup",
@@ -2010,15 +2022,6 @@ class RuntimeCompiler:
                 editor_context=_editor_context_from_session_context(dict(session_context or {})),
                 projection_policy=projection_policy,
             )
-        )
-        read_evidence_payload = _read_evidence_injection_payload(
-            base_dir=self.base_dir,
-            runtime_assembly=assembly_payload,
-            file_state=list(session_file_state),
-            file_evidence_scope=file_evidence_scope,
-            packet_id=packet_id,
-            budget_policy=projection_policy,
-            current_observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
         )
         dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or {})
         runtime_memory_context_payload = _memory_context_model_visible_payload(
@@ -2840,46 +2843,6 @@ def task_execution_action_schema() -> dict[str, Any]:
     }
 
 
-def _single_agent_turn_allowed_actions(
-    *,
-    control_capabilities: dict[str, Any],
-    active_work_context: dict[str, Any] | None,
-    current_work_boundary_receipt: dict[str, Any] | None = None,
-) -> tuple[str, ...]:
-    receipt_available = _receipt_available_action_types(current_work_boundary_receipt)
-    if receipt_available:
-        return tuple(dict.fromkeys(receipt_available))
-    actions: list[str] = ["respond", "ask_user", "block"]
-    if bool(control_capabilities.get("may_request_task_run") is True):
-        actions.append("request_task_run")
-    return tuple(dict.fromkeys(actions))
-
-
-def _has_recoverable_work_candidate(session_context: dict[str, Any] | None) -> bool:
-    payload = dict(session_context or {})
-    record = dict(payload.get("recoverable_work") or {})
-    if not record:
-        return False
-    state = str(record.get("state") or "").strip()
-    return bool(
-        str(record.get("continuation_id") or "").strip()
-        and str(record.get("task_run_id") or "").strip()
-        and state
-        and state != "terminal_read_only"
-    )
-
-
-def _receipt_available_action_types(receipt: dict[str, Any] | None) -> tuple[str, ...]:
-    payload = dict(receipt or {})
-    if not payload:
-        return ()
-    return tuple(
-        str(item or "").strip()
-        for item in list(payload.get("available_action_types_for_next_packet") or [])
-        if str(item or "").strip()
-    )
-
-
 def _current_work_boundary_receipt_model_visible_payload(receipt: dict[str, Any] | None) -> dict[str, Any]:
     payload = dict(receipt or {})
     if not payload:
@@ -2892,8 +2855,6 @@ def _current_work_boundary_receipt_model_visible_payload(receipt: dict[str, Any]
         "observation_state": str(payload.get("observation_state") or ""),
         "operation_availability": operations,
         "active_work_ref": dict(payload.get("active_work_ref") or {}),
-        "available_action_types": list(payload.get("available_action_types_for_next_packet") or []),
-        "unavailable_action_types": list(payload.get("unavailable_action_types_for_next_packet") or []),
         "read_only_context": not bool(operations.get("active_work_control") is True),
         "state_reason": str(payload.get("state_reason") or ""),
         "reason": str(decision.get("reason") or ""),
@@ -3104,36 +3065,6 @@ def _runtime_observations_model_visible_payload(value: Any) -> dict[str, Any]:
     }
 
 
-def _single_agent_turn_effective_control_capabilities(
-    *,
-    control_capabilities: dict[str, Any],
-    allowed_actions: tuple[str, ...],
-    visible_tool_count: int = 0,
-    visible_tool_names: tuple[str, ...] = (),
-) -> dict[str, Any]:
-    effective = dict(control_capabilities or {})
-    allowed = {str(item) for item in allowed_actions if str(item)}
-    supports_json_action_protocol = bool(
-        effective.get("supports_json_action_protocol")
-        or {"ask_user", "block", "request_task_run", "active_work_control", "tool_call"}.intersection(allowed)
-    )
-    effective["authority"] = "harness.runtime.single_agent_turn_control_capabilities"
-    effective["may_call_tools"] = "tool_call" in allowed and visible_tool_count > 0
-    effective["may_use_subagents"] = bool(
-        effective.get("may_use_subagents") is True
-        and set(visible_tool_names).intersection(_SUBAGENT_TOOL_NAMES)
-    )
-    effective["supports_json_action_protocol"] = supports_json_action_protocol
-    effective["requires_json_action_protocol"] = bool(
-        effective.get("requires_json_action_protocol") is True
-    )
-    effective["visible_tool_count"] = visible_tool_count
-    effective["may_request_task_run"] = "request_task_run" in allowed
-    effective["may_control_active_work"] = "active_work_control" in allowed
-    effective.setdefault("may_emit_assistant_message", True)
-    return effective
-
-
 def _single_agent_turn_output_contract(
     *,
     allowed_actions: tuple[str, ...],
@@ -3281,8 +3212,27 @@ def _single_agent_turn_output_contract(
                 "required_fields": ["user_visible_goal", "task_run_goal", "completion_criteria"],
                 "operation_boundary": "request_task_run is available only when the current action contract exposes a new task lifecycle. It does not control, resume, pause, replace, or mutate active_work_context.",
             },
+            "resume_recoverable_work": {
+                "enabled": "resume_recoverable_work" in allowed_actions,
+                "operation_availability_gate": (
+                    "Use resume_recoverable_work only when Single agent turn dynamic runtime.recoverable_work.resume_allowed "
+                    "is true and the latest user message asks to resume that recoverable task. The action must include "
+                    "recovery_resume.task_run_id and recovery_resume.continuation_id from recoverable_work. If a "
+                    "recovery_boundary_receipt is present, its operation_availability.resume_recoverable_work must be true. "
+                    "Do not use this action for interrupted_turn_work, recent_work_outcome, terminal_read_only records, "
+                    "or ordinary current-work control."
+                ),
+                "required_fields": ["recovery_resume.task_run_id", "recovery_resume.continuation_id"],
+                "runtime_revalidation": "harness.continuation.recovery_boundary revalidates the handles before scheduling execution.",
+            },
             "active_work_control": {
                 "enabled": "active_work_control" in allowed_actions,
+                "operation_availability_gate": (
+                    "Before choosing active_work_control, check "
+                    "Single agent turn dynamic runtime.current_work_boundary_receipt.operation_availability.active_work_control. "
+                    "Use active_work_control only when that value is true; if it is false or missing, treat active_work_context "
+                    "as read-only state and choose respond, ask_user, block, request_task_run, or another legal action."
+                ),
                 "required_fields": ["action", "relation_to_current_work"],
                 "payload_schema": {
                     "action": "one of allowed_controls; use this exact field name for the control decision",
@@ -3305,36 +3255,6 @@ def _single_agent_turn_output_contract(
     }
 
 
-def _single_agent_turn_tools(
-    *,
-    assembly_payload: dict[str, Any],
-    control_capabilities: dict[str, Any],
-) -> tuple[dict[str, Any], ...]:
-    plan = _single_agent_turn_tool_plan(
-        assembly_payload=assembly_payload,
-        control_capabilities=control_capabilities,
-    )
-    return tuple(dict(item) for item in plan.model_visible_tools)
-
-
-def _single_agent_turn_tool_plan(
-    *,
-    assembly_payload: dict[str, Any],
-    control_capabilities: dict[str, Any],
-) -> Any:
-    if bool(control_capabilities.get("may_call_tools") is False):
-        return build_runtime_tool_plan(
-            runtime_assembly={**dict(assembly_payload or {}), "available_tools": []},
-            invocation_kind="single_agent_turn",
-            tool_definitions_by_name={},
-        )
-    return build_runtime_tool_plan(
-        runtime_assembly=assembly_payload,
-        invocation_kind="single_agent_turn",
-        tool_definitions_by_name={},
-    )
-
-
 def _active_work_model_visible_payload(
     active_work_context: dict[str, Any] | None,
     *,
@@ -3351,7 +3271,7 @@ def _active_work_model_visible_payload(
         "answer_about_active_work",
         "answer_then_continue_active_work",
     ] if controls_enabled else []
-    return _drop_empty_payload(
+    payload = _drop_empty_payload(
         {
             "status": str(context.get("status") or ""),
             "control_state": str(context.get("control_state") or ""),
@@ -3373,6 +3293,9 @@ def _active_work_model_visible_payload(
             "boundary_code": "active_turn_bound_work_fact",
         }
     )
+    if not controls_enabled:
+        payload["available_controls"] = []
+    return payload
 
 
 def _turn_input_facts_model_visible_payload(facts: dict[str, Any] | None) -> dict[str, Any]:
@@ -4668,69 +4591,6 @@ def _string_dict(value: Any) -> dict[str, str]:
         for key, item in value.items()
         if str(key).strip() and str(item).strip()
     }
-
-
-def _dynamic_context_projection_policy(
-    *,
-    invocation_kind: str,
-    model_selection: dict[str, Any] | None,
-    assembly_payload: dict[str, Any],
-    overrides: dict[str, Any],
-) -> dict[str, Any]:
-    budget_policy = build_model_aware_context_budget_policy(
-        invocation_kind=invocation_kind,
-        model_selection=model_selection,
-        runtime_assembly=assembly_payload,
-    ).to_projection_policy()
-    return {
-        **budget_policy,
-        **dict(overrides or {}),
-    }
-
-
-def _file_state_snapshot_for_scope(
-    base_dir: Path,
-    runtime_assembly: dict[str, Any],
-    file_evidence_scope: dict[str, Any],
-    *,
-    limit: int = 20,
-) -> tuple[dict[str, Any], ...]:
-    scope = dict(file_evidence_scope or {})
-    if not scope:
-        return ()
-    storage_root = dynamic_context_storage_root(base_dir, dict(runtime_assembly or {})) or base_dir
-    try:
-        return tuple(dict(item) for item in FileStateAuthorityStore(storage_root).snapshot_scope(scope, limit=limit))
-    except Exception:
-        return ()
-
-
-def _read_evidence_injection_payload(
-    *,
-    base_dir: Path,
-    runtime_assembly: dict[str, Any],
-    file_state: list[dict[str, Any]],
-    file_evidence_scope: dict[str, Any],
-    packet_id: str,
-    budget_policy: dict[str, Any] | None = None,
-    current_observations: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
-    include_historical_refs: bool = True,
-) -> dict[str, Any]:
-    scope = dict(file_evidence_scope or {})
-    if not scope:
-        return {}
-    storage_root = dynamic_context_storage_root(base_dir, dict(runtime_assembly or {})) or base_dir
-    budget_payload = dict(runtime_assembly.get("read_evidence_policy") or {})
-    budget_payload.update(dict(runtime_assembly.get("context_budget_policy") or {}))
-    budget_payload.update(dict(budget_policy or {}))
-    return build_read_evidence_projection_payload(
-        storage_root=storage_root,
-        file_state=file_state,
-        packet_id=packet_id,
-        budget_policy=budget_payload,
-        current_observations=current_observations,
-        include_historical_refs=include_historical_refs,
-    )
 
 
 def _prompt_pack_refs_for_invocation(profile_payload: dict[str, Any], *, invocation_kind: str) -> tuple[str, ...]:

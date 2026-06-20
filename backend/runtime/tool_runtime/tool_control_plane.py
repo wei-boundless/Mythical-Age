@@ -21,7 +21,7 @@ from runtime.shared.execution_record import (
 )
 from runtime.shared.models import AgentRun
 from runtime.shared.safety import build_task_safety_validators
-from runtime.memory.file_evidence_scope import normalize_file_evidence_scope
+from runtime.memory.tool_memory_events import commit_tool_memory_events_from_envelope
 from runtime.tool_runtime.tool_invocation_request import ToolInvocationRequest
 from runtime.tool_runtime.tool_observation import ToolObservation
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
@@ -128,6 +128,14 @@ class RuntimeToolControlPlane:
     async def invoke(self, request: ToolInvocationRequest, *, tool_plan: Any) -> ToolObservation:
         permit_denial = _action_permit_denial(request)
         if permit_denial:
+            _publish_tool_permission_decided(
+                request,
+                tool_plan=tool_plan,
+                decision="denied",
+                allowed=False,
+                stage="action_permit",
+                reason=permit_denial,
+            )
             return _observation(
                 request,
                 status="denied",
@@ -136,6 +144,14 @@ class RuntimeToolControlPlane:
             )
         denial = _membership_denial(request, tool_plan=tool_plan)
         if denial:
+            _publish_tool_permission_decided(
+                request,
+                tool_plan=tool_plan,
+                decision="denied",
+                allowed=False,
+                stage="capability_membership",
+                reason=denial,
+            )
             return _observation(
                 request,
                 status="denied",
@@ -201,6 +217,14 @@ class RuntimeToolControlPlane:
         supervisor = self.tool_supervisor or ToolSupervisor()
         operation_gate = self.operation_gate or _operation_gate(request)
         if operation_gate is None:
+            _publish_tool_permission_decided(
+                request,
+                tool_plan=tool_plan,
+                decision="denied",
+                allowed=False,
+                stage="operation_gate_unavailable",
+                reason="runtime tool control plane has no OperationGate",
+            )
             return _observation(
                 request,
                 status="denied",
@@ -236,12 +260,22 @@ class RuntimeToolControlPlane:
             operation_gate=operation_gate,
             tool_runtime_executor=self.tool_runtime_executor,
             action_request=runtime_action,
-            approval_token=_approval_token_from_request(request),
-            approval_state=_approval_state_from_request(request),
+            approval_token=_approval_token_for_supervision(request),
+            approval_state=_approval_state_for_supervision(request),
             approval_risk_fingerprint=str(request.approval_risk_fingerprint or "") or None,
             sandbox_policy=sandbox_policy,
             file_management_policy=file_policy,
             safety_validators=_safety_validators(request, sandbox_policy=sandbox_policy),
+        )
+        _publish_tool_permission_decided(
+            request,
+            tool_plan=tool_plan,
+            decision="allow" if supervision.allowed else ("needs_approval" if supervision.requires_approval else "denied"),
+            allowed=bool(supervision.allowed),
+            stage="tool_supervisor",
+            reason=supervision.decision.reason or supervision.decision.behavior,
+            operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
+            supervision=supervision.to_dict(),
         )
         if not supervision.allowed:
             if execution_record is not None and execution_store is not None:
@@ -265,12 +299,26 @@ class RuntimeToolControlPlane:
         normalized_args = dict(supervision.normalized_args or request.tool_args or {})
         runtime_action = _runtime_action_with_args(runtime_action, tool_name=request.tool_name, tool_call_id=request.tool_call_id, tool_args=normalized_args)
         if handler.handler_id == "subagent_control":
+            _publish_tool_execution_started(
+                request,
+                tool_plan=tool_plan,
+                handler_id=handler.handler_id,
+                directive_ref=str(getattr(directive, "directive_id", "") or ""),
+                operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
+                execution_receipt=_execution_receipt(execution_record),
+            )
             observation = await _invoke_subagent_control(
                 request,
                 directive=directive,
                 normalized_args=normalized_args,
                 operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
                 execution_record=execution_record,
+            )
+            _publish_tool_execution_completed(
+                request,
+                tool_plan=tool_plan,
+                handler_id=handler.handler_id,
+                observation=observation,
             )
             return observation
         if self.tool_runtime_executor is None:
@@ -300,6 +348,14 @@ class RuntimeToolControlPlane:
                     "tool_plan_ref": tool_plan.plan_id,
                 },
             )
+        _publish_tool_execution_started(
+            request,
+            tool_plan=tool_plan,
+            handler_id=handler.handler_id,
+            directive_ref=str(getattr(directive, "directive_id", "") or ""),
+            operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
+            execution_receipt=_execution_receipt(execution_record),
+        )
         result = await dispatch(
             request=request,
             runtime_action=runtime_action,
@@ -320,6 +376,12 @@ class RuntimeToolControlPlane:
                 "tool_plan_ref": tool_plan.plan_id,
                 "supervision": supervision.to_dict(),
             },
+        )
+        _publish_tool_execution_completed(
+            request,
+            tool_plan=tool_plan,
+            handler_id=handler.handler_id,
+            observation=observation,
         )
         if _should_consume_approval_grant(observation):
             _consume_approval_grant_if_present(
@@ -343,6 +405,14 @@ class RuntimeToolControlPlane:
             )
         definition = _definition(request)
         if definition is None:
+            _publish_tool_permission_decided(
+                request,
+                tool_plan=tool_plan,
+                decision="denied",
+                allowed=False,
+                stage="tool_definition_unavailable",
+                reason="tool definition is unavailable",
+            )
             return _observation(
                 request,
                 status="denied",
@@ -353,6 +423,14 @@ class RuntimeToolControlPlane:
         supervisor = self.tool_supervisor or ToolSupervisor()
         operation_gate = self.operation_gate or _operation_gate(request)
         if operation_gate is None:
+            _publish_tool_permission_decided(
+                request,
+                tool_plan=tool_plan,
+                decision="denied",
+                allowed=False,
+                stage="operation_gate_unavailable",
+                reason="runtime tool control plane has no OperationGate",
+            )
             return _observation(
                 request,
                 status="denied",
@@ -388,12 +466,22 @@ class RuntimeToolControlPlane:
             operation_gate=operation_gate,
             tool_runtime_executor=None,
             action_request=None,
-            approval_token=_approval_token_from_request(request),
-            approval_state=_approval_state_from_request(request),
+            approval_token=_approval_token_for_supervision(request),
+            approval_state=_approval_state_for_supervision(request),
             approval_risk_fingerprint=str(request.approval_risk_fingerprint or "") or None,
             sandbox_policy=sandbox_policy,
             file_management_policy=file_policy,
             safety_validators=_safety_validators(request, sandbox_policy=sandbox_policy),
+        )
+        _publish_tool_permission_decided(
+            request,
+            tool_plan=tool_plan,
+            decision="allow" if supervision.allowed else ("needs_approval" if supervision.requires_approval else "denied"),
+            allowed=bool(supervision.allowed),
+            stage="tool_supervisor",
+            reason=supervision.decision.reason or supervision.decision.behavior,
+            operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
+            supervision=supervision.to_dict(),
         )
         if not supervision.allowed:
             return _observation(
@@ -423,6 +511,13 @@ class RuntimeToolControlPlane:
         tool_runtime = getattr(self.tool_runtime_executor, "tool_runtime", None)
         if tool_runtime is not None and getattr(tool_runtime, "runtime_host", None) is None and runtime_host is not None:
             setattr(tool_runtime, "runtime_host", runtime_host)
+        _publish_tool_execution_started(
+            request,
+            tool_plan=tool_plan,
+            handler_id="agent_turn_core",
+            directive_ref=str(getattr(directive, "directive_id", "") or ""),
+            operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
+        )
         result = await self.tool_runtime_executor.execute_control_plane_request(
             request=request,
             sandbox_policy=sandbox_policy,
@@ -440,7 +535,13 @@ class RuntimeToolControlPlane:
                 "supervision": supervision.to_dict(),
             },
         )
-        observation = _with_file_state_commit_diagnostics(request, observation)
+        observation = _with_tool_memory_commit_diagnostics(request, observation)
+        _publish_tool_execution_completed(
+            request,
+            tool_plan=tool_plan,
+            handler_id="agent_turn_core",
+            observation=observation,
+        )
         if _should_consume_approval_grant(observation):
             _consume_approval_grant_if_present(
                 request,
@@ -488,6 +589,181 @@ def _request_operation_id(request: ToolInvocationRequest) -> str:
     )
 
 
+def _publish_tool_permission_decided(
+    request: ToolInvocationRequest,
+    *,
+    tool_plan: Any,
+    decision: str,
+    allowed: bool,
+    stage: str,
+    reason: str = "",
+    operation_gate: dict[str, Any] | None = None,
+    supervision: dict[str, Any] | None = None,
+) -> None:
+    payload = _tool_lifecycle_base_payload(request, tool_plan=tool_plan)
+    payload.update(
+        {
+            "lifecycle_phase": "permission_decided",
+            "decision": str(decision or "").strip(),
+            "allowed": bool(allowed),
+            "stage": str(stage or "").strip(),
+            "reason": str(reason or "").strip(),
+            "operation_gate": dict(operation_gate or {}),
+            "supervision": dict(supervision or {}),
+        }
+    )
+    _publish_tool_lifecycle_signal(
+        request,
+        signal_type="tool.permission.decided",
+        signal_id=f"toolperm:{request.invocation_id}",
+        payload=payload,
+    )
+
+
+def _publish_tool_execution_started(
+    request: ToolInvocationRequest,
+    *,
+    tool_plan: Any,
+    handler_id: str,
+    directive_ref: str = "",
+    operation_gate: dict[str, Any] | None = None,
+    execution_receipt: dict[str, Any] | None = None,
+) -> None:
+    payload = _tool_lifecycle_base_payload(request, tool_plan=tool_plan)
+    payload.update(
+        {
+            "lifecycle_phase": "execution_started",
+            "handler_id": str(handler_id or "").strip(),
+            "directive_ref": str(directive_ref or "").strip(),
+            "operation_gate": dict(operation_gate or {}),
+            "execution_receipt": dict(execution_receipt or {}),
+        }
+    )
+    _publish_tool_lifecycle_signal(
+        request,
+        signal_type="tool.execution.started",
+        signal_id=f"toolexec:{request.invocation_id}:started",
+        payload=payload,
+    )
+
+
+def _publish_tool_execution_completed(
+    request: ToolInvocationRequest,
+    *,
+    tool_plan: Any,
+    handler_id: str,
+    observation: ToolObservation,
+) -> None:
+    payload = _tool_lifecycle_base_payload(request, tool_plan=tool_plan)
+    payload.update(
+        {
+            "lifecycle_phase": "execution_completed",
+            "handler_id": str(handler_id or "").strip(),
+            "status": str(getattr(observation, "status", "") or ""),
+            "observation_ref": str(getattr(observation, "observation_id", "") or ""),
+            "result_ref": str(getattr(observation, "result_ref", "") or ""),
+            "execution_receipt": dict(getattr(observation, "execution_receipt", {}) or {}),
+            "artifact_refs": [dict(item) for item in tuple(getattr(observation, "artifact_refs", ()) or ())],
+        }
+    )
+    _publish_tool_lifecycle_signal(
+        request,
+        signal_type="tool.execution.completed",
+        signal_id=f"toolexec:{request.invocation_id}:completed",
+        payload=payload,
+        refs={
+            "observation_ref": str(getattr(observation, "observation_id", "") or ""),
+            "result_ref": str(getattr(observation, "result_ref", "") or ""),
+        },
+    )
+
+
+def _tool_lifecycle_base_payload(request: ToolInvocationRequest, *, tool_plan: Any) -> dict[str, Any]:
+    return {
+        "event_family": "tool_lifecycle",
+        "tool_invocation_id": str(request.invocation_id or ""),
+        "tool_call_id": str(request.tool_call_id or ""),
+        "tool_name": str(request.tool_name or ""),
+        "operation_id": _request_operation_id(request),
+        "action_request_ref": str(request.action_request_ref or ""),
+        "packet_ref": str(request.packet_ref or ""),
+        "admission_ref": str(request.admission_ref or ""),
+        "tool_plan_ref": str(request.tool_plan_ref or getattr(tool_plan, "plan_id", "") or ""),
+        "caller_kind": str(request.caller_kind or ""),
+        "caller_ref": str(request.caller_ref or ""),
+        "task_run_id": str(request.task_run_id or ""),
+        "agent_run_id": str(request.agent_run_id or ""),
+        "run_cell_id": str(request.run_cell_id or ""),
+        "session_id": str(request.session_id or ""),
+        "turn_id": str(request.turn_id or ""),
+        "permission_mode": str(request.permission_mode or ""),
+        "authority": "runtime.tool_runtime.tool_control_plane",
+    }
+
+
+def _publish_tool_lifecycle_signal(
+    request: ToolInvocationRequest,
+    *,
+    signal_type: str,
+    signal_id: str,
+    payload: dict[str, Any],
+    refs: dict[str, Any] | None = None,
+) -> None:
+    runtime_host = _runtime_host(request)
+    control_bus = getattr(runtime_host, "control_bus", None) if runtime_host is not None else None
+    publish = getattr(control_bus, "publish", None)
+    if not callable(publish):
+        return
+    normalized_signal_id = str(signal_id or "").strip()
+    run_id = _tool_lifecycle_run_id(request)
+    if not run_id or not normalized_signal_id:
+        return
+    try:
+        from harness.runtime.control_events import RuntimeSignalScope
+    except Exception:
+        return
+    scope = RuntimeSignalScope(
+        session_id=str(request.session_id or ""),
+        agent_run_id=str(request.agent_run_id or ""),
+        run_cell_id=str(request.run_cell_id or ""),
+        turn_id=str(request.turn_id or ""),
+        turn_run_id=str(request.caller_ref or "") if request.caller_kind == "agent_turn" else "",
+        task_run_id=str(request.task_run_id or ""),
+    )
+    publish(
+        run_id,
+        signal_type=str(signal_type or "").strip(),
+        signal_id=normalized_signal_id,
+        scope=scope,
+        source_authority="runtime.tool_runtime.tool_control_plane",
+        payload=dict(payload or {}),
+        causation_id=str(request.action_request_ref or request.tool_call_id or ""),
+        correlation_id=str(request.invocation_id or ""),
+        refs={
+            "tool_invocation_ref": str(request.invocation_id or ""),
+            "tool_call_ref": str(request.tool_call_id or ""),
+            "action_request_ref": str(request.action_request_ref or ""),
+            "task_run_ref": str(request.task_run_id or ""),
+            "agent_run_ref": str(request.agent_run_id or ""),
+            "run_cell_ref": str(request.run_cell_id or ""),
+            "tool_plan_ref": str(request.tool_plan_ref or dict(payload or {}).get("tool_plan_ref") or ""),
+            **dict(refs or {}),
+        },
+    )
+
+
+def _tool_lifecycle_run_id(request: ToolInvocationRequest) -> str:
+    if request.task_run_id:
+        return str(request.task_run_id)
+    if request.caller_ref:
+        return str(request.caller_ref)
+    if request.turn_id:
+        return str(request.turn_id)
+    if request.session_id:
+        return str(request.session_id)
+    return "runtime"
+
+
 def _canonical_operation_id(*, tool_name: str, operation_id: str) -> str:
     reserved_operation_id = _SUBAGENT_OPERATION_BY_TOOL_NAME.get(str(tool_name or "").strip())
     if reserved_operation_id:
@@ -507,6 +783,15 @@ def _observation(
     execution_receipt: dict[str, Any] | None = None,
     artifact_refs: tuple[dict[str, Any], ...] = (),
 ) -> ToolObservation:
+    receipt = {
+        **dict(execution_receipt or {}),
+        "agent_run_id": str(request.agent_run_id or ""),
+        "run_cell_id": str(request.run_cell_id or ""),
+        "task_run_id": str(request.task_run_id or ""),
+        "caller_kind": str(request.caller_kind or ""),
+        "caller_ref": str(request.caller_ref or ""),
+        "tool_invocation_id": str(request.invocation_id or ""),
+    }
     envelope = dict(result_envelope or {})
     if not envelope:
         envelope = build_tool_result_envelope(
@@ -514,7 +799,7 @@ def _observation(
             tool_args=dict(request.tool_args or {}),
             result={"ok": status == "ok", "error": "" if status == "ok" else str(text or status), "text": str(text or "")},
             status=status,
-            execution_receipt=dict(execution_receipt or {}),
+            execution_receipt=receipt,
             result_ref=str(result_ref or ""),
             tool_call_id=request.tool_call_id,
             action_request_id=request.action_request_ref,
@@ -522,6 +807,10 @@ def _observation(
             caller_ref=request.caller_ref,
             diagnostics=dict(diagnostics or {}),
         ).to_dict()
+    elif isinstance(envelope.get("execution_receipt"), dict):
+        envelope["execution_receipt"] = {**dict(envelope.get("execution_receipt") or {}), **receipt}
+    else:
+        envelope["execution_receipt"] = receipt
     return ToolObservation(
         observation_id=f"toolobs:{request.invocation_id}:{uuid.uuid4().hex[:8]}",
         invocation_id=request.invocation_id,
@@ -534,79 +823,36 @@ def _observation(
         result_ref=str(result_ref or envelope.get("result_ref") or ""),
         result_envelope=envelope,
         operation_gate=dict(operation_gate or {}),
-        execution_receipt=dict(execution_receipt or {}),
+        execution_receipt=receipt,
         artifact_refs=tuple(dict(item) for item in tuple(artifact_refs or ())),
         diagnostics=dict(diagnostics or {}),
     )
 
 
-def _with_file_state_commit_diagnostics(request: ToolInvocationRequest, observation: ToolObservation) -> ToolObservation:
+def _with_tool_memory_commit_diagnostics(request: ToolInvocationRequest, observation: ToolObservation) -> ToolObservation:
     envelope = dict(observation.result_envelope or {})
-    events = tuple(dict(item) for item in list(envelope.get("file_state_events") or []) if isinstance(item, dict))
-    if not events:
-        return observation
-    scope = normalize_file_evidence_scope(
-        request.file_evidence_scope,
+    commit = commit_tool_memory_events_from_envelope(
+        envelope=envelope,
+        file_evidence_scope=request.file_evidence_scope,
+        observation_ref=observation.observation_id,
+        tool_call_id=request.tool_call_id,
+        source_tool_name=request.tool_name,
+        runtime_host=_runtime_host(request),
         task_run_id=request.task_run_id,
         session_id=request.session_id,
         caller_kind=request.caller_kind,
+        authority="runtime.tool_runtime.tool_control_plane.tool_memory_commit",
     )
-    commit = _commit_file_state_events_for_observation(
-        request,
-        scope=scope,
-        events=events,
-        observation_ref=observation.observation_id,
-    )
+    if not commit:
+        return observation
     return replace(
         observation,
         diagnostics={
             **dict(observation.diagnostics or {}),
-            "file_state_commit": commit,
+            "tool_memory_commit": commit,
+            "file_state_commit": dict(commit.get("file_state_commit") or commit or {}),
         },
     )
-
-
-def _commit_file_state_events_for_observation(
-    request: ToolInvocationRequest,
-    *,
-    scope: dict[str, Any],
-    events: tuple[dict[str, Any], ...],
-    observation_ref: str,
-) -> dict[str, Any]:
-    if not scope:
-        return {
-            "event_count": len(events),
-            "skipped_reason": "missing_file_evidence_scope",
-            "authority": "runtime.tool_runtime.tool_control_plane.file_state_commit",
-        }
-    runtime_host = _runtime_host(request)
-    store = getattr(runtime_host, "file_state_store", None) if runtime_host is not None else None
-    if store is None:
-        root_dir = getattr(runtime_host, "root_dir", None) if runtime_host is not None else None
-        if root_dir is None:
-            return {
-                "file_evidence_scope": scope,
-                "event_count": len(events),
-                "skipped_reason": "file_state_store_unavailable",
-                "authority": "runtime.tool_runtime.tool_control_plane.file_state_commit",
-            }
-        from runtime.memory.file_state_store import FileStateAuthorityStore
-
-        store = FileStateAuthorityStore(Path(root_dir))
-    authority = store.apply_events_scope(
-        scope,
-        events,
-        observation_ref=observation_ref,
-        tool_call_id=request.tool_call_id,
-    )
-    return {
-        "file_evidence_scope": scope,
-        "observation_ref": str(observation_ref or ""),
-        "tool_call_id": request.tool_call_id,
-        "event_count": len(events),
-        "file_count": len(authority.files),
-        "authority": "runtime.tool_runtime.tool_control_plane.file_state_commit",
-    }
 
 
 def _execution_contracts(request: ToolInvocationRequest, *, tool_plan: Any) -> tuple[Any, Any, dict[str, Any], dict[str, Any], Any]:
@@ -1003,6 +1249,37 @@ def _approval_state_from_request(request: ToolInvocationRequest) -> ApprovalStat
     return ApprovalState(tokens=tuple(tokens)) if tokens else None
 
 
+def _approval_state_for_supervision(request: ToolInvocationRequest) -> ApprovalState | None:
+    authoritative = _approval_state_from_current_task_run(request)
+    if authoritative is not None:
+        return authoritative
+    return _approval_state_from_request(request)
+
+
+def _approval_token_for_supervision(request: ToolInvocationRequest) -> ApprovalToken | None:
+    if _approval_state_from_current_task_run(request) is not None:
+        return None
+    return _approval_token_from_request(request)
+
+
+def _approval_state_from_current_task_run(request: ToolInvocationRequest) -> ApprovalState | None:
+    if str(request.caller_kind or "") != "task_run" or not str(request.task_run_id or "").strip():
+        return None
+    runtime_host = _runtime_host(request)
+    state_index = getattr(runtime_host, "state_index", None) if runtime_host is not None else None
+    get_task_run = getattr(state_index, "get_task_run", None)
+    if not callable(get_task_run):
+        return None
+    task_run = get_task_run(request.task_run_id)
+    if task_run is None:
+        return None
+    try:
+        from harness.loop.task_tool_approval import approval_state_for_task_run
+    except Exception:
+        return None
+    return approval_state_for_task_run(task_run)
+
+
 def _approval_token_from_request(request: ToolInvocationRequest) -> ApprovalToken | None:
     return _approval_token_from_payload(dict(request.approval_token or {}))
 
@@ -1148,7 +1425,11 @@ def _consume_approval_grant_if_present(
     if runtime_host is None or not request.task_run_id:
         return
     try:
-        from harness.loop.task_tool_approval import consume_matching_task_tool_approval
+        from harness.loop.task_tool_approval import (
+            consume_matching_task_tool_approval,
+            publish_task_tool_approval_consumed,
+            task_tool_approval_grants,
+        )
     except Exception:
         return
     state_index = getattr(runtime_host, "state_index", None)
@@ -1169,13 +1450,29 @@ def _consume_approval_grant_if_present(
 
     if not hasattr(state_index, "upsert_task_run"):
         return
-    state_index.upsert_task_run(
-        replace(
-            task_run,
-            updated_at=time.time(),
-            diagnostics=updated_diagnostics,
-        )
+    updated_task = replace(
+        task_run,
+        updated_at=time.time(),
+        diagnostics=updated_diagnostics,
     )
+    state_index.upsert_task_run(updated_task)
+    approval_state = dict(updated_diagnostics.get("approval_state") or {}) if isinstance(updated_diagnostics.get("approval_state"), dict) else {}
+    consumed_grant_id = str(approval_state.get("latest_consumed_grant_id") or "")
+    consumed_grant = None
+    for grant in task_tool_approval_grants(updated_task):
+        if consumed_grant_id and grant.grant_id != consumed_grant_id:
+            continue
+        if grant.consumed and grant.operation_id == _request_operation_id(request) and grant.directive_ref == directive_ref:
+            consumed_grant = grant
+            break
+    if consumed_grant is not None:
+        publish_task_tool_approval_consumed(
+            runtime_host,
+            task_run=updated_task,
+            grant=consumed_grant,
+            directive_ref=directive_ref,
+            approval_risk_fingerprint=approval_risk_fingerprint,
+        )
 
 
 def _should_consume_approval_grant(observation: ToolObservation) -> bool:

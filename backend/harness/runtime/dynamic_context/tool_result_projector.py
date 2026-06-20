@@ -418,7 +418,6 @@ def _build_rehydration_plan(
                     "content_range": content_range,
                     "coverage": coverage,
                     "full_file_window": coverage == "full_file",
-                    "next_request": _next_read_file_request(content_range),
                     "instruction": _read_file_range_instruction(content_range),
                 }
             )
@@ -607,7 +606,7 @@ def _read_file_range_instruction(content_range: dict[str, Any]) -> str:
         )
     return (
         "This read_file result is a line window, not proof that the whole file is in prompt. "
-        "Use next_request only if later lines are needed. For code edits or error localization, reuse this "
+        "Read another range only if the current target lines are outside this window. For code edits or error localization, reuse this "
         "window only when exact content is visible or backed by an exact read observation artifact; read_file "
         "again for stale files, changed files, missing artifacts, or target lines outside this window."
     )
@@ -747,22 +746,6 @@ def _replacement_source_metadata(normalized: dict[str, Any]) -> dict[str, Any]:
 def _tool_result_replacement_id(value: Any) -> str:
     candidate = str(value or "").strip()
     return candidate if candidate.startswith("tool_result:") else ""
-
-
-def _next_read_file_request(content_range: dict[str, Any]) -> dict[str, Any]:
-    path = str(content_range.get("path") or "").strip()
-    next_start_line = _int_or_none(content_range.get("next_start_line"))
-    if not path or next_start_line is None or not bool(content_range.get("has_more") or content_range.get("truncated")):
-        return {}
-    line_count = _int_or_none(content_range.get("line_count")) or _int_or_none(content_range.get("returned_lines")) or 500
-    return {
-        "tool_name": "read_file",
-        "args": {
-            "path": path,
-            "start_line": next_start_line,
-            "line_count": max(1, min(int(line_count), 2000)),
-        },
-    }
 
 
 def _prompt_status(*, has_persisted_output: bool, has_content_range: bool) -> str:

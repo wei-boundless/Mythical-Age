@@ -20,6 +20,7 @@ from prompt_library.environment_lifecycle_prompts import list_builtin_environmen
 from prompt_library.packs import list_builtin_runtime_prompt_resources
 from prompt_library.rules import list_builtin_prompt_rule_resources
 from prompt_library.tool_prompts import _TOOL_GUIDANCE_REFS_BY_NAME, list_builtin_tool_prompt_resources
+from runtime.shared.file_observation_policy import read_window_fingerprint_defaults
 from tests.support.runtime_stubs import build_harness_runtime
 
 _TOOL_GUIDANCE_DEFAULTS = {key: key for refs in _TOOL_GUIDANCE_REFS_BY_NAME.values() for key in refs}
@@ -191,7 +192,10 @@ def test_tool_catalog_exposes_todo_subagent_and_io_schema_contracts() -> None:
 
     search_contract = dict(tools["search_text"]["tool_contract_summary"])
     assert search_contract["critical_fields"]["output_mode"]["enum"] == ["content", "files_with_matches", "count"]
+    assert search_contract["forbidden_fields"] == ["path", "pattern"]
     assert "recommended_read_windows" in search_contract["output_facts"]
+    assert "line_count may be omitted" in read_contract["usage_hint"]
+    assert "recommended_read_windows" in search_contract["usage_hint"]
 
 
 def test_prompt_contracts_do_not_teach_todo_active_or_bare_subagent_ids() -> None:
@@ -213,6 +217,8 @@ def test_prompt_contracts_do_not_teach_todo_active_or_bare_subagent_ids() -> Non
     assert "agent:web_researcher" in contents
     assert " codebase_searcher " not in contents
     assert " web_researcher " not in contents
+    assert "recommended_read_windows" in contents
+    assert "不要传 path 或 pattern" in contents
 
 
 def test_runtime_feedback_prompts_do_not_force_tool_loop_public_judgment() -> None:
@@ -282,13 +288,18 @@ def test_exploration_advisory_and_read_resource_state_remain_non_deciding_facts(
 
 
 def test_duplicate_read_only_guard_stops_empty_identical_read_dispatch_after_contract_failures() -> None:
+    read_defaults = read_window_fingerprint_defaults()
     previous_observations = [
         {
             "observation_id": f"obs:read-repeat:{index}",
             "source": "tool:read_file",
             "payload": {
                 "tool_name": "read_file",
-                "tool_args": {"path": "backend/harness/loop/task_executor.py", "start_line": 1, "line_count": 500},
+                "tool_args": {
+                    "path": "backend/harness/loop/task_executor.py",
+                    "start_line": read_defaults["start_line"],
+                    "line_count": read_defaults["line_count"],
+                },
                 "result_envelope": {"tool_name": "read_file", "status": "ok"},
                 "runtime_fingerprint": {"tool_registry_hash": "tools-v1"},
             },

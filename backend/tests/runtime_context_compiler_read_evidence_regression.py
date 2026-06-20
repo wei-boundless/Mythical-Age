@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from harness.runtime.compiler import RuntimeCompiler
+from harness.runtime.dynamic_context.read_evidence_projector import build_read_evidence_projection_payload
 from runtime.memory.file_evidence_scope import session_file_evidence_scope, task_run_file_evidence_scope
 from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime_objects.read_observation_artifacts import ReadObservationArtifactStore
@@ -18,6 +19,62 @@ def _payload_after_title(packet, title: str) -> dict[str, object]:
         if inner_marker in content:
             return json.loads(content.split(inner_marker, 1)[1])
     raise AssertionError(f"missing model message title: {title}")
+
+
+def test_historical_read_evidence_refs_do_not_publish_continuation_hints(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime_state"
+    task_run_id = "taskrun:historical-read-ref"
+    scope = task_run_file_evidence_scope(task_run_id, session_id="session:historical-read-ref")
+    artifact = ReadObservationArtifactStore(runtime_root).write_read_observation(
+        task_run_id=task_run_id,
+        scope=scope,
+        path="src/app.py",
+        text="1 | a\n2 | b",
+        start_line=1,
+        end_line=2,
+        returned_lines=2,
+        line_count=2,
+        total_lines=5,
+        has_more=True,
+        content_sha256="sha256:app",
+        tool_call_id="call:read",
+    )
+    file_state = FileStateAuthorityStore(runtime_root).apply_events_scope(
+        scope,
+        [
+            {
+                "event_type": "read",
+                "path": "src/app.py",
+                "start_line": 1,
+                "end_line": 2,
+                "returned_lines": 2,
+                "line_count": 2,
+                "total_lines": 5,
+                "next_start_line": 3,
+                "has_more": True,
+                "content_sha256": "sha256:app",
+                "exact_artifact_ref": artifact["artifact_ref"],
+                "artifact_ref_status": "exact",
+                "visible_exact": True,
+            }
+        ],
+        observation_ref="obs:read",
+        tool_call_id="call:read",
+    ).projection()
+
+    payload = build_read_evidence_projection_payload(
+        storage_root=runtime_root,
+        file_state=file_state,
+        packet_id="rtpacket:historical-read-ref",
+        current_observations=[],
+        include_historical_refs=True,
+    )
+    evidence_ref = payload["read_evidence_refs"][0]
+
+    assert evidence_ref["path"] == "src/app.py"
+    assert evidence_ref["artifact_ref"] == artifact["artifact_ref"]
+    assert "has_more" not in evidence_ref
+    assert "next_start_line" not in evidence_ref
 
 
 def test_task_execution_compiler_injects_current_exact_read_observation_text_once(tmp_path: Path) -> None:

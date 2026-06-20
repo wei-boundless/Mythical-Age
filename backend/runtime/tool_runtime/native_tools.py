@@ -45,10 +45,12 @@ from runtime_encoding import build_windows_powershell_command, is_windows, utf8_
 from runtime.tool_runtime.docker_sandbox_backend import DockerSandboxBackend
 from runtime.tool_runtime.tool_definition import ToolPermissionResult, ToolValidationResult
 from runtime.tool_runtime.read_file_window import (
-    READ_FILE_DEFAULT_LINE_COUNT,
-    READ_FILE_MAX_LINE_COUNT,
     build_read_file_error_result,
     build_read_file_window_result,
+)
+from runtime.shared.file_observation_policy import (
+    READ_FILE_MAX_LINE_COUNT,
+    recommended_windows_for_matches,
 )
 from runtime.tool_runtime.tool_result_envelope import (
     ToolResultEnvelope,
@@ -310,9 +312,8 @@ class NativeReadFileTool(_NativeToolBase):
                 normalized_args=payload,
                 diagnostics={"field": "start_line"},
             )
-        line_count, line_count_error = _coerce_read_window_int(
+        line_count, line_count_error = _coerce_optional_read_window_int(
             payload.get("line_count"),
-            default=READ_FILE_DEFAULT_LINE_COUNT,
             minimum=1,
             maximum=READ_FILE_MAX_LINE_COUNT,
             field_name="line_count",
@@ -325,15 +326,14 @@ class NativeReadFileTool(_NativeToolBase):
                 normalized_args=payload,
                 diagnostics={"field": "line_count"},
             )
-        return ToolValidationResult(
-            allowed=True,
-            normalized_args={
-                "path": str(payload.get("path") or "").strip(),
-                "start_line": start_line,
-                "line_count": line_count,
-                "read_intent": _normalize_read_intent(payload.get("read_intent")),
-            },
-        )
+        normalized_args = {
+            "path": str(payload.get("path") or "").strip(),
+            "start_line": start_line,
+            "read_intent": _normalize_read_intent(payload.get("read_intent")),
+        }
+        if line_count is not None:
+            normalized_args["line_count"] = line_count
+        return ToolValidationResult(allowed=True, normalized_args=normalized_args)
 
     async def call(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         return await asyncio.to_thread(self._call_sync, dict(args or {}), context)
@@ -341,7 +341,7 @@ class NativeReadFileTool(_NativeToolBase):
     def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         path = str(args.get("path") or "").strip()
         start_line = int(args.get("start_line") or 1)
-        line_count = int(args.get("line_count") or READ_FILE_DEFAULT_LINE_COUNT)
+        line_count = _optional_int(args.get("line_count"))
         read_intent = _normalize_read_intent(args.get("read_intent"))
         gateway = self._file_gateway(context)
         if gateway is not None:
@@ -360,6 +360,7 @@ class NativeReadFileTool(_NativeToolBase):
                 path=rel,
                 start_line=start_line,
                 line_count=line_count,
+                read_intent=read_intent,
             )
             stat = file_path.stat()
             mtime_ns = int(stat.st_mtime_ns)
@@ -413,7 +414,7 @@ class NativeReadFileTool(_NativeToolBase):
         path: str,
     ) -> ToolResultEnvelope:
         start_line = int(args.get("start_line") or 1)
-        line_count = int(args.get("line_count") or READ_FILE_DEFAULT_LINE_COUNT)
+        line_count = _optional_int(args.get("line_count"))
         read_intent = _normalize_read_intent(args.get("read_intent"))
         repository_id = _repository_for_action(context, "read")
         try:
@@ -430,6 +431,7 @@ class NativeReadFileTool(_NativeToolBase):
                 managed_file_ref=result.managed_file_ref.to_dict(),
                 start_line=start_line,
                 line_count=line_count,
+                read_intent=read_intent,
             )
             tool_result = window.to_dict(include_text=False)
             if read_intent:
@@ -723,6 +725,35 @@ def _coerce_read_window_int(
     if maximum is not None and number > maximum:
         return default, f"{field_name} must be <= {maximum}."
     return number, ""
+
+
+def _coerce_optional_read_window_int(
+    value: Any,
+    *,
+    minimum: int,
+    maximum: int | None,
+    field_name: str,
+) -> tuple[int | None, str]:
+    if value in (None, ""):
+        return None, ""
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None, f"{field_name} must be an integer."
+    if number < minimum:
+        return None, f"{field_name} must be >= {minimum}."
+    if maximum is not None and number > maximum:
+        return None, f"{field_name} must be <= {maximum}."
+    return number, ""
+
+
+def _optional_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 _READ_INTENT_VALUES = {
@@ -2577,6 +2608,46 @@ class NativeSearchFilesTool(_NativeToolBase):
 
 
 class NativeSearchTextTool(_NativeToolBase):
+    def validate_input(self, args: dict[str, Any], context: ToolUseContext) -> ToolValidationResult:
+        base = super().validate_input(args, context)
+        if not base.allowed:
+            return base
+        payload = dict(args or {})
+        allowed = {
+            "query",
+            "roots",
+            "paths",
+            "glob",
+            "max_results",
+            "output_mode",
+            "context",
+            "case_sensitive",
+            "head_limit",
+            "offset",
+        }
+        unexpected = sorted(str(key) for key in payload if str(key) not in allowed)
+        if unexpected:
+            repair_parts = [
+                "search_text accepts only query, paths, roots, glob, output_mode, context, case_sensitive, head_limit, offset, and max_results.",
+            ]
+            if "path" in unexpected:
+                repair_parts.append('For a known file, use paths=["..."]; to read a known file, call read_file instead.')
+            if "pattern" in unexpected:
+                repair_parts.append("Use query for the content text and glob for file path filters; do not pass pattern.")
+            repair_parts.append("Remove unsupported argument(s): " + ", ".join(unexpected) + ".")
+            return ToolValidationResult(
+                allowed=False,
+                reason="unexpected_tool_inputs",
+                repair_instruction=" ".join(repair_parts),
+                normalized_args=payload,
+                diagnostics={
+                    "unexpected_inputs": unexpected,
+                    "allowed_inputs": sorted(allowed),
+                    "forbidden_aliases": ["path", "pattern"],
+                },
+            )
+        return ToolValidationResult(allowed=True, normalized_args=payload)
+
     async def call(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         return await asyncio.to_thread(self._call_sync, dict(args or {}), context)
 
@@ -2607,6 +2678,7 @@ class NativeSearchTextTool(_NativeToolBase):
             total_matches = len(matches)
             matches = _slice_search_matches(matches, offset=offset, limit=limit)
             matched_paths = tuple(dict.fromkeys(str(item.get("path") or "") for item in matches if str(item.get("path") or "").strip()))
+            total_lines_by_path = _total_lines_by_match_path(files, matches)
             text = _format_text_search_output(matches, query=query, output_mode=output_mode)
             return self._envelope(
                 tool_args=args,
@@ -2622,6 +2694,7 @@ class NativeSearchTextTool(_NativeToolBase):
                         offset=offset,
                         total_matches=total_matches,
                         context_lines=context_lines,
+                        total_lines_by_path=total_lines_by_path,
                     )
                 },
                 matched_paths=matched_paths,
@@ -2652,6 +2725,7 @@ class NativeSearchTextTool(_NativeToolBase):
         total_matches = len(matches)
         matches = _slice_search_matches(matches, offset=offset, limit=limit)
         matched_paths = tuple(dict.fromkeys(str(item.get("path") or "") for item in matches if str(item.get("path") or "").strip()))
+        total_lines_by_path = _total_lines_by_match_path(files, matches)
         text = _format_text_search_output(matches, query=query, output_mode=output_mode)
         return self._envelope(
             tool_args=args,
@@ -2667,6 +2741,7 @@ class NativeSearchTextTool(_NativeToolBase):
                     offset=offset,
                     total_matches=total_matches,
                     context_lines=context_lines,
+                    total_lines_by_path=total_lines_by_path,
                 )
             },
             matched_paths=matched_paths,
@@ -3664,6 +3739,7 @@ def _search_text(
         "--line-number",
         "--column",
         "--hidden",
+        "--no-ignore-parent",
         "--max-count",
         str(limit),
     ]
@@ -3681,7 +3757,7 @@ def _search_text(
     args.append(query)
     completed = None
     if files.search_root_args_are_workspace_relative(safe_roots):
-        args.extend(files.relative_path(root) for root in safe_roots)
+        args.extend(files.relative_path(root) or "." for root in safe_roots)
         try:
             completed = subprocess.run(
                 ["rg", *args],
@@ -3839,13 +3915,19 @@ def _text_search_tool_result(
     offset: int,
     total_matches: int,
     context_lines: int,
+    total_lines_by_path: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "kind": "text_search",
         "query": query,
         "matches": matches,
         "output_mode": output_mode,
-        "recommended_read_windows": _recommended_read_windows(matches, context_lines=context_lines),
+        "recommended_read_windows": recommended_windows_for_matches(
+            matches,
+            context_lines=context_lines,
+            total_lines_by_path=dict(total_lines_by_path or {}),
+            query=query,
+        ),
     }
     paths = [str(item) for item in list(requested_paths or []) if str(item)]
     if paths:
@@ -3857,30 +3939,20 @@ def _text_search_tool_result(
     return payload
 
 
-def _recommended_read_windows(matches: list[dict[str, Any]], *, context_lines: int) -> list[dict[str, Any]]:
-    windows: list[dict[str, Any]] = []
-    seen: set[tuple[str, int, int]] = set()
-    padding = int(context_lines) if int(context_lines or 0) > 0 else 2
+def _total_lines_by_match_path(files: WorkspaceFileService, matches: list[dict[str, Any]]) -> dict[str, int]:
+    totals: dict[str, int] = {}
     for item in matches:
         path = str(item.get("path") or "").strip()
-        line = int(item.get("line") or 0)
-        if not path or line <= 0:
+        if not path or path in totals:
             continue
-        start_line = max(1, line - padding)
-        line_count = max(1, padding * 2 + 1)
-        key = (path, start_line, line_count)
-        if key in seen:
+        resolved = _resolve_existing_file(files, path)
+        if resolved is None:
             continue
-        seen.add(key)
-        windows.append(
-            {
-                "path": path,
-                "start_line": start_line,
-                "line_count": line_count,
-                "reason": f"match near line {line}",
-            }
-        )
-    return windows
+        try:
+            totals[path] = len(resolved.read_text(encoding="utf-8", errors="ignore").splitlines())
+        except OSError:
+            continue
+    return totals
 
 
 def _resolve_existing_file(files: WorkspaceFileService, path: str) -> Path | None:

@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "skill_count": 9,
+  "skill_count": 10,
   "skills": [
     {
       "schema_version": 3,
@@ -534,6 +534,131 @@
         "subagent_handoff_protocol": "当主 Agent 启动你作为子 Agent 时，应明确传入：\n\n- `subagent_task_kind=table_analysis`\n- `query`：当前用户真正要求的计算或汇总问题\n- `path` 或 `active_dataset`：目标数据集路径或句柄\n- 筛选、分组、排序、Top N、字段口径等约束\n- 如果是 follow-up，传入 `active_result_handle_id`、`active_subset_handle_id`、`followup_target_refs`\n- 如果用户说“这些人 / 这前五名 / 不要扩展回全表”，必须传入 `followup_constraint_policy=result_subset_only_do_not_expand_to_full_object`\n- `expected_output_contract`：要求回传 `summary`、`answer_candidate`、`evidence_refs`、`limitations`、`confidence`\n\n适合的主 Agent 指令风格：\n\n\n\n如果主 Agent 给你的输入里同时出现 PDF、报告页码或知识库检索要求，你应先判断是否被错派。核心问题是文档页级阅读时，应提示改派 `pdf-analysis`；核心问题是资料事实确认时，应提示改派 `rag-skill`。",
         "return_protocol": "你返回给主 Agent 的结果应包括：\n\n- `summary`：一句话说明计算结论。\n- `answer_candidate`：可直接收口的中文答案草稿。\n- `evidence_refs`：相关行、聚合结果、字段或结果句柄。\n- `limitations`：字段缺失、口径不明、数据不完整、只能基于子集等限制。\n- `consumed_handles`：实际使用的数据集、结果子集或结果句柄。\n- `produced_handles`：新生成的分析结果、聚合表或摘要句柄。",
         "output_rule": "- 先给结果，再补充筛选条件、分组逻辑或关键数字。\n- 如果问题有歧义，要指出歧义点，例如时间范围、字段口径、排序依据。\n- 对 Top N、极值、汇总类问题，尽量让结果可比、可核对。\n- 如果数据不完整、字段不明确或绑定数据集不对，要明确说明。\n- 组织结果时优先用“结论 / 口径 / 结果表 / 注意事项”四段式。\n- 如果字段名不直观，要把计算口径翻译成业务语言再给出。\n- 如果用户只要一个答案，就别把完整表格铺满；保留最相关的几项和可核对的口径即可。"
+      },
+      "validation_errors": []
+    },
+    {
+      "schema_version": 3,
+      "runtime": {
+        "name": "trace-first-debugging",
+        "title": "工程化 Debug",
+        "description": "工程化 Debug 技能。用于软件故障、回归、测试失败、状态异常、接口异常、页面异常、异步链路和自动化执行异常；要求先还原应然链路，再用运行时事实定位第一处偏离，修复结构根因并复测闭环。",
+        "path": "capability_system/skills/builtin/trace-first-debugging/SKILL.md",
+        "supported_modalities": [
+          "code",
+          "workspace",
+          "browser",
+          "logs",
+          "api",
+          "test",
+          "runtime_trace"
+        ],
+        "supported_task_kinds": [
+          "bug_diagnosis",
+          "regression_debug",
+          "frontend_interaction_debug",
+          "css_layout_debug",
+          "api_contract_debug",
+          "startup_port_debug",
+          "async_stream_debug",
+          "state_persistence_debug",
+          "automation_execution_debug",
+          "test_failure_debug",
+          "execution_trace_analysis"
+        ],
+        "supported_source_kinds": [
+          "workspace",
+          "codebase",
+          "frontend",
+          "backend",
+          "browser",
+          "logs",
+          "test_output",
+          "runtime_state",
+          "execution_trace"
+        ],
+        "capability_tags": [
+          "debugging",
+          "engineering-discipline",
+          "root-cause-analysis",
+          "runtime-evidence",
+          "trace",
+          "regression",
+          "frontend",
+          "api",
+          "state",
+          "automation",
+          "no-patchwork"
+        ],
+        "preferred_route": "tool",
+        "forbidden_routes": [],
+        "not_for": [
+          "纯概念解释、无需查看项目、无需复现、无需运行时证据的问题。",
+          "用户明确只要求 code review、架构计划、文档改写或风格建议的问题。",
+          "用户已经给出精确根因和指定修法，只需要执行一处明确修改的问题。"
+        ],
+        "routing_hints": [
+          "debug",
+          "调试",
+          "没反应",
+          "点了没用",
+          "页面不更新",
+          "样式没生效",
+          "请求失败",
+          "启动失败",
+          "端口不通",
+          "连接断开",
+          "状态不对",
+          "数据没保存",
+          "输出不对",
+          "自动化任务没输出",
+          "明明写了却没生效",
+          "查根因",
+          "定位 bug",
+          "回归问题",
+          "测试为什么失败"
+        ],
+        "examples": [
+          "为什么这个按钮点了没反应",
+          "代码里已经写了，为什么页面运行时没有生效",
+          "前端显示成功但后端没有收到请求，帮我查根因",
+          "流式输出一会儿就断，按链路查",
+          "自动化任务执行了工具，为什么最终没有结果",
+          "这个测试失败不要绕过，帮我查真实原因"
+        ],
+        "activation_policy": "model_visible",
+        "context_mode": "inline",
+        "route_authority": "candidate_only",
+        "reference_paths": [],
+        "requires_operations": [
+          "op.search_files",
+          "op.search_text",
+          "op.read_file",
+          "op.shell",
+          "op.browser_control",
+          "op.git_status",
+          "op.git_diff",
+          "op.edit_file"
+        ],
+        "requires_capabilities": [
+          "tool:search_files",
+          "tool:search_text",
+          "tool:read_file",
+          "tool:terminal",
+          "browser_control",
+          "tool:git_status",
+          "tool:git_diff",
+          "tool:edit_file"
+        ]
+      },
+      "prompt": {
+        "name": "trace-first-debugging",
+        "title": "工程化 Debug",
+        "capability": "工程化 Debug 技能。用于软件故障、回归、测试失败、状态异常、接口异常、页面异常、异步链路和自动化执行异常；要求先还原应然链路，再用运行时事实定位第一处偏离，修复结构根因并复测闭环。",
+        "use_when": "使用本技能处理：\n\n- 页面、按钮、表单、路由、弹窗、样式、布局、层级或浏览器事件异常。\n- 接口、代理、端口、请求体、响应体、鉴权、中间件、字段契约或缓存异常。\n- 服务启动、构建、热更新、环境变量、进程残留、端口占用或运行入口异常。\n- 流式输出、订阅、长连接、轮询、异步任务、重连和后台刷新异常。\n- 状态、缓存、数据库、文件、队列、持久化、序列化或迁移异常。\n- 测试失败、回归、偶发失败、断言与真实行为冲突。\n- 自动化执行链路中，任务意图、工具输入、工具结果、上下文传递和最终输出不一致。\n\n不适合使用本技能处理：\n\n- 用户只要求代码审查，而不是定位已经出现的故障。\n- 用户只要架构方案、概念解释或文档表达。\n- 用户已经给出明确根因和指定修法，只需要按要求编辑。\n- 当前没有代码、日志、页面、测试、运行入口或其他可取证对象，且用户不允许补充证据。",
+        "subagent_handoff_protocol": "如果你要把问题交给另一个执行者处理，请交代清楚：\n\n- 用户看到的原始现象。\n- 用户原本应该看到的结果。\n- 复现入口、命令、页面、接口、文件、日志或测试。\n- 已知约束，例如不能硬编码、不能跳过测试、不能保留无用旧链路。\n- 需要回传的内容：正常链路、证据表、第一处偏离、根因机制、修复建议、复测方式。\n\n接手者只能基于证据给判断。没有运行时事实时，必须说明证据不足，不得编造成熟结论。",
+        "return_protocol": "回传时必须包含：\n\n- 正常链路：从触发到结果的关键节点。\n- 证据表：每个关键节点的预期、实际、证据和结论。\n- 第一处偏离：最早失真的节点。\n- 根因机制：为什么会在这里失真；证据不足时写“未确认”并说明下一步取证。\n- 修复策略：应该修哪条真实链路，哪些旧逻辑需要清理。\n- 修改文件：只有实际改动后才列出。\n- 复测结果：命令、浏览器步骤、日志、截图或测试结果。\n- 剩余风险：还没有覆盖的路径或不确定性。",
+        "output_rule": "先给结论，再给证据。多个问题按严重程度排序。\n\n每个 Debug 结论应包含：\n\n- 什么坏了。\n- 为什么重要。\n- 第一处偏离在哪里。\n- 根因机制是什么。\n- 证据是什么。\n- 修复了什么或应该修什么。\n- 如何复测，复测结果是什么。\n\n如果还没有确定根因，直接说“根因尚未确认”，并给出下一步最有价值的取证动作。不要用猜测包装成结论。"
       },
       "validation_errors": []
     },

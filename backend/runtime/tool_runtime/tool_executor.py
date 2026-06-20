@@ -8,6 +8,7 @@ from typing import Any
 from capability_system.tools.contracts import ToolInvocationValidationDecision, ToolInvocationValidator
 from runtime.environment import RuntimeEnvironment
 from runtime.memory.file_evidence_scope import normalize_file_evidence_scope, task_run_file_evidence_scope
+from runtime.memory.tool_memory_events import commit_tool_memory_events_from_envelope
 from runtime.tool_runtime.tool_result_envelope import (
     build_tool_result_envelope,
     build_tool_result_envelope_id,
@@ -174,6 +175,7 @@ class ToolRuntimeExecutor:
             task_run_id=task_run_id,
             session_id=_session_id_from_policy(policy_payload),
             agent_run_id=_agent_run_id_from_policy(policy_payload, task_run_id),
+            run_cell_id=_run_cell_id_from_policy(policy_payload),
             tool_call_id=tool_call_id,
             read_scopes=tuple(str(item) for item in list(policy_payload.get("read_scopes") or [])),
             write_scopes=tuple(str(item) for item in list(policy_payload.get("write_scopes") or [])),
@@ -250,6 +252,8 @@ class ToolRuntimeExecutor:
                     tool_invocation_id=str(getattr(request, "invocation_id", "") or ""),
                     caller_kind=caller_kind,
                     caller_ref=str(getattr(request, "caller_ref", "") or ""),
+                    agent_run_id=str(getattr(request, "agent_run_id", "") or ""),
+                    run_cell_id=str(getattr(request, "run_cell_id", "") or ""),
                     session_id=str(getattr(request, "session_id", "") or ""),
                     turn_id=str(getattr(request, "turn_id", "") or ""),
                     task_run_id=str(getattr(request, "task_run_id", "") or ""),
@@ -266,6 +270,8 @@ class ToolRuntimeExecutor:
                         tool_call_id=str(getattr(request, "tool_call_id", "") or ""),
                         tool_name=str(getattr(request, "tool_name", "") or ""),
                         tool_invocation_id=str(getattr(request, "invocation_id", "") or ""),
+                        agent_run_id=str(getattr(request, "agent_run_id", "") or ""),
+                        run_cell_id=str(getattr(request, "run_cell_id", "") or ""),
                     ),
                 ),
             )
@@ -274,6 +280,8 @@ class ToolRuntimeExecutor:
             caller_ref=str(getattr(request, "caller_ref", "") or ""),
             session_id=str(getattr(request, "session_id", "") or ""),
             turn_id=str(getattr(request, "turn_id", "") or ""),
+            agent_run_id=str(getattr(request, "agent_run_id", "") or ""),
+            run_cell_id=str(getattr(request, "run_cell_id", "") or ""),
             tool_invocation_id=str(getattr(request, "invocation_id", "") or ""),
             tool_name=str(getattr(request, "tool_name", "") or ""),
             tool_call_id=str(getattr(request, "tool_call_id", "") or ""),
@@ -529,7 +537,8 @@ class ToolRuntimeExecutor:
             idempotency_key=invocation_context.idempotency_key,
             task_run_id=task_run_id,
             session_id=_session_id_from_policy(policy_payload),
-            agent_run_id=_agent_run_id_from_policy(policy_payload, task_run_id),
+            agent_run_id=invocation_context.agent_run_id or _agent_run_id_from_policy(policy_payload, task_run_id),
+            run_cell_id=invocation_context.run_cell_id or _run_cell_id_from_policy(policy_payload),
             tool_call_id=tool_call_id,
             read_scopes=tuple(str(item) for item in list(policy_payload.get("read_scopes") or [])),
             write_scopes=tuple(str(item) for item in list(policy_payload.get("write_scopes") or [])),
@@ -609,6 +618,8 @@ class ToolRuntimeExecutor:
                     tool_invocation_id=invocation_context.tool_invocation_id,
                     caller_kind=invocation_context.caller_kind,
                     caller_ref=invocation_context.caller_ref,
+                    agent_run_id=invocation_context.agent_run_id,
+                    run_cell_id=invocation_context.run_cell_id,
                     session_id=invocation_context.session_id,
                     turn_id=invocation_context.turn_id,
                     task_run_id=invocation_context.task_run_id,
@@ -754,20 +765,26 @@ class ToolRuntimeExecutor:
             result_ref=result_ref,
             result_envelope=envelope.to_dict(),
         )
-        file_state_commit = _commit_file_state_events(
+        tool_memory_commit = commit_tool_memory_events_from_envelope(
             execution_store=execution_store,
             runtime_host=getattr(self.tool_runtime, "runtime_host", None),
             file_evidence_scope=file_evidence_scope,
             observation_ref=observation.observation_id,
             tool_call_id=tool_call_id,
             envelope=envelope,
+            source_tool_name=tool_name,
+            task_run_id=task_run_id,
+            session_id=tool_context.session_id,
+            caller_kind="task_run",
+            authority="runtime.tool_runtime.tool_executor.tool_memory_commit",
         )
         return {
             "observation": observation,
             "execution_record": current_record,
             "error": "",
             "sandbox": sandbox_context.to_dict() if sandbox_context else {},
-            "file_state_commit": file_state_commit,
+            "tool_memory_commit": tool_memory_commit,
+            "file_state_commit": dict(tool_memory_commit.get("file_state_commit") or tool_memory_commit or {}),
         }
 
     async def _run_core(
@@ -781,6 +798,8 @@ class ToolRuntimeExecutor:
         tool_name: str,
         tool_call_id: str,
         tool_args: dict[str, Any],
+        agent_run_id: str = "",
+        run_cell_id: str = "",
         operation_id: str = "",
         sandbox_policy: dict[str, Any] | None = None,
         file_management_policy: dict[str, Any] | None = None,
@@ -794,6 +813,8 @@ class ToolRuntimeExecutor:
             caller_ref=caller_ref,
             session_id=session_id,
             turn_id=turn_id,
+            agent_run_id=agent_run_id,
+            run_cell_id=run_cell_id,
             tool_invocation_id=tool_invocation_id,
             tool_name=tool_name,
             tool_call_id=tool_call_id,
@@ -903,6 +924,8 @@ class ToolRuntimeExecutor:
             caller_ref=caller_ref,
             session_id=session_id,
             turn_id=turn_id,
+            agent_run_id=agent_run_id,
+            run_cell_id=run_cell_id,
             tool_invocation_id=tool_invocation_id,
             tool_name=tool_name,
             tool_call_id=tool_call_id,
@@ -915,6 +938,8 @@ class ToolRuntimeExecutor:
             caller_ref=caller_ref,
             session_id=session_id,
             turn_id=turn_id,
+            agent_run_id=agent_run_id,
+            run_cell_id=run_cell_id,
             tool_invocation_id=tool_invocation_id,
             tool_name=tool_name,
             tool_call_id=tool_call_id,
@@ -938,7 +963,8 @@ class ToolRuntimeExecutor:
             idempotency_key=invocation_context.idempotency_key,
             task_run_id="",
             session_id=session_id,
-            agent_run_id="",
+            agent_run_id=invocation_context.agent_run_id,
+            run_cell_id=invocation_context.run_cell_id,
             tool_call_id=tool_call_id,
             read_scopes=tuple(str(item) for item in list(policy_payload.get("read_scopes") or [])),
             write_scopes=tuple(str(item) for item in list(policy_payload.get("write_scopes") or [])),
@@ -1000,6 +1026,8 @@ class ToolRuntimeExecutor:
                     tool_invocation_id=invocation_context.tool_invocation_id,
                     caller_kind=invocation_context.caller_kind,
                     caller_ref=invocation_context.caller_ref,
+                    agent_run_id=invocation_context.agent_run_id,
+                    run_cell_id=invocation_context.run_cell_id,
                     session_id=invocation_context.session_id,
                     turn_id=invocation_context.turn_id,
                     task_run_id=invocation_context.task_run_id,
@@ -1216,6 +1244,8 @@ def _core_execution_receipt(
         "operation_id": str(operation_id or ""),
         "caller_kind": str(invocation_context.caller_kind or ""),
         "caller_ref": str(invocation_context.caller_ref or ""),
+        "agent_run_id": str(invocation_context.agent_run_id or ""),
+        "run_cell_id": str(invocation_context.run_cell_id or ""),
         "session_id": str(invocation_context.session_id or ""),
         "turn_id": str(invocation_context.turn_id or ""),
         "task_run_id": str(invocation_context.task_run_id or ""),
@@ -1236,6 +1266,8 @@ def _core_invocation_context(
     tool_name: str,
     tool_call_id: str,
     tool_args: dict[str, Any],
+    agent_run_id: str = "",
+    run_cell_id: str = "",
     file_evidence_scope: dict[str, Any] | None = None,
 ) -> ToolInvocationContext:
     invocation_id = str(tool_invocation_id or "").strip()
@@ -1243,6 +1275,8 @@ def _core_invocation_context(
         tool_invocation_id=invocation_id,
         caller_kind=str(caller_kind or "").strip() or "agent_turn",
         caller_ref=str(caller_ref or "").strip(),
+        agent_run_id=str(agent_run_id or "").strip(),
+        run_cell_id=str(run_cell_id or "").strip(),
         session_id=str(session_id or "").strip(),
         turn_id=str(turn_id or "").strip(),
         task_run_id="",
@@ -1258,6 +1292,8 @@ def _core_invocation_context(
             tool_call_id=tool_call_id,
             tool_name=tool_name,
             tool_invocation_id=invocation_id,
+            agent_run_id=agent_run_id,
+            run_cell_id=run_cell_id,
         ),
     )
 
@@ -1538,57 +1574,6 @@ def _absolute_storage_root(
     return str((Path(base).resolve() / path).resolve())
 
 
-def _commit_file_state_events(
-    *,
-    execution_store: RuntimeExecutionStore | None,
-    runtime_host: Any | None = None,
-    file_evidence_scope: dict[str, Any] | None,
-    observation_ref: str,
-    tool_call_id: str,
-    envelope: Any,
-) -> dict[str, Any]:
-    events = tuple(dict(item) for item in tuple(getattr(envelope, "file_state_events", ()) or ()) if isinstance(item, dict))
-    scope = normalize_file_evidence_scope(file_evidence_scope)
-    if not events:
-        return {}
-    if not scope:
-        return {
-            "event_count": len(events),
-            "skipped_reason": "missing_file_evidence_scope",
-            "authority": "runtime.tool_runtime.tool_executor.file_state_commit",
-        }
-    store = getattr(runtime_host, "file_state_store", None) if runtime_host is not None else None
-    if store is None:
-        root_dir = getattr(runtime_host, "root_dir", None) if runtime_host is not None else None
-        if root_dir is None and execution_store is not None:
-            root_dir = execution_store.root_dir
-        if root_dir is None:
-            return {
-                "file_evidence_scope": scope,
-                "event_count": len(events),
-                "skipped_reason": "file_state_store_unavailable",
-                "authority": "runtime.tool_runtime.tool_executor.file_state_commit",
-            }
-        from runtime.memory.file_state_store import FileStateAuthorityStore
-
-        store = FileStateAuthorityStore(Path(root_dir))
-
-    authority = store.apply_events_scope(
-        scope,
-        events,
-        observation_ref=observation_ref,
-        tool_call_id=tool_call_id,
-    )
-    return {
-        "file_evidence_scope": scope,
-        "observation_ref": str(observation_ref or ""),
-        "tool_call_id": str(tool_call_id or ""),
-        "event_count": len(events),
-        "file_count": len(authority.files),
-        "authority": "runtime.tool_runtime.tool_executor.file_state_commit",
-    }
-
-
 async def _call_runtime_tool_with_control(
     runtime_tool: Any,
     tool_args: dict[str, Any],
@@ -1732,6 +1717,8 @@ def _resolve_tool_invocation_context(
     caller_kind = str(getattr(explicit_context, "caller_kind", "") or ("task_run" if task_ref else "agent_turn")).strip()
     caller_ref = str(getattr(explicit_context, "caller_ref", "") or task_ref or policy.get("turn_id") or action_request.task_run_id).strip()
     turn_id = str(getattr(explicit_context, "turn_id", "") or policy.get("turn_id") or "").strip()
+    agent_run_id = str(getattr(explicit_context, "agent_run_id", "") or policy.get("agent_run_id") or "").strip()
+    run_cell_id = str(getattr(explicit_context, "run_cell_id", "") or policy.get("run_cell_id") or "").strip()
     invocation_id = str(getattr(explicit_context, "tool_invocation_id", "") or "").strip()
     if not invocation_id:
         invocation_id = build_tool_invocation_id(
@@ -1739,6 +1726,8 @@ def _resolve_tool_invocation_context(
             action_request_ref=action_request.request_id,
             tool_name=tool_name,
             tool_call_id=tool_call_id,
+            agent_run_id=agent_run_id,
+            run_cell_id=run_cell_id,
         )
     idempotency_key = build_tool_invocation_idempotency_key(
         caller_ref=caller_ref,
@@ -1746,11 +1735,15 @@ def _resolve_tool_invocation_context(
         tool_call_id=tool_call_id,
         tool_name=tool_name,
         tool_invocation_id=invocation_id,
+        agent_run_id=agent_run_id,
+        run_cell_id=run_cell_id,
     )
     return ToolInvocationContext(
         tool_invocation_id=invocation_id,
         caller_kind=caller_kind,
         caller_ref=caller_ref,
+        agent_run_id=agent_run_id,
+        run_cell_id=run_cell_id,
         session_id=session_id,
         turn_id=turn_id,
         task_run_id=task_ref,
@@ -1849,6 +1842,10 @@ def _agent_run_id_from_policy(policy: dict[str, Any], task_run_id: str) -> str:
     return f"agrun:{task_run_id}:main"
 
 
+def _run_cell_id_from_policy(policy: dict[str, Any]) -> str:
+    return str(policy.get("run_cell_id") or "").strip()
+
+
 def _approval_fingerprint_from_policy(policy: dict[str, Any], *, fallback_policy: dict[str, Any] | None = None) -> str:
     explicit = str(policy.get("approval_fingerprint") or "").strip()
     if explicit:
@@ -1859,5 +1856,3 @@ def _approval_fingerprint_from_policy(policy: dict[str, Any], *, fallback_policy
     if fallback_policy:
         return _approval_fingerprint_from_policy(dict(fallback_policy or {}))
     return ""
-
-

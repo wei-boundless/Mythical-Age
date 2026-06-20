@@ -970,6 +970,7 @@ def test_lifecycle_selector_mounts_state_slots_from_structural_state() -> None:
         base_plan,
         invocation_kind="single_agent_turn",
         allowed_actions=("respond", "ask_user", "request_task_run", "tool_call", "active_work_control", "block"),
+        operation_availability={"active_work_control": True},
         visible_tools=({"tool_name": "read_file"},),
         active_work_context={"task_run_id": "taskrun:active", "status": "running"},
         memory_context={"model_visible_sections": {"relevant_durable_context": ["memory marker"]}},
@@ -981,6 +982,33 @@ def test_lifecycle_selector_mounts_state_slots_from_structural_state() -> None:
     assert "user_steer_contract_revision" in plan.runtime_lifecycle_prompt_keys
     assert "memory_read_context" in plan.runtime_lifecycle_prompt_keys
     assert "compaction_handoff" in plan.runtime_lifecycle_prompt_keys
+
+
+def test_lifecycle_selector_uses_operation_availability_for_active_work_control_prompt() -> None:
+    lifecycle_defaults = ENVIRONMENT_LIFECYCLE_PROMPT_DEFAULTS_BY_ENVIRONMENT["env.general.workspace"]
+    base_plan = build_base_prompt_mount_plan(
+        selected_environment={
+            "environment_id": "env.general.workspace",
+            "environment_boundary": {
+                "lifecycle_prompt_defaults": lifecycle_defaults,
+            },
+        }
+    )
+
+    plan = prompt_mount_plan_for_invocation(
+        base_plan,
+        invocation_kind="single_agent_turn",
+        allowed_actions=("respond", "ask_user", "request_task_run", "tool_call", "active_work_control", "block"),
+        operation_availability={"active_work_control": False},
+        visible_tools=({"tool_name": "read_file"},),
+        active_work_context={"task_run_id": "taskrun:active", "status": "running"},
+        memory_context=None,
+        session_context={},
+    )
+
+    assert "active_work_control" not in plan.lifecycle_prompt_keys
+    assert "work_relation" in plan.runtime_lifecycle_prompt_keys
+    assert "user_steer_contract_revision" in plan.runtime_lifecycle_prompt_keys
 
 
 def test_task_execution_replay_entries_are_volatile_before_current_state() -> None:
@@ -1857,7 +1885,7 @@ def test_active_work_prompt_cache_keeps_current_work_state_volatile() -> None:
     assert "已完成第二段 cache 审查" not in _stable_prompt_text(second.packet)
     assert first_cache.prefix_hash == second_cache.prefix_hash
     semantic_actions = first_dynamic["runtime_context"]["agent_visible_runtime_projection"]["model_decision_contract"]["semantic_actions"]
-    assert "active_work_control" not in semantic_actions
+    assert "active_work_control" in semantic_actions
 
 
 def test_plan_mode_prompt_cache_changes_with_permission_boundary() -> None:

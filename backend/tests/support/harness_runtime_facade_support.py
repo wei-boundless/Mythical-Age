@@ -27,7 +27,7 @@ from harness.loop.task_executor import (
     TaskRunExecutorInterrupted,
     _duplicate_read_only_tool_call_observation,
     _matching_model_action_admission_denial_observations,
-    _model_action_admission_observation,
+    _model_action_admission_recovery_observation,
     _tool_call_progress_summary,
 )
 from harness.loop.task_run_execution_control import ExecutorControlSignal

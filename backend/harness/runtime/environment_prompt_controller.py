@@ -161,6 +161,7 @@ def prompt_mount_plan_for_invocation(
     *,
     invocation_kind: str,
     allowed_actions: tuple[str, ...] = (),
+    operation_availability: dict[str, Any] | None = None,
     active_work_context: dict[str, Any] | None = None,
     memory_context: dict[str, Any] | None = None,
     observations: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
@@ -174,6 +175,7 @@ def prompt_mount_plan_for_invocation(
         selected_environment_id=plan.selected_environment_id,
         invocation_kind=invocation_kind,
         allowed_actions=allowed_actions,
+        operation_availability=operation_availability,
         active_work_context=active_work_context,
         memory_context=memory_context,
         observations=observations,
@@ -224,6 +226,7 @@ def _lifecycle_prompt_selection_for_invocation(
     selected_environment_id: str,
     invocation_kind: str,
     allowed_actions: tuple[str, ...],
+    operation_availability: dict[str, Any] | None,
     active_work_context: dict[str, Any] | None,
     memory_context: dict[str, Any] | None,
     observations: tuple[dict[str, Any], ...] | list[dict[str, Any]],
@@ -252,6 +255,7 @@ def _lifecycle_prompt_selection_for_invocation(
         invocation_kind=invocation,
         environment_kind=environment_kind,
         allowed_actions=allowed_actions,
+        operation_availability=operation_availability,
         visible_tools=visible_tools,
         active_work_context=active_work_context,
     ):
@@ -377,6 +381,7 @@ def _capability_lifecycle_reasons(
     invocation_kind: str,
     environment_kind: str,
     allowed_actions: tuple[str, ...],
+    operation_availability: dict[str, Any] | None,
     visible_tools: tuple[dict[str, Any], ...] | list[dict[str, Any]],
     active_work_context: dict[str, Any] | None,
 ) -> tuple[tuple[str, str], ...]:
@@ -388,9 +393,10 @@ def _capability_lifecycle_reasons(
     has_tool_dispatch = "tool_call" in allowed and has_visible_tools
     has_subagent_tools = _has_visible_tool_names(visible_tools, _SUBAGENT_TOOL_NAMES)
     has_active_work = _has_structural_payload(active_work_context)
+    active_work_control_available = dict(operation_availability or {}).get("active_work_control") is True
     if invocation_kind == "single_agent_turn":
-        if "active_work_control" in allowed and has_active_work:
-            reasons.append(("active_work_control", "capability: active_work_control action is allowed for visible active work"))
+        if "active_work_control" in allowed and has_active_work and active_work_control_available:
+            reasons.append(("active_work_control", "operation: active_work_control is available for the current active work"))
         if "request_task_run" in allowed:
             reasons.append(("task_run_handoff", "capability: request_task_run action is allowed"))
         if has_tool_dispatch:

@@ -45,6 +45,12 @@ def test_blocked_runtime_commits_visible_fail_closed_message(monkeypatch) -> Non
     assert api_messages[-1]["role"] == "assistant"
     assert api_messages[-1]["turn_id"] == "turn:session-blocked-runtime:1"
     assert runtime.single_agent_runtime_host.active_turn_registry.snapshot("session-blocked-runtime") is None
+    commit_events = runtime.single_agent_runtime_host.event_log.list_events("turn:session-blocked-runtime:1")
+    commit_event_types = [event.event_type for event in commit_events]
+    assert "session_output_commit_checked" in commit_event_types
+    assert "session_output_commit_ack" in commit_event_types
+    ack = next(event for event in commit_events if event.event_type == "session_output_commit_ack")
+    assert dict(ack.payload)["authority"] == "harness.session_output_commit"
 
 def test_explicit_capability_boundary_uses_single_agent_turn_without_task_run() -> None:
     runtime = build_harness_runtime(

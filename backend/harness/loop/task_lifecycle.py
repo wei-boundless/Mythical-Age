@@ -486,6 +486,7 @@ def finish_task_lifecycle(
     status: Literal["completed", "failed", "blocked", "aborted"],
     terminal_reason: str,
     observation_refs: tuple[str, ...] = (),
+    before_state_commit: Callable[[TaskRun, TaskLifecycleRecord, dict[str, Any]], None] | None = None,
 ) -> tuple[TaskRun, TaskLifecycleRecord, dict[str, Any]]:
     now = time.time()
     updated_task = replace(
@@ -501,18 +502,33 @@ def finish_task_lifecycle(
         terminal_reason=terminal_reason,
         observation_refs=_dedupe_tuple((*lifecycle.observation_refs, *observation_refs)),
     )
-    runtime_host.state_index.upsert_task_run(updated_task)
-    lifecycle_ref = runtime_host.runtime_objects.put_object(
-        "task_lifecycle",
-        task_run.task_run_id,
-        updated_lifecycle.to_dict(),
-    )
-    event = runtime_host.event_log.append(
-        task_run.task_run_id,
-        "task_run_lifecycle_finished",
-        payload={"task_run": updated_task.to_dict(), "lifecycle": updated_lifecycle.to_dict()},
-        refs={"task_lifecycle_ref": lifecycle_ref},
-    )
+    if before_state_commit is None:
+        runtime_host.state_index.upsert_task_run(updated_task)
+        lifecycle_ref = runtime_host.runtime_objects.put_object(
+            "task_lifecycle",
+            task_run.task_run_id,
+            updated_lifecycle.to_dict(),
+        )
+        event = runtime_host.event_log.append(
+            task_run.task_run_id,
+            "task_run_lifecycle_finished",
+            payload={"task_run": updated_task.to_dict(), "lifecycle": updated_lifecycle.to_dict()},
+            refs={"task_lifecycle_ref": lifecycle_ref},
+        )
+    else:
+        lifecycle_ref = runtime_host.runtime_objects.put_object(
+            "task_lifecycle",
+            task_run.task_run_id,
+            updated_lifecycle.to_dict(),
+        )
+        event = runtime_host.event_log.append(
+            task_run.task_run_id,
+            "task_run_lifecycle_finished",
+            payload={"task_run": updated_task.to_dict(), "lifecycle": updated_lifecycle.to_dict()},
+            refs={"task_lifecycle_ref": lifecycle_ref},
+        )
+        before_state_commit(updated_task, updated_lifecycle, event.to_dict())
+        runtime_host.state_index.upsert_task_run(updated_task)
     active_registry = getattr(runtime_host, "active_turn_registry", None)
     if active_registry is not None:
         try:

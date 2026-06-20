@@ -4,10 +4,14 @@ import hashlib
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from runtime.shared.file_observation_policy import (
+    READ_FILE_DEFAULT_LINE_COUNT,
+    READ_FILE_MAX_LINE_COUNT,
+    select_read_window,
+)
+
 
 READ_FILE_WINDOW_AUTHORITY = "runtime.tool_result.read_file_window.v1"
-READ_FILE_DEFAULT_LINE_COUNT = 500
-READ_FILE_MAX_LINE_COUNT = 2000
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,14 +48,21 @@ def build_read_file_window_result(
     *,
     path: str,
     start_line: int,
-    line_count: int,
+    line_count: int | None = None,
+    read_intent: str = "",
     repository_id: str = "",
     managed_file_ref: dict[str, Any] | None = None,
 ) -> ReadFileWindowResult:
     lines = str(content or "").splitlines()
     total_lines = len(lines)
-    start = max(1, int(start_line or 1))
-    count = max(1, min(int(line_count or READ_FILE_DEFAULT_LINE_COUNT), READ_FILE_MAX_LINE_COUNT))
+    selection = select_read_window(
+        total_lines=total_lines,
+        start_line=start_line,
+        requested_line_count=line_count,
+        read_intent=read_intent,
+    )
+    start = selection.start_line
+    count = selection.line_count
     if total_lines == 0:
         end_line = 0
         selected: list[str] = []

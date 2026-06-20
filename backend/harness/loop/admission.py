@@ -6,7 +6,7 @@ from typing import Any, Literal
 from .model_action_protocol import AnyModelActionRequest
 
 
-AdmissionDecisionValue = Literal["allow", "deny", "ask_approval", "invalid", "needs_contract", "needs_task_run"]
+AdmissionDecisionValue = Literal["allow", "deny", "ask_approval", "invalid", "needs_contract", "needs_task_run", "operation_unavailable"]
 _TASK_RUNTIME_OWNER_SCOPES = {"task_memory"}
 _TASK_RUNTIME_TOOL_NAMES = {"agent_todo"}
 _TASK_RUNTIME_OPERATION_IDS = {"op.agent_todo"}
@@ -284,7 +284,7 @@ def admit_model_action(
             return AdmissionDecision(
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
-                decision="deny",
+                decision="operation_unavailable",
                 user_visible_reason="当前运行状态没有开放进行中工作控制。",
                 system_reason="active_work_control_unavailable",
                 contract_errors=("active_work_control_unavailable",),

@@ -105,6 +105,10 @@ INTERNAL_STREAM_EVENTS = {
     "runtime_assembly_compiled",
     "runtime_assembly_bound",
     "runtime_invocation_packet",
+    "runtime_control_signal_published",
+    "runtime_control_signal_observed",
+    "runtime_control_signal_consumed",
+    "runtime_evidence_projection_published",
 }
 INTERNAL_PUBLIC_DATA_KEYS = {
     "runtime_assembly",

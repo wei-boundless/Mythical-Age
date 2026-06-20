@@ -10,6 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from capability_system.tools.native_tool_runtime import ToolRuntime
 from orchestration.runtime_directive import RuntimeDirective
+from runtime.shared.file_observation_policy import READ_FILE_DEFAULT_LINE_COUNT
 from runtime.shared.action_request import RuntimeActionRequest
 from runtime.shared.execution_record import RuntimeExecutionStore, build_idempotency_token, build_request_fingerprint
 from runtime.tool_runtime.tool_executor import ToolRuntimeExecutor
@@ -207,7 +208,7 @@ def test_runtime_read_file_uses_file_gateway_sandbox_overlay(tmp_path: Path) -> 
     tool_result = envelope["structured_payload"]["tool_result"]
 
     assert result["error"] == ""
-    assert result["observation"].payload["result"] == "1 |copy through gateway"
+    assert result["observation"].payload["result"] == "1 | copy through gateway"
     assert (sandbox / "docs" / "source.md").read_text(encoding="utf-8") == "copy through gateway"
     assert tool_result["repository_id"] == "repo.managed_project.sandbox_workspace"
     assert envelope["structured_payload"]["file_gateway"]["access_decision"] == "allow"
@@ -231,7 +232,7 @@ def test_runtime_read_file_gateway_respects_line_window(tmp_path: Path) -> None:
     tool_result = envelope["structured_payload"]["tool_result"]
 
     assert result["error"] == ""
-    assert result["observation"].payload["result"] == "2 |line2\n3 |line3"
+    assert result["observation"].payload["result"] == "2 | line2\n3 | line3"
     assert tool_result["start_line"] == 2
     assert tool_result["end_line"] == 3
     assert tool_result["next_start_line"] == 4
@@ -241,11 +242,12 @@ def test_runtime_read_file_gateway_respects_line_window(tmp_path: Path) -> None:
     assert tool_result["has_more"] is True
 
 
-def test_runtime_read_file_defaults_to_500_line_window(tmp_path: Path) -> None:
+def test_runtime_read_file_default_window_comes_from_shared_policy_for_large_files(tmp_path: Path) -> None:
     project = tmp_path / "project"
     sandbox = tmp_path / "sandbox" / "workspace"
     (project / "docs").mkdir(parents=True)
-    (project / "docs" / "large.md").write_text("\n".join(f"line{i}" for i in range(1, 602)), encoding="utf-8")
+    total_lines = READ_FILE_DEFAULT_LINE_COUNT + 301
+    (project / "docs" / "large.md").write_text("\n".join(f"line{i}" for i in range(1, total_lines + 1)), encoding="utf-8")
 
     result = _run_tool(
         workspace=project,
@@ -259,11 +261,35 @@ def test_runtime_read_file_defaults_to_500_line_window(tmp_path: Path) -> None:
     tool_result = envelope["structured_payload"]["tool_result"]
 
     assert result["error"] == ""
-    assert tool_result["line_count"] == 500
-    assert tool_result["returned_lines"] == 500
-    assert tool_result["end_line"] == 500
-    assert tool_result["next_start_line"] == 501
+    assert tool_result["line_count"] == READ_FILE_DEFAULT_LINE_COUNT
+    assert tool_result["returned_lines"] == READ_FILE_DEFAULT_LINE_COUNT
+    assert tool_result["end_line"] == READ_FILE_DEFAULT_LINE_COUNT
+    assert tool_result["next_start_line"] == READ_FILE_DEFAULT_LINE_COUNT + 1
     assert tool_result["has_more"] is True
+
+
+def test_runtime_read_file_reads_small_files_in_one_default_window(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    sandbox = tmp_path / "sandbox" / "workspace"
+    (project / "docs").mkdir(parents=True)
+    (project / "docs" / "small.md").write_text("\n".join(f"line{i}" for i in range(1, 4)), encoding="utf-8")
+
+    result = _run_tool(
+        workspace=project,
+        sandbox_root=sandbox,
+        tool_name="read_file",
+        tool_args={"path": "docs/small.md"},
+        operation_id="op.read_file",
+    )
+
+    tool_result = result["observation"].payload["result_envelope"]["structured_payload"]["tool_result"]
+
+    assert result["error"] == ""
+    assert result["observation"].payload["result"] == "1 | line1\n2 | line2\n3 | line3"
+    assert tool_result["line_count"] == 3
+    assert tool_result["returned_lines"] == 3
+    assert tool_result["end_line"] == 3
+    assert tool_result["has_more"] is False
 
 
 def test_runtime_full_access_reads_project_workspace_after_project_edit(tmp_path: Path) -> None:
@@ -307,7 +333,7 @@ def test_runtime_full_access_reads_project_workspace_after_project_edit(tmp_path
     envelope = second_read["observation"].payload["result_envelope"]
     tool_result = envelope["structured_payload"]["tool_result"]
     assert second_read["error"] == ""
-    assert second_read["observation"].payload["result"] == "1 |const label = 'new';"
+    assert second_read["observation"].payload["result"] == "1 | const label = 'new';"
     assert tool_result["repository_id"] == "repo.managed_project.project_workspace"
 
 

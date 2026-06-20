@@ -35,6 +35,8 @@ from runtime.trace import RuntimeTraceService
 from runtime.cache_manager import RuntimeCacheManager
 from runtime.tool_runtime.tool_control_plane import RuntimeToolControlPlane
 from .active_turn import ActiveTurnRegistry
+from .agent_run_supervisor import AgentRunSupervisor
+from .control_bus import RuntimeControlBus
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 logger = logging.getLogger(__name__)
@@ -66,6 +68,7 @@ class SingleAgentRuntimeHost:
         self.runtime_cache = RuntimeCacheManager.from_runtime_root(self.root_dir)
         self.fact_ledger = RuntimeFactLedger(self.root_dir)
         self.event_log = RuntimeEventLog(self.root_dir, fact_ledger=self.fact_ledger)
+        self.control_bus = RuntimeControlBus(self.event_log)
         self.run_registry = RuntimeRunRegistry(self.root_dir)
         self.stream_replay = RuntimeStreamReplayService(self.event_log)
         self.session_manager = session_manager
@@ -96,6 +99,10 @@ class SingleAgentRuntimeHost:
         )
         self.runtime_monitor_service = RuntimeMonitorService(runtime_host=self)
         self.monitor_projector = self.runtime_monitor_service.projector
+        self.agent_run_supervisor = AgentRunSupervisor(
+            runtime_host=self,
+            control_bus=self.control_bus,
+        )
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._background_tasks_by_name: dict[str, set[asyncio.Task[Any]]] = {}
 
@@ -128,7 +135,12 @@ class SingleAgentRuntimeHost:
         target_names = {str(item).strip() for item in names if str(item).strip()}
         current = asyncio.current_task()
         tasks: set[asyncio.Task[Any]] = set()
+        cell_cancelled_count = 0
+        supervisor = getattr(self, "agent_run_supervisor", None)
         for name in target_names:
+            task_run_id = _task_run_id_from_executor_task_name(name)
+            if task_run_id and supervisor is not None and supervisor.cancel_task_run(task_run_id, reason=reason):
+                cell_cancelled_count += 1
             tasks.update(self._background_tasks_by_name.get(name, set()))
         tasks = {task for task in tasks if task is not current and not task.done()}
         for task in tasks:
@@ -143,6 +155,7 @@ class SingleAgentRuntimeHost:
             "authority": "single_agent_runtime_host.cancel_background_tasks",
             "requested_names": sorted(target_names),
             "cancelled_count": len(tasks),
+            "cell_cancelled_count": cell_cancelled_count,
             "timed_out": timed_out,
         }
 
@@ -664,6 +677,14 @@ def _event_count(event_log: Any, task_run_id: str, *, fallback: int) -> int:
         except Exception:
             return int(fallback)
     return int(fallback)
+
+
+def _task_run_id_from_executor_task_name(name: str) -> str:
+    value = str(name or "").strip()
+    for prefix in ("task-run-executor:", "task-run-executor-recover:"):
+        if value.startswith(prefix):
+            return value[len(prefix):]
+    return ""
 
 
 def _safe_runtime_object_id(value: str) -> str:

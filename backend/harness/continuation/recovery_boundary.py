@@ -44,8 +44,6 @@ class RecoveryBoundaryDecision:
     task_run_id: str = ""
     expected_task_run_id: str = ""
     resume_strategy: str = "unavailable"
-    allowed_next_actions: tuple[str, ...] = ()
-    forbidden_next_actions: tuple[str, ...] = ()
     reason: str = ""
     evidence: str = ""
     public_response_obligation: str = "runtime_status"
@@ -55,10 +53,7 @@ class RecoveryBoundaryDecision:
     authority: str = "harness.continuation.recovery_boundary"
 
     def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["allowed_next_actions"] = list(self.allowed_next_actions)
-        payload["forbidden_next_actions"] = list(self.forbidden_next_actions)
-        return payload
+        return asdict(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +64,6 @@ class RecoveryBoundaryReceipt:
     continuation_ref: str = ""
     task_run_ref: str = ""
     recovery_packet_ref: str = ""
-    available_action_types_for_next_packet: tuple[str, ...] = ()
     operation_availability: dict[str, bool] = field(default_factory=dict)
     resume_execution_route: str = ""
     expected_continuation_id: str = ""
@@ -81,9 +75,7 @@ class RecoveryBoundaryReceipt:
     authority: str = "harness.continuation.recovery_boundary_receipt"
 
     def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["available_action_types_for_next_packet"] = list(self.available_action_types_for_next_packet)
-        return payload
+        return asdict(self)
 
 
 def build_recovery_boundary_input(
@@ -181,12 +173,8 @@ def recovery_boundary_receipt_from_decision(decision: RecoveryBoundaryDecision) 
         boundary_decision=decision.action,
         continuation_ref=decision.continuation_id,
         task_run_ref=decision.task_run_id,
-        available_action_types_for_next_packet=decision.allowed_next_actions,
         operation_availability={
             "resume_recoverable_work": can_resume,
-            "respond": "respond" in set(decision.allowed_next_actions),
-            "ask_user": "ask_user" in set(decision.allowed_next_actions),
-            "block": "block" in set(decision.allowed_next_actions),
         },
         resume_execution_route="task_executor_controller.schedule" if can_resume else "",
         expected_continuation_id=decision.expected_continuation_id,
@@ -209,7 +197,6 @@ def _decision(
     reason: str,
     response: str = "",
 ) -> RecoveryBoundaryDecision:
-    allowed, forbidden = _allowed_actions(action)
     now_key = int(time.time() * 1000)
     return RecoveryBoundaryDecision(
         decision_id=f"rbd:{boundary_input.turn_id}:{now_key}",
@@ -221,8 +208,6 @@ def _decision(
         task_run_id=str(record.task_run_id if record is not None else ""),
         expected_task_run_id=boundary_input.expected_task_run_id,
         resume_strategy=str(record.resume_strategy if record is not None else "unavailable"),
-        allowed_next_actions=allowed,
-        forbidden_next_actions=forbidden,
         reason=reason,
         evidence=str(record.model_visible_summary if record is not None else ""),
         public_response_obligation="direct_response_required" if action in {"confirm_recoverable_work", "recoverable_work_unavailable"} else "runtime_status",
@@ -233,16 +218,6 @@ def _decision(
             "current_work_boundary_receipt": dict(boundary_input.current_work_boundary_receipt or {}),
         },
     )
-
-
-def _allowed_actions(action: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    if action == "resume_recoverable_work":
-        return ("resume_recoverable_work", "respond", "block"), ("tool_call", "request_task_run", "active_work_control")
-    if action in {"confirm_recoverable_work", "recoverable_work_unavailable"}:
-        return ("respond", "ask_user", "block"), ("resume_recoverable_work", "tool_call", "request_task_run", "active_work_control")
-    if action in {"recoverable_work_available", "recent_work_read_only"}:
-        return ("respond", "ask_user", "block", "tool_call", "request_task_run"), ("resume_recoverable_work", "active_work_control")
-    return ("respond", "ask_user", "block", "tool_call", "request_task_run"), ("resume_recoverable_work", "active_work_control")
 
 
 def _status_response(record: ContinuationRecord) -> str:

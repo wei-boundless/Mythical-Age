@@ -12,6 +12,7 @@ from capability_system.tools.native_tool_catalog import get_tool_definition_map
 from capability_system.tools.tool_units.file_system_tools import GlobPathsTool
 from capability_system.tools.tool_units.search_files_tool import SearchFilesTool, SearchTextInput, SearchTextTool
 from capability_system.tools.tool_units.write_file_tool import EditFileTool, WriteFileTool
+from runtime.shared.file_observation_policy import FILE_OBSERVATION_POLICY_AUTHORITY
 from runtime.tool_runtime.native_tools import build_native_runtime_tool
 from runtime.tool_runtime.tool_use_context import ToolUseContext
 
@@ -30,13 +31,13 @@ def test_workspace_file_tools_use_external_knowledge_root_when_initialized_from_
     writer = WriteFileTool(root_dir=backend_dir)
     editor = EditFileTool(root_dir=backend_dir)
 
-    assert _read_file_text(backend_dir, "knowledge/note.md") == "1 |root knowledge"
+    assert _read_file_text(backend_dir, "knowledge/note.md") == "1 | root knowledge"
 
     write_result = writer.invoke({"path": "knowledge/note.md", "content": "updated from workspace", "allow_overwrite": True})
     assert write_result == "Write succeeded: knowledge/note.md"
     assert (root_knowledge / "note.md").read_text(encoding="utf-8") == "updated from workspace"
     assert (backend_knowledge / "note.md").read_text(encoding="utf-8") == "backend knowledge"
-    assert _read_file_text(backend_dir, "knowledge/note.md") == "1 |updated from workspace"
+    assert _read_file_text(backend_dir, "knowledge/note.md") == "1 | updated from workspace"
 
     edit_result = editor.invoke(
         {
@@ -46,7 +47,7 @@ def test_workspace_file_tools_use_external_knowledge_root_when_initialized_from_
         }
     )
     assert edit_result == "Edit succeeded: knowledge/note.md"
-    assert _read_file_text(backend_dir, "knowledge/note.md") == "1 |edited from workspace"
+    assert _read_file_text(backend_dir, "knowledge/note.md") == "1 | edited from workspace"
 
 
 def test_workspace_file_tools_reject_path_traversal_from_project_root(tmp_path: Path) -> None:
@@ -186,6 +187,29 @@ def test_search_text_schema_exposes_pagination_and_output_mode_fields() -> None:
     for field_name in ("output_mode", "context", "case_sensitive", "head_limit", "offset"):
         assert field_name in properties
     assert "query" in set(schema.get("required") or [])
+    assert "path" not in properties
+    assert "pattern" not in properties
+
+
+def test_native_search_text_validation_rejects_path_and_pattern_aliases(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    backend_dir = workspace / "backend"
+    backend_dir.mkdir(parents=True)
+
+    definition = get_tool_definition_map()["search_text"]
+    tool = build_native_runtime_tool(capability_definition=definition)
+    assert tool is not None
+
+    validation = tool.validate_input(
+        {"query": "needle", "path": "docs/plan.md", "pattern": "needle"},
+        ToolUseContext(workspace_root=backend_dir),
+    )
+
+    assert validation.allowed is False
+    assert validation.reason == "unexpected_tool_inputs"
+    assert validation.diagnostics["forbidden_aliases"] == ["path", "pattern"]
+    assert "paths=[\"...\"]" in validation.repair_instruction
+    assert "do not pass pattern" in validation.repair_instruction
 
 
 def test_native_search_text_returns_recommended_read_windows(tmp_path: Path) -> None:
@@ -211,7 +235,15 @@ def test_native_search_text_returns_recommended_read_windows(tmp_path: Path) -> 
     assert envelope.text == "docs/plan.md:2:1:needle here"
     assert tool_result["applied_limit"] == 1
     assert tool_result["recommended_read_windows"] == [
-        {"path": "docs/plan.md", "start_line": 1, "line_count": 3, "reason": "match near line 2"}
+        {
+            "path": "docs/plan.md",
+            "start_line": 1,
+            "line_count": 4,
+            "match_line": 2,
+            "query": "needle",
+            "reason": "small file contains match near line 2",
+            "authority": FILE_OBSERVATION_POLICY_AUTHORITY,
+        }
     ]
 
 
@@ -240,5 +272,3 @@ def _read_file_text(root_dir: Path, path: str, *, start_line: int = 1, line_coun
         )
     )
     return envelope.text
-
-

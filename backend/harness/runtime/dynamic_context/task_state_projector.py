@@ -5,6 +5,7 @@ import json
 from typing import Any
 
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, model_visible_artifact_refs
+from runtime.shared.file_observation_policy import recommended_window_for_gap
 
 from .models import compact_text, dict_tuple, drop_empty
 from .semantic_payload_classifier import merge_pending_tool_control_actions
@@ -881,11 +882,10 @@ def _task_progress_file_evidence_facts(file_evidence_decisions: dict[str, Any]) 
             drop_empty(
                 {
                     "path": str(item.get("path") or ""),
-                    "visible_exact_window_count": len(dict_tuple(item.get("visible_exact_windows"))),
-                    "artifact_available_window_count": len(dict_tuple(item.get("artifact_available_windows"))),
-                    "read_required_window_count": len(dict_tuple(item.get("read_required_windows"))),
-                    "missing_window_count": len(dict_tuple(item.get("read_missing_windows"))),
-                    "stale_window_count": len(dict_tuple(item.get("read_after_stale_windows"))),
+                    "reusable_evidence_count": len(dict_tuple(item.get("reusable_evidence"))),
+                    "candidate_read_window_count": len(dict_tuple(item.get("candidate_read_windows"))),
+                    "required_read_window_count": len(dict_tuple(item.get("required_read_windows"))),
+                    "caution_count": len(dict_tuple(item.get("cautions"))),
                 }
             )
         )
@@ -1369,21 +1369,66 @@ def _cursor_file_evidence_decisions_projection(value: dict[str, Any]) -> dict[st
                 {
                     "path": str(item.get("path") or ""),
                     "status": str(item.get("status") or ""),
-                    "artifact_available_window_count": len(dict_tuple(item.get("artifact_available_windows"))),
-                    "read_required_window_count": len(dict_tuple(item.get("read_required_windows"))),
-                    "read_required_windows": _cursor_decision_windows(item.get("read_required_windows")),
-                    "read_after_stale_window_count": len(dict_tuple(item.get("read_after_stale_windows"))),
+                    "facts": _cursor_file_evidence_facts(dict(item.get("facts") or {})),
+                    "reusable_evidence_count": len(dict_tuple(item.get("reusable_evidence"))),
+                    "reusable_evidence": _cursor_evidence_windows(item.get("reusable_evidence")),
+                    "candidate_read_window_count": len(dict_tuple(item.get("candidate_read_windows"))),
+                    "candidate_read_windows": _cursor_decision_windows(item.get("candidate_read_windows")),
+                    "required_read_window_count": len(dict_tuple(item.get("required_read_windows"))),
+                    "required_read_windows": _cursor_decision_windows(item.get("required_read_windows")),
+                    "caution_count": len(dict_tuple(item.get("cautions"))),
+                    "cautions": _cursor_caution_windows(item.get("cautions")),
                     "policy_ref": str(item.get("policy_ref") or ""),
                 }
             )
         )
     return drop_empty(
         {
-            "kind": str(value.get("kind") or "file_evidence_decisions"),
+            "kind": str(value.get("kind") or "file_evidence_contract"),
+            "contract_version": str(value.get("contract_version") or ""),
+            "authority_boundary": str(value.get("authority_boundary") or ""),
             "authority": str(value.get("authority") or "runtime.memory.file_state_authority.evidence_decision_projection"),
             "files": [item for item in files if item],
         }
     )
+
+
+def _cursor_file_evidence_facts(value: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "coverage": _thin_coverage_projection(dict(value.get("coverage") or {})),
+            "exact_coverage": _thin_coverage_projection(dict(value.get("exact_coverage") or {})),
+            "current_exact_window_available": (
+                value.get("current_exact_window_available")
+                if isinstance(value.get("current_exact_window_available"), bool)
+                else None
+            ),
+            "stale_window_available": (
+                value.get("stale_window_available")
+                if isinstance(value.get("stale_window_available"), bool)
+                else None
+            ),
+        }
+    )
+
+
+def _cursor_evidence_windows(value: Any) -> list[dict[str, Any]]:
+    windows: list[dict[str, Any]] = []
+    for item in dict_tuple(value)[-3:]:
+        windows.append(
+            drop_empty(
+                {
+                    "evidence_kind": str(item.get("evidence_kind") or ""),
+                    "path": str(item.get("path") or ""),
+                    "start_line": item.get("start_line"),
+                    "end_line": item.get("end_line"),
+                    "observation_ref": str(item.get("observation_ref") or ""),
+                    "exact_artifact_ref": str(item.get("exact_artifact_ref") or ""),
+                    "usage_condition": compact_text(item.get("usage_condition") or "", limit=120),
+                }
+            )
+        )
+    return [item for item in windows if item]
 
 
 def _cursor_decision_windows(value: Any) -> list[dict[str, Any]]:
@@ -1392,19 +1437,42 @@ def _cursor_decision_windows(value: Any) -> list[dict[str, Any]]:
         windows.append(
             drop_empty(
                 {
+                    "candidate_kind": str(item.get("candidate_kind") or ""),
+                    "requirement_kind": str(item.get("requirement_kind") or ""),
                     "decision": str(item.get("decision") or ""),
-                    "decision_code": str(item.get("decision_code") or ""),
                     "path": str(item.get("path") or ""),
                     "start_line": item.get("start_line"),
                     "end_line": item.get("end_line"),
                     "line_count": item.get("line_count"),
+                    "match_line": item.get("match_line"),
+                    "query": compact_text(item.get("query") or "", limit=80),
                     "observation_ref": str(item.get("observation_ref") or ""),
+                    "source_observation_ref": str(item.get("source_observation_ref") or ""),
                     "exact_artifact_ref": str(item.get("exact_artifact_ref") or ""),
+                    "read_condition": compact_text(item.get("read_condition") or "", limit=120),
                     "reason": compact_text(item.get("reason") or "", limit=120),
                 }
             )
         )
     return [item for item in windows if item]
+
+
+def _cursor_caution_windows(value: Any) -> list[dict[str, Any]]:
+    cautions: list[dict[str, Any]] = []
+    for item in dict_tuple(value)[-3:]:
+        cautions.append(
+            drop_empty(
+                {
+                    "caution_kind": str(item.get("caution_kind") or ""),
+                    "path": str(item.get("path") or ""),
+                    "start_line": item.get("start_line"),
+                    "end_line": item.get("end_line"),
+                    "read_condition": compact_text(item.get("read_condition") or "", limit=120),
+                    "reason": compact_text(item.get("reason") or "", limit=120),
+                }
+            )
+        )
+    return [item for item in cautions if item]
 
 
 def _cursor_task_progress_facts_projection(value: dict[str, Any]) -> dict[str, Any]:
@@ -1458,10 +1526,17 @@ def _cursor_read_resource_state_projection(value: dict[str, Any]) -> dict[str, A
                 for item in list(value.get("available_evidence_refs") or [])[-10:]
                 if str(item).strip()
             ],
-            "has_more": value.get("has_more") if isinstance(value.get("has_more"), bool) else None,
             "content_sha256": str(value.get("content_sha256") or ""),
             "file_evidence_decision_ref": str(value.get("file_evidence_decision_ref") or ""),
             "state_code": str(value.get("state_code") or ""),
+            "reuse_feedback": dict(value.get("reuse_feedback") or {}),
+            "collection_feedback": dict(value.get("collection_feedback") or {}),
+            "action_conditions": [
+                compact_text(item, limit=120)
+                for item in list(value.get("action_conditions") or [])[-4:]
+                if str(item).strip()
+            ],
+            "candidate_read_windows": _cursor_decision_windows(value.get("candidate_read_windows")),
             "authority": str(value.get("authority") or "harness.runtime.dynamic_context.read_resource_state"),
         }
     )
@@ -1501,6 +1576,8 @@ def _cursor_file_state_projection(items: list[dict[str, Any]] | tuple[dict[str, 
 def _low_value_file_state_cursor_item(item: dict[str, Any]) -> bool:
     if dict_tuple(item.get("read_ranges")):
         return False
+    if dict_tuple(item.get("read_recommendations")) or dict_tuple(item.get("recommended_read_windows")):
+        return False
     if dict(item.get("coverage") or {}):
         return False
     if dict(item.get("next_suggested_read") or {}):
@@ -1529,6 +1606,8 @@ def _file_state_cursor_item_projection(item: dict[str, Any]) -> dict[str, Any]:
             "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
             "last_observation_ref": str(item.get("last_observation_ref") or ""),
             "next_suggested_read": _read_request_ref(dict(item.get("next_suggested_read") or {})),
+            "recommended_read_windows": _cursor_decision_windows(item.get("recommended_read_windows")),
+            "read_recommendation_count": len(dict_tuple(item.get("read_recommendations"))),
             "read_window_refs": ranges[-4:],
             "evidence_refs": _dedupe_strings(
                 str(ref)
@@ -1744,6 +1823,8 @@ def _file_state_projection(value: Any) -> list[dict[str, Any]]:
             {
                 "path": path,
                 "read_ranges": ranges[-6:],
+                "read_recommendations": _file_state_read_recommendations_projection(item.get("read_recommendations")),
+                "recommended_read_windows": _file_state_recommended_windows_projection(item.get("recommended_read_windows")),
                 "coverage": dict(item.get("coverage") or {}),
                 "exact_coverage": dict(item.get("exact_coverage") or {}),
                 "total_lines": item.get("total_lines"),
@@ -1773,6 +1854,48 @@ def _file_state_projection(value: Any) -> list[dict[str, Any]]:
         if projected:
             result.append(projected)
     return result[-10:]
+
+
+def _file_state_read_recommendations_projection(value: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in dict_tuple(value)[-12:]:
+        result.append(
+            drop_empty(
+                {
+                    "start_line": item.get("start_line"),
+                    "line_count": item.get("line_count"),
+                    "match_line": item.get("match_line"),
+                    "query": compact_text(item.get("query") or "", limit=120),
+                    "status": str(item.get("status") or ""),
+                    "reason": compact_text(item.get("reason") or "", limit=160),
+                    "observation_ref": str(item.get("observation_ref") or ""),
+                    "tool_call_id": str(item.get("tool_call_id") or ""),
+                }
+            )
+        )
+    return [item for item in result if item]
+
+
+def _file_state_recommended_windows_projection(value: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in dict_tuple(value)[-8:]:
+        result.append(
+            drop_empty(
+                {
+                    "decision": str(item.get("decision") or "read_search_recommendation"),
+                    "path": str(item.get("path") or ""),
+                    "start_line": item.get("start_line"),
+                    "line_count": item.get("line_count"),
+                    "match_line": item.get("match_line"),
+                    "query": compact_text(item.get("query") or "", limit=120),
+                    "reason": compact_text(item.get("reason") or "", limit=160),
+                    "source_observation_ref": str(item.get("source_observation_ref") or item.get("observation_ref") or ""),
+                    "tool_call_id": str(item.get("tool_call_id") or ""),
+                    "status": str(item.get("status") or ""),
+                }
+            )
+        )
+    return [item for item in result if item]
 
 
 def _file_state_read_range_projection(segment: dict[str, Any]) -> dict[str, Any]:
@@ -1830,31 +1953,77 @@ def _file_evidence_decisions_projection(file_state: list[dict[str, Any]]) -> dic
             for segment in exact_ranges
             if _segment_has_exact_artifact(segment)
         ]
+        reuse_windows = [_reuse_current_window_decision(path=path, segment=segment) for segment in exact_ranges]
+        recommended_windows = _recommended_read_window_decisions(item)
         missing_windows = _read_missing_window_decisions(item, active_ranges=exact_ranges)
         stale_read_windows = [_read_after_stale_window_decision(path=path, segment=segment) for segment in stale_ranges]
+        cautions = [
+            *_partial_coverage_cautions(item, active_ranges=exact_ranges),
+            *[window for window in stale_read_windows if window],
+        ]
         projected = drop_empty(
             {
                 "path": path,
                 "status": str(item.get("status") or ""),
-                "content_sha256": str(item.get("content_sha256") or ""),
-                "coverage": _thin_coverage_projection(dict(item.get("coverage") or {})),
-                "exact_coverage": _thin_coverage_projection(dict(item.get("exact_coverage") or {})),
-                "visible_exact_windows": [],
-                "artifact_available_windows": [window for window in artifact_windows if window][-6:],
-                "read_required_windows": [window for window in missing_windows if window][-4:],
-                "read_missing_windows": [window for window in missing_windows if window][-4:],
-                "read_after_stale_windows": [window for window in stale_read_windows if window][-6:],
-                "policy_ref": "file_evidence_policy_stable.read_window_admission",
-                "authority": "runtime.memory.file_state_authority.evidence_decision_projection",
+                "facts": _file_evidence_facts(
+                    item,
+                    exact_ranges=exact_ranges,
+                    stale_ranges=stale_ranges,
+                    recommended_windows=recommended_windows,
+                    required_windows=missing_windows,
+                ),
+                "reusable_evidence": [window for window in [*artifact_windows, *reuse_windows] if window][-8:],
+                "candidate_read_windows": [window for window in recommended_windows if window][-6:],
+                "required_read_windows": [window for window in missing_windows if window][-4:],
+                "cautions": [window for window in cautions if window][-8:],
+                "policy_ref": "file_evidence_policy_stable.read_window_contract",
+                "authority": "runtime.memory.file_state_authority.file_evidence_contract_projection",
             }
         )
         if projected:
             files.append(projected)
     return drop_empty(
         {
-            "kind": "file_evidence_decisions",
-            "authority": "runtime.memory.file_state_authority.evidence_decision_projection",
+            "kind": "file_evidence_contract",
+            "contract_version": "file_evidence_contract.v2",
+            "authority_boundary": "observation_projection_only",
+            "policy": {
+                "agent_decides_next_read": True,
+                "system_role": "facts_candidates_requirements_only",
+                "ordinary_partial_read": "coverage_fact_not_continuation_request",
+            },
+            "authority": "runtime.memory.file_state_authority.file_evidence_contract_projection",
             "files": files[-10:],
+        }
+    )
+
+
+def _file_evidence_facts(
+    item: dict[str, Any],
+    *,
+    exact_ranges: list[dict[str, Any]],
+    stale_ranges: list[dict[str, Any]],
+    recommended_windows: list[dict[str, Any]],
+    required_windows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    coverage = dict(item.get("coverage") or {})
+    exact_coverage = dict(item.get("exact_coverage") or {})
+    return drop_empty(
+        {
+            "resource_status": str(item.get("status") or ""),
+            "content_sha256": str(item.get("content_sha256") or ""),
+            "total_lines": item.get("total_lines"),
+            "coverage": _thin_coverage_projection(coverage),
+            "exact_coverage": _thin_coverage_projection(exact_coverage),
+            "current_exact_window_available": bool(exact_ranges),
+            "candidate_read_window_available": bool(recommended_windows),
+            "required_read_window_available": bool(required_windows),
+            "stale_window_available": bool(stale_ranges),
+            "coverage_complete": (
+                coverage.get("complete")
+                if isinstance(coverage.get("complete"), bool)
+                else None
+            ),
         }
     )
 
@@ -1863,15 +2032,55 @@ def _exact_artifact_window_decision(*, path: str, segment: dict[str, Any]) -> di
     artifact_ref = str(segment.get("exact_artifact_ref") or segment.get("reusable_result_ref") or "").strip()
     return drop_empty(
         {
-            "decision": "exact_read_artifact_available",
+            "evidence_kind": "exact_read_artifact_available",
             "path": path,
             "start_line": segment.get("start_line"),
             "end_line": segment.get("end_line"),
             "observation_ref": str(segment.get("observation_ref") or ""),
             "exact_artifact_ref": artifact_ref,
-            "decision_code": "historical_exact_content_ref_available",
+            "usage_condition": "reuse this exact artifact when the unchanged target range is inside this window",
         }
     )
+
+
+def _reuse_current_window_decision(*, path: str, segment: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "evidence_kind": "current_exact_read_window",
+            "path": path,
+            "start_line": segment.get("start_line"),
+            "end_line": segment.get("end_line"),
+            "observation_ref": str(segment.get("observation_ref") or ""),
+            "exact_artifact_ref": str(segment.get("exact_artifact_ref") or segment.get("reusable_result_ref") or ""),
+            "usage_condition": "reuse when the target is inside this current exact range",
+        }
+    )
+
+
+def _recommended_read_window_decisions(item: dict[str, Any]) -> list[dict[str, Any]]:
+    windows: list[dict[str, Any]] = []
+    path = str(item.get("path") or "")
+    for raw in dict_tuple(item.get("recommended_read_windows")) or dict_tuple(item.get("read_recommendations")):
+        status = str(raw.get("status") or "pending").strip()
+        if status and status != "pending":
+            continue
+        windows.append(
+            drop_empty(
+                {
+                    "candidate_kind": "search_match_context_window",
+                    "path": str(raw.get("path") or path),
+                    "start_line": raw.get("start_line"),
+                    "line_count": raw.get("line_count"),
+                    "match_line": raw.get("match_line"),
+                    "query": compact_text(raw.get("query") or "", limit=120),
+                    "source_observation_ref": str(raw.get("source_observation_ref") or raw.get("observation_ref") or ""),
+                    "tool_call_id": str(raw.get("tool_call_id") or ""),
+                    "read_condition": "read this candidate only if exact current source around the search match is needed",
+                    "reason": compact_text(raw.get("reason") or "search match recommendation", limit=180),
+                }
+            )
+        )
+    return [item for item in windows if item]
 
 
 def _segment_has_exact_artifact(segment: dict[str, Any]) -> bool:
@@ -1894,6 +2103,8 @@ def _read_missing_window_decisions(item: dict[str, Any], *, active_ranges: list[
         return []
     path = str(item.get("path") or "")
     coverage = dict(item.get("exact_coverage") or item.get("coverage") or {})
+    if not _missing_window_read_is_required(item=item, coverage=coverage):
+        return []
     if coverage.get("complete") is True:
         return []
     has_explicit_missing_ranges = "missing_ranges" in coverage
@@ -1906,17 +2117,21 @@ def _read_missing_window_decisions(item: dict[str, Any], *, active_ranges: list[
         end_line = _safe_int(segment.get("end_line"))
         if start_line <= 0:
             continue
-        line_count = 500
-        if end_line >= start_line:
-            line_count = max(1, min(500, end_line - start_line + 1))
+        policy_window = recommended_window_for_gap(
+            start_line=start_line,
+            end_line=end_line if end_line >= start_line else None,
+            total_lines=_safe_int(item.get("total_lines")) or None,
+            reason="target may be outside current read coverage",
+        )
         windows.append(
             drop_empty(
                 {
-                    "decision": "read_missing_window",
+                    "requirement_kind": "target_outside_current_coverage",
                     "path": path,
-                    "start_line": start_line,
-                    "line_count": line_count,
-                    "reason": "target may be outside current read coverage",
+                    "start_line": policy_window.get("start_line"),
+                    "line_count": policy_window.get("line_count"),
+                    "read_condition": "required only for the explicit target range outside current exact coverage",
+                    "reason": str(policy_window.get("reason") or "target may be outside current read coverage"),
                 }
             )
         )
@@ -1928,14 +2143,29 @@ def _read_missing_window_decisions(item: dict[str, Any], *, active_ranges: list[
     return [
         drop_empty(
             {
-                "decision": "read_missing_window",
+                "requirement_kind": "target_outside_current_coverage",
                 "path": path,
                 "start_line": next_read.get("start_line"),
                 "line_count": next_read.get("line_count"),
+                "read_condition": "required only when no active current read resource covers the explicit target",
                 "reason": str(next_read.get("reason") or "no active current read window"),
             }
         )
     ]
+
+
+def _missing_window_read_is_required(*, item: dict[str, Any], coverage: dict[str, Any]) -> bool:
+    for payload in (item, coverage):
+        for key in (
+            "missing_window_read_required",
+            "read_missing_required",
+            "requires_missing_window_read",
+            "requires_full_coverage",
+            "target_line_outside_coverage",
+        ):
+            if payload.get(key) is True:
+                return True
+    return False
 
 
 def _missing_ranges_from_active_windows(active_ranges: list[dict[str, Any]], *, total_lines: int) -> list[dict[str, int]]:
@@ -1972,14 +2202,33 @@ def _missing_ranges_from_active_windows(active_ranges: list[dict[str, Any]], *, 
 def _read_after_stale_window_decision(*, path: str, segment: dict[str, Any]) -> dict[str, Any]:
     return drop_empty(
         {
-            "decision": "read_after_stale",
+            "caution_kind": "stale_read_window",
             "path": path,
             "start_line": segment.get("start_line"),
             "end_line": segment.get("end_line"),
             "observation_ref": str(segment.get("observation_ref") or ""),
+            "read_condition": "read the minimal current target window if exact current content is needed",
             "reason": "A later write/edit made this read window historical; read the minimal current target window if exact current content is needed.",
         }
     )
+
+
+def _partial_coverage_cautions(item: dict[str, Any], *, active_ranges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    coverage = dict(item.get("exact_coverage") or item.get("coverage") or {})
+    if not active_ranges:
+        return []
+    if coverage.get("complete") is True:
+        return []
+    return [
+        drop_empty(
+            {
+                "caution_kind": "partial_coverage_fact",
+                "path": str(item.get("path") or ""),
+                "reason": "Current exact evidence covers only the listed ranges; this is not a request to continue reading.",
+                "read_condition": "read another window only for a target outside coverage, stale evidence, search candidate, or explicit broader-context need",
+            }
+        )
+    ]
 
 
 def _read_resource_state_projection(
@@ -1993,7 +2242,27 @@ def _read_resource_state_projection(
         if _has_current_read_resource(item)
     ]
     stale_files = [item for item in list(file_state or []) if str(item.get("status") or "") == "stale"]
+    recommended_windows = _recommended_read_windows_from_decisions(file_evidence_decisions)
     if not active_files and not stale_files:
+        if recommended_windows:
+            latest = recommended_windows[-1]
+            return drop_empty(
+                {
+                    "kind": "read_resource_state",
+                    "authority_boundary": "resource_state_only",
+                    "status": "search_matched",
+                    "path": str(latest.get("path") or ""),
+                    "candidate_read_windows": recommended_windows[-6:],
+                    "file_evidence_decision_ref": "file_evidence_decisions",
+                    "state_code": "recommended_read_window_available",
+                    "collection_feedback": {
+                        "status": "candidate_window_available",
+                        "meaning": "search located a likely range; exact source still belongs to read_file",
+                    },
+                    "action_conditions": ["read candidate window only if exact current source around the match is needed"],
+                    "authority": "harness.runtime.dynamic_context.read_resource_state",
+                }
+            )
         return {}
     latest = active_files[-1] if active_files else stale_files[-1]
     path = str(latest.get("path") or "")
@@ -2009,6 +2278,12 @@ def _read_resource_state_projection(
                 "available_evidence_refs": _read_resource_evidence_refs(stale_files, include_stale=True),
                 "file_evidence_decision_ref": "file_evidence_decisions",
                 "state_code": "stale_after_write_or_edit",
+                "candidate_read_windows": recommended_windows[-6:],
+                "collection_feedback": {
+                    "status": "stale_evidence",
+                    "meaning": "historical windows remain useful for orientation but not exact current source",
+                },
+                "action_conditions": ["read the minimal current target window before relying on stale content"],
                 "authority": "harness.runtime.dynamic_context.read_resource_state",
             }
         )
@@ -2025,13 +2300,44 @@ def _read_resource_state_projection(
             "available_evidence_refs": _read_resource_evidence_refs(active_files),
             "coverage": _thin_coverage_projection(dict(latest.get("coverage") or {})),
             "exact_coverage": _thin_coverage_projection(dict(latest.get("exact_coverage") or {})),
-            "has_more": latest.get("has_more") if isinstance(latest.get("has_more"), bool) else None,
             "content_sha256": str(latest.get("content_sha256") or ""),
             "file_evidence_decision_ref": "file_evidence_decisions",
             "state_code": "current_read_resource_available",
+            "reuse_feedback": {
+                "status": "current_window_reusable",
+                "meaning": "reuse current exact windows when the target is covered",
+            },
+            "action_conditions": ["read_file only when the target is outside coverage, the file changed, or broader context is explicitly needed"],
+            "candidate_read_windows": recommended_windows[-6:],
             "authority": "harness.runtime.dynamic_context.read_resource_state",
         }
     )
+
+
+def _recommended_read_windows_from_decisions(file_evidence_decisions: dict[str, Any] | None) -> list[dict[str, Any]]:
+    windows: list[dict[str, Any]] = []
+    for file_item in dict_tuple(dict(file_evidence_decisions or {}).get("files")):
+        for raw in dict_tuple(file_item.get("candidate_read_windows")):
+            windows.append(
+                drop_empty(
+                    {
+                        "candidate_kind": str(raw.get("candidate_kind") or raw.get("decision") or "search_match_context_window"),
+                        "path": str(raw.get("path") or file_item.get("path") or ""),
+                        "start_line": raw.get("start_line"),
+                        "line_count": raw.get("line_count"),
+                        "match_line": raw.get("match_line"),
+                        "query": compact_text(raw.get("query") or "", limit=120),
+                        "source_observation_ref": str(raw.get("source_observation_ref") or ""),
+                        "read_condition": compact_text(
+                            raw.get("read_condition")
+                            or "read this candidate only if exact current source around the search match is needed",
+                            limit=160,
+                        ),
+                        "reason": compact_text(raw.get("reason") or "", limit=160),
+                    }
+                )
+            )
+    return [item for item in windows if item]
 
 
 def _read_resource_file_ref(item: dict[str, Any]) -> dict[str, Any]:
@@ -2048,6 +2354,7 @@ def _read_resource_file_ref(item: dict[str, Any]) -> dict[str, Any]:
             "latest_read_window_ref": _file_state_cursor_read_window(ranges[-1]) if ranges else {},
             "read_window_count": len(ranges),
             "next_suggested_read": _read_request_ref(dict(item.get("next_suggested_read") or {})),
+            "recommended_read_window_count": len(dict_tuple(item.get("recommended_read_windows"))),
         }
     )
 

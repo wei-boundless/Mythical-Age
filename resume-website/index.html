@@ -1,0 +1,1709 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>个人简历 - 张三</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <link rel="stylesheet" href="style.css">
+    <script src="html2pdf.bundle.min.js" async></script>
+</head>
+<body>
+    <!-- 编辑工具栏 -->
+    <div class="edit-bar">
+        <button id="btn-template-library" class="btn-template-library" onclick="openTemplateLibrary()">📐 模板库</button>
+        <button id="btn-edit" class="btn-edit" onclick="openResumeEditor()">编辑</button>
+        <button id="btn-pdf" class="btn-pdf" onclick="generatePDF()">下载PDF</button>
+        <button id="btn-print" class="btn-print" onclick="window.print()">打印</button>
+        <span class="copy-separator">|</span>
+        <select id="copy-select" class="copy-select">
+            <option value="default">默认副本</option>
+        </select>
+        <button id="btn-save-as" class="btn-copy-action">另存为</button>
+        <button id="btn-delete-copy" class="btn-copy-action btn-delete-copy" disabled>删除</button>
+    </div>
+
+    <!-- 模板渲染挂载点 -->
+    <div id="resume-root"></div>
+
+    <script>
+// 简历网站交互脚本 — 格式与内容解耦版
+console.log('[简历] 脚本已加载，版本 2026');
+
+// ===== 安全 localStorage 包装（兼容 file:// 协议） =====
+var ls = {
+    get: function(key, fallback) {
+        try { var v = localStorage.getItem(key); return v !== null ? v : fallback; }
+        catch(e) { return fallback; }
+    },
+    set: function(key, value) {
+        try { localStorage.setItem(key, value); } catch(e) { /* file:// 下静默 */ }
+    },
+    remove: function(key) {
+        try { localStorage.removeItem(key); } catch(e) {}
+    },
+    parseJSON: function(key, fallback) {
+        try {
+            var v = localStorage.getItem(key);
+            return v ? JSON.parse(v) : fallback;
+        } catch(e) { return fallback; }
+    }
+};
+
+// ===== 全局导出一级函数（HTML onclick 直接调用） =====
+// 定义在最前面确保无论后面代码是否出错都存在
+// openTemplateLibrary — 打开模板库模态框
+window.openTemplateLibrary = function() {
+    console.log('[简历] 点击模板库按钮');
+    var modal = document.getElementById('template-library-modal');
+    // 如果模态框 DOM 不存在，强制重建
+    if (!modal) {
+        console.warn('[简历] 模板库模态框DOM不存在，强制重建...');
+        window.openTemplateLibraryLazy();
+        modal = document.getElementById('template-library-modal');
+        if (!modal) {
+            console.error('[简历] 模板库模态框重建失败');
+            return;
+        }
+    }
+    // 关闭其他模态框
+    var editorModal = document.getElementById('editor-modal');
+    if (editorModal) editorModal.style.display = 'none';
+    try {
+        var templateKeys = Object.keys(TEMPLATES || {});
+        var activeKey = ls.get('resume-template', 'classic-blue');
+        var grid = modal.querySelector('.tpl-grid');
+        if (grid) {
+            grid.innerHTML = templateKeys.map(function(key) {
+                var tpl = TEMPLATES[key];
+                var isActive = (activeKey === key);
+                var descMap = {
+                    'classic-blue': '左侧边栏 + 右侧主内容，经典蓝色风格',
+                    'full-width': '顶部通栏头部，技能/语言/内容纵向排列',
+                    'card-grid': '顶部头部 + 自适应卡片网格布局',
+                    'vertical-simple': '纯白极简，全纵向排列，干净利落',
+                    'professional-left': '深色宽侧栏 + 金色强调，商务专业风',
+                    'dual-timeline': '顶部通栏 + 左右双列内容，翡翠绿主题',
+                    'luxury-gold': '深色渐变头部 + 帝王金点缀，高端奢华风'
+                };
+                return '<div class="tpl-card' + (isActive ? ' tpl-card-active' : '') + '" data-template="' + key + '" onclick="switchTemplate(\'' + key + '\')">' +
+                    '<div class="tpl-card-preview tpl-preview-' + key + '">' +
+                    '<div class="tpl-preview-bar" style="background:' + (tpl ? tpl.vars['--primary'] : '#888') + '"></div>' +
+                    '<div class="tpl-preview-body">' +
+                    '<div class="tpl-preview-title">' + (tpl ? tpl.name : key) + '</div>' +
+                    '<div class="tpl-preview-desc">' + (descMap[key] || '') + '</div>' +
+                    '</div></div>' +
+                    (isActive ? '<div class="tpl-card-badge">使用中</div>' : '') +
+                    '</div>';
+            }).join('');
+        }
+    } catch(e) { console.error('[简历] openTemplateLibrary error:', e); }
+    modal.style.display = 'flex';
+};
+// closeTemplateLibrary — 关闭模板库
+window.closeTemplateLibrary = function() {
+    var modal = document.getElementById('template-library-modal');
+    if (modal) modal.style.display = 'none';
+};
+// openTemplateLibraryLazy — 懒重建模板库模态框（在 initTemplateLibrary 未执行时兜底）
+window.openTemplateLibraryLazy = function() {
+    if (document.getElementById('template-library-modal')) { window.openTemplateLibrary(); return; }
+    try {
+        var templateKeys = Object.keys(TEMPLATES || {});
+        var activeKey = ls.get('resume-template', 'classic-blue');
+        var descMap = {
+            'classic-blue': '左侧边栏 + 右侧主内容，经典蓝色风格',
+            'full-width': '顶部通栏头部，技能/语言/内容纵向排列',
+            'card-grid': '顶部头部 + 自适应卡片网格布局',
+            'vertical-simple': '纯白极简，全纵向排列，干净利落',
+            'professional-left': '深色宽侧栏 + 金色强调，商务专业风',
+            'dual-timeline': '顶部通栏 + 左右双列内容，翡翠绿主题',
+            'luxury-gold': '深色渐变头部 + 帝王金点缀，高端奢华风'
+        };
+        var cardsHtml = templateKeys.map(function(key) {
+            var tpl = TEMPLATES[key];
+            var isActive = (activeKey === key);
+            return '<div class="tpl-card' + (isActive ? ' tpl-card-active' : '') + '" data-template="' + key + '" onclick="switchTemplate(\'' + key + '\')">' +
+                '<div class="tpl-card-preview tpl-preview-' + key + '">' +
+                '<div class="tpl-preview-bar" style="background:' + (tpl ? tpl.vars['--primary'] : '#888') + '"></div>' +
+                '<div class="tpl-preview-body">' +
+                '<div class="tpl-preview-title">' + (tpl ? tpl.name : key) + '</div>' +
+                '<div class="tpl-preview-desc">' + (descMap[key] || '') + '</div>' +
+                '</div></div>' +
+                (isActive ? '<div class="tpl-card-badge">使用中</div>' : '') +
+                '</div>';
+        }).join('');
+        var modalHtml = '<div id="template-library-modal" class="modal tpl-modal" style="display:none;">' +
+            '<div class="modal-backdrop" onclick="closeTemplateLibrary()"></div>' +
+            '<div class="modal-panel tpl-modal-panel">' +
+            '<div class="modal-header"><h2>选择模板</h2><button class="modal-close" onclick="closeTemplateLibrary()">\u2715</button></div>' +
+            '<div class="modal-body tpl-modal-body"><div class="tpl-grid">' + cardsHtml + '</div></div>' +
+            '<div class="modal-footer"><button class="btn-cancel" onclick="closeTemplateLibrary()">关闭</button></div>' +
+            '</div></div>';
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        document.getElementById('template-library-modal').style.display = 'flex';
+    } catch(e) { console.error('[简历] openTemplateLibraryLazy error:', e); }
+};
+// switchTemplate — 切换模板
+window.switchTemplate = function(key) {
+    if (!TEMPLATES || !TEMPLATES[key]) return;
+    ls.set('resume-template', key);
+    if (typeof currentData !== 'undefined' && currentData) {
+        if (typeof populateResumeData === 'function') populateResumeData(currentData);
+        if (typeof showToast === 'function') showToast('已切换至「' + TEMPLATES[key].name + '」模板');
+    }
+    var cl = window.closeTemplateLibrary;
+    if (typeof cl === 'function') cl();
+};
+// openResumeEditor — 打开编辑器
+window.openResumeEditor = function() {
+    try {
+        console.log('[简历] 点击编辑按钮');
+        // 确保编辑器模态框 DOM 存在，不存在则强制重建
+        if (!document.getElementById('editor-modal')) {
+            console.log('[简历] 编辑器模态框DOM不存在，强制重建');
+            if (typeof initModalEditor === 'function') initModalEditor();
+            // 重建后再次检查
+            if (!document.getElementById('editor-modal')) {
+                console.error('[简历] 编辑器模态框重建失败');
+                return;
+            }
+        }
+        // 关闭其他模态框
+        var tplModal = document.getElementById('template-library-modal');
+        if (tplModal) tplModal.style.display = 'none';
+        // 确保至少有默认副本
+        var copies = ls.parseJSON('resume-copies', null);
+        if (!copies || !copies.length) {
+            console.warn('[简历] 无可用副本，创建默认副本');
+            copies = [{
+                id: 'default',
+                name: '默认副本',
+                data: JSON.parse(JSON.stringify(DEFAULT_RESUME_DATA)),
+                createdAt: new Date().toISOString()
+            }];
+            ls.set('resume-copies', JSON.stringify(copies));
+            ls.set('resume-active-copy-id', 'default');
+        }
+        var activeId = ls.get('resume-active-copy-id', 'default');
+        var active = copies.find(function(c) { return c.id === activeId; }) || copies[0];
+        if (active && typeof openEditorModal === 'function') openEditorModal(active.data);
+        else console.error('[简历] 无法找到可用副本');
+    } catch(e) { console.error('[简历] openResumeEditor error:', e); }
+};
+// generatePDF — 生成并下载 PDF
+window.generatePDF = async function() {
+    var container = document.querySelector('#resume-root .container');
+    if (!container) { if (typeof showToast === 'function') showToast('未找到简历内容'); return; }
+    var editBar = document.querySelector('.edit-bar');
+    if (editBar) editBar.style.display = 'none';
+    var copyManager = document.getElementById('copy-manager');
+    if (copyManager) copyManager.style.display = 'none';
+    if (typeof showToast === 'function') showToast('正在生成 PDF...');
+    try {
+        var copies = ls.parseJSON('resume-copies', null);
+        var activeId = ls.get('resume-active-copy-id', 'default');
+        var active = copies ? copies.find(function(c) { return c.id === activeId; }) : null;
+        var fileName = active ? active.name + '.pdf' : '个人简历.pdf';
+        var opt = {
+            margin: [0.4, 0.4, 0.4, 0.4],
+            filename: fileName,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 0.55, useCORS: true, letterRendering: true },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+        };
+        if (typeof html2pdf !== 'undefined') {
+            await html2pdf().set(opt).from(container).save();
+            if (typeof showToast === 'function') showToast('PDF 已下载');
+        } else {
+            if (typeof showToast === 'function') showToast('PDF 库未加载，请使用打印功能');
+        }
+    } catch(err) {
+        console.error('[简历] PDF 生成失败:', err);
+        if (typeof showToast === 'function') showToast('PDF 生成失败，请使用打印功能');
+    } finally {
+        if (editBar) editBar.style.display = '';
+        if (copyManager) copyManager.style.display = '';
+    }
+};
+
+// ===== 模板定义（含渲染函数） =====
+const TEMPLATES = {
+    'classic-blue': {
+        name: '经典双栏',
+        vars: {
+            '--primary': '#2563eb',
+            '--primary-light': '#dbeafe',
+            '--text': '#1e293b',
+            '--text-secondary': '#64748b',
+            '--bg': '#f8fafc',
+            '--white': '#ffffff',
+            '--border': '#e2e8f0',
+            '--shadow': '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)',
+            '--shadow-md': '0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06)'
+        },
+        render(data) {
+            const d = data || {};
+            const avatarHtml = d.photo
+                ? `<div class="avatar photo-avatar" style="border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
+                : `<div class="avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`;
+            const contactsHtml = (d.contacts || []).map(c =>
+                `<div class="contact-item"><span class="icon">${escapeHtml(c.icon || '')}</span><span>${escapeHtml(c.value || '')}</span></div>`
+            ).join('');
+            const skillsHtml = (d.skills || []).map(s =>
+                `<span class="skill-tag">${escapeHtml(s)}</span>`
+            ).join('');
+            const languagesHtml = (d.languages || []).map(l =>
+                `<div class="language-item"><span>${escapeHtml(l.name || '')}</span><span class="level">${escapeHtml(l.level || '')}</span></div>`
+            ).join('');
+            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2><p>${escapeHtml(d.about)}</p></section>` : '';
+            const expHtml = (d.experiences || []).length ? `
+                <section class="section">
+                    <h2 class="section-title">工作经验</h2>
+                    <div class="timeline">${(d.experiences || []).map(e => buildTimelineItemHTML(e, true)).join('')}</div>
+                </section>` : '';
+            const eduHtml = (d.education || []).length ? `
+                <section class="section">
+                    <h2 class="section-title">教育经历</h2>
+                    <div class="timeline">${(d.education || []).map(e => buildTimelineItemHTML(e, false)).join('')}</div>
+                </section>` : '';
+            const projHtml = (d.projects || []).length ? `
+                <section class="section">
+                    <h2 class="section-title">项目经验</h2>
+                    ${(d.projects || []).map(p => buildProjectCardHTML(p)).join('')}
+                </section>` : '';
+            const customHtml = (d.customSections || []).map(cs =>
+                `<section class="section custom-section"><h2 class="section-title">${escapeHtml(cs.title || '')}</h2><div class="custom-content">${escapeHtml(cs.content || '').replace(/\n/g, '<br>')}</div></section>`
+            ).join('');
+
+            return `<div class="container template-classic-blue">
+                <aside class="sidebar">
+                    <div class="avatar-section">
+                        ${avatarHtml}
+                        <h1>${escapeHtml(d.name || '')}</h1>
+                        <p class="subtitle">${escapeHtml(d.subtitle || '')}</p>
+                    </div>
+                    ${d.contacts && d.contacts.length ? `<section class="sidebar-section"><h2>联系方式</h2>${contactsHtml}</section>` : ''}
+                    ${d.skills && d.skills.length ? `<section class="sidebar-section"><h2>技能</h2><div class="skill-tags">${skillsHtml}</div></section>` : ''}
+                    ${d.languages && d.languages.length ? `<section class="sidebar-section"><h2>语言</h2>${languagesHtml}</section>` : ''}
+
+                </aside>
+                <main class="main-content">
+                    ${aboutHtml}
+                    ${expHtml}
+                    ${eduHtml}
+                    ${projHtml}
+                    ${customHtml}
+                </main>
+            </div>`;
+        }
+    },
+
+    'full-width': {
+        name: '顶部通栏',
+        vars: {
+            '--primary': '#0891b2',
+            '--primary-light': '#cffafe',
+            '--text': '#1e293b',
+            '--text-secondary': '#64748b',
+            '--bg': '#f8fafc',
+            '--white': '#ffffff',
+            '--border': '#e2e8f0',
+            '--shadow': '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)',
+            '--shadow-md': '0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06)'
+        },
+        render(data) {
+            const d = data || {};
+            const avatarHtml = d.photo
+                ? `<div class="fw-avatar photo-avatar" style="border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
+                : `<div class="fw-avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`;
+            const contactsHtml = (d.contacts || []).map(c =>
+                `<span class="fw-contact-item">${escapeHtml(c.icon || '')} ${escapeHtml(c.value || '')}</span>`
+            ).join(' | ');
+            const skillsHtml = (d.skills || []).map(s =>
+                `<span class="skill-tag">${escapeHtml(s)}</span>`
+            ).join('');
+            const languagesHtml = (d.languages || []).map(l =>
+                `<div class="language-item inline"><span>${escapeHtml(l.name || '')}</span><span class="level">${escapeHtml(l.level || '')}</span></div>`
+            ).join('');
+            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2><p>${escapeHtml(d.about)}</p></section>` : '';
+            const expHtml = (d.experiences || []).length ? `
+                <section class="section">
+                    <h2 class="section-title">工作经验</h2>
+                    <div class="timeline">${(d.experiences || []).map(e => buildTimelineItemHTML(e, true)).join('')}</div>
+                </section>` : '';
+            const eduHtml = (d.education || []).length ? `
+                <section class="section">
+                    <h2 class="section-title">教育经历</h2>
+                    <div class="timeline">${(d.education || []).map(e => buildTimelineItemHTML(e, false)).join('')}</div>
+                </section>` : '';
+            const projHtml = (d.projects || []).length ? `
+                <section class="section">
+                    <h2 class="section-title">项目经验</h2>
+                    ${(d.projects || []).map(p => buildProjectCardHTML(p)).join('')}
+                </section>` : '';
+            const customHtml = (d.customSections || []).map(cs =>
+                `<section class="section custom-section"><h2 class="section-title">${escapeHtml(cs.title || '')}</h2><div class="custom-content">${escapeHtml(cs.content || '').replace(/\n/g, '<br>')}</div></section>`
+            ).join('');
+            const sideHtml = (d.skills && d.skills.length) || (d.languages && d.languages.length) ? `
+                <div class="fw-side-row">
+                    ${d.skills && d.skills.length ? `<div class="fw-side-block"><h3>技能</h3><div class="skill-tags">${skillsHtml}</div></div>` : ''}
+                    ${d.languages && d.languages.length ? `<div class="fw-side-block"><h3>语言</h3>${languagesHtml}</div>` : ''}
+                </div>` : '';
+
+            return `<div class="container template-full-width">
+                <header class="fw-header">
+                    ${avatarHtml}
+                    <div class="fw-title-block">
+                        <h1>${escapeHtml(d.name || '')}</h1>
+                        <p class="subtitle">${escapeHtml(d.subtitle || '')}</p>
+                    </div>
+                    <div class="fw-contacts">${contactsHtml}</div>
+                </header>
+                <div class="fw-body">
+                    ${aboutHtml}
+                    ${sideHtml}
+                    ${expHtml}
+                    ${eduHtml}
+                    ${projHtml}
+                    ${customHtml}
+                </div>
+
+            </div>`;
+        }
+    },
+
+    'card-grid': {
+        name: '卡片网格',
+        vars: {
+            '--primary': '#7c3aed',
+            '--primary-light': '#ede9fe',
+            '--text': '#1e293b',
+            '--text-secondary': '#64748b',
+            '--bg': '#f1f5f9',
+            '--white': '#ffffff',
+            '--border': '#e2e8f0',
+            '--shadow': '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)',
+            '--shadow-md': '0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06)'
+        },
+        render(data) {
+            const d = data || {};
+            const avatarHtml = d.photo
+                ? `<div class="cg-avatar photo-avatar" style="border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
+                : `<div class="cg-avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`;
+            const contactsHtml = (d.contacts || []).map(c =>
+                `<div class="contact-item"><span class="icon">${escapeHtml(c.icon || '')}</span><span>${escapeHtml(c.value || '')}</span></div>`
+            ).join('');
+            const skillsHtml = (d.skills || []).map(s =>
+                `<span class="skill-tag">${escapeHtml(s)}</span>`
+            ).join('');
+            const languagesHtml = (d.languages || []).map(l =>
+                `<div class="language-item"><span>${escapeHtml(l.name || '')}</span><span class="level">${escapeHtml(l.level || '')}</span></div>`
+            ).join('');
+            const expHtml = (d.experiences || []).length ? `
+                <h2 class="section-title">工作经验</h2>
+                <div class="timeline">${(d.experiences || []).map(e => buildTimelineItemHTML(e, true)).join('')}</div>` : '';
+            const eduHtml = (d.education || []).length ? `
+                <h2 class="section-title">教育经历</h2>
+                <div class="timeline">${(d.education || []).map(e => buildTimelineItemHTML(e, false)).join('')}</div>` : '';
+            const projHtml = (d.projects || []).length ? `
+                <h2 class="section-title">项目经验</h2>
+                ${(d.projects || []).map(p => buildProjectCardHTML(p)).join('')}` : '';
+            const customHtml = (d.customSections || []).map(cs =>
+                `<h2 class="section-title">${escapeHtml(cs.title || '')}</h2><div class="custom-content">${escapeHtml(cs.content || '').replace(/\n/g, '<br>')}</div>`
+            ).join('');
+
+            return `<div class="container template-card-grid">
+                <header class="cg-header">
+                    ${avatarHtml}
+                    <div>
+                        <h1>${escapeHtml(d.name || '')}</h1>
+                        <p class="subtitle">${escapeHtml(d.subtitle || '')}</p>
+                    </div>
+                </header>
+
+                <div class="cg-grid">
+                    ${d.contacts && d.contacts.length ? `<div class="cg-card"><h2>联系方式</h2>${contactsHtml}</div>` : ''}
+                    ${d.skills && d.skills.length ? `<div class="cg-card"><h2>技能</h2><div class="skill-tags">${skillsHtml}</div></div>` : ''}
+                    ${d.languages && d.languages.length ? `<div class="cg-card"><h2>语言</h2>${languagesHtml}</div>` : ''}
+                    ${d.about ? `<div class="cg-card"><h2>关于我</h2><p>${escapeHtml(d.about)}</p></div>` : ''}
+                    ${d.experiences && d.experiences.length ? `<div class="cg-card cg-card-wide">${expHtml}</div>` : ''}
+                    ${d.education && d.education.length ? `<div class="cg-card">${eduHtml}</div>` : ''}
+                    ${d.projects && d.projects.length ? `<div class="cg-card cg-card-wide">${projHtml}</div>` : ''}
+                    ${customHtml ? `<div class="cg-card cg-card-wide">${customHtml}</div>` : ''}
+                </div>
+            </div>`;
+        }
+    },
+
+    'vertical-simple': {
+        name: '简约纵向',
+        vars: {
+            '--primary': '#475569',
+            '--primary-light': '#f1f5f9',
+            '--text': '#334155',
+            '--text-secondary': '#94a3b8',
+            '--bg': '#ffffff',
+            '--white': '#ffffff',
+            '--border': '#e2e8f0',
+            '--shadow': '0 1px 2px rgba(0,0,0,0.05)',
+            '--shadow-md': '0 2px 4px rgba(0,0,0,0.06)'
+        },
+        render(data) {
+            const d = data || {};
+            const avatarHtml = d.photo
+                ? `<div class="vs-avatar photo-avatar" style="border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
+                : `<div class="vs-avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`;
+            const contactsHtml = (d.contacts || []).map(c =>
+                `<span class="vs-contact">${escapeHtml(c.icon || '')} ${escapeHtml(c.value || '')}</span>`
+            ).join('');
+            const skillsHtml = (d.skills || []).map(s =>
+                `<span class="skill-tag">${escapeHtml(s)}</span>`
+            ).join('');
+            const languagesHtml = (d.languages || []).map(l =>
+                `<div class="language-item inline"><span>${escapeHtml(l.name || '')}</span><span class="level">${escapeHtml(l.level || '')}</span></div>`
+            ).join('');
+            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2><p>${escapeHtml(d.about)}</p></section>` : '';
+            const expHtml = (d.experiences || []).length ? `
+                <section class="section">
+                    <h2 class="section-title">工作经验</h2>
+                    <div class="timeline">${(d.experiences || []).map(e => buildTimelineItemHTML(e, true)).join('')}</div>
+                </section>` : '';
+            const eduHtml = (d.education || []).length ? `
+                <section class="section">
+                    <h2 class="section-title">教育经历</h2>
+                    <div class="timeline">${(d.education || []).map(e => buildTimelineItemHTML(e, false)).join('')}</div>
+                </section>` : '';
+            const projHtml = (d.projects || []).length ? `
+                <section class="section">
+                    <h2 class="section-title">项目经验</h2>
+                    ${(d.projects || []).map(p => buildProjectCardHTML(p)).join('')}
+                </section>` : '';
+            const customHtml = (d.customSections || []).map(cs =>
+                `<section class="section custom-section"><h2 class="section-title">${escapeHtml(cs.title || '')}</h2><div class="custom-content">${escapeHtml(cs.content || '').replace(/\n/g, '<br>')}</div></section>`
+            ).join('');
+
+            return `<div class="container template-vertical-simple">
+                <header class="vs-header">
+                    ${avatarHtml}
+                    <div class="vs-title-block">
+                        <h1>${escapeHtml(d.name || '')}</h1>
+                        <p class="subtitle">${escapeHtml(d.subtitle || '')}</p>
+                    </div>
+                    <div class="vs-contacts">${contactsHtml}</div>
+                </header>
+                <div class="vs-body">
+                    ${aboutHtml}
+                    ${d.skills && d.skills.length ? `<section class="section"><h2 class="section-title">技能</h2><div class="skill-tags">${skillsHtml}</div></section>` : ''}
+                    ${d.languages && d.languages.length ? `<section class="section"><h2 class="section-title">语言</h2>${languagesHtml}</section>` : ''}
+                    ${expHtml}
+                    ${eduHtml}
+                    ${projHtml}
+                    ${customHtml}
+                </div>
+            </div>`;
+        }
+    },
+
+    'professional-left': {
+        name: '专业左栏',
+        vars: {
+            '--primary': '#f59e0b',
+            '--primary-light': '#fef3c7',
+            '--text': '#1e293b',
+            '--text-secondary': '#64748b',
+            '--bg': '#f8fafc',
+            '--white': '#ffffff',
+            '--border': '#e2e8f0',
+            '--shadow': '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)',
+            '--shadow-md': '0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06)'
+        },
+        render(data) {
+            const d = data || {};
+            const avatarHtml = d.photo
+                ? `<div class="pl-avatar photo-avatar" style="border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
+                : `<div class="pl-avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`;
+            const contactsHtml = (d.contacts || []).map(c =>
+                `<div class="pl-contact-item"><span class="pl-contact-icon">${escapeHtml(c.icon || '')}</span><span>${escapeHtml(c.value || '')}</span></div>`
+            ).join('');
+            const skillsHtml = (d.skills || []).map(s =>
+                `<span class="pl-skill-tag">${escapeHtml(s)}</span>`
+            ).join('');
+            const languagesHtml = (d.languages || []).map(l =>
+                `<div class="pl-lang-item"><span>${escapeHtml(l.name || '')}</span><span class="level">${escapeHtml(l.level || '')}</span></div>`
+            ).join('');
+            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2><p>${escapeHtml(d.about)}</p></section>` : '';
+            const expHtml = (d.experiences || []).length ? `
+                <section class="section">
+                    <h2 class="section-title">工作经验</h2>
+                    <div class="timeline">${(d.experiences || []).map(e => buildTimelineItemHTML(e, true)).join('')}</div>
+                </section>` : '';
+            const eduHtml = (d.education || []).length ? `
+                <section class="section">
+                    <h2 class="section-title">教育经历</h2>
+                    <div class="timeline">${(d.education || []).map(e => buildTimelineItemHTML(e, false)).join('')}</div>
+                </section>` : '';
+            const projHtml = (d.projects || []).length ? `
+                <section class="section">
+                    <h2 class="section-title">项目经验</h2>
+                    ${(d.projects || []).map(p => buildProjectCardHTML(p)).join('')}
+                </section>` : '';
+            const customHtml = (d.customSections || []).map(cs =>
+                `<section class="section custom-section"><h2 class="section-title">${escapeHtml(cs.title || '')}</h2><div class="custom-content">${escapeHtml(cs.content || '').replace(/\n/g, '<br>')}</div></section>`
+            ).join('');
+
+            return `<div class="container template-professional-left">
+                <aside class="pl-sidebar">
+                    <div class="pl-sidebar-inner">
+                        ${avatarHtml}
+                        <h1 class="pl-name">${escapeHtml(d.name || '')}</h1>
+                        <p class="pl-subtitle">${escapeHtml(d.subtitle || '')}</p>
+                        ${d.contacts && d.contacts.length ? `<div class="pl-contacts">${contactsHtml}</div>` : ''}
+                        ${d.skills && d.skills.length ? `<div class="pl-skills"><h3>专业技能</h3><div class="pl-skill-tags">${skillsHtml}</div></div>` : ''}
+                        ${d.languages && d.languages.length ? `<div class="pl-langs"><h3>语言</h3>${languagesHtml}</div>` : ''}
+                    </div>
+                </aside>
+                <main class="pl-main">
+                    ${aboutHtml}
+                    ${expHtml}
+                    ${eduHtml}
+                    ${projHtml}
+                    ${customHtml}
+                </main>
+            </div>`;
+        }
+    },
+
+    'dual-timeline': {
+        name: '双列时间线',
+        vars: {
+            '--primary': '#059669',
+            '--primary-light': '#d1fae5',
+            '--text': '#1e293b',
+            '--text-secondary': '#64748b',
+            '--bg': '#f0fdf4',
+            '--white': '#ffffff',
+            '--border': '#d1d5db',
+            '--shadow': '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)',
+            '--shadow-md': '0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06)'
+        },
+        render(data) {
+            const d = data || {};
+            const avatarHtml = d.photo
+                ? `<div class="dt-avatar photo-avatar" style="border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
+                : `<div class="dt-avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`;
+            const contactsHtml = (d.contacts || []).map(c =>
+                `<span class="dt-contact">${escapeHtml(c.icon || '')} ${escapeHtml(c.value || '')}</span>`
+            ).join(' | ');
+            const skillsHtml = (d.skills || []).map(s =>
+                `<span class="skill-tag">${escapeHtml(s)}</span>`
+            ).join('');
+            const languagesHtml = (d.languages || []).map(l =>
+                `<div class="language-item inline"><span>${escapeHtml(l.name || '')}</span><span class="level">${escapeHtml(l.level || '')}</span></div>`
+            ).join('');
+            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2><p>${escapeHtml(d.about)}</p></section>` : '';
+            const expHtml = (d.experiences || []).length ? `
+                <section class="section">
+                    <h2 class="section-title">工作经验</h2>
+                    <div class="timeline">${(d.experiences || []).map(e => buildTimelineItemHTML(e, true)).join('')}</div>
+                </section>` : '';
+            const eduHtml = (d.education || []).length ? `
+                <section class="section">
+                    <h2 class="section-title">教育经历</h2>
+                    <div class="timeline">${(d.education || []).map(e => buildTimelineItemHTML(e, false)).join('')}</div>
+                </section>` : '';
+            const projHtml = (d.projects || []).length ? `
+                <section class="section">
+                    <h2 class="section-title">项目经验</h2>
+                    ${(d.projects || []).map(p => buildProjectCardHTML(p)).join('')}
+                </section>` : '';
+            const customHtml = (d.customSections || []).map(cs =>
+                `<section class="section custom-section"><h2 class="section-title">${escapeHtml(cs.title || '')}</h2><div class="custom-content">${escapeHtml(cs.content || '').replace(/\n/g, '<br>')}</div></section>`
+            ).join('');
+
+            const leftColHtml = `
+                <div class="dt-col-left">
+                    ${d.skills && d.skills.length ? `<section class="section"><h2 class="section-title">技能</h2><div class="skill-tags">${skillsHtml}</div></section>` : ''}
+                    ${d.languages && d.languages.length ? `<section class="section"><h2 class="section-title">语言</h2>${languagesHtml}</section>` : ''}
+                    ${aboutHtml}
+                </div>`;
+            const rightColHtml = `
+                <div class="dt-col-right">
+                    ${expHtml}
+                    ${eduHtml}
+                    ${projHtml}
+                    ${customHtml}
+                </div>`;
+
+            return `<div class="container template-dual-timeline">
+                <header class="dt-header">
+                    ${avatarHtml}
+                    <div class="dt-title-block">
+                        <h1>${escapeHtml(d.name || '')}</h1>
+                        <p class="subtitle">${escapeHtml(d.subtitle || '')}</p>
+                    </div>
+                    <div class="dt-contacts">${contactsHtml}</div>
+                </header>
+                <div class="dt-body">
+                    ${leftColHtml}
+                    ${rightColHtml}
+                </div>
+            </div>`;
+        }
+    },
+
+    'luxury-gold': {
+        name: '帝王金',
+        vars: {
+            '--primary': '#c9a84c',
+            '--primary-light': '#faf3e0',
+            '--text': '#1a1a2e',
+            '--text-secondary': '#8e8ea0',
+            '--bg': '#f5f0e8',
+            '--white': '#ffffff',
+            '--border': '#e0d5c0',
+            '--shadow': '0 4px 20px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.06)',
+            '--shadow-md': '0 8px 30px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08)'
+        },
+        render(data) {
+            const d = data || {};
+            const avatarHtml = d.photo
+                ? `<div class=\"lg-avatar photo-avatar\" style=\"border-radius:${getPhotoRadius(d.photoShape)}\"><img src=\"${escapeHtml(d.photo)}\" alt=\"avatar\" loading=\"lazy\" style=\"border-radius:${getPhotoRadius(d.photoShape)}\" /></div>`
+                : `<div class=\"lg-avatar\">${escapeHtml((d.name || '?').charAt(0))}</div>`;
+            const contactsHtml = (d.contacts || []).map(c =>
+                `<span class=\"lg-contact-item\"><span class=\"icon\">${escapeHtml(c.icon || '')}</span><span>${escapeHtml(c.value || '')}</span></span>`
+            ).join('');
+            const skillsHtml = (d.skills || []).map(s =>
+                `<span class=\"lg-skill-tag\">${escapeHtml(s)}</span>`
+            ).join('');
+            const languagesHtml = (d.languages || []).map(l =>
+                `<div class=\"language-item\"><span>${escapeHtml(l.name || '')}</span><span class=\"level\">${escapeHtml(l.level || '')}</span></div>`
+            ).join('');
+            const aboutHtml = d.about ? `<section class=\"section\"><h2 class=\"section-title\">关于我</h2><p>${escapeHtml(d.about)}</p></section>` : '';
+            const expHtml = (d.experiences || []).length ? `
+                <section class=\"section\">
+                    <h2 class=\"section-title\">工作经验</h2>
+                    <div class=\"timeline\">${(d.experiences || []).map(e => buildTimelineItemHTML(e, true)).join('')}</div>
+                </section>` : '';
+            const eduHtml = (d.education || []).length ? `
+                <section class=\"section\">
+                    <h2 class=\"section-title\">教育经历</h2>
+                    <div class=\"timeline\">${(d.education || []).map(e => buildTimelineItemHTML(e, false)).join('')}</div>
+                </section>` : '';
+            const projHtml = (d.projects || []).length ? `
+                <section class=\"section\">
+                    <h2 class=\"section-title\">项目经验</h2>
+                    ${(d.projects || []).map(p => buildProjectCardHTML(p)).join('')}
+                </section>` : '';
+            const customHtml = (d.customSections || []).map(cs =>
+                `<section class=\"section custom-section\"><h2 class=\"section-title\">${escapeHtml(cs.title || '')}</h2><div class=\"custom-content\">${escapeHtml(cs.content || '').replace(/\\n/g, '<br>')}</div></section>`
+            ).join('');
+            const contactListHtml = (d.contacts || []).map(c =>
+                `<div class=\"contact-item\"><span class=\"icon\">${escapeHtml(c.icon || '')}</span><span>${escapeHtml(c.value || '')}</span></div>`
+            ).join('');
+
+            return `<div class=\"container template-luxury-gold\">
+                <header class=\"lg-header\">
+                    <div class=\"lg-avatar-wrap\">
+                        <div class=\"lg-avatar-ring\">${avatarHtml}</div>
+                    </div>
+                    <div class=\"lg-title-block\">
+                        <h1 class=\"lg-name\">${escapeHtml(d.name || '')}</h1>
+                        <p class=\"lg-subtitle\">${escapeHtml(d.subtitle || '')}</p>
+                        <div class=\"lg-contacts\">${contactsHtml}</div>
+                    </div>
+                </header>
+                <div class=\"lg-body\">
+                    <aside class=\"lg-sidebar\">
+                        ${d.skills && d.skills.length ? `<div class=\"lg-sidebar-section\"><h3 class=\"lg-sidebar-title\">专业技能</h3><div class=\"lg-skill-tags\">${skillsHtml}</div></div>` : ''}
+                        ${d.languages && d.languages.length ? `<div class=\"lg-sidebar-section\"><h3 class=\"lg-sidebar-title\">语言</h3>${languagesHtml}</div>` : ''}
+                        ${d.contacts && d.contacts.length ? `<div class=\"lg-sidebar-section\"><h3 class=\"lg-sidebar-title\">联系方式</h3>${contactListHtml}</div>` : ''}
+                        ${aboutHtml}
+                    </aside>
+                    <main class=\"lg-main\">
+                        ${expHtml}
+                        ${eduHtml}
+                        ${projHtml}
+                        ${customHtml}
+                    </main>
+                </div>
+            </div>`;
+        }
+    }
+};
+
+// ===== 默认简历数据 =====
+const DEFAULT_RESUME_DATA = {
+    name: '张三',
+    subtitle: '全栈开发工程师',
+    photo: '',
+    photoShape: 'circle',
+    contacts: [
+        { icon: '📧', value: 'zhangsan@example.com' },
+        { icon: '📱', value: '138-0000-0000' },
+        { icon: '📍', value: '北京市朝阳区' },
+        { icon: '🌐', value: 'github.com/zhangsan' }
+    ],
+    skills: ['JavaScript', 'TypeScript', 'React', 'Vue', 'Node.js', 'Python', 'FastAPI', 'PostgreSQL', 'Docker', 'Git'],
+    languages: [
+        { name: '中文', level: '母语' },
+        { name: '英语', level: 'CET-6 / 工作流利' }
+    ],
+    about: '5年全栈开发经验，擅长前端工程化与后端架构设计。主导过多个从0到1的中大型项目，具备良好的技术选型能力和团队协作能力。热爱开源，持续关注技术前沿。',
+    experiences: [
+        {
+            title: '高级前端工程师',
+            date: '2023.03 - 至今',
+            company: '某科技有限公司',
+            points: [
+                '主导公司核心产品前端架构重构，从 jQuery 迁移至 React + TypeScript',
+                '搭建组件库与工程化体系，提升团队开发效率 40%',
+                '负责前端性能优化，首屏加载时间降低 60%'
+            ]
+        },
+        {
+            title: '全栈开发工程师',
+            date: '2021.06 - 2023.02',
+            company: '某互联网公司',
+            points: [
+                '参与电商平台后端微服务开发（Node.js + Python）',
+                '设计并实现订单系统、支付网关等核心模块',
+                '引入 CI/CD 流水线，缩短发布周期从周级到日级'
+            ]
+        },
+        {
+            title: '初级前端开发',
+            date: '2020.07 - 2021.05',
+            company: '某创业公司',
+            points: [
+                '负责公司官网及管理后台的前端开发',
+                '使用 Vue.js 完成多个活动页面的快速迭代'
+            ]
+        }
+    ],
+    education: [
+        {
+            title: '计算机科学与技术 · 硕士',
+            date: '2018.09 - 2020.06',
+            school: '北京大学',
+            note: '研究方向：Web 前端性能优化。GPA 3.8/4.0'
+        },
+        {
+            title: '软件工程 · 学士',
+            date: '2014.09 - 2018.06',
+            school: '武汉大学',
+            note: '校级优秀毕业生。GPA 3.6/4.0'
+        }
+    ],
+    projects: [
+        {
+            title: 'LangChain Agent 管理系统',
+            tech: 'React · FastAPI · PostgreSQL · Docker',
+            points: [
+                '设计并实现了多 Agent 协作的任务调度系统',
+                '构建了实时状态监控面板，支持任务追踪与干预',
+                '引入 SSE 流式通信，实现 Agent 执行过程的实时推送'
+            ]
+        },
+        {
+            title: '电商中台数据面板',
+            tech: 'Vue 3 · ECharts · Node.js · Redis',
+            points: [
+                '搭建了支持百万级数据实时渲染的可视化面板',
+                '设计了灵活的数据源适配层，支持多业务线快速接入'
+            ]
+        }
+    ],
+    customSections: [],
+    typography: {
+        fontSize: 'medium',
+        lineHeight: 'normal'
+    }
+};
+
+// ===== 存储 key =====
+const COPIES_KEY = 'resume-copies';
+const ACTIVE_COPY_KEY = 'resume-active-copy-id';
+const TEMPLATE_KEY = 'resume-template';
+
+let currentData = null; // 当前渲染的数据副本
+
+// ===== 初始化 =====
+// 由于 <script> 在 <body> 末尾，DOM 已解析完毕，直接初始化即可
+// 注意：保留 initAll() 函数供末尾直接调用，不要同时走 DOMContentLoaded 和直接路径
+const initAll = () => {
+    // 按钮全部使用 HTML onclick 直接绑定，不依赖 initAll 成功执行
+    try { initCopies(); } catch(e) { console.error('initCopies error:', e); }
+    try { initTemplateLibrary(); } catch(e) { console.error('initTemplateLibrary error:', e); }
+    try { initModalEditor(); } catch(e) { console.error('initModalEditor error:', e); }
+};
+
+// ===== 副本管理 =====
+function getCopies() {
+    try {
+        return ls.parseJSON(COPIES_KEY, null);
+    } catch (e) { /* ignore */ }
+    return null;
+}
+
+function saveCopies(copies) {
+    ls.set(COPIES_KEY, JSON.stringify(copies));
+}
+
+function getActiveCopyId() {
+    return ls.get(ACTIVE_COPY_KEY, 'default');
+}
+
+function setActiveCopyId(id) {
+    ls.set(ACTIVE_COPY_KEY, id);
+}
+
+function getActiveCopy() {
+    const copies = getCopies();
+    if (!copies || copies.length === 0) return null;
+    const activeId = getActiveCopyId();
+    return copies.find(c => c.id === activeId) || copies[0];
+}
+
+function initCopies() {
+    let copies = getCopies();
+    if (!copies || copies.length === 0) {
+        copies = [{
+            id: 'default',
+            name: '默认副本',
+            data: JSON.parse(JSON.stringify(DEFAULT_RESUME_DATA)),
+            createdAt: new Date().toISOString()
+        }];
+        saveCopies(copies);
+        setActiveCopyId('default');
+    } else {
+        // 迁移旧版单 key 数据
+        const oldData = ls.get('resume-data', null);
+        if (oldData) {
+            try {
+                const parsed = JSON.parse(oldData);
+                const defaultCopy = copies.find(c => c.id === 'default');
+                if (defaultCopy && parsed.name) {
+                    defaultCopy.data.name = parsed.name || defaultCopy.data.name;
+                    defaultCopy.data.subtitle = parsed.subtitle || defaultCopy.data.subtitle;
+                    if (parsed.contacts) defaultCopy.data.contacts = parsed.contacts;
+                    if (parsed.skills) defaultCopy.data.skills = parsed.skills;
+                    if (parsed.about) defaultCopy.data.about = parsed.about;
+                    saveCopies(copies);
+                }
+            } catch (e) { /* ignore */ }
+            ls.remove('resume-data');
+        }
+    }
+
+    const active = getActiveCopy();
+    if (active) {
+        populateResumeData(active.data);
+    }
+    refreshCopySelect();
+    initCopyManagerUI();
+}
+
+function initCopyManagerUI() {
+    const saveAsBtn = document.getElementById('btn-save-as');
+    const deleteBtn = document.getElementById('btn-delete-copy');
+    const copySelect = document.getElementById('copy-select');
+
+    if (saveAsBtn) {
+        saveAsBtn.addEventListener('click', () => {
+            const name = prompt('请输入新副本名称：', '我的简历副本');
+            if (name && name.trim()) {
+                saveCopyAs(name.trim());
+            }
+        });
+    }
+
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', () => {
+            const copies = getCopies();
+            if (!copies || copies.length <= 1) return;
+            const activeId = getActiveCopyId();
+            const active = copies.find(c => c.id === activeId);
+            if (!active) return;
+            if (confirm(`确定要删除副本「${active.name}」吗？此操作不可撤销。`)) {
+                deleteCopy(activeId);
+            }
+        });
+    }
+
+    if (copySelect) {
+        copySelect.addEventListener('change', () => {
+            const newId = copySelect.value;
+            if (newId !== getActiveCopyId()) {
+                switchCopy(newId);
+            }
+        });
+    }
+}
+
+function refreshCopySelect() {
+    const select = document.getElementById('copy-select');
+    const deleteBtn = document.getElementById('btn-delete-copy');
+    if (!select) return;
+
+    const copies = getCopies() || [];
+    const activeId = getActiveCopyId();
+
+    select.innerHTML = copies.map(c =>
+        `<option value="${c.id}" ${c.id === activeId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`
+    ).join('');
+
+    if (deleteBtn) {
+        deleteBtn.disabled = copies.length <= 1;
+    }
+}
+
+// 从当前渲染好的 DOM 采集完整数据（供切换副本时保存用）
+function collectFullResumeData() {
+    if (currentData) {
+        return JSON.parse(JSON.stringify(currentData));
+    }
+    // 兜底：从示例数据构造
+    return JSON.parse(JSON.stringify(DEFAULT_RESUME_DATA));
+}
+
+// ===== 核心渲染函数 =====
+function populateResumeData(data) {
+    if (!data) return;
+    currentData = JSON.parse(JSON.stringify(data));
+    currentData.savedAt = new Date().toISOString();
+
+    const root = document.getElementById('resume-root');
+    if (!root) return;
+
+    const templateId = getCurrentTemplate();
+    const template = TEMPLATES[templateId];
+    if (!template) return;
+
+    // 重新渲染（带异常保护）
+    try {
+        root.innerHTML = template.render(data);
+    } catch(e) {
+        console.error('Template render error:', e);
+        root.innerHTML = '<p style="padding:40px;text-align:center;color:red">模板渲染出错，请重新加载页面</p>';
+        return;
+    }
+
+    // 应用 CSS 变量
+    const htmlRoot = document.documentElement;
+    Object.entries(template.vars).forEach(([key, value]) => {
+        htmlRoot.style.setProperty(key, value);
+    });
+
+    // 应用字体设置
+    const typo = data.typography || { fontSize: 'medium', lineHeight: 'normal' };
+    const container = root.querySelector('.container');
+    if (container) {
+        applyTypography(container, typo);
+    }
+
+    // 设置页面标题
+    if (data.name) document.title = `个人简历 - ${data.name}`;
+
+    // 刷新副本下拉选项
+    refreshCopySelect();
+}
+
+function getCurrentTemplate() {
+    return ls.get(TEMPLATE_KEY, 'classic-blue');
+}
+
+// ===== 共用 HTML 构建函数 =====
+function buildTimelineItemHTML(item, isExperience) {
+    const pointsHtml = item.points && item.points.length
+        ? `<ul>${item.points.filter(Boolean).map(p => `<li>${escapeHtml(p)}</li>`).join('')}</ul>`
+        : '';
+
+    const companyHtml = (isExperience ? item.company : item.school) || '';
+    const noteHtml = !isExperience && item.note ? `<p>${escapeHtml(item.note)}</p>` : '';
+
+    return `
+        <div class="timeline-item">
+            <div class="timeline-dot"></div>
+            <div class="timeline-content">
+                <div class="timeline-header">
+                    <h3>${escapeHtml(item.title || '')}</h3>
+                    <span class="date">${escapeHtml(item.date || '')}</span>
+                </div>
+                ${companyHtml ? `<p class="company">${escapeHtml(companyHtml)}</p>` : ''}
+                ${noteHtml}
+                ${pointsHtml}
+            </div>
+        </div>`;
+}
+
+function buildProjectCardHTML(project) {
+    const pointsHtml = project.points && project.points.length
+        ? `<ul>${project.points.filter(Boolean).map(p => `<li>${escapeHtml(p)}</li>`).join('')}</ul>`
+        : '';
+
+    const card = document.createElement('div');
+    card.className = 'project-card';
+    card.innerHTML = `
+        <h3>${escapeHtml(project.title || '')}</h3>
+        <p class="project-tech">${escapeHtml(project.tech || '')}</p>
+        ${pointsHtml}
+    `;
+    return card.outerHTML;
+}
+
+// ===== 副本 CRUD =====
+function saveCopyAs(name) {
+    const copies = getCopies() || [];
+    const data = collectFullResumeData();
+    const id = 'copy-' + Date.now();
+    copies.push({
+        id,
+        name,
+        data,
+        createdAt: new Date().toISOString()
+    });
+    saveCopies(copies);
+    setActiveCopyId(id);
+    refreshCopySelect();
+    showToast(`已创建副本「${name}」`);
+}
+
+function switchCopy(newId) {
+    // 保存当前副本
+    const currentId = getActiveCopyId();
+    const copies = getCopies() || [];
+    const current = copies.find(c => c.id === currentId);
+    if (current && currentData) {
+        current.data = JSON.parse(JSON.stringify(currentData));
+        saveCopies(copies);
+    }
+
+    // 切换到新副本
+    setActiveCopyId(newId);
+    const active = copies.find(c => c.id === newId);
+    if (active) {
+        populateResumeData(active.data);
+    }
+    refreshCopySelect();
+    showToast(`已切换到「${active ? active.name : '未知副本'}」`);
+}
+
+function deleteCopy(id) {
+    let copies = getCopies() || [];
+    if (copies.length <= 1) return;
+
+    copies = copies.filter(c => c.id !== id);
+    saveCopies(copies);
+
+    if (getActiveCopyId() === id) {
+        setActiveCopyId(copies[0].id);
+        const active = copies[0];
+        if (active) populateResumeData(active.data);
+    }
+    refreshCopySelect();
+    showToast('副本已删除');
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+// ===== 照片上传辅助 =====
+window.handlePhotoFileSelect = function(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const url = e.target?.result;
+        if (typeof url === 'string') {
+            document.getElementById('edit-photo-url').value = url;
+            updatePhotoPreview(url);
+        }
+    };
+    reader.readAsDataURL(file);
+};
+
+function getPhotoRadius(shape) {
+    var map = { circle: '50%', rounded: '8px', square: '0' };
+    return map[shape] || '50%';
+}
+
+window.updatePhotoPreview = function(url) {
+    const preview = document.getElementById('edit-photo-preview');
+    if (!preview) return;
+    const shape = document.getElementById('edit-photo-shape')?.value || 'circle';
+    const radius = getPhotoRadius(shape);
+    preview.style.borderRadius = radius;
+    if (url && url.trim()) {
+        preview.innerHTML = `<img src="${escapeHtml(url.trim())}" style="width:100%;height:100%;object-fit:cover;border-radius:${radius}" />`;
+    } else {
+        preview.innerHTML = '📷';
+    }
+};
+
+// ===== 模板库按钮 + 预览模态框 =====
+function initTemplateLibrary() {
+    const btn = document.getElementById('btn-template-library');
+    if (!btn) return;
+
+    // 创建模板库模态框 DOM
+    if (!document.getElementById('template-library-modal')) {
+        const templateKeys = Object.keys(TEMPLATES);
+        let cardsHtml = templateKeys.map(key => {
+            const tpl = TEMPLATES[key];
+            const isActive = getCurrentTemplate() === key;
+            const descMap = {
+                'classic-blue': '左侧边栏 + 右侧主内容，经典蓝色风格',
+                'full-width': '顶部通栏头部，技能/语言/内容纵向排列',
+                'card-grid': '顶部头部 + 自适应卡片网格布局',
+                'vertical-simple': '纯白极简，全纵向排列，干净利落',
+                'professional-left': '深色宽侧栏 + 金色强调，商务专业风',
+                'dual-timeline': '顶部通栏 + 左右双列内容，翡翠绿主题',
+                'luxury-gold': '深色渐变头部 + 帝王金点缀，高端奢华风'
+            };
+            return `<div class="tpl-card ${isActive ? 'tpl-card-active' : ''}" data-template="${key}" onclick="switchTemplate('${key}')">
+                <div class="tpl-card-preview tpl-preview-${key}">
+                    <div class="tpl-preview-bar" style="background:${tpl.vars['--primary']}"></div>
+                    <div class="tpl-preview-body">
+                        <div class="tpl-preview-title">${escapeHtml(tpl.name)}</div>
+                        <div class="tpl-preview-desc">${descMap[key] || ''}</div>
+                    </div>
+                </div>
+                ${isActive ? '<div class="tpl-card-badge">使用中</div>' : ''}
+            </div>`;
+        }).join('');
+
+        const modalHtml = `
+        <div id="template-library-modal" class="modal tpl-modal" style="display:none;">
+            <div class="modal-backdrop" onclick="closeTemplateLibrary()"></div>
+            <div class="modal-panel tpl-modal-panel">
+                <div class="modal-header">
+                    <h2>选择模板</h2>
+                    <button class="modal-close" onclick="closeTemplateLibrary()">\u2715</button>
+                </div>
+                <div class="modal-body tpl-modal-body">
+                    <div class="tpl-grid">${cardsHtml}</div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-cancel" onclick="closeTemplateLibrary()">关闭</button>
+                </div>
+            </div>
+        </div>`;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
+
+    // 按钮已通过 HTML onclick 属性绑定，此处不再重复 addEventListener
+}
+
+// ===== 弹窗编辑器 =====
+function initModalEditor() {
+    // 创建模态框 DOM
+    if (!document.getElementById('editor-modal')) {
+        const modalHtml = `
+        <div id="editor-modal" class="modal" style="display:none;">
+            <div class="modal-backdrop" onclick="closeEditorModal()"></div>
+            <div class="modal-panel">
+                <div class="modal-header">
+                    <h2>编辑简历</h2>
+                    <button class="modal-close" onclick="closeEditorModal()">\u2715</button>
+                </div>
+                <div class="modal-body" id="modal-body"></div>
+                <div class="modal-footer">
+                    <button class="btn-cancel" onclick="closeEditorModal()">取消</button>
+                    <button class="btn-save-modal" onclick="saveEditorData()">保存</button>
+                </div>
+            </div>
+        </div>`;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
+
+    const editBtn = document.getElementById('btn-edit');
+    if (!editBtn) return;
+    // 按钮已通过 HTML onclick 属性绑定，此处不再重复 addEventListener
+}
+
+function openEditorModal(data) {
+    // 关闭其他可能打开的模态框
+    const tplModal = document.getElementById('template-library-modal');
+    if (tplModal) tplModal.style.display = 'none';
+
+    renderEditorForm(data);
+    const modal = document.getElementById('editor-modal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeEditorModal() {
+    const modal = document.getElementById('editor-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function renderEditorForm(data) {
+    const body = document.getElementById('modal-body');
+    if (!body) return;
+    const d = data || {};
+
+    let html = '';
+
+    // 基本信息
+    const currentPhoto = d.photo || '';
+    const photoShape = d.photoShape || 'circle';
+    const photoRadius = getPhotoRadius(photoShape);
+    html += `<section class="editor-section">
+        <h3 class="editor-section-title">基本信息</h3>
+        <div class="form-group"><label>照片</label>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <input type="file" id="edit-photo-file" accept="image/*" style="flex:1;padding:4px;font-size:12px" onchange="handlePhotoFileSelect(event)" />
+                <input class="form-input" id="edit-photo-url" placeholder="或输入图片链接" value="${escapeHtml(currentPhoto)}" style="flex:2" oninput="updatePhotoPreview(this.value)" />
+                <div id="edit-photo-preview" style="width:48px;height:48px;border-radius:${photoRadius};overflow:hidden;border:2px solid var(--primary);flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--bg);font-size:20px;color:var(--text-secondary)">${currentPhoto ? `<img src="${escapeHtml(currentPhoto)}" style="width:100%;height:100%;object-fit:cover;border-radius:${photoRadius}" />` : '📷'}</div>
+            </div>
+            <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <label style="font-size:12px;color:var(--text-secondary)">照片形状：</label>
+                <select id="edit-photo-shape" onchange="updatePhotoPreview(document.getElementById('edit-photo-url').value)" style="font-size:12px;padding:2px 6px">
+                    <option value="circle" ${photoShape === 'circle' ? 'selected' : ''}>圆形</option>
+                    <option value="rounded" ${photoShape === 'rounded' ? 'selected' : ''}>圆角方形</option>
+                    <option value="square" ${photoShape === 'square' ? 'selected' : ''}>方形</option>
+                </select>
+            </div>
+            <small style="color:var(--text-secondary);font-size:11px;margin-top:4px;display:block">选择本地图片（自动转为DataURL）或粘贴网络图片链接</small>
+        </div>
+        <div class="form-group"><label>姓名</label><input class="form-input" id="edit-name" value="${escapeHtml(d.name || '')}" /></div>
+        <div class="form-group"><label>职位</label><input class="form-input" id="edit-subtitle" value="${escapeHtml(d.subtitle || '')}" /></div>
+    </section>`;
+
+    // 字体设置
+    const typo = d.typography || { fontSize: 'medium', lineHeight: 'normal' };
+    html += `<section class="editor-section">
+        <h3 class="editor-section-title">字体设置</h3>
+        <div class="form-row">
+            <div class="form-group" style="flex:1"><label>字号</label><select class="form-input" id="edit-font-size">
+                <option value="small" ${typo.fontSize === 'small' ? 'selected' : ''}>小</option>
+                <option value="medium" ${typo.fontSize === 'medium' ? 'selected' : ''}>中（默认）</option>
+                <option value="large" ${typo.fontSize === 'large' ? 'selected' : ''}>大</option>
+            </select></div>
+            <div class="form-group" style="flex:1"><label>行高</label><select class="form-input" id="edit-line-height">
+                <option value="compact" ${typo.lineHeight === 'compact' ? 'selected' : ''}>紧凑</option>
+                <option value="normal" ${typo.lineHeight === 'normal' ? 'selected' : ''}>标准（默认）</option>
+                <option value="relaxed" ${typo.lineHeight === 'relaxed' ? 'selected' : ''}>宽松</option>
+            </select></div>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin:0">调整后保存即可预览效果</p>
+    </section>`;
+
+    // 联系方式
+    html += `<section class="editor-section">
+        <div class="editor-section-header">
+            <h3 class="editor-section-title">联系方式</h3>
+            <button class="btn-add-sm" onclick="addContactRow()">+ 添加</button>
+        </div>
+        <div id="editor-contacts">`;
+    (d.contacts || []).forEach((c, i) => {
+        html += `<div class="form-row">
+            <input class="form-input contact-icon" value="${escapeHtml(c.icon || '')}" placeholder="图标" style="width:60px" />
+            <input class="form-input contact-value" value="${escapeHtml(c.value || '')}" placeholder="值" />
+            <button class="btn-remove-sm" onclick="removeContactRow(this)">\u2715</button>
+        </div>`;
+    });
+    html += `</div></section>`;
+
+    // 技能
+    html += `<section class="editor-section">
+        <div class="editor-section-header">
+            <h3 class="editor-section-title">技能</h3>
+            <button class="btn-add-sm" onclick="addSkillRow()">+ 添加</button>
+        </div>
+        <div id="editor-skills">`;
+    (d.skills || []).forEach(s => {
+        html += `<div class="form-row">
+            <input class="form-input skill-value" value="${escapeHtml(s)}" placeholder="技能名称" />
+            <button class="btn-remove-sm" onclick="removeSkillRow(this)">\u2715</button>
+        </div>`;
+    });
+    html += `</div></section>`;
+
+    // 语言
+    html += `<section class="editor-section">
+        <div class="editor-section-header">
+            <h3 class="editor-section-title">语言</h3>
+            <button class="btn-add-sm" onclick="addLanguageRow()">+ 添加</button>
+        </div>
+        <div id="editor-languages">`;
+    (d.languages || []).forEach(l => {
+        html += `<div class="form-row">
+            <input class="form-input lang-name" value="${escapeHtml(l.name || '')}" placeholder="语言" style="width:120px" />
+            <input class="form-input lang-level" value="${escapeHtml(l.level || '')}" placeholder="等级" />
+            <button class="btn-remove-sm" onclick="removeLanguageRow(this)">\u2715</button>
+        </div>`;
+    });
+    html += `</div></section>`;
+
+    // 关于我
+    html += `<section class="editor-section">
+        <h3 class="editor-section-title">关于我</h3>
+        <textarea class="form-textarea" id="edit-about" rows="3">${escapeHtml(d.about || '')}</textarea>
+    </section>`;
+
+    // 工作经验
+    html += `<section class="editor-section">
+        <div class="editor-section-header">
+            <h3 class="editor-section-title">工作经验</h3>
+            <button class="btn-add-sm" onclick="addExperienceRow()">+ 添加</button>
+        </div>
+        <div id="editor-experiences">`;
+    (d.experiences || []).forEach((e, i) => {
+        html += `<div class="form-card">
+            <div class="form-card-header">
+                <span>${escapeHtml(e.title || '新条目')}</span>
+                <div>
+                    <button class="btn-move-up" onclick="moveItem(this,'editor-experiences',-1)" ${i===0?'disabled':''}>\u25b2</button>
+                    <button class="btn-move-down" onclick="moveItem(this,'editor-experiences',1)" ${i===(d.experiences||[]).length-1?'disabled':''}>\u25bc</button>
+                    <button class="btn-remove-sm" onclick="removeFormCard(this,'editor-experiences')">\u2715</button>
+                </div>
+            </div>
+            <div class="form-card-body">
+                <div class="form-group"><label>职位</label><input class="form-input exp-title" value="${escapeHtml(e.title||'')}" /></div>
+                <div class="form-group"><label>公司</label><input class="form-input exp-company" value="${escapeHtml(e.company||'')}" /></div>
+                <div class="form-group"><label>日期</label><input class="form-input exp-date" value="${escapeHtml(e.date||'')}" /></div>
+                <div class="form-group"><label>职责要点（每行一条）</label><textarea class="form-textarea exp-points" rows="3">${(e.points||[]).join('\n')}</textarea></div>
+            </div>
+        </div>`;
+    });
+    html += `</div></section>`;
+
+    // 教育经历
+    html += `<section class="editor-section">
+        <div class="editor-section-header">
+            <h3 class="editor-section-title">教育经历</h3>
+            <button class="btn-add-sm" onclick="addEducationRow()">+ 添加</button>
+        </div>
+        <div id="editor-educations">`;
+    (d.education || []).forEach((e, i) => {
+        html += `<div class="form-card">
+            <div class="form-card-header">
+                <span>${escapeHtml(e.title || '新条目')}</span>
+                <div>
+                    <button class="btn-move-up" onclick="moveItem(this,'editor-educations',-1)" ${i===0?'disabled':''}>\u25b2</button>
+                    <button class="btn-move-down" onclick="moveItem(this,'editor-educations',1)" ${i===(d.education||[]).length-1?'disabled':''}>\u25bc</button>
+                    <button class="btn-remove-sm" onclick="removeFormCard(this,'editor-educations')">\u2715</button>
+                </div>
+            </div>
+            <div class="form-card-body">
+                <div class="form-group"><label>学位</label><input class="form-input edu-title" value="${escapeHtml(e.title||'')}" /></div>
+                <div class="form-group"><label>学校</label><input class="form-input edu-school" value="${escapeHtml(e.school||'')}" /></div>
+                <div class="form-group"><label>日期</label><input class="form-input edu-date" value="${escapeHtml(e.date||'')}" /></div>
+                <div class="form-group"><label>备注</label><textarea class="form-textarea edu-note" rows="2">${escapeHtml(e.note||'')}</textarea></div>
+            </div>
+        </div>`;
+    });
+    html += `</div></section>`;
+
+    // 项目经验
+    html += `<section class="editor-section">
+        <div class="editor-section-header">
+            <h3 class="editor-section-title">项目经验</h3>
+            <button class="btn-add-sm" onclick="addProjectRow()">+ 添加</button>
+        </div>
+        <div id="editor-projects">`;
+    (d.projects || []).forEach((p, i) => {
+        html += `<div class="form-card">
+            <div class="form-card-header">
+                <span>${escapeHtml(p.title||'新条目')}</span>
+                <div>
+                    <button class="btn-move-up" onclick="moveItem(this,'editor-projects',-1)" ${i===0?'disabled':''}>\u25b2</button>
+                    <button class="btn-move-down" onclick="moveItem(this,'editor-projects',1)" ${i===(d.projects||[]).length-1?'disabled':''}>\u25bc</button>
+                    <button class="btn-remove-sm" onclick="removeFormCard(this,'editor-projects')">\u2715</button>
+                </div>
+            </div>
+            <div class="form-card-body">
+                <div class="form-group"><label>项目名称</label><input class="form-input proj-title" value="${escapeHtml(p.title||'')}" /></div>
+                <div class="form-group"><label>技术栈</label><input class="form-input proj-tech" value="${escapeHtml(p.tech||'')}" /></div>
+                <div class="form-group"><label>要点（每行一条）</label><textarea class="form-textarea proj-points" rows="3">${(p.points||[]).join('\n')}</textarea></div>
+            </div>
+        </div>`;
+    });
+    html += `</div></section>`;
+
+    // 自定义区块
+    html += `<section class="editor-section">
+        <div class="editor-section-header">
+            <h3 class="editor-section-title">自定义区块</h3>
+            <button class="btn-add-sm" onclick="addCustomSectionRow()">+ 添加</button>
+        </div>
+        <div id="editor-custom-sections">`;
+    (d.customSections || []).forEach((cs, i) => {
+        html += `<div class="form-card">
+            <div class="form-card-header">
+                <span>${escapeHtml(cs.title || '新区块')}</span>
+                <div>
+                    <button class="btn-move-up" onclick="moveItem(this,'editor-custom-sections',-1)" ${i===0?'disabled':''}>\u25b2</button>
+                    <button class="btn-move-down" onclick="moveItem(this,'editor-custom-sections',1)" ${i===(d.customSections||[]).length-1?'disabled':''}>\u25bc</button>
+                    <button class="btn-remove-sm" onclick="removeFormCard(this,'editor-custom-sections')">\u2715</button>
+                </div>
+            </div>
+            <div class="form-card-body">
+                <div class="form-group"><label>区块标题</label><input class="form-input cs-title" value="${escapeHtml(cs.title||'')}" /></div>
+                <div class="form-group"><label>内容（自由文本，换行自动分段）</label><textarea class="form-textarea cs-content" rows="4">${escapeHtml(cs.content||'')}</textarea></div>
+            </div>
+        </div>`;
+    });
+    html += `</div></section>`;
+
+    body.innerHTML = html;
+}
+
+function saveEditorData() {
+    const photoUrl = document.getElementById('edit-photo-url')?.value?.trim() || '';
+    const fontSize = document.getElementById('edit-font-size')?.value || 'medium';
+    const lineHeight = document.getElementById('edit-line-height')?.value || 'normal';
+
+    const data = {
+        name: document.getElementById('edit-name')?.value?.trim() || '',
+        subtitle: document.getElementById('edit-subtitle')?.value?.trim() || '',
+        photo: photoUrl,
+        photoShape: document.getElementById('edit-photo-shape')?.value || 'circle',
+        contacts: [],
+        skills: [],
+        languages: [],
+        about: document.getElementById('edit-about')?.value?.trim() || '',
+        experiences: [],
+        education: [],
+        projects: [],
+        customSections: [],
+        typography: {
+            fontSize: fontSize,
+            lineHeight: lineHeight
+        }
+    };
+
+    document.querySelectorAll('#editor-contacts .form-row').forEach(row => {
+        const icon = row.querySelector('.contact-icon')?.value?.trim() || '';
+        const value = row.querySelector('.contact-value')?.value?.trim() || '';
+        if (value) data.contacts.push({ icon, value });
+    });
+
+    document.querySelectorAll('#editor-skills .form-row').forEach(row => {
+        const val = row.querySelector('.skill-value')?.value?.trim();
+        if (val) data.skills.push(val);
+    });
+
+    document.querySelectorAll('#editor-languages .form-row').forEach(row => {
+        const name = row.querySelector('.lang-name')?.value?.trim() || '';
+        const level = row.querySelector('.lang-level')?.value?.trim() || '';
+        if (name) data.languages.push({ name, level });
+    });
+
+    document.querySelectorAll('#editor-experiences .form-card').forEach(card => {
+        const pts = (card.querySelector('.exp-points')?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+        data.experiences.push({
+            title: card.querySelector('.exp-title')?.value?.trim() || '',
+            company: card.querySelector('.exp-company')?.value?.trim() || '',
+            date: card.querySelector('.exp-date')?.value?.trim() || '',
+            points: pts
+        });
+    });
+
+    document.querySelectorAll('#editor-educations .form-card').forEach(card => {
+        data.education.push({
+            title: card.querySelector('.edu-title')?.value?.trim() || '',
+            school: card.querySelector('.edu-school')?.value?.trim() || '',
+            date: card.querySelector('.edu-date')?.value?.trim() || '',
+            note: card.querySelector('.edu-note')?.value?.trim() || ''
+        });
+    });
+
+    document.querySelectorAll('#editor-projects .form-card').forEach(card => {
+        const pts = (card.querySelector('.proj-points')?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+        data.projects.push({
+            title: card.querySelector('.proj-title')?.value?.trim() || '',
+            tech: card.querySelector('.proj-tech')?.value?.trim() || '',
+            points: pts
+        });
+    });
+
+    // 自定义区块
+    data.customSections = [];
+    document.querySelectorAll('#editor-custom-sections .form-card').forEach(card => {
+        data.customSections.push({
+            title: card.querySelector('.cs-title')?.value?.trim() || '',
+            content: card.querySelector('.cs-content')?.value?.trim() || ''
+        });
+    });
+
+    // 保存到当前副本
+    const copies = getCopies() || [];
+    const activeId = getActiveCopyId();
+    const active = copies.find(c => c.id === activeId);
+    if (active) {
+        active.data = data;
+        saveCopies(copies);
+        populateResumeData(data);
+        showToast('简历已保存');
+    }
+    closeEditorModal();
+}
+
+// ===== 表单行 CRUD 辅助函数 =====
+window.addContactRow = function() {
+    const c = document.getElementById('editor-contacts');
+    const div = document.createElement('div'); div.className = 'form-row';
+    div.innerHTML = '<input class="form-input contact-icon" placeholder="图标" style="width:60px" /><input class="form-input contact-value" placeholder="值" /><button class="btn-remove-sm" onclick="removeContactRow(this)">\u2715</button>';
+    c.appendChild(div);
+};
+window.removeContactRow = function(btn) { btn.closest('.form-row').remove(); };
+
+window.addSkillRow = function() {
+    const c = document.getElementById('editor-skills');
+    const div = document.createElement('div'); div.className = 'form-row';
+    div.innerHTML = '<input class="form-input skill-value" placeholder="技能名称" /><button class="btn-remove-sm" onclick="removeSkillRow(this)">\u2715</button>';
+    c.appendChild(div);
+};
+window.removeSkillRow = function(btn) { btn.closest('.form-row').remove(); };
+
+window.addLanguageRow = function() {
+    const c = document.getElementById('editor-languages');
+    const div = document.createElement('div'); div.className = 'form-row';
+    div.innerHTML = '<input class="form-input lang-name" placeholder="语言" style="width:120px" /><input class="form-input lang-level" placeholder="等级" /><button class="btn-remove-sm" onclick="removeLanguageRow(this)">\u2715</button>';
+    c.appendChild(div);
+};
+window.removeLanguageRow = function(btn) { btn.closest('.form-row').remove(); };
+
+window.addExperienceRow = function() {
+    const c = document.getElementById('editor-experiences');
+    const div = document.createElement('div'); div.className = 'form-card';
+    div.innerHTML = '<div class="form-card-header"><span>新条目</span><div><button class="btn-move-up" onclick="moveItem(this,\'editor-experiences\',-1)" disabled>\u25b2</button><button class="btn-move-down" onclick="moveItem(this,\'editor-experiences\',1)" disabled>\u25bc</button><button class="btn-remove-sm" onclick="removeFormCard(this,\'editor-experiences\')">\u2715</button></div></div><div class="form-card-body"><div class="form-group"><label>职位</label><input class="form-input exp-title" /></div><div class="form-group"><label>公司</label><input class="form-input exp-company" /></div><div class="form-group"><label>日期</label><input class="form-input exp-date" /></div><div class="form-group"><label>职责要点（每行一条）</label><textarea class="form-textarea exp-points" rows="3"></textarea></div></div>';
+    c.appendChild(div);
+    refreshMoveButtons(c);
+};
+
+window.addEducationRow = function() {
+    const c = document.getElementById('editor-educations');
+    const div = document.createElement('div'); div.className = 'form-card';
+    div.innerHTML = '<div class="form-card-header"><span>新条目</span><div><button class="btn-move-up" onclick="moveItem(this,\'editor-educations\',-1)" disabled>\u25b2</button><button class="btn-move-down" onclick="moveItem(this,\'editor-educations\',1)" disabled>\u25bc</button><button class="btn-remove-sm" onclick="removeFormCard(this,\'editor-educations\')">\u2715</button></div></div><div class="form-card-body"><div class="form-group"><label>学位</label><input class="form-input edu-title" /></div><div class="form-group"><label>学校</label><input class="form-input edu-school" /></div><div class="form-group"><label>日期</label><input class="form-input edu-date" /></div><div class="form-group"><label>备注</label><textarea class="form-textarea edu-note" rows="2"></textarea></div></div>';
+    c.appendChild(div);
+    refreshMoveButtons(c);
+};
+
+window.addProjectRow = function() {
+    const c = document.getElementById('editor-projects');
+    const div = document.createElement('div'); div.className = 'form-card';
+    div.innerHTML = '<div class="form-card-header"><span>新条目</span><div><button class="btn-move-up" onclick="moveItem(this,\'editor-projects\',-1)" disabled>\u25b2</button><button class="btn-move-down" onclick="moveItem(this,\'editor-projects\',1)" disabled>\u25bc</button><button class="btn-remove-sm" onclick="removeFormCard(this,\'editor-projects\')">\u2715</button></div></div><div class="form-card-body"><div class="form-group"><label>项目名称</label><input class="form-input proj-title" /></div><div class="form-group"><label>技术栈</label><input class="form-input proj-tech" /></div><div class="form-group"><label>要点（每行一条）</label><textarea class="form-textarea proj-points" rows="3"></textarea></div></div>';
+    c.appendChild(div);
+    refreshMoveButtons(c);
+};
+
+window.addCustomSectionRow = function() {
+    const c = document.getElementById('editor-custom-sections');
+    const div = document.createElement('div'); div.className = 'form-card';
+    div.innerHTML = '<div class="form-card-header"><span>新区块</span><div><button class="btn-move-up" onclick="moveItem(this,\'editor-custom-sections\',-1)" disabled>\u25b2</button><button class="btn-move-down" onclick="moveItem(this,\'editor-custom-sections\',1)" disabled>\u25bc</button><button class="btn-remove-sm" onclick="removeFormCard(this,\'editor-custom-sections\')">\u2715</button></div></div><div class="form-card-body"><div class="form-group"><label>区块标题</label><input class="form-input cs-title" /></div><div class="form-group"><label>内容（自由文本，换行自动分段）</label><textarea class="form-textarea cs-content" rows="4"></textarea></div></div>';
+    c.appendChild(div);
+    refreshMoveButtons(c);
+};
+
+window.removeFormCard = function(btn, containerId) {
+    const card = btn.closest('.form-card');
+    const c = document.getElementById(containerId);
+    if (c && card) { card.remove(); refreshMoveButtons(c); }
+};
+
+window.moveItem = function(btn, containerId, dir) {
+    const card = btn.closest('.form-card');
+    const c = document.getElementById(containerId);
+    if (!c || !card) return;
+    const cards = [...c.querySelectorAll('.form-card')];
+    const idx = cards.indexOf(card);
+    const target = idx + dir;
+    if (target < 0 || target >= cards.length) return;
+    if (dir < 0) c.insertBefore(card, cards[target]);
+    else c.insertBefore(card, cards[target].nextSibling);
+    refreshMoveButtons(c);
+};
+
+function refreshMoveButtons(container) {
+    const cards = container.querySelectorAll('.form-card');
+    cards.forEach((card, i) => {
+        const up = card.querySelector('.btn-move-up');
+        const down = card.querySelector('.btn-move-down');
+        if (up) up.disabled = i === 0;
+        if (down) down.disabled = i === cards.length - 1;
+    });
+}
+
+// ===== PDF 下载按钮 =====
+function initPdfButton() {
+    const pdfBtn = document.getElementById('btn-pdf');
+    if (!pdfBtn) return;
+
+    // 按钮已通过 HTML onclick 属性绑定（generatePDF），此处不再重复 addEventListener
+}
+
+// ===== 打印按钮 =====
+function initPrintButton() {
+    // 打印按钮已通过 HTML onclick 属性绑定（window.print()），此处不再重复
+}
+
+// ===== Toast 提示 =====
+function showToast(message) {
+    const existing = document.querySelector('.toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = message;
+    toast.style.cssText = `
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #1e293b;
+        color: white;
+        padding: 10px 24px;
+        border-radius: 8px;
+        font-size: 14px;
+        z-index: 999;
+        animation: fadeInUp 0.3s ease;
+    `;
+
+    document.body.appendChild(toast);
+
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s';
+        setTimeout(() => toast.remove(), 300);
+    }, 2000);
+}
+
+// ===== 字体设置辅助函数 =====
+function applyTypography(container, typo) {
+    const fontSizeMap = { small: '12px', medium: '13px', large: '14px' };
+    const lineHeightMap = { compact: '1.35', normal: '1.45', relaxed: '1.6' };
+    if (typo.fontSize && fontSizeMap[typo.fontSize]) {
+        container.style.fontSize = fontSizeMap[typo.fontSize];
+    }
+    if (typo.lineHeight && lineHeightMap[typo.lineHeight]) {
+        container.style.lineHeight = lineHeightMap[typo.lineHeight];
+    }
+}
+
+// 注入 toast 动画样式
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+        to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+`;
+document.head.appendChild(style);
+
+// ===== 初始化执行 =====
+// 脚本在 <body> 末尾执行，DOM 已就绪，直接初始化
+initAll();
+
+</script>
+</body>
+</html>
+

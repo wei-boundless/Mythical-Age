@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
+from runtime.shared.file_observation_policy import (
+    recommended_window_for_gap,
+)
+
 @dataclass(frozen=True, slots=True)
 class FileReadRange:
     start_line: int
@@ -30,6 +34,26 @@ class FileSearchHit:
     line: int | None = None
     preview: str = ""
     observation_ref: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return _drop_empty(asdict(self))
+
+
+@dataclass(frozen=True, slots=True)
+class FileReadRecommendation:
+    start_line: int
+    line_count: int
+    reason: str = ""
+    query: str = ""
+    match_line: int | None = None
+    observation_ref: str = ""
+    tool_call_id: str = ""
+    status: str = "pending"
+    source_tool_name: str = ""
+
+    @property
+    def end_line(self) -> int:
+        return self.start_line + self.line_count - 1
 
     def to_dict(self) -> dict[str, Any]:
         return _drop_empty(asdict(self))
@@ -70,6 +94,7 @@ class TaskFileState:
     status: str = "unread"
     read_ranges: tuple[FileReadRange, ...] = ()
     search_hits: tuple[FileSearchHit, ...] = ()
+    read_recommendations: tuple[FileReadRecommendation, ...] = ()
     write_events: tuple[FileWriteEvent, ...] = ()
     total_lines: int | None = None
     content_sha256: str = ""
@@ -84,6 +109,13 @@ class TaskFileState:
         payload = asdict(self)
         payload["read_ranges"] = [item.to_dict() for item in self.read_ranges]
         payload["search_hits"] = [item.to_dict() for item in self.search_hits]
+        payload["read_recommendations"] = [item.to_dict() for item in self.read_recommendations]
+        pending_recommendations = _pending_read_recommendations(self)
+        if pending_recommendations:
+            payload["recommended_read_windows"] = [
+                _recommendation_window_payload(item, path=self.path)
+                for item in pending_recommendations
+            ]
         payload["write_events"] = [item.to_dict() for item in self.write_events]
         payload["coverage"] = _coverage_payload(self.read_ranges, total_lines=self.total_lines)
         exact_coverage = _coverage_payload(tuple(_active_exact_read_ranges(self.read_ranges)), total_lines=self.total_lines)
@@ -235,6 +267,10 @@ def _apply_file_event(
             )
             if not any(item.start_line == candidate.start_line and item.end_line == candidate.end_line and item.stale is False for item in ranges):
                 ranges.append(candidate)
+        recommendations = _consume_covered_recommendations(
+            current.read_recommendations,
+            tuple(ranges),
+        )
         if total_lines is None:
             total_lines = current.total_lines
         latest_has_more = event.get("has_more") if isinstance(event.get("has_more"), bool) else None
@@ -252,6 +288,7 @@ def _apply_file_event(
             current,
             status=status,
             read_ranges=ordered_ranges,
+            read_recommendations=recommendations,
             total_lines=total_lines,
             content_sha256=str(event.get("content_sha256") or current.content_sha256 or ""),
             mtime_ns=event_mtime_ns,
@@ -262,6 +299,11 @@ def _apply_file_event(
         )
     if event_type in {"write", "edit"}:
         stale_ranges = tuple(replace(item, stale=True) for item in current.read_ranges)
+        superseded_recommendations = tuple(
+            replace(item, status="superseded")
+            for item in current.read_recommendations
+            if str(item.status or "pending") == "pending"
+        )
         write = FileWriteEvent(
             operation=event_type,
             observation_ref=observation_ref,
@@ -271,6 +313,10 @@ def _apply_file_event(
             current,
             status="stale" if stale_ranges else "changed",
             read_ranges=stale_ranges,
+            read_recommendations=(
+                *[item for item in current.read_recommendations if str(item.status or "pending") != "pending"],
+                *superseded_recommendations,
+            )[-24:],
             write_events=(*current.write_events, write)[-12:],
             content_sha256=str(event.get("content_sha256") or current.content_sha256 or ""),
             mtime_ns=_int_or_none(event.get("mtime_ns")) if _int_or_none(event.get("mtime_ns")) is not None else current.mtime_ns,
@@ -295,6 +341,45 @@ def _apply_file_event(
             current,
             status=current.status if current.status not in {"unread", ""} else "matched",
             search_hits=tuple(hits[-24:]),
+            last_observation_ref=observation_ref,
+            last_tool_call_id=tool_call_id,
+        )
+    if event_type == "recommended_read_window_created":
+        start = _int_or_none(event.get("start_line"))
+        line_count = _int_or_none(event.get("line_count"))
+        if start is None or line_count is None:
+            return current
+        recommendation = FileReadRecommendation(
+            start_line=start,
+            line_count=max(1, line_count),
+            reason=str(event.get("reason") or ""),
+            query=str(event.get("query") or ""),
+            match_line=_int_or_none(event.get("match_line")),
+            observation_ref=observation_ref,
+            tool_call_id=tool_call_id,
+            status="pending",
+            source_tool_name=str(event.get("source_tool_name") or "search_text"),
+        )
+        recommendations = list(current.read_recommendations)
+        if not any(
+            item.start_line == recommendation.start_line
+            and item.line_count == recommendation.line_count
+            and item.match_line == recommendation.match_line
+            and item.query == recommendation.query
+            and str(item.status or "pending") == "pending"
+            for item in recommendations
+        ):
+            recommendations.append(recommendation)
+        recommendations = list(
+            _consume_covered_recommendations(
+                tuple(recommendations[-24:]),
+                current.read_ranges,
+            )
+        )
+        return replace(
+            current,
+            status=current.status if current.status not in {"unread", ""} else "matched",
+            read_recommendations=tuple(recommendations[-24:]),
             last_observation_ref=observation_ref,
             last_tool_call_id=tool_call_id,
         )
@@ -326,6 +411,14 @@ def _task_file_state_from_dict(payload: dict[str, Any]) -> TaskFileState | None:
         search_hits=tuple(
             item
             for item in (_file_search_hit_from_dict(raw) for raw in list(payload.get("search_hits") or []))
+            if item is not None
+        ),
+        read_recommendations=tuple(
+            item
+            for item in (
+                _file_read_recommendation_from_dict(raw)
+                for raw in list(payload.get("read_recommendations") or payload.get("recommended_read_windows") or [])
+            )
             if item is not None
         ),
         write_events=tuple(
@@ -376,6 +469,26 @@ def _file_search_hit_from_dict(payload: Any) -> FileSearchHit | None:
         line=_int_or_none(payload.get("line")),
         preview=str(payload.get("preview") or ""),
         observation_ref=str(payload.get("observation_ref") or ""),
+    )
+
+
+def _file_read_recommendation_from_dict(payload: Any) -> FileReadRecommendation | None:
+    if not isinstance(payload, dict):
+        return None
+    start_line = _int_or_none(payload.get("start_line"))
+    line_count = _int_or_none(payload.get("line_count"))
+    if start_line is None or line_count is None:
+        return None
+    return FileReadRecommendation(
+        start_line=start_line,
+        line_count=max(1, line_count),
+        reason=str(payload.get("reason") or ""),
+        query=str(payload.get("query") or payload.get("source_query") or ""),
+        match_line=_int_or_none(payload.get("match_line")),
+        observation_ref=str(payload.get("observation_ref") or payload.get("source_observation_ref") or ""),
+        tool_call_id=str(payload.get("tool_call_id") or ""),
+        status=str(payload.get("status") or "pending"),
+        source_tool_name=str(payload.get("source_tool_name") or "search_text"),
     )
 
 
@@ -433,45 +546,81 @@ def _coverage_payload(ranges: tuple[FileReadRange, ...], *, total_lines: int | N
     )
 
 
+def _pending_read_recommendations(state: TaskFileState) -> list[FileReadRecommendation]:
+    active = tuple(_active_read_ranges(state.read_ranges))
+    pending: list[FileReadRecommendation] = []
+    for item in state.read_recommendations:
+        if str(item.status or "pending") != "pending":
+            continue
+        if _read_ranges_cover_window(active, item.start_line, item.end_line):
+            continue
+        pending.append(item)
+    return pending[-12:]
+
+
+def _recommendation_window_payload(item: FileReadRecommendation, *, path: str) -> dict[str, Any]:
+    return _drop_empty(
+        {
+            "decision": "read_search_recommendation",
+            "path": path,
+            "start_line": item.start_line,
+            "line_count": item.line_count,
+            "match_line": item.match_line,
+            "query": item.query,
+            "reason": item.reason or "search match recommendation",
+            "source_observation_ref": item.observation_ref,
+            "tool_call_id": item.tool_call_id,
+            "status": item.status,
+        }
+    )
+
+
+def _consume_covered_recommendations(
+    recommendations: tuple[FileReadRecommendation, ...],
+    ranges: tuple[FileReadRange, ...],
+) -> tuple[FileReadRecommendation, ...]:
+    active = tuple(_active_read_ranges(ranges))
+    updated: list[FileReadRecommendation] = []
+    for item in recommendations:
+        if str(item.status or "pending") == "pending" and _read_ranges_cover_window(active, item.start_line, item.end_line):
+            updated.append(replace(item, status="consumed"))
+            continue
+        updated.append(item)
+    return tuple(updated[-24:])
+
+
+def _read_ranges_cover_window(ranges: tuple[FileReadRange, ...] | list[FileReadRange], start_line: int, end_line: int) -> bool:
+    if start_line < 1 or end_line < start_line:
+        return False
+    for item in ranges:
+        if item.stale is False and item.start_line <= start_line and item.end_line >= end_line:
+            return True
+    return False
+
+
 def _next_suggested_read(state: TaskFileState) -> dict[str, Any]:
-    if state.status not in {"partial", "stale"}:
+    pending = _pending_read_recommendations(state)
+    if pending:
+        return _recommendation_window_payload(pending[0], path=state.path)
+    if state.status != "stale":
         return {}
     active = _active_read_ranges(state.read_ranges)
     if not active:
-        return {"start_line": 1, "line_count": 500, "reason": "file state is stale or unread"}
-    merged = _merged_read_ranges(active)
-    missing = _missing_ranges(merged, state.total_lines)
-    latest = _latest_active_read_range(state, active)
-    if latest is not None and latest.has_more is True and latest.next_start_line is not None:
-        return {
-            "start_line": latest.next_start_line,
-            "line_count": 500,
-            "reason": "continue from latest read window",
-        }
-    if missing:
-        first = missing[0]
-        end_line = first.get("end_line")
-        line_count = 500
-        if isinstance(end_line, int):
-            line_count = max(1, min(500, end_line - int(first["start_line"]) + 1))
-        return {
-            "start_line": first["start_line"],
-            "line_count": line_count,
-            "reason": "fill first unread gap",
-        }
-    end = max(int(item["end_line"]) for item in merged)
-    if state.total_lines and end >= state.total_lines:
-        return {}
-    return {"start_line": end + 1, "line_count": 500, "reason": "continue from last read window"}
-
-
-def _latest_active_read_range(state: TaskFileState, active: list[FileReadRange]) -> FileReadRange | None:
-    last_ref = str(state.last_observation_ref or "")
-    if last_ref:
-        for item in reversed(active):
-            if str(item.observation_ref or "") == last_ref:
-                return item
-    return active[-1] if active else None
+        stale = [item for item in state.read_ranges if item.stale is True]
+        if stale:
+            first = stale[0]
+            return recommended_window_for_gap(
+                start_line=first.start_line,
+                end_line=first.end_line,
+                total_lines=state.total_lines,
+                reason="stale read window needs current content",
+            )
+        return recommended_window_for_gap(
+            start_line=1,
+            total_lines=state.total_lines,
+            reason="file state is stale or unread",
+        )
+    return {}
 
 
 def _has_complete_coverage(ranges: tuple[FileReadRange, ...], total_lines: int | None) -> bool:

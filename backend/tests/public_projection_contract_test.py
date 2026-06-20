@@ -368,6 +368,29 @@ def test_active_task_steer_accepted_is_lightweight_status_event_not_body() -> No
     assert frame["slot"] != "body"
 
 
+def test_runtime_control_bus_signals_are_not_public_stream_events() -> None:
+    events = _project_public_stream_event(
+        "runtime_control_signal_published",
+        {
+            "event": {
+                "event_id": "event:bus:tool-started",
+                "payload": {
+                    "signal": {
+                        "signal_type": "tool.execution.started",
+                        "payload": {
+                            "tool_invocation_id": "toolinvoke:private",
+                            "tool_call_id": "call:private",
+                            "tool_name": "read_file",
+                        },
+                    }
+                },
+            },
+        },
+    )
+
+    assert events == []
+
+
 def test_model_admission_projects_tool_request_before_runtime_tool_lifecycle() -> None:
     events = _project_public_stream_event(
         "model_action_admission",

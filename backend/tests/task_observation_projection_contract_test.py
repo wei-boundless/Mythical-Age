@@ -10,7 +10,9 @@ if str(BACKEND_DIR) not in sys.path:
 
 from harness.loop.task_executor import _observations_for_packet, _strip_terminal_diagnostics
 from harness.runtime.compiler import _runtime_observations_model_visible_payload
+from harness.runtime.dynamic_context.task_state_projector import TaskStateProjector
 from harness.runtime.dynamic_context.semantic_payload_classifier import pending_tool_control_actions_from_observation
+from runtime.memory.file_evidence_scope import task_run_file_evidence_scope
 from tests.support.runtime_stubs import build_harness_runtime
 
 
@@ -492,3 +494,122 @@ def test_terminal_diagnostics_are_stripped_before_task_resume_packet() -> None:
     )
 
     assert cleaned == {"contract": {"user_visible_goal": "continue task"}}
+
+
+def test_task_state_projection_exposes_search_candidate_read_windows_from_file_state_store() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:test:file-state-recommendation"
+    host.file_state_store.apply_events_scope(
+        task_run_file_evidence_scope(task_run_id),
+        (
+            {
+                "event_type": "search",
+                "path": "docs/plan.md",
+                "query": "needle",
+                "matches": [{"path": "docs/plan.md", "line": 2, "column": 1, "text": "needle here"}],
+            },
+            {
+                "event_type": "recommended_read_window_created",
+                "path": "docs/plan.md",
+                "query": "needle",
+                "start_line": 1,
+                "line_count": 4,
+                "match_line": 2,
+                "reason": "small file contains match near line 2",
+                "source_tool_name": "search_text",
+            },
+        ),
+        observation_ref="obs:search",
+        tool_call_id="call:search",
+    )
+
+    context = _observations_for_packet(
+        host,
+        task_run_id,
+        current_fingerprint=_runtime_fingerprint(),
+    )
+    execution_projection = context["execution_state"]["system_projection"]
+    task_state = TaskStateProjector().project(
+        execution_projection=execution_projection,
+        observation_projection={},
+        work_history_projection={},
+        task_run_state={"status": "running"},
+        envelope_projection={},
+    )
+
+    file_state = execution_projection["file_state"][0]
+    file_decision = task_state["file_evidence_decisions"]["files"][0]
+    read_resource_state = task_state["read_resource_state"]
+
+    assert file_state["status"] == "matched"
+    assert file_state["recommended_read_windows"][0]["start_line"] == 1
+    assert task_state["file_evidence_decisions"]["kind"] == "file_evidence_contract"
+    assert file_decision["facts"]["candidate_read_window_available"] is True
+    assert file_decision["candidate_read_windows"][0]["candidate_kind"] == "search_match_context_window"
+    assert file_decision["candidate_read_windows"][0]["path"] == "docs/plan.md"
+    assert file_decision["candidate_read_windows"][0]["line_count"] == 4
+    assert file_decision["candidate_read_windows"][0]["source_observation_ref"] == "obs:search"
+    assert "exact current source" in file_decision["candidate_read_windows"][0]["read_condition"]
+    assert read_resource_state["status"] == "search_matched"
+    assert read_resource_state["state_code"] == "recommended_read_window_available"
+    assert read_resource_state["candidate_read_windows"][0]["path"] == "docs/plan.md"
+    assert read_resource_state["collection_feedback"]["status"] == "candidate_window_available"
+
+
+def test_task_observation_projection_does_not_require_reads_for_plain_partial_coverage() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:test:partial-read-is-not-required-read"
+    host.file_state_store.apply_events_scope(
+        task_run_file_evidence_scope(task_run_id),
+        (
+            {
+                "event_type": "read",
+                "path": "src/app.py",
+                "start_line": 1,
+                "end_line": 100,
+                "returned_lines": 100,
+                "line_count": 100,
+                "total_lines": 240,
+                "next_start_line": 101,
+                "has_more": True,
+                "content_sha256": "sha256:app",
+                "exact_artifact_ref": "read_observation:partial-app",
+                "artifact_ref_status": "exact",
+                "visible_exact": True,
+            },
+        ),
+        observation_ref="obs:partial-read",
+        tool_call_id="call:partial-read",
+    )
+
+    context = _observations_for_packet(
+        host,
+        task_run_id,
+        current_fingerprint=_runtime_fingerprint(),
+    )
+    execution_projection = context["execution_state"]["system_projection"]
+    task_state = TaskStateProjector().project(
+        execution_projection=execution_projection,
+        observation_projection={},
+        work_history_projection={},
+        task_run_state={"status": "running"},
+        envelope_projection={},
+    )
+
+    file_decision = task_state["file_evidence_decisions"]["files"][0]
+    read_resource_state = task_state["read_resource_state"]
+
+    assert any(
+        item.get("path") == "src/app.py" and item.get("evidence_kind") == "current_exact_read_window"
+        for item in file_decision["reusable_evidence"]
+    )
+    assert "read_required_windows" not in file_decision
+    assert "required_read_windows" not in file_decision
+    assert "candidate_read_windows" not in file_decision
+    assert file_decision["cautions"][0]["caution_kind"] == "partial_coverage_fact"
+    assert read_resource_state["status"] == "available"
+    assert read_resource_state["reuse_feedback"]["status"] == "current_window_reusable"
+    assert "next_read_decision" not in read_resource_state
+    assert "has_more" not in read_resource_state

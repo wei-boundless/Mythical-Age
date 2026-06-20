@@ -1295,12 +1295,14 @@ def test_task_run_read_file_commits_file_state_and_dynamic_context_projects_inje
     snapshot = FileStateAuthorityStore(execution_store.root_dir).snapshot_scope(task_run_file_evidence_scope(task_run_id))
 
     assert result["error"] == ""
+    assert result["tool_memory_commit"]["tool_memory_event_count"] == 1
+    assert result["tool_memory_commit"]["file_state_event_count"] == 1
     assert result["file_state_commit"]["event_count"] == 1
     assert tool_result["path"] == "src/app.py"
     assert envelope["file_state_events"][0]["event_type"] == "read"
     assert snapshot[0]["status"] == "partial"
     assert snapshot[0]["read_ranges"][0]["observation_ref"] == result["observation"].observation_id
-    assert snapshot[0]["next_suggested_read"]["start_line"] == 3
+    assert "next_suggested_read" not in snapshot[0]
 
     projection = DynamicContextManager(base_dir=workspace).project(
         DynamicContextInput(
@@ -1328,7 +1330,7 @@ def test_task_run_read_file_commits_file_state_and_dynamic_context_projects_inje
     assert "file_state" not in projection.volatile_state_projection["task_state"]
     assert file_state[0]["path"] == "src/app.py"
     assert file_state[0]["status"] == "partial"
-    assert file_state[0]["next_suggested_read"]["start_line"] == 3
+    assert "next_suggested_read" not in file_state[0]
     assert read_resource_state["status"] == "available"
     assert read_resource_state["available_range_count"] == 1
     assert "recommended_next_actions" not in read_resource_state

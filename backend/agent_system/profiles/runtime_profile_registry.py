@@ -251,7 +251,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                     "max_retries": 1,
                     "temperature": 0,
                     "thinking_mode": "disabled",
-                    "reasoning_effort": "auto",
+                    "reasoning_effort": "",
                     "stream_policy": {"enabled": False, "source": "context_compactor_agent.model_profile"},
                     "response_format": {"type": "json_object"},
                 }

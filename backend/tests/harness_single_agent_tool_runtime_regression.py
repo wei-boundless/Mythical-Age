@@ -100,7 +100,14 @@ def test_single_agent_turn_projection_separates_assistant_text_from_control_acti
     native_feedback_contract = dict(action_protocol.get("native_tool_feedback_contract") or {})
 
     assert dict(assembly.get("control_capabilities") or {}).get("may_call_tools") is True
-    assert set(start.get("allowed_action_types") or []) == {"respond", "ask_user", "block", "request_task_run", "tool_call"}
+    assert set(start.get("allowed_action_types") or []) == {
+        "respond",
+        "ask_user",
+        "block",
+        "request_task_run",
+        "active_work_control",
+        "tool_call",
+    }
     assert effective_capabilities.get("may_call_tools") is True
     assert effective_capabilities.get("may_use_subagents") is False
     assert effective_capabilities.get("supports_json_action_protocol") is True
@@ -802,7 +809,25 @@ def test_single_agent_turn_batches_multiple_read_only_tools_before_followup_answ
     assert len(list(assistant_tool_message["tool_calls"])) == 2
     assert [item["tool_call_id"] for item in tool_messages] == ["call-read-requirements", "call-path-exists"]
 
-def test_single_agent_turn_tool_loop_hands_budget_closeout_to_agent_without_ninth_tool_call(tmp_path: Path) -> None:
+
+def test_single_agent_turn_tool_iteration_budget_defaults_and_clamps_to_100(monkeypatch) -> None:
+    import harness.loop.single_agent_turn as single_agent_turn_module
+
+    monkeypatch.delenv("AGENT_SINGLE_TURN_TOOL_ITERATIONS", raising=False)
+    assert single_agent_turn_module._configured_single_turn_tool_iterations() == 100
+
+    monkeypatch.setenv("AGENT_SINGLE_TURN_TOOL_ITERATIONS", "250")
+    assert single_agent_turn_module._configured_single_turn_tool_iterations() == 100
+
+    monkeypatch.setenv("AGENT_SINGLE_TURN_TOOL_ITERATIONS", "0")
+    assert single_agent_turn_module._configured_single_turn_tool_iterations() == 1
+
+
+def test_single_agent_turn_tool_loop_hands_budget_closeout_to_agent_without_ninth_tool_call(tmp_path: Path, monkeypatch) -> None:
+    import harness.loop.single_agent_turn as single_agent_turn_module
+
+    monkeypatch.setattr(single_agent_turn_module, "_MAX_SINGLE_TURN_TOOL_ITERATIONS", 8)
+
     class SynthesizingLoopModel(NativeToolCallSequenceModelRuntimeStub):
         def __init__(self) -> None:
             super().__init__(
@@ -849,20 +874,27 @@ def test_single_agent_turn_tool_loop_hands_budget_closeout_to_agent_without_nint
     events = asyncio.run(_collect())
     observations = [event for event in events if event.get("type") == "tool_observation"]
     done = next(event for event in events if event.get("type") == "done")
+    control_signal_event = next(event for event in events if event.get("type") == "turn_runtime_control_signal_observed")
+    control_signal_payload = dict(dict(control_signal_event.get("event") or {}).get("payload") or {})
+    control_signal = dict(control_signal_payload.get("runtime_control_signal") or {})
+    signal_ref = str(control_signal.get("runtime_control_signal_ref") or "")
 
     assert model.calls == len(observations) + 1
-    assert len(observations) >= 1
+    assert len(observations) == 8
     assert done["terminal_reason"] == "single_turn_tool_iteration_limit"
     assert done["answer_source"] == "harness.single_agent_turn.tool_limit_closeout"
     assert done["completion_state"] == "tool_limit_agent_responded"
     assert done["content"] == "agent closeout final"
-    assert any(event.get("type") == "turn_runtime_control_signal_observed" for event in events)
+    assert signal_ref
+    assert dict(control_signal_event["event"]["refs"])["runtime_control_signal_ref"] == signal_ref
     assert model.closeout_accounting["source"] == "harness.single_agent_turn.tool_limit_closeout"
     assert model.closeout_accounting["prompt_manifest"]["invocation_kind"] == "single_agent_turn_tool_limit_closeout"
     assert model.closeout_accounting["prompt_manifest"]["allowed_action_types"] == ["respond", "ask_user", "block"]
     assert model.closeout_messages[-1]["role"] == "system"
     closeout_content = str(model.closeout_messages[-1].get("content") or "")
     assert "runtime_control_signal" in closeout_content
+    assert signal_ref in closeout_content
+    assert '"max_tool_iterations": 8' in closeout_content
     assert '"allowed_action_types": ["respond", "ask_user", "block"]' in closeout_content
     assert '"tool_call_allowed": false' in closeout_content
     assert '"tool_calls_allowed_after_signal": false' in closeout_content

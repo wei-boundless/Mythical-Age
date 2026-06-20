@@ -267,7 +267,7 @@ class ModelRuntime:
     @property
     def reasoning_effort(self) -> str:
         static = self.settings_service.static
-        return str(getattr(static, "llm_reasoning_effort", "auto") or "auto").strip().lower()
+        return str(getattr(static, "llm_reasoning_effort", "") or "").strip().lower()
 
     def build_chat_model(self):
         return self._get_chat_model_for_spec(self._candidate_specs()[0])
@@ -1501,7 +1501,7 @@ class ModelRuntime:
         return self._thinking_mode_for_spec(spec) == "enabled"
 
     def _reasoning_effort_for_spec(self, spec: ModelSpec) -> str:
-        value = str(spec.reasoning_effort or self.reasoning_effort or "auto").strip().lower()
+        value = str(spec.reasoning_effort or self.reasoning_effort or "").strip().lower()
         if value in {"", "auto", "default", "adaptive"}:
             return ""
         if value in {"max", "xhigh"}:

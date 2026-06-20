@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from permissions import ApprovalState, ApprovalToken
+from harness.runtime.control_events import RuntimeSignalScope
 
 
 APPROVAL_GRANT_KIND = "task_tool_approval_grant"
@@ -184,6 +185,7 @@ def consume_matching_task_tool_approval(task_run: Any, *, operation_id: str, dir
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     state = dict(diagnostics.get("approval_state") or {}) if isinstance(diagnostics.get("approval_state"), dict) else {}
     changed = False
+    consumed_grant_id = ""
     grants: list[dict[str, Any]] = []
     now = time.time()
     for item in list(state.get("grants") or []):
@@ -200,6 +202,7 @@ def consume_matching_task_tool_approval(task_run: Any, *, operation_id: str, dir
             and grant.approval_risk_fingerprint == str(approval_risk_fingerprint or "")
         ):
             item = {**dict(item), "consumed": True, "consumed_at": now}
+            consumed_grant_id = str(grant.grant_id or "")
             changed = True
         grants.append(dict(item))
     if not changed:
@@ -209,6 +212,7 @@ def consume_matching_task_tool_approval(task_run: Any, *, operation_id: str, dir
         "status": "consumed",
         "grants": grants,
         "consumed_at": now,
+        "latest_consumed_grant_id": consumed_grant_id,
         "authority": "harness.loop.task_tool_approval",
     }
     payload = {**diagnostics, "approval_state": state}
@@ -216,6 +220,107 @@ def consume_matching_task_tool_approval(task_run: Any, *, operation_id: str, dir
     if pending and str(pending.get("operation_id") or "") == str(operation_id or ""):
         payload["pending_approval"] = {**pending, "status": "consumed", "consumed_at": now}
     return payload
+
+
+def publish_task_tool_approval_requested(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    pending_approval: dict[str, Any],
+    event_ref: str = "",
+    observation_ref: str = "",
+) -> Any | None:
+    pending = dict(pending_approval or {})
+    return _publish_approval_signal(
+        runtime_host,
+        task_run=task_run,
+        signal_type="approval.requested",
+        payload={
+            "pending_approval": _public_pending_approval(pending),
+            "approval_request_id": str(pending.get("approval_request_id") or ""),
+            "approval_risk_fingerprint": str(pending.get("approval_risk_fingerprint") or ""),
+            "operation_id": str(pending.get("operation_id") or ""),
+            "directive_ref": str(pending.get("directive_ref") or ""),
+            "action_request_ref": str(pending.get("action_request_ref") or ""),
+            "tool_call_id": str(pending.get("tool_call_id") or ""),
+            "tool_name": str(pending.get("tool_name") or ""),
+            "status": str(pending.get("status") or "pending"),
+            "event_ref": str(event_ref or ""),
+            "observation_ref": str(observation_ref or pending.get("observation_ref") or ""),
+        },
+        refs={
+            "approval_request_ref": str(pending.get("approval_request_id") or pending.get("observation_ref") or ""),
+            "action_request_ref": str(pending.get("action_request_ref") or ""),
+            "observation_ref": str(observation_ref or pending.get("observation_ref") or ""),
+            **({"runtime_event_ref": str(event_ref)} if str(event_ref or "").strip() else {}),
+        },
+    )
+
+
+def publish_task_tool_approval_granted(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    grant: TaskToolApprovalGrant,
+    pending_approval: dict[str, Any],
+    event_ref: str = "",
+) -> Any | None:
+    return _publish_approval_signal(
+        runtime_host,
+        task_run=task_run,
+        signal_type="approval.granted",
+        payload={
+            "grant": grant.to_dict(),
+            "pending_approval": _public_pending_approval(dict(pending_approval or {})),
+            "grant_id": grant.grant_id,
+            "approval_request_id": str(dict(pending_approval or {}).get("approval_request_id") or grant.pending_approval_ref or ""),
+            "approval_risk_fingerprint": grant.approval_risk_fingerprint,
+            "operation_id": grant.operation_id,
+            "directive_ref": grant.directive_ref,
+            "action_request_ref": grant.action_request_ref,
+            "tool_call_id": grant.tool_call_id,
+            "tool_name": grant.tool_name,
+            "event_ref": str(event_ref or ""),
+        },
+        refs={
+            "approval_grant_ref": grant.grant_id,
+            "approval_request_ref": grant.pending_approval_ref,
+            "action_request_ref": grant.action_request_ref,
+            **({"runtime_event_ref": str(event_ref)} if str(event_ref or "").strip() else {}),
+        },
+    )
+
+
+def publish_task_tool_approval_consumed(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    grant: TaskToolApprovalGrant,
+    directive_ref: str,
+    approval_risk_fingerprint: str,
+) -> Any | None:
+    return _publish_approval_signal(
+        runtime_host,
+        task_run=task_run,
+        signal_type="approval.consumed",
+        payload={
+            "grant": grant.to_dict(),
+            "grant_id": grant.grant_id,
+            "approval_request_id": grant.pending_approval_ref,
+            "approval_risk_fingerprint": str(approval_risk_fingerprint or grant.approval_risk_fingerprint),
+            "operation_id": grant.operation_id,
+            "directive_ref": str(directive_ref or grant.directive_ref),
+            "action_request_ref": grant.action_request_ref,
+            "tool_call_id": grant.tool_call_id,
+            "tool_name": grant.tool_name,
+            "consumed_at": float(grant.consumed_at or time.time()),
+        },
+        refs={
+            "approval_grant_ref": grant.grant_id,
+            "approval_request_ref": grant.pending_approval_ref,
+            "action_request_ref": grant.action_request_ref,
+        },
+    )
 
 
 def grant_matches_pending(grant: TaskToolApprovalGrant, pending_approval: dict[str, Any]) -> bool:
@@ -279,6 +384,57 @@ def _public_pending_approval(pending: dict[str, Any]) -> dict[str, Any]:
         )
         if pending.get(key) is not None
     }
+
+
+def _publish_approval_signal(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    signal_type: str,
+    payload: dict[str, Any],
+    refs: dict[str, Any],
+) -> Any | None:
+    control_bus = getattr(runtime_host, "control_bus", None)
+    if control_bus is None or not hasattr(control_bus, "publish"):
+        return None
+    task_run_id = str(getattr(task_run, "task_run_id", "") or dict(payload or {}).get("task_run_id") or "")
+    if not task_run_id:
+        return None
+    signal_payload = {
+        "task_run_id": task_run_id,
+        **dict(payload or {}),
+        "approval_signal_authority": "harness.loop.task_tool_approval",
+    }
+    ref_payload = {
+        "task_run_ref": task_run_id,
+        **{key: value for key, value in dict(refs or {}).items() if str(value or "").strip()},
+    }
+    try:
+        return control_bus.publish(
+            task_run_id,
+            signal_type=signal_type,
+            scope=_approval_signal_scope_for_task_run(task_run),
+            source_authority="harness.loop.task_tool_approval",
+            payload=signal_payload,
+            visibility="runtime_private",
+            refs=ref_payload,
+        )
+    except Exception:
+        return None
+
+
+def _approval_signal_scope_for_task_run(task_run: Any) -> RuntimeSignalScope:
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    scope = diagnostics.get("agent_run_scope")
+    scope_payload = dict(scope or {}) if isinstance(scope, dict) else {}
+    return RuntimeSignalScope(
+        session_id=str(getattr(task_run, "session_id", "") or scope_payload.get("session_id") or ""),
+        task_run_id=str(getattr(task_run, "task_run_id", "") or scope_payload.get("task_run_id") or ""),
+        agent_run_id=str(scope_payload.get("agent_run_id") or diagnostics.get("agent_run_id") or ""),
+        run_cell_id=str(scope_payload.get("run_cell_id") or diagnostics.get("run_cell_id") or ""),
+        turn_id=str(scope_payload.get("turn_id") or diagnostics.get("turn_id") or diagnostics.get("latest_interaction_turn_id") or ""),
+        turn_run_id=str(scope_payload.get("turn_run_id") or diagnostics.get("turn_run_id") or ""),
+    )
 
 
 def _stable_hash(value: Any) -> str:

@@ -106,10 +106,7 @@ def test_tool_result_projector_emits_read_file_rehydration_plan_for_partial_wind
     range_capability = plan["capabilities"][0]
     assert range_capability["capability"] == "read_file_range"
     assert range_capability["content_range"]["content_sha256"] == "sha256:long-md"
-    assert range_capability["next_request"] == {
-        "tool_name": "read_file",
-        "args": {"path": "docs/long.md", "start_line": 3, "line_count": 2},
-    }
+    assert "next_request" not in range_capability
 
 
 def test_tool_result_projector_normalizes_tool_source_prefix_for_read_file(tmp_path: Path) -> None:
@@ -188,10 +185,7 @@ def test_tool_result_projector_does_not_content_replace_oversized_read_file_wind
     assert projection["evidence_confidence"]["files"][0]["fresh_read_conditions"] == policy["fresh_read_conditions"]
     assert plan["prompt_status"] == "file_window_only"
     assert "read_persisted_tool_result" not in capabilities
-    assert capabilities["read_file_range"]["next_request"] == {
-        "tool_name": "read_file",
-        "args": {"path": "src/large.py", "start_line": 180, "line_count": 179},
-    }
+    assert "next_request" not in capabilities["read_file_range"]
 
 
 def test_tool_result_projector_projects_code_structure_as_locator_only(tmp_path: Path) -> None:

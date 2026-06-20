@@ -331,6 +331,11 @@ def infer_file_state_events(
             )
     elif name == "search_text":
         matches = [dict(item) for item in list(tool_result.get("matches") or []) if isinstance(item, dict)]
+        recommended_windows = [
+            dict(item)
+            for item in list(tool_result.get("recommended_read_windows") or [])
+            if isinstance(item, dict)
+        ]
         paths = tuple(_string_tuple(matched_paths or tuple(str(item.get("path") or "") for item in matches)))
         for path in paths:
             path_matches = [item for item in matches if str(item.get("path") or "").replace("\\", "/").strip() == path]
@@ -341,6 +346,25 @@ def infer_file_state_events(
                         "path": path,
                         "query": str(tool_result.get("query") or args.get("query") or "").strip(),
                         "matches": path_matches[:20],
+                        "authority": "runtime.tool_result_envelope.file_state_event",
+                    }
+                )
+            )
+        for window in recommended_windows:
+            path = _first_path(window.get("path"))
+            if not path:
+                continue
+            events.append(
+                _drop_empty(
+                    {
+                        "event_type": "recommended_read_window_created",
+                        "path": path,
+                        "query": str(window.get("query") or tool_result.get("query") or args.get("query") or "").strip(),
+                        "start_line": _int_or_none(window.get("start_line")),
+                        "line_count": _int_or_none(window.get("line_count")),
+                        "match_line": _int_or_none(window.get("match_line")),
+                        "reason": str(window.get("reason") or "").strip(),
+                        "source_tool_name": "search_text",
                         "authority": "runtime.tool_result_envelope.file_state_event",
                     }
                 )
@@ -450,12 +474,28 @@ def _dict_tuple(value: Any) -> tuple[dict[str, Any], ...]:
         if not isinstance(raw, dict):
             continue
         item = dict(raw)
-        key = str(item.get("path") or repr(sorted(item.items()))).strip()
+        key = _dict_tuple_key(item)
         if not key or key in seen:
             continue
         seen.add(key)
         result.append(item)
     return tuple(result)
+
+
+def _dict_tuple_key(item: dict[str, Any]) -> str:
+    event_type = str(item.get("event_type") or item.get("type") or "").strip()
+    if event_type:
+        return "|".join(
+            [
+                event_type,
+                str(item.get("path") or ""),
+                str(item.get("start_line") or ""),
+                str(item.get("line_count") or ""),
+                str(item.get("match_line") or ""),
+                str(item.get("query") or ""),
+            ]
+        )
+    return str(item.get("path") or repr(sorted(item.items()))).strip()
 
 
 def _first_path(*values: Any) -> str:
