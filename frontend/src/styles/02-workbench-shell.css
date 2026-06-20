@@ -141,6 +141,135 @@
   color: var(--color-text-soft);
 }
 
+/* ── Markdown 表格（由 remark-gfm 渲染） ── */
+.markdown table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  max-width: 100%;
+  margin: 1.25rem 0 1.75rem;
+  border: 1px solid var(--console-line);
+  border-radius: calc(var(--radius-inner) + 1px);
+  overflow: hidden;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+/* 表头：深色背景 + 底部强调线 */
+.markdown thead {
+  background: var(--console-surface-muted);
+}
+
+.markdown thead tr {
+  border-bottom: 2px solid var(--console-line);
+}
+
+.markdown th {
+  padding: 13px 18px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.875rem;
+  letter-spacing: 0.02em;
+  color: var(--console-text);
+  border-right: 1px solid var(--console-line-soft);
+  border-bottom: 2px solid var(--console-line);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.markdown th:last-child {
+  border-right: none;
+}
+
+/* 首行表头圆角与表格对齐 */
+.markdown thead tr:first-child th:first-child {
+  border-top-left-radius: var(--radius-inner);
+}
+.markdown thead tr:first-child th:last-child {
+  border-top-right-radius: var(--radius-inner);
+}
+
+.markdown td {
+  padding: 11px 18px;
+  text-align: left;
+  color: var(--console-text);
+  border-bottom: 1px solid var(--console-line-soft);
+  border-right: 1px solid var(--console-line-soft);
+  vertical-align: top;
+  transition: background 0.15s ease;
+}
+
+.markdown td:last-child {
+  border-right: none;
+}
+
+/* 首列加粗：行标题更醒目 */
+.markdown tbody td:first-child {
+  font-weight: 550;
+  color: var(--console-text);
+  white-space: nowrap;
+}
+
+.markdown tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* 最后一行首尾圆角与表格对齐 */
+.markdown tbody tr:last-child td:first-child {
+  border-bottom-left-radius: var(--radius-inner);
+}
+.markdown tbody tr:last-child td:last-child {
+  border-bottom-right-radius: var(--radius-inner);
+}
+
+/* 柔和的斑马纹 */
+.markdown tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--console-surface-muted) 45%, transparent);
+}
+
+.markdown tbody tr:hover {
+  background: var(--console-hover);
+  transition: background 0.12s ease;
+}
+
+/* 表格内的代码标签 */
+.markdown table code {
+  font-size: 0.875em;
+  padding: 2px 7px;
+  border-radius: var(--radius-inner);
+  background: var(--console-surface);
+  border: 1px solid var(--console-line-soft);
+}
+
+/* 表格标题支持 */
+.markdown table caption {
+  caption-side: bottom;
+  text-align: left;
+  padding: 8px 4px 0;
+  font-size: 0.85rem;
+  color: var(--console-text-soft);
+  font-style: italic;
+}
+
+@media (max-width: 768px) {
+  .markdown table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    font-size: 0.9rem;
+    max-width: 100%;
+  }
+  .markdown th,
+  .markdown td {
+    padding: 10px 14px;
+    white-space: nowrap;
+  }
+  .markdown tbody td:first-child {
+    white-space: nowrap;
+  }
+}
+
 
 @media (max-width: 768px) {
 

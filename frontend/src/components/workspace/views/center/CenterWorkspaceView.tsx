@@ -1,10 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { AlertTriangle, ExternalLink, FileText, GitCompare, GripVertical, Loader2, PanelRightClose, PanelRightOpen, RefreshCw, Save, Sparkles, Terminal, Workflow, X } from "lucide-react";
+import { AlertTriangle, ExternalLink, FileText, GitCompare, GripVertical, Loader2, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, RefreshCw, Save, Sparkles, Terminal, Workflow, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import { ChatPanel } from "@/components/chat/ChatPanel";
+import { useWorkbenchShellControls } from "@/components/layout/WorkbenchShell";
 import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
 import { RuntimeLogPanel, type RuntimeLogTarget } from "@/components/layout/RuntimeLogPanel";
 import { getFileChangeDiff, openManagedFileInVSCode, type FileChangeDiffPayload } from "@/lib/api";
@@ -617,6 +618,7 @@ export function CenterWorkspaceView({
   const [activeRuntimeLogKey, setActiveRuntimeLogKey] = useState("");
   const [openRuntimeLogPages, setOpenRuntimeLogPages] = useState<RuntimeLogTarget[]>([]);
   const sessionEditorContext = currentSessionId ? sessionEditorContexts[currentSessionId] : null;
+  const shellControls = useWorkbenchShellControls();
 
   useEffect(() => {
     setAuxPanelExpanded(window.localStorage.getItem(CENTER_AUX_PANEL_OPEN_KEY) === "true");
@@ -829,6 +831,7 @@ export function CenterWorkspaceView({
       : activeAuxLayer === "runtime-log" && activeRuntimeLogPage
         ? runtimeLogPageTitle(activeRuntimeLogPage)
         : "文件管理";
+  const openPanelCount = openFilePaths.length + openRuntimeLogPages.length + openDiffPages.length;
 
   function startFilePanelResize(event: ReactPointerEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -892,148 +895,175 @@ export function CenterWorkspaceView({
       aria-label="中心工作区"
     >
       <header className="center-workspace__head" aria-label="主会话页面控制">
-        <Tabs ariaLabel="中心层级切换">
-          <TabButton
-            active={!auxPanelOpen}
-            onClick={() => {
-              setAuxPanelExpanded(false);
-            }}
-          >
-            <Sparkles size={14} />
-            <span>会话底层</span>
-          </TabButton>
-          <TabButton
-            active={auxPanelOpen}
-            onClick={() => setAuxPanelExpanded(true)}
-          >
-            <FileText size={14} />
-            <span>文件管理</span>
-          </TabButton>
-          <TabButton
-            onClick={() => setWorkspaceView("creative")}
-          >
-            <Workflow size={14} />
-            <span>图任务层</span>
-          </TabButton>
-          {openFilePaths.map((path) => {
-            const active = layer === "file" && path === activeFilePath;
-            return (
-              <div
-                className={cn("chat-page-tabs__item", active && "chat-page-tabs__item--active", "center-workspace-file-tab")}
-                key={path}
-                title={path}
+        <div className="center-workspace__tool-row">
+          <div className="center-workspace__panel-actions" aria-label="左侧面板">
+            {shellControls ? (
+              <button
+                aria-label={shellControls.leftCollapsed ? `打开${shellControls.leftPanelLabel}` : `收起${shellControls.leftPanelLabel}`}
+                className="center-workspace__panel-button"
+                onClick={shellControls.toggleLeftPanel}
+                title={shellControls.leftCollapsed ? `打开${shellControls.leftPanelLabel}` : `收起${shellControls.leftPanelLabel}`}
+                type="button"
               >
-                <button
-                  aria-current={active ? "page" : undefined}
-                  className="center-workspace-file-tab__main"
-                  onClick={() => {
-                    if (!canSwitchActiveFile(path)) return;
-                    setActiveFilePath(path);
-                    setLayer("file");
-                    setAuxPanelExpanded(true);
-                    setSessionEditorPageState({ activeFilePath: path, openFilePaths });
-                  }}
-                  type="button"
-                >
-                  <FileText size={14} />
-                  <span>{compactFileName(path)}</span>
-                </button>
-                <button
-                  aria-label={`关闭文件页 ${compactFileName(path)}`}
-                  className="center-workspace-file-tab__close"
-                  onClick={() => closeFilePage(path)}
-                  title="关闭文件页"
-                  type="button"
-                >
-                  <X size={13} />
-                </button>
-              </div>
-            );
-          })}
-          {openRuntimeLogPages.map((target) => {
-            const key = runtimeLogPageKey(target);
-            const active = layer === "runtime-log" && key === activeRuntimeLogKey;
-            const label = runtimeLogPageTitle(target);
-            return (
-              <div
-                className={cn("chat-page-tabs__item", active && "chat-page-tabs__item--active", "center-workspace-file-tab")}
-                key={key}
-                title={target.subtitle || target.runId}
+                {shellControls.leftCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+              </button>
+            ) : null}
+          </div>
+
+          <Tabs ariaLabel="中心层级切换" className="center-workspace__primary-tabs">
+            <TabButton
+              active
+              className="center-workspace__tool-button"
+              onClick={() => {
+                setAuxPanelExpanded(false);
+              }}
+            >
+              <Sparkles size={14} />
+              <span>会话页</span>
+            </TabButton>
+            <TabButton
+              className="center-workspace__tool-button"
+              onClick={() => setWorkspaceView("creative")}
+            >
+              <Workflow size={14} />
+              <span>图任务</span>
+            </TabButton>
+          </Tabs>
+
+          <div className="center-workspace__tool-row-actions" aria-label="工作台工具">
+            <button
+              aria-label={auxPanelOpen ? "收起文件管理" : "打开文件管理"}
+              className={cn("center-workspace__panel-button", auxPanelOpen && "center-workspace__panel-button--active")}
+              onClick={() => setAuxPanelExpanded((value) => !value)}
+              title={auxPanelOpen ? "收起文件管理" : "打开文件管理"}
+              type="button"
+            >
+              <FileText size={15} />
+            </button>
+            {shellControls ? (
+              <button
+                aria-label={shellControls.rightCollapsed ? `打开${shellControls.rightPanelLabel}` : `收起${shellControls.rightPanelLabel}`}
+                className={cn("center-workspace__panel-button", !shellControls.rightCollapsed && "center-workspace__panel-button--active")}
+                onClick={shellControls.toggleRightPanel}
+                title={shellControls.rightCollapsed ? `打开${shellControls.rightPanelLabel}` : `收起${shellControls.rightPanelLabel}`}
+                type="button"
               >
-                <button
-                  aria-current={active ? "page" : undefined}
-                  className="center-workspace-file-tab__main"
-                  onClick={() => {
-                    setActiveRuntimeLogKey(key);
-                    setLayer("runtime-log");
-                    setAuxPanelExpanded(true);
-                  }}
-                  type="button"
+                {shellControls.rightCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}
+              </button>
+            ) : null}
+            <WorkspaceModeSwitcher ariaLabel="切换当前会话任务环境" className="center-workspace__environment-switcher" />
+          </div>
+        </div>
+
+        {openPanelCount ? (
+          <div className="center-workspace__open-strip" aria-label="已打开工作页">
+            {openFilePaths.map((path) => {
+              const active = layer === "file" && path === activeFilePath;
+              return (
+                <div
+                  className={cn("chat-page-tabs__item", active && "chat-page-tabs__item--active", "center-workspace-file-tab")}
+                  key={path}
+                  title={path}
                 >
-                  <Terminal size={14} />
-                  <span>{label}</span>
-                </button>
-                <button
-                  aria-label={`关闭日志页 ${label}`}
-                  className="center-workspace-file-tab__close"
-                  onClick={() => closeRuntimeLogPage(key)}
-                  title="关闭日志页"
-                  type="button"
+                  <button
+                    aria-current={active ? "page" : undefined}
+                    className="center-workspace-file-tab__main"
+                    onClick={() => {
+                      if (!canSwitchActiveFile(path)) return;
+                      setActiveFilePath(path);
+                      setLayer("file");
+                      setAuxPanelExpanded(true);
+                      setSessionEditorPageState({ activeFilePath: path, openFilePaths });
+                    }}
+                    type="button"
+                  >
+                    <FileText size={14} />
+                    <span>{compactFileName(path)}</span>
+                  </button>
+                  <button
+                    aria-label={`关闭文件页 ${compactFileName(path)}`}
+                    className="center-workspace-file-tab__close"
+                    onClick={() => closeFilePage(path)}
+                    title="关闭文件页"
+                    type="button"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              );
+            })}
+            {openRuntimeLogPages.map((target) => {
+              const key = runtimeLogPageKey(target);
+              const active = layer === "runtime-log" && key === activeRuntimeLogKey;
+              const label = runtimeLogPageTitle(target);
+              return (
+                <div
+                  className={cn("chat-page-tabs__item", active && "chat-page-tabs__item--active", "center-workspace-file-tab")}
+                  key={key}
+                  title={target.subtitle || target.runId}
                 >
-                  <X size={13} />
-                </button>
-              </div>
-            );
-          })}
-          {openDiffPages.map((target) => {
-            const key = fileChangeDiffPageKey(target);
-            const active = layer === "file-change-diff" && key === activeDiffKey;
-            const label = fileChangeDiffPageTitle(target);
-            return (
-              <div
-                className={cn("chat-page-tabs__item", active && "chat-page-tabs__item--active", "center-workspace-file-tab")}
-                key={key}
-                title={target.subtitle || target.recordId}
-              >
-                <button
-                  aria-current={active ? "page" : undefined}
-                  className="center-workspace-file-tab__main"
-                  onClick={() => {
-                    setActiveDiffKey(key);
-                    setLayer("file-change-diff");
-                    setAuxPanelExpanded(true);
-                  }}
-                  type="button"
+                  <button
+                    aria-current={active ? "page" : undefined}
+                    className="center-workspace-file-tab__main"
+                    onClick={() => {
+                      setActiveRuntimeLogKey(key);
+                      setLayer("runtime-log");
+                      setAuxPanelExpanded(true);
+                    }}
+                    type="button"
+                  >
+                    <Terminal size={14} />
+                    <span>{label}</span>
+                  </button>
+                  <button
+                    aria-label={`关闭日志页 ${label}`}
+                    className="center-workspace-file-tab__close"
+                    onClick={() => closeRuntimeLogPage(key)}
+                    title="关闭日志页"
+                    type="button"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              );
+            })}
+            {openDiffPages.map((target) => {
+              const key = fileChangeDiffPageKey(target);
+              const active = layer === "file-change-diff" && key === activeDiffKey;
+              const label = fileChangeDiffPageTitle(target);
+              return (
+                <div
+                  className={cn("chat-page-tabs__item", active && "chat-page-tabs__item--active", "center-workspace-file-tab")}
+                  key={key}
+                  title={target.subtitle || target.recordId}
                 >
-                  <GitCompare size={14} />
-                  <span>{label}</span>
-                </button>
-                <button
-                  aria-label={`关闭 Diff 页 ${label}`}
-                  className="center-workspace-file-tab__close"
-                  onClick={() => closeFileChangeDiffPage(key)}
-                  title="关闭 Diff 页"
-                  type="button"
-                >
-                  <X size={13} />
-                </button>
-              </div>
-            );
-          })}
-        </Tabs>
-        {auxPanelOpen || hasAuxPanel ? (
-          <button
-            aria-expanded={auxPanelOpen}
-            className={cn("center-workspace__aux-toggle", auxPanelOpen && "center-workspace__aux-toggle--open")}
-            onClick={() => setAuxPanelExpanded((value) => !value)}
-            title={auxPanelOpen ? "收起工作面板" : "展开工作面板"}
-            type="button"
-          >
-            {auxPanelOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
-            <span>{auxPanelOpen ? "收起" : "展开"}</span>
-          </button>
+                  <button
+                    aria-current={active ? "page" : undefined}
+                    className="center-workspace-file-tab__main"
+                    onClick={() => {
+                      setActiveDiffKey(key);
+                      setLayer("file-change-diff");
+                      setAuxPanelExpanded(true);
+                    }}
+                    type="button"
+                  >
+                    <GitCompare size={14} />
+                    <span>{label}</span>
+                  </button>
+                  <button
+                    aria-label={`关闭 Diff 页 ${label}`}
+                    className="center-workspace-file-tab__close"
+                    onClick={() => closeFileChangeDiffPage(key)}
+                    title="关闭 Diff 页"
+                    type="button"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         ) : null}
-        <WorkspaceModeSwitcher ariaLabel="切换当前会话任务环境" className="center-workspace__environment-switcher" />
       </header>
 
       <div

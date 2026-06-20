@@ -50,8 +50,9 @@ describe("CenterWorkspaceView", () => {
     const html = renderToStaticMarkup(React.createElement(CenterWorkspaceView));
 
     expect(html).toContain("中心层级切换");
-    expect(html).toContain("会话底层");
-    expect(html).toContain("图任务层");
+    expect(html).toContain("会话页");
+    expect(html).toContain("图任务");
+    expect(html).toContain("打开文件管理");
     expect(html).toContain("center-workspace__body");
     expect(html).toContain("切换当前会话任务环境");
     expect(html).toContain("Vibe 编码工作区");

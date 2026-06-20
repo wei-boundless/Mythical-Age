@@ -221,13 +221,30 @@ def test_step_budget_boundary_records_model_visible_control_observation_and_publ
         signal_types={"control.signal.requested"},
     ).pending_signals == ()
 
-    projection = _runtime_control_signal_projection_from_observations([observation])
+    projection = _runtime_control_signal_projection_from_observations(
+        [observation],
+        runtime_host=runtime_host,
+        task_run_id=task_run.task_run_id,
+    )
     assert projection[0]["signal_kind"] == "budget_exhausted"
     assert projection[0]["runtime_control_state"] == "waiting_executor"
     assert "预算" in projection[0]["repair_instruction"]
 
 
 def test_runtime_control_signal_projection_requires_gateway_signal_ref() -> None:
+    task_run_id = "taskrun:test:projection-gateway-ref"
+    event_log = _EventLogStub()
+    runtime_host = SimpleNamespace(runtime_gateway=RuntimeGateway(event_log))
+    runtime_host.runtime_gateway.publish(
+        task_run_id,
+        signal_type="control.signal.requested",
+        signal_id="rtsig:canonical",
+        scope=RuntimeSignalScope(session_id="session-test", task_run_id=task_run_id),
+        source_authority="test.runtime_control_projection",
+        payload={"signal_kind": "replan", "reason": "gateway_backed"},
+        visibility="model_visible",
+    )
+
     projection = _runtime_control_signal_projection_from_observations(
         [
             {
@@ -251,7 +268,20 @@ def test_runtime_control_signal_projection_requires_gateway_signal_ref() -> None
                     "reason": "gateway_backed",
                 },
             },
-        ]
+            {
+                "observation_id": "obs:runtime-control:unpublished",
+                "source": "system:runtime_control_signal",
+                "summary": "unpublished ref must not become model-visible control fact",
+                "payload": {
+                    "runtime_control_signal_ref": "rtsig:unpublished",
+                    "signal_kind": "replan",
+                    "runtime_control_state": "waiting_executor",
+                    "reason": "unpublished",
+                },
+            },
+        ],
+        runtime_host=runtime_host,
+        task_run_id=task_run_id,
     )
 
     assert len(projection) == 1

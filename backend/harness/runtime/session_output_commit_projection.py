@@ -60,7 +60,6 @@ def project_session_output_commit_state(
     state = str(
         diagnostic_commit.get("state")
         or diagnostic_commit.get("status")
-        or dict(diagnostics or {}).get("output_commit_status")
         or ""
     ).strip()
     if not state:

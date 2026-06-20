@@ -1521,6 +1521,22 @@ def test_project_task_run_does_not_infer_session_output_commit_from_completed_fi
     assert "session_output_commit" not in item
 
 
+def test_project_task_run_does_not_infer_session_output_commit_from_status_only():
+    projector = RuntimeMonitorProjector(EventLogStub())
+    run = task_run(
+        status="completed",
+        updated_at=130.0,
+        diagnostics={
+            "turn_id": "turn:session-a:1",
+            "output_commit_status": "committed",
+        },
+    )
+
+    item = projector.project_task_run(run, now=150.0, include_runtime_details=False)
+
+    assert "session_output_commit" not in item
+
+
 def test_latest_public_action_state_is_exposed_and_kept_separate_from_wait_heartbeat():
     events = [
         EventStub(

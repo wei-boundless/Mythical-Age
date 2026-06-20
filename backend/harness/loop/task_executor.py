@@ -7317,7 +7317,11 @@ def _observations_for_packet(
             **projection,
             "pending_tool_control_actions": pending_tool_control_actions,
         }
-    runtime_control_signals = _runtime_control_signal_projection_from_observations(deduped)
+    runtime_control_signals = _runtime_control_signal_projection_from_observations(
+        deduped,
+        runtime_host=runtime_host,
+        task_run_id=task_run_id,
+    )
     if runtime_control_signals:
         projection = {
             **projection,
@@ -7450,7 +7454,12 @@ def _subagent_result_already_read(
     return False
 
 
-def _runtime_control_signal_projection_from_observations(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _runtime_control_signal_projection_from_observations(
+    observations: list[dict[str, Any]],
+    *,
+    runtime_host: Any | None = None,
+    task_run_id: str = "",
+) -> list[dict[str, Any]]:
     signals: list[dict[str, Any]] = []
     seen: set[str] = set()
     for observation in list(observations or []):
@@ -7459,6 +7468,12 @@ def _runtime_control_signal_projection_from_observations(observations: list[dict
         payload = dict(observation.get("payload") or {})
         signal_ref = str(payload.get("runtime_control_signal_ref") or "").strip()
         if not signal_ref:
+            continue
+        if not _runtime_control_signal_ref_is_gateway_published(
+            runtime_host,
+            task_run_id=task_run_id,
+            signal_ref=signal_ref,
+        ):
             continue
         fingerprint = str(payload.get("runtime_control_signal_fingerprint") or observation.get("observation_id") or "")
         if fingerprint and fingerprint in seen:
@@ -7484,6 +7499,26 @@ def _runtime_control_signal_projection_from_observations(observations: list[dict
             }
         )
     return signals
+
+
+def _runtime_control_signal_ref_is_gateway_published(
+    runtime_host: Any | None,
+    *,
+    task_run_id: str,
+    signal_ref: str,
+) -> bool:
+    normalized_task_run_id = str(task_run_id or "").strip()
+    normalized_signal_ref = str(signal_ref or "").strip()
+    if not normalized_task_run_id or not normalized_signal_ref:
+        return False
+    runtime_gateway = getattr(runtime_host, "runtime_gateway", None)
+    signal_by_id = getattr(runtime_gateway, "signal_by_id", None)
+    if not callable(signal_by_id):
+        return False
+    try:
+        return signal_by_id(normalized_task_run_id, signal_id=normalized_signal_ref) is not None
+    except Exception:
+        return False
 
 
 def _steer_for_projection(steer: dict[str, Any]) -> dict[str, Any]:

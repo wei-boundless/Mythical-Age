@@ -34,7 +34,9 @@
   --console-panel-gap: 10px;
   --console-panel-padding: 12px;
   --console-list-row: 52px;
-  --console-control-height: 38px;
+  --console-control-height: 36px;
+  --console-toolbar-height: 42px;
+  --console-icon-button-size: 34px;
   --console-font-size-ui: 14px;
   --console-font-size-page: 15px;
   --console-font-size-body: 16px;

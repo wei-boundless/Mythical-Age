@@ -936,6 +936,7 @@ def test_turn_recovery_required_attachment_stays_trace_only_without_raw_main_pro
     signal = {
         "signal_kind": "agent_closeout_recovery_required",
         "runtime_control_state": "agent_recovery_required",
+        "runtime_control_signal_ref": "turnsig:payload-shadow:test",
         "agent_closeout_required": True,
         "visible_assistant_message_allowed": False,
         "tool_calls_allowed_after_signal": False,
@@ -1000,6 +1001,7 @@ def test_turn_recovery_required_attachment_stays_trace_only_without_raw_main_pro
     assert attachment["display_state"] == "log_only"
     assert attachment["main_chat_surface"] == "log_only"
     assert attachment["runtime_control_signal"]["signal_kind"] == "agent_closeout_recovery_required"
+    assert attachment["runtime_control_signal"]["runtime_control_signal_ref"] == "turnsig:agent-closeout-recovery:test"
     assert attachment["projection_slices"] == []
     projection = build_session_runtime_projection(
         session_id="session-a",
@@ -1052,6 +1054,76 @@ def test_turn_recovery_required_ignores_diagnostics_only_signal() -> None:
     timeline = build_session_runtime_timeline(
         session_id="session-a",
         history={"messages": [{"role": "user", "content": "继续", "turn_id": "turn:session-a:4"}]},
+        runtime_host=runtime_host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+
+    assert "runtime_control_signal" not in attachment
+
+
+def test_turn_recovery_required_ignores_turn_observed_signal_without_gateway_published_source() -> None:
+    turn_run_id = "turnrun:turn:session-a:4-observed-only"
+    signal = {
+        "signal_kind": "agent_closeout_recovery_required",
+        "runtime_control_state": "agent_recovery_required",
+        "runtime_control_signal_ref": "turnsig:observed-only:test",
+        "reason": "observed_only",
+    }
+    turn_run = SimpleNamespace(
+        turn_run_id=turn_run_id,
+        session_id="session-a",
+        turn_id="turn:session-a:4-observed-only",
+        status="failed",
+        terminal_reason="single_turn_tool_iteration_limit",
+        created_at=8.0,
+        updated_at=9.0,
+        latest_event_offset=2,
+        diagnostics={},
+    )
+    runtime_host = _runtime_host(
+        task_runs=[],
+        turn_runs=[turn_run],
+        events_by_run={
+            turn_run_id: [
+                {
+                    "event_id": "event:turn:observed-only",
+                    "event_type": "turn_runtime_control_signal_observed",
+                    "run_id": turn_run_id,
+                    "offset": 1,
+                    "created_at": 8.5,
+                    "payload": {
+                        "turn_id": "turn:session-a:4-observed-only",
+                        "model_visible": True,
+                        "runtime_control_signal": signal,
+                    },
+                    "refs": {
+                        "turn_ref": "turn:session-a:4-observed-only",
+                        "turn_run_ref": turn_run_id,
+                        "runtime_control_signal_ref": "turnsig:observed-only:test",
+                    },
+                },
+                {
+                    "event_id": "event:turn:observed-only-terminal",
+                    "event_type": "agent_turn_terminal",
+                    "run_id": turn_run_id,
+                    "offset": 2,
+                    "created_at": 9.0,
+                    "payload": {
+                        "turn_id": "turn:session-a:4-observed-only",
+                        "status": "failed",
+                        "terminal_reason": "single_turn_tool_iteration_limit",
+                        "runtime_control_signal": signal,
+                    },
+                    "refs": {"turn_ref": "turn:session-a:4-observed-only"},
+                },
+            ]
+        },
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id="session-a",
+        history={"messages": [{"role": "user", "content": "继续", "turn_id": "turn:session-a:4-observed-only"}]},
         runtime_host=runtime_host,
     )
 

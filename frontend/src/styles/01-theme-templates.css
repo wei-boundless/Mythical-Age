@@ -63,7 +63,9 @@
   --console-panel-gap: 10px;
   --console-panel-padding: 12px;
   --console-list-row: 52px;
-  --console-control-height: 38px;
+  --console-control-height: 36px;
+  --console-toolbar-height: 42px;
+  --console-icon-button-size: 34px;
 }
 
 :root[data-workbench-density="compact"] {
@@ -71,6 +73,8 @@
   --console-panel-padding: 9px;
   --console-list-row: 46px;
   --console-control-height: 34px;
+  --console-toolbar-height: 38px;
+  --console-icon-button-size: 32px;
 }
 
 :root,

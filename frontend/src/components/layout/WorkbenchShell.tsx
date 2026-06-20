@@ -16,7 +16,7 @@ import {
   Trash2,
   Unlink,
 } from "lucide-react";
-import { useEffect, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import { RunMonitorPanel } from "@/components/layout/RunMonitorPanel";
 import { FileChangesPanel } from "@/components/layout/FileChangesPanel";
@@ -38,6 +38,25 @@ const WORKBENCH_CENTER_COMPACT_MIN_WIDTH = 340;
 const WORKBENCH_EDGE_GUTTER = 10;
 const RIGHT_PANEL_MIN_WIDTH = 320;
 const DEFAULT_SESSION_TITLE = "New Session";
+
+export type WorkbenchShellControls = {
+  closeLeftPanel: () => void;
+  closeRightPanel: () => void;
+  leftCollapsed: boolean;
+  leftPanelLabel: string;
+  openLeftPanel: () => void;
+  openRightPanel: () => void;
+  rightCollapsed: boolean;
+  rightPanelLabel: string;
+  toggleLeftPanel: () => void;
+  toggleRightPanel: () => void;
+};
+
+const WorkbenchShellControlsContext = createContext<WorkbenchShellControls | null>(null);
+
+export function useWorkbenchShellControls() {
+  return useContext(WorkbenchShellControlsContext);
+}
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -914,69 +933,83 @@ export function WorkbenchShell({
     />
   );
   const right = rightPanel ?? <RightToolPanel />;
+  const shellControls = useMemo<WorkbenchShellControls>(() => ({
+    closeLeftPanel: () => setLeftCollapsed(true),
+    closeRightPanel: () => setRightCollapsed(true),
+    leftCollapsed,
+    leftPanelLabel,
+    openLeftPanel: () => setLeftCollapsed(false),
+    openRightPanel: () => setRightCollapsed(false),
+    rightCollapsed,
+    rightPanelLabel,
+    toggleLeftPanel: () => setLeftCollapsed((value) => !value),
+    toggleRightPanel: () => setRightCollapsed((value) => !value),
+  }), [leftCollapsed, leftPanelLabel, rightCollapsed, rightPanelLabel]);
 
   return (
-    <main
-      className={["agent-workbench agent-workbench--chat-only", className].filter(Boolean).join(" ")}
-      style={{
-        gridTemplateColumns: `${effectiveLeftWidth}px ${leftCollapsed ? "0px" : `${RESIZE_HANDLE_WIDTH}px`} minmax(${layout.centerMinWidth}px, 1fr) ${rightCollapsed ? `0px ${effectiveRightWidth}px` : `${RESIZE_HANDLE_WIDTH}px ${effectiveRightWidth}px`}`,
-      }}
-    >
-      {leftCollapsed ? (
-        <CollapsedPanelRail label={leftPanelLabel} onOpen={() => setLeftCollapsed(false)} side="left" />
-      ) : left}
-      {leftCollapsed ? null : (
-        <ResizeHandle
-          label={`调整${leftPanelLabel}宽度`}
-          onResize={(delta) => {
-            const nextLayout = fitWorkbenchPanelWidths({
-              inspectorWidth: effectiveRightWidth,
-              leftCollapsed,
-              rightCollapsed,
-              sidebarWidth: effectiveLeftWidth + delta,
-              viewportWidth,
-            });
-            setSidebarWidth(nextLayout.leftWidth);
-          }}
-          side="left"
-        />
-      )}
-      {leftCollapsed ? <div aria-hidden="true" /> : null}
-      <section className={hideMainToolbar ? "workbench-center workbench-center--no-toolbar" : "workbench-center"} aria-label="主任务环境">
-        {hideMainToolbar ? null : (
-          <MainToolbar
-            leftPanelCollapsed={leftCollapsed}
-            onToggleLeftPanel={() => setLeftCollapsed((value) => !value)}
-            onToggleRightPanel={() => setRightCollapsed((value) => !value)}
-            rightPanelCollapsed={rightCollapsed}
+    <WorkbenchShellControlsContext.Provider value={shellControls}>
+      <main
+        className={["agent-workbench agent-workbench--chat-only", className].filter(Boolean).join(" ")}
+        style={{
+          gridTemplateColumns: `${effectiveLeftWidth}px ${leftCollapsed ? "0px" : `${RESIZE_HANDLE_WIDTH}px`} minmax(${layout.centerMinWidth}px, 1fr) ${rightCollapsed ? `0px ${effectiveRightWidth}px` : `${RESIZE_HANDLE_WIDTH}px ${effectiveRightWidth}px`}`,
+        }}
+      >
+        {leftCollapsed ? (
+          <CollapsedPanelRail label={leftPanelLabel} onOpen={() => setLeftCollapsed(false)} side="left" />
+        ) : left}
+        {leftCollapsed ? null : (
+          <ResizeHandle
+            label={`调整${leftPanelLabel}宽度`}
+            onResize={(delta) => {
+              const nextLayout = fitWorkbenchPanelWidths({
+                inspectorWidth: effectiveRightWidth,
+                leftCollapsed,
+                rightCollapsed,
+                sidebarWidth: effectiveLeftWidth + delta,
+                viewportWidth,
+              });
+              setSidebarWidth(nextLayout.leftWidth);
+            }}
+            side="left"
           />
         )}
-        <div className="workbench-center-content">
-          {children}
-        </div>
-      </section>
-      {rightCollapsed ? null : (
-        <ResizeHandle
-          label={`调整${rightPanelLabel}宽度`}
-          onResize={(delta) => {
-            const nextLayout = fitWorkbenchPanelWidths({
-              inspectorWidth: effectiveRightWidth + delta,
-              leftCollapsed,
-              rightCollapsed,
-              sidebarWidth: effectiveLeftWidth,
-              viewportWidth,
-            });
-            setInspectorWidth(nextLayout.rightWidth);
-          }}
-          side="right"
-        />
-      )}
-      {rightCollapsed ? <div aria-hidden="true" /> : null}
-      {rightCollapsed ? (
-        <CollapsedPanelRail label={rightPanelLabel} onOpen={() => setRightCollapsed(false)} side="right" />
-      ) : (
-        right
-      )}
-    </main>
+        {leftCollapsed ? <div aria-hidden="true" /> : null}
+        <section className={hideMainToolbar ? "workbench-center workbench-center--no-toolbar" : "workbench-center"} aria-label="主任务环境">
+          {hideMainToolbar ? null : (
+            <MainToolbar
+              leftPanelCollapsed={leftCollapsed}
+              onToggleLeftPanel={() => setLeftCollapsed((value) => !value)}
+              onToggleRightPanel={() => setRightCollapsed((value) => !value)}
+              rightPanelCollapsed={rightCollapsed}
+            />
+          )}
+          <div className="workbench-center-content">
+            {children}
+          </div>
+        </section>
+        {rightCollapsed ? null : (
+          <ResizeHandle
+            label={`调整${rightPanelLabel}宽度`}
+            onResize={(delta) => {
+              const nextLayout = fitWorkbenchPanelWidths({
+                inspectorWidth: effectiveRightWidth + delta,
+                leftCollapsed,
+                rightCollapsed,
+                sidebarWidth: effectiveLeftWidth,
+                viewportWidth,
+              });
+              setInspectorWidth(nextLayout.rightWidth);
+            }}
+            side="right"
+          />
+        )}
+        {rightCollapsed ? <div aria-hidden="true" /> : null}
+        {rightCollapsed ? (
+          <CollapsedPanelRail label={rightPanelLabel} onOpen={() => setRightCollapsed(false)} side="right" />
+        ) : (
+          right
+        )}
+      </main>
+    </WorkbenchShellControlsContext.Provider>
   );
 }

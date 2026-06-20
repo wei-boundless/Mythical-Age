@@ -113,25 +113,25 @@ describe("ChatPanel", () => {
     ], true)).toBe(true);
   });
 
-  it("shows cumulative context usage against the auto-compaction threshold", () => {
+  it("shows the compaction trigger window against the auto-compaction threshold", () => {
     expect(sessionContextMeterPresentation(tokenStats({
       context_meter: {
         current_context_ratio: 0.03,
-        current_context_tokens: 34000,
-        compaction_pressure_tokens: 34000,
+        current_context_tokens: 74252,
+        compaction_pressure_tokens: 74252,
         context_window_tokens: 1_000_000,
         replacement_threshold_tokens: 900000,
-        compaction_pressure_ratio: 34000 / 900000,
-        compaction_remaining_tokens: 866000,
-        compaction_remaining_ratio: 866000 / 900000,
+        compaction_pressure_ratio: 74252 / 900000,
+        compaction_remaining_tokens: 825748,
+        compaction_remaining_ratio: 825748 / 900000,
         pressure_level: "normal",
       },
-      cumulative_transcript_tokens: 52000,
+      cumulative_transcript_tokens: 38370,
     }))).toEqual({
-      usedPercent: 6,
-      usedTokenText: "52.0K",
+      usedPercent: 8,
+      usedTokenText: "74.3K",
       thresholdTokenText: "900.0K",
-      title: "累计上下文 52,000 tokens；当前模型上下文 34,000 tokens；自动压缩阈值 900,000 tokens；阈值占比 6%；模型窗口 1,000,000 tokens；距自动压缩还剩 848,000 tokens",
+      title: "压缩触发窗口 74,252 tokens；自动压缩阈值 900,000 tokens；阈值占比 8%；模型窗口 1,000,000 tokens；距自动压缩还剩 825,748 tokens",
       levelClass: "normal",
     });
   });
@@ -279,7 +279,7 @@ describe("ChatPanel", () => {
     } as never)).toBe(true);
   });
 
-  it("uses current context rather than internal compaction pressure for the user meter", () => {
+  it("uses the trigger window rather than the model-current context for the user meter", () => {
     expect(sessionContextMeterPresentation(tokenStats({
       context_meter: {
         current_context_ratio: 0.012598,
@@ -293,10 +293,10 @@ describe("ChatPanel", () => {
         pressure_level: "normal",
       },
     }))).toEqual({
-      usedPercent: 1,
-      usedTokenText: "12.6K",
+      usedPercent: 5,
+      usedTokenText: "41.4K",
       thresholdTokenText: "850.0K",
-      title: "当前上下文 12,598 tokens；自动压缩阈值 850,000 tokens；阈值占比 1%；模型窗口 1,000,000 tokens；距自动压缩还剩 837,402 tokens",
+      title: "压缩触发窗口 41,444 tokens；自动压缩阈值 850,000 tokens；阈值占比 5%；模型窗口 1,000,000 tokens；距自动压缩还剩 808,556 tokens",
       levelClass: "normal",
     });
   });

@@ -776,7 +776,7 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
 
 def _turn_recovery_control_signal(*, events: list[dict[str, Any]]) -> dict[str, Any]:
     for event in reversed(list(events or [])):
-        signal = _runtime_gateway_signal_payload(event) or _turn_runtime_control_event_signal(event)
+        signal = _runtime_gateway_signal_payload(event)
         if str(signal.get("signal_kind") or "") == "agent_closeout_recovery_required":
             return signal
     return {}
@@ -788,16 +788,10 @@ def _runtime_gateway_signal_payload(event: dict[str, Any]) -> dict[str, Any]:
     signal = runtime_signal_from_event_payload(_dict_record(event.get("payload")))
     if signal is None or signal.signal_type != "control.signal.requested":
         return {}
-    return dict(signal.payload or {})
-
-
-def _turn_runtime_control_event_signal(event: dict[str, Any]) -> dict[str, Any]:
-    if str(event.get("event_type") or "") not in {
-        "turn_runtime_control_signal_observed",
-        "agent_turn_terminal",
-    }:
-        return {}
-    return _dict_record(_dict_record(event.get("payload")).get("runtime_control_signal"))
+    return {
+        **dict(signal.payload or {}),
+        "runtime_control_signal_ref": str(signal.signal_id or ""),
+    }
 
 
 def _dict_record(value: Any) -> dict[str, Any]:
