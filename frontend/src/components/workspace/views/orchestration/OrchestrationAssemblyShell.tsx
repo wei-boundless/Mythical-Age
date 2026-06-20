@@ -21,13 +21,13 @@ export function OrchestrationAssemblyShell({
     <div className="workspace-view boundary-console orchestration-boundary orchestration-console">
       <header className="orchestration-console-head">
         <div className="orchestration-console-head__title">
-          <span>Agent Assembly</span>
-          <h2>编排系统</h2>
-          <p>{controller.agents.length} 个 Agent / {controller.agentGroups.length} 个分组 / {controller.catalog?.profiles?.length ?? 0} 个运行档案</p>
+          <span>Agent Management</span>
+          <h2>Agent 管理系统</h2>
+          <p>统一管理 Agent 身份、分组、运行档案、模型、权限和协作边界。</p>
         </div>
         <div className="orchestration-console-head__summary" aria-label="对象摘要">
           <div>
-            <span>当前装配对象</span>
+            <span>当前管理对象</span>
             <strong>{controller.focusSummary.title}</strong>
             <small>{controller.focusSummary.body}</small>
           </div>
@@ -42,7 +42,7 @@ export function OrchestrationAssemblyShell({
             <small>{controller.focusSummary.id}</small>
           </div>
           <div>
-            <span>运行权限</span>
+            <span>权限概览</span>
             <strong>{controller.allowedOps.length} 允 / {controller.blockedOps.length} 阻</strong>
             <small>{controller.overlapOps.length ? `${controller.overlapOps.length} 项冲突` : "无冲突"}</small>
           </div>

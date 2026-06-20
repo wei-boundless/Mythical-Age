@@ -20,10 +20,10 @@ CONTROL_SIGNAL_CONSUMED_EVENT = "runtime_control_signal_consumed"
 RUNTIME_EVIDENCE_PROJECTION_PUBLISHED_EVENT = "runtime_evidence_projection_published"
 
 
-class RuntimeControlBus:
-    """Typed control/signal spine over RuntimeEventLog.
+class RuntimeGateway:
+    """Typed runtime signal gateway over RuntimeEventLog.
 
-    The bus records and drains control facts. It does not decide intent,
+    The gateway records and drains control facts. It does not decide intent,
     grant permissions, execute tools, assemble prompts, or commit output.
     """
 
@@ -174,6 +174,22 @@ class RuntimeControlBus:
             if signal is not None and signal.signal_id == wanted:
                 return signal
         return None
+
+    def can_consume_by_id(self, run_id: str, *, signal_id: str) -> bool:
+        normalized_run_id = str(run_id or "").strip()
+        normalized_signal_id = str(signal_id or "").strip()
+        if not normalized_run_id or not normalized_signal_id:
+            return False
+        events = self.event_log.list_events(normalized_run_id)
+        if normalized_signal_id in _consumed_signal_ids(events):
+            return False
+        for event in events:
+            if event.event_type != CONTROL_SIGNAL_PUBLISHED_EVENT:
+                continue
+            signal = runtime_signal_from_event_payload(dict(event.payload or {}))
+            if signal is not None and signal.signal_id == normalized_signal_id:
+                return True
+        return False
 
     def mark_observed_by_id(
         self,

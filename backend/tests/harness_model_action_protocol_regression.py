@@ -4,8 +4,28 @@ import json
 from types import SimpleNamespace
 
 from tests.support.harness_runtime_facade_support import *
+from harness.runtime.control_events import RuntimeSignalScope
 from harness.loop.model_action_protocol import ModelActionRequest
 from harness.loop.task_lifecycle import contract_from_action_request
+
+
+def _turn_runtime_gateway_signals(
+    runtime,
+    turn_run_id: str,
+    event_type: str,
+    *,
+    signal_type: str = "control.signal.requested",
+) -> list[dict[str, object]]:
+    host = runtime.single_agent_runtime_host
+    signals: list[dict[str, object]] = []
+    for event in host.event_log.list_events(turn_run_id):
+        if event.event_type != event_type:
+            continue
+        signal = dict(dict(event.payload or {}).get("signal") or {})
+        if signal.get("signal_type") != signal_type:
+            continue
+        signals.append(signal)
+    return signals
 
 
 def _agent_contract_feedback_payloads(events: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -952,14 +972,39 @@ def test_invalid_json_action_text_recovers_through_control_signal_without_leakin
     events = asyncio.run(_collect())
     event_types = [str(event.get("type") or "") for event in events]
     admissions = _admission_payloads(events)
+    control_signal_events = [event for event in events if event.get("type") == "turn_runtime_control_signal_observed"]
     control_signals = [
         dict(dict(event.get("event") or {}).get("payload") or {}).get("runtime_control_signal")
-        for event in events
-        if event.get("type") == "turn_runtime_control_signal_observed"
+        for event in control_signal_events
     ]
+    protocol_signal = next(
+        dict(signal or {})
+        for signal in control_signals
+        if dict(signal or {}).get("signal_kind") == "model_protocol_violation"
+    )
+    protocol_event = next(
+        event
+        for event in control_signal_events
+        if dict(dict(dict(event.get("event") or {}).get("payload") or {}).get("runtime_control_signal") or {}).get("runtime_control_signal_ref")
+        == protocol_signal.get("runtime_control_signal_ref")
+    )
+    protocol_signal_ref = str(protocol_signal.get("runtime_control_signal_ref") or "")
+    protocol_turn_run_id = str(dict(dict(protocol_event.get("event") or {}).get("refs") or {}).get("turn_run_ref") or "")
+    gateway_requested = _turn_runtime_gateway_signals(runtime, protocol_turn_run_id, "runtime_control_signal_published")
+    gateway_observed = _turn_runtime_gateway_signals(runtime, protocol_turn_run_id, "runtime_control_signal_observed")
 
     assert "bounded_observation" not in event_types
     assert any(dict(signal or {}).get("signal_kind") == "model_protocol_violation" for signal in control_signals)
+    assert any(str(item.get("signal_id") or "") == protocol_signal_ref for item in gateway_requested)
+    assert any(str(item.get("signal_id") or "") == protocol_signal_ref for item in gateway_observed)
+    gateway_signal = next(item for item in gateway_requested if str(item.get("signal_id") or "") == protocol_signal_ref)
+    assert dict(gateway_signal.get("payload") or {}).get("adapter") == "single_agent_turn_runtime_control_boundary"
+    assert dict(gateway_signal.get("payload") or {}).get("signal_kind") == "model_protocol_violation"
+    assert runtime.single_agent_runtime_host.runtime_gateway.drain(
+        protocol_turn_run_id,
+        scope=RuntimeSignalScope(turn_run_id=protocol_turn_run_id),
+        signal_types={"control.signal.requested"},
+    ).pending_signals == ()
     assert admissions
     assert any(event.get("type") == "done" and "协议修复后完成" in str(event.get("content") or "") for event in events)
     assert not any(event.get("type") == "done" and "harness.loop.model_action_request" in str(event.get("content") or "") for event in events)

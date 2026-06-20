@@ -202,7 +202,7 @@ export function NodeConfigurationWorkbench({
         <div>
           <span>节点配置</span>
           <h3>节点角色、契约与运行装配</h3>
-          <p>节点配置只管理节点主数据和引用关系；agent 注册、Provider、密钥和运行档案仍由编排系统维护。</p>
+          <p>节点配置只管理节点主数据和引用关系；agent 注册、Provider、密钥和运行档案仍由 Agent 管理系统维护。</p>
         </div>
         <div className="boundary-actions">
           <TaskSystemToolbarButton onClick={createDraft}><Plus size={15} />新节点配置</TaskSystemToolbarButton>

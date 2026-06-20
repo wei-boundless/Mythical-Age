@@ -35,7 +35,7 @@ export function OrchestrationView() {
       removeAgentById={async (agentId, agentName) => {
         if (await confirm({
           title: `删除 Agent「${agentName || agentId}」`,
-          body: "该 Agent 会从编排配置中移除。",
+          body: "该 Agent 会从 Agent 管理配置中移除。",
           confirmLabel: "删除 Agent",
         })) {
           void controller.removeAgent(agentId);
@@ -46,7 +46,7 @@ export function OrchestrationView() {
         const groupName = controller.selectedGroup?.title || controller.selectedGroupId;
         if (await confirm({
           title: `删除 Agent 组「${groupName}」`,
-          body: "该组会从编排配置中移除，组内 Agent 不会被删除。",
+          body: "该组会从 Agent 管理配置中移除，组内 Agent 不会被删除。",
           confirmLabel: "删除组",
           tone: "warning",
         })) {

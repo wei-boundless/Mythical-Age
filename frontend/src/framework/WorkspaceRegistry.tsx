@@ -79,9 +79,9 @@ export const WORKSPACE_REGISTRY: Record<WorkspaceView, WorkspaceViewDefinition> 
     view: "task-system",
   },
   orchestration: {
-    label: "编排系统",
+    label: "Agent 管理系统",
     render: () => (
-      <SystemPageShell label="编排系统" view="orchestration">
+      <SystemPageShell label="Agent 管理系统" view="orchestration">
         <LazyView><OrchestrationView /></LazyView>
       </SystemPageShell>
     ),

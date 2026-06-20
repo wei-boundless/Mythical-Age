@@ -8,7 +8,7 @@ import type { StoreState } from "./types";
 const api = vi.hoisted(() => ({
   createSession: vi.fn(),
   deleteSession: vi.fn(),
-  deriveSessionTitleFromSummary: vi.fn(),
+  deriveSessionTitleFromFirstUserMessage: vi.fn(),
   enqueueQueuedChatInput: vi.fn(),
   getCodeEnvironmentWorkspaceTree: vi.fn(),
   getProjectWorkspaceTree: vi.fn(),
@@ -63,7 +63,7 @@ const api = vi.hoisted(() => ({
 vi.mock("@/lib/api", () => ({
   createSession: api.createSession,
   deleteSession: api.deleteSession,
-  deriveSessionTitleFromSummary: api.deriveSessionTitleFromSummary,
+  deriveSessionTitleFromFirstUserMessage: api.deriveSessionTitleFromFirstUserMessage,
   enqueueQueuedChatInput: api.enqueueQueuedChatInput,
   submitGraphRunUntilIdle: api.submitGraphRunUntilIdle,
   evaluateTaskGraphRunMonitor: vi.fn(),
@@ -748,10 +748,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     api.deleteSession.mockReset();
     api.deleteSession.mockResolvedValue({ ok: true });
-    api.deriveSessionTitleFromSummary.mockReset();
-    api.deriveSessionTitleFromSummary.mockResolvedValue({
+    api.deriveSessionTitleFromFirstUserMessage.mockReset();
+    api.deriveSessionTitleFromFirstUserMessage.mockResolvedValue({
       session_id: "session:fresh",
-      title: "摘要标题",
+      title: "首轮标题",
     });
     api.getPermissionMode.mockReset();
     api.getPermissionMode.mockResolvedValue({
@@ -5488,9 +5488,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().currentSessionId).toBe("session:new");
   });
 
-  it("derives a session title from the committed summary after the first completed turn", async () => {
+  it("derives a session title from the first user message after the first completed turn", async () => {
     vi.useRealTimers();
-    api.deriveSessionTitleFromSummary.mockResolvedValueOnce({
+    api.deriveSessionTitleFromFirstUserMessage.mockResolvedValueOnce({
       session_id: "session:fresh",
       title: "会话标题修复",
     });
@@ -5507,7 +5507,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await runtime.actions.sendMessage("我的对话名怎么都成 New Session 了，帮我修一下");
     await flushPromises(8);
 
-    expect(api.deriveSessionTitleFromSummary).toHaveBeenCalledWith("session:fresh", undefined);
+    expect(api.deriveSessionTitleFromFirstUserMessage).toHaveBeenCalledWith("session:fresh", undefined);
     expect(store.getState().sessions.find((session) => session.id === "session:fresh")?.title).toBe("会话标题修复");
   });
 
@@ -5536,7 +5536,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await runtime.actions.sendMessage("这句话不应该覆盖标题");
     await flushPromises(8);
 
-    expect(api.deriveSessionTitleFromSummary).not.toHaveBeenCalled();
+    expect(api.deriveSessionTitleFromFirstUserMessage).not.toHaveBeenCalled();
     expect(store.getState().sessions.find((session) => session.id === "session:manual")?.title).toBe("手动标题");
   });
 

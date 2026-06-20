@@ -790,7 +790,7 @@ function makeOrchestrationSnapshot(state: StoreState, userContent: string): Orch
     execution_mode: "running",
     route: "pending",
     status: "running",
-    summary: "当前请求正在进入编排链路。",
+    summary: "当前请求正在进入执行链路。",
     problem_node_id: "",
     nodes,
     edges: deriveOrchestrationEdges(nodes),
@@ -962,10 +962,10 @@ function publicStreamEventLabel(event: string) {
 
 function runtimeControlWarningLabel(warning: string) {
   if (warning === "validation_blocked") {
-    return "编排校验未通过";
+    return "执行校验未通过";
   }
   if (warning === "contract_incomplete") {
-    return "正式编排契约不完整";
+    return "正式执行契约不完整";
   }
   if (warning === "execution_directive_missing") {
     return "缺少执行指令";

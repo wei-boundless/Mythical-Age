@@ -82,12 +82,13 @@ class TaskStateProjector:
             observation_projection.get("pending_tool_control_actions"),
             limit=12,
         )
+        runtime_control_signals = list(dict_tuple(execution_projection.get("runtime_control_signals")))
         payload = {
             "runtime_status": str(execution_projection.get("runtime_status") or task_run_state.get("status") or ""),
             "current_step": dict(execution_projection.get("current_step") or {}),
             "pending_tool_control_actions": pending_tool_control_actions,
-            "runtime_control_signals": list(dict_tuple(execution_projection.get("runtime_control_signals"))),
-            "latest_runtime_control_signal": dict(execution_projection.get("latest_runtime_control_signal") or {}),
+            "runtime_control_signals": runtime_control_signals,
+            "latest_runtime_control_signal": dict(runtime_control_signals[-1]) if runtime_control_signals else {},
             "current_facts": current_facts,
             "authoritative_subagent_results": authoritative_subagent_results,
             "file_state": file_state,
@@ -297,6 +298,7 @@ def _task_state_cursor_projection(
     cursor.pop("historical_failures", None)
     cursor.pop("pending_user_steers", None)
     cursor.pop("runtime_control_signals", None)
+    cursor.pop("latest_runtime_control_signal", None)
     cursor.pop("runtime_boundary", None)
     cursor["file_evidence_decisions"] = _cursor_file_evidence_decisions_projection(
         dict(cursor.get("file_evidence_decisions") or {})

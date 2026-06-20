@@ -207,16 +207,20 @@ window.generatePDF = async function() {
         var activeId = ls.get('resume-active-copy-id', 'default');
         var active = copies ? copies.find(function(c) { return c.id === activeId; }) : null;
         var fileName = active ? active.name + '.pdf' : '个人简历.pdf';
+        // 显式锁定容器宽度，避免 html2canvas 在居中布局下偏移裁剪
+        var origWidth = container.style.width;
+        container.style.width = container.scrollWidth + 'px';
         var opt = {
             margin: [0.4, 0.4, 0.4, 0.4],
             filename: fileName,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 0.55, useCORS: true, letterRendering: true },
+            image: { type: 'png' },
+            html2canvas: { scale: 4, useCORS: true, letterRendering: true, logging: false },
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
             pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
         };
         if (typeof html2pdf !== 'undefined') {
             await html2pdf().set(opt).from(container).save();
+            container.style.width = origWidth;
             if (typeof showToast === 'function') showToast('PDF 已下载');
         } else {
             if (typeof showToast === 'function') showToast('PDF 库未加载，请使用打印功能');
@@ -247,9 +251,9 @@ const TEMPLATES = {
         },
         render(data) {
             const d = data || {};
-            const avatarHtml = d.photo
-                ? `<div class="avatar photo-avatar" style="border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
-                : `<div class="avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`;
+            const avatarHtml = d.showPhoto === false ? '' : (d.photo
+                ? `<div class="avatar photo-avatar" style="${getPhotoSizeStyle(d.photoSize)}border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
+                : `<div class="avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`);
             const contactsHtml = (d.contacts || []).map(c =>
                 `<div class="contact-item"><span class="icon">${escapeHtml(c.icon || '')}</span><span>${escapeHtml(c.value || '')}</span></div>`
             ).join('');
@@ -317,9 +321,9 @@ const TEMPLATES = {
         },
         render(data) {
             const d = data || {};
-            const avatarHtml = d.photo
-                ? `<div class="fw-avatar photo-avatar" style="border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
-                : `<div class="fw-avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`;
+            const avatarHtml = d.showPhoto === false ? '' : (d.photo
+                ? `<div class="fw-avatar photo-avatar" style="${getPhotoSizeStyle(d.photoSize)}border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
+                : `<div class="fw-avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`);
             const contactsHtml = (d.contacts || []).map(c =>
                 `<span class="fw-contact-item">${escapeHtml(c.icon || '')} ${escapeHtml(c.value || '')}</span>`
             ).join(' | ');
@@ -391,9 +395,9 @@ const TEMPLATES = {
         },
         render(data) {
             const d = data || {};
-            const avatarHtml = d.photo
-                ? `<div class="cg-avatar photo-avatar" style="border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
-                : `<div class="cg-avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`;
+            const avatarHtml = d.showPhoto === false ? '' : (d.photo
+                ? `<div class="cg-avatar photo-avatar" style="${getPhotoSizeStyle(d.photoSize)}border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
+                : `<div class="cg-avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`);
             const contactsHtml = (d.contacts || []).map(c =>
                 `<div class="contact-item"><span class="icon">${escapeHtml(c.icon || '')}</span><span>${escapeHtml(c.value || '')}</span></div>`
             ).join('');
@@ -454,9 +458,9 @@ const TEMPLATES = {
         },
         render(data) {
             const d = data || {};
-            const avatarHtml = d.photo
-                ? `<div class="vs-avatar photo-avatar" style="border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
-                : `<div class="vs-avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`;
+            const avatarHtml = d.showPhoto === false ? '' : (d.photo
+                ? `<div class="vs-avatar photo-avatar" style="${getPhotoSizeStyle(d.photoSize)}border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
+                : `<div class="vs-avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`);
             const contactsHtml = (d.contacts || []).map(c =>
                 `<span class="vs-contact">${escapeHtml(c.icon || '')} ${escapeHtml(c.value || '')}</span>`
             ).join('');
@@ -523,9 +527,9 @@ const TEMPLATES = {
         },
         render(data) {
             const d = data || {};
-            const avatarHtml = d.photo
-                ? `<div class="pl-avatar photo-avatar" style="border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
-                : `<div class="pl-avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`;
+            const avatarHtml = d.showPhoto === false ? '' : (d.photo
+                ? `<div class="pl-avatar photo-avatar" style="${getPhotoSizeStyle(d.photoSize)}border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
+                : `<div class="pl-avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`);
             const contactsHtml = (d.contacts || []).map(c =>
                 `<div class="pl-contact-item"><span class="pl-contact-icon">${escapeHtml(c.icon || '')}</span><span>${escapeHtml(c.value || '')}</span></div>`
             ).join('');
@@ -592,9 +596,9 @@ const TEMPLATES = {
         },
         render(data) {
             const d = data || {};
-            const avatarHtml = d.photo
-                ? `<div class="dt-avatar photo-avatar" style="border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
-                : `<div class="dt-avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`;
+            const avatarHtml = d.showPhoto === false ? '' : (d.photo
+                ? `<div class="dt-avatar photo-avatar" style="${getPhotoSizeStyle(d.photoSize)}border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
+                : `<div class="dt-avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`);
             const contactsHtml = (d.contacts || []).map(c =>
                 `<span class="dt-contact">${escapeHtml(c.icon || '')} ${escapeHtml(c.value || '')}</span>`
             ).join(' | ');
@@ -670,9 +674,9 @@ const TEMPLATES = {
         },
         render(data) {
             const d = data || {};
-            const avatarHtml = d.photo
-                ? `<div class=\"lg-avatar photo-avatar\" style=\"border-radius:${getPhotoRadius(d.photoShape)}\"><img src=\"${escapeHtml(d.photo)}\" alt=\"avatar\" loading=\"lazy\" style=\"border-radius:${getPhotoRadius(d.photoShape)}\" /></div>`
-                : `<div class=\"lg-avatar\">${escapeHtml((d.name || '?').charAt(0))}</div>`;
+            const avatarHtml = d.showPhoto === false ? '' : (d.photo
+                ? `<div class=\"lg-avatar photo-avatar\" style=\"${getPhotoSizeStyle(d.photoSize)}border-radius:${getPhotoRadius(d.photoShape)}\"><img src=\"${escapeHtml(d.photo)}\" alt=\"avatar\" loading=\"lazy\" style=\"border-radius:${getPhotoRadius(d.photoShape)}\" /></div>`
+                : `<div class=\"lg-avatar\">${escapeHtml((d.name || '?').charAt(0))}</div>`);
             const contactsHtml = (d.contacts || []).map(c =>
                 `<span class=\"lg-contact-item\"><span class=\"icon\">${escapeHtml(c.icon || '')}</span><span>${escapeHtml(c.value || '')}</span></span>`
             ).join('');
@@ -741,6 +745,8 @@ const DEFAULT_RESUME_DATA = {
     subtitle: '全栈开发工程师',
     photo: '',
     photoShape: 'circle',
+    photoSize: 'small',
+    showPhoto: true,
     contacts: [
         { icon: '📧', value: 'zhangsan@example.com' },
         { icon: '📱', value: '138-0000-0000' },
@@ -819,7 +825,8 @@ const DEFAULT_RESUME_DATA = {
     ],
     customSections: [],
     typography: {
-        fontSize: 'medium',
+        fontFamily: '',
+        fontSize: 13,
         lineHeight: 'normal'
     }
 };
@@ -999,7 +1006,7 @@ function populateResumeData(data) {
     });
 
     // 应用字体设置
-    const typo = data.typography || { fontSize: 'medium', lineHeight: 'normal' };
+    const typo = data.typography || { fontFamily: '', fontSize: 13, lineHeight: 'normal' };
     const container = root.querySelector('.container');
     if (container) {
         applyTypography(container, typo);
@@ -1114,6 +1121,118 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
+// ===== 安全 HTML 过滤（只允许白名单标签，用于富文本渲染） =====
+function sanitizeHtml(html) {
+    if (!html) return '';
+    var div = document.createElement('div');
+    div.innerHTML = html;
+    var allowed = ['b','i','u','strong','em','span','font','p','br','ul','ol','li','img','svg','path','g','rect','circle','line','text','tspan','a'];
+    function clean(node) {
+        if (node.nodeType === 1) {
+            var tag = node.tagName.toLowerCase();
+            if (allowed.indexOf(tag) === -1) {
+                while (node.firstChild) node.parentNode.insertBefore(node.firstChild, node);
+                node.parentNode.removeChild(node);
+                return;
+            }
+            var dangerous = ['onclick','onerror','onload','onmouseover','onchange','oninput','onfocus','onblur','onkeydown','onkeyup','onkeypress','onmousedown','onmouseup','onmousemove','onmouseout','onmouseenter','onmouseleave','onsubmit','onreset','onselect','onchange','ondblclick','oncontextmenu'];
+            for (var a = 0; a < dangerous.length; a++) node.removeAttribute(dangerous[a]);
+            if (tag === 'a') {
+                var href = node.getAttribute('href');
+                if (href && !href.startsWith('http') && !href.startsWith('https') && !href.startsWith('#')) {
+                    node.removeAttribute('href');
+                }
+            }
+            if (tag === 'img') {
+                var src = node.getAttribute('src');
+                if (src && !src.startsWith('data:') && !src.startsWith('http')) {
+                    node.removeAttribute('src');
+                }
+            }
+            Array.from(node.childNodes).forEach(clean);
+        }
+    }
+    Array.from(div.childNodes).forEach(clean);
+    return div.innerHTML;
+}
+
+// ===== 富文本工具栏初始化 =====
+function initRichToolbar(editorId) {
+    var container = document.getElementById(editorId);
+    if (!container) return;
+    container.querySelectorAll('.rich-toolbar button[data-cmd]').forEach(function(btn) {
+        btn.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            var editor = btn.closest('.rich-editor');
+            var content = editor ? editor.querySelector('[contenteditable]') : null;
+            if (content) content.focus();
+            var cmd = btn.dataset.cmd;
+            if (cmd === 'insertSVG') {
+                var code = prompt('请输入SVG代码：', '<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/></svg>');
+                if (code) document.execCommand('insertHTML', false, sanitizeHtml(code));
+            } else {
+                document.execCommand(cmd, false, null);
+            }
+        });
+    });
+    container.querySelectorAll('.rich-toolbar select[data-cmd]').forEach(function(sel) {
+        sel.addEventListener('change', function(e) {
+            var editor = sel.closest('.rich-editor');
+            var content = editor ? editor.querySelector('[contenteditable]') : null;
+            if (content) content.focus();
+            document.execCommand(sel.dataset.cmd, false, sel.value);
+        });
+    });
+}
+
+function pointsToHtml(points) {
+    return (points || []).map(function(p) { return '<p>' + sanitizeHtml(p) + '</p>'; }).join('');
+}
+function htmlToPoints(html) {
+    var div = document.createElement('div');
+    div.innerHTML = html;
+    var result = [];
+    div.querySelectorAll('p').forEach(function(p) {
+        var t = p.innerHTML.trim();
+        if (t) result.push(t);
+    });
+    if (result.length === 0) {
+        var text = div.textContent.trim();
+        if (text) result = text.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+    }
+    return result;
+}
+
+function makeRichToolbarHtml() {
+    return '<div class="rich-toolbar">' +
+        '<button data-cmd="bold" title="加粗"><b>B</b></button>' +
+        '<button data-cmd="italic" title="斜体"><i>I</i></button>' +
+        '<button data-cmd="underline" title="下划线"><u>U</u></button>' +
+        '<span class="toolbar-sep"></span>' +
+        '<select data-cmd="fontName" title="字体">' +
+            '<option value="">默认字体</option>' +
+            '<option value="微软雅黑">微软雅黑</option>' +
+            '<option value="宋体">宋体</option>' +
+            '<option value="Arial">Arial</option>' +
+            '<option value="Times New Roman">Times New Roman</option>' +
+        '</select>' +
+        '<select data-cmd="fontSize" title="字号">' +
+            '<option value="3">默认</option>' +
+            '<option value="1">极小</option>' +
+            '<option value="2">小</option>' +
+            '<option value="4">中</option>' +
+            '<option value="5">大</option>' +
+            '<option value="6">特大</option>' +
+            '<option value="7">极大</option>' +
+        '</select>' +
+        '<span class="toolbar-sep"></span>' +
+        '<button data-cmd="insertUnorderedList" title="项目符号">&#8226; 列表</button>' +
+        '<button data-cmd="insertOrderedList" title="编号列表">1. 列表</button>' +
+        '<span class="toolbar-sep"></span>' +
+        '<button data-cmd="insertSVG" title="插入SVG图标">SVG</button>' +
+    '</div>';
+}
+
 // ===== 照片上传辅助 =====
 window.handlePhotoFileSelect = function(event) {
     const file = event.target.files?.[0];
@@ -1134,12 +1253,39 @@ function getPhotoRadius(shape) {
     return map[shape] || '50%';
 }
 
+function getPhotoSizeValue(size) {
+    var map = { small: null, medium: 150, large: 200 };
+    return map[size] || null;
+}
+
+function getPhotoSizeStyle(size) {
+    var px = getPhotoSizeValue(size);
+    return px ? 'width:' + px + 'px;height:' + px + 'px;' : '';
+}
+
 window.updatePhotoPreview = function(url) {
     const preview = document.getElementById('edit-photo-preview');
     if (!preview) return;
+    const show = document.getElementById('edit-photo-show');
+    if (show && !show.checked) {
+        preview.style.width = '48px';
+        preview.style.height = '48px';
+        preview.style.borderRadius = '50%';
+        preview.innerHTML = '🚫 已隐藏';
+        return;
+    }
     const shape = document.getElementById('edit-photo-shape')?.value || 'circle';
+    const size = document.getElementById('edit-photo-size')?.value || 'small';
     const radius = getPhotoRadius(shape);
+    const px = getPhotoSizeValue(size);
     preview.style.borderRadius = radius;
+    if (px) {
+        preview.style.width = px + 'px';
+        preview.style.height = px + 'px';
+    } else {
+        preview.style.width = '48px';
+        preview.style.height = '48px';
+    }
     if (url && url.trim()) {
         preview.innerHTML = `<img src="${escapeHtml(url.trim())}" style="width:100%;height:100%;object-fit:cover;border-radius:${radius}" />`;
     } else {
@@ -1253,46 +1399,58 @@ function renderEditorForm(data) {
     // 基本信息
     const currentPhoto = d.photo || '';
     const photoShape = d.photoShape || 'circle';
+    const photoSize = d.photoSize || 'small';
     const photoRadius = getPhotoRadius(photoShape);
+    const photoPx = getPhotoSizeValue(photoSize);
+    const previewSize = photoPx ? photoPx + 'px' : '48px';
     html += `<section class="editor-section">
         <h3 class="editor-section-title">基本信息</h3>
         <div class="form-group"><label>照片</label>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                 <input type="file" id="edit-photo-file" accept="image/*" style="flex:1;padding:4px;font-size:12px" onchange="handlePhotoFileSelect(event)" />
                 <input class="form-input" id="edit-photo-url" placeholder="或输入图片链接" value="${escapeHtml(currentPhoto)}" style="flex:2" oninput="updatePhotoPreview(this.value)" />
-                <div id="edit-photo-preview" style="width:48px;height:48px;border-radius:${photoRadius};overflow:hidden;border:2px solid var(--primary);flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--bg);font-size:20px;color:var(--text-secondary)">${currentPhoto ? `<img src="${escapeHtml(currentPhoto)}" style="width:100%;height:100%;object-fit:cover;border-radius:${photoRadius}" />` : '📷'}</div>
+                <div id="edit-photo-preview" style="width:${previewSize};height:${previewSize};border-radius:${photoRadius};overflow:hidden;border:2px solid var(--primary);flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--bg);font-size:20px;color:var(--text-secondary)">${currentPhoto ? `<img src="${escapeHtml(currentPhoto)}" style="width:100%;height:100%;object-fit:cover;border-radius:${photoRadius}" />` : '📷'}</div>
             </div>
-            <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                <label style="font-size:12px;color:var(--text-secondary)">照片形状：</label>
+            <div style="margin-top:6px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+                <span style="font-size:12px;color:var(--text-secondary)">照片形状：</span>
                 <select id="edit-photo-shape" onchange="updatePhotoPreview(document.getElementById('edit-photo-url').value)" style="font-size:12px;padding:2px 6px">
                     <option value="circle" ${photoShape === 'circle' ? 'selected' : ''}>圆形</option>
                     <option value="rounded" ${photoShape === 'rounded' ? 'selected' : ''}>圆角方形</option>
                     <option value="square" ${photoShape === 'square' ? 'selected' : ''}>方形</option>
                 </select>
+                <span style="font-size:12px;color:var(--text-secondary)">照片尺寸：</span>
+                <select id="edit-photo-size" onchange="updatePhotoPreview(document.getElementById('edit-photo-url').value)" style="font-size:12px;padding:2px 6px">
+                    <option value="small" ${photoSize === 'small' ? 'selected' : ''}>小（默认）</option>
+                    <option value="medium" ${photoSize === 'medium' ? 'selected' : ''}>中（150px）</option>
+                    <option value="large" ${photoSize === 'large' ? 'selected' : ''}>大（200px，约一寸照）</option>
+                </select>
+                <label style="font-size:12px;display:flex;align-items:center;gap:4px;margin-left:auto;cursor:pointer">
+                    <input type="checkbox" id="edit-photo-show" ${d.showPhoto !== false ? 'checked' : ''} onchange="updatePhotoPreview(document.getElementById('edit-photo-url').value)" />
+                    显示照片
+                </label>
             </div>
-            <small style="color:var(--text-secondary);font-size:11px;margin-top:4px;display:block">选择本地图片（自动转为DataURL）或粘贴网络图片链接</small>
+            <small style="color:var(--text-secondary);font-size:11px;margin-top:4px;display:block">选择本地图片（自动转为DataURL）或粘贴网络图片链接。照片尺寸说明：小=各模板默认大小，中≈150px，大≈200px（一寸照标准物理尺寸25×35mm，200px方形在屏幕上接近真实比例）</small>
         </div>
         <div class="form-group"><label>姓名</label><input class="form-input" id="edit-name" value="${escapeHtml(d.name || '')}" /></div>
-        <div class="form-group"><label>职位</label><input class="form-input" id="edit-subtitle" value="${escapeHtml(d.subtitle || '')}" /></div>
+        <div class="form-group"><label>意向岗位</label><input class="form-input" id="edit-subtitle" value="${escapeHtml(d.subtitle || '')}" /></div>
     </section>`;
 
     // 字体设置
-    const typo = d.typography || { fontSize: 'medium', lineHeight: 'normal' };
+    const typo = d.typography || { fontFamily: '', fontSize: 13, lineHeight: 'normal' };
     html += `<section class="editor-section">
         <h3 class="editor-section-title">字体设置</h3>
         <div class="form-row">
-            <div class="form-group" style="flex:1"><label>字号</label><select class="form-input" id="edit-font-size">
-                <option value="small" ${typo.fontSize === 'small' ? 'selected' : ''}>小</option>
-                <option value="medium" ${typo.fontSize === 'medium' ? 'selected' : ''}>中（默认）</option>
-                <option value="large" ${typo.fontSize === 'large' ? 'selected' : ''}>大</option>
-            </select></div>
+            <div class="form-group" style="flex:1"><label>字体</label><input class="form-input" id="edit-font-family" value="${escapeHtml(typo.fontFamily || '')}" placeholder="例如：微软雅黑, Arial, sans-serif" /></div>
+            <div class="form-group" style="flex:1"><label>字号（px）</label><input class="form-input" id="edit-font-size" type="number" min="8" max="72" value="${typo.fontSize || 13}" placeholder="13" /></div>
+        </div>
+        <div class="form-row">
             <div class="form-group" style="flex:1"><label>行高</label><select class="form-input" id="edit-line-height">
                 <option value="compact" ${typo.lineHeight === 'compact' ? 'selected' : ''}>紧凑</option>
                 <option value="normal" ${typo.lineHeight === 'normal' ? 'selected' : ''}>标准（默认）</option>
                 <option value="relaxed" ${typo.lineHeight === 'relaxed' ? 'selected' : ''}>宽松</option>
             </select></div>
         </div>
-        <p style="font-size:12px;color:var(--text-secondary);margin:0">调整后保存即可预览效果</p>
+        <p style="font-size:12px;color:var(--text-secondary);margin:0">字体为空则使用模板默认字体。调整后保存即可预览效果。</p>
     </section>`;
 
     // 联系方式
@@ -1342,10 +1500,13 @@ function renderEditorForm(data) {
     });
     html += `</div></section>`;
 
-    // 关于我
+    // 关于我（富文本）
     html += `<section class="editor-section">
         <h3 class="editor-section-title">关于我</h3>
-        <textarea class="form-textarea" id="edit-about" rows="3">${escapeHtml(d.about || '')}</textarea>
+        <div class="rich-editor" id="rich-about-wrap">
+            ${makeRichToolbarHtml()}
+            <div class="rich-editor-content" id="edit-about" contenteditable="true">${sanitizeHtml(d.about || '')}</div>
+        </div>
     </section>`;
 
     // 工作经验
@@ -1369,7 +1530,7 @@ function renderEditorForm(data) {
                 <div class="form-group"><label>职位</label><input class="form-input exp-title" value="${escapeHtml(e.title||'')}" /></div>
                 <div class="form-group"><label>公司</label><input class="form-input exp-company" value="${escapeHtml(e.company||'')}" /></div>
                 <div class="form-group"><label>日期</label><input class="form-input exp-date" value="${escapeHtml(e.date||'')}" /></div>
-                <div class="form-group"><label>职责要点（每行一条）</label><textarea class="form-textarea exp-points" rows="3">${(e.points||[]).join('\n')}</textarea></div>
+                <div class="form-group"><label>职责要点</label><div class="rich-editor" id="rich-exp-points-${i}">${makeRichToolbarHtml()}<div class="rich-editor-content exp-points" contenteditable="true">${pointsToHtml(e.points)}</div></div></div>
             </div>
         </div>`;
     });
@@ -1422,7 +1583,7 @@ function renderEditorForm(data) {
             <div class="form-card-body">
                 <div class="form-group"><label>项目名称</label><input class="form-input proj-title" value="${escapeHtml(p.title||'')}" /></div>
                 <div class="form-group"><label>技术栈</label><input class="form-input proj-tech" value="${escapeHtml(p.tech||'')}" /></div>
-                <div class="form-group"><label>要点（每行一条）</label><textarea class="form-textarea proj-points" rows="3">${(p.points||[]).join('\n')}</textarea></div>
+                <div class="form-group"><label>要点</label><div class="rich-editor" id="rich-proj-points-${i}">${makeRichToolbarHtml()}<div class="rich-editor-content proj-points" contenteditable="true">${pointsToHtml(p.points)}</div></div></div>
             </div>
         </div>`;
     });
@@ -1454,11 +1615,16 @@ function renderEditorForm(data) {
     html += `</div></section>`;
 
     body.innerHTML = html;
+    // 初始化富文本工具栏
+    body.querySelectorAll('.rich-editor').forEach(function(el) {
+        initRichToolbar(el.id);
+    });
 }
 
 function saveEditorData() {
     const photoUrl = document.getElementById('edit-photo-url')?.value?.trim() || '';
-    const fontSize = document.getElementById('edit-font-size')?.value || 'medium';
+    const fontFamily = document.getElementById('edit-font-family')?.value?.trim() || '';
+    const fontSizeVal = parseInt(document.getElementById('edit-font-size')?.value) || 13;
     const lineHeight = document.getElementById('edit-line-height')?.value || 'normal';
 
     const data = {
@@ -1466,16 +1632,19 @@ function saveEditorData() {
         subtitle: document.getElementById('edit-subtitle')?.value?.trim() || '',
         photo: photoUrl,
         photoShape: document.getElementById('edit-photo-shape')?.value || 'circle',
+        photoSize: document.getElementById('edit-photo-size')?.value || 'small',
+        showPhoto: document.getElementById('edit-photo-show')?.checked !== false,
         contacts: [],
         skills: [],
         languages: [],
-        about: document.getElementById('edit-about')?.value?.trim() || '',
+        about: sanitizeHtml(document.getElementById('edit-about')?.innerHTML?.trim() || ''),
         experiences: [],
         education: [],
         projects: [],
         customSections: [],
         typography: {
-            fontSize: fontSize,
+            fontFamily: fontFamily,
+            fontSize: fontSizeVal,
             lineHeight: lineHeight
         }
     };
@@ -1498,7 +1667,8 @@ function saveEditorData() {
     });
 
     document.querySelectorAll('#editor-experiences .form-card').forEach(card => {
-        const pts = (card.querySelector('.exp-points')?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+        var ptsEl = card.querySelector('.exp-points');
+        var pts = ptsEl ? htmlToPoints(ptsEl.innerHTML) : [];
         data.experiences.push({
             title: card.querySelector('.exp-title')?.value?.trim() || '',
             company: card.querySelector('.exp-company')?.value?.trim() || '',
@@ -1517,7 +1687,8 @@ function saveEditorData() {
     });
 
     document.querySelectorAll('#editor-projects .form-card').forEach(card => {
-        const pts = (card.querySelector('.proj-points')?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+        var ptsEl = card.querySelector('.proj-points');
+        var pts = ptsEl ? htmlToPoints(ptsEl.innerHTML) : [];
         data.projects.push({
             title: card.querySelector('.proj-title')?.value?.trim() || '',
             tech: card.querySelector('.proj-tech')?.value?.trim() || '',
@@ -1574,9 +1745,11 @@ window.removeLanguageRow = function(btn) { btn.closest('.form-row').remove(); };
 
 window.addExperienceRow = function() {
     const c = document.getElementById('editor-experiences');
+    const i = c.querySelectorAll('.form-card').length;
     const div = document.createElement('div'); div.className = 'form-card';
-    div.innerHTML = '<div class="form-card-header"><span>新条目</span><div><button class="btn-move-up" onclick="moveItem(this,\'editor-experiences\',-1)" disabled>\u25b2</button><button class="btn-move-down" onclick="moveItem(this,\'editor-experiences\',1)" disabled>\u25bc</button><button class="btn-remove-sm" onclick="removeFormCard(this,\'editor-experiences\')">\u2715</button></div></div><div class="form-card-body"><div class="form-group"><label>职位</label><input class="form-input exp-title" /></div><div class="form-group"><label>公司</label><input class="form-input exp-company" /></div><div class="form-group"><label>日期</label><input class="form-input exp-date" /></div><div class="form-group"><label>职责要点（每行一条）</label><textarea class="form-textarea exp-points" rows="3"></textarea></div></div>';
+    div.innerHTML = '<div class="form-card-header"><span>新条目</span><div><button class="btn-move-up" onclick="moveItem(this,\'editor-experiences\',-1)" disabled>\u25b2</button><button class="btn-move-down" onclick="moveItem(this,\'editor-experiences\',1)" disabled>\u25bc</button><button class="btn-remove-sm" onclick="removeFormCard(this,\'editor-experiences\')">\u2715</button></div></div><div class="form-card-body"><div class="form-group"><label>职位</label><input class="form-input exp-title" /></div><div class="form-group"><label>公司</label><input class="form-input exp-company" /></div><div class="form-group"><label>日期</label><input class="form-input exp-date" /></div><div class="form-group"><label>职责要点</label><div class="rich-editor" id="rich-exp-points-' + i + '">' + makeRichToolbarHtml() + '<div class="rich-editor-content exp-points" contenteditable="true"></div></div></div></div>';
     c.appendChild(div);
+    initRichToolbar('rich-exp-points-' + i);
     refreshMoveButtons(c);
 };
 
@@ -1590,9 +1763,11 @@ window.addEducationRow = function() {
 
 window.addProjectRow = function() {
     const c = document.getElementById('editor-projects');
+    const i = c.querySelectorAll('.form-card').length;
     const div = document.createElement('div'); div.className = 'form-card';
-    div.innerHTML = '<div class="form-card-header"><span>新条目</span><div><button class="btn-move-up" onclick="moveItem(this,\'editor-projects\',-1)" disabled>\u25b2</button><button class="btn-move-down" onclick="moveItem(this,\'editor-projects\',1)" disabled>\u25bc</button><button class="btn-remove-sm" onclick="removeFormCard(this,\'editor-projects\')">\u2715</button></div></div><div class="form-card-body"><div class="form-group"><label>项目名称</label><input class="form-input proj-title" /></div><div class="form-group"><label>技术栈</label><input class="form-input proj-tech" /></div><div class="form-group"><label>要点（每行一条）</label><textarea class="form-textarea proj-points" rows="3"></textarea></div></div>';
+    div.innerHTML = '<div class="form-card-header"><span>新条目</span><div><button class="btn-move-up" onclick="moveItem(this,\'editor-projects\',-1)" disabled>\u25b2</button><button class="btn-move-down" onclick="moveItem(this,\'editor-projects\',1)" disabled>\u25bc</button><button class="btn-remove-sm" onclick="removeFormCard(this,\'editor-projects\')">\u2715</button></div></div><div class="form-card-body"><div class="form-group"><label>项目名称</label><input class="form-input proj-title" /></div><div class="form-group"><label>技术栈</label><input class="form-input proj-tech" /></div><div class="form-group"><label>要点</label><div class="rich-editor" id="rich-proj-points-' + i + '">' + makeRichToolbarHtml() + '<div class="rich-editor-content proj-points" contenteditable="true"></div></div></div></div>';
     c.appendChild(div);
+    initRichToolbar('rich-proj-points-' + i);
     refreshMoveButtons(c);
 };
 
@@ -1679,10 +1854,18 @@ function showToast(message) {
 
 // ===== 字体设置辅助函数 =====
 function applyTypography(container, typo) {
-    const fontSizeMap = { small: '12px', medium: '13px', large: '14px' };
     const lineHeightMap = { compact: '1.35', normal: '1.45', relaxed: '1.6' };
-    if (typo.fontSize && fontSizeMap[typo.fontSize]) {
-        container.style.fontSize = fontSizeMap[typo.fontSize];
+    // 自定义字体：设置到容器，子元素继承
+    if (typo.fontFamily) {
+        container.style.fontFamily = typo.fontFamily;
+    }
+    // 自定义字号：数字表示 px，直接应用到容器
+    if (typo.fontSize && typeof typo.fontSize === 'number') {
+        container.style.fontSize = typo.fontSize + 'px';
+        // 强制标题、段落、列表等常见元素继承字号
+        container.querySelectorAll('h1, h2, h3, h4, h5, h6, p, li, span, div, a').forEach(el => {
+            el.style.fontSize = 'inherit';
+        });
     }
     if (typo.lineHeight && lineHeightMap[typo.lineHeight]) {
         container.style.lineHeight = lineHeightMap[typo.lineHeight];

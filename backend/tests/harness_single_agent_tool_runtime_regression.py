@@ -1,6 +1,27 @@
 from __future__ import annotations
 
 from tests.support.harness_runtime_facade_support import *
+from harness.runtime.control_events import RuntimeSignalScope
+
+
+def _turn_runtime_gateway_signals(
+    runtime,
+    turn_run_id: str,
+    event_type: str,
+    *,
+    signal_type: str = "control.signal.requested",
+) -> list[dict[str, object]]:
+    host = runtime.single_agent_runtime_host
+    signals: list[dict[str, object]] = []
+    for event in host.event_log.list_events(turn_run_id):
+        if event.event_type != event_type:
+            continue
+        signal = dict(dict(event.payload or {}).get("signal") or {})
+        if signal.get("signal_type") != signal_type:
+            continue
+        signals.append(signal)
+    return signals
+
 
 def test_native_tool_call_action_keeps_agent_text_out_of_tool_projection() -> None:
     from harness.loop.single_agent_turn import _tool_action_request_from_native_tool_calls
@@ -878,6 +899,12 @@ def test_single_agent_turn_tool_loop_hands_budget_closeout_to_agent_without_nint
     control_signal_payload = dict(dict(control_signal_event.get("event") or {}).get("payload") or {})
     control_signal = dict(control_signal_payload.get("runtime_control_signal") or {})
     signal_ref = str(control_signal.get("runtime_control_signal_ref") or "")
+    control_refs = dict(dict(control_signal_event.get("event") or {}).get("refs") or {})
+    turn_run_id = str(control_refs.get("turn_run_ref") or "")
+    gateway_requested = _turn_runtime_gateway_signals(runtime, turn_run_id, "runtime_control_signal_published")
+    gateway_observed = _turn_runtime_gateway_signals(runtime, turn_run_id, "runtime_control_signal_observed")
+    stored_turn = runtime.single_agent_runtime_host.state_index.get_turn_run(turn_run_id)
+    stored_diagnostics = dict(getattr(stored_turn, "diagnostics", {}) or {})
 
     assert model.calls == len(observations) + 1
     assert len(observations) == 8
@@ -887,6 +914,19 @@ def test_single_agent_turn_tool_loop_hands_budget_closeout_to_agent_without_nint
     assert done["content"] == "agent closeout final"
     assert signal_ref
     assert dict(control_signal_event["event"]["refs"])["runtime_control_signal_ref"] == signal_ref
+    assert [str(item.get("signal_id") or "") for item in gateway_requested] == [signal_ref]
+    assert [str(item.get("signal_id") or "") for item in gateway_observed] == [signal_ref]
+    assert dict(gateway_requested[0].get("payload") or {}).get("adapter") == "single_agent_turn_runtime_control_boundary"
+    assert dict(gateway_requested[0].get("payload") or {}).get("signal_kind") == "tool_budget_exhausted"
+    assert dict(gateway_observed[0].get("payload") or {}).get("turn_runtime_control_event_ref") == control_signal_event["event"]["event_id"]
+    assert "latest_runtime_control_signal" not in stored_diagnostics
+    assert stored_diagnostics["latest_runtime_control_signal_ref"] == signal_ref
+    assert stored_diagnostics["latest_runtime_control_signal_kind"] == "tool_budget_exhausted"
+    assert runtime.single_agent_runtime_host.runtime_gateway.drain(
+        turn_run_id,
+        scope=RuntimeSignalScope(turn_run_id=turn_run_id),
+        signal_types={"control.signal.requested"},
+    ).pending_signals == ()
     assert model.closeout_accounting["source"] == "harness.single_agent_turn.tool_limit_closeout"
     assert model.closeout_accounting["prompt_manifest"]["invocation_kind"] == "single_agent_turn_tool_limit_closeout"
     assert model.closeout_accounting["prompt_manifest"]["allowed_action_types"] == ["respond", "ask_user", "block"]
@@ -962,12 +1002,26 @@ def test_single_agent_turn_two_consecutive_tool_failures_closeout_to_agent(tmp_p
     control_signal = next(event for event in events if event.get("type") == "turn_runtime_control_signal_observed")
     done = next(event for event in events if event.get("type") == "done")
     assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
+    control_refs = dict(dict(control_signal.get("event") or {}).get("refs") or {})
+    signal_payload = dict(dict(dict(control_signal.get("event") or {}).get("payload") or {}).get("runtime_control_signal") or {})
+    signal_ref = str(signal_payload.get("runtime_control_signal_ref") or "")
+    turn_run_id = str(control_refs.get("turn_run_ref") or "")
+    gateway_requested = _turn_runtime_gateway_signals(runtime, turn_run_id, "runtime_control_signal_published")
+    gateway_observed = _turn_runtime_gateway_signals(runtime, turn_run_id, "runtime_control_signal_observed")
 
     assert model.calls >= 3
     assert len(observations) >= 2
     assert all(item["status"] == "error" for item in observations[:2])
     control_payload = dict(dict(control_signal.get("event") or {}).get("payload") or {})
     assert dict(control_payload.get("runtime_control_signal") or {}).get("signal_kind") == "consecutive_tool_failures"
+    assert [str(item.get("signal_id") or "") for item in gateway_requested] == [signal_ref]
+    assert [str(item.get("signal_id") or "") for item in gateway_observed] == [signal_ref]
+    assert dict(gateway_requested[0].get("payload") or {}).get("signal_kind") == "consecutive_tool_failures"
+    assert runtime.single_agent_runtime_host.runtime_gateway.drain(
+        turn_run_id,
+        scope=RuntimeSignalScope(turn_run_id=turn_run_id),
+        signal_types={"control.signal.requested"},
+    ).pending_signals == ()
     assert done["terminal_reason"] == "single_turn_consecutive_tool_failures"
     assert done["answer_source"] == "harness.single_agent_turn.agent_closeout"
     assert done["content"] == "这两个文件都不存在，先停止继续读文件。"

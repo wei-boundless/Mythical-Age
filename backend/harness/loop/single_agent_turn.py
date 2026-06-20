@@ -31,6 +31,7 @@ from harness.runtime import (
     OutputCommitAuthority,
     OutputCommitRequest,
     RuntimeCompiler,
+    RuntimeSignalScope,
     ToolBatchGroup,
     build_runtime_tool_plan,
     build_tool_batch_plan,
@@ -5594,8 +5595,8 @@ def _publish_packet_evidence_projection_event(
     packet_context: dict[str, Any],
     refs: dict[str, Any] | None = None,
 ) -> Any | None:
-    control_bus = getattr(runtime_host, "control_bus", None)
-    publisher = getattr(control_bus, "publish_evidence_projection", None)
+    runtime_gateway = getattr(runtime_host, "runtime_gateway", None)
+    publisher = getattr(runtime_gateway, "publish_evidence_projection", None)
     if not callable(publisher) or not packet_context:
         return None
     projection_ref = runtime_packet_evidence_projection_ref(packet_context)
@@ -5923,6 +5924,13 @@ def _record_turn_runtime_control_signal(
     if isinstance(control_signal, dict):
         control_signal.clear()
         control_signal.update(signal)
+    published_event = _publish_turn_runtime_control_signal_to_gateway(
+        runtime_host,
+        turn_run=turn_run,
+        turn_id=turn_id,
+        packet_ref=packet_ref,
+        signal=signal,
+    )
     event = runtime_host.event_log.append(
         turn_run.turn_run_id,
         "turn_runtime_control_signal_observed",
@@ -5936,22 +5944,118 @@ def _record_turn_runtime_control_signal(
             "turn_run_ref": turn_run.turn_run_id,
             "runtime_invocation_packet_ref": packet_ref,
             "runtime_control_signal_ref": signal["runtime_control_signal_ref"],
+            **(
+                {"runtime_gateway_signal_event_ref": str(getattr(published_event, "event_id", "") or "")}
+                if published_event is not None
+                else {}
+            ),
         },
     )
+    observed_event = _mark_turn_runtime_control_signal_gateway_observed(
+        runtime_host,
+        turn_run=turn_run,
+        turn_id=turn_id,
+        packet_ref=packet_ref,
+        signal_id=str(signal["runtime_control_signal_ref"] or ""),
+        turn_event=event,
+    )
+    latest_event = observed_event or event
     current = runtime_host.state_index.get_turn_run(turn_run.turn_run_id) or turn_run
     runtime_host.state_index.upsert_turn_run(
         replace(
             current,
-            updated_at=event.created_at,
-            latest_event_offset=event.offset,
+            updated_at=getattr(latest_event, "created_at", event.created_at),
+            latest_event_offset=getattr(latest_event, "offset", event.offset),
             diagnostics={
                 **dict(current.diagnostics or {}),
-                "latest_runtime_control_signal": signal,
+                "latest_runtime_control_signal_ref": str(signal["runtime_control_signal_ref"] or ""),
+                "latest_runtime_control_signal_kind": str(signal.get("signal_kind") or ""),
                 "latest_step": "runtime_control_signal_observed",
             },
         )
     )
     return event.to_dict()
+
+
+def _publish_turn_runtime_control_signal_to_gateway(
+    runtime_host: Any,
+    *,
+    turn_run: TurnRun,
+    turn_id: str,
+    packet_ref: str,
+    signal: dict[str, Any],
+) -> Any | None:
+    runtime_gateway = getattr(runtime_host, "runtime_gateway", None)
+    publisher = getattr(runtime_gateway, "publish", None)
+    signal_id = str(signal.get("runtime_control_signal_ref") or signal.get("signal_id") or "").strip()
+    if not callable(publisher):
+        raise RuntimeError("runtime_gateway.publish is required for turn runtime control signals")
+    if not signal_id:
+        raise ValueError("turn runtime control signal requires runtime_control_signal_ref")
+    scope = RuntimeSignalScope(
+        session_id=str(getattr(turn_run, "session_id", "") or ""),
+        turn_id=str(turn_id or ""),
+        turn_run_id=str(getattr(turn_run, "turn_run_id", "") or ""),
+    )
+    payload = {
+        **dict(signal or {}),
+        "adapter": "single_agent_turn_runtime_control_boundary",
+        "boundary": "single_agent_turn_runtime_control",
+        "turn_id": str(turn_id or ""),
+        "turn_run_id": str(getattr(turn_run, "turn_run_id", "") or ""),
+        "packet_ref": str(packet_ref or ""),
+    }
+    return publisher(
+        turn_run.turn_run_id,
+        signal_type="control.signal.requested",
+        signal_id=signal_id,
+        scope=scope,
+        source_authority="harness.loop.single_agent_turn.runtime_control_boundary",
+        payload=payload,
+        visibility="runtime_private",
+        causation_id=str(packet_ref or ""),
+        correlation_id=str(turn_id or ""),
+        refs={
+            "turn_ref": str(turn_id or ""),
+            "turn_run_ref": str(getattr(turn_run, "turn_run_id", "") or ""),
+            "runtime_invocation_packet_ref": str(packet_ref or ""),
+            "runtime_control_signal_ref": signal_id,
+        },
+    )
+
+
+def _mark_turn_runtime_control_signal_gateway_observed(
+    runtime_host: Any,
+    *,
+    turn_run: TurnRun,
+    turn_id: str,
+    packet_ref: str,
+    signal_id: str,
+    turn_event: Any,
+) -> Any | None:
+    normalized_signal_id = str(signal_id or "").strip()
+    if not normalized_signal_id:
+        return None
+    runtime_gateway = getattr(runtime_host, "runtime_gateway", None)
+    marker = getattr(runtime_gateway, "mark_observed_by_id", None)
+    if not callable(marker):
+        raise RuntimeError("runtime_gateway.mark_observed_by_id is required for turn runtime control signals")
+    return marker(
+        turn_run.turn_run_id,
+        signal_id=normalized_signal_id,
+        observed_by="harness.loop.single_agent_turn.runtime_control_boundary",
+        payload={
+            "turn_runtime_control_event_ref": str(getattr(turn_event, "event_id", "") or ""),
+            "runtime_invocation_packet_ref": str(packet_ref or ""),
+            "boundary": "single_agent_turn_runtime_control",
+        },
+        refs={
+            "turn_ref": str(turn_id or ""),
+            "turn_run_ref": str(getattr(turn_run, "turn_run_id", "") or ""),
+            "turn_runtime_control_event_ref": str(getattr(turn_event, "event_id", "") or ""),
+            "runtime_invocation_packet_ref": str(packet_ref or ""),
+        },
+    )
 
 
 def _turn_runtime_control_signal_with_identity(

@@ -33,7 +33,7 @@ export const SYSTEM_NAV_ITEMS = [
   { view: "creative", label: "图任务", icon: Workflow },
   { view: "memory", label: "记忆", icon: Database },
   { view: "task-system", label: "任务系统", icon: Workflow },
-  { view: "orchestration", label: "编排", icon: Network },
+  { view: "orchestration", label: "Agent", icon: Network },
   { view: "capability-system", label: "能力", icon: LayoutGrid },
   { view: "health-system", label: "健康", icon: HeartPulse },
   { view: "system-config", label: "配置", icon: Settings },

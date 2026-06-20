@@ -368,12 +368,12 @@ def test_active_task_steer_accepted_is_lightweight_status_event_not_body() -> No
     assert frame["slot"] != "body"
 
 
-def test_runtime_control_bus_signals_are_not_public_stream_events() -> None:
+def test_runtime_gateway_signals_are_not_public_stream_events() -> None:
     events = _project_public_stream_event(
         "runtime_control_signal_published",
         {
             "event": {
-                "event_id": "event:bus:tool-started",
+                "event_id": "event:gateway:tool-started",
                 "payload": {
                     "signal": {
                         "signal_type": "tool.execution.started",

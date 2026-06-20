@@ -113,6 +113,12 @@ class ToolInvocationControlRegistry:
         idempotency_key: str = "",
         diagnostics: dict[str, Any] | None = None,
     ) -> ToolInvocationRecord:
+        explicit_agent_run_id = str(agent_run_id or "").strip()
+        explicit_run_cell_id = str(run_cell_id or "").strip()
+        if self.agent_run_id and explicit_agent_run_id and explicit_agent_run_id != self.agent_run_id:
+            raise ValueError("tool_invocation_agent_run_scope_mismatch")
+        if self.run_cell_id and explicit_run_cell_id and explicit_run_cell_id != self.run_cell_id:
+            raise ValueError("tool_invocation_run_cell_scope_mismatch")
         now = time.time()
         record = ToolInvocationRecord(
             tool_invocation_id=str(tool_invocation_id or "").strip(),
@@ -173,6 +179,8 @@ class ToolInvocationControlRegistry:
             if entry is None:
                 return False
             record = entry.record
+            if record.status not in {"queued", "running"}:
+                return False
             signal = ToolInvocationSignal(
                 kind=_signal_kind(kind),
                 tool_invocation_id=record.tool_invocation_id,

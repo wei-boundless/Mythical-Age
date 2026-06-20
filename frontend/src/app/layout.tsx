@@ -15,6 +15,7 @@ import "../styles/10-console-unification.css";
 import "../styles/11-final-chat-workbench.css";
 import "../styles/12-soft-agent-console.css";
 import "../styles/13-graph-foreground.css";
+import "../styles/14-crisp-agent-console.css";
 
 export const metadata: Metadata = {
   title: "Mythical Age | 洪荒智能",

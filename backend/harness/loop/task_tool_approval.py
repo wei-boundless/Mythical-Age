@@ -235,6 +235,7 @@ def publish_task_tool_approval_requested(
         runtime_host,
         task_run=task_run,
         signal_type="approval.requested",
+        signal_id=_approval_requested_signal_id(pending),
         payload={
             "pending_approval": _public_pending_approval(pending),
             "approval_request_id": str(pending.get("approval_request_id") or ""),
@@ -269,6 +270,7 @@ def publish_task_tool_approval_granted(
         runtime_host,
         task_run=task_run,
         signal_type="approval.granted",
+        signal_id=f"approval-granted:{grant.grant_id}",
         payload={
             "grant": grant.to_dict(),
             "pending_approval": _public_pending_approval(dict(pending_approval or {})),
@@ -303,6 +305,7 @@ def publish_task_tool_approval_consumed(
         runtime_host,
         task_run=task_run,
         signal_type="approval.consumed",
+        signal_id=f"approval-consumed:{grant.grant_id}",
         payload={
             "grant": grant.to_dict(),
             "grant_id": grant.grant_id,
@@ -391,11 +394,12 @@ def _publish_approval_signal(
     *,
     task_run: Any,
     signal_type: str,
+    signal_id: str,
     payload: dict[str, Any],
     refs: dict[str, Any],
 ) -> Any | None:
-    control_bus = getattr(runtime_host, "control_bus", None)
-    if control_bus is None or not hasattr(control_bus, "publish"):
+    runtime_gateway = getattr(runtime_host, "runtime_gateway", None)
+    if not callable(getattr(runtime_gateway, "publish", None)):
         return None
     task_run_id = str(getattr(task_run, "task_run_id", "") or dict(payload or {}).get("task_run_id") or "")
     if not task_run_id:
@@ -410,9 +414,10 @@ def _publish_approval_signal(
         **{key: value for key, value in dict(refs or {}).items() if str(value or "").strip()},
     }
     try:
-        return control_bus.publish(
+        return runtime_gateway.publish(
             task_run_id,
             signal_type=signal_type,
+            signal_id=str(signal_id or "").strip(),
             scope=_approval_signal_scope_for_task_run(task_run),
             source_authority="harness.loop.task_tool_approval",
             payload=signal_payload,
@@ -435,6 +440,17 @@ def _approval_signal_scope_for_task_run(task_run: Any) -> RuntimeSignalScope:
         turn_id=str(scope_payload.get("turn_id") or diagnostics.get("turn_id") or diagnostics.get("latest_interaction_turn_id") or ""),
         turn_run_id=str(scope_payload.get("turn_run_id") or diagnostics.get("turn_run_id") or ""),
     )
+
+
+def _approval_requested_signal_id(pending: dict[str, Any]) -> str:
+    ref = str(
+        pending.get("approval_request_id")
+        or pending.get("observation_ref")
+        or pending.get("action_request_ref")
+        or pending.get("operation_id")
+        or ""
+    ).strip()
+    return f"approval-requested:{ref}" if ref else ""
 
 
 def _stable_hash(value: Any) -> str:

@@ -249,7 +249,7 @@ def test_task_execution_cursor_does_not_duplicate_user_steers_or_runtime_control
                 "runtime_control_signals": [
                     {"signal_id": "sig:1", "kind": "continue", "reason": "probe"}
                 ],
-                "latest_runtime_control_signal": {"signal_id": "sig:1", "kind": "continue"},
+                "latest_runtime_control_signal": {"signal_id": "sig:stale", "kind": "stale"},
             }
         },
         runtime_assembly={
@@ -267,7 +267,10 @@ def test_task_execution_cursor_does_not_duplicate_user_steers_or_runtime_control
 
     assert "pending_user_steers" not in task_state
     assert "runtime_control_signals" not in task_state
+    assert "latest_runtime_control_signal" not in task_state
     assert current_state["runtime_control_signals"][0]["signal_id"] == "sig:1"
+    assert current_state["latest_runtime_control_signal"]["signal_id"] == "sig:1"
+    assert current_state["latest_runtime_control_signal"]["kind"] == "continue"
     assert user_steer["pending_user_steers"][0]["content"] == "Do not drop memory."
     assert baseline["memory_contract"] == "baseline_plus_append_only_replay_plus_bounded_cursor"
     assert baseline["baseline_id"].startswith("taskctx:")

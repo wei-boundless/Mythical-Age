@@ -33,7 +33,7 @@ export function TaskGraphStudioShell({
   workspaceSlot?: ReactNode;
 }) {
   return (
-    <section className="task-graph-studio-shell" aria-label="多 Agent 持续任务编排平台">
+    <section className="task-graph-studio-shell" aria-label="多 Agent 持续任务管理平台">
       <TaskGraphTopBar
         onPublish={onPublish}
         onSave={onSave}

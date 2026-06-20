@@ -8,7 +8,7 @@ from typing import Any, Callable, Coroutine
 from .agent_runtime_cell import AgentRuntimeCell
 from .agent_scope import AgentRunScope, agent_scope_from_task_run
 from .agent_worker_backend import AgentWorkerHandle, ThreadAgentWorkerBackend
-from .control_bus import RuntimeControlBus
+from .runtime_gateway import RuntimeGateway
 from .control_events import signal_scope_from_agent_scope
 
 
@@ -27,12 +27,12 @@ class AgentRunSupervisor:
         self,
         *,
         runtime_host: Any,
-        control_bus: RuntimeControlBus,
+        runtime_gateway: RuntimeGateway,
         worker_backend: Any | None = None,
         max_active_cells: int = 8,
     ) -> None:
         self.runtime_host = runtime_host
-        self.control_bus = control_bus
+        self.runtime_gateway = runtime_gateway
         self.worker_backend = worker_backend or ThreadAgentWorkerBackend()
         self.max_active_cells = max(1, int(max_active_cells or 8))
         self._cells_by_id: dict[str, AgentRuntimeCell] = {}
@@ -329,7 +329,7 @@ class AgentRunSupervisor:
                 **({"task_run_ref": scope.task_run_id} if scope.task_run_id else {}),
             },
         )
-        self.control_bus.publish(
+        self.runtime_gateway.publish(
             scope.task_run_id or scope.turn_run_id or scope.session_id,
             signal_type=event_type,
             scope=signal_scope_from_agent_scope(scope),

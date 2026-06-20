@@ -144,7 +144,7 @@ export function displayAssemblyId(
     draft: "草稿",
     default: "默认审批",
     runtime_event_log: "运行事件追踪",
-    orchestration_managed: "编排系统管理",
+    orchestration_managed: "Agent 管理系统管理",
     health_management: "健康管理",
     trace_analysis: "Trace 分析",
     memory_management: "记忆管理",

@@ -108,7 +108,7 @@ function fieldTone(field: RuntimeConfigField) {
 
 function groupDescription(group: RuntimeConfigGroup | null) {
   if (group?.group_id === "model") {
-    return "控制系统默认模型、接入端点、密钥和备用模型；Agent 可以在编排系统中覆盖模型运行档案。";
+    return "控制系统默认模型、接入端点、密钥和备用模型；Agent 可以在 Agent 管理系统中覆盖模型运行档案。";
   }
   return group?.description ?? "选择左侧配置条目进行管理。";
 }
@@ -612,4 +612,3 @@ export function SystemConfigView() {
     </div>
   );
 }
-

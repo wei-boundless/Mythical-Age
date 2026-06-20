@@ -36,7 +36,7 @@ from runtime.cache_manager import RuntimeCacheManager
 from runtime.tool_runtime.tool_control_plane import RuntimeToolControlPlane
 from .active_turn import ActiveTurnRegistry
 from .agent_run_supervisor import AgentRunSupervisor
-from .control_bus import RuntimeControlBus
+from .runtime_gateway import RuntimeGateway
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ class SingleAgentRuntimeHost:
         self.runtime_cache = RuntimeCacheManager.from_runtime_root(self.root_dir)
         self.fact_ledger = RuntimeFactLedger(self.root_dir)
         self.event_log = RuntimeEventLog(self.root_dir, fact_ledger=self.fact_ledger)
-        self.control_bus = RuntimeControlBus(self.event_log)
+        self.runtime_gateway = RuntimeGateway(self.event_log)
         self.run_registry = RuntimeRunRegistry(self.root_dir)
         self.stream_replay = RuntimeStreamReplayService(self.event_log)
         self.session_manager = session_manager
@@ -101,7 +101,7 @@ class SingleAgentRuntimeHost:
         self.monitor_projector = self.runtime_monitor_service.projector
         self.agent_run_supervisor = AgentRunSupervisor(
             runtime_host=self,
-            control_bus=self.control_bus,
+            runtime_gateway=self.runtime_gateway,
         )
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._background_tasks_by_name: dict[str, set[asyncio.Task[Any]]] = {}

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from harness.runtime.control_events import RuntimeSignalScope, signal_scope_from_agent_scope
+from harness.runtime.runtime_gateway import CONTROL_SIGNAL_PUBLISHED_EVENT
 from runtime.tool_runtime.tool_invocation_control import registry_for
 
 
@@ -95,6 +96,8 @@ def ensure_executor_control_signal_requested(
     steer_ref: str = "",
     unavailable_reason: str = "target_cell_unavailable",
 ) -> bool:
+    if not _runtime_gateway_publish_available(runtime_host):
+        return False
     existing = _latest_requested_control_signal(
         runtime_host,
         task_run_id=task_run_id,
@@ -202,6 +205,8 @@ def _request_signal(
         requested_at=requested_at,
         steer_ref=steer_ref,
     )
+    if not signal_id:
+        return False
     signal = ExecutorControlSignal(
         kind=kind,
         task_run_id=task_run_id,
@@ -273,12 +278,12 @@ def _publish_executor_control_signal_requested(
     requested_at: float,
     steer_ref: str = "",
 ) -> tuple[str, str]:
-    control_bus = getattr(runtime_host, "control_bus", None)
-    if control_bus is None or not hasattr(control_bus, "publish"):
+    runtime_gateway = getattr(runtime_host, "runtime_gateway", None)
+    if not callable(getattr(runtime_gateway, "publish", None)):
         return "", ""
     scope = _runtime_signal_scope_for_task_run(runtime_host, task_run_id=task_run_id)
     try:
-        event = control_bus.publish(
+        event = runtime_gateway.publish(
             task_run_id,
             signal_type="control.signal.requested",
             scope=scope,
@@ -331,11 +336,11 @@ def _publish_executor_control_signal_target_unavailable(
         unavailable_reason=unavailable_reason,
     ):
         return None
-    control_bus = getattr(runtime_host, "control_bus", None)
-    if control_bus is None or not hasattr(control_bus, "publish"):
+    runtime_gateway = getattr(runtime_host, "runtime_gateway", None)
+    if not callable(getattr(runtime_gateway, "publish", None)):
         return None
     try:
-        return control_bus.publish(
+        return runtime_gateway.publish(
             task_run_id,
             signal_type="control.signal.target_unavailable",
             scope=scope,
@@ -366,6 +371,11 @@ def _publish_executor_control_signal_target_unavailable(
         )
     except Exception:
         return None
+
+
+def _runtime_gateway_publish_available(runtime_host: Any) -> bool:
+    runtime_gateway = getattr(runtime_host, "runtime_gateway", None)
+    return callable(getattr(runtime_gateway, "publish", None))
 
 
 def _runtime_signal_scope_for_task_run(runtime_host: Any, *, task_run_id: str) -> RuntimeSignalScope:
@@ -430,6 +440,8 @@ def _latest_requested_control_signal(
         return None
     expected_steer_ref = str(steer_ref or "").strip()
     for event in reversed(list(events or [])):
+        if str(getattr(event, "event_type", "") or "") != CONTROL_SIGNAL_PUBLISHED_EVENT:
+            continue
         signal = dict(dict(getattr(event, "payload", {}) or {}).get("signal") or {})
         if str(signal.get("signal_type") or "") != "control.signal.requested":
             continue

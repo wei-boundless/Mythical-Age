@@ -202,16 +202,16 @@ def test_packet_evidence_projection_event_payload_is_redacted_and_stable() -> No
     assert scope.run_cell_id == "runcell:packet-context-event"
 
 
-def test_runtime_control_bus_records_packet_evidence_projection_without_draining_as_control(tmp_path: Path) -> None:
+def test_runtime_gateway_records_packet_evidence_projection_without_draining_as_control(tmp_path: Path) -> None:
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
     context = RuntimePacketContext(
         invocation_kind="single_agent_turn",
-        session_id="session:evidence-bus",
-        turn_id="turn:evidence-bus",
-        packet_id="rtpacket:evidence-bus",
-        agent_scope={"session_id": "session:evidence-bus", "turn_id": "turn:evidence-bus"},
+        session_id="session:evidence-gateway",
+        turn_id="turn:evidence-gateway",
+        packet_id="rtpacket:evidence-gateway",
+        agent_scope={"session_id": "session:evidence-gateway", "turn_id": "turn:evidence-gateway"},
         read_evidence_payload={
-            "packet_id": "rtpacket:evidence-bus",
+            "packet_id": "rtpacket:evidence-gateway",
             "read_evidence_injections": [{"path": "private.txt", "content": "do not publish"}],
         },
     )
@@ -219,28 +219,28 @@ def test_runtime_control_bus_records_packet_evidence_projection_without_draining
     payload = runtime_packet_evidence_projection_event_payload(context)
     scope = runtime_packet_evidence_signal_scope(context)
 
-    first = host.control_bus.publish_evidence_projection(
-        "turnrun:evidence-bus",
+    first = host.runtime_gateway.publish_evidence_projection(
+        "turnrun:evidence-gateway",
         projection_ref=projection_ref,
         scope=scope,
         payload=payload,
         refs={"runtime_invocation_packet_ref": context.packet_id},
     )
-    second = host.control_bus.publish_evidence_projection(
-        "turnrun:evidence-bus",
+    second = host.runtime_gateway.publish_evidence_projection(
+        "turnrun:evidence-gateway",
         projection_ref=projection_ref,
         scope=scope,
         payload=payload,
         refs={"runtime_invocation_packet_ref": context.packet_id},
     )
-    events = host.event_log.list_events("turnrun:evidence-bus")
+    events = host.event_log.list_events("turnrun:evidence-gateway")
     encoded = json.dumps([event.to_dict() for event in events], ensure_ascii=False)
 
     assert first.event_id == second.event_id
     assert [event.event_type for event in events] == ["runtime_evidence_projection_published"]
     assert events[0].refs["evidence_projection_ref"] == projection_ref
     assert "do not publish" not in encoded
-    assert host.control_bus.drain("turnrun:evidence-bus", scope=scope).pending_signals == ()
+    assert host.runtime_gateway.drain("turnrun:evidence-gateway", scope=scope).pending_signals == ()
 
 
 def test_task_execution_packet_context_owns_task_read_evidence_projection(tmp_path: Path) -> None:

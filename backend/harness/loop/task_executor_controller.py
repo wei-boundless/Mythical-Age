@@ -208,7 +208,7 @@ class TaskExecutorController:
             runtime_control = diagnostics.get("runtime_control")
             control_state = str(runtime_control.get("state") or "").strip() if isinstance(runtime_control, dict) else ""
             if control_state in {"pause_requested", "paused", "stop_requested", "stopped", "replan_requested", "interrupted_for_replan"}:
-                _ensure_user_controlled_interruption_signal_on_bus(
+                _ensure_user_controlled_interruption_signal_on_gateway(
                     self.runtime_host,
                     task_run=task_run,
                     control_state=control_state,
@@ -426,7 +426,7 @@ def _agent_run_supervisor(runtime_host: Any) -> Any:
     return supervisor
 
 
-def _ensure_user_controlled_interruption_signal_on_bus(
+def _ensure_user_controlled_interruption_signal_on_gateway(
     runtime_host: Any,
     *,
     task_run: Any,

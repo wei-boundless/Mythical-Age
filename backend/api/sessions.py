@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -26,6 +27,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 DEFAULT_SESSION_TITLE = "New Session"
+SESSION_TITLE_MAX_CHARS = 32
 
 
 class CreateSessionRequest(BaseModel):
@@ -642,7 +644,7 @@ async def truncate_session_messages(
 
 
 @router.post("/sessions/{session_id}/generate-title")
-async def derive_title_from_summary(
+async def generate_title_from_first_user_message(
     session_id: str,
     payload: GenerateTitleRequest,
     workspace_view: str | None = Query(default=None, max_length=80),
@@ -657,86 +659,126 @@ async def derive_title_from_summary(
     )
     current_summary = await asyncio.to_thread(runtime.session_manager.get_session_summary, session_id)
     current_title = str(current_summary.get("title") or "").strip() or DEFAULT_SESSION_TITLE
-    if current_title != DEFAULT_SESSION_TITLE:
+    should_repair_title = _session_title_should_regenerate(current_title)
+    if current_title != DEFAULT_SESSION_TITLE and not should_repair_title:
         return {"session_id": session_id, "title": current_title}
 
-    title = await asyncio.to_thread(_session_title_from_existing_summary, runtime, session_id)
+    first_user_message = await asyncio.to_thread(_first_user_message_for_session_title, runtime, session_id)
+    if not first_user_message:
+        return {"session_id": session_id, "title": current_title}
+
+    title = await _generate_title_from_first_user_message(runtime, first_user_message)
     if not title:
         return {"session_id": session_id, "title": current_title}
 
-    updated = await asyncio.to_thread(runtime.session_manager.set_title_if_default, session_id, title)
+    if current_title == DEFAULT_SESSION_TITLE:
+        updated = await asyncio.to_thread(
+            runtime.session_manager.set_title_if_default,
+            session_id,
+            title,
+            preserve_updated_at=True,
+        )
+    else:
+        updated = await asyncio.to_thread(
+            runtime.session_manager.rename_session,
+            session_id,
+            title,
+            preserve_updated_at=True,
+        )
     return {"session_id": session_id, "title": str(updated.get("title") or current_title)}
 
 
-def _session_title_from_existing_summary(runtime: Any, session_id: str) -> str:
-    for candidate in _session_title_summary_candidates(runtime, session_id):
-        title = _summary_display_title(candidate)
-        if title:
-            return title
+def _first_user_message_for_session_title(runtime: Any, session_id: str) -> str:
+    history = runtime.session_manager.get_history(session_id)
+    for message in list(history.get("messages") or []):
+        if not isinstance(message, dict):
+            continue
+        if str(message.get("role") or "").strip() != "user":
+            continue
+        content = _collapse_title_text(message.get("content"))
+        if content:
+            return content[:1200]
     return ""
 
 
-def _session_title_summary_candidates(runtime: Any, session_id: str) -> list[str]:
-    candidates: list[str] = []
-    task_summary = _session_task_summary_payload(runtime, session_id)
-    candidates.extend(
-        [
-            str(task_summary.get("summary") or ""),
-            str(task_summary.get("title") or ""),
-        ]
+async def _generate_title_from_first_user_message(runtime: Any, first_user_message: str) -> str:
+    generator = getattr(getattr(runtime, "model_runtime", None), "generate_title", None)
+    if callable(generator):
+        try:
+            result = generator(first_user_message)
+            if inspect.isawaitable(result):
+                result = await result
+            title = _clean_generated_session_title(result)
+            if title:
+                return title
+        except Exception:
+            logger.debug("first user session title generation failed", exc_info=True)
+    return _fallback_title_from_first_user_message(first_user_message)
+
+
+def _session_title_should_regenerate(title: str) -> bool:
+    text = _collapse_title_text(title)
+    if not text or text == DEFAULT_SESSION_TITLE:
+        return True
+    if any(marker in text for marker in ("```", "##", "---", "|---", "###")):
+        return True
+    assistant_prefixes = (
+        "经过全面排查",
+        "以下是我的",
+        "这是我的",
+        "这是一个独立的",
+        "这是一个独立的小型交付请求",
+        "好，我已经",
+        "好了，我已经",
+        "好的，我已经",
+        "现在我已经",
+        "我现在已经",
+        "我已经完成",
+        "我已经读完",
+        "已完成",
     )
-    projection = _build_session_runtime_projection_payload(runtime, session_id)
-    for attachment in reversed(list(projection.get("runtime_attachments") or [])):
-        if not isinstance(attachment, dict):
-            continue
-        candidates.append(str(attachment.get("closeout_summary") or ""))
-        candidates.append(str(attachment.get("public_summary") or ""))
-        for item in list(attachment.get("projection_slices") or []):
-            if isinstance(item, dict):
-                candidates.append(str(item.get("closeout_summary") or item.get("public_summary") or ""))
-    history = runtime.session_manager.get_history(session_id)
-    candidates.append(str(history.get("compressed_context") or ""))
-    return candidates
+    if text.startswith(assistant_prefixes):
+        return True
+    assistant_fragments = (
+        "诊断结果",
+        "诊断结论",
+        "修改已完成",
+        "交付请求",
+        "以下是修复结果",
+    )
+    return any(fragment in text for fragment in assistant_fragments)
 
 
-def _session_task_summary_payload(runtime: Any, session_id: str) -> dict[str, Any]:
-    host = getattr(getattr(runtime, "harness_runtime", None), "single_agent_runtime_host", None)
-    service = getattr(host, "runtime_monitor_service", None)
-    summary = getattr(service, "get_session_task_summary", None)
-    if not callable(summary):
-        return {}
-    payload = summary(session_id)
-    return dict(payload or {}) if isinstance(payload, dict) else {}
-
-
-def _summary_display_title(value: Any) -> str:
-    text = " ".join(str(value or "").strip().split())
+def _clean_generated_session_title(value: Any) -> str:
+    text = _collapse_title_text(value)
     if not text:
         return ""
-    text = text.lstrip("#-*• 0123456789.、")
-    for prefix in ("用户目标：", "用户目标:", "摘要：", "摘要:", "总结：", "总结:", "任务摘要：", "任务摘要:"):
+    text = text.lstrip("#-*• 0123456789.、 ")
+    for prefix in ("标题：", "标题:", "会话标题：", "会话标题:", "用户目标：", "用户目标:", "摘要：", "摘要:"):
         if text.startswith(prefix):
             text = text[len(prefix):].strip()
             break
     if not text:
         return ""
-    lowered = text.lower().strip("。.!！?？；;，, ")
-    if lowered in {"completed", "complete", "success", "done", "committed", "turn_completed"}:
+    if _session_title_should_regenerate(text):
         return ""
-    if lowered.startswith("任务已结束") or lowered.startswith("任务已收口"):
+    title = text.strip("\"'`“”‘’《》()（）[]【】")
+    if not title:
         return ""
-    sentence = next((part.strip() for part in _split_summary_sentences(text) if part.strip()), "")
-    sentence = sentence.strip("\"'`“”‘’《》()（）[]【】")
-    if not sentence:
-        return ""
-    return sentence[:32].rstrip("。.!！?？；;，,、 ")
+    return title[:SESSION_TITLE_MAX_CHARS].rstrip("。.!！?？；;，,、 ")
 
 
-def _split_summary_sentences(text: str) -> list[str]:
-    normalized = str(text or "").replace("\r", "\n")
-    for separator in ("\n", "。", "！", "？", "；", ";", ".", "!", "?"):
-        normalized = normalized.replace(separator, "\n")
-    return normalized.splitlines()
+def _fallback_title_from_first_user_message(value: Any) -> str:
+    text = _collapse_title_text(value)
+    for prefix in ("你可以帮我", "可以帮我", "帮我", "请帮我", "麻烦帮我", "请问"):
+        if text.startswith(prefix):
+            text = text[len(prefix):].lstrip("，,。.!！?？：: ")
+            break
+    return _clean_generated_session_title(text)
+
+
+def _collapse_title_text(value: Any) -> str:
+    return " ".join(str(value or "").strip().split())
 
 
 def _get_session_messages_payload(runtime: Any, session_id: str) -> dict[str, Any]:
@@ -777,5 +819,3 @@ def _latest_prompt_manifest_summary(runtime: Any, session_id: str) -> dict[str, 
         "predicted_prompt_tokens": int(latest.get("predicted_prompt_tokens") or 0),
         "metadata": dict(latest.get("metadata") or {}),
     }
-
-

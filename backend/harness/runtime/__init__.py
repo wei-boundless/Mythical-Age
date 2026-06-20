@@ -9,7 +9,7 @@ from .envelope import RuntimeEnvelope
 from .agent_run_supervisor import AgentRunSupervisor
 from .agent_runtime_cell import AgentRuntimeCell
 from .agent_scope import AgentRunScope
-from .control_bus import RuntimeControlBus
+from .runtime_gateway import RuntimeGateway
 from .control_events import RuntimeSignalEnvelope, RuntimeSignalScope
 from .control_snapshot import RuntimeControlSnapshot
 from .execution_context import ExecutionContext, build_execution_context
@@ -56,7 +56,7 @@ __all__ = [
     "RuntimeAssemblyProfile",
     "RuntimeCompilationResult",
     "RuntimeCompiler",
-    "RuntimeControlBus",
+    "RuntimeGateway",
     "RuntimeControlSnapshot",
     "RuntimeEnvelope",
     "RuntimeSignalEnvelope",

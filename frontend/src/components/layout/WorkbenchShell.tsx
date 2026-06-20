@@ -35,6 +35,7 @@ const RESIZE_HANDLE_WIDTH = 8;
 const WORKBENCH_CENTER_MIN_WIDTH = 520;
 const WORKBENCH_CENTER_COMPACT_MIN_WIDTH = 340;
 const WORKBENCH_EDGE_GUTTER = 10;
+const DEFAULT_SESSION_TITLE = "New Session";
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -115,10 +116,36 @@ function looksRuntimeIdentifier(value: string, currentSessionId = "") {
 
 function friendlySessionTitle(title: string | undefined, currentSessionId: string) {
   const candidate = String(title || "").trim();
-  if (candidate && !looksRuntimeIdentifier(candidate, currentSessionId)) {
+  if (candidate && !looksRuntimeIdentifier(candidate, currentSessionId) && !looksAssistantArtifactSessionTitle(candidate)) {
     return candidate;
   }
   return "当前会话";
+}
+
+function looksAssistantArtifactSessionTitle(title: string | undefined) {
+  const text = String(title || "").replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  if (["```", "##", "---", "|---", "###"].some((marker) => text.includes(marker))) return true;
+  if (
+    [
+      "经过全面排查",
+      "以下是我的",
+      "这是我的",
+      "这是一个独立的",
+      "这是一个独立的小型交付请求",
+      "好，我已经",
+      "好了，我已经",
+      "好的，我已经",
+      "现在我已经",
+      "我现在已经",
+      "我已经完成",
+      "我已经读完",
+      "已完成",
+    ].some((prefix) => text.startsWith(prefix))
+  ) {
+    return true;
+  }
+  return ["诊断结果", "诊断结论", "修改已完成", "交付请求", "以下是修复结果"].some((fragment) => text.includes(fragment));
 }
 
 function isEditableWorkspacePath(path: string, editablePrefixes: string[] = []) {
@@ -162,20 +189,8 @@ function projectNameFromRoot(root: string) {
 }
 
 function sessionDisplayTitle(session: SessionSummary) {
-  const task = sessionTask(session);
-  const taskTitle = String(task?.title || "").trim();
-  if (taskTitle && taskTitle !== "Agent 运行" && !looksRuntimeIdentifier(taskTitle, session.id)) {
-    return taskTitle;
-  }
-  const taskId = String(task?.task_id || "").trim();
-  if (taskId && !looksRuntimeIdentifier(taskId, session.id)) {
-    return taskId;
-  }
-  const summary = String(task?.summary || "").replace(/\s+/g, " ").trim();
-  if (summary && !looksRuntimeIdentifier(summary, session.id)) {
-    return summary.length > 28 ? `${summary.slice(0, 28)}...` : summary;
-  }
-  return friendlySessionTitle(session.title, session.id);
+  const title = friendlySessionTitle(session.title, session.id);
+  return title === DEFAULT_SESSION_TITLE && Number(session.message_count || 0) > 0 ? "未命名会话" : title;
 }
 
 function sessionMetaLine(session: SessionSummary) {

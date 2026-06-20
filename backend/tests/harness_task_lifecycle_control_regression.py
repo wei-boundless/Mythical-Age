@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from types import SimpleNamespace
 
 from tests.support.harness_runtime_facade_support import *
 from harness.runtime.assembly import build_runtime_assembly_profile
@@ -16,7 +17,7 @@ from runtime.shared.models import AgentRun
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 
 
-def _runtime_control_bus_signals(
+def _runtime_gateway_signals(
     host,
     task_run_id: str,
     event_type: str,
@@ -31,6 +32,77 @@ def _runtime_control_bus_signals(
         if event.get("event_type") == event_type
         and dict(dict(event.get("payload") or {}).get("signal") or {}).get("signal_type") == signal_type
     ]
+
+
+def test_scoped_tool_observation_fails_closed_when_agent_scope_gate_unavailable() -> None:
+    scoped_status = task_executor_module._agent_cell_scope_status(
+        SimpleNamespace(),
+        task_run_id="taskrun:scope-gate-missing",
+        agent_run_id="agrun:scope-gate-missing",
+        run_cell_id="runcell:scope-gate-missing",
+    )
+    unscoped_status = task_executor_module._agent_cell_scope_status(
+        SimpleNamespace(),
+        task_run_id="taskrun:scope-gate-missing",
+    )
+
+    assert scoped_status["accepted"] is False
+    assert scoped_status["reason"] == "agent_scope_gate_unavailable"
+    assert scoped_status["rejected_scope"]["run_cell_id"] == "runcell:scope-gate-missing"
+    assert unscoped_status["accepted"] is True
+    assert unscoped_status["reason"] == "run_cell_scope_unscoped"
+
+
+def test_runtime_control_closeout_requires_gateway_signal_lookup() -> None:
+    class ConsumptionOnlyGateway:
+        def mark_consumed_by_id(self, *_args, **_kwargs):
+            return SimpleNamespace(event_id="event:consumed")
+
+    can_consume = task_executor_module._runtime_control_signal_gateway_can_consume(
+        SimpleNamespace(runtime_gateway=ConsumptionOnlyGateway()),
+        task_run=SimpleNamespace(task_run_id="taskrun:missing-signal-lookup"),
+        control_observation={
+            "payload": {
+                "runtime_control_signal_ref": "control-signal:missing-lookup",
+            }
+        },
+    )
+
+    assert can_consume is False
+
+
+def test_runtime_control_closeout_rejects_already_consumed_signal() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:already-consumed-closeout"
+    signal_event = host.runtime_gateway.publish(
+        task_run_id,
+        signal_type="control.signal.requested",
+        scope=RuntimeSignalScope(session_id="session-already-consumed-closeout", task_run_id=task_run_id),
+        source_authority="test.runtime_control_closeout",
+        payload={"signal_kind": "stop", "task_run_id": task_run_id},
+        refs={"task_run_ref": task_run_id},
+    )
+    signal_id = str(dict(dict(signal_event.payload or {}).get("signal") or {}).get("signal_id") or "")
+    consumed = host.runtime_gateway.mark_consumed_by_id(
+        task_run_id,
+        signal_id=signal_id,
+        consumed_by="test.preconsumed",
+        payload={"terminal_reason": "already_closed"},
+    )
+
+    can_consume = task_executor_module._runtime_control_signal_gateway_can_consume(
+        host,
+        task_run=SimpleNamespace(task_run_id=task_run_id),
+        control_observation={
+            "payload": {
+                "runtime_control_signal_ref": signal_id,
+            }
+        },
+    )
+
+    assert consumed is not None
+    assert can_consume is False
 
 
 def test_assistant_task_run_final_commit_preserves_structural_lifecycle_fields() -> None:
@@ -563,6 +635,7 @@ def test_old_cell_tool_observation_is_rejected_before_observation_write(tmp_path
 
 def test_task_run_pending_approval_preserves_model_tool_call_id(tmp_path) -> None:
     from harness.loop.task_executor import approve_task_run_tool_call
+    from harness.loop.task_tool_approval import publish_task_tool_approval_requested
 
     runtime = build_harness_runtime(base_dir=_runtime_test_root(tmp_path))
     host = runtime.single_agent_runtime_host
@@ -617,6 +690,11 @@ def test_task_run_pending_approval_preserves_model_tool_call_id(tmp_path) -> Non
         step_index=1,
     )
     updated_task = host.state_index.get_task_run(task_run_id)
+    publish_task_tool_approval_requested(
+        host,
+        task_run=updated_task,
+        pending_approval=result["pending_approval"],
+    )
     approval_result = approve_task_run_tool_call(host, task_run_id, reason="looks_good", requested_by="user")
     events = host.event_log.list_events(task_run_id)
     approval_requested = [
@@ -639,11 +717,108 @@ def test_task_run_pending_approval_preserves_model_tool_call_id(tmp_path) -> Non
     assert approval_result["accepted"] is True
     assert len(approval_requested) == 1
     assert len(approval_granted) == 1
+    assert approval_requested[0]["signal_id"] == f"approval-requested:{result['pending_approval']['approval_request_id']}"
+    assert approval_granted[0]["signal_id"] == f"approval-granted:{approval_result['approval_grant']['grant_id']}"
     assert dict(approval_requested[0]["payload"])["approval_request_id"] == result["pending_approval"]["approval_request_id"]
     assert dict(approval_granted[0]["payload"])["grant_id"] == approval_result["approval_grant"]["grant_id"]
     assert dict(approval_granted[0]["payload"])["approval_request_id"] == result["pending_approval"]["approval_request_id"]
     assert dict(approval_requested[0]["scope"])["task_run_id"] == task_run_id
     assert dict(approval_granted[0]["scope"])["task_run_id"] == task_run_id
+
+
+def test_tool_approval_request_requires_runtime_gateway(tmp_path) -> None:
+    runtime = build_harness_runtime(base_dir=_runtime_test_root(tmp_path))
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:approval-request-no-gateway",
+        session_id="session-approval-request-no-gateway",
+        status="running",
+    )
+    task_run = host.state_index.get_task_run(task_run_id)
+    agent_run = AgentRun(
+        agent_run_id=f"agrun:{task_run_id}:main",
+        task_run_id=task_run_id,
+        agent_id="agent:main",
+        agent_profile_id="main_interactive_agent",
+        status="running",
+    )
+    action_request = TaskExecutionModelActionRequest(
+        request_id="request:write-no-gateway",
+        turn_id="turn:approval-request-no-gateway:1",
+        action_type="tool_call",
+        tool_call={
+            "id": "call:write-no-gateway",
+            "tool_name": "write_file",
+            "args": {"path": "README.md", "content": "updated"},
+        },
+    )
+    host.runtime_gateway = None
+
+    result = _pause_executor_for_tool_approval(
+        host,
+        task_run=task_run,
+        agent_run=agent_run,
+        action_request=action_request,
+        observation={
+            "observation_id": "toolobs:approval:no-gateway",
+            "directive_ref": "runtime-directive:approval:no-gateway",
+            "payload": {
+                "operation_id": "op.write_file",
+                "approval_risk_fingerprint": "approval-risk:no-gateway",
+                "operation_gate": {"decision": "requires_approval"},
+                "execution_receipt": {"tool_call_id": "call:write-no-gateway"},
+            },
+        },
+        observation_event=SimpleNamespace(offset=3),
+        step_index=1,
+    )
+    stored = host.state_index.get_task_run(task_run_id)
+    event_types = [event.event_type for event in host.event_log.list_events(task_run_id)]
+
+    assert result["ok"] is False
+    assert result["error"] == "runtime_gateway_approval_signal_unavailable"
+    assert stored.status == "running"
+    assert "approval_waiting" not in event_types
+    assert "pending_approval" not in dict(stored.diagnostics or {})
+
+
+def test_tool_approval_grant_requires_runtime_gateway(tmp_path) -> None:
+    from harness.loop.task_executor import approve_task_run_tool_call
+
+    runtime = build_harness_runtime(base_dir=_runtime_test_root(tmp_path))
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:approval-grant-no-gateway",
+        session_id="session-approval-grant-no-gateway",
+        status="waiting_approval",
+    )
+    task_run = host.state_index.get_task_run(task_run_id)
+    pending = {
+        "approval_request_id": "approval-request:no-gateway",
+        "status": "pending",
+        "task_run_id": task_run_id,
+        "action_request_ref": "request:no-gateway",
+        "tool_call_id": "call:no-gateway",
+        "tool_name": "write_file",
+        "operation_id": "op.write_file",
+        "directive_ref": "runtime-directive:approval:no-gateway",
+        "approval_risk_fingerprint": "approval-risk:grant-no-gateway",
+        "tool_args_hash": "hash:no-gateway",
+    }
+    host.state_index.upsert_task_run(replace(task_run, diagnostics={**dict(task_run.diagnostics or {}), "pending_approval": pending}))
+    host.runtime_gateway = None
+
+    result = approve_task_run_tool_call(host, task_run_id, reason="ok", requested_by="user")
+    stored = host.state_index.get_task_run(task_run_id)
+    event_types = [event.event_type for event in host.event_log.list_events(task_run_id)]
+
+    assert result["ok"] is False
+    assert result["error"] == "runtime_gateway_approval_signal_unavailable"
+    assert dict(stored.diagnostics or {})["pending_approval"]["status"] == "pending"
+    assert "approval_state" not in dict(stored.diagnostics or {})
+    assert "task_tool_approval_granted" not in event_types
 
 
 def test_task_run_final_output_without_turn_id_uses_task_run_output_turn_id() -> None:
@@ -746,19 +921,19 @@ def test_running_stop_signal_is_observed_by_agent_before_closeout() -> None:
     trace = host.get_trace(task_run_id, include_payloads=True)
     events = [dict(item) for item in list(dict(trace or {}).get("events") or [])]
     event_types = [str(event.get("event_type") or "") for event in events]
-    bus_requested = [
+    gateway_requested = [
         dict(dict(event.get("payload") or {}).get("signal") or {})
         for event in events
         if event.get("event_type") == "runtime_control_signal_published"
         and dict(dict(event.get("payload") or {}).get("signal") or {}).get("signal_type") == "control.signal.requested"
     ]
-    bus_observed = [
+    gateway_observed = [
         dict(dict(event.get("payload") or {}).get("signal") or {})
         for event in events
         if event.get("event_type") == "runtime_control_signal_observed"
         and dict(dict(event.get("payload") or {}).get("signal") or {}).get("signal_type") == "control.signal.requested"
     ]
-    bus_consumed = [
+    gateway_consumed = [
         dict(dict(event.get("payload") or {}).get("signal") or {})
         for event in events
         if event.get("event_type") == "runtime_control_signal_consumed"
@@ -784,19 +959,19 @@ def test_running_stop_signal_is_observed_by_agent_before_closeout() -> None:
     assert task.status == "aborted"
     assert task.terminal_reason == "user_aborted"
     assert event_types.count("task_runtime_control_signal_observed") == 1
-    assert len(bus_requested) == 1
-    assert len(bus_observed) == 1
-    assert len(bus_consumed) == 1
-    assert bus_requested[0]["signal_id"] == bus_observed[0]["signal_id"]
-    assert bus_requested[0]["signal_id"] == bus_consumed[0]["signal_id"]
-    assert dict(bus_requested[0]["payload"])["signal_kind"] == "stop"
-    assert dict(bus_observed[0]["payload"])["observation_ref"] == control_observations[0]["observation_id"]
-    assert dict(bus_consumed[0]["payload"])["observation_ref"] == control_observations[0]["observation_id"]
-    assert dict(bus_consumed[0]["payload"])["terminal_reason"] == "user_aborted"
-    assert dict(bus_consumed[0]["payload"])["lifecycle_status"] == "aborted"
-    assert dict(bus_consumed[0]["payload"])["task_lifecycle_event_ref"] == lifecycle_event["event_id"]
-    assert int(dict(bus_consumed[0]["payload"])["task_lifecycle_event_offset"]) == int(lifecycle_event["offset"])
-    assert host.control_bus.drain(
+    assert len(gateway_requested) == 1
+    assert len(gateway_observed) == 1
+    assert len(gateway_consumed) == 1
+    assert gateway_requested[0]["signal_id"] == gateway_observed[0]["signal_id"]
+    assert gateway_requested[0]["signal_id"] == gateway_consumed[0]["signal_id"]
+    assert dict(gateway_requested[0]["payload"])["signal_kind"] == "stop"
+    assert dict(gateway_observed[0]["payload"])["observation_ref"] == control_observations[0]["observation_id"]
+    assert dict(gateway_consumed[0]["payload"])["observation_ref"] == control_observations[0]["observation_id"]
+    assert dict(gateway_consumed[0]["payload"])["terminal_reason"] == "user_aborted"
+    assert dict(gateway_consumed[0]["payload"])["lifecycle_status"] == "aborted"
+    assert dict(gateway_consumed[0]["payload"])["task_lifecycle_event_ref"] == lifecycle_event["event_id"]
+    assert int(dict(gateway_consumed[0]["payload"])["task_lifecycle_event_offset"]) == int(lifecycle_event["offset"])
+    assert host.runtime_gateway.drain(
         task_run_id,
         scope=RuntimeSignalScope(
             session_id="session-stop-signal",
@@ -808,12 +983,12 @@ def test_running_stop_signal_is_observed_by_agent_before_closeout() -> None:
     assert control_observations
     assert control_observations[0]["source"] == "system:runtime_control_signal"
     assert dict(control_observations[0]["payload"])["signal_kind"] == "stop"
-    assert dict(control_observations[0]["payload"])["runtime_control_signal_ref"] == bus_requested[0]["signal_id"]
+    assert dict(control_observations[0]["payload"])["runtime_control_signal_ref"] == gateway_requested[0]["signal_id"]
     assert "runtime_control_signal" in second_model_payload
     assert "signal_kind" in second_model_payload
 
 
-def test_scheduled_stop_signal_uses_cell_scoped_control_bus() -> None:
+def test_scheduled_stop_signal_uses_cell_scoped_runtime_gateway() -> None:
     from harness.loop.task_executor import stop_task_run
 
     class InterruptibleStopModelRuntime:
@@ -907,7 +1082,7 @@ def test_scheduled_stop_signal_uses_cell_scoped_control_bus() -> None:
         assert dict(consumed[0]["payload"])["lifecycle_status"] == "aborted"
         assert dict(consumed[0]["payload"])["task_lifecycle_event_ref"] == lifecycle_event["event_id"]
         assert int(dict(consumed[0]["payload"])["task_lifecycle_event_offset"]) == int(lifecycle_event["offset"])
-        assert host.control_bus.drain(
+        assert host.runtime_gateway.drain(
             task_run_id,
             scope=RuntimeSignalScope(
                 session_id="session-scheduled-stop-signal",
@@ -925,7 +1100,7 @@ def test_scheduled_stop_signal_uses_cell_scoped_control_bus() -> None:
             cell.worker_handle.join(timeout=1)
 
 
-def test_stop_signal_publishes_control_bus_without_executor_registry() -> None:
+def test_stop_signal_publishes_runtime_gateway_without_executor_registry() -> None:
     from harness.loop.task_executor import stop_task_run
 
     runtime = build_harness_runtime()
@@ -957,7 +1132,7 @@ def test_stop_signal_publishes_control_bus_without_executor_registry() -> None:
         if event.get("event_type") == "runtime_control_signal_published"
         and dict(dict(event.get("payload") or {}).get("signal") or {}).get("signal_type") == "control.signal.requested"
     ]
-    unavailable = _runtime_control_bus_signals(
+    unavailable = _runtime_gateway_signals(
         host,
         task_run_id,
         "runtime_control_signal_published",
@@ -974,7 +1149,7 @@ def test_stop_signal_publishes_control_bus_without_executor_registry() -> None:
     assert dict(unavailable[0]["payload"])["pending_signal_remains_replayable"] is True
     assert dict(requested[0]["payload"])["signal_kind"] == "stop"
     assert dict(requested[0]["payload"])["executor_epoch"] == 42
-    assert host.control_bus.drain(
+    assert host.runtime_gateway.drain(
         task_run_id,
         scope=RuntimeSignalScope(
             session_id="session-stop-without-registry",
@@ -984,7 +1159,7 @@ def test_stop_signal_publishes_control_bus_without_executor_registry() -> None:
     ).pending_signals[0].signal_id == requested[0]["signal_id"]
 
 
-def test_pause_signal_publishes_control_bus_without_executor_registry() -> None:
+def test_pause_signal_publishes_runtime_gateway_without_executor_registry() -> None:
     from harness.loop.task_executor import request_task_run_pause
 
     runtime = build_harness_runtime()
@@ -1008,8 +1183,8 @@ def test_pause_signal_publishes_control_bus_without_executor_registry() -> None:
     )
 
     pause_result = request_task_run_pause(host, task_run_id, reason="registry_missing_pause", requested_by="user")
-    requested = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_published")
-    unavailable = _runtime_control_bus_signals(
+    requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
+    unavailable = _runtime_gateway_signals(
         host,
         task_run_id,
         "runtime_control_signal_published",
@@ -1026,7 +1201,7 @@ def test_pause_signal_publishes_control_bus_without_executor_registry() -> None:
     assert dict(unavailable[0]["payload"])["pending_signal_remains_replayable"] is True
     assert dict(requested[0]["payload"])["signal_kind"] == "pause"
     assert dict(requested[0]["payload"])["executor_epoch"] == 43
-    assert host.control_bus.drain(
+    assert host.runtime_gateway.drain(
         task_run_id,
         scope=RuntimeSignalScope(
             session_id="session-pause-without-registry",
@@ -1036,7 +1211,7 @@ def test_pause_signal_publishes_control_bus_without_executor_registry() -> None:
     ).pending_signals[0].signal_id == requested[0]["signal_id"]
 
 
-def test_replan_signal_publishes_control_bus_without_executor_registry_and_preserves_steer_ref() -> None:
+def test_replan_signal_publishes_runtime_gateway_without_executor_registry_and_preserves_steer_ref() -> None:
     from harness.loop.task_executor import append_user_work_instruction
 
     runtime = build_harness_runtime()
@@ -1062,12 +1237,12 @@ def test_replan_signal_publishes_control_bus_without_executor_registry_and_prese
     replan_result = append_user_work_instruction(
         host,
         task_run_id,
-        content="把后续验证范围扩展到总线 replay。",
+        content="把后续验证范围扩展到网关 replay。",
         intent="append_instruction_to_active_work",
     )
     steer_ref = str(dict(replan_result["steer"])["steer_id"])
-    requested = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_published")
-    unavailable = _runtime_control_bus_signals(
+    requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
+    unavailable = _runtime_gateway_signals(
         host,
         task_run_id,
         "runtime_control_signal_published",
@@ -1086,7 +1261,7 @@ def test_replan_signal_publishes_control_bus_without_executor_registry_and_prese
     assert dict(requested[0]["payload"])["signal_kind"] == "replan"
     assert dict(requested[0]["payload"])["executor_epoch"] == 44
     assert dict(requested[0]["payload"])["steer_ref"] == steer_ref
-    assert host.control_bus.drain(
+    assert host.runtime_gateway.drain(
         task_run_id,
         scope=RuntimeSignalScope(
             session_id="session-replan-without-registry",
@@ -1096,8 +1271,57 @@ def test_replan_signal_publishes_control_bus_without_executor_registry_and_prese
     ).pending_signals[0].signal_id == requested[0]["signal_id"]
 
 
-def test_executor_observes_pending_bus_stop_without_memory_signal() -> None:
-    class BusOnlyStopModelRuntime:
+def test_active_pause_stop_and_replan_fail_closed_without_runtime_gateway() -> None:
+    from harness.loop.task_executor import append_user_work_instruction, request_task_run_pause, stop_task_run
+
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:control-no-gateway",
+        session_id="session-control-no-gateway",
+        status="running",
+    )
+    task = host.state_index.get_task_run(task_run_id)
+    host.state_index.upsert_task_run(
+        replace(
+            task,
+            diagnostics={
+                **dict(task.diagnostics or {}),
+                "executor_status": "running",
+                "executor_epoch": 50,
+            },
+        )
+    )
+    host.runtime_gateway = None
+
+    pause_result = request_task_run_pause(host, task_run_id, reason="pause_without_gateway", requested_by="user")
+    stop_result = stop_task_run(host, task_run_id, reason="stop_without_gateway", requested_by="user")
+    replan_result = append_user_work_instruction(
+        host,
+        task_run_id,
+        content="补充要求必须经过 Gateway。",
+        turn_id="turn:control-no-gateway:2",
+    )
+    stored = host.state_index.get_task_run(task_run_id)
+    event_types = [event.event_type for event in host.event_log.list_events(task_run_id)]
+
+    assert pause_result["ok"] is False
+    assert pause_result["error"] == "runtime_gateway_control_signal_unavailable"
+    assert stop_result["ok"] is False
+    assert stop_result["error"] == "runtime_gateway_control_signal_unavailable"
+    assert replan_result["ok"] is False
+    assert replan_result["error"] == "runtime_gateway_control_signal_unavailable"
+    assert stored.status == "running"
+    assert dict(stored.diagnostics or {})["executor_status"] == "running"
+    assert "task_run_pause_requested" not in event_types
+    assert "task_run_stop_requested" not in event_types
+    assert "task_run_replan_requested" not in event_types
+    assert "active_task_steer_recorded" not in event_types
+
+
+def test_executor_observes_pending_gateway_stop_without_memory_signal() -> None:
+    class GatewayOnlyStopModelRuntime:
         def __init__(self) -> None:
             self.calls = 0
 
@@ -1109,21 +1333,21 @@ def test_executor_observes_pending_bus_stop_without_memory_signal() -> None:
                 content=json.dumps(
                     _action_request(
                         action_type="respond",
-                        final_answer="bus replay stop closeout",
+                        final_answer="Gateway replay stop closeout",
                     ),
                     ensure_ascii=False,
                 )
             )
 
-    model = BusOnlyStopModelRuntime()
+    model = GatewayOnlyStopModelRuntime()
     runtime = build_harness_runtime(
         model_runtime=model,
     )
     host = runtime.single_agent_runtime_host
     task_run_id = _seed_active_work(
         runtime,
-        task_run_id="taskrun:bus-replay-stop",
-        session_id="session-bus-replay-stop",
+        task_run_id="taskrun:gateway-replay-stop",
+        session_id="session-gateway-replay-stop",
         status="running",
     )
 
@@ -1139,22 +1363,22 @@ def test_executor_observes_pending_bus_stop_without_memory_signal() -> None:
             raise AssertionError("executor did not enter running model call")
         task = host.state_index.get_task_run(task_run_id)
         diagnostics = dict(getattr(task, "diagnostics", {}) or {}) if task is not None else {}
-        signal_event = host.control_bus.publish(
+        signal_event = host.runtime_gateway.publish(
             task_run_id,
             signal_type="control.signal.requested",
             scope=RuntimeSignalScope(
-                session_id="session-bus-replay-stop",
+                session_id="session-gateway-replay-stop",
                 task_run_id=task_run_id,
             ),
-            source_authority="test.control_bus",
+            source_authority="test.runtime_gateway",
             payload={
                 "signal_kind": "stop",
                 "task_run_id": task_run_id,
                 "executor_epoch": int(diagnostics.get("executor_epoch") or 0),
-                "reason": "bus_replay_stop",
+                "reason": "gateway_replay_stop",
                 "requested_by": "user",
                 "requested_at": time.time(),
-                "adapter": "test_bus_only",
+                "adapter": "test_gateway_only",
             },
             refs={"task_run_ref": task_run_id},
         )
@@ -1189,7 +1413,7 @@ def test_executor_observes_pending_bus_stop_without_memory_signal() -> None:
     ]
 
     assert result["error"] == "user_aborted"
-    assert result["final_answer"] == "bus replay stop closeout"
+    assert result["final_answer"] == "Gateway replay stop closeout"
     assert len(requested) == 1
     assert len(observed) == 1
     assert len(consumed) == 1
@@ -1198,18 +1422,18 @@ def test_executor_observes_pending_bus_stop_without_memory_signal() -> None:
     assert requested[0]["signal_id"] == consumed[0]["signal_id"]
     assert control_observations
     assert dict(control_observations[0]["payload"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
-    assert host.control_bus.drain(
+    assert host.runtime_gateway.drain(
         task_run_id,
         scope=RuntimeSignalScope(
-            session_id="session-bus-replay-stop",
+            session_id="session-gateway-replay-stop",
             task_run_id=task_run_id,
         ),
         signal_types={"control.signal.requested"},
     ).pending_signals == ()
 
 
-def test_executor_observes_pending_bus_pause_without_memory_signal() -> None:
-    class BusOnlyPauseModelRuntime:
+def test_executor_observes_pending_gateway_pause_without_memory_signal() -> None:
+    class GatewayOnlyPauseModelRuntime:
         def __init__(self) -> None:
             self.calls = 0
 
@@ -1221,19 +1445,19 @@ def test_executor_observes_pending_bus_pause_without_memory_signal() -> None:
                 content=json.dumps(
                     _action_request(
                         action_type="respond",
-                        final_answer="bus replay pause closeout",
+                        final_answer="Gateway replay pause closeout",
                     ),
                     ensure_ascii=False,
                 )
             )
 
-    model = BusOnlyPauseModelRuntime()
+    model = GatewayOnlyPauseModelRuntime()
     runtime = build_harness_runtime(model_runtime=model)
     host = runtime.single_agent_runtime_host
     task_run_id = _seed_active_work(
         runtime,
-        task_run_id="taskrun:bus-replay-pause",
-        session_id="session-bus-replay-pause",
+        task_run_id="taskrun:gateway-replay-pause",
+        session_id="session-gateway-replay-pause",
         status="running",
     )
 
@@ -1249,22 +1473,22 @@ def test_executor_observes_pending_bus_pause_without_memory_signal() -> None:
             raise AssertionError("executor did not enter running model call")
         task = host.state_index.get_task_run(task_run_id)
         diagnostics = dict(getattr(task, "diagnostics", {}) or {}) if task is not None else {}
-        signal_event = host.control_bus.publish(
+        signal_event = host.runtime_gateway.publish(
             task_run_id,
             signal_type="control.signal.requested",
             scope=RuntimeSignalScope(
-                session_id="session-bus-replay-pause",
+                session_id="session-gateway-replay-pause",
                 task_run_id=task_run_id,
             ),
-            source_authority="test.control_bus",
+            source_authority="test.runtime_gateway",
             payload={
                 "signal_kind": "pause",
                 "task_run_id": task_run_id,
                 "executor_epoch": int(diagnostics.get("executor_epoch") or 0),
-                "reason": "bus_replay_pause",
+                "reason": "gateway_replay_pause",
                 "requested_by": "user",
                 "requested_at": time.time(),
-                "adapter": "test_bus_only",
+                "adapter": "test_gateway_only",
             },
             refs={"task_run_ref": task_run_id},
         )
@@ -1273,9 +1497,9 @@ def test_executor_observes_pending_bus_pause_without_memory_signal() -> None:
 
     signal_event, result = asyncio.run(_run())
     task = host.state_index.get_task_run(task_run_id)
-    requested = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_published")
-    observed = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_observed")
-    consumed = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_consumed")
+    requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
+    observed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_observed")
+    consumed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_consumed")
     trace = host.get_trace(task_run_id, include_payloads=True)
     events = [dict(item) for item in list(dict(trace or {}).get("events") or [])]
     control_observations = [
@@ -1285,7 +1509,7 @@ def test_executor_observes_pending_bus_pause_without_memory_signal() -> None:
     ]
 
     assert result["error"] == "waiting_executor"
-    assert result["final_answer"] == "bus replay pause closeout"
+    assert result["final_answer"] == "Gateway replay pause closeout"
     assert result["retryable"] is True
     assert task is not None
     assert task.status == "waiting_executor"
@@ -1301,20 +1525,20 @@ def test_executor_observes_pending_bus_pause_without_memory_signal() -> None:
     assert dict(consumed[0]["payload"])["terminal_reason"] == "waiting_executor"
     assert control_observations
     assert dict(control_observations[0]["payload"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
-    assert host.control_bus.drain(
+    assert host.runtime_gateway.drain(
         task_run_id,
         scope=RuntimeSignalScope(
-            session_id="session-bus-replay-pause",
+            session_id="session-gateway-replay-pause",
             task_run_id=task_run_id,
         ),
         signal_types={"control.signal.requested"},
     ).pending_signals == ()
 
 
-def test_executor_observes_pending_bus_replan_without_memory_signal_and_consumes_steer_ref() -> None:
+def test_executor_observes_pending_gateway_replan_without_memory_signal_and_consumes_steer_ref() -> None:
     from harness.loop.task_steering import create_active_task_steer
 
-    class BusOnlyReplanModelRuntime:
+    class GatewayOnlyReplanModelRuntime:
         def __init__(self) -> None:
             self.calls = 0
             self.steer_ref = ""
@@ -1327,14 +1551,14 @@ def test_executor_observes_pending_bus_replan_without_memory_signal_and_consumes
                 content=json.dumps(
                     _action_request(
                         action_type="respond",
-                        final_answer="bus replay replan absorbed",
+                        final_answer="Gateway replay replan absorbed",
                         diagnostics={
                             "consumed_steer_refs": [self.steer_ref],
                             "contract_revision_decisions": [
                                 {
                                     "steer_ref": self.steer_ref,
                                     "status": "accepted",
-                                    "reason": "absorbed during bus replay replan",
+                                    "reason": "absorbed during Gateway replay replan",
                                 }
                             ],
                         },
@@ -1343,13 +1567,13 @@ def test_executor_observes_pending_bus_replan_without_memory_signal_and_consumes
                 )
             )
 
-    model = BusOnlyReplanModelRuntime()
+    model = GatewayOnlyReplanModelRuntime()
     runtime = build_harness_runtime(model_runtime=model)
     host = runtime.single_agent_runtime_host
     task_run_id = _seed_active_work(
         runtime,
-        task_run_id="taskrun:bus-replay-replan",
-        session_id="session-bus-replay-replan",
+        task_run_id="taskrun:gateway-replay-replan",
+        session_id="session-gateway-replay-replan",
         status="running",
     )
 
@@ -1366,30 +1590,30 @@ def test_executor_observes_pending_bus_replan_without_memory_signal_and_consumes
         steer = create_active_task_steer(
             host,
             task_run_id,
-            content="把后续验证范围扩展到总线 replay。",
+            content="把后续验证范围扩展到网关 replay。",
             intent="append_instruction_to_active_work",
         )
         steer_ref = str(dict(steer["steer"])["steer_id"])
         model.steer_ref = steer_ref
         task = host.state_index.get_task_run(task_run_id)
         diagnostics = dict(getattr(task, "diagnostics", {}) or {}) if task is not None else {}
-        signal_event = host.control_bus.publish(
+        signal_event = host.runtime_gateway.publish(
             task_run_id,
             signal_type="control.signal.requested",
             scope=RuntimeSignalScope(
-                session_id="session-bus-replay-replan",
+                session_id="session-gateway-replay-replan",
                 task_run_id=task_run_id,
             ),
-            source_authority="test.control_bus",
+            source_authority="test.runtime_gateway",
             payload={
                 "signal_kind": "replan",
                 "task_run_id": task_run_id,
                 "executor_epoch": int(diagnostics.get("executor_epoch") or 0),
-                "reason": "bus_replay_replan",
+                "reason": "gateway_replay_replan",
                 "requested_by": "user",
                 "requested_at": time.time(),
                 "steer_ref": steer_ref,
-                "adapter": "test_bus_only",
+                "adapter": "test_gateway_only",
             },
             refs={"task_run_ref": task_run_id, "steer_ref": steer_ref},
         )
@@ -1397,9 +1621,9 @@ def test_executor_observes_pending_bus_replan_without_memory_signal_and_consumes
         return signal_event, steer_ref, result
 
     signal_event, steer_ref, result = asyncio.run(_run())
-    requested = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_published")
-    observed = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_observed")
-    consumed = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_consumed")
+    requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
+    observed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_observed")
+    consumed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_consumed")
     trace = host.get_trace(task_run_id, include_payloads=True)
     events = [dict(item) for item in list(dict(trace or {}).get("events") or [])]
     control_observations = [
@@ -1409,7 +1633,7 @@ def test_executor_observes_pending_bus_replan_without_memory_signal_and_consumes
     ]
 
     assert result["ok"] is True
-    assert result["final_answer"] == "bus replay replan absorbed"
+    assert result["final_answer"] == "Gateway replay replan absorbed"
     assert len(requested) == 1
     assert len(observed) == 1
     assert len(consumed) == 1
@@ -1426,17 +1650,17 @@ def test_executor_observes_pending_bus_replan_without_memory_signal_and_consumes
     assert dict(control_observations[0]["payload"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
     assert dict(control_observations[0]["payload"])["steer_ref"] == steer_ref
     assert dict(control_observations[0]["payload"])["tool_calls_allowed_after_signal"] is True
-    assert host.control_bus.drain(
+    assert host.runtime_gateway.drain(
         task_run_id,
         scope=RuntimeSignalScope(
-            session_id="session-bus-replay-replan",
+            session_id="session-gateway-replay-replan",
             task_run_id=task_run_id,
         ),
         signal_types={"control.signal.requested"},
     ).pending_signals == ()
 
 
-def test_executor_backfills_diagnostics_stop_signal_to_control_bus_during_model_action() -> None:
+def test_executor_backfills_diagnostics_stop_signal_to_runtime_gateway_during_model_action() -> None:
     class DiagnosticsStopModelRuntime:
         def __init__(self) -> None:
             self.calls = 0
@@ -1496,9 +1720,9 @@ def test_executor_backfills_diagnostics_stop_signal_to_control_bus_during_model_
         return await asyncio.wait_for(execution, timeout=5)
 
     result = asyncio.run(_run())
-    requested = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_published")
-    observed = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_observed")
-    consumed = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_consumed")
+    requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
+    observed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_observed")
+    consumed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_consumed")
 
     assert model.calls == 2
     assert result["error"] == "user_aborted"
@@ -1512,7 +1736,7 @@ def test_executor_backfills_diagnostics_stop_signal_to_control_bus_during_model_
     assert dict(requested[0]["payload"])["signal_kind"] == "stop"
     assert dict(requested[0]["payload"])["adapter"] == "task_run_diagnostics_backfill"
     assert dict(observed[0]["payload"])["boundary"] == "after_model_action:1"
-    assert host.control_bus.drain(
+    assert host.runtime_gateway.drain(
         task_run_id,
         scope=RuntimeSignalScope(
             session_id="session-diagnostics-stop-backfill",
@@ -1522,7 +1746,100 @@ def test_executor_backfills_diagnostics_stop_signal_to_control_bus_during_model_
     ).pending_signals == ()
 
 
-def test_executor_backfills_diagnostics_pause_signal_to_control_bus_during_model_action() -> None:
+def test_executor_diagnostics_backfill_signal_id_is_idempotent() -> None:
+    from harness.loop.task_executor import _executor_control_signal_from_task_run_with_gateway_backfill
+
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:diagnostics-backfill-idempotent",
+        session_id="session-diagnostics-backfill-idempotent",
+        status="running",
+    )
+    task = host.state_index.get_task_run(task_run_id)
+    host.state_index.upsert_task_run(
+        replace(
+            task,
+            diagnostics={
+                **dict(task.diagnostics or {}),
+                "runtime_control": {
+                    "state": "stop_requested",
+                    "requested_by": "user",
+                    "requested_at": 123.0,
+                    "reason": "legacy_stop_state",
+                },
+            },
+        )
+    )
+    task = host.state_index.get_task_run(task_run_id)
+
+    first = _executor_control_signal_from_task_run_with_gateway_backfill(
+        host,
+        task,
+        executor_epoch=0,
+        default_reason="legacy_stop_state",
+    )
+    second = _executor_control_signal_from_task_run_with_gateway_backfill(
+        host,
+        task,
+        executor_epoch=0,
+        default_reason="legacy_stop_state",
+    )
+    requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
+
+    assert first is not None
+    assert second is not None
+    assert first.signal_id == second.signal_id
+    assert first.signal_id.startswith("control-backfill:")
+    assert len(requested) == 1
+    assert requested[0]["signal_id"] == first.signal_id
+    assert dict(requested[0]["payload"])["adapter"] == "task_run_diagnostics_backfill"
+    assert dict(requested[0]["payload"])["signal_kind"] == "stop"
+
+
+def test_executor_diagnostics_backfill_requires_runtime_gateway() -> None:
+    from harness.loop.task_executor import _executor_control_signal_from_task_run_with_gateway_backfill
+
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:diagnostics-backfill-no-gateway",
+        session_id="session-diagnostics-backfill-no-gateway",
+        status="running",
+    )
+    task = host.state_index.get_task_run(task_run_id)
+    host.state_index.upsert_task_run(
+        replace(
+            task,
+            diagnostics={
+                **dict(task.diagnostics or {}),
+                "runtime_control": {
+                    "state": "stop_requested",
+                    "requested_by": "user",
+                    "requested_at": 123.0,
+                    "reason": "legacy_stop_state",
+                },
+            },
+        )
+    )
+    host.runtime_gateway = None
+    task = host.state_index.get_task_run(task_run_id)
+
+    signal = _executor_control_signal_from_task_run_with_gateway_backfill(
+        host,
+        task,
+        executor_epoch=0,
+        default_reason="legacy_stop_state",
+    )
+    requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
+
+    assert signal is None
+    assert requested == []
+
+
+def test_executor_backfills_diagnostics_pause_signal_to_runtime_gateway_during_model_action() -> None:
     class DiagnosticsPauseModelRuntime:
         def __init__(self) -> None:
             self.calls = 0
@@ -1583,9 +1900,9 @@ def test_executor_backfills_diagnostics_pause_signal_to_control_bus_during_model
 
     result = asyncio.run(_run())
     task = host.state_index.get_task_run(task_run_id)
-    requested = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_published")
-    observed = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_observed")
-    consumed = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_consumed")
+    requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
+    observed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_observed")
+    consumed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_consumed")
 
     assert model.calls == 2
     assert result["error"] == "waiting_executor"
@@ -1601,7 +1918,7 @@ def test_executor_backfills_diagnostics_pause_signal_to_control_bus_during_model
     assert dict(requested[0]["payload"])["adapter"] == "task_run_diagnostics_backfill"
     assert dict(observed[0]["payload"])["boundary"] == "after_model_action:1"
     assert dict(consumed[0]["payload"])["lifecycle_status"] == "waiting_executor"
-    assert host.control_bus.drain(
+    assert host.runtime_gateway.drain(
         task_run_id,
         scope=RuntimeSignalScope(
             session_id="session-diagnostics-pause-backfill",
@@ -1611,7 +1928,7 @@ def test_executor_backfills_diagnostics_pause_signal_to_control_bus_during_model
     ).pending_signals == ()
 
 
-def test_executor_backfills_diagnostics_replan_signal_to_control_bus_and_consumes_steer_ref() -> None:
+def test_executor_backfills_diagnostics_replan_signal_to_runtime_gateway_and_consumes_steer_ref() -> None:
     from harness.loop.task_steering import create_active_task_steer
 
     class DiagnosticsReplanModelRuntime:
@@ -1676,9 +1993,9 @@ def test_executor_backfills_diagnostics_replan_signal_to_control_bus_and_consume
     )
 
     result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=4))
-    requested = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_published")
-    observed = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_observed")
-    consumed = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_consumed")
+    requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
+    observed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_observed")
+    consumed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_consumed")
 
     assert model.calls == 1
     assert result["ok"] is True
@@ -1694,7 +2011,7 @@ def test_executor_backfills_diagnostics_replan_signal_to_control_bus_and_consume
     assert dict(observed[0]["payload"])["boundary"] == "step_start:1"
     assert dict(consumed[0]["payload"])["steer_ref"] == steer_ref
     assert dict(consumed[0]["payload"])["model_action_consumption"] == "consumed_steer_refs"
-    assert host.control_bus.drain(
+    assert host.runtime_gateway.drain(
         task_run_id,
         scope=RuntimeSignalScope(
             session_id="session-diagnostics-replan-backfill",
@@ -1821,8 +2138,8 @@ def test_runtime_start_recovery_does_not_reconnect_user_controlled_interruption(
     duplicate_result = runtime.task_executor_controller.recover_interrupted_executor_leases()
     unchanged = host.state_index.get_task_run(task_run_id)
     events = [event.event_type for event in host.event_log.list_events(task_run_id)]
-    requested = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_published")
-    unavailable = _runtime_control_bus_signals(
+    requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
+    unavailable = _runtime_gateway_signals(
         host,
         task_run_id,
         "runtime_control_signal_published",
@@ -1869,7 +2186,7 @@ def test_runtime_start_recovery_does_not_replay_closed_user_control_signal() -> 
             },
         )
     )
-    signal_event = host.control_bus.publish(
+    signal_event = host.runtime_gateway.publish(
         task_run_id,
         signal_type="control.signal.requested",
         scope=RuntimeSignalScope(
@@ -1888,7 +2205,7 @@ def test_runtime_start_recovery_does_not_replay_closed_user_control_signal() -> 
         refs={"task_run_ref": task_run_id},
     )
     signal_id = str(dict(dict(signal_event.payload or {}).get("signal") or {}).get("signal_id") or "")
-    host.control_bus.mark_consumed_by_id(
+    host.runtime_gateway.mark_consumed_by_id(
         task_run_id,
         signal_id=signal_id,
         consumed_by="test.closed_control_signal",
@@ -1897,14 +2214,14 @@ def test_runtime_start_recovery_does_not_replay_closed_user_control_signal() -> 
 
     result = runtime.task_executor_controller.recover_interrupted_executor_leases()
     duplicate_result = runtime.task_executor_controller.recover_interrupted_executor_leases()
-    requested = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_published")
-    unavailable = _runtime_control_bus_signals(
+    requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
+    unavailable = _runtime_gateway_signals(
         host,
         task_run_id,
         "runtime_control_signal_published",
         signal_type="control.signal.target_unavailable",
     )
-    consumed = _runtime_control_bus_signals(host, task_run_id, "runtime_control_signal_consumed")
+    consumed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_consumed")
 
     assert result["recovered_count"] == 0
     assert result["user_controlled_interruption_task_run_ids"] == [task_run_id]

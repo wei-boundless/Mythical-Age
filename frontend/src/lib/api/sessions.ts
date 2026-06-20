@@ -68,7 +68,7 @@ export async function renameSession(sessionId: string, title: string, scope?: Pa
   });
 }
 
-export async function deriveSessionTitleFromSummary(sessionId: string, scope?: Partial<SessionScope>) {
+export async function deriveSessionTitleFromFirstUserMessage(sessionId: string, scope?: Partial<SessionScope>) {
   return request<{ session_id: string; title: string }>(withSessionScopeQuery(`/sessions/${sessionId}/generate-title`, scope), {
     method: "POST",
     body: JSON.stringify({}),

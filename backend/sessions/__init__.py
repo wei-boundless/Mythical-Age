@@ -129,18 +129,26 @@ class SessionManager:
         self._write_payload(session_id, payload)
         return self._summary_from_payload(payload)
 
-    def rename_session(self, session_id: str, title: str) -> dict[str, Any]:
+    def rename_session(self, session_id: str, title: str, *, preserve_updated_at: bool = False) -> dict[str, Any]:
         with self._session_lock(session_id):
             payload = self._read_payload(session_id)
             payload["title"] = str(title or "").strip() or payload.get("title") or "New Session"
-            payload["updated_at"] = time.time()
+            if not preserve_updated_at:
+                payload["updated_at"] = time.time()
             self._write_payload(session_id, payload)
             return self._summary_from_payload(payload)
 
     def set_title(self, session_id: str, title: str) -> dict[str, Any]:
         return self.rename_session(session_id, title)
 
-    def set_title_if_default(self, session_id: str, title: str, *, default_title: str = "New Session") -> dict[str, Any]:
+    def set_title_if_default(
+        self,
+        session_id: str,
+        title: str,
+        *,
+        default_title: str = "New Session",
+        preserve_updated_at: bool = False,
+    ) -> dict[str, Any]:
         with self._session_lock(session_id):
             payload = self._read_payload(session_id)
             current_title = str(payload.get("title") or "").strip() or default_title
@@ -150,7 +158,8 @@ class SessionManager:
             if not next_title:
                 return self._summary_from_payload(payload)
             payload["title"] = next_title
-            payload["updated_at"] = time.time()
+            if not preserve_updated_at:
+                payload["updated_at"] = time.time()
             self._write_payload(session_id, payload)
             return self._summary_from_payload(payload)
 
@@ -1040,4 +1049,3 @@ def validate_session_id(value: str) -> str:
     if normalized != _safe_session_id(normalized):
         raise InvalidSessionId("Invalid session_id")
     return normalized
-

@@ -86,6 +86,16 @@ def create_active_task_steer(
         created_at=now,
         editor_context=dict(editor_context or {}),
     )
+    signal_event = _publish_active_task_steer_signal(
+        runtime_host,
+        task_run=task_run,
+        steer=steer,
+        submission=submission,
+        turn_id=turn_id,
+        intent=intent,
+    )
+    if signal_event is None:
+        return {"ok": False, "accepted": False, "error": "runtime_gateway_control_signal_unavailable", "task_run_id": task_run_id}
     runtime_host.runtime_objects.put_object("user_submission", submission.submission_id, submission.to_dict())
     runtime_host.runtime_objects.put_object("active_task_steer", steer.steer_id, steer.to_dict())
     runtime_host.event_log.append(
@@ -108,14 +118,6 @@ def create_active_task_steer(
             "submission_ref": submission.submission_id,
             "steer_ref": steer.steer_id,
         },
-    )
-    _publish_active_task_steer_signal(
-        runtime_host,
-        task_run=task_run,
-        steer=steer,
-        submission=submission,
-        turn_id=turn_id,
-        intent=intent,
     )
     pending_count = len(list_pending_task_steers(runtime_host, task_run_id))
     updated = replace(
@@ -144,7 +146,14 @@ def create_active_task_steer(
         refs={"steer_ref": steer.steer_id, "submission_ref": submission.submission_id, "turn_ref": str(turn_id or "")},
         payload={"user_instruction": instruction, "intent": intent, "steer": steer.to_dict()},
     )
-    return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "submission": submission.to_dict(), "steer": steer.to_dict(), "event": event.to_dict()}
+    return {
+        "ok": True,
+        "accepted": True,
+        "task_run": updated.to_dict(),
+        "submission": submission.to_dict(),
+        "steer": steer.to_dict(),
+        "event": event.to_dict(),
+    }
 
 
 def _publish_active_task_steer_signal(
@@ -155,18 +164,18 @@ def _publish_active_task_steer_signal(
     submission: UserSubmission,
     turn_id: str,
     intent: str,
-) -> None:
-    control_bus = getattr(runtime_host, "control_bus", None)
-    publisher = getattr(control_bus, "publish", None)
+) -> Any | None:
+    runtime_gateway = getattr(runtime_host, "runtime_gateway", None)
+    publisher = getattr(runtime_gateway, "publish", None)
     if not callable(publisher):
-        return
+        return None
     task_run_id = str(steer.task_run_id or getattr(task_run, "task_run_id", "") or "").strip()
     if not task_run_id:
-        return
+        return None
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     agent_scope = dict(diagnostics.get("agent_run_scope") or {})
     try:
-        publisher(
+        return publisher(
             task_run_id,
             signal_type="control.steer.recorded",
             signal_id=f"rtsig:active_task_steer:{steer.steer_id}",
@@ -200,7 +209,7 @@ def _publish_active_task_steer_signal(
             },
         )
     except Exception:
-        return
+        return None
 
 
 def list_task_steers(runtime_host: Any, task_run_id: str) -> list[dict[str, Any]]:

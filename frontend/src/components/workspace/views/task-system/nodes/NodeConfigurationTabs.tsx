@@ -275,7 +275,7 @@ export function NodeCapabilityTab({
               </button>
             );
           })}
-          {!capabilityItems.length ? <div className="boundary-empty">暂未加载能力候选。刷新后会从编排能力目录读取。</div> : null}
+          {!capabilityItems.length ? <div className="boundary-empty">暂未加载能力候选。刷新后会从 Agent 能力目录读取。</div> : null}
         </div>
       </section>
       <section className="task-system-inspector-section">

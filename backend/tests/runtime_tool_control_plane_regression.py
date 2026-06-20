@@ -10,7 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from harness.runtime import build_runtime_tool_plan
-from harness.runtime.control_bus import RuntimeControlBus
+from harness.runtime.runtime_gateway import RuntimeGateway
 from harness.loop.task_tool_approval import (
     append_task_tool_approval_grant,
     approval_state_for_task_run,
@@ -650,7 +650,7 @@ def test_runtime_tool_control_plane_publishes_task_run_tool_lifecycle_signals(tm
     runtime_host = SimpleNamespace(
         execution_store=None,
         backend_dir=BACKEND_DIR,
-        control_bus=RuntimeControlBus(event_log),
+        runtime_gateway=RuntimeGateway(event_log),
         tool_authorization_index=SimpleNamespace(
             definitions_by_name={"read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True)}
         ),
@@ -661,34 +661,34 @@ def test_runtime_tool_control_plane_publishes_task_run_tool_lifecycle_signals(tm
         tool_definitions_by_name={"read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True)},
     )
     request = ToolInvocationRequest(
-        invocation_id="toolinvoke:task:bus-read",
+        invocation_id="toolinvoke:task:gateway-read",
         caller_kind="task_run",
-        caller_ref="taskrun:bus-read",
-        session_id="session:bus-read",
-        turn_id="turn:bus-read:1",
-        task_run_id="taskrun:bus-read",
-        agent_run_id="agrun:bus-read",
-        run_cell_id="runcell:bus-read",
-        action_request_ref="action:bus-read",
-        packet_ref="packet:bus-read",
+        caller_ref="taskrun:gateway-read",
+        session_id="session:gateway-read",
+        turn_id="turn:gateway-read:1",
+        task_run_id="taskrun:gateway-read",
+        agent_run_id="agrun:gateway-read",
+        run_cell_id="runcell:gateway-read",
+        action_request_ref="action:gateway-read",
+        packet_ref="packet:gateway-read",
         tool_name="read_file",
-        tool_call_id="call:bus-read",
+        tool_call_id="call:gateway-read",
         tool_args={"path": "README.md"},
         operation_id="op.read_file",
         action_permit=_permit(
-            action_request_ref="action:bus-read",
+            action_request_ref="action:gateway-read",
             invocation_kind="task_execution",
             tool_name="read_file",
             operation_id="op.read_file",
-            session_id="session:bus-read",
-            turn_id="turn:bus-read:1",
-            task_run_id="taskrun:bus-read",
+            session_id="session:gateway-read",
+            turn_id="turn:gateway-read:1",
+            task_run_id="taskrun:gateway-read",
         ),
         requested_constraints={"runtime_host": runtime_host},
     )
 
     observation = asyncio.run(RuntimeToolControlPlane(tool_runtime_executor=executor, operation_gate=gate).invoke(request, tool_plan=plan))
-    signals = _control_bus_signals(event_log, "taskrun:bus-read")
+    signals = _runtime_gateway_signals(event_log, "taskrun:gateway-read")
 
     assert observation.status == "ok"
     assert [signal["signal_type"] for signal in signals] == [
@@ -697,37 +697,43 @@ def test_runtime_tool_control_plane_publishes_task_run_tool_lifecycle_signals(tm
         "tool.execution.completed",
     ]
     assert [signal["signal_id"] for signal in signals] == [
-        "toolperm:toolinvoke:task:bus-read",
-        "toolexec:toolinvoke:task:bus-read:started",
-        "toolexec:toolinvoke:task:bus-read:completed",
+        "toolperm:toolinvoke:task:gateway-read",
+        "toolexec:toolinvoke:task:gateway-read:started",
+        "toolexec:toolinvoke:task:gateway-read:completed",
     ]
     for signal in signals:
         scope = dict(signal["scope"])
         payload = dict(signal["payload"])
-        assert scope["task_run_id"] == "taskrun:bus-read"
-        assert scope["agent_run_id"] == "agrun:bus-read"
-        assert scope["run_cell_id"] == "runcell:bus-read"
-        assert payload["tool_invocation_id"] == "toolinvoke:task:bus-read"
-        assert payload["tool_call_id"] == "call:bus-read"
-        assert payload["action_request_ref"] == "action:bus-read"
+        assert scope["task_run_id"] == "taskrun:gateway-read"
+        assert scope["agent_run_id"] == "agrun:gateway-read"
+        assert scope["run_cell_id"] == "runcell:gateway-read"
+        assert payload["tool_invocation_id"] == "toolinvoke:task:gateway-read"
+        assert payload["tool_call_id"] == "call:gateway-read"
+        assert payload["action_request_ref"] == "action:gateway-read"
         assert payload["authority"] == "runtime.tool_runtime.tool_control_plane"
     assert signals[0]["payload"]["decision"] == "allow"
     assert signals[1]["payload"]["handler_id"] == "task_tool_runtime"
     assert signals[2]["payload"]["handler_id"] == "task_tool_runtime"
     assert signals[2]["payload"]["status"] == "ok"
     assert signals[2]["payload"]["observation_ref"] == observation.observation_id
+    assert executor.run_calls == 1
 
     replayed = asyncio.run(RuntimeToolControlPlane(tool_runtime_executor=executor, operation_gate=gate).invoke(request, tool_plan=plan))
 
-    assert replayed.status == "ok"
-    assert len(_control_bus_signals(event_log, "taskrun:bus-read")) == 3
+    assert replayed.status == "error"
+    assert replayed.text == "tool_lifecycle_duplicate_invocation_completed"
+    assert replayed.diagnostics["completed_signal_ref"] == "toolexec:toolinvoke:task:gateway-read:completed"
+    assert replayed.diagnostics["completed_observation_ref"] == observation.observation_id
+    assert replayed.diagnostics["requires_new_invocation_id"] is True
+    assert executor.run_calls == 1
+    assert len(_runtime_gateway_signals(event_log, "taskrun:gateway-read")) == 3
 
 
 def test_runtime_tool_control_plane_permission_denial_publishes_no_execution_lifecycle(tmp_path: Path) -> None:
     event_log = RuntimeEventLog(tmp_path)
     runtime_host = SimpleNamespace(
         backend_dir=BACKEND_DIR,
-        control_bus=RuntimeControlBus(event_log),
+        runtime_gateway=RuntimeGateway(event_log),
         tool_authorization_index=SimpleNamespace(
             definitions_by_name={"read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True)}
         ),
@@ -738,33 +744,34 @@ def test_runtime_tool_control_plane_permission_denial_publishes_no_execution_lif
         tool_definitions_by_name={"read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True)},
     )
     request = ToolInvocationRequest(
-        invocation_id="toolinvoke:turn:bus-no-permit",
+        invocation_id="toolinvoke:turn:gateway-no-permit",
         caller_kind="agent_turn",
-        caller_ref="turnrun:bus-no-permit",
-        session_id="session:bus-no-permit",
-        turn_id="turn:bus-no-permit:1",
-        agent_run_id="agrun:bus-no-permit",
-        run_cell_id="runcell:bus-no-permit",
-        action_request_ref="action:bus-no-permit",
+        caller_ref="turnrun:gateway-no-permit",
+        session_id="session:gateway-no-permit",
+        turn_id="turn:gateway-no-permit:1",
+        agent_run_id="agrun:gateway-no-permit",
+        run_cell_id="runcell:gateway-no-permit",
+        action_request_ref="action:gateway-no-permit",
         tool_name="read_file",
-        tool_call_id="call:bus-no-permit",
+        tool_call_id="call:gateway-no-permit",
         operation_id="op.read_file",
         requested_constraints={"runtime_host": runtime_host},
     )
 
     observation = asyncio.run(RuntimeToolControlPlane().invoke(request, tool_plan=plan))
-    signals = _control_bus_signals(event_log, "turnrun:bus-no-permit")
+    signals = _runtime_gateway_signals(event_log, "turnrun:gateway-no-permit")
 
     assert observation.status == "denied"
     assert [signal["signal_type"] for signal in signals] == ["tool.permission.decided"]
     assert signals[0]["payload"]["decision"] == "denied"
     assert signals[0]["payload"]["stage"] == "action_permit"
-    assert signals[0]["scope"]["agent_run_id"] == "agrun:bus-no-permit"
-    assert signals[0]["scope"]["run_cell_id"] == "runcell:bus-no-permit"
+    assert signals[0]["scope"]["agent_run_id"] == "agrun:gateway-no-permit"
+    assert signals[0]["scope"]["run_cell_id"] == "runcell:gateway-no-permit"
 
 
 def test_runtime_tool_control_plane_allows_managed_artifact_write_without_sandbox_approval(tmp_path: Path) -> None:
     executor = _RecordingToolExecutor()
+    event_log = RuntimeEventLog(tmp_path)
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(available_tools=[{"name": "write_file", "operation_id": "op.write_file", "read_only": False}]),
         invocation_kind="task_execution",
@@ -806,6 +813,7 @@ def test_runtime_tool_control_plane_allows_managed_artifact_write_without_sandbo
             "runtime_host": SimpleNamespace(
                 execution_store=None,
                 backend_dir=BACKEND_DIR,
+                runtime_gateway=RuntimeGateway(event_log),
                 tool_authorization_index=SimpleNamespace(
                     definitions_by_name={"write_file": SimpleNamespace(operation_id="op.write_file", is_read_only=False)}
                 ),
@@ -824,6 +832,123 @@ def test_runtime_tool_control_plane_allows_managed_artifact_write_without_sandbo
     assert observation.operation_gate["decision"] == "allow"
     assert executor.run_calls == 1
     assert executor.last_run["file_management_policy"]["repositories"]["write"] == "repo.managed_project.artifacts"
+    assert [signal["signal_type"] for signal in _runtime_gateway_signals(event_log, "taskrun:artifact-write")] == [
+        "tool.permission.decided",
+        "tool.execution.started",
+        "tool.execution.completed",
+    ]
+
+
+def test_runtime_tool_control_plane_fail_closes_side_effect_task_execution_without_runtime_gateway(tmp_path: Path) -> None:
+    executor = _RecordingToolExecutor()
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"name": "write_file", "operation_id": "op.write_file", "read_only": False}]),
+        invocation_kind="task_execution",
+        tool_definitions_by_name={"write_file": SimpleNamespace(operation_id="op.write_file", is_read_only=False)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:task:no-gateway-write",
+        caller_kind="task_run",
+        caller_ref="taskrun:no-gateway-write",
+        session_id="session:one",
+        turn_id="turn:one:1",
+        task_run_id="taskrun:no-gateway-write",
+        agent_run_id="agrun:no-gateway-write",
+        action_request_ref="action:no-gateway-write",
+        packet_ref="packet:task:no-gateway-write",
+        tool_name="write_file",
+        tool_call_id="call:write",
+        tool_args={"path": "reports/summary.md", "content": "managed artifact"},
+        operation_id="op.write_file",
+        sandbox_scope={
+            "enabled": False,
+            "workspace_root": str(tmp_path / "project"),
+        },
+        file_scope={
+            "enabled": True,
+            "profile_id": "file_profile.managed_project_workspace",
+            "repositories": {"write": "repo.managed_project.artifacts"},
+            "managed_storage_root": str(tmp_path / "project" / ".managed-files"),
+        },
+        action_permit=_permit(
+            action_request_ref="action:no-gateway-write",
+            invocation_kind="task_execution",
+            tool_name="write_file",
+            operation_id="op.write_file",
+            read_only=False,
+            task_run_id="taskrun:no-gateway-write",
+        ),
+        requested_constraints={
+            "runtime_host": SimpleNamespace(
+                execution_store=None,
+                backend_dir=BACKEND_DIR,
+                runtime_gateway=None,
+                tool_authorization_index=SimpleNamespace(
+                    definitions_by_name={"write_file": SimpleNamespace(operation_id="op.write_file", is_read_only=False)}
+                ),
+            )
+        },
+    )
+
+    observation = asyncio.run(
+        RuntimeToolControlPlane(
+            tool_runtime_executor=executor,
+            operation_gate=OperationGate(build_default_operation_registry()),
+        ).invoke(request, tool_plan=plan)
+    )
+
+    assert observation.status == "error"
+    assert observation.text == "tool_lifecycle_permission_decided_unavailable"
+    assert observation.diagnostics["requires_runtime_gateway"] is True
+    assert executor.run_calls == 0
+
+
+def test_runtime_tool_control_plane_fail_closes_side_effect_task_execution_without_runtime_host() -> None:
+    executor = _RecordingToolExecutor()
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"tool_name": "browser_control", "operation_id": "op.browser_control"}]),
+        invocation_kind="task_execution",
+        tool_definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)},
+    )
+    action_permit = _permit(
+        action_request_ref="action:no-host-browser",
+        invocation_kind="task_execution",
+        tool_name="browser_control",
+        operation_id="op.browser_control",
+        read_only=False,
+        task_run_id="taskrun:no-host-browser",
+    )
+    action_permit["permission_mode"] = "full_access"
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:task:no-host-browser",
+        caller_kind="task_run",
+        caller_ref="taskrun:no-host-browser",
+        session_id="session:one",
+        turn_id="turn:one:1",
+        task_run_id="taskrun:no-host-browser",
+        agent_run_id="agrun:no-host-browser",
+        action_request_ref="action:no-host-browser",
+        packet_ref="packet:task:no-host-browser",
+        tool_name="browser_control",
+        tool_call_id="call:browser",
+        tool_args={"action": "open", "url": "https://example.com"},
+        operation_id="op.browser_control",
+        permission_mode="full_access",
+        action_permit=action_permit,
+        requested_constraints={},
+    )
+
+    observation = asyncio.run(
+        RuntimeToolControlPlane(
+            tool_runtime_executor=executor,
+            operation_gate=OperationGate(build_default_operation_registry()),
+        ).invoke(request, tool_plan=plan)
+    )
+
+    assert observation.status == "error"
+    assert observation.text == "tool_lifecycle_permission_decided_unavailable"
+    assert observation.diagnostics["requires_runtime_gateway"] is True
+    assert executor.run_calls == 0
 
 
 def test_runtime_tool_control_plane_keeps_project_workspace_write_approval_without_sandbox(tmp_path: Path) -> None:
@@ -888,8 +1013,9 @@ def test_runtime_tool_control_plane_keeps_project_workspace_write_approval_witho
     assert executor.run_calls == 0
 
 
-def test_runtime_tool_control_plane_requires_and_accepts_task_run_approval_state() -> None:
+def test_runtime_tool_control_plane_requires_and_accepts_task_run_approval_state(tmp_path: Path) -> None:
     executor = _RecordingToolExecutor()
+    event_log = RuntimeEventLog(tmp_path)
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(available_tools=[{"tool_name": "browser_control", "operation_id": "op.browser_control"}]),
         invocation_kind="task_execution",
@@ -923,6 +1049,7 @@ def test_runtime_tool_control_plane_requires_and_accepts_task_run_approval_state
             "runtime_host": SimpleNamespace(
                 execution_store=None,
                 backend_dir=BACKEND_DIR,
+                runtime_gateway=RuntimeGateway(event_log),
                 tool_authorization_index=SimpleNamespace(
                     definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)}
                 ),
@@ -987,6 +1114,11 @@ def test_runtime_tool_control_plane_requires_and_accepts_task_run_approval_state
     assert approved.status == "ok"
     assert approved.operation_gate["decision"] == "allow"
     assert executor.run_calls == 1
+    assert [signal["signal_type"] for signal in _runtime_gateway_signals(event_log, "taskrun:approval")] == [
+        "tool.permission.decided",
+        "tool.execution.started",
+        "tool.execution.completed",
+    ]
 
 
 def test_runtime_tool_control_plane_rejects_mismatched_approval_token(tmp_path) -> None:
@@ -995,7 +1127,7 @@ def test_runtime_tool_control_plane_rejects_mismatched_approval_token(tmp_path) 
     runtime_host = SimpleNamespace(
         execution_store=None,
         backend_dir=BACKEND_DIR,
-        control_bus=RuntimeControlBus(event_log),
+        runtime_gateway=RuntimeGateway(event_log),
         tool_authorization_index=SimpleNamespace(
             definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)}
         ),
@@ -1120,7 +1252,7 @@ def test_runtime_tool_control_plane_consumes_task_run_approval_after_executor_er
         execution_store=None,
         backend_dir=BACKEND_DIR,
         state_index=state_index,
-        control_bus=RuntimeControlBus(event_log),
+        runtime_gateway=RuntimeGateway(event_log),
         tool_authorization_index=SimpleNamespace(
             definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)}
         ),
@@ -1192,10 +1324,130 @@ def test_runtime_tool_control_plane_consumes_task_run_approval_after_executor_er
     assert grants and grants[0]["consumed"] is True
     assert dict(dict(updated.diagnostics or {}).get("pending_approval") or {}).get("status") == "consumed"
     assert len(approval_consumed) == 1
+    assert approval_consumed[0]["signal_id"] == f"approval-consumed:{grant.grant_id}"
     assert dict(approval_consumed[0]["payload"])["grant_id"] == grant.grant_id
     assert dict(approval_consumed[0]["payload"])["approval_risk_fingerprint"] == fingerprint
     assert dict(approval_consumed[0]["scope"])["task_run_id"] == task_run_id
     assert dict(approval_consumed[0]["scope"])["run_cell_id"] == "runcell:approval-error"
+
+
+def test_runtime_tool_control_plane_fail_closes_when_gateway_cannot_publish_approval_consumed(tmp_path) -> None:
+    executor = _FailingToolExecutor()
+    tool_args = {"action": "open", "url": "https://example.com"}
+    action_request_ref = "action:browser-no-gateway"
+    task_run_id = "taskrun:approval-consume-no-gateway"
+    directive_ref = f"runtime-directive:{task_run_id}:tool:{action_request_ref}"
+    fingerprint = "risk:browser:no-gateway"
+    pending = {
+        "status": "approved",
+        "task_run_id": task_run_id,
+        "action_request_ref": action_request_ref,
+        "approval_request_id": "approval-request:browser-no-gateway",
+        "tool_call_id": "call:browser-no-gateway",
+        "tool_name": "browser_control",
+        "operation_id": "op.browser_control",
+        "directive_ref": directive_ref,
+        "approval_risk_fingerprint": fingerprint,
+        "tool_args_hash": tool_args_hash(tool_args),
+    }
+    task_run = TaskRun(
+        task_run_id=task_run_id,
+        session_id="session:approval-no-gateway",
+        task_id="task:approval-no-gateway",
+        execution_runtime_kind="single_agent_task",
+        status="running",
+        diagnostics={
+            "pending_approval": pending,
+            "agent_run_scope": {
+                "session_id": "session:approval-no-gateway",
+                "task_run_id": task_run_id,
+                "agent_run_id": "agrun:approval-no-gateway",
+                "run_cell_id": "runcell:approval-no-gateway",
+                "invocation_kind": "task_run",
+            },
+        },
+    )
+    grant = build_task_tool_approval_grant(
+        task_run=task_run,
+        pending_approval=pending,
+        requested_by="user",
+    )
+    assert grant is not None
+    task_run = TaskRun(
+        task_run_id=task_run.task_run_id,
+        session_id=task_run.session_id,
+        task_id=task_run.task_id,
+        execution_runtime_kind=task_run.execution_runtime_kind,
+        status=task_run.status,
+        diagnostics={**append_task_tool_approval_grant(task_run, grant), "pending_approval": pending},
+    )
+    state_index = _TaskRunStateIndex(task_run)
+    runtime_host = SimpleNamespace(
+        execution_store=None,
+        backend_dir=BACKEND_DIR,
+        state_index=state_index,
+        runtime_gateway=_GatewayRejectingApprovalConsumed(),
+        tool_authorization_index=SimpleNamespace(
+            definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)}
+        ),
+    )
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"tool_name": "browser_control", "operation_id": "op.browser_control"}]),
+        invocation_kind="task_execution",
+        tool_definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:task:browser-no-gateway",
+        caller_kind="task_run",
+        caller_ref=task_run_id,
+        session_id="session:approval-no-gateway",
+        turn_id="turn:approval-no-gateway:1",
+        task_run_id=task_run_id,
+        agent_run_id="agrun:approval-no-gateway",
+        run_cell_id="runcell:approval-no-gateway",
+        action_request_ref=action_request_ref,
+        packet_ref="packet:task:approval-no-gateway",
+        tool_name="browser_control",
+        tool_call_id="call:browser-no-gateway",
+        tool_args=tool_args,
+        operation_id="op.browser_control",
+        action_permit=_permit(
+            action_request_ref=action_request_ref,
+            invocation_kind="task_execution",
+            tool_name="browser_control",
+            operation_id="op.browser_control",
+            read_only=False,
+            session_id="session:approval-no-gateway",
+            turn_id="turn:approval-no-gateway:1",
+            task_run_id=task_run_id,
+            approval_risk_fingerprint=fingerprint,
+        ),
+        approval_state=approval_state_for_task_run(task_run).to_dict(),
+        approval_risk_fingerprint=fingerprint,
+        requested_constraints={"runtime_host": runtime_host},
+    )
+
+    observation = asyncio.run(
+        RuntimeToolControlPlane(
+            tool_runtime_executor=executor,
+            operation_gate=OperationGate(build_default_operation_registry()),
+        ).invoke(request, tool_plan=plan)
+    )
+    updated = state_index.get_task_run(task_run_id)
+    approval_state = dict(dict(updated.diagnostics or {}).get("approval_state") or {}) if updated is not None else {}
+    grants = [dict(item) for item in list(approval_state.get("grants") or [])]
+
+    assert observation.status == "error"
+    assert observation.text == "runtime_gateway_approval_consumption_unavailable"
+    assert observation.diagnostics["stage"] == "approval_consumption_unavailable"
+    assert executor.run_calls == 0
+    assert approval_state["status"] == "approved"
+    assert grants and grants[0]["consumed"] is False
+    assert dict(dict(updated.diagnostics or {}).get("pending_approval") or {}).get("status") == "approved"
+    assert [item["signal_type"] for item in runtime_host.runtime_gateway.published] == [
+        "tool.permission.decided",
+        "approval.consumed",
+    ]
 
 
 def test_runtime_tool_control_plane_fail_closes_agent_turn_when_control_plane_dispatch_is_missing() -> None:
@@ -1300,7 +1552,7 @@ def test_runtime_tool_control_plane_publishes_agent_turn_core_lifecycle_signals(
     event_log = RuntimeEventLog(tmp_path)
     runtime_host = SimpleNamespace(
         backend_dir=BACKEND_DIR,
-        control_bus=RuntimeControlBus(event_log),
+        runtime_gateway=RuntimeGateway(event_log),
         tool_authorization_index=SimpleNamespace(
             definitions_by_name={"read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True)}
         ),
@@ -1311,25 +1563,25 @@ def test_runtime_tool_control_plane_publishes_agent_turn_core_lifecycle_signals(
         tool_definitions_by_name={"read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True)},
     )
     request = ToolInvocationRequest(
-        invocation_id="toolinvoke:turn:bus-core",
+        invocation_id="toolinvoke:turn:gateway-core",
         caller_kind="agent_turn",
-        caller_ref="turnrun:bus-core",
-        session_id="session:bus-core",
-        turn_id="turn:bus-core:1",
-        agent_run_id="agrun:bus-core",
-        run_cell_id="runcell:bus-core",
+        caller_ref="turnrun:gateway-core",
+        session_id="session:gateway-core",
+        turn_id="turn:gateway-core:1",
+        agent_run_id="agrun:gateway-core",
+        run_cell_id="runcell:gateway-core",
         tool_name="read_file",
-        tool_call_id="call:bus-core",
+        tool_call_id="call:gateway-core",
         tool_args={"path": "README.md"},
         operation_id="op.read_file",
-        action_request_ref="action:bus-core",
+        action_request_ref="action:gateway-core",
         action_permit=_permit(
-            action_request_ref="action:bus-core",
+            action_request_ref="action:gateway-core",
             invocation_kind="agent_turn",
             tool_name="read_file",
             operation_id="op.read_file",
-            session_id="session:bus-core",
-            turn_id="turn:bus-core:1",
+            session_id="session:gateway-core",
+            turn_id="turn:gateway-core:1",
         ),
         requested_constraints={
             "runtime_host": runtime_host,
@@ -1339,7 +1591,7 @@ def test_runtime_tool_control_plane_publishes_agent_turn_core_lifecycle_signals(
     )
 
     observation = asyncio.run(RuntimeToolControlPlane(tool_runtime_executor=executor, operation_gate=gate).invoke(request, tool_plan=plan))
-    signals = _control_bus_signals(event_log, "turnrun:bus-core")
+    signals = _runtime_gateway_signals(event_log, "turnrun:gateway-core")
 
     assert observation.status == "ok"
     assert [signal["signal_type"] for signal in signals] == [
@@ -1349,27 +1601,27 @@ def test_runtime_tool_control_plane_publishes_agent_turn_core_lifecycle_signals(
     ]
     assert [dict(signal["scope"]) for signal in signals] == [
         {
-            "session_id": "session:bus-core",
-            "agent_run_id": "agrun:bus-core",
-            "run_cell_id": "runcell:bus-core",
-            "turn_id": "turn:bus-core:1",
-            "turn_run_id": "turnrun:bus-core",
+            "session_id": "session:gateway-core",
+            "agent_run_id": "agrun:gateway-core",
+            "run_cell_id": "runcell:gateway-core",
+            "turn_id": "turn:gateway-core:1",
+            "turn_run_id": "turnrun:gateway-core",
             "task_run_id": "",
         },
         {
-            "session_id": "session:bus-core",
-            "agent_run_id": "agrun:bus-core",
-            "run_cell_id": "runcell:bus-core",
-            "turn_id": "turn:bus-core:1",
-            "turn_run_id": "turnrun:bus-core",
+            "session_id": "session:gateway-core",
+            "agent_run_id": "agrun:gateway-core",
+            "run_cell_id": "runcell:gateway-core",
+            "turn_id": "turn:gateway-core:1",
+            "turn_run_id": "turnrun:gateway-core",
             "task_run_id": "",
         },
         {
-            "session_id": "session:bus-core",
-            "agent_run_id": "agrun:bus-core",
-            "run_cell_id": "runcell:bus-core",
-            "turn_id": "turn:bus-core:1",
-            "turn_run_id": "turnrun:bus-core",
+            "session_id": "session:gateway-core",
+            "agent_run_id": "agrun:gateway-core",
+            "run_cell_id": "runcell:gateway-core",
+            "turn_id": "turn:gateway-core:1",
+            "turn_run_id": "turnrun:gateway-core",
             "task_run_id": "",
         },
     ]
@@ -1566,8 +1818,9 @@ def test_subagent_lifecycle_placeholder_tool_fails_closed_when_invoked_directly(
         raise AssertionError("subagent lifecycle placeholder tool must not return a success-looking result")
 
 
-def test_runtime_tool_control_plane_agent_turn_side_effect_runs_without_default_approval_gate() -> None:
+def test_runtime_tool_control_plane_agent_turn_side_effect_runs_without_default_approval_gate(tmp_path: Path) -> None:
     executor = _RecordingCoreToolExecutor()
+    event_log = RuntimeEventLog(tmp_path)
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(available_tools=[{"tool_name": "image_generate", "operation_id": "op.image_generate"}]),
         invocation_kind="single_agent_turn",
@@ -1595,6 +1848,7 @@ def test_runtime_tool_control_plane_agent_turn_side_effect_runs_without_default_
         requested_constraints={
             "runtime_host": SimpleNamespace(
                 backend_dir=BACKEND_DIR,
+                runtime_gateway=RuntimeGateway(event_log),
                 tool_authorization_index=SimpleNamespace(
                     definitions_by_name={"image_generate": SimpleNamespace(operation_id="op.image_generate", is_read_only=False)}
                 ),
@@ -1617,6 +1871,11 @@ def test_runtime_tool_control_plane_agent_turn_side_effect_runs_without_default_
     assert observation.operation_gate["reason"] == "operation allowed by adopted resource policy"
     assert executor.core_calls == 1
     assert executor.last_core["tool_name"] == "image_generate"
+    assert [signal["signal_type"] for signal in _runtime_gateway_signals(event_log, "turnrun:one")] == [
+        "tool.permission.decided",
+        "tool.execution.started",
+        "tool.execution.completed",
+    ]
 
 
 def test_runtime_tool_control_plane_agent_turn_explicit_approval_policy_requires_task_run() -> None:
@@ -1671,8 +1930,9 @@ def test_runtime_tool_control_plane_agent_turn_explicit_approval_policy_requires
     assert executor.core_calls == 0
 
 
-def test_runtime_tool_control_plane_agent_turn_side_effect_sandbox_metadata_does_not_create_approval_gate() -> None:
+def test_runtime_tool_control_plane_agent_turn_side_effect_sandbox_metadata_does_not_create_approval_gate(tmp_path: Path) -> None:
     executor = _RecordingCoreToolExecutor()
+    event_log = RuntimeEventLog(tmp_path)
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(
             available_tools=[{"tool_name": "image_generate", "operation_id": "op.image_generate"}],
@@ -1707,6 +1967,7 @@ def test_runtime_tool_control_plane_agent_turn_side_effect_sandbox_metadata_does
         requested_constraints={
             "runtime_host": SimpleNamespace(
                 backend_dir=BACKEND_DIR,
+                runtime_gateway=RuntimeGateway(event_log),
                 tool_authorization_index=SimpleNamespace(
                     definitions_by_name={"image_generate": SimpleNamespace(operation_id="op.image_generate", is_read_only=False)}
                 ),
@@ -1732,10 +1993,16 @@ def test_runtime_tool_control_plane_agent_turn_side_effect_sandbox_metadata_does
     assert observation.operation_gate["reason"] == "operation allowed by adopted resource policy"
     assert executor.core_calls == 1
     assert executor.last_core["tool_name"] == "image_generate"
+    assert [signal["signal_type"] for signal in _runtime_gateway_signals(event_log, "turnrun:one")] == [
+        "tool.permission.decided",
+        "tool.execution.started",
+        "tool.execution.completed",
+    ]
 
 
 def test_runtime_tool_control_plane_agent_turn_native_side_effect_runs_inside_concrete_sandbox_boundary(tmp_path: Path) -> None:
     executor = _RecordingCoreToolExecutor()
+    event_log = RuntimeEventLog(tmp_path)
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(
             available_tools=[{"tool_name": "write_file", "operation_id": "op.write_file"}],
@@ -1772,6 +2039,7 @@ def test_runtime_tool_control_plane_agent_turn_native_side_effect_runs_inside_co
         requested_constraints={
             "runtime_host": SimpleNamespace(
                 backend_dir=BACKEND_DIR,
+                runtime_gateway=RuntimeGateway(event_log),
                 tool_authorization_index=SimpleNamespace(
                     definitions_by_name={"write_file": SimpleNamespace(operation_id="op.write_file", is_read_only=False)}
                 ),
@@ -1796,10 +2064,16 @@ def test_runtime_tool_control_plane_agent_turn_native_side_effect_runs_inside_co
     assert observation.operation_gate["decision"] == "allow"
     assert executor.core_calls == 1
     assert executor.last_core["tool_name"] == "write_file"
+    assert [signal["signal_type"] for signal in _runtime_gateway_signals(event_log, "turnrun:one")] == [
+        "tool.permission.decided",
+        "tool.execution.started",
+        "tool.execution.completed",
+    ]
 
 
 def test_runtime_tool_control_plane_agent_turn_browser_side_effect_runs_inside_sandbox_boundary(tmp_path: Path) -> None:
     executor = _RecordingCoreToolExecutor()
+    event_log = RuntimeEventLog(tmp_path)
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(
             available_tools=[{"tool_name": "browser_control", "operation_id": "op.browser_control"}],
@@ -1835,6 +2109,7 @@ def test_runtime_tool_control_plane_agent_turn_browser_side_effect_runs_inside_s
         requested_constraints={
             "runtime_host": SimpleNamespace(
                 backend_dir=BACKEND_DIR,
+                runtime_gateway=RuntimeGateway(event_log),
                 tool_authorization_index=SimpleNamespace(
                     definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)}
                 ),
@@ -1859,14 +2134,56 @@ def test_runtime_tool_control_plane_agent_turn_browser_side_effect_runs_inside_s
     assert observation.operation_gate["decision"] == "allow"
     assert executor.core_calls == 1
     assert executor.last_core["tool_name"] == "browser_control"
+    assert [signal["signal_type"] for signal in _runtime_gateway_signals(event_log, "turnrun:one")] == [
+        "tool.permission.decided",
+        "tool.execution.started",
+        "tool.execution.completed",
+    ]
 
 
-def _control_bus_signals(event_log: RuntimeEventLog, run_id: str) -> list[dict[str, object]]:
+def _runtime_gateway_signals(event_log: RuntimeEventLog, run_id: str) -> list[dict[str, object]]:
     return [
         dict(dict(event.payload or {}).get("signal") or {})
         for event in event_log.list_events(run_id)
         if event.event_type == "runtime_control_signal_published"
     ]
+
+
+class _GatewayRejectingApprovalConsumed:
+    def __init__(self) -> None:
+        self.published: list[dict[str, object]] = []
+
+    def publish(
+        self,
+        run_id: str,
+        *,
+        signal_type: str,
+        signal_id: str = "",
+        scope=None,
+        source_authority: str = "",
+        payload: dict[str, object] | None = None,
+        visibility: str = "runtime_private",
+        causation_id: str = "",
+        correlation_id: str = "",
+        refs: dict[str, object] | None = None,
+    ):
+        scope_payload = scope.to_dict() if hasattr(scope, "to_dict") else {}
+        event = {
+            "run_id": run_id,
+            "signal_type": signal_type,
+            "signal_id": signal_id,
+            "scope": scope_payload,
+            "source_authority": source_authority,
+            "payload": dict(payload or {}),
+            "visibility": visibility,
+            "causation_id": causation_id,
+            "correlation_id": correlation_id,
+            "refs": dict(refs or {}),
+        }
+        self.published.append(event)
+        if signal_type == "approval.consumed":
+            return None
+        return SimpleNamespace(event_id=f"event:{signal_id}", payload={"signal": event})
 
 
 class _assembly:

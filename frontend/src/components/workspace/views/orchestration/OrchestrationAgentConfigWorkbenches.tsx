@@ -1237,7 +1237,7 @@ export function OrchestrationRuntimeConfigWorkbench({
         </header>
         <div className="orchestration-identity-note">
           <span>配置落点：AgentRuntimeProfile.metadata.runtime_config。</span>
-          <strong>这里管理通用 runtime config；Search Agent、Verifier、Writer 后续都从同一份配置装配，不再做专用旁路。</strong>
+          <strong>这里管理通用 runtime config；Search Agent、Verifier、Writer 后续都从同一份配置接入，不再走专用旁路。</strong>
         </div>
         <div className="boundary-form">
           <OrchestrationField label="运行模板">
@@ -1453,7 +1453,7 @@ export function OrchestrationRuntimeConfigWorkbench({
             ? "当前 runtime_config 与模板约束不一致，请重新选择运行模板或执行策略。"
             : missingOps.length || blockedRequiredOps.length
             ? "当前配置可以保存，但权限未齐备。请应用模板权限预设后保存运行档案。"
-            : "配置必须点击保存运行档案后才会生效；运行时读取 metadata.runtime_config 装配。"}
+            : "配置必须点击保存运行档案后才会生效；运行时读取 metadata.runtime_config。"}
         </Notice>
         <div className="boundary-actions">
           <button disabled={saving === "runtime" || runtimeSaveBlocked} onClick={() => void saveRuntimeProfile()} type="button">
@@ -1548,7 +1548,7 @@ export function OrchestrationCollaborationWorkbench({
           onChange={(values) => patchSubagentPolicy({ allowed_subagent_ids: dedupe(values) })}
           options={subagentOptions}
           selectedValues={allowedSubagentIds}
-          emptyText="需要至少选择一个子 Agent，runtime 才会装配生命周期工具"
+          emptyText="需要至少选择一个子 Agent，runtime 才会启用生命周期工具"
         />
       </div>
       <aside className="boundary-card">
@@ -1556,7 +1556,7 @@ export function OrchestrationCollaborationWorkbench({
         <div className="boundary-readiness-list boundary-readiness-list--grid">
           <OrchestrationReadinessCard label="可作为子 Agent" ready={canBeSubagentByDefault} value={canBeSubagentByDefault ? "可配置" : "不暴露"} />
           <OrchestrationReadinessCard label="协作配置" ready={subagentLifecycleEnabled} value={subagentLifecycleEnabled ? "已开启" : "未开启"} />
-          <OrchestrationReadinessCard label="执行入口" ready={subagentLifecycleEnabled} value={subagentLifecycleEnabled ? "agent control" : "未装配"} />
+          <OrchestrationReadinessCard label="执行入口" ready={subagentLifecycleEnabled} value={subagentLifecycleEnabled ? "agent control" : "未启用"} />
           <OrchestrationReadinessCard label="目标白名单" ready={Boolean(allowedSubagentIds.length)} value={allowedSubagentIds.length ? `${allowedSubagentIds.length} 个` : "未配置"} />
         </div>
         <div className="boundary-kv">
@@ -1606,7 +1606,7 @@ export function OrchestrationAssemblyOverviewWorkbench({
     <section className="boundary-layer-grid boundary-layer-grid--wide">
       <div className="boundary-card boundary-card--summary">
         <header>
-          <strong>装配总览</strong>
+          <strong>管理总览</strong>
           <OrchestrationBadge>只读汇总</OrchestrationBadge>
         </header>
         <div className="boundary-readiness-list boundary-readiness-list--grid">

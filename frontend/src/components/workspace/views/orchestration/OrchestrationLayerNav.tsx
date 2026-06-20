@@ -12,7 +12,7 @@ export function OrchestrationLayerNav({
   onSelectLayer: (layer: OrchestrationLayer) => void;
 }) {
   return (
-    <nav className="orchestration-assembly-nav" aria-label="编排配置页面">
+    <nav className="orchestration-assembly-nav" aria-label="Agent 管理配置页面">
       {groups.map((group) => (
         <section className="orchestration-assembly-nav__group" key={group.title}>
           <span>{group.title}</span>

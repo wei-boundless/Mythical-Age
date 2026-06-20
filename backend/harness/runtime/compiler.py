@@ -1264,11 +1264,7 @@ class RuntimeCompiler:
         ]
         if runtime_control_signals:
             volatile_payload["runtime_control_signals"] = runtime_control_signals
-            volatile_payload["latest_runtime_control_signal"] = dict(
-                execution_projection.get("latest_runtime_control_signal")
-                if isinstance(execution_projection.get("latest_runtime_control_signal"), dict)
-                else runtime_control_signals[-1]
-            )
+            volatile_payload["latest_runtime_control_signal"] = dict(runtime_control_signals[-1])
         task_plan_context_payload, volatile_payload = _extract_task_plan_context_payload(volatile_payload)
         evidence_index_cursor_payload, volatile_payload = _extract_evidence_index_cursor_payload(volatile_payload)
         editor_context_payload, volatile_payload = _extract_editor_context_payload(volatile_payload)

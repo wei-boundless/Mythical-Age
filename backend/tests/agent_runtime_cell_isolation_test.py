@@ -6,7 +6,7 @@ import threading
 import time
 from types import SimpleNamespace
 
-from harness.loop.task_run_execution_control import request_executor_stop
+from harness.loop.task_run_execution_control import _latest_requested_control_signal, request_executor_stop
 from harness.loop.task_executor_controller import TaskExecutorController
 from harness.runtime.agent_scope import build_agent_run_scope
 from harness.runtime.control_events import RuntimeSignalScope
@@ -22,19 +22,19 @@ from runtime.tool_runtime.tool_invocation_control import (
 )
 
 
-def test_runtime_control_bus_drains_by_scope_and_consumes_once(tmp_path) -> None:
+def test_runtime_gateway_drains_by_scope_and_consumes_once(tmp_path) -> None:
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
-    scope_a = RuntimeSignalScope(session_id="session:bus", task_run_id="taskrun:a", agent_run_id="agent:a", run_cell_id="cell:a")
-    scope_b = RuntimeSignalScope(session_id="session:bus", task_run_id="taskrun:b", agent_run_id="agent:b", run_cell_id="cell:b")
+    scope_a = RuntimeSignalScope(session_id="session:gateway", task_run_id="taskrun:a", agent_run_id="agent:a", run_cell_id="cell:a")
+    scope_b = RuntimeSignalScope(session_id="session:gateway", task_run_id="taskrun:b", agent_run_id="agent:b", run_cell_id="cell:b")
 
-    signal_a = host.control_bus.publish(
+    signal_a = host.runtime_gateway.publish(
         "taskrun:a",
         signal_type="agent_runtime_cell_cancel_requested",
         scope=scope_a,
         source_authority="test",
         payload={"reason": "stop_a"},
     )
-    host.control_bus.publish(
+    host.runtime_gateway.publish(
         "taskrun:b",
         signal_type="agent_runtime_cell_cancel_requested",
         scope=scope_b,
@@ -42,21 +42,21 @@ def test_runtime_control_bus_drains_by_scope_and_consumes_once(tmp_path) -> None
         payload={"reason": "stop_b"},
     )
 
-    snapshot_a = host.control_bus.drain("taskrun:a", scope=scope_a)
+    snapshot_a = host.runtime_gateway.drain("taskrun:a", scope=scope_a)
     assert [signal.signal_type for signal in snapshot_a.pending_signals] == ["agent_runtime_cell_cancel_requested"]
     assert snapshot_a.pending_signals[0].scope.run_cell_id == "cell:a"
 
-    host.control_bus.mark_consumed("taskrun:a", signal=snapshot_a.pending_signals[0], consumed_by="test")
-    consumed = host.control_bus.drain("taskrun:a", scope=scope_a)
+    host.runtime_gateway.mark_consumed("taskrun:a", signal=snapshot_a.pending_signals[0], consumed_by="test")
+    consumed = host.runtime_gateway.drain("taskrun:a", scope=scope_a)
     assert consumed.pending_signals == ()
     assert signal_a.refs["signal_ref"] == snapshot_a.pending_signals[0].signal_id
 
 
-def test_runtime_control_bus_publish_is_idempotent_for_explicit_signal_id(tmp_path) -> None:
+def test_runtime_gateway_publish_is_idempotent_for_explicit_signal_id(tmp_path) -> None:
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
-    scope = RuntimeSignalScope(session_id="session:bus", task_run_id="taskrun:idempotent", agent_run_id="agent:idempotent", run_cell_id="cell:idempotent")
+    scope = RuntimeSignalScope(session_id="session:gateway", task_run_id="taskrun:idempotent", agent_run_id="agent:idempotent", run_cell_id="cell:idempotent")
 
-    first = host.control_bus.publish(
+    first = host.runtime_gateway.publish(
         "taskrun:idempotent",
         signal_type="control.signal.requested",
         signal_id="rtsig:test:idempotent",
@@ -64,7 +64,7 @@ def test_runtime_control_bus_publish_is_idempotent_for_explicit_signal_id(tmp_pa
         source_authority="test",
         payload={"reason": "first"},
     )
-    second = host.control_bus.publish(
+    second = host.runtime_gateway.publish(
         "taskrun:idempotent",
         signal_type="control.signal.requested",
         signal_id="rtsig:test:idempotent",
@@ -72,7 +72,7 @@ def test_runtime_control_bus_publish_is_idempotent_for_explicit_signal_id(tmp_pa
         source_authority="test",
         payload={"reason": "second"},
     )
-    snapshot = host.control_bus.drain("taskrun:idempotent", scope=scope)
+    snapshot = host.runtime_gateway.drain("taskrun:idempotent", scope=scope)
 
     assert second.event_id == first.event_id
     assert second.offset == first.offset
@@ -81,10 +81,10 @@ def test_runtime_control_bus_publish_is_idempotent_for_explicit_signal_id(tmp_pa
     assert snapshot.pending_signals[0].payload["reason"] == "first"
 
 
-def test_runtime_control_bus_observed_signal_is_not_drained_again(tmp_path) -> None:
+def test_runtime_gateway_observed_signal_is_not_drained_again(tmp_path) -> None:
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
-    scope = RuntimeSignalScope(session_id="session:bus", task_run_id="taskrun:observed", agent_run_id="agent:observed", run_cell_id="cell:observed")
-    event = host.control_bus.publish(
+    scope = RuntimeSignalScope(session_id="session:gateway", task_run_id="taskrun:observed", agent_run_id="agent:observed", run_cell_id="cell:observed")
+    event = host.runtime_gateway.publish(
         "taskrun:observed",
         signal_type="control.signal.requested",
         scope=scope,
@@ -93,23 +93,23 @@ def test_runtime_control_bus_observed_signal_is_not_drained_again(tmp_path) -> N
     )
     signal_id = str(dict(dict(event.payload or {}).get("signal") or {}).get("signal_id") or "")
 
-    observed = host.control_bus.mark_observed_by_id(
+    observed = host.runtime_gateway.mark_observed_by_id(
         "taskrun:observed",
         signal_id=signal_id,
         observed_by="test.safe_boundary",
         payload={"observation_ref": "rtobs:observed"},
     )
-    drained = host.control_bus.drain("taskrun:observed", scope=scope, signal_types={"control.signal.requested"})
+    drained = host.runtime_gateway.drain("taskrun:observed", scope=scope, signal_types={"control.signal.requested"})
 
     assert observed is not None
     assert dict(dict(observed.payload or {}).get("signal") or {})["consumption_state"] == "observed"
     assert drained.pending_signals == ()
 
 
-def test_runtime_control_bus_marks_observed_signal_consumed_once(tmp_path) -> None:
+def test_runtime_gateway_marks_observed_signal_consumed_once(tmp_path) -> None:
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
-    scope = RuntimeSignalScope(session_id="session:bus", task_run_id="taskrun:consumed", agent_run_id="agent:consumed", run_cell_id="cell:consumed")
-    event = host.control_bus.publish(
+    scope = RuntimeSignalScope(session_id="session:gateway", task_run_id="taskrun:consumed", agent_run_id="agent:consumed", run_cell_id="cell:consumed")
+    event = host.runtime_gateway.publish(
         "taskrun:consumed",
         signal_type="control.signal.requested",
         scope=scope,
@@ -118,19 +118,20 @@ def test_runtime_control_bus_marks_observed_signal_consumed_once(tmp_path) -> No
     )
     signal_id = str(dict(dict(event.payload or {}).get("signal") or {}).get("signal_id") or "")
 
-    observed = host.control_bus.mark_observed_by_id(
+    observed = host.runtime_gateway.mark_observed_by_id(
         "taskrun:consumed",
         signal_id=signal_id,
         observed_by="test.safe_boundary",
         payload={"observation_ref": "rtobs:consumed"},
     )
-    consumed = host.control_bus.mark_consumed_by_id(
+    assert host.runtime_gateway.can_consume_by_id("taskrun:consumed", signal_id=signal_id) is True
+    consumed = host.runtime_gateway.mark_consumed_by_id(
         "taskrun:consumed",
         signal_id=signal_id,
         consumed_by="test.closeout",
         payload={"terminal_reason": "user_aborted"},
     )
-    duplicate = host.control_bus.mark_consumed_by_id(
+    duplicate = host.runtime_gateway.mark_consumed_by_id(
         "taskrun:consumed",
         signal_id=signal_id,
         consumed_by="test.closeout",
@@ -140,6 +141,14 @@ def test_runtime_control_bus_marks_observed_signal_consumed_once(tmp_path) -> No
     assert observed is not None
     assert consumed is not None
     assert duplicate is None
+    assert host.runtime_gateway.can_consume_by_id("taskrun:consumed", signal_id=signal_id) is False
+    latest_requested = _latest_requested_control_signal(
+        host,
+        task_run_id="taskrun:consumed",
+        kind="stop",
+    )
+    assert latest_requested is not None
+    assert latest_requested["control_event_ref"] == event.event_id
     assert dict(dict(consumed.payload or {}).get("signal") or {})["consumption_state"] == "consumed"
     assert dict(dict(dict(consumed.payload or {}).get("signal") or {}).get("payload") or {})["terminal_reason"] == "user_aborted"
 
@@ -218,15 +227,20 @@ def test_cell_local_tool_registry_cancels_only_matching_scope() -> None:
         task_run_id="taskrun:a",
         tool_name="read_file",
     )
-    registry_a.start(
-        tool_invocation_id="toolinv:foreign",
-        caller_kind="task_run",
-        caller_ref="taskrun:a",
-        agent_run_id="agent:b",
-        run_cell_id="cell:b",
-        task_run_id="taskrun:a",
-        tool_name="read_file",
-    )
+    try:
+        registry_a.start(
+            tool_invocation_id="toolinv:foreign",
+            caller_kind="task_run",
+            caller_ref="taskrun:a",
+            agent_run_id="agent:b",
+            run_cell_id="cell:b",
+            task_run_id="taskrun:a",
+            tool_name="read_file",
+        )
+    except ValueError as exc:
+        assert str(exc) == "tool_invocation_agent_run_scope_mismatch"
+    else:
+        raise AssertionError("cell-local tool registry must reject foreign agent/cell scope")
     registry_b.start(
         tool_invocation_id="toolinv:b",
         caller_kind="task_run",
@@ -243,8 +257,29 @@ def test_cell_local_tool_registry_cancels_only_matching_scope() -> None:
 
     assert cancelled == 1
     assert registry_a.record("toolinv:a").status == "cancelled"
-    assert registry_a.record("toolinv:foreign").status == "running"
+    assert registry_a.record("toolinv:foreign") is None
     assert registry_b.record("toolinv:b").status == "running"
+
+
+def test_completed_tool_invocation_record_is_terminal_for_late_cancel() -> None:
+    registry = ToolInvocationControlRegistry(agent_run_id="agent:a", run_cell_id="cell:a")
+    registry.start(
+        tool_invocation_id="toolinv:completed",
+        caller_kind="task_run",
+        caller_ref="taskrun:a",
+        task_run_id="taskrun:a",
+        tool_name="read_file",
+    )
+    completed = registry.complete("toolinv:completed", result_ref="result:done")
+
+    cancelled = registry.request_cancel(tool_invocation_id="toolinv:completed", reason="late_stop")
+    record = registry.record("toolinv:completed")
+
+    assert completed.status == "completed"
+    assert cancelled is False
+    assert record.status == "completed"
+    assert record.result_ref == "result:done"
+    assert record.error == ""
 
 
 def test_cancelled_tool_invocation_record_is_terminal() -> None:
@@ -323,7 +358,7 @@ def test_control_signal_without_live_cell_cancels_only_target_scope(tmp_path) ->
     assert unavailable[-1]["host_registry_cancel_count"] == 1
 
 
-def test_active_cell_control_signal_uses_bus_not_mailbox_shadow_route(tmp_path) -> None:
+def test_active_cell_control_signal_uses_gateway_not_mailbox_shadow_route(tmp_path) -> None:
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
     task_run_id = "taskrun:active-cell-stop"
     _insert_task_run(host, task_run_id)
@@ -368,7 +403,7 @@ def test_active_cell_control_signal_uses_bus_not_mailbox_shadow_route(tmp_path) 
             agent_run_id=str(scheduled["agent_run_id"]),
             run_cell_id=str(scheduled["run_cell_id"]),
         )
-        drained = host.control_bus.drain(
+        drained = host.runtime_gateway.drain(
             task_run_id,
             scope=scope,
             signal_types={"control.signal.requested"},
@@ -498,9 +533,9 @@ def test_cell_mailbox_overflow_publishes_scoped_backpressure_event(tmp_path) -> 
             for event in host.event_log.list_events("taskrun:mailbox-b")
             if event.event_type == "agent_runtime_cell_mailbox_overloaded"
         ]
-        bus_overload_a = [
+        gateway_overload_a = [
             signal
-            for signal in host.control_bus.drain(
+            for signal in host.runtime_gateway.drain(
                 "taskrun:mailbox-a",
                 scope=RuntimeSignalScope(
                     session_id="session:cell-isolation",
@@ -511,9 +546,9 @@ def test_cell_mailbox_overflow_publishes_scoped_backpressure_event(tmp_path) -> 
                 signal_types={"agent_runtime_cell_mailbox_overloaded"},
             ).pending_signals
         ]
-        bus_overload_b = [
+        gateway_overload_b = [
             signal
-            for signal in host.control_bus.drain(
+            for signal in host.runtime_gateway.drain(
                 "taskrun:mailbox-b",
                 scope=RuntimeSignalScope(
                     session_id="session:cell-isolation",
@@ -534,10 +569,10 @@ def test_cell_mailbox_overflow_publishes_scoped_backpressure_event(tmp_path) -> 
         assert dict(overload_events_a[0].payload)["dropped_count"] == 1
         assert cell_a.mailbox.dropped_count == 1
         assert cell_b.mailbox.dropped_count == 0
-        assert len(bus_overload_a) == 1
-        assert bus_overload_a[0].scope.run_cell_id == scheduled_a["run_cell_id"]
-        assert bus_overload_a[0].payload["reason"] == "mailbox_full"
-        assert bus_overload_b == []
+        assert len(gateway_overload_a) == 1
+        assert gateway_overload_a[0].scope.run_cell_id == scheduled_a["run_cell_id"]
+        assert gateway_overload_a[0].payload["reason"] == "mailbox_full"
+        assert gateway_overload_b == []
     finally:
         release.set()
         if cell_a is not None and cell_a.worker_handle is not None:

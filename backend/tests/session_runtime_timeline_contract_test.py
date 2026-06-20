@@ -81,6 +81,42 @@ def _runtime_host(
     )
 
 
+def _gateway_signal_event(
+    *,
+    event_id: str,
+    run_id: str,
+    offset: int,
+    created_at: float,
+    signal_id: str,
+    signal_payload: dict,
+    event_type: str = "runtime_control_signal_observed",
+) -> dict:
+    return {
+        "event_id": event_id,
+        "event_type": event_type,
+        "run_id": run_id,
+        "offset": offset,
+        "created_at": created_at,
+        "payload": {
+            "signal": {
+                "signal_id": signal_id,
+                "signal_type": "control.signal.requested",
+                "scope": {"turn_run_id": run_id},
+                "source_authority": "test.session_timeline",
+                "payload": dict(signal_payload),
+                "visibility": "runtime_private",
+                "consumption_state": "observed",
+                "consumed_by": "test.session_timeline",
+                "causation_id": "",
+                "correlation_id": "",
+                "created_at": created_at,
+                "authority": "harness.runtime.control_signal",
+            }
+        },
+        "refs": {"turn_run_ref": run_id, "signal_ref": signal_id},
+    }
+
+
 def _projection_slice(attachment: dict) -> dict:
     slices = list(attachment.get("projection_slices") or [])
     assert len(slices) <= 1
@@ -913,13 +949,21 @@ def test_turn_recovery_required_attachment_stays_trace_only_without_raw_main_pro
         created_at=6.0,
         updated_at=7.0,
         latest_event_offset=2,
-        diagnostics={"latest_runtime_control_signal": signal},
+        diagnostics={},
     )
     runtime_host = _runtime_host(
         task_runs=[],
         turn_runs=[turn_run],
         events_by_run={
             turn_run_id: [
+                _gateway_signal_event(
+                    event_id="event:turn:gateway-signal",
+                    run_id=turn_run_id,
+                    offset=1,
+                    created_at=6.5,
+                    signal_id="turnsig:agent-closeout-recovery:test",
+                    signal_payload=signal,
+                ),
                 {
                     "event_id": "event:turn:recovery",
                     "event_type": "agent_turn_terminal",
@@ -930,7 +974,6 @@ def test_turn_recovery_required_attachment_stays_trace_only_without_raw_main_pro
                         "turn_id": "turn:session-a:3",
                         "status": "failed",
                         "terminal_reason": "single_turn_tool_iteration_limit",
-                        "runtime_control_signal": signal,
                     },
                     "refs": {"turn_ref": "turn:session-a:3"},
                 }
@@ -956,3 +999,54 @@ def test_turn_recovery_required_attachment_stays_trace_only_without_raw_main_pro
         runtime_host=runtime_host,
     )
     assert projection["runtime_attachments"] == []
+
+
+def test_turn_recovery_required_ignores_diagnostics_only_signal() -> None:
+    turn_run_id = "turnrun:turn:session-a:4"
+    signal = {
+        "signal_kind": "agent_closeout_recovery_required",
+        "runtime_control_state": "agent_recovery_required",
+        "reason": "diagnostics_only",
+    }
+    turn_run = SimpleNamespace(
+        turn_run_id=turn_run_id,
+        session_id="session-a",
+        turn_id="turn:session-a:4",
+        status="failed",
+        terminal_reason="single_turn_tool_iteration_limit",
+        created_at=8.0,
+        updated_at=9.0,
+        latest_event_offset=1,
+        diagnostics={"latest_runtime_control_signal": signal},
+    )
+    runtime_host = _runtime_host(
+        task_runs=[],
+        turn_runs=[turn_run],
+        events_by_run={
+            turn_run_id: [
+                {
+                    "event_id": "event:turn:diagnostics-only",
+                    "event_type": "agent_turn_terminal",
+                    "run_id": turn_run_id,
+                    "offset": 1,
+                    "created_at": 9.0,
+                    "payload": {
+                        "turn_id": "turn:session-a:4",
+                        "status": "failed",
+                        "terminal_reason": "single_turn_tool_iteration_limit",
+                    },
+                    "refs": {"turn_ref": "turn:session-a:4"},
+                }
+            ]
+        },
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id="session-a",
+        history={"messages": [{"role": "user", "content": "继续", "turn_id": "turn:session-a:4"}]},
+        runtime_host=runtime_host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+
+    assert "runtime_control_signal" not in attachment

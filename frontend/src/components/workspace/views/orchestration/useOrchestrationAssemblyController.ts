@@ -109,10 +109,10 @@ export function useOrchestrationAssemblyController() {
           setCatalog((current) => current ? mergeOrchestrationOptions(current, runtimeOptions.options) : current);
         })
         .catch((exc) => {
-          setError(exc instanceof Error ? exc.message : "编排运行选项加载失败");
+          setError(exc instanceof Error ? exc.message : "Agent 管理运行选项加载失败");
         });
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "编排系统加载失败");
+      setError(exc instanceof Error ? exc.message : "Agent 管理系统加载失败");
     } finally {
       setLoading(false);
     }

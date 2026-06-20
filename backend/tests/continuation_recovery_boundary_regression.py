@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from runtime.shared.models import TaskRun, TurnRun
+from runtime.shared.event_log import RuntimeEventLog
 
 from harness.continuation import (
     build_recovery_packet,
@@ -15,7 +16,7 @@ from harness.loop.model_action_protocol import (
     model_action_request_from_payload,
     task_execution_action_request_from_payload,
 )
-from harness.runtime import RuntimeCompiler
+from harness.runtime import RuntimeCompiler, RuntimeGateway, RuntimeSignalScope
 from harness.runtime.request_facts import build_turn_input_facts
 
 
@@ -49,9 +50,11 @@ class _RuntimeObjects:
 
 
 class _Host:
-    def __init__(self, task_runs, turn_runs=None):
+    def __init__(self, task_runs, turn_runs=None, event_log=None):
         self.state_index = _StateIndex(task_runs, turn_runs=turn_runs)
         self.runtime_objects = _RuntimeObjects()
+        self.event_log = event_log
+        self.runtime_gateway = RuntimeGateway(event_log) if event_log is not None else None
 
 
 def _recoverable_task() -> TaskRun:
@@ -93,7 +96,6 @@ def _interrupted_turn() -> TurnRun:
             "stream_run_id": "strun:session-continuation:4",
             "latest_step": "tool_budget_closeout",
             "latest_step_summary": "已读取 fps_game.html 的敌人生成和移动逻辑，尚未完成最终修复判断。",
-            "latest_runtime_control_signal": {"signal_kind": "tool_budget_exhausted"},
             "assistant_visible_stream_continuity": {
                 "content": "我已经定位到敌人生成逻辑，接下来",
                 "content_sha256": "sha256:test-visible-prefix",
@@ -119,6 +121,28 @@ def _completed_turn() -> TurnRun:
             "turn_id": "turn:session-continuation:5",
             "latest_step": "respond",
             "latest_step_summary": "已完成上一轮答复。",
+        },
+    )
+
+
+def _generic_interrupted_turn_with_diagnostic_signal() -> TurnRun:
+    return TurnRun(
+        turn_run_id="turnrun:session-continuation:6:jkl",
+        session_id="session-continuation",
+        turn_id="turn:session-continuation:6",
+        execution_runtime_kind="single_agent_turn",
+        status="failed",
+        latest_event_offset=31,
+        updated_at=150.0,
+        terminal_reason="model_output_boundary_failed",
+        diagnostics={
+            "turn_id": "turn:session-continuation:6",
+            "latest_step": "protocol_repair_failed",
+            "latest_step_summary": "模型输出没有满足动作合同。",
+            "latest_runtime_control_signal": {
+                "signal_kind": "model_protocol_violation",
+                "message": "diagnostic-only signal must not decide continuation",
+            },
         },
     )
 
@@ -153,6 +177,49 @@ def test_selector_builds_continuation_context_from_interrupted_turn_tool_limit()
     assert selection.interrupted_turn.visible_assistant_prefix_sha256 == "sha256:test-visible-prefix"
     assert "exact read evidence" in selection.interrupted_turn.model_visible_summary
     assert "已公开" in selection.interrupted_turn.model_visible_summary
+
+
+def test_selector_uses_gateway_signal_for_generic_interrupted_turn(tmp_path) -> None:
+    turn = _generic_interrupted_turn_with_diagnostic_signal()
+    event_log = RuntimeEventLog(tmp_path)
+    host = _Host([], turn_runs=[turn], event_log=event_log)
+    signal_event = host.runtime_gateway.publish(
+        turn.turn_run_id,
+        signal_type="control.signal.requested",
+        signal_id="turnsig:model-protocol-violation:test",
+        scope=RuntimeSignalScope(
+            session_id=turn.session_id,
+            turn_id=turn.turn_id,
+            turn_run_id=turn.turn_run_id,
+        ),
+        source_authority="test.continuation.gateway_signal",
+        payload={
+            "signal_kind": "model_protocol_violation",
+            "message": "Gateway signal decides continuation.",
+        },
+        visibility="runtime_private",
+    )
+    host.runtime_gateway.mark_observed_by_id(
+        turn.turn_run_id,
+        signal_id=dict(dict(signal_event.payload or {}).get("signal") or {})["signal_id"],
+        observed_by="test.continuation.gateway_signal",
+    )
+
+    selection = select_session_continuation(host, session_id="session-continuation")
+
+    assert selection.interrupted_turn is not None
+    assert selection.interrupted_turn.interruption_kind == "model_protocol_violation"
+    assert selection.interrupted_turn.diagnostics["latest_runtime_control_signal_kind"] == "model_protocol_violation"
+
+
+def test_selector_ignores_diagnostics_only_signal_for_generic_interrupted_turn() -> None:
+    selection = select_session_continuation(
+        _Host([], turn_runs=[_generic_interrupted_turn_with_diagnostic_signal()]),
+        session_id="session-continuation",
+    )
+
+    assert selection.interrupted_turn is None
+    assert selection.reason == "session_task_run_missing_or_interrupted_turn_missing"
 
 
 def test_selector_does_not_reuse_old_interrupted_turn_after_newer_completed_turn() -> None:

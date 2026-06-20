@@ -230,8 +230,7 @@ html[data-workspace-tone] .agent-workbench {
 .agent-workbench .workspace-view,
 .agent-workbench .boundary-console,
 .agent-workbench .task-system-boundary,
-.agent-workbench .capability-system-console,
-.agent-workbench .orchestration-console {
+.agent-workbench .capability-system-console {
   background: var(--console-bg);
   color: var(--console-text);
 }
@@ -247,10 +246,6 @@ html[data-workspace-tone] .agent-workbench {
 .agent-workbench .boundary-hero p,
 .agent-workbench .boundary-list-row span,
 .agent-workbench .boundary-list-row small,
-.agent-workbench .orchestration-hero__signal p,
-.agent-workbench .orchestration-brief__card p,
-.agent-workbench .orchestration-contract-panel__card p,
-.agent-workbench .orchestration-directive-strip p,
 .agent-workbench .capability-overview-bar span,
 .agent-workbench .capability-group-card__copy span,
 .agent-workbench .capability-group-card__copy i,
@@ -271,11 +266,6 @@ html[data-workspace-tone] .agent-workbench {
 .agent-workbench .task-system-metric strong,
 .agent-workbench .boundary-hero h2,
 .agent-workbench .boundary-list-row strong,
-.agent-workbench .orchestration-hero__signal strong,
-.agent-workbench .orchestration-hero__metrics b,
-.agent-workbench .orchestration-brief__card strong,
-.agent-workbench .orchestration-contract-panel__card strong,
-.agent-workbench .orchestration-directive-strip strong,
 .agent-workbench .capability-overview-bar strong,
 .agent-workbench .capability-group-card__copy strong,
 .agent-workbench .capability-group-card__metric strong,
@@ -358,9 +348,6 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .agent-workbench .boundary-button,
-.agent-workbench .orchestration-dry-run__body > button,
-.agent-workbench .orchestration-detail__actions button,
-.agent-workbench .orchestration-event-filter button,
 .agent-workbench .capability-mcp-actions button,
 .agent-workbench .action-button {
   border: 1px solid var(--console-line);
@@ -372,8 +359,6 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .agent-workbench .boundary-button:hover:not(:disabled),
-.agent-workbench .orchestration-detail__actions button:hover,
-.agent-workbench .orchestration-event-filter button:hover,
 .agent-workbench .action-button:hover {
   border-color: #9db6ea;
   background: var(--console-blue-soft);
@@ -410,13 +395,6 @@ html[data-workspace-tone] .agent-workbench {
 .agent-workbench .boundary-field span,
 .agent-workbench .task-graph-editor-chrome__field-label,
 .agent-workbench .task-system-metric span,
-.agent-workbench .orchestration-hero__signal span,
-.agent-workbench .orchestration-node span,
-.agent-workbench .orchestration-branch span,
-.agent-workbench .orchestration-detail > span,
-.agent-workbench .orchestration-brief__card span,
-.agent-workbench .orchestration-contract-panel__card span,
-.agent-workbench .orchestration-directive-strip span,
 .agent-workbench .capability-system-console .operation-fact-grid span,
 .agent-workbench .capability-system-console .operation-skill-card span,
 .agent-workbench .capability-system-console .operation-tool-card span,
@@ -434,7 +412,6 @@ html[data-workspace-tone] .agent-workbench {
 .agent-workbench .boundary-field input,
 .agent-workbench .boundary-field select,
 .agent-workbench .boundary-field textarea,
-.agent-workbench .orchestration-dry-run__body textarea,
 .agent-workbench .capability-system-console .operation-inline-form textarea,
 .agent-workbench .capability-system-console .operation-inline-form input,
 .agent-workbench .capability-system-console .operation-prompt-editor input,
@@ -455,15 +432,11 @@ html[data-workspace-tone] .agent-workbench {
 
 .agent-workbench .boundary-field input:focus,
 .agent-workbench .boundary-field select:focus,
-.agent-workbench .boundary-field textarea:focus,
-.agent-workbench .orchestration-dry-run__body textarea:focus {
+.agent-workbench .boundary-field textarea:focus {
   border-color: var(--console-blue);
   box-shadow: 0 0 0 3px rgba(29, 95, 211, 0.12);
 }
 
-.agent-workbench .orchestration-contract-panel__card em,
-.agent-workbench .orchestration-directive-strip em,
-.agent-workbench .orchestration-runtime-entry em,
 .agent-workbench .workspace-mini-chip,
 .agent-workbench .capability-overview-bar__stats span,
 .agent-workbench .capability-group-card__copy i {
@@ -473,25 +446,6 @@ html[data-workspace-tone] .agent-workbench {
   color: var(--console-text-soft);
 }
 
-.agent-workbench .orchestration-contract-panel__card em.is-danger,
-.agent-workbench .orchestration-runtime-entry.is-blocked em,
-.agent-workbench .orchestration-runtime-mismatch-list i,
-.agent-workbench .orchestration-runtime-entry small {
-  color: var(--console-danger);
-}
-
-.agent-workbench .orchestration-runtime-mismatch-list li,
-.agent-workbench .orchestration-runtime-entry.is-blocked {
-  border-color: #e8a19a;
-  background: var(--console-danger-soft);
-}
-
-.agent-workbench .orchestration-runtime-mismatch-list b,
-.agent-workbench .orchestration-runtime-entry b {
-  color: var(--console-blue);
-}
-
-.agent-workbench .orchestration-detail pre,
 .agent-workbench .capability-system-console .operation-json-stack pre,
 .agent-workbench .capability-system-console .operation-inline-panel pre,
 .agent-workbench .capability-system-console .operation-foldout pre,
@@ -2371,7 +2325,6 @@ html[data-workspace-tone] .agent-workbench {
 .system-page-shell:not(.system-page-shell--removed-system) .workspace-view,
 .system-page-shell:not(.system-page-shell--removed-system) .boundary-console,
 .system-page-shell:not(.system-page-shell--removed-system) .memory-console,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-console,
 .system-page-shell:not(.system-page-shell--removed-system) .capability-system-console,
 .system-page-shell:not(.system-page-shell--removed-system) .system-config-workbench {
   min-height: 0;
@@ -2387,8 +2340,7 @@ html[data-workspace-tone] .agent-workbench {
   padding: 0;
 }
 
-.system-page-shell:not(.system-page-shell--removed-system) .workspace-view__header,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-console-head {
+.system-page-shell:not(.system-page-shell--removed-system) .workspace-view__header {
   align-items: center;
   min-height: 54px;
   border: 1px solid var(--console-line);
@@ -2399,7 +2351,6 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .system-page-shell:not(.system-page-shell--removed-system) .workspace-view__eyebrow,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-console-head__title span p,
 .system-page-shell:not(.system-page-shell--removed-system) .system-config-editor__head span,
 .system-page-shell:not(.system-page-shell--removed-system) .capability-page-head span,
 .system-page-shell:not(.system-page-shell--removed-system) .task-system-database-header span {
@@ -2413,7 +2364,6 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .system-page-shell:not(.system-page-shell--removed-system) .workspace-view__title,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-console-head__title strong h1,
 .system-page-shell:not(.system-page-shell--removed-system) .system-config-editor__head strong,
 .system-page-shell:not(.system-page-shell--removed-system) .capability-page-head strong,
 .system-page-shell:not(.system-page-shell--removed-system) .task-system-database-header h2 {
@@ -2427,7 +2377,6 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .system-page-shell:not(.system-page-shell--removed-system) .workspace-view__subtitle,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-console-head__title p,
 .system-page-shell:not(.system-page-shell--removed-system) .system-config-editor__head p,
 .system-page-shell:not(.system-page-shell--removed-system) .task-system-database-header p,
 .system-page-shell:not(.system-page-shell--removed-system) .capability-system-console .workspace-view__subtitle {
@@ -2472,7 +2421,6 @@ html[data-workspace-tone] .agent-workbench {
 .system-page-shell:not(.system-page-shell--removed-system) .memory-durable-reader,
 .system-page-shell:not(.system-page-shell--removed-system) .memory-durable-reader__detail,
 .system-page-shell:not(.system-page-shell--removed-system) .memory-governance-editor__panel,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-runtime-ledger article,
 .system-page-shell:not(.system-page-shell--removed-system) .capability-overview-bar,
 .system-page-shell:not(.system-page-shell--removed-system) .capability-group-card,
 .system-page-shell:not(.system-page-shell--removed-system) .capability-issue-panel,
@@ -2576,9 +2524,6 @@ html[data-workspace-tone] .agent-workbench {
 .system-page-shell:not(.system-page-shell--removed-system) .workspace-stat span,
 .system-page-shell:not(.system-page-shell--removed-system) .memory-durable-reader__detail > span,
 .system-page-shell:not(.system-page-shell--removed-system) .memory-durable-row span,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-node span,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-branch span,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-detail > span,
 .system-page-shell:not(.system-page-shell--removed-system) .capability-overview-bar span,
 .system-page-shell:not(.system-page-shell--removed-system) .capability-group-card__copy span,
 .system-page-shell:not(.system-page-shell--removed-system) .capability-group-card__copy i,
@@ -2599,7 +2544,6 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .system-page-shell:not(.system-page-shell--removed-system) .workspace-stat strong,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-hero__metrics b,
 .system-page-shell:not(.system-page-shell--removed-system) .capability-group-card__metric strong,
 .system-page-shell:not(.system-page-shell--removed-system) .system-config-overview strong,
 .system-page-shell:not(.system-page-shell--removed-system) .system-config-capability-metrics strong {
@@ -2609,8 +2553,6 @@ html[data-workspace-tone] .agent-workbench {
 
 .system-page-shell:not(.system-page-shell--removed-system) .workspace-search,
 .system-page-shell:not(.system-page-shell--removed-system) .memory-search,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-dry-run__body textarea,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-permission-bar select,
 .system-page-shell:not(.system-page-shell--removed-system) .memory-governance-editor__panel input,
 .system-page-shell:not(.system-page-shell--removed-system) .memory-governance-editor__panel textarea,
 .system-page-shell:not(.system-page-shell--removed-system) .memory-governance-editor__panel select,
@@ -2646,9 +2588,6 @@ html[data-workspace-tone] .agent-workbench {
 .system-page-shell:not(.system-page-shell--removed-system) .boundary-button,
 .system-page-shell:not(.system-page-shell--removed-system) .memory-durable-reader__actions button,
 .system-page-shell:not(.system-page-shell--removed-system) .memory-status-filter button,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-dry-run__body > button,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-detail__actions button,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-event-filter button,
 .system-page-shell:not(.system-page-shell--removed-system) .system-config-toggle,
 .system-page-shell:not(.system-page-shell--removed-system) .system-config-provider-option,
 .system-page-shell:not(.system-page-shell--removed-system) .task-graph-topology-layer-filter button {
@@ -2665,9 +2604,6 @@ html[data-workspace-tone] .agent-workbench {
 .system-page-shell:not(.system-page-shell--removed-system) .boundary-button:hover:not(:disabled),
 .system-page-shell:not(.system-page-shell--removed-system) .memory-durable-reader__actions button:hover:not(:disabled),
 .system-page-shell:not(.system-page-shell--removed-system) .memory-status-filter button:hover,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-dry-run__body > button:hover,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-detail__actions button:hover,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-event-filter button:hover,
 .system-page-shell:not(.system-page-shell--removed-system) .task-graph-topology-layer-filter button:hover {
   border-color: var(--console-line-strong);
   background: var(--console-hover);
@@ -2699,7 +2635,6 @@ html[data-workspace-tone] .agent-workbench {
 
 .system-page-shell:not(.system-page-shell--removed-system) pre,
 .system-page-shell:not(.system-page-shell--removed-system) code,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-detail pre,
 .system-page-shell:not(.system-page-shell--removed-system) .memory-durable-reader__detail pre,
 .system-page-shell:not(.system-page-shell--removed-system) .capability-system-console .operation-json-stack pre,
 .system-page-shell:not(.system-page-shell--removed-system) .capability-system-console .operation-inline-panel pre,
@@ -2886,71 +2821,10 @@ html[data-workspace-tone] .agent-workbench {
   max-height: min(620px, calc(100vh - 220px));
 }
 
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-console-head {
-  grid-template-columns: minmax(220px, 0.95fr) minmax(260px, 1.05fr) auto;
-}
-
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-console-head__title p {
-  max-width: 76ch;
-}
-
 .system-page-shell:not(.system-page-shell--removed-system) .memory-console,
-.system-page-shell:not(.system-page-shell--removed-system) .orchestration-console,
 .system-page-shell:not(.system-page-shell--removed-system) .capability-system-console,
 .system-page-shell:not(.system-page-shell--removed-system) .system-config-workbench {
   padding: 0;
-}
-
-@media (max-width: 980px) {
-  .system-page-shell:not(.system-page-shell--removed-system) .orchestration-console {
-    display: block;
-    align-content: start;
-  }
-
-  .system-page-shell:not(.system-page-shell--removed-system) .orchestration-console > * + * {
-    margin-top: 10px;
-  }
-
-  .system-page-shell:not(.system-page-shell--removed-system) .orchestration-console-head {
-    grid-template-columns: minmax(0, 1fr);
-    align-items: start;
-    align-self: start;
-    width: 100%;
-    min-width: 0;
-  }
-
-  .system-page-shell:not(.system-page-shell--removed-system) .orchestration-console-head__summary {
-    grid-template-columns: 1fr;
-    width: 100%;
-    min-width: 0;
-  }
-
-  .system-page-shell:not(.system-page-shell--removed-system) .orchestration-console-head__actions {
-    justify-self: stretch;
-  }
-
-  .system-page-shell:not(.system-page-shell--removed-system) .orchestration-definition-center {
-    grid-template-columns: minmax(0, 1fr);
-    align-content: start;
-    align-self: start;
-    height: auto;
-    width: 100%;
-    min-width: 0;
-    overflow: visible;
-  }
-
-  .system-page-shell:not(.system-page-shell--removed-system) .orchestration-practical-rail,
-  .system-page-shell:not(.system-page-shell--removed-system) .orchestration-config-main {
-    align-self: start;
-    height: auto;
-    width: 100%;
-    min-width: 0;
-    overflow: visible;
-  }
-
-  .system-page-shell:not(.system-page-shell--removed-system) .orchestration-practical-rail {
-    grid-template-rows: none;
-  }
 }
 
 @media (max-width: 1180px) {

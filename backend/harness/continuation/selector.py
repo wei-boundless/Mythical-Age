@@ -5,6 +5,12 @@ from typing import Any
 
 from harness.loop.task_run_recovery_state import recovery_state_for_task_run
 from harness.loop.work_rollout import work_rollout_ref, work_rollout_summary
+from harness.runtime.control_events import runtime_signal_from_event_payload
+from harness.runtime.runtime_gateway import (
+    CONTROL_SIGNAL_CONSUMED_EVENT,
+    CONTROL_SIGNAL_OBSERVED_EVENT,
+    CONTROL_SIGNAL_PUBLISHED_EVENT,
+)
 from harness.task_run_state_view import task_run_state_view
 from harness.task_run_status import is_stopped_or_terminal_task_run
 
@@ -222,10 +228,10 @@ def _latest_interrupted_turn_record(runtime_host: Any, *, session_id: str) -> In
         key=lambda item: (float(getattr(item, "updated_at", 0.0) or 0.0), float(getattr(item, "created_at", 0.0) or 0.0)),
         reverse=True,
     )
-    return _record_from_interrupted_turn_run(candidates[0])
+    return _record_from_interrupted_turn_run(runtime_host, candidates[0])
 
 
-def _record_from_interrupted_turn_run(turn_run: Any) -> InterruptedTurnContinuationRecord | None:
+def _record_from_interrupted_turn_run(runtime_host: Any, turn_run: Any) -> InterruptedTurnContinuationRecord | None:
     turn_run_id = str(getattr(turn_run, "turn_run_id", "") or "").strip()
     session_id = str(getattr(turn_run, "session_id", "") or "").strip()
     turn_id = str(getattr(turn_run, "turn_id", "") or "").strip()
@@ -239,10 +245,19 @@ def _record_from_interrupted_turn_run(turn_run: Any) -> InterruptedTurnContinuat
         or ""
     ).strip()
     status = str(getattr(turn_run, "status", "") or diagnostics.get("terminal_status") or "").strip()
-    interruption_kind = _interrupted_turn_kind(terminal_reason=terminal_reason, status=status, diagnostics=diagnostics)
+    gateway_signal = _latest_turn_runtime_control_signal_from_gateway(
+        runtime_host,
+        turn_run_id=turn_run_id,
+    )
+    interruption_kind = _interrupted_turn_kind(
+        terminal_reason=terminal_reason,
+        status=status,
+        diagnostics=diagnostics,
+        runtime_control_signal=gateway_signal,
+    )
     if not interruption_kind:
         return None
-    latest_signal = dict(diagnostics.get("latest_runtime_control_signal") or {})
+    latest_signal = dict(gateway_signal or {})
     feedback = dict(diagnostics.get("latest_agent_contract_feedback") or {})
     latest_progress = _first_text(
         diagnostics.get("latest_public_progress_note"),
@@ -301,10 +316,15 @@ def _record_from_interrupted_turn_run(turn_run: Any) -> InterruptedTurnContinuat
     )
 
 
-def _interrupted_turn_kind(*, terminal_reason: str, status: str, diagnostics: dict[str, Any]) -> str:
+def _interrupted_turn_kind(
+    *,
+    terminal_reason: str,
+    status: str,
+    diagnostics: dict[str, Any],
+    runtime_control_signal: dict[str, Any],
+) -> str:
     reason = str(terminal_reason or "").strip()
-    latest_signal = dict(diagnostics.get("latest_runtime_control_signal") or {})
-    signal_kind = str(latest_signal.get("signal_kind") or "").strip()
+    signal_kind = str(dict(runtime_control_signal or {}).get("signal_kind") or "").strip()
     if reason in _RECOVERABLE_TURN_TERMINAL_REASONS:
         if reason == "single_turn_tool_iteration_limit":
             return "tool_budget_exhausted"
@@ -320,6 +340,40 @@ def _interrupted_turn_kind(*, terminal_reason: str, status: str, diagnostics: di
     if str(status or "").strip() in {"failed", "aborted"} and reason in _RECOVERABLE_TURN_TERMINAL_REASONS:
         return "interrupted_turn_runtime_boundary"
     return ""
+
+
+def _latest_turn_runtime_control_signal_from_gateway(
+    runtime_host: Any,
+    *,
+    turn_run_id: str,
+) -> dict[str, Any]:
+    normalized_turn_run_id = str(turn_run_id or "").strip()
+    if not normalized_turn_run_id:
+        return {}
+    event_log = getattr(runtime_host, "event_log", None)
+    list_events = getattr(event_log, "list_events", None)
+    if not callable(list_events):
+        return {}
+    try:
+        events = list(list_events(normalized_turn_run_id) or [])
+    except Exception:
+        return {}
+    for event in reversed(events):
+        if getattr(event, "event_type", "") not in {
+            CONTROL_SIGNAL_PUBLISHED_EVENT,
+            CONTROL_SIGNAL_OBSERVED_EVENT,
+            CONTROL_SIGNAL_CONSUMED_EVENT,
+        }:
+            continue
+        signal = runtime_signal_from_event_payload(dict(getattr(event, "payload", {}) or {}))
+        if signal is None:
+            continue
+        if signal.signal_type != "control.signal.requested":
+            continue
+        if signal.scope.turn_run_id and signal.scope.turn_run_id != normalized_turn_run_id:
+            continue
+        return dict(signal.payload or {})
+    return {}
 
 
 def _interrupted_turn_next_step(interruption_kind: str) -> str:

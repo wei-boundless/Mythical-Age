@@ -3,7 +3,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from runtime.shared.models import AgentRun, TaskRun
-from harness.loop.task_executor import _step_summary_diagnostics_update
+from harness.runtime.runtime_gateway import RuntimeGateway
+from harness.runtime.control_events import RuntimeSignalScope
+from harness.loop.task_executor import _mark_replan_control_signals_consumed_by_model_action, _step_summary_diagnostics_update
 from harness.loop.task_executor import _pause_executor_for_step_budget, _runtime_control_signal_projection_from_observations
 
 
@@ -156,8 +158,10 @@ def test_step_budget_boundary_records_model_visible_control_observation_and_publ
         agent_profile_id="main_interactive_agent",
         status="running",
     )
+    event_log = _EventLogStub()
     runtime_host = SimpleNamespace(
-        event_log=_EventLogStub(),
+        event_log=event_log,
+        runtime_gateway=RuntimeGateway(event_log),
         runtime_objects=_RuntimeObjectsStub(),
         state_index=_StateIndexStub(task_run),
     )
@@ -178,14 +182,203 @@ def test_step_budget_boundary_records_model_visible_control_observation_and_publ
         for event in runtime_host.event_log.events
         if event.event_type == "task_runtime_control_signal_observed"
     ]
+    gateway_requested = [
+        dict(dict(event.payload or {}).get("signal") or {})
+        for event in runtime_host.event_log.events
+        if event.event_type == "runtime_control_signal_published"
+        and dict(dict(event.payload or {}).get("signal") or {}).get("signal_type") == "control.signal.requested"
+    ]
+    gateway_observed = [
+        dict(dict(event.payload or {}).get("signal") or {})
+        for event in runtime_host.event_log.events
+        if event.event_type == "runtime_control_signal_observed"
+        and dict(dict(event.payload or {}).get("signal") or {}).get("signal_type") == "control.signal.requested"
+    ]
     assert len(signal_events) == 1
+    assert len(gateway_requested) == 1
+    assert len(gateway_observed) == 1
     observation = dict(signal_events[0].payload["observation"])
     assert observation["source"] == "system:runtime_control_signal"
     assert observation["needs_model_followup"] is True
     assert observation["payload"]["signal_kind"] == "budget_exhausted"
+    assert observation["payload"]["runtime_control_signal_ref"] == gateway_requested[0]["signal_id"]
+    assert gateway_observed[0]["signal_id"] == gateway_requested[0]["signal_id"]
+    assert dict(gateway_requested[0]["payload"])["adapter"] == "task_executor_step_budget"
     assert observation["payload"]["structured_signal"]["code"] == "runtime_control_budget_exhausted"
+    assert runtime_host.runtime_gateway.drain(
+        task_run.task_run_id,
+        scope=RuntimeSignalScope(session_id="session-test", task_run_id=task_run.task_run_id),
+        signal_types={"control.signal.requested"},
+    ).pending_signals == ()
 
     projection = _runtime_control_signal_projection_from_observations([observation])
     assert projection[0]["signal_kind"] == "budget_exhausted"
     assert projection[0]["runtime_control_state"] == "waiting_executor"
     assert "预算" in projection[0]["repair_instruction"]
+
+
+def test_step_budget_boundary_requires_runtime_gateway_for_model_visible_control_observation() -> None:
+    task_run = TaskRun(
+        task_run_id="taskrun:test:step-budget-no-gateway",
+        session_id="session-test",
+        task_id="task:test:step-budget-no-gateway",
+        execution_runtime_kind="single_agent_task",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+        diagnostics={"executor_epoch": 2, "active_packet_ref": "packet:test:step-budget-no-gateway"},
+    )
+    agent_run = AgentRun(
+        agent_run_id="agrun:test:step-budget-no-gateway",
+        task_run_id=task_run.task_run_id,
+        agent_id="agent:0",
+        agent_profile_id="main_interactive_agent",
+        status="running",
+    )
+    event_log = _EventLogStub()
+    runtime_host = SimpleNamespace(
+        event_log=event_log,
+        runtime_gateway=None,
+        runtime_objects=_RuntimeObjectsStub(),
+        state_index=_StateIndexStub(task_run),
+    )
+
+    result = _pause_executor_for_step_budget(runtime_host, task_run=task_run, agent_run=agent_run, max_steps=2)
+    updated = runtime_host.state_index.get_task_run(task_run.task_run_id)
+    event_types = [event.event_type for event in runtime_host.event_log.events]
+
+    assert result["ok"] is False
+    assert result["error"] == "runtime_gateway_control_signal_unavailable"
+    assert updated is not None
+    assert updated.status == "waiting_executor"
+    assert "runtime_control_signal_published" not in event_types
+    assert "task_runtime_control_signal_observed" not in event_types
+    assert runtime_host.runtime_objects.objects == {}
+
+
+def test_replan_steer_consumption_reports_missing_gateway_consumption() -> None:
+    task_run = TaskRun(
+        task_run_id="taskrun:test:replan-consume-no-gateway",
+        session_id="session-test",
+        task_id="task:test:replan-consume-no-gateway",
+        execution_runtime_kind="single_agent_task",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    runtime_host = SimpleNamespace(runtime_gateway=None)
+    observation = {
+        "observation_id": "obs:replan:no-gateway",
+        "source": "system:runtime_control_signal",
+        "payload": {
+            "signal_kind": "replan",
+            "steer_ref": "steer:no-gateway",
+            "runtime_control_signal_ref": "sig:replan:no-gateway",
+        },
+    }
+
+    result = _mark_replan_control_signals_consumed_by_model_action(
+        runtime_host,
+        task_run=task_run,
+        action_request=SimpleNamespace(request_id="action:consume-steer"),
+        observations=[observation],
+        consumed_steer_ids=["steer:no-gateway"],
+    )
+
+    assert result["required_steer_refs"] == ["steer:no-gateway"]
+    assert result["missing_steer_refs"] == ["steer:no-gateway"]
+    assert result["consumed_events"] == []
+
+
+def test_replan_steer_consumption_consumes_canonical_gateway_signal() -> None:
+    task_run = TaskRun(
+        task_run_id="taskrun:test:replan-consume-canonical",
+        session_id="session-test",
+        task_id="task:test:replan-consume-canonical",
+        execution_runtime_kind="single_agent_task",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    event_log = _EventLogStub()
+    gateway = RuntimeGateway(event_log)
+    signal_event = gateway.publish(
+        task_run.task_run_id,
+        signal_type="control.signal.requested",
+        scope=RuntimeSignalScope(session_id=task_run.session_id, task_run_id=task_run.task_run_id),
+        source_authority="test.replan",
+        payload={"signal_kind": "replan", "steer_ref": "steer:canonical"},
+    )
+    signal_id = str(dict(dict(signal_event.payload or {}).get("signal") or {}).get("signal_id") or "")
+    observation = {
+        "observation_id": "obs:replan:canonical",
+        "source": "system:runtime_control_signal",
+        "payload": {
+            "signal_kind": "replan",
+            "steer_ref": "steer:canonical",
+            "runtime_control_signal_ref": signal_id,
+        },
+    }
+
+    result = _mark_replan_control_signals_consumed_by_model_action(
+        SimpleNamespace(runtime_gateway=gateway),
+        task_run=task_run,
+        action_request=SimpleNamespace(request_id="action:consume-steer"),
+        observations=[observation],
+        consumed_steer_ids=["steer:canonical"],
+    )
+
+    assert result["required_steer_refs"] == ["steer:canonical"]
+    assert result["missing_steer_refs"] == []
+    assert len(result["consumed_events"]) == 1
+    assert gateway.can_consume_by_id(task_run.task_run_id, signal_id=signal_id) is False
+
+
+def test_replan_steer_consumption_rejects_already_consumed_signal() -> None:
+    task_run = TaskRun(
+        task_run_id="taskrun:test:replan-consume-closed",
+        session_id="session-test",
+        task_id="task:test:replan-consume-closed",
+        execution_runtime_kind="single_agent_task",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    event_log = _EventLogStub()
+    gateway = RuntimeGateway(event_log)
+    signal_event = gateway.publish(
+        task_run.task_run_id,
+        signal_type="control.signal.requested",
+        scope=RuntimeSignalScope(session_id=task_run.session_id, task_run_id=task_run.task_run_id),
+        source_authority="test.replan",
+        payload={"signal_kind": "replan", "steer_ref": "steer:closed"},
+    )
+    signal_id = str(dict(dict(signal_event.payload or {}).get("signal") or {}).get("signal_id") or "")
+    consumed = gateway.mark_consumed_by_id(
+        task_run.task_run_id,
+        signal_id=signal_id,
+        consumed_by="test.preconsumed",
+        payload={"terminal_reason": "already_consumed"},
+    )
+    observation = {
+        "observation_id": "obs:replan:closed",
+        "source": "system:runtime_control_signal",
+        "payload": {
+            "signal_kind": "replan",
+            "steer_ref": "steer:closed",
+            "runtime_control_signal_ref": signal_id,
+        },
+    }
+
+    result = _mark_replan_control_signals_consumed_by_model_action(
+        SimpleNamespace(runtime_gateway=gateway),
+        task_run=task_run,
+        action_request=SimpleNamespace(request_id="action:consume-steer"),
+        observations=[observation],
+        consumed_steer_ids=["steer:closed"],
+    )
+
+    assert consumed is not None
+    assert result["required_steer_refs"] == ["steer:closed"]
+    assert result["missing_steer_refs"] == ["steer:closed"]
+    assert result["consumed_events"] == []

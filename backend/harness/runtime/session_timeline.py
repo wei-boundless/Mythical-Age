@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from .control_events import runtime_signal_from_event_payload
 from .event_query import list_runtime_events, runtime_event_count
+from .runtime_gateway import (
+    CONTROL_SIGNAL_CONSUMED_EVENT,
+    CONTROL_SIGNAL_OBSERVED_EVENT,
+    CONTROL_SIGNAL_PUBLISHED_EVENT,
+)
 from .session_output_commit_projection import project_session_output_commit_state
 from runtime.shared.stream_replay import sanitized_public_projection_frame
 from runtime.output_stream.public_contract import (
@@ -719,13 +725,12 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
     if not turn_run_id:
         return {}
     session_id = str(getattr(turn_run, "session_id", "") or "")
-    diagnostics = _dict_record(getattr(turn_run, "diagnostics", {}) or {})
     events = [_event_dict(item) for item in list_runtime_events(runtime_host, turn_run_id, limit=max_timeline_items * 8)]
     anchor_turn_id = _valid_turn_ref(getattr(turn_run, "turn_id", "")) or _turn_id_from_turn_run_id(turn_run_id)
     anchor_message = _anchor_assistant_message(anchor_turn_id=anchor_turn_id, history_messages=history_messages)
     anchor_message_id = _history_message_id(anchor_message) if anchor_message else ""
     status = str(getattr(turn_run, "status", "") or "")
-    recovery_signal = _turn_recovery_control_signal(turn_run, events=events, diagnostics=diagnostics)
+    recovery_signal = _turn_recovery_control_signal(events=events)
     projection_anchor = _projection_anchor(
         session_id=session_id,
         run_id=turn_run_id,
@@ -771,16 +776,34 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
     }
 
 
-def _turn_recovery_control_signal(turn_run: Any, *, events: list[dict[str, Any]], diagnostics: dict[str, Any]) -> dict[str, Any]:
-    diagnostic_signal = _dict_record(diagnostics.get("latest_runtime_control_signal"))
-    if str(diagnostic_signal.get("signal_kind") or "") == "agent_closeout_recovery_required":
-        return diagnostic_signal
+def _turn_recovery_control_signal(*, events: list[dict[str, Any]]) -> dict[str, Any]:
     for event in reversed(list(events or [])):
-        payload = _dict_record(event.get("payload"))
-        signal = _dict_record(payload.get("runtime_control_signal"))
+        signal = _runtime_gateway_signal_payload(event) or _turn_runtime_control_event_signal(event)
         if str(signal.get("signal_kind") or "") == "agent_closeout_recovery_required":
             return signal
     return {}
+
+
+def _runtime_gateway_signal_payload(event: dict[str, Any]) -> dict[str, Any]:
+    if str(event.get("event_type") or "") not in {
+        CONTROL_SIGNAL_PUBLISHED_EVENT,
+        CONTROL_SIGNAL_OBSERVED_EVENT,
+        CONTROL_SIGNAL_CONSUMED_EVENT,
+    }:
+        return {}
+    signal = runtime_signal_from_event_payload(_dict_record(event.get("payload")))
+    if signal is None or signal.signal_type != "control.signal.requested":
+        return {}
+    return dict(signal.payload or {})
+
+
+def _turn_runtime_control_event_signal(event: dict[str, Any]) -> dict[str, Any]:
+    if str(event.get("event_type") or "") not in {
+        "turn_runtime_control_signal_observed",
+        "agent_turn_terminal",
+    }:
+        return {}
+    return _dict_record(_dict_record(event.get("payload")).get("runtime_control_signal"))
 
 
 def _dict_record(value: Any) -> dict[str, Any]:

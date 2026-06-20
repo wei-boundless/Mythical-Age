@@ -6,7 +6,7 @@ import {
   loadFileForSession,
   createSession,
   deleteSession,
-  deriveSessionTitleFromSummary,
+  deriveSessionTitleFromFirstUserMessage,
   enqueueQueuedChatInput,
   getChatRun,
   getLatestChatRunForSession,
@@ -154,7 +154,7 @@ export class WorkspaceRuntime {
   private pendingVisibleStreamFlushes = new Map<string, PendingVisibleStreamFlush>();
   private pendingProjectionCommitHydrates = new Map<string, string>();
   private hydratedProjectionCommitKeys = new Set<string>();
-  private summaryTitleRequests = new Set<string>();
+  private firstUserTitleRequests = new Set<string>();
 
   readonly actions: StoreActions;
 
@@ -756,7 +756,19 @@ export class WorkspaceRuntime {
       }
       return projected;
     });
+    this.requestRecentFirstUserSessionTitlesInBackground(sessions);
     return sessions;
+  }
+
+  private requestRecentFirstUserSessionTitlesInBackground(sessions: SessionSummary[]) {
+    let requested = 0;
+    for (const session of sessions) {
+      if (requested >= 3) return;
+      if (Number(session.message_count || 0) <= 0) continue;
+      if (!this.isDefaultSessionTitle(session.title) && !this.isAssistantArtifactSessionTitle(session.title)) continue;
+      this.requestFirstUserSessionTitleInBackground(session.id);
+      requested += 1;
+    }
   }
 
   private async refreshProjectWorkspaces() {
@@ -1000,17 +1012,17 @@ export class WorkspaceRuntime {
     });
   }
 
-  private requestSummarySessionTitleInBackground(sessionId: string) {
+  private requestFirstUserSessionTitleInBackground(sessionId: string) {
     const normalizedSessionId = String(sessionId || "").trim();
     if (
       !normalizedSessionId
-      || this.summaryTitleRequests.has(normalizedSessionId)
-      || !this.shouldDeriveSessionTitleFromSummary(normalizedSessionId)
+      || this.firstUserTitleRequests.has(normalizedSessionId)
+      || !this.shouldDeriveSessionTitleFromFirstUser(normalizedSessionId)
     ) {
       return;
     }
-    this.summaryTitleRequests.add(normalizedSessionId);
-    void deriveSessionTitleFromSummary(normalizedSessionId, this.sessionScopeForSession(normalizedSessionId))
+    this.firstUserTitleRequests.add(normalizedSessionId);
+    void deriveSessionTitleFromFirstUserMessage(normalizedSessionId, this.sessionScopeForSession(normalizedSessionId))
       .then((result) => {
         const title = String(result.title || "").trim();
         if (!title || this.isDefaultSessionTitle(title)) {
@@ -1031,25 +1043,51 @@ export class WorkspaceRuntime {
         }));
       })
       .catch((error) => {
-        console.debug("[workspace-runtime] summary session title derivation skipped", {
-          event: "summary_session_title_derivation_failed",
+        console.debug("[workspace-runtime] first user session title derivation skipped", {
+          event: "first_user_session_title_derivation_failed",
           sessionId: normalizedSessionId,
           error: this.errorMessage(error, "会话摘要命名失败。"),
         });
       })
       .finally(() => {
-        this.summaryTitleRequests.delete(normalizedSessionId);
+        this.firstUserTitleRequests.delete(normalizedSessionId);
       });
   }
 
-  private shouldDeriveSessionTitleFromSummary(sessionId: string, state = this.store.getState()) {
+  private shouldDeriveSessionTitleFromFirstUser(sessionId: string, state = this.store.getState()) {
     const session = state.sessions.find((item) => item.id === sessionId)
       ?? state.projectSessions.find((item) => item.id === sessionId);
-    return Boolean(session && this.isDefaultSessionTitle(session.title));
+    return Boolean(session && (this.isDefaultSessionTitle(session.title) || this.isAssistantArtifactSessionTitle(session.title)));
   }
 
   private isDefaultSessionTitle(title: string | null | undefined) {
     return String(title || "").trim() === DEFAULT_SESSION_TITLE;
+  }
+
+  private isAssistantArtifactSessionTitle(title: string | null | undefined) {
+    const text = String(title || "").replace(/\s+/g, " ").trim();
+    if (!text) return false;
+    if (["```", "##", "---", "|---", "###"].some((marker) => text.includes(marker))) return true;
+    if (
+      [
+        "经过全面排查",
+        "以下是我的",
+        "这是我的",
+        "这是一个独立的",
+        "这是一个独立的小型交付请求",
+        "好，我已经",
+        "好了，我已经",
+        "好的，我已经",
+        "现在我已经",
+        "我现在已经",
+        "我已经完成",
+        "我已经读完",
+        "已完成",
+      ].some((prefix) => text.startsWith(prefix))
+    ) {
+      return true;
+    }
+    return ["诊断结果", "诊断结论", "修改已完成", "交付请求", "以下是修复结果"].some((fragment) => text.includes(fragment));
   }
 
   private noteSessionRefreshFailure(error: unknown) {
@@ -2722,7 +2760,7 @@ export class WorkspaceRuntime {
     this.streamAbortControllers.set(sessionId, abortController);
     this.removedStreamingSessionIds.delete(sessionId);
     this.stoppedStreamingSessionIds.delete(sessionId);
-    const shouldDeriveTitleAfterCompletion = this.shouldDeriveSessionTitleFromSummary(sessionId);
+    const shouldDeriveTitleAfterCompletion = this.shouldDeriveSessionTitleFromFirstUser(sessionId);
 
     const existingAssistantId = this.recoveredAssistantMessageId(streamRunId, run);
     const assistantId = existingAssistantId || makeId();
@@ -2909,7 +2947,7 @@ export class WorkspaceRuntime {
           && !streamSessionWasStopped
           && !streamEndedWithError
         ) {
-          this.requestSummarySessionTitleInBackground(sessionId);
+          this.requestFirstUserSessionTitleInBackground(sessionId);
         }
         if (
           !streamSessionWasRemoved
@@ -3022,7 +3060,7 @@ export class WorkspaceRuntime {
       await this.enqueueUserInputForSession(sessionId, trimmed, options.queuedUserMessageId);
       return;
     }
-    const shouldDeriveTitleAfterCompletion = this.shouldDeriveSessionTitleFromSummary(sessionId);
+    const shouldDeriveTitleAfterCompletion = this.shouldDeriveSessionTitleFromFirstUser(sessionId);
     this.removedStreamingSessionIds.delete(sessionId);
     this.stoppedStreamingSessionIds.delete(sessionId);
     const streamEpoch = this.nextChatStreamEpoch(sessionId);
@@ -3241,7 +3279,7 @@ export class WorkspaceRuntime {
         && !streamSessionWasStopped
         && !streamEndedWithError
       ) {
-        this.requestSummarySessionTitleInBackground(sessionId);
+        this.requestFirstUserSessionTitleInBackground(sessionId);
       }
       if (
         !streamSessionWasRemoved
