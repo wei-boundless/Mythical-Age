@@ -16,6 +16,7 @@ import type {
   TaskEnvironmentCatalog,
   ConversationActiveEnvironment,
   ToolCall,
+  ManagedFileTarget,
   WorkspaceContext,
   CodeEnvironmentWorkspaceTree,
   ProjectWorkspaceSummary,
@@ -405,7 +406,10 @@ export type SessionEditorContext = {
   openFilePaths: string[];
   inspectorPath: string;
   inspectorContent: string;
+  inspectorContentSha256?: string;
   inspectorDirty: boolean;
+  inspectorTarget?: ManagedFileTarget | null;
+  inspectorLastChangeRecordId?: string;
   updatedAt: number;
 };
 
@@ -455,7 +459,10 @@ export type StoreState = {
   skills: SkillSummary[];
   inspectorPath: string;
   inspectorContent: string;
+  inspectorContentSha256: string;
   inspectorDirty: boolean;
+  inspectorTarget: ManagedFileTarget | null;
+  inspectorLastChangeRecordId: string;
   sessionEditorContexts: Record<string, SessionEditorContext>;
   sidebarWidth: number;
   inspectorWidth: number;

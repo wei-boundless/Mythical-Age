@@ -105,14 +105,7 @@ class TaskExecutorController:
         )
         supervisor_reason = str(supervisor_result.get("reason") or "scheduled")
         if not bool(supervisor_result.get("ok")) and supervisor_reason == "worker_start_failed":
-            self._mark_scheduled_task_failed(
-                task_run_id=task_run_id,
-                error=str(supervisor_result.get("error") or supervisor_reason),
-                scheduler=scheduler,
-                agent_run_id=str(supervisor_result.get("agent_run_id") or ""),
-                run_cell_id=str(supervisor_result.get("run_cell_id") or ""),
-                worker_backend=str(supervisor_result.get("worker_backend") or ""),
-            )
+            self._mark_worker_start_failed(task_run_id=task_run_id, scheduler=scheduler, supervisor_result=supervisor_result)
         return _schedule_result(
             ok=bool(supervisor_result.get("ok")),
             scheduled=bool(supervisor_result.get("scheduled")),
@@ -124,6 +117,17 @@ class TaskExecutorController:
             worker_backend=str(supervisor_result.get("worker_backend") or ""),
             error=str(supervisor_result.get("error") or ""),
             recovered_from=recovered_from,
+        )
+
+    def _mark_worker_start_failed(self, *, task_run_id: str, scheduler: str, supervisor_result: dict[str, Any]) -> None:
+        reason = str(supervisor_result.get("reason") or "worker_start_failed")
+        self._mark_scheduled_task_failed(
+            task_run_id=task_run_id,
+            error=str(supervisor_result.get("error") or reason),
+            scheduler=scheduler,
+            agent_run_id=str(supervisor_result.get("agent_run_id") or ""),
+            run_cell_id=str(supervisor_result.get("run_cell_id") or ""),
+            worker_backend=str(supervisor_result.get("worker_backend") or ""),
         )
 
     def recover_scheduled(
@@ -200,15 +204,19 @@ class TaskExecutorController:
             max_steps=max_steps,
             recovered_from=recovered_from,
         )
+        supervisor_reason = str(supervisor_result.get("reason") or "recovered_scheduled_executor")
+        if not bool(supervisor_result.get("ok")) and supervisor_reason == "worker_start_failed":
+            self._mark_worker_start_failed(task_run_id=task_run_id, scheduler=scheduler, supervisor_result=supervisor_result)
         return _schedule_result(
             ok=bool(supervisor_result.get("ok")),
             scheduled=bool(supervisor_result.get("scheduled")),
             task_run_id=task_run_id,
-            reason=str(supervisor_result.get("reason") or "recovered_scheduled_executor"),
+            reason=supervisor_reason,
             scheduler=scheduler,
             agent_run_id=str(supervisor_result.get("agent_run_id") or ""),
             run_cell_id=str(supervisor_result.get("run_cell_id") or ""),
             worker_backend=str(supervisor_result.get("worker_backend") or ""),
+            error=str(supervisor_result.get("error") or ""),
             recovered_from=recovered_from,
         )
 
@@ -311,11 +319,12 @@ class TaskExecutorController:
                 )
                 await asyncio.sleep(0)
         except Exception as exc:
-            self._mark_scheduled_task_failed(
+            self._mark_executor_failed(
                 task_run_id=task_run_id,
                 error=str(exc) or exc.__class__.__name__,
                 scheduler=scheduler,
             )
+            raise
 
     def _mark_scheduled(
         self,
@@ -408,36 +417,23 @@ class TaskExecutorController:
         run_cell_id: str = "",
         worker_backend: str = "",
     ) -> None:
-        identity_payload = {
-            **({"agent_run_id": agent_run_id} if agent_run_id else {}),
-            **({"run_cell_id": run_cell_id} if run_cell_id else {}),
-            **({"worker_backend": worker_backend} if worker_backend else {}),
-        }
-        identity_refs = {
-            **({"agent_run_ref": agent_run_id} if agent_run_id else {}),
-            **({"run_cell_ref": run_cell_id} if run_cell_id else {}),
-        }
+        current = self.runtime_host.state_index.get_task_run(task_run_id)
+        current_diagnostics = dict(getattr(current, "diagnostics", {}) or {}) if current is not None else {}
+        identity_payload, identity_refs = _executor_failure_identity(
+            current_diagnostics,
+            agent_run_id=agent_run_id,
+            run_cell_id=run_cell_id,
+            worker_backend=worker_backend,
+        )
         event = self.runtime_host.event_log.append(
             task_run_id,
             "task_run_executor_schedule_failed",
             payload={"task_run_id": task_run_id, "error": error, "scheduler": scheduler, **identity_payload},
             refs={"task_run_ref": task_run_id, **identity_refs},
         )
-        current = self.runtime_host.state_index.get_task_run(task_run_id)
         if current is None:
             return
-        diagnostics = dict(current.diagnostics or {})
-        for stale_key in (
-            "agent_run_scope",
-            "agent_run_id",
-            "run_cell_id",
-            "agent_cell_status",
-            "agent_cell_scheduler",
-            "agent_cell_max_steps",
-            "agent_cell_recovered_from",
-            "agent_cell_worker_backend",
-        ):
-            diagnostics.pop(stale_key, None)
+        diagnostics = _strip_agent_cell_claim_diagnostics(current_diagnostics)
         self.runtime_host.state_index.upsert_task_run(
             replace(
                 current,
@@ -461,6 +457,92 @@ class TaskExecutorController:
                 },
             )
         )
+
+    def _mark_executor_failed(
+        self,
+        *,
+        task_run_id: str,
+        error: str,
+        scheduler: str,
+    ) -> None:
+        current = self.runtime_host.state_index.get_task_run(task_run_id)
+        current_diagnostics = dict(getattr(current, "diagnostics", {}) or {}) if current is not None else {}
+        identity_payload, identity_refs = _executor_failure_identity(current_diagnostics)
+        event = self.runtime_host.event_log.append(
+            task_run_id,
+            "task_run_executor_failed",
+            payload={"task_run_id": task_run_id, "error": error, "scheduler": scheduler, **identity_payload},
+            refs={"task_run_ref": task_run_id, **identity_refs},
+        )
+        if current is None:
+            return
+        diagnostics = _strip_agent_cell_claim_diagnostics(current_diagnostics)
+        self.runtime_host.state_index.upsert_task_run(
+            replace(
+                current,
+                status="blocked",
+                updated_at=event.created_at,
+                latest_event_offset=event.offset,
+                terminal_reason="executor_failed",
+                diagnostics={
+                    **diagnostics,
+                    "executor_status": "blocked",
+                    "executor_lease_state": "blocked",
+                    "latest_step": "task_run_executor_failed",
+                    "latest_step_status": "blocked",
+                    "latest_step_summary": f"任务执行时遇到失败：{error}",
+                    "recoverable_error": {
+                        "error_code": "executor_failed",
+                        "retryable": True,
+                        "detail": error,
+                    },
+                    "recovery_action": "rerun_task_executor",
+                },
+            )
+        )
+
+
+def _executor_failure_identity(
+    diagnostics: dict[str, Any],
+    *,
+    agent_run_id: str = "",
+    run_cell_id: str = "",
+    worker_backend: str = "",
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    current_scope = (
+        dict(diagnostics.get("agent_run_scope") or {})
+        if isinstance(diagnostics.get("agent_run_scope"), dict)
+        else {}
+    )
+    normalized_agent_run_id = str(agent_run_id or current_scope.get("agent_run_id") or diagnostics.get("agent_run_id") or "").strip()
+    normalized_run_cell_id = str(run_cell_id or current_scope.get("run_cell_id") or diagnostics.get("run_cell_id") or "").strip()
+    normalized_worker_backend = str(worker_backend or diagnostics.get("agent_cell_worker_backend") or "").strip()
+    payload = {
+        **({"agent_run_id": normalized_agent_run_id} if normalized_agent_run_id else {}),
+        **({"run_cell_id": normalized_run_cell_id} if normalized_run_cell_id else {}),
+        **({"worker_backend": normalized_worker_backend} if normalized_worker_backend else {}),
+    }
+    refs = {
+        **({"agent_run_ref": normalized_agent_run_id} if normalized_agent_run_id else {}),
+        **({"run_cell_ref": normalized_run_cell_id} if normalized_run_cell_id else {}),
+    }
+    return payload, refs
+
+
+def _strip_agent_cell_claim_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(diagnostics or {})
+    for stale_key in (
+        "agent_run_scope",
+        "agent_run_id",
+        "run_cell_id",
+        "agent_cell_status",
+        "agent_cell_scheduler",
+        "agent_cell_max_steps",
+        "agent_cell_recovered_from",
+        "agent_cell_worker_backend",
+    ):
+        payload.pop(stale_key, None)
+    return payload
 
 
 def _should_auto_continue(runtime_host: Any, *, task_run_id: str, result: dict[str, Any]) -> bool:

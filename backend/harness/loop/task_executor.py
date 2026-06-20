@@ -5551,19 +5551,29 @@ def _record_session_output_commit_skipped(
     task_id = str(getattr(task_run, "task_id", "") or "")
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     turn_id = str(diagnostics.get("turn_id") or "").strip()
+    agent_scope = _agent_run_scope_payload(task_run)
+    agent_run_id = str(agent_scope.get("agent_run_id") or "").strip()
+    run_cell_id = str(agent_scope.get("run_cell_id") or "").strip()
+    refs = {
+        "task_run_ref": task_run_id,
+        **({"agent_run_ref": agent_run_id} if agent_run_id else {}),
+        **({"run_cell_ref": run_cell_id} if run_cell_id else {}),
+    }
     result = OutputCommitAuthority(runtime_host).record_skipped(
         OutputCommitRequest(
             run_id=task_run_id or "session-output-commit",
             session_id=session_id,
             task_run_id=task_run_id,
             task_id=task_id,
+            agent_run_id=agent_run_id,
+            run_cell_id=run_cell_id,
             turn_id=turn_id,
             content=final_answer,
             answer_channel="final_answer",
             answer_source="harness.loop.task_executor.skipped",
             execution_posture="task_run_output_commit_skipped",
             has_tool_receipt=True,
-            refs={"task_run_ref": task_run_id},
+            refs=refs,
         ),
         reason=reason,
         content=final_answer,

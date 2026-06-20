@@ -1,18 +1,29 @@
 "use client";
 
-import { AlertTriangle, Edit3, FileText, GitCompare, Loader2, RefreshCw, Save, Sparkles, Terminal, Workflow, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+import { AlertTriangle, ExternalLink, FileText, GitCompare, GripVertical, Loader2, PanelRightClose, PanelRightOpen, RefreshCw, Save, Sparkles, Terminal, Workflow, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
 import { RuntimeLogPanel, type RuntimeLogTarget } from "@/components/layout/RuntimeLogPanel";
-import { getFileChangeDiff, type FileChangeDiffPayload } from "@/lib/api";
+import { getFileChangeDiff, openManagedFileInVSCode, type FileChangeDiffPayload } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/ui/classNames";
 import { TabButton, Tabs } from "@/ui/Tabs";
 
 type CenterWorkspaceLayer = "chat" | "file" | "file-change-diff" | "runtime-log";
+type CenterWorkspaceAuxLayer = Exclude<CenterWorkspaceLayer, "chat">;
 const GENERAL_TASK_ENVIRONMENT_ID = "env.general.workspace";
+const CENTER_AUX_PANEL_OPEN_KEY = "agentWorkbench.centerAuxPanelOpen";
+const CENTER_FILE_PANEL_WIDTH_KEY = "agentWorkbench.centerFilePanelWidth";
+const CENTER_FILE_PANEL_DEFAULT_WIDTH = 620;
+const CENTER_FILE_PANEL_MIN_WIDTH = 420;
+const CENTER_FILE_PANEL_MAX_WIDTH = 980;
+const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
+  ssr: false,
+  loading: () => <div className="center-workspace-file__empty">编辑器载入中。</div>,
+});
 
 type FileChangeDiffPage = {
   baselineRecordId?: string;
@@ -27,6 +38,10 @@ function compactFileName(path: string) {
   const normalized = path.replace(/\\/g, "/");
   const parts = normalized.split("/");
   return parts[parts.length - 1] || path || "文件";
+}
+
+function clampFilePanelWidth(value: number) {
+  return Math.min(CENTER_FILE_PANEL_MAX_WIDTH, Math.max(CENTER_FILE_PANEL_MIN_WIDTH, Math.round(value)));
 }
 
 function runtimeLogPageKey(target: RuntimeLogTarget) {
@@ -53,9 +68,45 @@ function fileChangeDiffPageTitle(target: FileChangeDiffPage) {
   return "文件 Diff";
 }
 
-function isEditableWorkspacePath(path: string, editablePrefixes: string[] = []) {
+function isLegacyInternalEditablePath(path: string) {
   const normalized = path.replace(/\\/g, "/").replace(/^\/+/, "");
-  return editablePrefixes.some((prefix) => normalized.startsWith(prefix));
+  return [
+    "durable_memory/",
+    "session-memory/",
+    "sessions/",
+    "knowledge/",
+    "capability_system/skills/builtin/",
+  ].some((prefix) => normalized.startsWith(prefix));
+}
+
+function languageIdForPath(path: string) {
+  const normalized = path.toLowerCase();
+  const extension = normalized.includes(".") ? normalized.slice(normalized.lastIndexOf(".") + 1) : "";
+  switch (extension) {
+    case "ts":
+      return "typescript";
+    case "tsx":
+      return "typescriptreact";
+    case "js":
+      return "javascript";
+    case "jsx":
+      return "javascriptreact";
+    case "py":
+      return "python";
+    case "json":
+      return "json";
+    case "md":
+      return "markdown";
+    case "css":
+      return "css";
+    case "html":
+      return "html";
+    case "yaml":
+    case "yml":
+      return "yaml";
+    default:
+      return extension || "plaintext";
+  }
 }
 
 function CenterWorkspaceFileLayer({
@@ -66,42 +117,48 @@ function CenterWorkspaceFileLayer({
   path: string;
 }) {
   const {
+    currentSessionId,
     inspectorContent,
+    inspectorContentSha256,
     inspectorDirty,
+    inspectorLastChangeRecordId,
     inspectorPath,
+    inspectorTarget,
     loadInspectorFile,
+    openFileChangeDiff,
     saveInspector,
     updateInspectorContent,
-    workspaceContext,
   } = useAppStore();
-  const [editing, setEditing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [openingVSCode, setOpeningVSCode] = useState(false);
+  const [actionError, setActionError] = useState("");
   const targetPath = path.trim();
   const displayPath = targetPath || inspectorPath;
   const loaded = Boolean(displayPath && inspectorPath === displayPath);
-  const editable = loaded && isEditableWorkspacePath(displayPath, workspaceContext?.editable_prefixes);
+  const editable = loaded && (Boolean(inspectorTarget) || isLegacyInternalEditablePath(displayPath));
+  const statusLabel = inspectorDirty ? "未保存" : editable ? "可编辑" : "只读";
+  const canOpenInVSCode = Boolean(loaded && inspectorTarget && currentSessionId);
+  const canOpenDiff = Boolean(loaded && inspectorLastChangeRecordId);
+  const language = languageIdForPath(displayPath);
 
   useEffect(() => {
-    setEditing(false);
+    setActionError("");
     if (targetPath && inspectorPath !== targetPath) {
       void loadInspectorFile(targetPath);
     }
   }, [inspectorPath, loadInspectorFile, targetPath]);
-
-  useEffect(() => {
-    if (!editable && editing) {
-      setEditing(false);
-    }
-  }, [editable, editing]);
 
   async function refreshFile() {
     if (!displayPath) {
       return;
     }
     setRefreshing(true);
+    setActionError("");
     try {
       await loadInspectorFile(displayPath);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "文件刷新失败。");
     } finally {
       setRefreshing(false);
     }
@@ -112,11 +169,43 @@ function CenterWorkspaceFileLayer({
       return;
     }
     setSaving(true);
+    setActionError("");
     try {
       await saveInspector();
-      setEditing(false);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "文件保存失败。");
     } finally {
       setSaving(false);
+    }
+  }
+
+  function openLatestDiff() {
+    if (!inspectorLastChangeRecordId) {
+      return;
+    }
+    openFileChangeDiff({
+      record_id: inspectorLastChangeRecordId,
+      baseline_record_id: inspectorLastChangeRecordId,
+      mode: "single",
+      change_count: 1,
+      title: displayPath,
+      subtitle: "刚刚保存的文件变更",
+    });
+  }
+
+  async function openInVSCode() {
+    if (!inspectorTarget || !currentSessionId) {
+      setActionError("当前文件没有可打开的 VS Code 连接目标。");
+      return;
+    }
+    setOpeningVSCode(true);
+    setActionError("");
+    try {
+      await openManagedFileInVSCode(inspectorTarget, currentSessionId);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "无法在 VS Code 打开文件。");
+    } finally {
+      setOpeningVSCode(false);
     }
   }
 
@@ -124,46 +213,78 @@ function CenterWorkspaceFileLayer({
     <section className="center-workspace__file-layer" aria-label="文件页">
       <header className="center-workspace-file__head">
         <div className="center-workspace-file__title">
-          <span>{editable ? "项目文件" : "只读文件"}</span>
+          <span>{inspectorTarget ? "项目文件" : "内部资料"}</span>
           <strong>{compactFileName(displayPath)}</strong>
           <small title={displayPath}>{displayPath || "未选择文件"}</small>
         </div>
         <div className="center-workspace-file__actions" aria-label="文件操作">
+          <span className={cn("center-workspace-file__badge", inspectorDirty && "center-workspace-file__badge--dirty")}>
+            {statusLabel}
+          </span>
           <button disabled={!displayPath || refreshing} onClick={() => void refreshFile()} type="button">
             <RefreshCw size={14} />
             <span>{refreshing ? "刷新中" : "刷新"}</span>
           </button>
-          {!editable ? (
-            <span className="center-workspace-file__badge">只读</span>
-          ) : editing ? (
-            <button disabled={!inspectorDirty || saving} onClick={() => void saveFile()} type="button">
-              <Save size={14} />
-              <span>{saving ? "保存中" : "保存"}</span>
-            </button>
-          ) : (
-            <button disabled={!loaded} onClick={() => setEditing(true)} type="button">
-              <Edit3 size={14} />
-              <span>编辑</span>
-            </button>
-          )}
+          <button disabled={!canOpenInVSCode || openingVSCode} onClick={() => void openInVSCode()} type="button">
+            <ExternalLink size={14} />
+            <span>{openingVSCode ? "打开中" : "VS Code"}</span>
+          </button>
+          <button disabled={!canOpenDiff} onClick={openLatestDiff} type="button">
+            <GitCompare size={14} />
+            <span>Diff</span>
+          </button>
+          <button disabled={!editable || !inspectorDirty || saving} onClick={() => void saveFile()} type="button">
+            <Save size={14} />
+            <span>{saving ? "保存中" : "保存"}</span>
+          </button>
           <button aria-label="关闭文件页" className="center-workspace-file__icon-button" onClick={onClose} title="关闭文件页" type="button">
             <X size={14} />
           </button>
         </div>
       </header>
 
+      <div className="center-workspace-file__meta" aria-label="文件状态">
+        <span>{language}</span>
+        <span>{lineCount(inspectorContent)} 行</span>
+        {inspectorContentSha256 ? <span title={inspectorContentSha256}>sha256:{inspectorContentSha256.slice(0, 8)}</span> : null}
+      </div>
+      {actionError ? (
+        <div className="center-workspace-file__notice" role="alert">
+          <AlertTriangle size={14} />
+          <span>{actionError}</span>
+        </div>
+      ) : null}
       <div className="center-workspace-file__body" aria-busy={!loaded}>
         {!loaded ? (
           <div className="center-workspace-file__empty">正在读取文件。</div>
-        ) : editing && editable ? (
-          <textarea
-            aria-label="文件内容编辑器"
-            onChange={(event) => updateInspectorContent(event.target.value)}
-            spellCheck={false}
-            value={inspectorContent}
-          />
         ) : (
-          <pre>{inspectorContent || "文件为空。"}</pre>
+          <div className="center-workspace-file__editor">
+            <MonacoEditor
+              height="100%"
+              language={language}
+              onChange={(value) => {
+                if (editable) {
+                  updateInspectorContent(value ?? "");
+                }
+              }}
+              options={{
+                automaticLayout: true,
+                contextmenu: true,
+                fontFamily: "\"Cascadia Code\", \"SFMono-Regular\", Consolas, monospace",
+                fontSize: 14,
+                lineHeight: 22,
+                minimap: { enabled: false },
+                padding: { top: 14, bottom: 14 },
+                readOnly: !editable,
+                renderLineHighlight: "line",
+                scrollBeyondLastLine: false,
+                smoothScrolling: true,
+                wordWrap: "on",
+              }}
+              theme="vs"
+              value={inspectorContent || ""}
+            />
+          </div>
         )}
       </div>
     </section>
@@ -440,6 +561,38 @@ function CenterWorkspaceDiffLayer({
   );
 }
 
+function CenterWorkspaceFileManagerPanel({
+  activeLabel,
+  children,
+  onCollapse,
+}: {
+  activeLabel: string;
+  children: ReactNode;
+  onCollapse: () => void;
+}) {
+  return (
+    <section className="center-file-manager" aria-label="文件管理">
+      <header className="center-file-manager__head">
+        <div>
+          <span>文件管理</span>
+          <strong title={activeLabel}>{activeLabel || "项目文件"}</strong>
+        </div>
+        <div className="center-file-manager__actions">
+          <button aria-label="折叠文件管理" onClick={onCollapse} title="折叠文件管理" type="button">
+            <PanelRightClose size={15} />
+          </button>
+        </div>
+      </header>
+
+      <div className="center-file-manager__body">
+        <section className="center-file-manager__content" aria-label="文件管理内容">
+          {children}
+        </section>
+      </div>
+    </section>
+  );
+}
+
 export function CenterWorkspaceView({
   taskEnvironmentId = GENERAL_TASK_ENVIRONMENT_ID,
 }: {
@@ -455,6 +608,8 @@ export function CenterWorkspaceView({
     setWorkspaceView,
   } = useAppStore();
   const [layer, setLayer] = useState<CenterWorkspaceLayer>("chat");
+  const [auxPanelExpanded, setAuxPanelExpanded] = useState(false);
+  const [filePanelWidth, setFilePanelWidth] = useState(CENTER_FILE_PANEL_DEFAULT_WIDTH);
   const [activeFilePath, setActiveFilePath] = useState("");
   const [openFilePaths, setOpenFilePaths] = useState<string[]>([]);
   const [activeDiffKey, setActiveDiffKey] = useState("");
@@ -462,6 +617,22 @@ export function CenterWorkspaceView({
   const [activeRuntimeLogKey, setActiveRuntimeLogKey] = useState("");
   const [openRuntimeLogPages, setOpenRuntimeLogPages] = useState<RuntimeLogTarget[]>([]);
   const sessionEditorContext = currentSessionId ? sessionEditorContexts[currentSessionId] : null;
+
+  useEffect(() => {
+    setAuxPanelExpanded(window.localStorage.getItem(CENTER_AUX_PANEL_OPEN_KEY) === "true");
+    const savedWidth = Number(window.localStorage.getItem(CENTER_FILE_PANEL_WIDTH_KEY));
+    if (Number.isFinite(savedWidth) && savedWidth > 0) {
+      setFilePanelWidth(clampFilePanelWidth(savedWidth));
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(CENTER_AUX_PANEL_OPEN_KEY, String(auxPanelExpanded));
+  }, [auxPanelExpanded]);
+
+  useEffect(() => {
+    window.localStorage.setItem(CENTER_FILE_PANEL_WIDTH_KEY, String(filePanelWidth));
+  }, [filePanelWidth]);
 
   const canSwitchActiveFile = useCallback((nextPath: string) => {
     if (!inspectorDirty || !activeFilePath || activeFilePath === nextPath) {
@@ -479,6 +650,7 @@ export function CenterWorkspaceView({
     setOpenFilePaths(nextOpenFilePaths);
     setActiveFilePath(nextPath);
     setLayer("file");
+    setAuxPanelExpanded(true);
     setSessionEditorPageState({ activeFilePath: nextPath, openFilePaths: nextOpenFilePaths });
   }, [canSwitchActiveFile, openFilePaths, setSessionEditorPageState]);
 
@@ -498,10 +670,20 @@ export function CenterWorkspaceView({
     setOpenFilePaths(nextOpenFilePaths);
     setActiveFilePath(nextActiveFilePath);
     if (targetPath === activeFilePath) {
-      setLayer(nextActiveFilePath ? "file" : "chat");
+      const nextLayer: CenterWorkspaceLayer = nextActiveFilePath
+        ? "file"
+        : activeDiffKey
+          ? "file-change-diff"
+          : activeRuntimeLogKey
+            ? "runtime-log"
+            : "chat";
+      setLayer(nextLayer);
+      if (nextLayer !== "chat") {
+        setAuxPanelExpanded(true);
+      }
     }
     setSessionEditorPageState({ activeFilePath: nextActiveFilePath, openFilePaths: nextOpenFilePaths });
-  }, [activeFilePath, inspectorDirty, openFilePaths, setSessionEditorPageState]);
+  }, [activeDiffKey, activeFilePath, activeRuntimeLogKey, inspectorDirty, openFilePaths, setSessionEditorPageState]);
 
   const openRuntimeLogPage = useCallback((target: RuntimeLogTarget) => {
     const runId = String(target.runId || "").trim();
@@ -522,6 +704,7 @@ export function CenterWorkspaceView({
     });
     setActiveRuntimeLogKey(key);
     setLayer("runtime-log");
+    setAuxPanelExpanded(true);
   }, []);
 
   const openFileChangeDiffPage = useCallback((target: FileChangeDiffPage) => {
@@ -545,6 +728,7 @@ export function CenterWorkspaceView({
     });
     setActiveDiffKey(key);
     setLayer("file-change-diff");
+    setAuxPanelExpanded(true);
   }, []);
 
   const closeFileChangeDiffPage = useCallback((key: string) => {
@@ -553,8 +737,12 @@ export function CenterWorkspaceView({
       const nextPages = pages.filter((page) => fileChangeDiffPageKey(page) !== key);
       if (key === activeDiffKey) {
         const nextPage = nextPages[Math.min(Math.max(index, 0), nextPages.length - 1)] ?? null;
+        const nextLayer: CenterWorkspaceLayer = nextPage ? "file-change-diff" : activeFilePath ? "file" : activeRuntimeLogKey ? "runtime-log" : "chat";
         setActiveDiffKey(nextPage ? fileChangeDiffPageKey(nextPage) : "");
-        setLayer(nextPage ? "file-change-diff" : activeFilePath ? "file" : activeRuntimeLogKey ? "runtime-log" : "chat");
+        setLayer(nextLayer);
+        if (nextLayer !== "chat") {
+          setAuxPanelExpanded(true);
+        }
       }
       return nextPages;
     });
@@ -566,12 +754,16 @@ export function CenterWorkspaceView({
       const nextPages = pages.filter((page) => runtimeLogPageKey(page) !== key);
       if (key === activeRuntimeLogKey) {
         const nextPage = nextPages[Math.min(Math.max(index, 0), nextPages.length - 1)] ?? null;
+        const nextLayer: CenterWorkspaceLayer = nextPage ? "runtime-log" : activeDiffKey ? "file-change-diff" : activeFilePath ? "file" : "chat";
         setActiveRuntimeLogKey(nextPage ? runtimeLogPageKey(nextPage) : "");
-        setLayer(nextPage ? "runtime-log" : activeFilePath ? "file" : "chat");
+        setLayer(nextLayer);
+        if (nextLayer !== "chat") {
+          setAuxPanelExpanded(true);
+        }
       }
       return nextPages;
     });
-  }, [activeFilePath, activeRuntimeLogKey]);
+  }, [activeDiffKey, activeFilePath, activeRuntimeLogKey]);
 
   useEffect(() => {
     const nextOpenFilePaths = sessionEditorContext?.openFilePaths ?? [];
@@ -579,6 +771,7 @@ export function CenterWorkspaceView({
     setOpenFilePaths(nextOpenFilePaths);
     setActiveFilePath(nextActiveFilePath);
     setLayer(nextActiveFilePath ? "file" : "chat");
+    setAuxPanelExpanded(Boolean(nextActiveFilePath));
   }, [currentSessionId, sessionEditorContext?.activeFilePath, sessionEditorContext?.openFilePaths]);
 
   useEffect(() => {
@@ -613,17 +806,108 @@ export function CenterWorkspaceView({
 
   const activeRuntimeLogPage = openRuntimeLogPages.find((page) => runtimeLogPageKey(page) === activeRuntimeLogKey) ?? null;
   const activeDiffPage = openDiffPages.find((page) => fileChangeDiffPageKey(page) === activeDiffKey) ?? null;
+  const activeAuxLayer: CenterWorkspaceAuxLayer | null =
+    layer === "file" && activeFilePath
+      ? "file"
+      : layer === "file-change-diff" && activeDiffPage
+        ? "file-change-diff"
+        : layer === "runtime-log" && activeRuntimeLogPage
+          ? "runtime-log"
+          : activeFilePath
+            ? "file"
+            : activeDiffPage
+              ? "file-change-diff"
+              : activeRuntimeLogPage
+                ? "runtime-log"
+                : null;
+  const hasAuxPanel = Boolean(activeAuxLayer);
+  const auxPanelOpen = auxPanelExpanded;
+  const activeAuxLabel = activeAuxLayer === "file"
+    ? compactFileName(activeFilePath)
+    : activeAuxLayer === "file-change-diff" && activeDiffPage
+      ? fileChangeDiffPageTitle(activeDiffPage)
+      : activeAuxLayer === "runtime-log" && activeRuntimeLogPage
+        ? runtimeLogPageTitle(activeRuntimeLogPage)
+        : "文件管理";
+
+  function startFilePanelResize(event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = filePanelWidth;
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    const pointerId = event.pointerId;
+    const move = (moveEvent: globalThis.PointerEvent) => {
+      setFilePanelWidth(clampFilePanelWidth(startWidth + startX - moveEvent.clientX));
+    };
+    const up = () => {
+      handle.releasePointerCapture(pointerId);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
+  function renderAuxPanel() {
+    if (activeAuxLayer === "file") {
+      return <CenterWorkspaceFileLayer onClose={closeFileLayer} path={activeFilePath} />;
+    }
+    if (activeAuxLayer === "file-change-diff" && activeDiffPage) {
+      return (
+        <CenterWorkspaceDiffLayer
+          baselineRecordId={activeDiffPage.baselineRecordId}
+          changeCount={activeDiffPage.changeCount}
+          mode={activeDiffPage.mode}
+          onClose={() => closeFileChangeDiffPage(fileChangeDiffPageKey(activeDiffPage))}
+          recordId={activeDiffPage.recordId}
+          subtitle={activeDiffPage.subtitle}
+          title={activeDiffPage.title}
+        />
+      );
+    }
+    if (activeAuxLayer === "runtime-log" && activeRuntimeLogPage) {
+      return (
+        <section className="center-workspace__runtime-log-layer" aria-label="运行日志页">
+          <RuntimeLogPanel target={activeRuntimeLogPage} onClose={() => closeRuntimeLogPage(runtimeLogPageKey(activeRuntimeLogPage))} />
+        </section>
+      );
+    }
+    return (
+      <div className="center-file-manager__empty">
+        <FileText size={18} />
+        <strong>选择一个文件开始</strong>
+        <span>从左侧项目文件或变更记录打开。</span>
+      </div>
+    );
+  }
 
   return (
-    <section className="center-workspace" aria-label="中心工作区">
+    <section
+      className={cn(
+        "center-workspace",
+        auxPanelOpen && "center-workspace--aux-open",
+        hasAuxPanel && !auxPanelOpen && "center-workspace--aux-collapsed",
+      )}
+      aria-label="中心工作区"
+    >
       <header className="center-workspace__head" aria-label="主会话页面控制">
         <Tabs ariaLabel="中心层级切换">
           <TabButton
-            active={layer === "chat"}
-            onClick={() => setLayer("chat")}
+            active={!auxPanelOpen}
+            onClick={() => {
+              setAuxPanelExpanded(false);
+            }}
           >
             <Sparkles size={14} />
-            <span>会话层</span>
+            <span>会话底层</span>
+          </TabButton>
+          <TabButton
+            active={auxPanelOpen}
+            onClick={() => setAuxPanelExpanded(true)}
+          >
+            <FileText size={14} />
+            <span>文件管理</span>
           </TabButton>
           <TabButton
             onClick={() => setWorkspaceView("creative")}
@@ -646,6 +930,7 @@ export function CenterWorkspaceView({
                     if (!canSwitchActiveFile(path)) return;
                     setActiveFilePath(path);
                     setLayer("file");
+                    setAuxPanelExpanded(true);
                     setSessionEditorPageState({ activeFilePath: path, openFilePaths });
                   }}
                   type="button"
@@ -681,6 +966,7 @@ export function CenterWorkspaceView({
                   onClick={() => {
                     setActiveRuntimeLogKey(key);
                     setLayer("runtime-log");
+                    setAuxPanelExpanded(true);
                   }}
                   type="button"
                 >
@@ -715,6 +1001,7 @@ export function CenterWorkspaceView({
                   onClick={() => {
                     setActiveDiffKey(key);
                     setLayer("file-change-diff");
+                    setAuxPanelExpanded(true);
                   }}
                   type="button"
                 >
@@ -734,32 +1021,59 @@ export function CenterWorkspaceView({
             );
           })}
         </Tabs>
+        {auxPanelOpen || hasAuxPanel ? (
+          <button
+            aria-expanded={auxPanelOpen}
+            className={cn("center-workspace__aux-toggle", auxPanelOpen && "center-workspace__aux-toggle--open")}
+            onClick={() => setAuxPanelExpanded((value) => !value)}
+            title={auxPanelOpen ? "收起工作面板" : "展开工作面板"}
+            type="button"
+          >
+            {auxPanelOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
+            <span>{auxPanelOpen ? "收起" : "展开"}</span>
+          </button>
+        ) : null}
         <WorkspaceModeSwitcher ariaLabel="切换当前会话任务环境" className="center-workspace__environment-switcher" />
       </header>
 
-      {layer === "chat" ? (
-        <div className="center-workspace__chat">
+      <div
+        className="center-workspace__body"
+        style={{ "--center-file-panel-width": `${filePanelWidth}px` } as CSSProperties}
+      >
+        <div className="center-workspace__chat center-workspace__chat--base">
           <ChatPanel />
         </div>
-      ) : layer === "file" ? (
-        <CenterWorkspaceFileLayer onClose={closeFileLayer} path={activeFilePath} />
-      ) : layer === "file-change-diff" && activeDiffPage ? (
-        <CenterWorkspaceDiffLayer
-          baselineRecordId={activeDiffPage.baselineRecordId}
-          changeCount={activeDiffPage.changeCount}
-          mode={activeDiffPage.mode}
-          onClose={() => closeFileChangeDiffPage(fileChangeDiffPageKey(activeDiffPage))}
-          recordId={activeDiffPage.recordId}
-          subtitle={activeDiffPage.subtitle}
-          title={activeDiffPage.title}
-        />
-      ) : activeRuntimeLogPage ? (
-        <section className="center-workspace__runtime-log-layer" aria-label="运行日志页">
-          <RuntimeLogPanel target={activeRuntimeLogPage} onClose={() => closeRuntimeLogPage(runtimeLogPageKey(activeRuntimeLogPage))} />
-        </section>
-      ) : (
-        <div className="center-workspace-file__empty">没有打开的运行日志。</div>
-      )}
+        {auxPanelOpen ? (
+          <>
+            <div
+              aria-label="调整文件管理面板宽度"
+              className="center-workspace__aux-resize"
+              onPointerDown={startFilePanelResize}
+              role="separator"
+            >
+              <GripVertical size={14} />
+            </div>
+          <aside className="center-workspace__aux-pane" aria-label="展开的工作面板">
+              <CenterWorkspaceFileManagerPanel
+                activeLabel={activeAuxLabel}
+                onCollapse={() => setAuxPanelExpanded(false)}
+              >
+                {renderAuxPanel()}
+              </CenterWorkspaceFileManagerPanel>
+          </aside>
+          </>
+        ) : hasAuxPanel ? (
+          <button
+            className="center-workspace__aux-rail"
+            onClick={() => setAuxPanelExpanded(true)}
+            title={`展开 ${activeAuxLabel}`}
+            type="button"
+          >
+            <PanelRightOpen size={15} />
+            <span>{activeAuxLabel}</span>
+          </button>
+        ) : null}
+      </div>
     </section>
   );
 }

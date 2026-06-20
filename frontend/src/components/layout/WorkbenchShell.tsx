@@ -29,6 +29,8 @@ const LEFT_WIDTH_KEY = "agentWorkbench.leftWidth";
 const RIGHT_WIDTH_KEY = "agentWorkbench.rightWidth";
 const LEFT_COLLAPSED_KEY = "agentWorkbench.leftCollapsed";
 const RIGHT_COLLAPSED_KEY = "agentWorkbench.rightCollapsed";
+const RUN_SECTION_OPEN_KEY = "agentWorkbench.rightSection.runOpen";
+const CHANGES_SECTION_OPEN_KEY = "agentWorkbench.rightSection.changesOpen";
 const PANEL_RAIL_WIDTH = 44;
 const RESIZE_HANDLE_WIDTH = 8;
 const WORKBENCH_CENTER_MIN_WIDTH = 520;
@@ -148,9 +150,15 @@ function looksAssistantArtifactSessionTitle(title: string | undefined) {
   return ["诊断结果", "诊断结论", "修改已完成", "交付请求", "以下是修复结果"].some((fragment) => text.includes(fragment));
 }
 
-function isEditableWorkspacePath(path: string, editablePrefixes: string[] = []) {
+function isLegacyInternalEditablePath(path: string) {
   const normalized = path.replace(/\\/g, "/").replace(/^\/+/, "");
-  return editablePrefixes.some((prefix) => normalized.startsWith(prefix));
+  return [
+    "durable_memory/",
+    "session-memory/",
+    "sessions/",
+    "knowledge/",
+    "capability_system/skills/builtin/",
+  ].some((prefix) => normalized.startsWith(prefix));
 }
 
 function formatSessionTime(timestamp: number) {
@@ -344,7 +352,13 @@ function WorkbenchProjectTreeNode({
   );
 }
 
-function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => void }) {
+function WorkspaceManagerPanel({
+  onCollapse,
+  onOpenFile,
+}: {
+  onCollapse: () => void;
+  onOpenFile: (path: string) => void;
+}) {
   const {
     activeProjectKey,
     activeProjectRoot,
@@ -430,16 +444,27 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
           <strong>项目</strong>
           <span>{projectWorkspaces.length ? `${projectWorkspaces.length} 个可选项目` : "可直接对话"}</span>
         </div>
-        <button
-          aria-label="添加项目"
-          className="workbench-panel-head__action"
-          disabled={bindingProjectBusy || projectWorkspacesLoading}
-          onClick={() => void handleBindProject()}
-          title="添加项目"
-          type="button"
-        >
-          <Plus size={14} />
-        </button>
+        <div className="workbench-panel-head__actions">
+          <button
+            aria-label="收起左侧项目栏"
+            className="workbench-panel-head__action"
+            onClick={onCollapse}
+            title="收起左侧项目栏"
+            type="button"
+          >
+            <PanelLeftClose size={14} />
+          </button>
+          <button
+            aria-label="添加项目"
+            className="workbench-panel-head__action"
+            disabled={bindingProjectBusy || projectWorkspacesLoading}
+            onClick={() => void handleBindProject()}
+            title="添加项目"
+            type="button"
+          >
+            <Plus size={14} />
+          </button>
+        </div>
       </header>
 
       <section className="workbench-project-context workbench-project-switcher" aria-label="会话范围">
@@ -648,12 +673,12 @@ function MainToolbar({
     currentSessionId,
     inspectorDirty,
     inspectorPath,
+    inspectorTarget,
     saveInspector,
     sessionActivity,
     sessions,
-    workspaceContext,
   } = useAppStore();
-  const editable = isEditableWorkspacePath(inspectorPath, workspaceContext?.editable_prefixes);
+  const editable = Boolean(inspectorTarget) || isLegacyInternalEditablePath(inspectorPath);
   const currentSession = sessions.find((session) => session.id === currentSessionId) ?? null;
   const currentTask = currentSession ? sessionTask(currentSession) : undefined;
   const currentTaskActivity = sessionTaskActivityKind(currentTask);
@@ -723,12 +748,94 @@ function useViewportWidth() {
   return viewportWidth;
 }
 
+function useStoredSectionOpen(storageKey: string, defaultOpen: boolean) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem(storageKey);
+    if (saved === "true" || saved === "false") {
+      setOpen(saved === "true");
+    }
+  }, [storageKey]);
+
+  useEffect(() => {
+    window.localStorage.setItem(storageKey, String(open));
+  }, [open, storageKey]);
+
+  return [open, setOpen] as const;
+}
+
+function CollapsibleToolSection({
+  children,
+  defaultOpen = true,
+  grow = false,
+  storageKey,
+  summary,
+  title,
+}: {
+  children: ReactNode;
+  defaultOpen?: boolean;
+  grow?: boolean;
+  storageKey: string;
+  summary: string;
+  title: string;
+}) {
+  const [open, setOpen] = useStoredSectionOpen(storageKey, defaultOpen);
+
+  return (
+    <section
+      className={[
+        "workbench-tool-section",
+        open ? "workbench-tool-section--open" : "workbench-tool-section--closed",
+        grow ? "workbench-tool-section--grow" : "",
+      ].filter(Boolean).join(" ")}
+    >
+      <button
+        aria-expanded={open}
+        className="workbench-tool-section__toggle"
+        onClick={() => setOpen((value) => !value)}
+        type="button"
+      >
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <span>
+          <strong>{title}</strong>
+          <small>{summary}</small>
+        </span>
+      </button>
+      {open ? <div className="workbench-tool-section__body">{children}</div> : null}
+    </section>
+  );
+}
+
 function RightToolPanel() {
+  const { runMonitor, runMonitorStreamStatus } = useAppStore();
+  const summary = runMonitor?.summary;
+  const runSummary = summary
+    ? `${summary.active ?? 0} 运行 · ${summary.waiting ?? 0} 等待 · ${summary.attention ?? 0} 关注`
+    : runMonitorStreamStatus === "connected"
+      ? "实时连接"
+      : runMonitorStreamStatus === "connecting"
+        ? "连接中"
+        : "待命";
+
   return (
     <aside className="workbench-right-panel" aria-label="辅助面板">
       <div className="workbench-right-body">
-        <RunMonitorPanel />
-        <FileChangesPanel />
+        <CollapsibleToolSection
+          storageKey={RUN_SECTION_OPEN_KEY}
+          summary={runSummary}
+          title="运行"
+        >
+          <RunMonitorPanel embedded />
+        </CollapsibleToolSection>
+        <CollapsibleToolSection
+          grow
+          storageKey={CHANGES_SECTION_OPEN_KEY}
+          summary="当前对话 · 产物 · 其它任务"
+          title="变更"
+        >
+          <FileChangesPanel embedded />
+        </CollapsibleToolSection>
       </div>
     </aside>
   );
@@ -800,6 +907,7 @@ export function WorkbenchShell({
   const effectiveRightWidth = layout.rightWidth;
   const left = leftPanel ?? (
     <WorkspaceManagerPanel
+      onCollapse={() => setLeftCollapsed(true)}
       onOpenFile={(path) => {
         openWorkspaceFile(path);
       }}

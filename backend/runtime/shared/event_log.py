@@ -253,6 +253,17 @@ _RUNTIME_EVENT_FACT_TYPES = {
     "agent_run_created",
     "agent_run_updated",
     "agent_run_result_created",
+    "agent_runtime_cell_backpressure",
+    "agent_runtime_cell_cancel_requested",
+    "agent_runtime_cell_cancelled",
+    "agent_runtime_cell_completed",
+    "agent_runtime_cell_created",
+    "agent_runtime_cell_failed",
+    "agent_runtime_cell_late_event_rejected",
+    "agent_runtime_cell_mailbox_overloaded",
+    "agent_runtime_cell_start_failed",
+    "agent_runtime_cell_started",
+    "agent_runtime_cell_supervision_cancel_requested",
     "agent_turn_action_request_started",
     "agent_turn_action_request_completed",
     "agent_turn_action_request_failed",
@@ -289,6 +300,7 @@ _RUNTIME_EVENT_FACT_TYPES = {
     "session_output_commit_failed",
     "session_output_commit_skipped",
     "task_run_executor_claimed",
+    "task_run_executor_failed",
     "task_run_executor_scheduled",
     "task_run_launched",
     "task_run_lifecycle_finished",
@@ -306,23 +318,35 @@ def _runtime_event_fact_scope(event: RuntimeEvent) -> dict[str, Any]:
     refs = dict(event.refs or {})
     task_payload = dict(payload.get("task_run") or {})
     lifecycle_payload = dict(payload.get("lifecycle") or {})
+    agent_scope = _runtime_scope_payload(payload, "agent_scope")
+    signal_scope = _runtime_scope_payload(payload, "signal", "scope")
+    evidence_scope = _runtime_scope_payload(payload, "evidence_projection", "scope")
     return {
         "session_id": _first_non_empty(
             refs.get("session_id"),
             refs.get("session_ref"),
             payload.get("session_id"),
             task_payload.get("session_id"),
+            agent_scope.get("session_id"),
+            signal_scope.get("session_id"),
+            evidence_scope.get("session_id"),
         ),
         "turn_id": _first_non_empty(
             refs.get("turn_id"),
             refs.get("turn_ref"),
             payload.get("turn_id"),
             task_payload.get("turn_id"),
+            agent_scope.get("turn_id"),
+            signal_scope.get("turn_id"),
+            evidence_scope.get("turn_id"),
         ),
         "turn_run_id": _first_non_empty(
             refs.get("turn_run_id"),
             refs.get("turn_run_ref"),
             payload.get("turn_run_id"),
+            agent_scope.get("turn_run_id"),
+            signal_scope.get("turn_run_id"),
+            evidence_scope.get("turn_run_id"),
         ),
         "task_run_id": _first_non_empty(
             refs.get("task_run_id"),
@@ -330,6 +354,9 @@ def _runtime_event_fact_scope(event: RuntimeEvent) -> dict[str, Any]:
             payload.get("task_run_id"),
             task_payload.get("task_run_id"),
             lifecycle_payload.get("task_run_id"),
+            agent_scope.get("task_run_id"),
+            signal_scope.get("task_run_id"),
+            evidence_scope.get("task_run_id"),
             event.run_id if str(event.run_id or "").startswith("taskrun:") else "",
         ),
         "graph_run_id": _first_non_empty(
@@ -349,6 +376,10 @@ def _runtime_event_fact_scope(event: RuntimeEvent) -> dict[str, Any]:
 def _runtime_event_fact_refs(event: RuntimeEvent) -> dict[str, Any]:
     refs = dict(event.refs or {})
     payload = dict(event.payload or {})
+    agent_scope = _runtime_scope_payload(payload, "agent_scope")
+    signal_payload = dict(payload.get("signal") or {})
+    signal_scope = _runtime_scope_payload(payload, "signal", "scope")
+    evidence_projection = dict(payload.get("evidence_projection") or {})
     execution_receipt = dict(payload.get("execution_receipt") or {})
     observation = dict(payload.get("observation") or {})
     observation_payload = dict(observation.get("payload") or {})
@@ -367,6 +398,36 @@ def _runtime_event_fact_refs(event: RuntimeEvent) -> dict[str, Any]:
         "runtime_invocation_packet_ref": _first_non_empty(refs.get("runtime_invocation_packet_ref"), payload.get("runtime_invocation_packet_ref")),
         "trace_id": _first_non_empty(refs.get("trace_id"), payload.get("trace_id")),
         "span_id": _first_non_empty(refs.get("span_id"), payload.get("span_id")),
+        "agent_run_ref": _first_non_empty(
+            refs.get("agent_run_ref"),
+            payload.get("agent_run_ref"),
+            payload.get("agent_run_id"),
+            agent_scope.get("agent_run_id"),
+            signal_scope.get("agent_run_id"),
+        ),
+        "run_cell_ref": _first_non_empty(
+            refs.get("run_cell_ref"),
+            payload.get("run_cell_ref"),
+            payload.get("run_cell_id"),
+            agent_scope.get("run_cell_id"),
+            signal_scope.get("run_cell_id"),
+        ),
+        "parent_agent_run_ref": _first_non_empty(
+            refs.get("parent_agent_run_ref"),
+            payload.get("parent_agent_run_ref"),
+            agent_scope.get("parent_agent_run_id"),
+        ),
+        "runtime_control_signal_ref": _first_non_empty(
+            refs.get("runtime_control_signal_ref"),
+            refs.get("signal_ref"),
+            payload.get("runtime_control_signal_ref"),
+            signal_payload.get("signal_id"),
+        ),
+        "evidence_projection_ref": _first_non_empty(
+            refs.get("evidence_projection_ref"),
+            payload.get("evidence_projection_ref"),
+            evidence_projection.get("projection_ref"),
+        ),
         "execution_id": _first_non_empty(
             refs.get("execution_id"),
             payload.get("execution_id"),
@@ -377,6 +438,15 @@ def _runtime_event_fact_refs(event: RuntimeEvent) -> dict[str, Any]:
         "artifact_ref": _first_artifact_ref(refs, payload, observation_payload),
     }
     return {key: value for key, value in result.items() if value not in (None, "", [], {})}
+
+
+def _runtime_scope_payload(payload: dict[str, Any], *path: str) -> dict[str, Any]:
+    current: Any = payload
+    for key in path:
+        if not isinstance(current, dict):
+            return {}
+        current = current.get(key)
+    return dict(current or {}) if isinstance(current, dict) else {}
 
 
 def _first_artifact_ref(*payloads: dict[str, Any]) -> str:

@@ -419,6 +419,51 @@ def test_closed_cell_final_commit_is_rejected_before_session_write(tmp_path) -> 
     assert runtime.session_manager.load_session("session-closed-cell-commit") == []
 
 
+def test_closed_cell_output_commit_skipped_uses_current_cell_gate(tmp_path) -> None:
+    runtime = build_harness_runtime(base_dir=_runtime_test_root(tmp_path))
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:turn:session-closed-cell-skipped:1:abc",
+        session_id="session-closed-cell-skipped",
+        status="running",
+    )
+
+    async def _short_cell() -> dict[str, object]:
+        return {"status": "completed"}
+
+    schedule = host.agent_run_supervisor.schedule_task_run(
+        task_run_id=task_run_id,
+        work_factory=_short_cell,
+        scheduler="test.closed-cell-skipped",
+        max_steps=1,
+    )
+    assert schedule["scheduled"] is True
+    cell = host.agent_run_supervisor.cell_by_id(str(schedule.get("run_cell_id") or ""))
+    assert cell is not None
+    assert cell.worker_handle is not None
+    assert cell.worker_handle.join(timeout=3)
+    assert host.agent_run_supervisor.active_cell_for_task_run(task_run_id) is None
+
+    task = host.state_index.get_task_run(task_run_id)
+    receipt = task_executor_module._record_session_output_commit_skipped(
+        host,
+        task_run=task,
+        final_answer="subagent output should not be session visible",
+        reason="not_main_session_visible",
+    )
+    events = host.event_log.list_events(task_run_id)
+    late_event = next(event for event in events if event.event_type == "agent_runtime_cell_late_event_rejected")
+    skipped_event = next(event for event in events if event.event_type == "session_output_commit_skipped")
+
+    assert receipt["state"] == "skipped"
+    assert receipt["reason"] == "agent_cell_active_cell_missing"
+    assert dict(late_event.payload)["event_kind"] == "output_commit"
+    assert dict(dict(late_event.payload)["scope_status"])["reason"] == "active_cell_missing"
+    assert dict(skipped_event.refs)["run_cell_ref"] == str(schedule["run_cell_id"])
+    assert runtime.session_manager.load_session("session-closed-cell-skipped") == []
+
+
 def test_task_run_tool_lifecycle_preserves_model_tool_call_id(tmp_path) -> None:
     model_tool_call_id = "call:task-read-custom"
     model = NativeToolCallSequenceModelRuntimeStub(
@@ -631,6 +676,122 @@ def test_old_cell_tool_observation_is_rejected_before_observation_write(tmp_path
         cell = host.agent_run_supervisor.cell_by_id(str(schedule.get("run_cell_id") or ""))
         if cell is not None and cell.worker_handle is not None:
             assert cell.worker_handle.join(timeout=3)
+
+
+def test_closed_cell_tool_observation_is_rejected_before_observation_write(tmp_path, monkeypatch) -> None:
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        tool_runtime=_tool_runtime_for_names(_project_backend_dir(), {"read_file"}),
+    )
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:turn:session-closed-tool-cell:1:abc",
+        session_id="session-closed-tool-cell",
+        status="running",
+    )
+
+    async def _short_cell() -> dict[str, object]:
+        return {"status": "completed"}
+
+    schedule = host.agent_run_supervisor.schedule_task_run(
+        task_run_id=task_run_id,
+        work_factory=_short_cell,
+        scheduler="test.closed-tool-cell",
+        max_steps=1,
+    )
+    assert schedule["scheduled"] is True
+    cell = host.agent_run_supervisor.cell_by_id(str(schedule.get("run_cell_id") or ""))
+    assert cell is not None
+    assert cell.worker_handle is not None
+    assert cell.worker_handle.join(timeout=3)
+    assert host.agent_run_supervisor.active_cell_for_task_run(task_run_id) is None
+
+    task = host.state_index.get_task_run(task_run_id)
+    agent_run_id = str(schedule["agent_run_id"])
+    run_cell_id = str(schedule["run_cell_id"])
+    action_request = TaskExecutionModelActionRequest(
+        request_id="request:closed-late-tool",
+        turn_id="turn:session-closed-tool-cell:1",
+        action_type="tool_call",
+        tool_call={"id": "call:closed-late-tool", "tool_name": "read_file", "args": {"path": "README.md"}},
+        tool_calls=({"id": "call:closed-late-tool", "tool_name": "read_file", "args": {"path": "README.md"}},),
+    )
+    late_observation = {
+        "observation_id": "toolobs:closed-late-tool",
+        "task_run_id": task_run_id,
+        "observation_type": "tool_result",
+        "source": "tool:read_file",
+        "request_ref": "request:closed-late-tool",
+        "directive_ref": "runtime-directive:closed-late-tool",
+        "content_chars": 11,
+        "payload": {
+            "tool_name": "read_file",
+            "tool_call_id": "call:closed-late-tool",
+            "status": "ok",
+            "result_ref": "tool-result:closed-late-tool",
+            "execution_receipt": {
+                "task_run_id": task_run_id,
+                "agent_run_id": agent_run_id,
+                "run_cell_id": run_cell_id,
+                "tool_invocation_id": "toolinv:closed-late-tool",
+            },
+            "result_envelope": {
+                "result_ref": "tool-result:closed-late-tool",
+                "tool_call_id": "call:closed-late-tool",
+                "execution_receipt": {
+                    "task_run_id": task_run_id,
+                    "agent_run_id": agent_run_id,
+                    "run_cell_id": run_cell_id,
+                },
+            },
+        },
+        "needs_model_followup": False,
+        "authority": "orchestration.runtime_observation",
+    }
+
+    async def _late_group_result(group, *, invocation_rows, **_kwargs):
+        return {"results": [(invocation_rows[0], late_observation)], "interrupt": None}
+
+    monkeypatch.setattr(task_executor_module, "_execute_task_tool_batch_group", _late_group_result)
+
+    result = asyncio.run(
+        task_executor_module._process_task_tool_call_batch(
+            host,
+            services=runtime._task_executor_services_for_task_run(task),
+            current_task=task,
+            agent_run=AgentRun(
+                agent_run_id=agent_run_id,
+                task_run_id=task_run_id,
+                agent_id="agent:closed",
+                agent_profile_id="main_interactive_agent",
+                status="running",
+            ),
+            action_request=action_request,
+            runtime_assembly=SimpleNamespace(profile=SimpleNamespace(to_dict=lambda: {}), to_dict=lambda: {}),
+            runtime_tool_plan=SimpleNamespace(plan_id="toolplan:closed-late-tool", dispatchable_tool_names=("read_file",)),
+            allowed_tool_names={"read_file"},
+            runtime_permission_mode="full_access",
+            runtime_fingerprint={"tool_config_hash": "tool-config:closed-late-tool"},
+            raw_observations=[],
+            observations=[],
+            execution_state={},
+            artifact_refs=[],
+            packet_ref="rtpacket:closed-late-tool",
+            step_index=1,
+        )
+    )
+    events = host.event_log.list_events(task_run_id)
+    event_types = [str(event.event_type) for event in events]
+    late_event = next(event for event in events if event.event_type == "agent_runtime_cell_late_event_rejected")
+
+    assert result["raw_observations"] == []
+    assert result["observations"] == []
+    assert host.runtime_objects.get_object("rtobj:observation:toolobs:closed-late-tool") == {}
+    assert "task_tool_observation_recorded" not in event_types
+    assert dict(late_event.payload)["event_kind"] == "tool_observation"
+    assert dict(dict(late_event.payload)["scope_status"])["reason"] == "active_cell_missing"
+    assert dict(late_event.refs)["run_cell_ref"] == run_cell_id
 
 
 def test_task_run_pending_approval_preserves_model_tool_call_id(tmp_path) -> None:

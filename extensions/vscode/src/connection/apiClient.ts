@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { ChatRunResponse, EditorContextSnapshot, ProjectBindingPayload, SessionResponse, VSCodeCommandPollResponse } from "./types";
+import type { ChatRunResponse, EditorContextSnapshot, ProjectBindingPayload, SessionResponse, VSCodeCommandPollResponse, VSCodeCommandResultPayload } from "./types";
 
 export type ChatRunPayload = {
   message: string;
@@ -49,6 +49,21 @@ export async function pollNextCommand(sessionId: string): Promise<VSCodeCommandP
     throw new Error(`VS Code command poll failed: ${response.status} ${text}`.trim());
   }
   return (await response.json()) as VSCodeCommandPollResponse;
+}
+
+export async function postCommandResult(sessionId: string, commandId: string, payload: VSCodeCommandResultPayload): Promise<void> {
+  const apiBase = normalizedApiBase();
+  const response = await fetch(`${apiBase}/vscode/sessions/${encodeURIComponent(sessionId)}/commands/${encodeURIComponent(commandId)}/result`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`VS Code command result update failed: ${response.status} ${text}`.trim());
+  }
 }
 
 export function configuredSessionId(): string {

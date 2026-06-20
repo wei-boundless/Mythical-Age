@@ -2,6 +2,9 @@ import { request, sessionScopeQuery } from "./shared";
 import type {
   FileChangeDiffPayload,
   FileChangeRecord,
+  ManagedFileReadResponse,
+  ManagedFileTarget,
+  ManagedFileWriteResponse,
   SessionScope,
   WorkspaceContext,
 } from "./types";
@@ -40,6 +43,48 @@ export async function saveFileForSession(path: string, content: string, sessionI
   return request<{ ok: boolean; path: string }>(`/files?${params.toString()}`, {
     method: "POST",
     body: JSON.stringify({ path, content })
+  });
+}
+
+export async function readManagedFile(target: ManagedFileTarget, sessionId = "") {
+  return request<ManagedFileReadResponse>("/file-management/files/read", {
+    method: "POST",
+    body: JSON.stringify({ target, session_id: sessionId }),
+  });
+}
+
+export async function writeManagedFile(payload: {
+  target: ManagedFileTarget;
+  content: string;
+  expectedSha256?: string;
+  source?: string;
+  reason?: string;
+  force?: boolean;
+  sessionId?: string;
+}) {
+  return request<ManagedFileWriteResponse>("/file-management/files/write", {
+    method: "POST",
+    body: JSON.stringify({
+      target: payload.target,
+      content: payload.content,
+      expected_sha256: payload.expectedSha256 || "",
+      source: payload.source || "agent_ui",
+      reason: payload.reason || "user_save",
+      force: Boolean(payload.force),
+      session_id: payload.sessionId || "",
+    }),
+  });
+}
+
+export async function openManagedFileInVSCode(target: ManagedFileTarget, sessionId: string) {
+  return request<{
+    ok: boolean;
+    command?: Record<string, unknown>;
+    connection_status?: { connected?: boolean; stale?: boolean };
+    authority: string;
+  }>("/file-management/files/open-vscode", {
+    method: "POST",
+    body: JSON.stringify({ target, session_id: sessionId }),
   });
 }
 

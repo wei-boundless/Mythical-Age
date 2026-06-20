@@ -24,6 +24,7 @@ from .models import (
 from .receipts import FileCommitReceipt, FileOperationReceipt
 from .registry import FileEnvironmentRegistry, default_file_environment_registry
 from .resolver import ResolvedFileEnvironment, resolve_file_environment
+from .api_models import ManagedFileTarget
 
 __all__ = [
     "CommitPolicy",
@@ -44,6 +45,7 @@ __all__ = [
     "ManagedFileEnvironmentProfile",
     "ManagedFileRef",
     "ManagedFileRepositorySpec",
+    "ManagedFileTarget",
     "RepositoryRootBinding",
     "RepositoryRootResolver",
     "ResolvedFileEnvironment",

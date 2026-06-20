@@ -51,6 +51,9 @@ const api = vi.hoisted(() => ({
   listSkills: vi.fn(),
   loadFile: vi.fn(),
   loadFileForSession: vi.fn(),
+  readManagedFile: vi.fn(),
+  writeManagedFile: vi.fn(),
+  openManagedFileInVSCode: vi.fn(),
   saveFileForSession: vi.fn(),
   createProjectWorkspaceSession: vi.fn(),
   selectProjectWorkspaceDirectory: vi.fn(),
@@ -109,6 +112,9 @@ vi.mock("@/lib/api", () => ({
   listSkills: api.listSkills,
   loadFile: api.loadFile,
   loadFileForSession: api.loadFileForSession,
+  readManagedFile: api.readManagedFile,
+  writeManagedFile: api.writeManagedFile,
+  openManagedFileInVSCode: api.openManagedFileInVSCode,
   renameSession: vi.fn(),
   saveFile: vi.fn(),
   saveFileForSession: api.saveFileForSession,
@@ -791,6 +797,29 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.loadFile.mockResolvedValue({ path: "durable_memory/index/MEMORY.md", content: "" });
     api.loadFileForSession.mockReset();
     api.loadFileForSession.mockResolvedValue({ path: "durable_memory/index/MEMORY.md", content: "" });
+    api.readManagedFile.mockReset();
+    api.readManagedFile.mockImplementation(async (target) => ({
+      target,
+      path: target.logical_path,
+      content: "",
+      content_sha256: "sha256-initial",
+      authority: "file_management.service.read",
+    }));
+    api.writeManagedFile.mockReset();
+    api.writeManagedFile.mockImplementation(async (payload) => ({
+      ok: true,
+      target: payload.target,
+      path: payload.target.logical_path,
+      content_sha256: "sha256-saved",
+      file_change_record: {
+        record_id: "file-change:test",
+        session_id: payload.sessionId || "",
+        logical_path: payload.target.logical_path,
+      },
+      authority: "file_management.service.write",
+    }));
+    api.openManagedFileInVSCode.mockReset();
+    api.openManagedFileInVSCode.mockResolvedValue({ ok: true, authority: "api.file_management.open_vscode" });
     api.saveFileForSession.mockReset();
     api.saveFileForSession.mockResolvedValue({ ok: true, path: "durable_memory/index/MEMORY.md" });
     api.readChatStreamCursor.mockReset();
@@ -890,6 +919,93 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().inspectorPath).toBe(".env");
     expect(store.getState().inspectorContent).toContain("Path is not visible in the project file tree");
     expect(store.getState().workspaceTreeError).toContain("Path is not visible in the project file tree");
+    expect(store.getState().inspectorDirty).toBe(false);
+  });
+
+  it("loads and saves project files through the managed file authority", async () => {
+    api.readManagedFile.mockResolvedValueOnce({
+      target: {
+        repository_id: "repo.managed_project.project_workspace",
+        repository_kind: "project_workspace",
+        scope_kind: "project_scoped",
+        scope_id: "session:code",
+        logical_path: "src/app.ts",
+        workspace_root: "D:/repo",
+        profile_id: "file_profile.managed_project_workspace",
+      },
+      path: "src/app.ts",
+      content: "export const value = 1;\n",
+      content_sha256: "sha-before",
+      authority: "file_management.service.read",
+    });
+    api.writeManagedFile.mockResolvedValueOnce({
+      ok: true,
+      target: {
+        repository_id: "repo.managed_project.project_workspace",
+        repository_kind: "project_workspace",
+        scope_kind: "project_scoped",
+        scope_id: "session:code",
+        logical_path: "src/app.ts",
+        workspace_root: "D:/repo",
+        profile_id: "file_profile.managed_project_workspace",
+      },
+      path: "src/app.ts",
+      content_sha256: "sha-after",
+      file_change_record: {
+        record_id: "change:managed",
+        session_id: "session:code",
+        logical_path: "src/app.ts",
+      },
+      authority: "file_management.service.write",
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:code",
+      sessions: [{
+        id: "session:code",
+        title: "Code",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+        conversation_state: {
+          authority: "sessions.conversation_state",
+          project_binding: {
+            workspace_root: "D:/repo",
+            source: "project_workspace",
+            bound_at: 1,
+            last_seen_at: 1,
+            immutable: true,
+            authority: "sessions.project_binding",
+          },
+        },
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.loadInspectorFile("src/app.ts");
+    runtime.actions.updateInspectorContent("export const value = 2;\n");
+    await runtime.actions.saveInspector();
+
+    expect(api.readManagedFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repository_id: "repo.managed_project.project_workspace",
+        logical_path: "src/app.ts",
+        workspace_root: "D:/repo",
+      }),
+      "session:code",
+    );
+    expect(api.writeManagedFile).toHaveBeenCalledWith(expect.objectContaining({
+      content: "export const value = 2;\n",
+      expectedSha256: "sha-before",
+      sessionId: "session:code",
+      target: expect.objectContaining({
+        logical_path: "src/app.ts",
+        workspace_root: "D:/repo",
+      }),
+    }));
+    expect(api.saveFileForSession).not.toHaveBeenCalled();
+    expect(store.getState().inspectorContentSha256).toBe("sha-after");
+    expect(store.getState().inspectorLastChangeRecordId).toBe("change:managed");
     expect(store.getState().inspectorDirty).toBe(false);
   });
 

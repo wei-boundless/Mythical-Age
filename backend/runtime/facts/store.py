@@ -45,11 +45,12 @@ class RuntimeFactLedgerStore:
                     INSERT INTO fact_records (
                         fact_id, idempotency_key, fact_type, created_at, session_id, turn_id,
                         turn_run_id, task_run_id, graph_run_id, node_id, work_order_id,
-                        project_id, task_environment_id, trace_id, span_id, execution_id,
-                        usage_id, artifact_ref, memory_record_id, memory_version_id,
+                        project_id, task_environment_id, trace_id, span_id, agent_run_ref,
+                        run_cell_ref, runtime_control_signal_ref, evidence_projection_ref,
+                        execution_id, usage_id, artifact_ref, memory_record_id, memory_version_id,
                         retention_class, visibility, model_visibility, tombstoned,
                         deleted_at, payload_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     self._record_row_values(record, payload),
                 )
@@ -109,6 +110,10 @@ class RuntimeFactLedgerStore:
         graph_run_id: str = "",
         trace_id: str = "",
         span_id: str = "",
+        agent_run_ref: str = "",
+        run_cell_ref: str = "",
+        runtime_control_signal_ref: str = "",
+        evidence_projection_ref: str = "",
         execution_id: str = "",
         usage_id: str = "",
         memory_ref: str = "",
@@ -126,6 +131,10 @@ class RuntimeFactLedgerStore:
             "graph_run_id": graph_run_id,
             "trace_id": trace_id,
             "span_id": span_id,
+            "agent_run_ref": agent_run_ref,
+            "run_cell_ref": run_cell_ref,
+            "runtime_control_signal_ref": runtime_control_signal_ref,
+            "evidence_projection_ref": evidence_projection_ref,
             "execution_id": execution_id,
             "usage_id": usage_id,
             "fact_type": fact_type,
@@ -291,6 +300,10 @@ class RuntimeFactLedgerStore:
             _field(scope, "task_environment_id"),
             _field(refs, "trace_id"),
             _field(refs, "span_id"),
+            _field(refs, "agent_run_ref"),
+            _field(refs, "run_cell_ref"),
+            _field(refs, "runtime_control_signal_ref"),
+            _field(refs, "evidence_projection_ref"),
             _field(refs, "execution_id"),
             _field(refs, "usage_id"),
             _field(refs, "artifact_ref"),
@@ -334,6 +347,10 @@ class RuntimeFactLedgerStore:
                     task_environment_id TEXT NOT NULL DEFAULT '',
                     trace_id TEXT NOT NULL DEFAULT '',
                     span_id TEXT NOT NULL DEFAULT '',
+                    agent_run_ref TEXT NOT NULL DEFAULT '',
+                    run_cell_ref TEXT NOT NULL DEFAULT '',
+                    runtime_control_signal_ref TEXT NOT NULL DEFAULT '',
+                    evidence_projection_ref TEXT NOT NULL DEFAULT '',
                     execution_id TEXT NOT NULL DEFAULT '',
                     usage_id TEXT NOT NULL DEFAULT '',
                     artifact_ref TEXT NOT NULL DEFAULT '',
@@ -348,6 +365,13 @@ class RuntimeFactLedgerStore:
                 )
                 """
             )
+            for column, definition in {
+                "agent_run_ref": "TEXT NOT NULL DEFAULT ''",
+                "run_cell_ref": "TEXT NOT NULL DEFAULT ''",
+                "runtime_control_signal_ref": "TEXT NOT NULL DEFAULT ''",
+                "evidence_projection_ref": "TEXT NOT NULL DEFAULT ''",
+            }.items():
+                _ensure_column(conn, "fact_records", column, definition)
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS fact_edges (
@@ -367,7 +391,9 @@ class RuntimeFactLedgerStore:
             for table, fields in {
                 "fact_records": (
                     "session_id", "turn_id", "turn_run_id", "task_run_id", "graph_run_id",
-                    "trace_id", "span_id", "execution_id", "usage_id", "memory_record_id",
+                    "trace_id", "span_id", "agent_run_ref", "run_cell_ref",
+                    "runtime_control_signal_ref", "evidence_projection_ref",
+                    "execution_id", "usage_id", "memory_record_id",
                     "memory_version_id", "fact_type",
                 ),
                 "fact_edges": ("source_fact_id", "target_fact_id", "relation"),
@@ -398,7 +424,19 @@ def _record_tombstone(record: RuntimeFactRecord, *, deleted_at: float, reason: s
         source={"source_ref": _field(record.source, "source_ref"), "system": _field(record.source, "system")},
         refs={
             key: refs.get(key)
-            for key in ("trace_id", "span_id", "execution_id", "usage_id", "memory_record_id", "memory_version_id", "artifact_ref")
+            for key in (
+                "trace_id",
+                "span_id",
+                "agent_run_ref",
+                "run_cell_ref",
+                "runtime_control_signal_ref",
+                "evidence_projection_ref",
+                "execution_id",
+                "usage_id",
+                "memory_record_id",
+                "memory_version_id",
+                "artifact_ref",
+            )
             if refs.get(key)
         },
         attributes={"content_hash": _field(record.attributes, "content_hash")},
@@ -439,6 +477,12 @@ def _compact_scope(scope: dict[str, Any]) -> dict[str, Any]:
 
 def _field(payload: dict[str, Any], key: str) -> str:
     return str(dict(payload or {}).get(key) or "").strip()
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    existing = {str(row["name"]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def _counts(values: Any) -> dict[str, int]:

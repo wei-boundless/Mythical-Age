@@ -46,12 +46,13 @@ vi.mock("@/lib/store", () => ({
 import { CenterWorkspaceView } from "./CenterWorkspaceView";
 
 describe("CenterWorkspaceView", () => {
-  it("keeps the task environment switcher visible beside center workspace layers", () => {
+  it("keeps the task environment switcher visible beside the chat base layer", () => {
     const html = renderToStaticMarkup(React.createElement(CenterWorkspaceView));
 
     expect(html).toContain("中心层级切换");
-    expect(html).toContain("会话层");
+    expect(html).toContain("会话底层");
     expect(html).toContain("图任务层");
+    expect(html).toContain("center-workspace__body");
     expect(html).toContain("切换当前会话任务环境");
     expect(html).toContain("Vibe 编码工作区");
     expect(html).toContain("通用工作区");

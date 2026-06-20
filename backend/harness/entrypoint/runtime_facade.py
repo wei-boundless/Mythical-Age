@@ -3373,6 +3373,7 @@ def _recent_work_outcome_status(*, status: str, terminal_reason: str) -> bool:
         "task_execution_step_budget_exhausted",
         "task_execution_step_budget_exceeded",
         "task_executor_schedule_failed",
+        "executor_failed",
         "background_executor_missing_after_restart",
     }
 

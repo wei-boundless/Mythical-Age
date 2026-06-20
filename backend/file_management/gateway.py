@@ -126,6 +126,8 @@ class RepositoryRootResolver:
             root = self.managed_storage_root / "memory" / _safe_root_fragment(root_ref.removeprefix("memory://"))
         elif root_ref.startswith("research://"):
             root = self.managed_storage_root / "research" / _safe_root_fragment(root_ref.removeprefix("research://"))
+        elif root_ref.startswith("graph-task-instance://"):
+            root = self.project_root / "storage" / "graph_task_instances" / _safe_root_fragment(root_ref.removeprefix("graph-task-instance://"))
         elif not root_ref:
             root = self.managed_storage_root / "repositories" / _safe_root_fragment(repository.repository_id.replace(".", "/"))
         else:

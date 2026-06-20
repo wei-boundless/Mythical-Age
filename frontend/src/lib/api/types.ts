@@ -440,6 +440,40 @@ export type WorkspaceContext = {
   readable_prefixes: string[];
 };
 
+export type ManagedFileTarget = {
+  repository_id: string;
+  repository_kind: string;
+  scope_kind: string;
+  scope_id: string;
+  logical_path: string;
+  workspace_root?: string;
+  profile_id?: string;
+};
+
+export type ManagedFileReadResponse = {
+  target: ManagedFileTarget;
+  path: string;
+  content: string;
+  content_sha256: string;
+  managed_file_ref?: Record<string, unknown>;
+  repository?: Record<string, unknown>;
+  root_binding?: Record<string, unknown>;
+  authority: string;
+};
+
+export type ManagedFileWriteResponse = {
+  ok: boolean;
+  target: ManagedFileTarget;
+  path: string;
+  content_sha256: string;
+  managed_file_ref?: Record<string, unknown>;
+  receipt?: Record<string, unknown>;
+  file_change_record?: FileChangeRecord | Record<string, unknown>;
+  repository?: Record<string, unknown>;
+  root_binding?: Record<string, unknown>;
+  authority: string;
+};
+
 export type CodeEnvironmentDiagnostic = {
   level: "info" | "warning" | "error";
   code: string;

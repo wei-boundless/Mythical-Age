@@ -9,7 +9,16 @@ export function errorDetailMessage(error: unknown) {
   }
   try {
     const parsed = JSON.parse(message) as { detail?: unknown; message?: unknown };
-    return String(parsed.detail || parsed.message || message).trim();
+    const detail = parsed.detail;
+    if (detail && typeof detail === "object") {
+      const detailMessage = (detail as { message?: unknown; detail?: unknown; code?: unknown }).message
+        || (detail as { detail?: unknown }).detail
+        || (detail as { code?: unknown }).code;
+      if (detailMessage) {
+        return String(detailMessage).trim();
+      }
+    }
+    return String(detail || parsed.message || message).trim();
   } catch {
     return message;
   }

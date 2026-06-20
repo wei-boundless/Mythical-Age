@@ -64,7 +64,7 @@ function changeStatusIcon(record: FileChangeRecord) {
   return <FileClock size={14} />;
 }
 
-export function FileChangesPanel() {
+export function FileChangesPanel({ embedded = false }: { embedded?: boolean } = {}) {
   const confirm = useConfirmDialog();
   const { activeStreamSessionIds, activeTurnSnapshot, currentSessionId, messages, openFileChangeDiff, sessions } = useAppStore();
   const [records, setRecords] = useState<FileChangeRecord[]>([]);
@@ -352,10 +352,10 @@ export function FileChangesPanel() {
   }
 
   return (
-    <section className="file-changes-panel" aria-label="文件变更">
+    <section className={embedded ? "file-changes-panel file-changes-panel--embedded" : "file-changes-panel"} aria-label="文件变更">
       <header className="file-changes-panel__head">
         <div>
-          <span>变更</span>
+          {embedded ? null : <span>变更</span>}
           <strong>{headline}</strong>
         </div>
         <button aria-label="刷新文件变更" disabled={loading || !currentSessionId} onClick={() => void refresh()} type="button">

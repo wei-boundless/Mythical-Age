@@ -10,7 +10,7 @@ import { useAppStore } from "@/lib/store";
 import { selectRunMonitorTaskLane } from "@/lib/run-monitor/selectors";
 import type { RunMonitorSignal } from "@/lib/run-monitor/types";
 
-export function RunMonitorPanel() {
+export function RunMonitorPanel({ embedded = false }: { embedded?: boolean } = {}) {
   const confirm = useConfirmDialog();
   const {
     openRunMonitorSignal,
@@ -84,10 +84,10 @@ export function RunMonitorPanel() {
   }
 
   return (
-    <section className="run-monitor-panel" aria-label="运行监控">
+    <section className={embedded ? "run-monitor-panel run-monitor-panel--embedded" : "run-monitor-panel"} aria-label="运行监控">
       <header className="run-monitor-panel__head">
         <div className="run-monitor-panel__headline">
-          <span>运行</span>
+          {embedded ? null : <span>运行</span>}
           <strong>{headline}</strong>
         </div>
         <div className="run-monitor-panel__head-actions">

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
+from file_management.api_models import VSCodeCommandResultRequest
 from integrations.vscode_connection import get_vscode_connection_store
 from integrations.vscode_connection.models import VSCodeConnectionConflict
 from runtime.file_changes import FileChangeMissing, FileChangeTracker
@@ -105,6 +106,20 @@ async def next_vscode_command(session_id: str) -> dict[str, Any]:
     }
 
 
+@router.post("/vscode/sessions/{session_id}/commands/{command_id}/result")
+async def record_vscode_command_result(session_id: str, command_id: str, payload: VSCodeCommandResultRequest) -> dict[str, Any]:
+    try:
+        result = await asyncio.to_thread(
+            get_vscode_connection_store().record_command_result,
+            session_id=session_id,
+            command_id=command_id,
+            result=payload.model_dump(),
+        )
+        return {"ok": True, "result": result, "authority": "api.vscode.command_result"}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/vscode/sessions/{session_id}/file-change-diffs/open")
 async def open_file_change_diff_in_vscode(session_id: str, payload: VSCodeOpenFileChangeDiffRequest) -> dict[str, Any]:
     runtime = require_runtime()
@@ -122,15 +137,17 @@ async def open_file_change_diff_in_vscode(session_id: str, payload: VSCodeOpenFi
     after_uri = str(record.get("after_uri") or "").strip()
     if not before_uri or not after_uri:
         raise HTTPException(status_code=409, detail="file change snapshots are not available")
+    command_session_id = str(status.connection_session_id or session_id).strip() or session_id
     command = await asyncio.to_thread(
         connection_store.enqueue_command,
-        session_id=session_id,
+        session_id=command_session_id,
         command={
             "type": "open_diff",
             "left_uri": before_uri,
             "right_uri": after_uri,
             "title": str(record.get("logical_path") or record.get("record_id") or "File change"),
             "record_id": str(record.get("record_id") or ""),
+            "request_session_id": session_id,
         },
     )
     return {

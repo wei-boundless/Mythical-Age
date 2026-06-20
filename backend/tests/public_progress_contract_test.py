@@ -44,6 +44,11 @@ def test_public_progress_summary_suppresses_whole_tool_failure_text() -> None:
         assert public_runtime_progress_summary(text) == ""
 
 
+def test_public_progress_summary_distinguishes_executor_failure_from_schedule_failure() -> None:
+    assert public_runtime_progress_summary("executor_failed") == "任务执行失败"
+    assert public_runtime_progress_summary("task_executor_schedule_failed") == "任务调度失败"
+
+
 def test_action_progress_note_does_not_fallback_to_action_type() -> None:
     action = TaskExecutionModelActionRequest(
         request_id="model-action:test:no-public-feedback",

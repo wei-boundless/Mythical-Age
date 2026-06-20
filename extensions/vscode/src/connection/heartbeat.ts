@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { pollNextCommand, postEditorContext } from "./apiClient";
+import { pollNextCommand, postCommandResult, postEditorContext } from "./apiClient";
 import { collectEditorContext } from "./editorContext";
 import { resolveSessionId } from "./sessionBinding";
 import type { VSCodeCommand } from "./types";
@@ -65,7 +65,7 @@ export function startContextHeartbeat(context: vscode.ExtensionContext, output: 
       const payload = await pollNextCommand(sessionId);
       const commands = payload.command ? [payload.command] : (payload.commands || []);
       for (const command of commands) {
-        await executeCommand(command, output);
+        await executeCommand(sessionId, command, output);
       }
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
@@ -88,19 +88,88 @@ export function startContextHeartbeat(context: vscode.ExtensionContext, output: 
   });
 }
 
-async function executeCommand(command: VSCodeCommand, output: vscode.OutputChannel): Promise<void> {
-  if (command.type !== "open_diff") {
-    output.appendLine(`Unsupported VS Code command: ${command.type || "(missing)"}`);
-    return;
+async function executeCommand(sessionId: string, command: VSCodeCommand, output: vscode.OutputChannel): Promise<void> {
+  const commandId = String(command.command_id || "").trim();
+  try {
+    if (command.type === "open_diff") {
+      await executeOpenDiff(command);
+      await reportCommandResult(sessionId, commandId, {
+        status: "ok",
+        message: "Diff opened in VS Code.",
+        applied_at: new Date().toISOString(),
+        metadata: { type: command.type, record_id: command.record_id || "" }
+      }, output);
+      return;
+    }
+    if (command.type === "open_file") {
+      const document = await executeOpenFile(command);
+      await reportCommandResult(sessionId, commandId, {
+        status: "ok",
+        message: "File opened in VS Code.",
+        dirty: document.isDirty,
+        applied_at: new Date().toISOString(),
+        metadata: {
+          type: command.type,
+          language_id: document.languageId,
+          logical_path: command.logical_path || ""
+        }
+      }, output);
+      return;
+    }
+    const message = `Unsupported VS Code command: ${command.type || "(missing)"}`;
+    output.appendLine(message);
+    await reportCommandResult(sessionId, commandId, {
+      status: "unsupported",
+      message,
+      applied_at: new Date().toISOString(),
+      metadata: { type: command.type || "" }
+    }, output);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    output.appendLine(message);
+    await reportCommandResult(sessionId, commandId, {
+      status: "error",
+      message,
+      applied_at: new Date().toISOString(),
+      metadata: { type: command.type || "" }
+    }, output);
   }
+}
+
+async function executeOpenDiff(command: VSCodeCommand): Promise<void> {
   const leftUri = parseUri(command.left_uri);
   const rightUri = parseUri(command.right_uri);
   if (!leftUri || !rightUri) {
-    output.appendLine(`Invalid diff command URIs: ${command.command_id || "(unknown)"}`);
-    return;
+    throw new Error(`Invalid diff command URIs: ${command.command_id || "(unknown)"}`);
   }
   const title = String(command.title || "File change").trim() || "File change";
   await vscode.commands.executeCommand("vscode.diff", leftUri, rightUri, title, { preview: false });
+}
+
+async function executeOpenFile(command: VSCodeCommand): Promise<vscode.TextDocument> {
+  const uri = parseUri(command.uri);
+  if (!uri) {
+    throw new Error(`Invalid open_file URI: ${command.command_id || "(unknown)"}`);
+  }
+  const document = await vscode.workspace.openTextDocument(uri);
+  await vscode.window.showTextDocument(document, { preview: false });
+  return document;
+}
+
+async function reportCommandResult(
+  sessionId: string,
+  commandId: string,
+  payload: Parameters<typeof postCommandResult>[2],
+  output: vscode.OutputChannel
+): Promise<void> {
+  if (!commandId) {
+    return;
+  }
+  try {
+    await postCommandResult(sessionId, commandId, payload);
+  } catch (error) {
+    output.appendLine(error instanceof Error ? error.message : String(error));
+  }
 }
 
 function parseUri(value: unknown): vscode.Uri | null {

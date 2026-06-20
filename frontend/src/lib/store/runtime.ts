@@ -4,6 +4,7 @@ import {
   submitGraphRunUntilIdle,
   loadFile,
   loadFileForSession,
+  readManagedFile,
   createSession,
   deleteSession,
   deriveSessionTitleFromFirstUserMessage,
@@ -40,6 +41,7 @@ import {
   removeProjectWorkspace,
   saveFile,
   saveFileForSession,
+  writeManagedFile,
   createProjectWorkspaceSession,
   selectProjectWorkspaceDirectory,
   stopOrchestrationHarnessTaskRun,
@@ -51,7 +53,7 @@ import {
   truncateSessionMessages,
   uploadChatAttachment
 } from "@/lib/api";
-import type { ChatAttachment, ChatRun, ChatStreamCursor, PublicProjectionFrame, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, RuntimeMonitorSignal, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
+import type { ChatAttachment, ChatRun, ChatStreamCursor, ManagedFileTarget, PublicProjectionFrame, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, RuntimeMonitorSignal, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
@@ -112,6 +114,19 @@ type ActiveChatStreamBinding = {
   taskRunId: string;
   turnId: string;
 };
+
+const MANAGED_PROJECT_PROFILE_ID = "file_profile.managed_project_workspace";
+const MANAGED_PROJECT_REPOSITORY_ID = "repo.managed_project.project_workspace";
+
+const LEGACY_INTERNAL_INSPECTOR_PREFIXES = [
+  "durable_memory/",
+  "session-memory/",
+  "sessions/",
+  "knowledge/",
+  "capability_system/skills/builtin/",
+  "capability_system/skills/registries/",
+  "capability_system/tools/registries/"
+] as const;
 
 type VisibleStreamStateOptions = {
   preserveTaskGraphLiveMonitor?: boolean;
@@ -701,7 +716,10 @@ export class WorkspaceRuntime {
       ...prev,
       inspectorPath: file.path,
       inspectorContent: file.content,
-      inspectorDirty: false
+      inspectorContentSha256: "",
+      inspectorDirty: false,
+      inspectorTarget: null,
+      inspectorLastChangeRecordId: "",
     }));
   }
 
@@ -1660,14 +1678,20 @@ export class WorkspaceRuntime {
         ...state,
         inspectorPath: DEFAULT_INSPECTOR_PATH,
         inspectorContent: "",
+        inspectorContentSha256: "",
         inspectorDirty: false,
+        inspectorTarget: null,
+        inspectorLastChangeRecordId: "",
       };
     }
     return {
       ...state,
       inspectorPath: context.inspectorPath || context.activeFilePath || DEFAULT_INSPECTOR_PATH,
       inspectorContent: context.inspectorContent || "",
+      inspectorContentSha256: context.inspectorContentSha256 || "",
       inspectorDirty: Boolean(context.inspectorDirty),
+      inspectorTarget: context.inspectorTarget || null,
+      inspectorLastChangeRecordId: context.inspectorLastChangeRecordId || "",
     };
   }
 
@@ -1694,7 +1718,10 @@ export class WorkspaceRuntime {
       openFilePaths: [],
       inspectorPath: "",
       inspectorContent: "",
+      inspectorContentSha256: "",
       inspectorDirty: false,
+      inspectorTarget: null,
+      inspectorLastChangeRecordId: "",
       updatedAt: 0,
     };
     const activeFilePath = String(patch.activeFilePath ?? current.activeFilePath ?? "").trim();
@@ -1708,7 +1735,10 @@ export class WorkspaceRuntime {
       openFilePaths,
       inspectorPath,
       inspectorContent: String(patch.inspectorContent ?? current.inspectorContent ?? ""),
+      inspectorContentSha256: String(patch.inspectorContentSha256 ?? current.inspectorContentSha256 ?? ""),
       inspectorDirty: Boolean(patch.inspectorDirty ?? current.inspectorDirty),
+      inspectorTarget: patch.inspectorTarget === undefined ? current.inspectorTarget ?? null : patch.inspectorTarget,
+      inspectorLastChangeRecordId: String(patch.inspectorLastChangeRecordId ?? current.inspectorLastChangeRecordId ?? ""),
       updatedAt: Date.now(),
     };
     return {
@@ -4061,6 +4091,23 @@ export class WorkspaceRuntime {
     return sessionProjectRoot(state.sessions.find((session) => session.id === sessionId));
   }
 
+  private managedProjectFileTarget(path: string, sessionId: string, state: StoreState): ManagedFileTarget {
+    const logicalPath = normalizeInspectorLogicalPath(path);
+    const workspaceRoot = String(this.sessionProjectRoot(state, sessionId) || state.activeProjectRoot || "").trim();
+    if (!workspaceRoot) {
+      throw new Error("当前会话未绑定项目，不能通过文件管理系统打开项目文件。");
+    }
+    return {
+      repository_id: MANAGED_PROJECT_REPOSITORY_ID,
+      repository_kind: "project_workspace",
+      scope_kind: "project_scoped",
+      scope_id: sessionId || state.activeProjectKey || workspaceRoot,
+      logical_path: logicalPath,
+      workspace_root: workspaceRoot,
+      profile_id: MANAGED_PROJECT_PROFILE_ID,
+    };
+  }
+
   private async renameCurrentSession(title: string) {
     const currentSessionId = this.store.getState().currentSessionId;
     if (!currentSessionId || !title.trim()) {
@@ -4183,7 +4230,10 @@ export class WorkspaceRuntime {
       tokenStats: null,
       inspectorPath: DEFAULT_INSPECTOR_PATH,
       inspectorContent: "",
+      inspectorContentSha256: "",
       inspectorDirty: false,
+      inspectorTarget: null,
+      inspectorLastChangeRecordId: "",
       sessionActivity: createIdleSessionActivity(Date.now())
     }));
   }
@@ -4197,23 +4247,54 @@ export class WorkspaceRuntime {
         state = this.store.getState();
       }
       const scope = sessionId ? this.sessionScopeForSession(sessionId) : undefined;
-      if (sessionId && !this.sessionProjectRoot(state, sessionId)) {
+      const logicalPath = normalizeInspectorLogicalPath(path);
+      const legacyInternalFile = isLegacyInternalInspectorPath(logicalPath);
+      if (sessionId && !this.sessionProjectRoot(state, sessionId) && !legacyInternalFile) {
         throw new Error("当前会话未绑定项目，不能打开项目文件。");
       }
+      if (sessionId && !legacyInternalFile) {
+        const target = this.managedProjectFileTarget(logicalPath, sessionId, state);
+        const file = await readManagedFile(target, sessionId);
+        this.store.setState((prev) => this.patchCurrentSessionEditorContext({
+          ...prev,
+          inspectorPath: file.path,
+          inspectorContent: file.content,
+          inspectorContentSha256: file.content_sha256,
+          inspectorDirty: false,
+          inspectorTarget: file.target,
+          inspectorLastChangeRecordId: "",
+          workspaceTreeError: ""
+        }, {
+          activeFilePath: file.path,
+          inspectorPath: file.path,
+          inspectorContent: file.content,
+          inspectorContentSha256: file.content_sha256,
+          inspectorDirty: false,
+          inspectorTarget: file.target,
+          inspectorLastChangeRecordId: "",
+        }));
+        return;
+      }
       const file = sessionId
-        ? await loadFileForSession(path, sessionId, scope)
-        : await loadFile(path);
+        ? await loadFileForSession(logicalPath, sessionId, scope)
+        : await loadFile(logicalPath);
       this.store.setState((prev) => this.patchCurrentSessionEditorContext({
         ...prev,
         inspectorPath: file.path,
         inspectorContent: file.content,
+        inspectorContentSha256: "",
         inspectorDirty: false,
+        inspectorTarget: null,
+        inspectorLastChangeRecordId: "",
         workspaceTreeError: ""
       }, {
         activeFilePath: file.path,
         inspectorPath: file.path,
         inspectorContent: file.content,
+        inspectorContentSha256: "",
         inspectorDirty: false,
+        inspectorTarget: null,
+        inspectorLastChangeRecordId: "",
       }));
     } catch (error) {
       const message = this.errorMessage(error, `无法打开文件：${path}`);
@@ -4221,13 +4302,19 @@ export class WorkspaceRuntime {
         ...prev,
         inspectorPath: path,
         inspectorContent: message,
+        inspectorContentSha256: "",
         inspectorDirty: false,
+        inspectorTarget: null,
+        inspectorLastChangeRecordId: "",
         workspaceTreeError: message
       }, {
         activeFilePath: path,
         inspectorPath: path,
         inspectorContent: "",
+        inspectorContentSha256: "",
         inspectorDirty: false,
+        inspectorTarget: null,
+        inspectorLastChangeRecordId: "",
       }));
     }
   }
@@ -4335,27 +4422,74 @@ export class WorkspaceRuntime {
       state = this.store.getState();
     }
     const scope = sessionId ? this.sessionScopeForSession(sessionId) : undefined;
-    if (sessionId && !this.sessionProjectRoot(state, sessionId)) {
+    const logicalPath = normalizeInspectorLogicalPath(state.inspectorPath);
+    const legacyInternalFile = isLegacyInternalInspectorPath(logicalPath);
+    if (sessionId && !this.sessionProjectRoot(state, sessionId) && !legacyInternalFile) {
       this.store.setState((prev) => ({
         ...prev,
         workspaceTreeError: "当前会话未绑定项目，不能保存项目文件。",
       }));
       return;
     }
-    if (sessionId) {
-      await saveFileForSession(state.inspectorPath, state.inspectorContent, sessionId, scope);
-    } else {
-      await saveFile(state.inspectorPath, state.inspectorContent);
+    try {
+      if (state.inspectorTarget) {
+        const payload = await writeManagedFile({
+          target: state.inspectorTarget,
+          content: state.inspectorContent,
+          expectedSha256: state.inspectorContentSha256,
+          source: "agent_ui",
+          reason: "user_save_from_agent_workbench",
+          sessionId,
+        });
+        const recordId = fileChangeRecordId(payload.file_change_record);
+        this.store.setState((prev) => this.patchCurrentSessionEditorContext({
+          ...prev,
+          inspectorPath: payload.path,
+          inspectorContentSha256: payload.content_sha256,
+          inspectorDirty: false,
+          inspectorTarget: payload.target,
+          inspectorLastChangeRecordId: recordId,
+          workspaceTreeError: "",
+        }, {
+          inspectorPath: payload.path,
+          inspectorContent: prev.inspectorContent,
+          inspectorContentSha256: payload.content_sha256,
+          inspectorDirty: false,
+          inspectorTarget: payload.target,
+          inspectorLastChangeRecordId: recordId,
+        }));
+        await this.refreshWorkspaceTree().catch(() => undefined);
+        return;
+      }
+      if (!legacyInternalFile) {
+        throw new Error("当前文件未通过文件管理系统打开，不能保存项目文件。");
+      }
+      if (sessionId) {
+        await saveFileForSession(logicalPath, state.inspectorContent, sessionId, scope);
+      } else {
+        await saveFile(logicalPath, state.inspectorContent);
+      }
+      this.store.setState((prev) => this.patchCurrentSessionEditorContext({
+        ...prev,
+        inspectorDirty: false,
+        inspectorContentSha256: "",
+        inspectorTarget: null,
+        inspectorLastChangeRecordId: "",
+        workspaceTreeError: "",
+      }, {
+        inspectorPath: prev.inspectorPath,
+        inspectorContent: prev.inspectorContent,
+        inspectorContentSha256: "",
+        inspectorDirty: false,
+        inspectorTarget: null,
+        inspectorLastChangeRecordId: "",
+      }));
+      await this.refreshSkills();
+    } catch (error) {
+      const message = this.errorMessage(error, "文件保存失败。");
+      this.store.setState((prev) => ({ ...prev, workspaceTreeError: message }));
+      throw error;
     }
-    this.store.setState((prev) => this.patchCurrentSessionEditorContext({
-      ...prev,
-      inspectorDirty: false,
-    }, {
-      inspectorPath: prev.inspectorPath,
-      inspectorContent: prev.inspectorContent,
-      inspectorDirty: false,
-    }));
-    await this.refreshSkills();
   }
 
   private setSessionEditorPageState(patch: SessionEditorPageStatePatch) {
@@ -4366,13 +4500,23 @@ export class WorkspaceRuntime {
             ...prev,
             inspectorPath: DEFAULT_INSPECTOR_PATH,
             inspectorContent: "",
+            inspectorContentSha256: "",
             inspectorDirty: false,
+            inspectorTarget: null,
+            inspectorLastChangeRecordId: "",
           }
         : prev,
         {
           activeFilePath: patch.activeFilePath,
           openFilePaths: patch.openFilePaths,
-          ...(clearsFiles ? { inspectorPath: "", inspectorContent: "", inspectorDirty: false } : {}),
+          ...(clearsFiles ? {
+            inspectorPath: "",
+            inspectorContent: "",
+            inspectorContentSha256: "",
+            inspectorDirty: false,
+            inspectorTarget: null,
+            inspectorLastChangeRecordId: "",
+          } : {}),
         }
       );
     });
@@ -5452,6 +5596,23 @@ export class WorkspaceRuntime {
 function finiteNumber(value: unknown): number | undefined {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function normalizeInspectorLogicalPath(path: string) {
+  return String(path || "").replace(/\\/g, "/").replace(/^\/+/, "").trim();
+}
+
+function isLegacyInternalInspectorPath(path: string) {
+  const normalized = normalizeInspectorLogicalPath(path);
+  return LEGACY_INTERNAL_INSPECTOR_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+function fileChangeRecordId(record: unknown) {
+  if (!record || typeof record !== "object") {
+    return "";
+  }
+  const recordId = (record as { record_id?: unknown }).record_id;
+  return typeof recordId === "string" ? recordId.trim() : "";
 }
 
 function clientNow() {

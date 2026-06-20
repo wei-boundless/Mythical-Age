@@ -9,6 +9,7 @@ from api.chat_attachments import router as chat_attachments_router
 from api.chat_live import router as chat_live_router
 from api.config_api import router as config_router
 from api.files import router as files_router
+from api.file_management import router as file_management_router
 from api.file_changes import router as file_changes_router
 from api.health_system import router as health_system_router
 from api.graph_task_instances import router as graph_task_instances_router
@@ -56,6 +57,7 @@ app.include_router(chat_attachments_router, prefix="/api", tags=["chat"])
 app.include_router(chat_live_router, prefix="/api", tags=["chat"])
 app.include_router(sessions_router, prefix="/api", tags=["sessions"])
 app.include_router(files_router, prefix="/api", tags=["files"])
+app.include_router(file_management_router, prefix="/api", tags=["file-management"])
 app.include_router(file_changes_router, prefix="/api", tags=["file-changes"])
 app.include_router(memory_router, prefix="/api", tags=["memory"])
 app.include_router(mcp_system_router, prefix="/api", tags=["mcp-system"])

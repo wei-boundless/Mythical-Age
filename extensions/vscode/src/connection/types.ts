@@ -75,11 +75,15 @@ export type ChatRunResponse = {
 
 export type VSCodeCommand = {
   command_id?: string;
-  type?: string;
+  type?: "open_diff" | "open_file" | string;
   left_uri?: string;
   right_uri?: string;
+  uri?: string;
+  logical_path?: string;
   title?: string;
   record_id?: string;
+  request_session_id?: string;
+  target?: Record<string, unknown>;
 };
 
 export type VSCodeCommandPollResponse = {
@@ -87,4 +91,13 @@ export type VSCodeCommandPollResponse = {
   status: "ok" | "empty" | string;
   command?: VSCodeCommand | null;
   commands?: VSCodeCommand[];
+};
+
+export type VSCodeCommandResultPayload = {
+  status: "ok" | "error" | "unsupported" | string;
+  message?: string;
+  dirty?: boolean;
+  document_sha256?: string;
+  applied_at?: string;
+  metadata?: Record<string, unknown>;
 };

@@ -6,6 +6,7 @@ from dataclasses import replace
 import threading
 import time
 from types import SimpleNamespace
+from typing import get_args
 
 from harness.loop.task_run_execution_control import _latest_requested_control_signal, request_executor_stop
 from harness.loop.task_executor_controller import TaskExecutorController
@@ -22,6 +23,85 @@ from runtime.tool_runtime.tool_invocation_control import (
     build_tool_invocation_idempotency_key,
     registry_for,
 )
+from runtime.shared.event_log import _RUNTIME_EVENT_FACT_TYPES
+from runtime.shared.events import RuntimeEventType
+
+
+AGENT_RUNTIME_CELL_EVENT_TYPES = {
+    "agent_runtime_cell_backpressure",
+    "agent_runtime_cell_cancel_requested",
+    "agent_runtime_cell_cancelled",
+    "agent_runtime_cell_completed",
+    "agent_runtime_cell_created",
+    "agent_runtime_cell_failed",
+    "agent_runtime_cell_late_event_rejected",
+    "agent_runtime_cell_mailbox_overloaded",
+    "agent_runtime_cell_start_failed",
+    "agent_runtime_cell_started",
+    "agent_runtime_cell_supervision_cancel_requested",
+}
+
+
+def test_agent_runtime_cell_event_contract_is_registered() -> None:
+    runtime_event_types = set(get_args(RuntimeEventType))
+
+    assert AGENT_RUNTIME_CELL_EVENT_TYPES <= runtime_event_types
+    assert AGENT_RUNTIME_CELL_EVENT_TYPES <= _RUNTIME_EVENT_FACT_TYPES
+
+
+def test_agent_runtime_cell_event_facts_preserve_scope_and_cell_refs(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    task_run_id = "taskrun:cell-facts"
+    turn_id = "turn:cell-facts"
+    _insert_task_run(host, task_run_id)
+    release = threading.Event()
+
+    async def work() -> dict[str, str]:
+        while not release.is_set():
+            await asyncio.sleep(0.01)
+        return {"status": "completed"}
+
+    scheduled = host.agent_run_supervisor.schedule_task_run(
+        task_run_id=task_run_id,
+        work_factory=work,
+        scheduler="test",
+        max_steps=1,
+        turn_id=turn_id,
+    )
+    cell = host.agent_run_supervisor.cell_by_id(scheduled["run_cell_id"])
+    try:
+        assert scheduled["scheduled"] is True
+        assert cell is not None
+
+        runtime_facts = host.fact_ledger.list_records(
+            task_run_id=task_run_id,
+            fact_type="runtime_event",
+            limit=50,
+        )
+        cell_facts = host.fact_ledger.list_records(
+            run_cell_ref=scheduled["run_cell_id"],
+            fact_type="runtime_event",
+            limit=50,
+        )
+        created_fact = _runtime_event_fact(runtime_facts, "agent_runtime_cell_created")
+        started_fact = _runtime_event_fact(runtime_facts, "agent_runtime_cell_started")
+        cell_fact_types = {
+            str(dict(fact.attributes or {}).get("event_type") or "")
+            for fact in cell_facts
+        }
+
+        for fact in (created_fact, started_fact):
+            assert fact.scope["session_id"] == "session:cell-isolation"
+            assert fact.scope["task_run_id"] == task_run_id
+            assert fact.scope["turn_id"] == turn_id
+            assert fact.refs["agent_run_ref"] == scheduled["agent_run_id"]
+            assert fact.refs["run_cell_ref"] == scheduled["run_cell_id"]
+            assert fact.refs["runtime_event_id"]
+        assert {"agent_runtime_cell_created", "agent_runtime_cell_started"} <= cell_fact_types
+    finally:
+        release.set()
+        if cell is not None and cell.worker_handle is not None:
+            cell.worker_handle.join(timeout=3)
 
 
 def test_runtime_gateway_drains_by_scope_and_consumes_once(tmp_path) -> None:
@@ -985,6 +1065,143 @@ def test_task_executor_controller_cleans_cell_claim_when_worker_start_fails(tmp_
     assert schedule_failed[0].refs["run_cell_ref"] == result["run_cell_id"]
 
 
+def test_task_executor_controller_recover_scheduled_closes_worker_start_failure(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    task_run_id = "taskrun:recover-worker-start-fails"
+    _insert_task_run(host, task_run_id)
+    task_run = host.state_index.get_task_run(task_run_id)
+    host.state_index.upsert_task_run(
+        replace(
+            task_run,
+            diagnostics={
+                "executor_status": "scheduled",
+                "executor_lease_state": "scheduled",
+                "agent_run_scope": {
+                    "session_id": "session:cell-isolation",
+                    "task_run_id": task_run_id,
+                    "agent_run_id": "agentrun:old",
+                    "run_cell_id": "runcell:old",
+                },
+                "agent_run_id": "agentrun:old",
+                "run_cell_id": "runcell:old",
+                "agent_cell_status": "scheduled",
+                "agent_cell_worker_backend": "old-worker",
+            },
+        )
+    )
+    executed = threading.Event()
+
+    class FailingWorkerBackend:
+        backend_name = "recover-failing-worker"
+
+        def start(self, *, run_cell_id: str, work_factory, on_done=None):
+            raise RuntimeError("recovered worker backend offline")
+
+    async def execute(task_run_id: str, *, max_steps: int) -> dict[str, str]:
+        executed.set()
+        return {"status": "completed"}
+
+    host.agent_run_supervisor.worker_backend = FailingWorkerBackend()
+    controller = TaskExecutorController(runtime_host=host, execute_task_run_callback=execute)
+    result = controller.recover_scheduled(task_run_id, scheduler="test-recovery", max_steps=1)
+    task_run = host.state_index.get_task_run(task_run_id)
+    diagnostics = dict(task_run.diagnostics or {})
+    events = host.event_log.list_events(task_run_id)
+    event_types = [event.event_type for event in events]
+    schedule_failed = [
+        event for event in events
+        if event.event_type == "task_run_executor_schedule_failed"
+    ]
+    start_failed = [
+        event for event in events
+        if event.event_type == "agent_runtime_cell_start_failed"
+    ]
+
+    assert result["ok"] is False
+    assert result["scheduled"] is False
+    assert result["reason"] == "worker_start_failed"
+    assert result["error"] == "recovered worker backend offline"
+    assert result["run_cell_id"]
+    assert result["run_cell_id"] != "runcell:old"
+    assert executed.is_set() is False
+    assert host.agent_run_supervisor.active_cell_for_task_run(task_run_id) is None
+    assert host.agent_run_supervisor.cell_by_id(result["run_cell_id"]) is None
+    assert task_run.status == "blocked"
+    assert task_run.terminal_reason == "task_executor_schedule_failed"
+    assert diagnostics["executor_status"] == "blocked"
+    assert diagnostics["executor_lease_state"] == "blocked"
+    assert "agent_run_scope" not in diagnostics
+    assert "agent_run_id" not in diagnostics
+    assert "run_cell_id" not in diagnostics
+    assert "agent_cell_status" not in diagnostics
+    assert "agent_cell_worker_backend" not in diagnostics
+    assert "agent_runtime_cell_created" in event_types
+    assert "agent_runtime_cell_started" not in event_types
+    assert "task_run_executor_scheduled" not in event_types
+    assert len(start_failed) == 1
+    assert dict(start_failed[0].payload)["error"] == "recovered worker backend offline"
+    assert len(schedule_failed) == 1
+    assert schedule_failed[0].refs["run_cell_ref"] == result["run_cell_id"]
+    assert dict(schedule_failed[0].payload)["run_cell_id"] == result["run_cell_id"]
+
+
+def test_task_executor_controller_marks_cell_failed_when_execute_callback_raises(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    task_run_id = "taskrun:execute-raises"
+    _insert_task_run(host, task_run_id)
+
+    async def execute(task_run_id: str, *, max_steps: int) -> dict[str, str]:
+        raise RuntimeError("executor exploded")
+
+    controller = TaskExecutorController(runtime_host=host, execute_task_run_callback=execute)
+    result = controller.schedule(task_run_id, scheduler="test", max_steps=1)
+    cell = host.agent_run_supervisor.cell_by_id(result["run_cell_id"])
+
+    assert result["ok"] is True
+    assert result["scheduled"] is True
+    assert cell is not None
+    assert cell.worker_handle is not None
+    assert cell.worker_handle.join(timeout=3)
+
+    task_run = host.state_index.get_task_run(task_run_id)
+    diagnostics = dict(task_run.diagnostics or {})
+    events = host.event_log.list_events(task_run_id)
+    event_types = [event.event_type for event in events]
+    executor_failed = [
+        event for event in events
+        if event.event_type == "task_run_executor_failed"
+    ]
+    cell_failed = [
+        event for event in events
+        if event.event_type == "agent_runtime_cell_failed"
+    ]
+
+    assert cell.status == "failed"
+    assert cell.worker_handle.error is not None
+    assert "executor exploded" in str(cell.worker_handle.error)
+    assert host.agent_run_supervisor.active_cell_for_task_run(task_run_id) is None
+    assert task_run.status == "blocked"
+    assert task_run.terminal_reason == "executor_failed"
+    assert diagnostics["executor_status"] == "blocked"
+    assert diagnostics["executor_lease_state"] == "blocked"
+    assert diagnostics["latest_step"] == "task_run_executor_failed"
+    assert diagnostics["recoverable_error"]["error_code"] == "executor_failed"
+    assert "agent_run_scope" not in diagnostics
+    assert "agent_run_id" not in diagnostics
+    assert "run_cell_id" not in diagnostics
+    assert "task_run_executor_scheduled" in event_types
+    assert "agent_runtime_cell_started" in event_types
+    assert "task_run_executor_schedule_failed" not in event_types
+    assert "agent_runtime_cell_completed" not in event_types
+    assert len(executor_failed) == 1
+    assert executor_failed[0].refs["run_cell_ref"] == result["run_cell_id"]
+    assert dict(executor_failed[0].payload)["run_cell_id"] == result["run_cell_id"]
+    assert dict(executor_failed[0].payload)["error"] == "executor exploded"
+    assert len(cell_failed) == 1
+    assert cell_failed[0].refs["run_cell_ref"] == result["run_cell_id"]
+    assert dict(cell_failed[0].payload)["error"] == "executor exploded"
+
+
 def test_cell_mailbox_overflow_publishes_scoped_backpressure_event(tmp_path) -> None:
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
     _insert_task_run(host, "taskrun:mailbox-a")
@@ -1182,6 +1399,14 @@ def _wait_until(predicate, *, timeout: float = 3.0) -> bool:
             return True
         time.sleep(0.01)
     return predicate()
+
+
+def _runtime_event_fact(facts, event_type: str):
+    return next(
+        fact
+        for fact in facts
+        if str(dict(fact.attributes or {}).get("event_type") or "") == event_type
+    )
 
 
 def _control_signal_payloads(host: SingleAgentRuntimeHost, run_id: str, signal_type: str) -> list[dict]:

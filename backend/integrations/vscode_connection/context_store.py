@@ -29,6 +29,7 @@ class VSCodeConnectionStore:
         self._snapshots_by_project_key: dict[str, VSCodeContextSnapshot] = {}
         self._launch_intents: dict[str, dict[str, Any]] = {}
         self._commands_by_session: dict[str, list[dict[str, Any]]] = {}
+        self._command_results_by_session: dict[str, dict[str, dict[str, Any]]] = {}
 
     def clear(self) -> None:
         with self._lock:
@@ -36,6 +37,7 @@ class VSCodeConnectionStore:
             self._snapshots_by_project_key.clear()
             self._launch_intents.clear()
             self._commands_by_session.clear()
+            self._command_results_by_session.clear()
 
     def register_launch_intent(self, *, session_id: str, workspace_root: str) -> dict[str, Any]:
         target_session_id = str(session_id or "").strip()
@@ -274,6 +276,42 @@ class VSCodeConnectionStore:
             if not queue:
                 self._commands_by_session.pop(target_session_id, None)
         return dict(command)
+
+    def record_command_result(self, *, session_id: str, command_id: str, result: dict[str, Any]) -> dict[str, Any]:
+        target_session_id = str(session_id or "").strip()
+        target_command_id = str(command_id or "").strip()
+        if not target_session_id:
+            raise ValueError("session_id is required")
+        if not target_command_id:
+            raise ValueError("command_id is required")
+        payload = {
+            "session_id": target_session_id,
+            "command_id": target_command_id,
+            "status": str(dict(result or {}).get("status") or "").strip() or "unknown",
+            "message": str(dict(result or {}).get("message") or "").strip()[:2000],
+            "dirty": bool(dict(result or {}).get("dirty")),
+            "document_sha256": str(dict(result or {}).get("document_sha256") or "").strip(),
+            "applied_at": str(dict(result or {}).get("applied_at") or "").strip(),
+            "metadata": dict(dict(result or {}).get("metadata") or {}),
+            "received_at": time.time(),
+            "authority": "integrations.vscode_connection.command_result",
+        }
+        with self._lock:
+            results = self._command_results_by_session.setdefault(target_session_id, {})
+            results[target_command_id] = payload
+            if len(results) > COMMAND_QUEUE_LIMIT:
+                oldest = sorted(results.items(), key=lambda item: float(item[1].get("received_at") or 0))
+                for key, _ in oldest[: len(results) - COMMAND_QUEUE_LIMIT]:
+                    results.pop(key, None)
+        return dict(payload)
+
+    def command_result(self, *, session_id: str, command_id: str) -> dict[str, Any]:
+        target_session_id = str(session_id or "").strip()
+        target_command_id = str(command_id or "").strip()
+        if not target_session_id or not target_command_id:
+            return {}
+        with self._lock:
+            return dict((self._command_results_by_session.get(target_session_id) or {}).get(target_command_id) or {})
 
 
 def _bind_or_validate_workspace_roots(*, session_manager: Any, session_id: str, workspace_roots: list[str]) -> str:

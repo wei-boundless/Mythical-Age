@@ -12,7 +12,14 @@ def test_runtime_fact_ledger_records_idempotent_queryable_facts(tmp_path) -> Non
         fact_type="tool_execution",
         scope={"session_id": "session:a", "task_run_id": "taskrun:a"},
         source={"system": "execution_store", "source_ref": "rtexec:a"},
-        refs={"execution_id": "rtexec:a", "trace_id": "trace:a"},
+        refs={
+            "execution_id": "rtexec:a",
+            "trace_id": "trace:a",
+            "agent_run_ref": "agentrun:a",
+            "run_cell_ref": "runcell:a",
+            "runtime_control_signal_ref": "rtsig:a",
+            "evidence_projection_ref": "rtevp:a",
+        },
         summary="tool executed",
         idempotency_key="tool:rtexec:a",
     )
@@ -28,9 +35,17 @@ def test_runtime_fact_ledger_records_idempotent_queryable_facts(tmp_path) -> Non
     by_task = ledger.list_records(task_run_id="taskrun:a")
     by_execution = ledger.list_records(execution_id="rtexec:a")
     by_trace = ledger.list_records(trace_id="trace:a")
+    by_agent_run = ledger.list_records(agent_run_ref="agentrun:a")
+    by_run_cell = ledger.list_records(run_cell_ref="runcell:a")
+    by_control_signal = ledger.list_records(runtime_control_signal_ref="rtsig:a")
+    by_evidence_projection = ledger.list_records(evidence_projection_ref="rtevp:a")
     assert [item.fact_id for item in by_task] == [first.fact_id]
     assert [item.fact_id for item in by_execution] == [first.fact_id]
     assert [item.fact_id for item in by_trace] == [first.fact_id]
+    assert [item.fact_id for item in by_agent_run] == [first.fact_id]
+    assert [item.fact_id for item in by_run_cell] == [first.fact_id]
+    assert [item.fact_id for item in by_control_signal] == [first.fact_id]
+    assert [item.fact_id for item in by_evidence_projection] == [first.fact_id]
 
 
 def test_runtime_fact_ledger_prunes_diagnostics_but_tombstones_memory_provenance(tmp_path) -> None:
