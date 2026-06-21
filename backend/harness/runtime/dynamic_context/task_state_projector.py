@@ -9,7 +9,7 @@ from runtime.shared.file_observation_policy import recommended_window_for_gap
 
 from ..runtime_control_signal_projection import canonical_runtime_control_signal_projection
 from .models import compact_text, dict_tuple, drop_empty
-from .semantic_payload_classifier import merge_pending_tool_control_actions
+from .semantic_payload_classifier import merge_pending_subagent_result_actions
 from .todo_plan_projection import project_todo_plan
 
 
@@ -78,9 +78,9 @@ class TaskStateProjector:
         )
         evidence_confidence = _evidence_confidence_projection(latest_results)
         material_progress = _material_progress_projection(latest_results)
-        pending_tool_control_actions = merge_pending_tool_control_actions(
-            execution_projection.get("pending_tool_control_actions"),
-            observation_projection.get("pending_tool_control_actions"),
+        pending_subagent_result_actions = merge_pending_subagent_result_actions(
+            execution_projection.get("pending_subagent_result_actions"),
+            observation_projection.get("pending_subagent_result_actions"),
             limit=12,
         )
         runtime_control_signals = canonical_runtime_control_signal_projection(
@@ -89,7 +89,7 @@ class TaskStateProjector:
         payload = {
             "runtime_status": str(execution_projection.get("runtime_status") or task_run_state.get("status") or ""),
             "current_step": dict(execution_projection.get("current_step") or {}),
-            "pending_tool_control_actions": pending_tool_control_actions,
+            "pending_subagent_result_actions": pending_subagent_result_actions,
             "runtime_control_signals": runtime_control_signals,
             "latest_runtime_control_signal": dict(runtime_control_signals[-1]) if runtime_control_signals else {},
             "current_facts": current_facts,
@@ -1719,7 +1719,6 @@ def _task_run_state_projection(task_run_state: dict[str, Any]) -> dict[str, Any]
             "status": str(task_run_state.get("status") or ""),
             "terminal_reason": str(task_run_state.get("terminal_reason") or ""),
             "current_step_index": task_run_state.get("current_step_index"),
-            "diagnostics": dict(task_run_state.get("diagnostics") or {}),
         }
     )
 

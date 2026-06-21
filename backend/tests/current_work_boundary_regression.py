@@ -107,7 +107,7 @@ def test_steer_without_active_work_does_not_promote_latest_task() -> None:
     assert receipt.operation_availability["active_work_control"] is False
 
 
-def test_active_turn_bound_current_work_reports_control_operation_available_without_boundary_model() -> None:
+def test_active_turn_bound_current_work_requires_model_decision_after_queue_boundary() -> None:
     boundary_input = build_current_work_boundary_input(
         turn_input_facts=_facts(policy="steer", expected_turn_id="turn:active"),
         active_turn_input_policy="steer",
@@ -122,7 +122,7 @@ def test_active_turn_bound_current_work_reports_control_operation_available_with
 
     assert decision.action == "current_work_control_required"
     assert decision.reason == "active_work_boundary_ready"
-    assert decision.requires_model_boundary_decision is False
+    assert decision.requires_model_boundary_decision is True
     assert receipt.boundary_decision == "current_work_control_required"
     assert receipt.operation_availability == {"active_work_control": True}
     assert current_work_boundary_receipt_allows_active_work_control(receipt) is True
@@ -140,7 +140,7 @@ def test_active_work_control_receipt_requires_current_work_boundary_authority() 
     assert current_work_boundary_receipt_allows_active_work_control(receipt) is False
 
 
-def test_running_active_work_routes_ordinary_input_to_current_work_control() -> None:
+def test_running_active_work_keeps_ordinary_input_in_model_decision_path() -> None:
     boundary_input = build_current_work_boundary_input(
         turn_input_facts=_facts(policy="auto", expected_turn_id="turn:active"),
         active_turn_input_policy="auto",
@@ -154,7 +154,8 @@ def test_running_active_work_routes_ordinary_input_to_current_work_control() -> 
 
     assert decision.action == "current_work_control_required"
     assert decision.reason == "active_work_boundary_ready"
-    assert decision.diagnostics["normalized_active_turn_input_policy"] == "steer"
+    assert decision.requires_model_boundary_decision is True
+    assert "normalized_active_turn_input_policy" not in decision.diagnostics
     assert receipt.operation_availability["active_work_control"] is True
 
 
@@ -369,6 +370,42 @@ def test_compiler_exposes_recoverable_work_as_model_decision_context_not_active_
     assert "recoverable_work.resume_allowed" in resume_contract["operation_availability_gate"]
     assert "recovery_resume.continuation_id" in resume_contract["required_fields"]
     assert "recoverable_work" in result.packet.diagnostics["prompt_manifest"]["dynamic_projection_refs"]
+
+
+def test_compiler_keeps_unresumable_recoverable_work_read_only_without_resume_action() -> None:
+    recoverable_work = {
+        "continuation_id": "cont:recoverable-read-only:17:0",
+        "task_run_id": "taskrun:recoverable-read-only",
+        "state": "recoverable",
+        "resume_allowed": False,
+        "resume_strategy": "ask_user_confirm",
+        "task_status": "waiting_executor",
+        "latest_progress": "任务有历史断点，但当前不可直接恢复。",
+        "next_recommended_step": "解释当前状态，不要直接续跑。",
+        "model_visible_summary": "任务目标：修复断线恢复。",
+        "authority": "harness.continuation.record",
+    }
+
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:recoverable-work-read-only",
+        turn_id="turn:recoverable-work-read-only",
+        agent_invocation_id="aginvoke:recoverable-work-read-only",
+        user_message="继续。",
+        history=[],
+        session_context={"recoverable_work": recoverable_work},
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "control_capabilities": {"may_request_task_run": True, "may_control_active_work": True},
+        },
+    )
+
+    dynamic_payload = _message_payload_with_title(result.packet, "Single agent turn dynamic runtime")
+    projected = dict(dynamic_payload["recoverable_work"])
+
+    assert "resume_recoverable_work" not in result.packet.allowed_action_types
+    assert projected["resume_allowed"] is False
+    assert projected["read_only_context"] is True
 
 
 def test_compiler_exposes_interrupted_turn_work_as_volatile_continuation_context() -> None:

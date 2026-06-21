@@ -54,7 +54,6 @@ def render_model_messages_from_projection(
     missing_indexes: list[int] = []
     missing_fragment_segment_ids: list[str] = []
     rendered_from_fragments = 0
-    source_message_fallback_count = 0
     for item in sorted(projection, key=lambda payload: int(payload.get("ordinal") or 0)):
         segment_id = str(item.get("segment_id") or "")
         message_index = _int(item.get("model_message_index"), default=-1)
@@ -66,9 +65,7 @@ def render_model_messages_from_projection(
             missing_fragment_segment_ids.append(segment_id)
             if message_index < 0 or message_index >= len(source):
                 missing_indexes.append(message_index)
-                continue
-            message = dict(source[message_index])
-            source_message_fallback_count += 1
+            continue
         rendered.append(message)
         expected_content_hash = str(item.get("content_hash") or "")
         actual_content_hash = _stable_text_hash(str(message.get("content") or ""))
@@ -95,7 +92,7 @@ def render_model_messages_from_projection(
                 }
             )
     fallback_reason = ""
-    if source_message_fallback_count:
+    if missing_fragment_segment_ids:
         fallback_reason = "content_fragment_incomplete"
     elif missing_indexes:
         fallback_reason = "message_projection_incomplete"
@@ -111,8 +108,8 @@ def render_model_messages_from_projection(
             "source_message_count": len(source),
             "rendered_message_count": len(rendered),
             "rendered_from_content_fragment_count": rendered_from_fragments,
-            "source_message_fallback_count": source_message_fallback_count,
-            "renderer_fallback_to_source_messages": source_message_fallback_count > 0,
+            "source_message_fallback_count": 0,
+            "renderer_fallback_to_source_messages": False,
             "fallback_reason": fallback_reason,
             "missing_content_fragment_segment_ids": missing_fragment_segment_ids[:20],
             "missing_source_message_indexes": missing_indexes,

@@ -6,8 +6,7 @@ import sys
 from pathlib import Path
 from typing import Type
 
-from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
-from langchain_core.tools import BaseTool
+from capability_system.tools.base_tool import AsyncCallbackManagerForToolRun, BaseTool, CallbackManagerForToolRun
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from runtime_encoding import utf8_subprocess_text_kwargs

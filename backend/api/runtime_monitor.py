@@ -66,6 +66,10 @@ class RuntimeMonitorActionRequest(BaseModel):
     max_steps: int = Field(default=12, ge=1, le=50)
 
 
+class RuntimeMonitorMaintenanceRequest(BaseModel):
+    limit: int = Field(default=240, ge=1, le=1000)
+
+
 def _sse(event: str, data: dict[str, Any], *, event_id: str = "") -> str:
     lines: list[str] = []
     if event_id:
@@ -128,6 +132,17 @@ async def preflight_runtime_monitor_action(payload: RuntimeMonitorActionRequest)
 @router.post("/orchestration/runtime-monitor/actions")
 async def execute_runtime_monitor_action(payload: RuntimeMonitorActionRequest) -> dict[str, Any]:
     return await _action_service().execute(payload.model_dump())
+
+
+@router.post("/orchestration/runtime-monitor/maintenance/task-run-retention")
+async def run_runtime_monitor_task_run_retention(
+    payload: RuntimeMonitorMaintenanceRequest | None = None,
+) -> dict[str, Any]:
+    requested_limit = payload.limit if payload is not None else 240
+    return await asyncio.to_thread(
+        _service().run_lifecycle_retention_maintenance,
+        limit=requested_limit,
+    )
 
 
 @router.get("/orchestration/runtime-monitor/events")

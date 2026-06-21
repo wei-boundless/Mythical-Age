@@ -34,7 +34,7 @@ def model_stream_policy_from_task_execution_assembly(
         "emit_text_preview": bool(policy.get("emit_text_preview") is True),
         "preview_char_limit": _safe_int(policy.get("preview_char_limit")),
         "persist_full_stream_text": bool(policy.get("persist_full_stream_text") is True),
-        "fallback_to_non_stream_on_error": bool(policy.get("fallback_to_non_stream_on_error", True) is not False),
+        "fallback_to_non_stream_on_error": bool(policy.get("fallback_to_non_stream_on_error") is True),
         "model_response_timeout_seconds": float(policy.get("model_response_timeout_seconds") or 0),
         "non_stream_fallback_timeout_seconds": float(policy.get("non_stream_fallback_timeout_seconds") or 0),
         "stream_recovery_timeout_seconds": float(policy.get("stream_recovery_timeout_seconds") or 0),

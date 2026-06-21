@@ -178,6 +178,12 @@ class RuntimeEventLog:
         self.index.next_offset(run_id=run_id, event_path=path)
         return self.index.list_recent_events(run_id, limit=max(1, int(limit or 160)), event_path=path)
 
+    def list_recent_raw_events(self, run_id: str, *, limit: int = 160) -> list[RuntimeEvent]:
+        return [
+            self._event_from_payload(item, run_id=run_id)
+            for item in read_event_tail_raw(self._event_path(run_id), tail_limit=max(1, int(limit or 160)))
+        ]
+
     def event_count(self, run_id: str) -> int:
         return self.index.event_count(run_id, event_path=self._event_path(run_id))
 

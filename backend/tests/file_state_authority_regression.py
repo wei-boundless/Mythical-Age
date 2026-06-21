@@ -52,6 +52,50 @@ def test_file_state_authority_tracks_partial_read_without_implicit_next_read() -
     assert projection[0]["last_tool_call_id"] == "call:read"
 
 
+def test_file_state_authority_does_not_backfill_tool_call_id_from_wrapper_payload() -> None:
+    envelope = build_tool_result_envelope(
+        tool_name="read_file",
+        tool_args={"path": "backend/app.py", "start_line": 1, "line_count": 1},
+        result={
+            "text": "1 | a",
+            "structured_payload": {
+                "observed_paths": ["backend/app.py"],
+                "tool_result": {
+                    "kind": "text_file",
+                    "path": "backend/app.py",
+                    "start_line": 1,
+                    "end_line": 1,
+                    "returned_lines": 1,
+                    "line_count": 1,
+                    "total_lines": 1,
+                    "has_more": False,
+                },
+            },
+        },
+    )
+
+    authority = FileStateAuthority.from_observations(
+        [
+            {
+                "observation_id": "obs:read:wrapper-shadow",
+                "payload": {
+                    "tool_call_id": "call:wrapper-shadow",
+                    "result_envelope": {
+                        key: value
+                        for key, value in envelope.to_dict().items()
+                        if key != "tool_call_id"
+                    },
+                },
+            }
+        ],
+        task_run_id="taskrun:file-state",
+    )
+    state = authority.projection()[0]
+
+    assert state["last_observation_ref"] == "obs:read:wrapper-shadow"
+    assert "last_tool_call_id" not in state
+
+
 def test_file_state_authority_marks_reads_stale_after_write() -> None:
     read_envelope = build_tool_result_envelope(
         tool_name="read_file",

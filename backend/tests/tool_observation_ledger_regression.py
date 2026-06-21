@@ -5,7 +5,7 @@ from runtime.memory.tool_observation_ledger import (
     build_tool_observation_record,
 )
 from task_system.runtime_semantics.protocol_boundary import detect_protocol_leak, strip_protocol_leak
-from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
+from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope, tool_result_envelope_from_payload
 
 
 def test_tool_observation_ledger_classifies_core_tool_side_effects() -> None:
@@ -127,6 +127,56 @@ def test_read_file_observation_records_content_window_metadata() -> None:
     assert record["result_metadata"]["result_boundary"]["fact_status"] == "window_evidence"
     assert record["result_metadata"]["recovery_options"][0]["kind"] == "continue_reading"
     assert record["result_metadata"]["recovery_options"][0]["args_hint"]["start_line"] == 16
+
+
+def test_tool_result_envelope_parser_does_not_backfill_identity_from_wrapper_payload() -> None:
+    envelope = build_tool_result_envelope(
+        tool_name="read_file",
+        tool_args={"path": "docs/source.md"},
+        result={
+            "text": "content",
+            "structured_payload": {
+                "observed_paths": ["docs/source.md"],
+                "tool_result": {
+                    "kind": "text_file",
+                    "path": "docs/source.md",
+                    "start_line": 1,
+                    "end_line": 1,
+                    "total_lines": 1,
+                },
+            },
+        },
+    )
+
+    parsed = tool_result_envelope_from_payload(
+        {
+            "tool_name": "shadow_tool",
+            "tool_call_id": "call:wrapper-shadow",
+            "action_request_ref": "request:wrapper-shadow",
+            "caller_ref": "turnrun:wrapper-shadow",
+            "result": "wrapper shadow text",
+            "execution_receipt": {"tool_call_id": "call:receipt-shadow"},
+            "result_envelope": {
+                key: value
+                for key, value in envelope.to_dict().items()
+                if key
+                not in {
+                    "tool_call_id",
+                    "action_request_id",
+                    "caller_ref",
+                    "execution_receipt",
+                }
+            },
+        }
+    )
+
+    assert parsed is not None
+    assert parsed.tool_name == "read_file"
+    assert parsed.tool_call_id == ""
+    assert parsed.action_request_id == ""
+    assert parsed.caller_ref == ""
+    assert parsed.execution_receipt == {}
+    assert parsed.text == "content"
 
 
 def test_collect_subagent_result_records_authoritative_final_answer_metadata() -> None:
@@ -529,5 +579,4 @@ def test_protocol_boundary_detects_command_tool_markup() -> None:
     assert result.detected is True
     assert "name=\"command\"" in result.markers
     assert strip_protocol_leak('正常回答\nname="command" pytest -q').strip() == "正常回答"
-
 

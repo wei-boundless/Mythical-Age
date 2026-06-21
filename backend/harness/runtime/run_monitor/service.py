@@ -64,14 +64,12 @@ class RuntimeMonitorService:
     def list_global_live_monitor(self, limit: int = 20) -> dict[str, Any]:
         requested_limit = max(1, min(int(limit or 20), 100))
         now = time.time()
-        self._sweep_expired_task_runs(now=now, limit=max(requested_limit * 4, 80))
         items = self._global_live_items(requested_limit=requested_limit, now=now)
         return build_envelope(scope="global", items=items, now=now, limit=requested_limit)
 
     def collect_global_runtime_monitor(self, limit: int = 30) -> dict[str, Any]:
         requested_limit = max(1, min(int(limit or 30), 100))
         now = time.time()
-        self._sweep_expired_task_runs(now=now, limit=max(requested_limit * 4, 80))
         revision = self._global_monitor_revision()
         cached = self._read_global_monitor_cache(limit=requested_limit, revision=revision, now=now)
         if cached is not None:
@@ -126,6 +124,10 @@ class RuntimeMonitorService:
     def invalidate_global_monitor_cache(self) -> None:
         with self._global_monitor_cache_lock:
             self._global_monitor_cache.clear()
+
+    def run_lifecycle_retention_maintenance(self, *, now: float | None = None, limit: int = 240) -> dict[str, Any]:
+        current_time = time.time() if now is None else float(now)
+        return self._sweep_expired_task_runs(now=current_time, limit=max(1, int(limit or 240)))
 
     def _sweep_expired_task_runs(self, *, now: float, limit: int) -> dict[str, Any]:
         with self._retention_sweep_lock:
@@ -219,7 +221,6 @@ class RuntimeMonitorService:
     def get_session_live_monitor(self, session_id: str, *, limit: int = 20) -> dict[str, Any]:
         requested_limit = max(1, min(int(limit or 20), 100))
         candidate_limit = min(SESSION_MONITOR_TASK_RUN_CANDIDATE_LIMIT, max(requested_limit * 4, 40))
-        self._sweep_expired_task_runs(now=time.time(), limit=240)
         task_runs = sorted(
             self._session_task_run_summaries(session_id, limit=candidate_limit),
             key=lambda item: item.updated_at,
@@ -258,7 +259,6 @@ class RuntimeMonitorService:
         }
 
     def get_session_task_summary(self, session_id: str) -> dict[str, Any]:
-        self._sweep_expired_task_runs(now=time.time(), limit=240)
         task_runs = sorted(
             [
                 item
@@ -329,7 +329,6 @@ class RuntimeMonitorService:
         }
 
     def get_task_run_live_monitor(self, task_run_id: str) -> dict[str, Any] | None:
-        self._sweep_expired_task_runs(now=time.time(), limit=240)
         task_run = self.runtime_host.state_index.get_task_run(task_run_id)
         now = time.time()
         if task_run is not None:

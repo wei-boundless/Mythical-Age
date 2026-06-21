@@ -51,6 +51,39 @@ def test_native_tool_call_action_keeps_agent_text_out_of_tool_projection() -> No
         "args": {"query": "requestAnimationFrame"},
     }
 
+
+def test_native_tool_call_parser_does_not_generate_second_identity_when_call_id_missing() -> None:
+    from harness.loop.single_agent_turn import _action_requests_from_native_tool_calls_with_diagnostics
+
+    parsed = _action_requests_from_native_tool_calls_with_diagnostics(
+        [{"name": "search_text", "args": {"query": "requestAnimationFrame"}}],
+        turn_id="turn:native-missing-id",
+        packet_ref="packet:native-missing-id",
+        iteration=1,
+        allowed_action_types=("respond", "tool_call"),
+    )
+
+    assert not parsed.actions
+    assert parsed.errors[0]["code"] == "native_action_request_missing"
+    assert parsed.errors[0]["native_tool_call"]["id"] == ""
+
+
+def test_native_respond_parser_requires_provider_normalized_call_id() -> None:
+    from harness.loop.single_agent_turn import _action_requests_from_native_tool_calls_with_diagnostics
+
+    parsed = _action_requests_from_native_tool_calls_with_diagnostics(
+        [{"name": "respond", "args": {"final_answer": "完成。"}}],
+        turn_id="turn:native-respond-missing-id",
+        packet_ref="packet:native-respond-missing-id",
+        iteration=1,
+        allowed_action_types=("respond", "tool_call"),
+    )
+
+    assert not parsed.actions
+    assert parsed.errors[0]["code"] == "native_tool_call_id_missing"
+    assert parsed.errors[0]["native_tool_call"]["id"] == ""
+
+
 def test_single_agent_turn_projection_separates_assistant_text_from_control_actions(tmp_path: Path) -> None:
     class RecordingTurnModelRuntime:
         def __init__(self) -> None:
@@ -179,14 +212,11 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
                 ]
             },
             {
-                "content": "已经读取 requirements.txt。",
-                "additional_kwargs": {"reasoning_content": "The file result is enough to answer."},
-            },
-            {
                 "content": json.dumps(
-                    _action_request(action_type="respond", final_answer="第二轮继续回答。"),
+                    _action_request(action_type="respond", final_answer="已经读取 requirements.txt。"),
                     ensure_ascii=False,
-                )
+                ),
+                "additional_kwargs": {"reasoning_content": "The file result is enough to answer."},
             },
         ]
     )
@@ -218,6 +248,7 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     tool_message = next(item for item in followup_messages if item.get("role") == "tool")
     followup_context = dict(model.seen_accounting_contexts[-1])
     followup_segment_plan = dict(followup_context.get("segment_plan") or {})
+    followup_prompt_manifest = dict(followup_context.get("prompt_manifest") or {})
     followup_request = ModelRequestBuilder().build(
         request_id="modelreq:single-agent-followup-test",
         messages=followup_messages,
@@ -229,8 +260,8 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     followup_kinds = [str(item.get("kind") or "") for item in list(followup_segment_plan.get("segments") or [])]
 
     assert model.calls == 2
-    assert done["terminal_reason"] == "assistant_message"
-    assert done["answer_source"] == "harness.single_agent_turn"
+    assert done["terminal_reason"] == "respond"
+    assert done["answer_source"] == "harness.single_agent_turn.respond"
     assert "已经读取 requirements.txt。" in str(done.get("content") or "")
     assert assistant_finals and assistant_finals[-1]["content"] == "已经读取 requirements.txt。"
     assert len(public_feedback_events) == 1
@@ -257,6 +288,8 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     assert dict(list(assistant_tool_message["tool_calls"])[0]).get("id") == "call-read-requirements"
     assert tool_message["tool_call_id"] == "call-read-requirements"
     assert followup_context["source"] == "harness.single_agent_turn.tool_followup"
+    assert followup_prompt_manifest["tool_followup_action_transport"] is True
+    assert followup_prompt_manifest["assistant_body_transport"] == "disabled_for_tool_observation_followup"
     assert followup_request.diagnostics["unplanned_message_count"] == 0
     assert followup_request.diagnostics["segment_bindings_match_planned_messages"] is True
     assert "single_agent_turn_tool_call" in followup_kinds
@@ -465,7 +498,14 @@ def test_single_agent_turn_streamed_native_tool_preamble_has_single_body_source(
                     ],
                 ),
             ],
-            [_NativeToolStreamChunk("已经读取 requirements.txt。")],
+            [
+                _NativeToolStreamChunk(
+                    json.dumps(
+                        _action_request(action_type="respond", final_answer="已经读取 requirements.txt。"),
+                        ensure_ascii=False,
+                    )
+                )
+            ],
         ]
     )
     tool_base_dir = _project_backend_dir()
@@ -508,6 +548,76 @@ def test_single_agent_turn_streamed_native_tool_preamble_has_single_body_source(
 
     assert preamble in streamed_preamble
     assert duplicate_feedback_events == []
+
+
+def test_single_agent_turn_tool_followup_action_json_is_not_body_streamed(tmp_path: Path) -> None:
+    action = json.dumps(
+        {
+            **_action_request(action_type="respond", final_answer="已经读取 requirements.txt。"),
+            "task_contract_seed": {
+                "user_visible_goal": "不应作为正文直播。",
+                "task_run_goal": "不应作为正文直播。",
+                "completion_criteria": ["不泄露内部合同。"],
+                "working_scope": {"target_objects": ["requirements.txt"]},
+                "capability_intent": {"needed_capability_groups": ["file_work"]},
+                "skill_intent": {"selected_skill_ids": [], "candidate_skill_ids": []},
+                "observation_contract": {"evidence_policy": "observation_required"},
+            },
+        },
+        ensure_ascii=False,
+    )
+    model = _StreamingNativeToolSequenceModel(
+        [
+            [
+                _NativeToolStreamChunk(
+                    "",
+                    [
+                        {
+                            "id": "call-read-requirements",
+                            "name": "read_file",
+                            "args": {"path": "requirements.txt"},
+                        }
+                    ],
+                )
+            ],
+            [_NativeToolStreamChunk(action[:80]), _NativeToolStreamChunk(action[80:])],
+        ]
+    )
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(_project_backend_dir(), {"read_file"}),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-tool-followup-action-json-hidden",
+                message="看看依赖文件。",
+                model_selection={
+                    "stream_policy": {
+                        "enabled": True,
+                        "emit_assistant_text_delta": True,
+                        "max_flush_interval_ms": 0,
+                    }
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    streamed_text = "".join(
+        str(event.get("content") or "")
+        for event in events
+        if event.get("type") == "assistant_text_delta"
+    )
+    done = dict(next(event for event in events if event.get("type") == "done"))
+
+    assert "task_contract_seed" not in streamed_text
+    assert "observation_contract" not in streamed_text
+    assert done["content"] == "已经读取 requirements.txt。"
 
 
 def test_single_agent_turn_recovers_partial_provider_stream_from_visible_prefix(tmp_path: Path) -> None:

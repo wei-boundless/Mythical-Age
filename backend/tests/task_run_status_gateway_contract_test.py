@@ -130,6 +130,30 @@ def test_gateway_published_stop_signal_terminalizes_control_state(tmp_path: Path
     assert view["control_state"] == "stop_requested"
 
 
+def test_gateway_signal_lookup_uses_recent_raw_tail_without_hydrating_payloads(tmp_path: Path) -> None:
+    host = _runtime_host(tmp_path / "runtime_state")
+    task_run_id = "taskrun:gateway-signal-fast-path"
+    signal_id = "rtsig:gateway-signal-fast-path"
+    host.runtime_gateway.publish(
+        task_run_id,
+        signal_type="control.signal.requested",
+        signal_id=signal_id,
+        scope=RuntimeSignalScope(task_run_id=task_run_id),
+        source_authority="test.task_run_status_gateway_contract",
+        payload={"signal_kind": "stop", "task_run_id": task_run_id},
+    )
+
+    def fail_hydration(_payload):
+        raise AssertionError("signal_by_id should not hydrate full event payloads for recent signals")
+
+    host.event_log.payload_store.hydrate_event_payload = fail_hydration
+
+    signal = host.runtime_gateway.signal_by_id(task_run_id, signal_id=signal_id)
+
+    assert signal is not None
+    assert signal.signal_id == signal_id
+
+
 def test_durable_aborted_lifecycle_remains_terminal_without_gateway_ref(tmp_path: Path) -> None:
     host = _runtime_host(tmp_path / "runtime_state")
     task_run = _task_run(
@@ -233,6 +257,27 @@ def test_durable_paused_waiting_executor_remains_paused_without_gateway_ref(tmp_
     assert view["task_work_state"] == "paused"
     assert view["can_resume"] is True
     assert recovery.paused is True
+
+
+def test_bare_recovery_action_does_not_make_task_executable(tmp_path: Path) -> None:
+    host = _runtime_host(tmp_path / "runtime_state")
+    task_run = _task_run(
+        "taskrun:bare-recovery-action",
+        status="waiting_executor",
+        diagnostics={
+            "executor_status": "waiting_executor",
+            "recovery_action": "resume_task_run",
+        },
+    )
+
+    view = task_run_state_view(task_run, runtime_host=host)
+    recovery = recovery_state_for_task_run(task_run, runtime_host=host)
+
+    assert view["task_work_state"] == "ready_to_continue"
+    assert recovery.recoverable is False
+    assert recovery.same_run_resumable is False
+    assert recovery.executable is False
+    assert recovery.reason == "not_resumable"
 
 
 def test_shadow_paused_running_task_does_not_affect_state_view_or_lease(tmp_path: Path) -> None:

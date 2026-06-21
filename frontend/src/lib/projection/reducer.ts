@@ -245,8 +245,7 @@ function frameCanPatchMainChatProjection(frame: PublicProjectionFrame) {
     return true;
   }
   return frameIsToolProjection(frame)
-    || (frameIsTodoPlanProjection(frame) && frameIsMainVisible(frame))
-    || (frameIsTypedStatusProjection(frame) && frameIsMainVisible(frame));
+    || (frameIsTodoPlanProjection(frame) && frameIsMainVisible(frame));
 }
 
 function frameIsToolProjection(frame: PublicProjectionFrame) {
@@ -255,11 +254,6 @@ function frameIsToolProjection(frame: PublicProjectionFrame) {
 
 function frameIsTodoPlanProjection(frame: PublicProjectionFrame) {
   return text(frame.status_kind) === "todo_plan" && Array.isArray(frame.todo_items);
-}
-
-function frameIsTypedStatusProjection(frame: PublicProjectionFrame) {
-  const statusKind = text(frame.status_kind);
-  return statusKind === "status_event" || statusKind === "recovery_event" || statusKind === "terminal_event";
 }
 
 function streamAnchorMatchesFrame(anchor: ProjectionStreamAnchor | undefined, frame: PublicProjectionFrame) {

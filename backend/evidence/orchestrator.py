@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agent_system.a2a.official_adapter import (
     OFFICIAL_A2A_PROTOCOL_VERSION,
@@ -10,11 +10,7 @@ from agent_system.a2a.official_adapter import (
 from capability_system.mcp.local_registry import get_local_mcp_unit
 from evidence.graph import EvidenceArtifactGraph, result_handle_from_payload, subset_handle_from_payload
 from runtime.output_boundary import build_rag_evidence_pack
-from .pdf_worker import PDFWorker
 from .projection import MCPProjectionAdapter
-from .retrieval_worker import RetrievalWorker
-from .structured_data_worker import StructuredDataWorker
-from .image_ocr_worker import ImageOCRWorker
 from .mcp_models import (
     CanonicalResult,
     MCPExecutionPlan,
@@ -24,6 +20,12 @@ from .mcp_models import (
     stream_event_type_from_mcp_status,
     task_status_from_mcp_status,
 )
+
+if TYPE_CHECKING:
+    from .image_ocr_worker import ImageOCRWorker
+    from .pdf_worker import PDFWorker
+    from .retrieval_worker import RetrievalWorker
+    from .structured_data_worker import StructuredDataWorker
 
 
 class EvidenceOrchestrator:

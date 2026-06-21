@@ -795,7 +795,7 @@ def test_session_runtime_timeline_restores_model_feedback_identity_for_public_fe
     assert frame["frame_id"].startswith("assistant-public-feedback-frame:")
 
 
-def test_session_runtime_timeline_sanitizes_legacy_protocol_repair_frames() -> None:
+def test_session_runtime_timeline_rejects_noncanonical_projection_frames() -> None:
     task_run_id = "taskrun:turn:session-a:1:abc"
     stream_run_id = "strun:session-a:1"
     stream_run = SimpleNamespace(
@@ -807,16 +807,16 @@ def test_session_runtime_timeline_sanitizes_legacy_protocol_repair_frames() -> N
         created_at=1.0,
         updated_at=2.0,
     )
-    legacy_frame = {
-        "frame_id": "frame:legacy-protocol-repair",
+    noncanonical_frame = {
+        "frame_id": "frame:noncanonical-runtime-status",
         "op": "item_upsert",
         "slot": "status",
         "source_authority": "runtime",
         "main_visibility": "visible_live",
         "retention": "transient",
-        "status_kind": "protocol_repair_status",
-        "title": "当前步骤输出格式不完整，正在自动修正后继续。",
-        "text": "当前步骤输出格式不完整，正在自动修正后继续。",
+        "status_kind": "runtime_status",
+        "title": "noncanonical private status must not hydrate",
+        "text": "noncanonical private status must not hydrate",
         "detail": "",
         "anchor": {
             "session_id": "session-a",
@@ -835,13 +835,13 @@ def test_session_runtime_timeline_sanitizes_legacy_protocol_repair_frames() -> N
                 {
                     "stream_run_id": stream_run_id,
                     "event_log_id": "chatrun:session-a:1",
-                    "event_id": "event:legacy-protocol-repair",
+                    "event_id": "event:noncanonical-frame",
                     "event_offset": 1,
                     "created_at": 1.0,
                     "public_event_type": "runtime_step_summary",
                     "terminal": False,
-                    "data": {"public_projection_frame": legacy_frame},
-                    "public_projection_frame": legacy_frame,
+                    "data": {"public_projection_frame": noncanonical_frame},
+                    "public_projection_frame": noncanonical_frame,
                 }
             ]
         },
@@ -853,15 +853,12 @@ def test_session_runtime_timeline_sanitizes_legacy_protocol_repair_frames() -> N
         runtime_host=runtime_host,
     )
 
-    frame = _projection_frames(timeline["runtime_attachments"][0])[0]
-    assert frame["slot"] == "trace"
-    assert frame["main_visibility"] == "hidden"
-    assert frame["retention"] == "trace"
-    assert "status_kind" not in frame
-    assert "当前步骤输出格式不完整" not in str(frame)
+    attachment = timeline["runtime_attachments"][0]
+    assert _projection_frames(attachment) == []
+    assert "noncanonical private status must not hydrate" not in str(attachment)
 
 
-def test_session_runtime_timeline_stream_failure_does_not_close_main_surface() -> None:
+def test_session_runtime_timeline_runtime_interruption_terminal_is_trace_only() -> None:
     task_run_id = "taskrun:turn:session-a:1:abc"
     stream_run_id = "strun:session-a:1"
     stream_run = SimpleNamespace(
@@ -909,9 +906,10 @@ def test_session_runtime_timeline_stream_failure_does_not_close_main_surface() -
     assert attachment["closeout_summary"] == ""
     frames = _projection_frames(attachment)
     assert [frame["op"] for frame in frames] == ["item_upsert", "item_upsert"]
-    assert frames[1]["slot"] == "status"
-    assert frames[1]["main_visibility"] == "visible_live"
-    assert frames[1]["status_kind"] == "terminal_event"
+    assert frames[1]["slot"] == "trace"
+    assert frames[1]["main_visibility"] == "hidden"
+    assert frames[1]["retention"] == "trace"
+    assert "status_kind" not in frames[1]
 
 
 def test_turn_runtime_attachment_keeps_projection_anchor_without_legacy_projection_fields() -> None:

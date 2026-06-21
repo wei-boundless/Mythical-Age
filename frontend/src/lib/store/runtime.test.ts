@@ -617,6 +617,74 @@ function publicBodyFrame(patch: Record<string, unknown> = {}) {
   };
 }
 
+function runtimeProjectionAttachmentForTest(options: {
+  sessionId: string;
+  turnId: string;
+  assistantMessageId: string;
+  streamRunId: string;
+  turnRunId: string;
+  text: string;
+}) {
+  const frame = publicBodyFrame({
+    frame_id: `frame:${options.streamRunId}:body`,
+    projection_id: `frame:${options.streamRunId}:body`,
+    event_offset: 10,
+    sequence: 10,
+    retention: "transient",
+    text: options.text,
+    item_id: options.assistantMessageId,
+    anchor: {
+      session_id: options.sessionId,
+      turn_id: options.turnId,
+      message_id: options.assistantMessageId,
+      stream_run_id: options.streamRunId,
+      run_id: options.streamRunId,
+      turn_run_id: options.turnRunId,
+    },
+  });
+  return {
+    attachment_id: `runtime-attachment:${options.streamRunId}`,
+    run_id: options.streamRunId,
+    stream_run_id: options.streamRunId,
+    event_log_id: `chatrun:${options.streamRunId}`,
+    anchor_turn_id: options.turnId,
+    anchor_message_id: options.assistantMessageId,
+    anchor_role: "assistant",
+    turn_run_id: options.turnRunId,
+    status: "running",
+    display_state: "running",
+    main_chat_surface: "live",
+    projection_anchor: {
+      session_id: options.sessionId,
+      anchor_turn_id: options.turnId,
+      anchor_message_id: options.assistantMessageId,
+      stream_run_id: options.streamRunId,
+      run_id: options.streamRunId,
+      turn_run_id: options.turnRunId,
+    },
+    projection_slices: [{
+      slice_id: `projection-slice:${options.streamRunId}`,
+      schema_version: "chronological_projection",
+      event_log_id: `chatrun:${options.streamRunId}`,
+      start_offset: 10,
+      end_offset: 10,
+      integrity: "bounded",
+      committed: false,
+      cursor: {
+        min_event_offset: 10,
+        max_event_offset: 10,
+        frame_count: 1,
+      },
+      frames: [frame],
+      display_hint: {
+        lifecycle: "running",
+        main_surface_hint: "live",
+      },
+      authority: "session_runtime_timeline.projection_slice",
+    }],
+  };
+}
+
 function latestProjectionView(state: StoreState) {
   const assistant = [...state.messages].reverse().find((message) => message.role === "assistant");
   const key = assistant?.projectionKeyString ?? "";
@@ -1987,7 +2055,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect((api.streamChat.mock.calls[0]?.[0]?.editor_context as Record<string, any>)?.active_file?.selection).toBeUndefined();
   });
 
-  it("does not send a workspace-only editor context that would hide VS Code active file fallback", async () => {
+  it("does not send workspace-only editor context when no editor file is active", async () => {
     vi.useRealTimers();
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -2593,6 +2661,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const runtime = new WorkspaceRuntime(store);
 
     runtime.startRunMonitor();
+    runtime.startRunMonitor();
     await vi.advanceTimersByTimeAsync(0);
 
     expect(instances).toHaveLength(1);
@@ -2623,6 +2692,34 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       before_sha256: "sha-before",
       after_sha256: "sha-after",
     });
+  });
+
+  it("does not reopen the run monitor stream after disposal", async () => {
+    const instances: Array<{ close: ReturnType<typeof vi.fn>; listeners: Record<string, (event: MessageEvent) => void> }> = [];
+    class MockEventSource {
+      close = vi.fn();
+      listeners: Record<string, (event: MessageEvent) => void> = {};
+
+      constructor(_url: string) {
+        instances.push(this);
+      }
+
+      addEventListener(event: string, handler: (message: MessageEvent) => void) {
+        this.listeners[event] = handler;
+      }
+    }
+    vi.stubGlobal("EventSource", MockEventSource);
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    runtime.startRunMonitor();
+    runtime.dispose();
+    runtime.startRunMonitor();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(instances).toHaveLength(1);
+    expect(instances[0].close).toHaveBeenCalledTimes(1);
+    expect(store.getState().runMonitorStreamStatus).toBe("closed");
   });
 
   it("does not start legacy run monitor polling when SSE is unavailable", async () => {
@@ -5962,7 +6059,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       message_count: 1,
     }]);
     api.readChatStreamCursor.mockReturnValue(cursor);
-    api.getChatRun.mockResolvedValue({
+    api.getLatestChatRunForSession.mockResolvedValue({
       stream_run_id: "strun:resume",
       session_id: "session:existing",
       event_log_id: "chatrun:resume",
@@ -5999,6 +6096,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await Promise.resolve();
 
     expect(api.streamChat).not.toHaveBeenCalled();
+    expect(api.getChatRun).not.toHaveBeenCalled();
     expect(api.streamExistingChatRun).toHaveBeenCalledWith(
       "session:existing",
       "strun:resume",
@@ -6020,6 +6118,37 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(JSON.stringify(store.getState().messages)).not.toContain("正在重新连接");
   });
 
+  it("does not reattach from a persisted cursor when there is no backend-confirmed active run", async () => {
+    vi.useRealTimers();
+    const cursor = {
+      streamRunId: "strun:old-cursor",
+      eventLogId: "chatrun:old-cursor",
+      lastEventOffset: 7,
+      lastEventId: "strun:old-cursor:chatrun:old-cursor:7",
+    };
+    api.listSessions.mockResolvedValue([{
+      id: "session:no-active-run",
+      title: "No active run",
+      created_at: 1,
+      updated_at: 1,
+      message_count: 1,
+    }]);
+    api.readChatStreamCursor.mockReturnValue(cursor);
+    api.getLatestChatRunForSession.mockResolvedValue(null);
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await Promise.resolve();
+
+    expect(api.clearChatStreamCursor).toHaveBeenCalledWith("session:no-active-run");
+    expect(api.getChatRun).not.toHaveBeenCalled();
+    expect(api.streamExistingChatRun).not.toHaveBeenCalled();
+    expect(api.streamChat).not.toHaveBeenCalled();
+    expect(store.getState().activeStreamSessionIds).toEqual([]);
+    expect(store.getState().isStreaming).toBe(false);
+  });
+
   it("creates a transient assistant shell for recovered live streams without persisted assistant output", async () => {
     vi.useRealTimers();
     const cursor = {
@@ -6036,7 +6165,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       message_count: 1,
     }]);
     api.readChatStreamCursor.mockReturnValue(cursor);
-    api.getChatRun.mockResolvedValue({
+    api.getLatestChatRunForSession.mockResolvedValue({
       stream_run_id: "strun:wait",
       session_id: "session:wait",
       event_log_id: "chatrun:wait",
@@ -6077,6 +6206,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       sourceTurnRunId: "turnrun:wait",
     });
     expect(api.getSessionHistory).toHaveBeenCalled();
+    expect(api.getChatRun).not.toHaveBeenCalled();
     expect(api.streamChat).not.toHaveBeenCalled();
   });
 
@@ -6090,7 +6220,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       lastEventId: "strun:visible-recovery:chatrun:visible-recovery:1",
     };
     api.readChatStreamCursor.mockReturnValue(cursor);
-    api.getChatRun.mockResolvedValue({
+    api.getLatestChatRunForSession.mockResolvedValue({
       stream_run_id: cursor.streamRunId,
       session_id: sessionId,
       event_log_id: cursor.eventLogId,
@@ -6133,7 +6263,86 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     expect(reattached).toBe(true);
     expect(api.getSessionHistory).not.toHaveBeenCalled();
+    expect(api.getChatRun).not.toHaveBeenCalled();
     expect(api.streamExistingChatRun).toHaveBeenCalled();
+  });
+
+  it("merges runtime projection refresh into an active recovered stream shell", async () => {
+    vi.useRealTimers();
+    const sessionId = "session:projection-refresh-active";
+    const turnId = "turn:projection-refresh-active:1";
+    const streamRunId = "strun:projection-refresh-active";
+    const turnRunId = "turnrun:projection-refresh-active";
+    const assistantMessageId = "turn:projection-refresh-active:1:assistant";
+    const shellAssistantId = "assistant:projection-refresh-shell";
+    api.getSessionRuntimeProjection.mockResolvedValue({
+      messages: [
+        {
+          id: "user:projection-refresh-active",
+          role: "user",
+          content: "继续",
+          turn_id: turnId,
+        },
+      ],
+      runtime_attachments: [
+        runtimeProjectionAttachmentForTest({
+          sessionId,
+          turnId,
+          assistantMessageId,
+          streamRunId,
+          turnRunId,
+          text: "恢复后的公开正文。",
+        }),
+      ],
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: sessionId,
+      activeStreamSessionIds: [sessionId],
+      isStreaming: true,
+      messages: [
+        {
+          id: "user:projection-refresh-active",
+          role: "user",
+          content: "继续",
+          toolCalls: [],
+          retrievals: [],
+          sourceIndex: 0,
+          sourceTurnId: turnId,
+        },
+        {
+          id: shellAssistantId,
+          role: "assistant",
+          content: "",
+          toolCalls: [],
+          retrievals: [],
+          sourceIndex: 0.5,
+          sourceTurnId: turnId,
+          sourceStreamRunId: streamRunId,
+          sourceRunId: streamRunId,
+          sourceTurnRunId: turnRunId,
+        },
+      ],
+      activeProjectionsByKey: {},
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      refreshSessionRuntimeProjection: (sessionId: string, detailsRequestId?: number) => Promise<void>;
+    };
+
+    await runtime.refreshSessionRuntimeProjection(sessionId);
+
+    const state = store.getState();
+    const assistantMessages = state.messages.filter((message) =>
+      message.role === "assistant" && message.sourceTurnId === turnId
+    );
+    const assistant = state.messages.find((message) => message.id === shellAssistantId);
+    const projectionView = assistant?.projectionKeyString
+      ? state.activeProjectionsByKey[assistant.projectionKeyString]?.view
+      : undefined;
+
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistant?.projectionKeyString).toBeTruthy();
+    expect(projectionView?.canonicalContent).toBe("恢复后的公开正文。");
   });
 
   it("reattaches the latest active chat run when the local cursor is missing", async () => {
@@ -6221,17 +6430,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       replay_url: "/api/chat/runs/strun:latest-after-stale/events/replay",
       live_ws_url: "/api/chat/sessions/session:latest-after-stale/live",
     });
-    api.getChatRun.mockResolvedValue({
-      stream_run_id: "strun:stale",
-      session_id: "session:other",
-      event_log_id: "chatrun:stale",
-      root_request_ref: "chatreq:stale",
-      status: "running",
-      latest_event_offset: 99,
-      is_reconnectable: true,
-      replay_url: "/api/chat/runs/strun:stale/events/replay",
-      live_ws_url: "/api/chat/sessions/session:other/live",
-    });
     api.getSessionHistory.mockResolvedValue({
       messages: [
         { role: "user", content: "继续处理" },
@@ -6251,6 +6449,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await Promise.resolve();
 
     expect(api.clearChatStreamCursor).toHaveBeenCalledWith("session:latest-after-stale");
+    expect(api.getChatRun).not.toHaveBeenCalled();
     expect(api.streamExistingChatRun).toHaveBeenCalledWith(
       "session:latest-after-stale",
       "strun:latest-after-stale",
@@ -6282,7 +6481,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       message_count: 1,
     }]);
     api.readChatStreamCursor.mockReturnValue(cursor);
-    api.getChatRun.mockResolvedValue({
+    api.getLatestChatRunForSession.mockResolvedValue({
       stream_run_id: "strun:terminal",
       session_id: "session:terminal",
       event_log_id: "chatrun:terminal",
@@ -6307,6 +6506,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await Promise.resolve();
 
     expect(api.clearChatStreamCursor).toHaveBeenCalledWith("session:terminal");
+    expect(api.getChatRun).not.toHaveBeenCalled();
     expect(api.streamExistingChatRun).not.toHaveBeenCalled();
     expect(api.streamChat).not.toHaveBeenCalled();
   });

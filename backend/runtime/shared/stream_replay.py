@@ -13,6 +13,8 @@ from runtime.output_stream.public_contract import is_terminal_public_event
 
 PUBLIC_STREAM_EVENT_TYPE = "chat_stream_event"
 AGENT_LIVE_PROTOCOL = "agent-live.v1"
+_PUBLIC_PROJECTION_AUTHORITY = "harness.public_projection"
+_REQUIRED_PROJECTION_FRAME_KEYS = ("op", "slot", "main_visibility", "retention")
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,40 +192,38 @@ def stream_event_id(stream_run_id: str, event_log_id: str, offset: int) -> str:
     return f"{stream_run_id}:{event_log_id}:{int(offset)}"
 
 
-def sanitized_public_projection_frame(frame: dict[str, Any] | None) -> dict[str, Any]:
+def canonical_public_projection_frame(frame: dict[str, Any] | None) -> dict[str, Any]:
     payload = dict(frame or {})
-    if not _is_legacy_protocol_repair_public_frame(payload):
-        return payload
-    sanitized = {
-        key: value
-        for key, value in payload.items()
-        if key not in {"detail", "public_summary", "status_kind", "text", "title"}
-    }
-    sanitized.update(
-        {
-            "op": "item_upsert",
-            "slot": "trace",
-            "source_authority": "runtime",
-            "main_visibility": "hidden",
-            "retention": "trace",
-        }
-    )
-    return sanitized
+    if not payload:
+        return {}
+    if str(payload.get("authority") or "").strip() != _PUBLIC_PROJECTION_AUTHORITY:
+        return {}
+    if not str(payload.get("frame_id") or payload.get("projection_id") or "").strip():
+        return {}
+    try:
+        float(payload.get("event_offset"))
+    except (TypeError, ValueError):
+        return {}
+    if any(not str(payload.get(key) or "").strip() for key in _REQUIRED_PROJECTION_FRAME_KEYS):
+        return {}
+    return payload
 
 
 def sanitize_public_stream_event_data_for_replay(public_event_type: str, data: dict[str, Any]) -> dict[str, Any]:
-    payload = _data_with_sanitized_public_projection_frame(dict(data or {}))
+    payload = _data_with_canonical_public_projection_frame(dict(data or {}))
     return _data_with_sanitized_runtime_control_signal(public_event_type, payload)
 
 
-def _data_with_sanitized_public_projection_frame(data: dict[str, Any]) -> dict[str, Any]:
+def _data_with_canonical_public_projection_frame(data: dict[str, Any]) -> dict[str, Any]:
     frame = data.get("public_projection_frame")
     if not isinstance(frame, dict):
         return data
-    sanitized = sanitized_public_projection_frame(frame)
-    if sanitized == frame:
-        return data
-    return {**data, "public_projection_frame": sanitized}
+    canonical = canonical_public_projection_frame(frame)
+    if canonical:
+        return {**data, "public_projection_frame": canonical}
+    payload = dict(data)
+    payload.pop("public_projection_frame", None)
+    return payload
 
 
 def _data_with_sanitized_runtime_control_signal(event_name: str, data: dict[str, Any]) -> dict[str, Any]:
@@ -254,14 +254,6 @@ def _public_runtime_control_signal_index(value: Any) -> dict[str, str]:
     if signal_kind:
         index["signal_kind"] = signal_kind
     return index
-
-
-def _is_legacy_protocol_repair_public_frame(frame: dict[str, Any]) -> bool:
-    status_kind = str(frame.get("status_kind") or "").strip().lower()
-    if status_kind == "protocol_repair_status":
-        return True
-    item_id = str(frame.get("item_id") or "").strip().lower()
-    return item_id.startswith("protocol-repair")
 
 
 def parse_stream_event_id(value: str, *, expected_stream_run_id: str = "", expected_event_log_id: str = "") -> RuntimeStreamCursor | None:

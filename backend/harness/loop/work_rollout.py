@@ -190,28 +190,7 @@ def work_rollout_summary(runtime_host: Any, task_run: Any | str) -> dict[str, An
     task_run_id = str(task_run if isinstance(task_run, str) else getattr(task_run, "task_run_id", "") or "")
     record = load_work_rollout(runtime_host, task_run_id)
     if record is None:
-        if isinstance(task_run, str):
-            return {}
-        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-        return {
-            "rollout_id": "",
-            "latest_progress": public_runtime_progress_summary(diagnostics.get("latest_step_summary") or ""),
-            "latest_step_title": str(diagnostics.get("latest_step") or ""),
-            "agent_brief_output": "",
-            "progress_timeline": [],
-            "model_visible_history": [],
-            "latest_event_offset": _int_value(getattr(task_run, "latest_event_offset", -1), -1),
-            "latest_checkpoint_ref": str(getattr(task_run, "latest_checkpoint_ref", "") or ""),
-            "breakpoint": _breakpoint_payload(
-                latest_event_offset=_int_value(getattr(task_run, "latest_event_offset", -1), -1),
-                latest_checkpoint_ref=str(getattr(task_run, "latest_checkpoint_ref", "") or ""),
-                status=str(getattr(task_run, "status", "") or ""),
-                latest_step_title=str(diagnostics.get("latest_step") or ""),
-                latest_progress=public_runtime_progress_summary(diagnostics.get("latest_step_summary") or ""),
-            ),
-            "artifact_refs": list(diagnostics.get("artifact_refs") or []),
-            "authority": "runtime.work_rollout_summary.fallback",
-        }
+        return {}
     return {
         "rollout_id": record.rollout_id,
         "logical_work_id": record.logical_work_id,

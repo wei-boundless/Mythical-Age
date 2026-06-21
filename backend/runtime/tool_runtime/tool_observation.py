@@ -48,17 +48,9 @@ class ToolObservation:
     def _tool_call_id(self) -> str:
         result_envelope = dict(self.result_envelope or {})
         execution_receipt = dict(self.execution_receipt or result_envelope.get("execution_receipt") or {})
-        diagnostics = dict(self.diagnostics or {})
-        action_request = diagnostics.get("action_request")
-        if not isinstance(action_request, dict):
-            action_request = {}
-        tool_call = action_request.get("tool_call")
-        if not isinstance(tool_call, dict):
-            tool_call = {}
         return str(
             result_envelope.get("tool_call_id")
             or execution_receipt.get("tool_call_id")
-            or tool_call.get("id")
             or ""
         ).strip()
 
@@ -86,14 +78,4 @@ class ToolObservation:
         return {
             "type": "tool_observation",
             "tool_observation": self.to_dict(),
-        }
-
-    def to_model_followup_context(self) -> dict[str, Any]:
-        return {
-            "tool_name": self.tool_name,
-            "operation_id": self.operation_id,
-            "status": self.status,
-            "text": self.text,
-            "result_ref": self.result_ref,
-            "diagnostics": dict(self.diagnostics or {}),
         }

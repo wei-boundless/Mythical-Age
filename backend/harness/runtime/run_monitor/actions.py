@@ -10,6 +10,7 @@ from harness.runtime.task_record_lifecycle import (
     TaskRecordLifecycleManager,
     TaskRecordLifecycleNotFound,
 )
+from harness.runtime.task_run_control_gateway import TaskRunControlGateway
 
 
 class RuntimeMonitorActionService:
@@ -48,7 +49,9 @@ class RuntimeMonitorActionService:
     async def execute(self, payload: dict[str, Any]) -> dict[str, Any]:
         action = _action_name(payload)
         preflight = await self.preflight(payload)
-        if not preflight.get("accepted"):
+        signal = _find_signal(dict(preflight.get("monitor") or {}), payload)
+        execution_check = self._execution_check(action=action, payload=payload, signal=signal)
+        if not execution_check.get("enabled"):
             return {
                 **preflight,
                 "mode": "execute",
@@ -57,10 +60,10 @@ class RuntimeMonitorActionService:
                     action=action,
                     accepted=False,
                     mode="execute",
-                    reason=str(preflight.get("disabled_reason") or "action_not_available"),
+                    reason=str(execution_check.get("disabled_reason") or "action_not_available"),
                 ),
+                "disabled_reason": str(execution_check.get("disabled_reason") or "action_not_available"),
             }
-        signal = _find_signal(dict(preflight.get("monitor") or {}), payload)
         effects: dict[str, Any]
         if action == "clear_from_monitor":
             effects = self._clear_from_monitor(payload=payload, signal=signal)
@@ -126,6 +129,28 @@ class RuntimeMonitorActionService:
                     "disabled_reason": str(candidate.get("disabled_reason") or ""),
                 }
         return {"enabled": False, "disabled_reason": "action_not_available"}
+
+    def _execution_check(self, *, action: str, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
+        if action in {"clear_from_monitor", "restore_to_monitor"}:
+            if not _signal_id(payload=payload, signal=signal):
+                return {"enabled": False, "disabled_reason": "signal_id_required"}
+            return {"enabled": True, "disabled_reason": ""}
+        if action == "preview_delete_graph_run":
+            if not _graph_run_id(payload=payload, signal=signal):
+                return {"enabled": False, "disabled_reason": "graph_run_id_required"}
+            return {"enabled": True, "disabled_reason": ""}
+        task_run_required_actions = {
+            "close_runtime",
+            "pause_task",
+            "stop_task",
+            "delete_record",
+            "preview_delete_record",
+        }
+        if action in task_run_required_actions:
+            if not _task_run_id(payload=payload, signal=signal):
+                return {"enabled": False, "disabled_reason": "task_run_id_required"}
+            return {"enabled": True, "disabled_reason": ""}
+        return {"enabled": False, "disabled_reason": "unsupported_action"}
 
     def _preview_effects(self, *, action: str, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
         if action == "preview_delete_graph_run":
@@ -270,16 +295,26 @@ class RuntimeMonitorActionService:
         spawner(coro, name=name)
 
     def _pause_task(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
-        from harness.loop.task_executor import request_task_run_pause
-
         task_run_id = _task_run_id(payload=payload, signal=signal)
-        return dict(request_task_run_pause(self.host, task_run_id, reason=str(payload.get("reason") or ""), requested_by="user") or {})
+        return dict(
+            TaskRunControlGateway(runtime_host=self.host, schedule_task_run_executor=None).pause_task_run(
+                task_run_id,
+                reason=str(payload.get("reason") or ""),
+                requested_by="user",
+            )
+            or {}
+        )
 
     def _stop_task(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
-        from harness.loop.task_executor import stop_task_run
-
         task_run_id = _task_run_id(payload=payload, signal=signal)
-        return dict(stop_task_run(self.host, task_run_id, reason=str(payload.get("reason") or ""), requested_by="user") or {})
+        return dict(
+            TaskRunControlGateway(runtime_host=self.host, schedule_task_run_executor=None).stop_task_run(
+                task_run_id,
+                reason=str(payload.get("reason") or ""),
+                requested_by="user",
+            )
+            or {}
+        )
 
 
 def _action_name(payload: dict[str, Any]) -> str:

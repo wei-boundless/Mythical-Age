@@ -6,8 +6,7 @@ import re
 from pathlib import Path
 from typing import Any, Type
 
-from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
-from langchain_core.tools import BaseTool
+from capability_system.tools.base_tool import AsyncCallbackManagerForToolRun, BaseTool, CallbackManagerForToolRun
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from memory_system.runtime_scope import project_id_for_task_run

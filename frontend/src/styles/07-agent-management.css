@@ -7,7 +7,7 @@
   min-height: 36px;
   border: 1px solid color-mix(in srgb, var(--color-accent-primary) 14%, var(--color-border));
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.14);
+  background: color-mix(in srgb, var(--color-text) 14%, transparent);
   color: var(--color-text-soft);
   padding: 0 0.62rem;
 }
@@ -100,8 +100,8 @@
 }
 
 .boundary-field select option {
-  background-color: #0b2230;
-  color: #edf7ff;
+  background-color: var(--console-bg-raised);
+  color: var(--console-text);
 }
 
 .boundary-field textarea {
@@ -1512,7 +1512,7 @@
 .system-page-shell:not(.system-page-shell--removed-system) .health-token-workbench .health-token-ledger-hero__breakdown span,
 .system-page-shell:not(.system-page-shell--removed-system) .health-token-workbench .health-token-source {
   border-color: var(--health-token-line);
-  background: #ffffff;
+  background: var(--health-token-bg);
   color: var(--health-token-muted);
 }
 
@@ -1556,7 +1556,7 @@
 
 .system-page-shell:not(.system-page-shell--removed-system) .health-token-workbench .health-token-task-row {
   border-color: var(--health-token-line-soft);
-  background: #ffffff;
+  background: var(--health-token-bg);
 }
 
 .system-page-shell:not(.system-page-shell--removed-system) .health-token-workbench .health-token-task-row__meter {
@@ -2279,13 +2279,13 @@
 }
 
 .task-system-boundary select option {
-  background-color: #0b2230;
-  color: #edf7ff;
+  background-color: var(--console-bg-raised);
+  color: var(--console-text);
 }
 
 .task-system-boundary select option:checked {
-  background-color: #164862;
-  color: #ffffff;
+  background-color: var(--console-selected);
+  color: var(--console-text);
 }
 
 .task-system-boundary input[type="checkbox"],
@@ -2293,7 +2293,7 @@
   width: 15px;
   height: 15px;
   border: 1px solid color-mix(in srgb, var(--color-accent-primary) 34%, var(--color-border));
-  background-color: #0b2230;
+  background-color: var(--console-bg-raised);
 }
 
 .task-system-object-switcher {
@@ -2530,7 +2530,7 @@
   min-width: 0;
   border: 1px solid color-mix(in srgb, var(--color-accent-primary) 10%, var(--color-border));
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.014);
+  background: color-mix(in srgb, var(--color-surface) 1.4%, transparent);
   padding: 0.52rem;
 }
 
@@ -2584,7 +2584,7 @@
   gap: 0.5rem;
   border: 1px solid color-mix(in srgb, var(--color-accent-primary) 12%, var(--color-border));
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.018);
+  background: color-mix(in srgb, var(--color-surface) 1.8%, transparent);
   padding: 0.38rem 0.46rem;
   min-width: 0;
 }
@@ -2852,7 +2852,7 @@
   border-radius: 16px;
   background: var(--agent-page-panel);
   color: var(--agent-page-text);
-  box-shadow: inset 0 0 0 1px rgba(228, 235, 243, 0.95);
+  box-shadow: inset 0 0 0 1px var(--agent-page-line-soft);
 }
 
 .system-page-shell--orchestration .boundary-main {
@@ -3257,7 +3257,7 @@
   border-radius: 16px;
   background: var(--agent-page-panel);
   color: var(--agent-page-text);
-  box-shadow: inset 0 0 0 1px rgba(228, 235, 243, 0.95);
+  box-shadow: inset 0 0 0 1px var(--agent-page-line-soft);
 }
 
 .system-page-shell--orchestration .boundary-card > header,
@@ -3369,10 +3369,10 @@
 .system-page-shell--orchestration .boundary-chip,
 .system-page-shell--orchestration .boundary-selected-token {
   min-height: 34px;
-  border: 1px solid #dbe5ef;
+  border: 1px solid var(--console-line);
   border-radius: 12px;
-  background: #ffffff;
-  color: #334155;
+  background: var(--console-surface);
+  color: var(--console-text-soft);
   box-shadow: none;
   font-size: 13px;
   font-weight: 600;
@@ -3421,10 +3421,10 @@
 .system-page-shell--orchestration .boundary-badge,
 .system-page-shell--orchestration .orchestration-permission-row__status em,
 .system-page-shell--orchestration .orchestration-tool-package-row em {
-  border: 1px solid #dbe5ef;
+  border: 1px solid var(--console-line);
   border-radius: 999px;
-  background: #ffffff;
-  color: #475569;
+  background: var(--console-surface);
+  color: var(--console-muted);
   font-size: 12px;
   font-weight: 700;
   box-shadow: none;
@@ -3461,8 +3461,8 @@
   overflow: hidden;
   border: 0;
   border-radius: 15px;
-  background: #ffffff;
-  box-shadow: inset 0 0 0 1px rgba(228, 235, 243, 0.96);
+  background: var(--agent-page-panel);
+  box-shadow: inset 0 0 0 1px var(--agent-page-line-soft);
 }
 
 .system-page-shell--orchestration .orchestration-permission-matrix__head,
@@ -3471,15 +3471,15 @@
 }
 
 .system-page-shell--orchestration .orchestration-permission-matrix__head {
-  background: #f7fafc;
+  background: var(--agent-page-panel-muted);
   color: var(--agent-page-muted);
   font-size: 13px;
 }
 
 .system-page-shell--orchestration .orchestration-permission-row {
   min-height: 46px;
-  background: #ffffff;
-  color: #334155;
+  background: var(--agent-page-panel);
+  color: var(--agent-page-text);
 }
 
 .system-page-shell--orchestration .orchestration-permission-row:hover,
@@ -3608,24 +3608,24 @@
 .system-page-shell--orchestration .boundary-empty--large {
   border: 0;
   border-radius: 14px;
-  background: #f8fbff;
+  background: var(--agent-page-panel-muted);
   color: var(--agent-page-muted);
   font-size: 14px;
-  box-shadow: inset 0 0 0 1px rgba(232, 238, 245, 0.94);
+  box-shadow: inset 0 0 0 1px var(--agent-page-line-soft);
 }
 
 .system-page-shell--orchestration .boundary-notice {
   border: 0;
   border-radius: 14px;
-  background: #f8fbff;
+  background: var(--agent-page-panel-muted);
   color: var(--agent-page-text);
-  box-shadow: inset 0 0 0 1px rgba(232, 238, 245, 0.96);
+  box-shadow: inset 0 0 0 1px var(--agent-page-line-soft);
 }
 
 .system-page-shell--orchestration .boundary-notice--error {
-  background: #fff5f4;
+  background: var(--console-danger-soft);
   color: var(--agent-page-red);
-  box-shadow: inset 0 0 0 1px #f4c7c3;
+  box-shadow: inset 0 0 0 1px var(--console-danger-soft);
 }
 
 .system-page-shell--orchestration .orchestration-memory-boundary,
@@ -3635,7 +3635,7 @@
 
 .system-page-shell--orchestration .orchestration-memory-path span {
   border-radius: 999px;
-  background: #ffffff;
+  background: var(--console-surface);
 }
 
 @media (max-width: 1120px) {
@@ -4029,7 +4029,7 @@ textarea:focus-visible {
 :root[data-workbench-density="compact"] .workbench-session-row small {
   display: block;
   overflow: hidden;
-  color: #536173;
+  color: var(--console-muted);
   font-size: 11px;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -4069,9 +4069,9 @@ textarea:focus-visible {
   border: 0;
   border-radius: 13px;
   background: transparent;
-  color: #111827;
+  color: var(--console-text);
   text-align: left;
-  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.7);
+  box-shadow: inset 0 0 0 1px var(--console-line-soft);
 }
 
 .agent-workbench .workbench-project-switcher__list > .workbench-project-scope-row {
@@ -4081,19 +4081,19 @@ textarea:focus-visible {
 .agent-workbench .workbench-project-scope-row:hover:not(:disabled),
 .agent-workbench .workbench-project-scope-row--active,
 .agent-workbench .workbench-project-scope-item--active .workbench-project-scope-row {
-  background: #eef6ff;
-  box-shadow: inset 0 0 0 1px rgba(93, 142, 210, 0.42);
+  background: var(--console-hover);
+  box-shadow: inset 0 0 0 1px var(--console-active-ring);
 }
 
 .agent-workbench .workbench-project-scope-row__status {
   width: 6px;
   height: 26px;
   border-radius: 999px;
-  background: #9fc2f2;
+  background: var(--console-active-ring);
 }
 
 .agent-workbench .workbench-project-scope-row__status.is-missing {
-  background: #f0b8b8;
+  background: color-mix(in srgb, var(--console-danger) 40%, transparent);
 }
 
 .agent-workbench .workbench-project-scope-row__icon {
@@ -4102,15 +4102,15 @@ textarea:focus-visible {
   width: 24px;
   height: 24px;
   border-radius: 9px;
-  background: #eef4fb;
-  color: #47617d;
+  background: var(--console-hover);
+  color: var(--console-text-soft);
 }
 
 .agent-workbench .workbench-project-scope-row:hover:not(:disabled) .workbench-project-scope-row__icon,
 .agent-workbench .workbench-project-scope-row--active .workbench-project-scope-row__icon,
 .agent-workbench .workbench-project-scope-item--active .workbench-project-scope-row__icon {
-  background: #ffffff;
-  color: #1857bd;
+  background: var(--console-surface);
+  color: var(--console-accent);
 }
 
 .agent-workbench .workbench-project-scope-row__main {
@@ -4121,7 +4121,7 @@ textarea:focus-visible {
 
 .agent-workbench .workbench-project-scope-row__main strong {
   overflow: hidden;
-  color: #111827;
+  color: var(--console-text);
   font-size: 14px;
   font-weight: 750;
   line-height: 1.25;
@@ -4131,7 +4131,7 @@ textarea:focus-visible {
 
 .agent-workbench .workbench-project-scope-row__main small {
   overflow: hidden;
-  color: #526071;
+  color: var(--console-muted);
   font-size: 12.5px;
   line-height: 1.25;
   text-overflow: ellipsis;
@@ -4145,11 +4145,11 @@ textarea:focus-visible {
   height: 24px;
   padding: 0 7px;
   border-radius: 999px;
-  background: #ffffff;
-  color: #33526f;
+  background: var(--console-surface);
+  color: var(--console-muted);
   font-size: 12.5px;
   font-weight: 760;
-  box-shadow: inset 0 0 0 1px rgba(203, 213, 225, 0.78);
+  box-shadow: inset 0 0 0 1px var(--console-line-soft);
   transition: opacity 140ms ease, transform 140ms ease;
 }
 
@@ -4165,8 +4165,8 @@ textarea:focus-visible {
   min-width: 0;
   padding: 2px;
   border-radius: 13px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: inset 0 0 0 1px rgba(203, 213, 225, 0.58);
+  background: color-mix(in srgb, var(--console-surface) 94%, transparent);
+  box-shadow: inset 0 0 0 1px var(--console-line-soft);
   opacity: 0;
   pointer-events: none;
   transform: translateY(-50%) translateX(4px);
@@ -4183,14 +4183,14 @@ textarea:focus-visible {
   border: 0;
   border-radius: 11px;
   background: transparent;
-  color: #526071;
+  color: var(--console-muted);
   box-shadow: none;
 }
 
 .agent-workbench .workbench-project-scope-row__actions button:hover:not(:disabled) {
-  background: #eef6ff;
-  color: #1857bd;
-  box-shadow: inset 0 0 0 1px rgba(93, 142, 210, 0.42);
+  background: var(--console-hover);
+  color: var(--console-accent);
+  box-shadow: inset 0 0 0 1px var(--console-active-ring);
 }
 
 .agent-workbench .workbench-project-scope-item:hover .workbench-project-scope-row__actions,
@@ -4213,14 +4213,14 @@ textarea:focus-visible {
   gap: 6px;
   padding: 7px 8px;
   border-radius: 12px;
-  background: #fff7f7;
-  color: #7f1d1d;
-  box-shadow: inset 0 0 0 1px rgba(254, 202, 202, 0.92);
+  background: var(--console-danger-soft);
+  color: var(--console-danger);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-danger) 20%, transparent);
 }
 
 .agent-workbench .workbench-project-remove-confirm span {
   overflow: hidden;
-  color: #7f1d1d;
+  color: var(--console-danger);
   font-size: 12.5px;
   font-weight: 740;
   text-overflow: ellipsis;
@@ -4232,20 +4232,20 @@ textarea:focus-visible {
   padding: 0 9px;
   border: 0;
   border-radius: 10px;
-  background: #ffffff;
-  color: #7f1d1d;
+  background: var(--console-surface);
+  color: var(--console-danger);
   font-size: 12.5px;
   font-weight: 730;
-  box-shadow: inset 0 0 0 1px rgba(254, 202, 202, 0.92);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-danger) 20%, transparent);
 }
 
 .agent-workbench .workbench-project-bind-error {
   display: block;
   padding: 7px 8px;
   border-radius: 11px;
-  background: #fff7f7;
-  color: #9f1239;
+  background: var(--console-danger-soft);
+  color: var(--console-danger);
   font-size: 12.5px;
   line-height: 1.35;
-  box-shadow: inset 0 0 0 1px rgba(254, 205, 211, 0.88);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-danger) 18%, transparent);
 }

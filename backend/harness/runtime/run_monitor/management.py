@@ -132,20 +132,6 @@ class RuntimeMonitorManagementProjector:
         keep = {_signal_id(signal) for signal in visible_recent[: self.policy.recent_max]}
         evicted = [signal for signal in visible_recent[self.policy.recent_max :] if _signal_id(signal) not in keep]
         evicted_ids = {_signal_id(signal) for signal in evicted}
-        for signal in evicted:
-            signal_id = _signal_id(signal)
-            if not signal_id:
-                continue
-            self.retention_store.hide_signal(
-                signal_id=signal_id,
-                task_run_id=str(signal.get("task_run_id") or ""),
-                graph_run_id=str(signal.get("graph_run_id") or ""),
-                reason="capacity_evicted",
-                hidden_by="system",
-                source_revision=revision,
-                ttl_seconds=self.policy.hidden_retention_seconds,
-                now=now,
-            )
         result: list[dict[str, Any]] = []
         for signal in signals:
             signal_id = _signal_id(signal)

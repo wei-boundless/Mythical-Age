@@ -142,6 +142,13 @@ def model_action_request_from_payload(
         normalized_seed, seed_errors, seed_gaps, canonical_selected_skill_ids = _normalize_task_contract_seed(task_contract_seed)
         if raw_selected_skill_ids:
             seed_errors.append("selected_skill_ids_must_be_inside_skill_intent")
+        seed_errors.extend(
+            _request_task_run_contract_boundary_errors(
+                raw=raw,
+                task_contract_seed=normalized_seed,
+                completion_contract=completion_contract,
+            )
+        )
         task_contract_seed = normalized_seed
         selected_skill_ids = canonical_selected_skill_ids
         errors.extend(seed_errors)
@@ -199,7 +206,7 @@ def model_action_request_from_payload(
     if action_type == "request_task_run" and not task_contract_seed:
         errors.append("task_contract_seed_required_for_request_task_run")
     if action_type == "active_work_control":
-        from harness.loop.active_work import active_work_action_from_payload
+        from harness.loop.active_work import active_work_action_from_payload, active_work_action_is_allowed
 
         raw_action = str(dict(active_work_control).get("action") or "").strip()
         action = active_work_action_from_payload({"action": raw_action})
@@ -207,6 +214,8 @@ def model_action_request_from_payload(
             errors.append("active_work_action_required")
         elif action != raw_action:
             errors.append("active_work_action_must_be_canonical")
+        elif not active_work_action_is_allowed(action):
+            errors.append("active_work_action_not_allowed")
     if action_type == "resume_recoverable_work":
         resume_payload = dict(recovery_resume or {})
         if not str(resume_payload.get("task_run_id") or "").strip():
@@ -359,6 +368,19 @@ _CANONICAL_HANDOFF_REQUIRED_OBJECTS = (
     "skill_intent",
     "observation_contract",
 )
+_REQUEST_TASK_RUN_SEED_TEXT_FIELDS = ("user_visible_goal", "task_run_goal")
+_REQUEST_TASK_RUN_SEED_COMPLETION_FIELDS = (
+    "completion_criteria",
+    "required_artifacts",
+    "artifact_requirements",
+    "required_verifications",
+    "verification_requirements",
+)
+_REQUEST_TASK_RUN_TOP_LEVEL_CONTRACT_FIELDS = (
+    *_REQUEST_TASK_RUN_SEED_TEXT_FIELDS,
+    *_REQUEST_TASK_RUN_SEED_COMPLETION_FIELDS,
+    *_CANONICAL_HANDOFF_REQUIRED_OBJECTS,
+)
 
 
 def _normalize_task_contract_seed(seed: dict[str, Any]) -> tuple[dict[str, Any], list[str], list[str], tuple[str, ...]]:
@@ -389,6 +411,49 @@ def _normalize_task_contract_seed(seed: dict[str, Any]) -> tuple[dict[str, Any],
     payload["skill_intent"] = skill_intent
     payload["observation_contract"] = observation_contract
     return payload, errors, gaps, tuple(skill_intent.get("selected_skill_ids") or ())
+
+
+def _request_task_run_contract_boundary_errors(
+    *,
+    raw: dict[str, Any],
+    task_contract_seed: dict[str, Any],
+    completion_contract: dict[str, Any],
+) -> list[str]:
+    errors: list[str] = []
+    for field in _REQUEST_TASK_RUN_TOP_LEVEL_CONTRACT_FIELDS:
+        if _has_non_empty_value(raw.get(field)):
+            errors.append(f"field_must_be_inside_task_contract_seed:{field}")
+    if isinstance(raw.get("payload"), dict):
+        errors.append("payload_wrapper_not_allowed_for_request_task_run")
+    for field in _REQUEST_TASK_RUN_SEED_TEXT_FIELDS:
+        if not str(task_contract_seed.get(field) or "").strip():
+            errors.append(f"{field}_required_for_request_task_run")
+    if not _has_request_task_run_completion_evidence(
+        task_contract_seed=task_contract_seed,
+        completion_contract=completion_contract,
+    ):
+        errors.append("completion_evidence_required_for_request_task_run")
+    return errors
+
+
+def _has_request_task_run_completion_evidence(
+    *,
+    task_contract_seed: dict[str, Any],
+    completion_contract: dict[str, Any],
+) -> bool:
+    return any(
+        _has_non_empty_value(value)
+        for value in (
+            task_contract_seed.get("completion_criteria"),
+            task_contract_seed.get("required_artifacts"),
+            task_contract_seed.get("artifact_requirements"),
+            task_contract_seed.get("required_verifications"),
+            task_contract_seed.get("verification_requirements"),
+            completion_contract.get("completion_criteria"),
+            completion_contract.get("artifact_requirements"),
+            completion_contract.get("required_verifications"),
+        )
+    )
 
 
 def _normalize_working_scope(value: dict[str, Any]) -> dict[str, Any]:

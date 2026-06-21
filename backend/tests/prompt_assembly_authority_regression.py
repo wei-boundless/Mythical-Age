@@ -5,10 +5,11 @@ from prompt_composition import (
     build_prompt_assembly_plan,
     build_prompt_source_bundle,
     materialize_prompt_packet,
+    render_model_messages_from_projection,
 )
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 from runtime.model_gateway.model_request import ModelRequestBuilder
-from harness.runtime.compiler import RuntimeCompiler
+from harness.runtime.compiler import RuntimeCompiler, _render_model_messages_from_prompt_composition
 
 
 def _spec(*, kind: str, content: str, cache_scope: str, cache_role: str) -> dict[str, object]:
@@ -319,6 +320,65 @@ def test_task_runtime_boundary_uses_protocol_refs_not_repeated_rule_text() -> No
     assert "task_entry_conditions" not in serialized
     assert "respond_requires_top_level_final_answer" not in serialized
     assert "\"mounted_tools\":" not in serialized
+
+
+def test_prompt_projection_renderer_does_not_fill_missing_fragments_from_source_messages() -> None:
+    render = render_model_messages_from_projection(
+        manifest={
+            "manifest_id": "manifest:strict-render",
+            "message_projection": [
+                {
+                    "segment_id": "segment:missing",
+                    "kind": "runtime_boundary",
+                    "ordinal": 1,
+                    "model_message_index": 0,
+                    "model_message_role": "system",
+                }
+            ],
+        },
+        content_fragments=[],
+        source_messages=[{"role": "system", "content": "old source message must not re-enter"}],
+    )
+
+    diagnostics = dict(render.diagnostics)
+    assert list(render.messages) == []
+    assert diagnostics["rendered_message_count"] == 0
+    assert diagnostics["source_message_fallback_count"] == 0
+    assert diagnostics["renderer_fallback_to_source_messages"] is False
+    assert diagnostics["missing_content_fragment_segment_ids"] == ["segment:missing"]
+
+
+def test_compiler_prompt_render_fails_closed_instead_of_source_message_fallback() -> None:
+    prompt_manifest: dict[str, object] = {}
+
+    try:
+        _render_model_messages_from_prompt_composition(
+            prompt_manifest=prompt_manifest,
+            prompt_composition_manifest={
+                "manifest_id": "manifest:compiler-strict-render",
+                "message_projection": [
+                    {
+                        "segment_id": "segment:missing",
+                        "kind": "runtime_boundary",
+                        "ordinal": 1,
+                        "model_message_index": 0,
+                        "model_message_role": "system",
+                    }
+                ],
+            },
+            content_fragments=(),
+            model_messages=[{"role": "system", "content": "old source message must not be sent"}],
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "prompt_composition_render_failed"
+    else:
+        raise AssertionError("compiler prompt render must fail closed when projection is incomplete")
+
+    render_diagnostics = dict(prompt_manifest["prompt_composition_render"])
+    assert render_diagnostics["status"] == "failed"
+    assert render_diagnostics["renderer_fallback_to_source_messages"] is False
+    assert render_diagnostics["source_message_fallback_count"] == 0
+    assert render_diagnostics["fallback_reason"] == "content_fragment_incomplete"
 
 
 def _payload_with_title(packet, title: str) -> dict[str, object]:

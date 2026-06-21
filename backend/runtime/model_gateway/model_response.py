@@ -264,6 +264,31 @@ class ModelResponseRuntimeExecutor:
                     }
                     return
                 elif exc.retryable:
+                    if tools:
+                        yield {
+                            "type": "stream_recovery",
+                            "status": "suppressed",
+                            "reason": "non_stream_fallback_disabled_for_tool_protocol",
+                            "code": exc.code,
+                            "provider": exc.provider,
+                            "model": exc.model,
+                            "detail": exc.detail,
+                            "partial_delta_count": public_delta_count,
+                            "directive_ref": directive.directive_id,
+                        }
+                        yield {
+                            "type": "error",
+                            "error": "运行中断",
+                            "content": "运行中断",
+                            "code": exc.code,
+                            "reason": exc.user_message,
+                            "provider": exc.provider,
+                            "model": exc.model,
+                            "detail": exc.detail,
+                            "answer_channel": "orchestration_fail_closed",
+                            "answer_source": "runtime_directive_executor",
+                        }
+                        return
                     fallback_timeout_seconds = _stream_recovery_timeout_seconds(stream_policy)
                     yield {
                         "type": "stream_recovery",

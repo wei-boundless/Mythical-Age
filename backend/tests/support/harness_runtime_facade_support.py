@@ -333,7 +333,7 @@ class _ActiveWorkDecisionModelRuntime:
         runtime_result = str(observation.get("runtime_result") or "").strip()
         status = str(observation.get("status") or "").strip()
         terminal_reason = str(observation.get("terminal_reason") or "").strip()
-        control_action = str(observation.get("action") or self.last_active_work_decision.get("action") or self.last_active_work_decision.get("intent") or "").strip()
+        control_action = str(observation.get("action") or self.last_active_work_decision.get("action") or "").strip()
         decision_response = str(self.last_active_work_decision.get("response") or "").strip()
         if terminal_reason in {
             "active_work_relation_declared_independent",

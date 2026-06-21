@@ -269,7 +269,7 @@ describe("ChatMessage", () => {
     expect(html).toContain("运行状态");
     expect(html).toContain("输出未写入会话记录");
     expect(html).toContain("最终回复未能写入会话记录。");
-    expect(html).toContain("需处理");
+    expect(html).toContain("异常");
     expect(html).toContain("aria-label=\"运行状态\"");
     expect(html).toContain("public-run-activity__line--status");
   });
@@ -283,8 +283,8 @@ describe("ChatMessage", () => {
         blocks: [{
           kind: "recovery_event",
           id: "recovery:only",
-          title: "需要处理",
-          detail: "处理失败",
+          title: "状态异常",
+          detail: "运行未完成",
           state: "failed",
           offset: 18,
           sourceEventType: "turn_completed",

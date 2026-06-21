@@ -71,6 +71,21 @@ async def _collect(model_runtime: object) -> list[dict[str, object]]:
     return events
 
 
+async def _collect_with_tools(model_runtime: object) -> list[dict[str, object]]:
+    executor = ModelResponseRuntimeExecutor(model_runtime=model_runtime)
+    events: list[dict[str, object]] = []
+    async for event in executor.stream(
+        user_message="Continue.",
+        model_messages=[{"role": "user", "content": "Continue."}],
+        directive=_directive(),
+        tool_instances=[SimpleNamespace(name="read_file")],
+        model_stream_policy=_stream_policy(),
+        model_spec=_model_spec(),
+    ):
+        events.append(event)
+    return events
+
+
 def test_model_response_recovers_partial_provider_stream_from_visible_prefix() -> None:
     class InterruptedModel:
         def __init__(self) -> None:
@@ -207,3 +222,27 @@ def test_model_response_keeps_non_stream_fallback_when_no_public_prefix_exists()
         "non_stream_fallback_succeeded",
     ]
     assert done["content"] == "Fallback answer"
+
+
+def test_model_response_does_not_non_stream_fallback_tool_protocol_after_stream_error() -> None:
+    class ToolProtocolStreamFailureModel:
+        async def astream_messages_with_tools(self, _messages, _tools, **_kwargs):
+            raise _retryable_stream_error()
+            yield SimpleNamespace(content="unreachable")
+
+        async def invoke_messages_with_tools(self, _messages, _tools, **_kwargs):
+            raise AssertionError("tool protocol fallback must not re-invoke non-stream tools")
+
+        async def invoke_messages(self, _messages, **_kwargs):
+            raise AssertionError("tool protocol fallback must not switch to plain non-stream")
+
+    events = asyncio.run(_collect_with_tools(ToolProtocolStreamFailureModel()))
+    recovery_events = [event for event in events if event.get("type") == "stream_recovery"]
+    error_events = [event for event in events if event.get("type") == "error"]
+    done_events = [event for event in events if event.get("type") == "done"]
+
+    assert recovery_events[-1]["status"] == "suppressed"
+    assert recovery_events[-1]["reason"] == "non_stream_fallback_disabled_for_tool_protocol"
+    assert error_events[-1]["code"] == "provider_unavailable"
+    assert error_events[-1]["content"] == "运行中断"
+    assert done_events == []

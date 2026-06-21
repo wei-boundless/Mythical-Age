@@ -432,8 +432,9 @@ describe("chronological projection frame reducer contract", () => {
     expect(transition.state.sessionActivity).toBe(beforeActivity);
   });
 
-  it("renders active task steer accepted as a lightweight status event outside assistant prose", () => {
+  it("rejects runtime active task steer status from assistant projection", () => {
     let transition = startBoundProjectionTurn();
+    const beforeActivity = transition.state.sessionActivity;
     transition = project(transition, {
       source_event_type: "active_task_steer_accepted",
       op: "item_upsert",
@@ -451,19 +452,13 @@ describe("chronological projection frame reducer contract", () => {
     const assistant = latestAssistant(transition.state.messages);
     const view = latestProjection(transition.state);
     expect(assistant?.content).toBe("");
-    expect(view?.canonicalContent).toBe("");
-    expect(view?.displayMode).toBe("live");
-    expect(view?.blocks).toEqual([
-      expect.objectContaining({
-        kind: "status_event",
-        title: "补充要求已接入当前任务",
-        detail: "继续检查投影时序。",
-      }),
-    ]);
+    expect(view).toBeUndefined();
+    expect(transition.state.sessionActivity).toBe(beforeActivity);
   });
 
-  it("renders commit failed as recovery event with log entry but never assistant body", () => {
+  it("rejects runtime commit failure status from assistant projection", () => {
     let transition = startBoundProjectionTurn();
+    const beforeActivity = transition.state.sessionActivity;
     transition = project(transition, {
       source_event_type: "session_output_commit_failed",
       op: "item_upsert",
@@ -486,17 +481,14 @@ describe("chronological projection frame reducer contract", () => {
     const view = latestProjection(transition.state);
     const ledger = latestLedger(transition.state);
     expect(assistant?.content).toBe("");
-    expect(view?.canonicalContent).toBe("");
-    expect(view?.displayMode).toBe("recovery");
-    expect(ledger?.commit.state).toBe("failed");
-    expect(view?.blocks).toEqual([
-      expect.objectContaining({ kind: "recovery_event", title: "输出未写入会话记录" }),
-      expect.objectContaining({ kind: "log_entry" }),
-    ]);
+    expect(view).toBeUndefined();
+    expect(ledger).toBeUndefined();
+    expect(transition.state.sessionActivity).toBe(beforeActivity);
   });
 
-  it("neutralizes persisted legacy runtime recovery wording on replay", () => {
+  it("rejects persisted legacy runtime recovery wording on replay", () => {
     let transition = startBoundProjectionTurn();
+    const beforeActivity = transition.state.sessionActivity;
     transition = project(transition, {
       source_event_type: "turn_completed",
       op: "item_upsert",
@@ -516,17 +508,15 @@ describe("chronological projection frame reducer contract", () => {
     const view = latestProjection(transition.state);
     const rendered = JSON.stringify(view?.blocks ?? []);
     expect(assistant?.content).toBe("");
-    expect(view?.displayMode).toBe("recovery");
-    expect(view?.blocks).toEqual([
-      expect.objectContaining({ kind: "recovery_event", title: "需要处理", detail: "" }),
-      expect.objectContaining({ kind: "log_entry" }),
-    ]);
+    expect(view).toBeUndefined();
+    expect(transition.state.sessionActivity).toBe(beforeActivity);
     expect(rendered).not.toContain("旧运行恢复标题");
     expect(rendered).not.toContain("系统自动生成的恢复说明");
   });
 
-  it("renders stopped terminal as typed terminal event with log entry", () => {
+  it("rejects stopped runtime terminal from assistant projection", () => {
     let transition = startBoundProjectionTurn();
+    const beforeActivity = transition.state.sessionActivity;
     transition = project(transition, {
       source_event_type: "stopped",
       op: "item_upsert",
@@ -544,11 +534,8 @@ describe("chronological projection frame reducer contract", () => {
     const assistant = latestAssistant(transition.state.messages);
     const view = latestProjection(transition.state);
     expect(assistant?.content).toBe("");
-    expect(view?.displayMode).toBe("recovery");
-    expect(view?.blocks).toEqual([
-      expect.objectContaining({ kind: "terminal_event", title: "运行已停止" }),
-      expect.objectContaining({ kind: "log_entry" }),
-    ]);
+    expect(view).toBeUndefined();
+    expect(transition.state.sessionActivity).toBe(beforeActivity);
   });
 
   it("does not let trace-only tool frames open a visible tool block without a model request", () => {
@@ -899,8 +886,8 @@ describe("chronological projection frame reducer contract", () => {
         retention: "final",
         item_id: "status:recovery-only",
         status_kind: "recovery_event",
-        title: "需要处理",
-        detail: "处理失败",
+        title: "状态异常",
+        detail: "运行未完成",
         state: "failed",
       }),
     ], { createMessages: true });

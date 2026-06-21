@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from capability_system.mcp.local_registry import default_local_mcp_units, get_local_mcp_unit
 from capability_system.mcp.providers import MCPProviderServer, MCPProviderTool
-from capability_system.mcp.server.local_capability_server import LocalCapabilityMCPExecutor, LocalMCPToolRequest
 from permissions.operations import build_default_operation_registry
 from permissions import OperationGate, OperationGatePipelineContext, ResourcePolicy
+
+if TYPE_CHECKING:
+    from capability_system.mcp.server.local_capability_server import LocalCapabilityMCPExecutor, LocalMCPToolRequest
 
 
 class LocalMCPProvider:
@@ -81,6 +83,8 @@ class LocalMCPProvider:
         if unit is None:
             return {"status": "error", "error": "unknown_local_mcp_tool", "server_id": server_id, "tool_name": tool_name}
         args = dict(arguments or {})
+        from capability_system.mcp.server.local_capability_server import LocalCapabilityMCPExecutor, LocalMCPToolRequest
+
         executor = LocalCapabilityMCPExecutor(
             backend_dir=self.backend_dir,
             resource_policy=self.resource_policy,

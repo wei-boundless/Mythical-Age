@@ -16,6 +16,7 @@ from api.chat import (
     _public_terminal_reason,
     _run_chat_to_event_log,
     _task_terminal_context_from_task_run,
+    _tool_permission_decided_data,
     TASK_BRIDGE_TERMINAL_EVENT_TYPES,
     replay_chat_run_events,
 )
@@ -487,6 +488,9 @@ def test_task_bridge_terminal_ignores_diagnostics_output_commit_shadow_receipt()
             "status": "completed",
             "terminal_reason": "completed",
             "diagnostics": {
+                "turn_id": "turn:diagnostic-shadow",
+                "turn_run_id": "turnrun:diagnostic-shadow",
+                "answer_source": "diagnostics.shadow.answer_source",
                 "output_commit": {
                     "authority": "harness.session_output_commit",
                     "event_type": "session_output_commit_ack",
@@ -523,6 +527,9 @@ def test_task_bridge_terminal_ignores_diagnostics_output_commit_shadow_receipt()
     )
 
     assert "output_commit_state" not in context
+    assert "turn_id" not in context
+    assert "turn_run_id" not in context
+    assert "answer_source" not in context
     assert [call["public_event_type"] for call in replay.append_public_event_calls] == [
         TASK_BRIDGE_TERMINAL_EVENT,
         TURN_COMPLETED_EVENT,
@@ -667,6 +674,44 @@ def test_runtime_gateway_signals_are_not_public_stream_events() -> None:
     assert events == []
 
 
+def test_runtime_status_only_error_does_not_terminalize_chat_turn() -> None:
+    events = _project_public_stream_event(
+        "error",
+        {
+            "code": "harness_entrypoint_error",
+            "content": "运行中断",
+            "reason": "runtime unavailable",
+            "answer_persist_policy": "runtime_status_only",
+            "answer_finalization_policy": "no_agent_answer_runtime_unavailable",
+            "event_id": "event:runtime-error",
+        },
+    )
+
+    assert events == []
+
+
+def test_fail_closed_visible_error_still_terminalizes_chat_turn() -> None:
+    events = _project_public_stream_event(
+        "error",
+        {
+            "code": "blocked_runtime",
+            "content": "当前运行环境未能完成装配，无法继续执行本轮请求。",
+            "reason": "runtime_assembly_blocked",
+            "answer_persist_policy": "assistant_message_committed",
+            "answer_finalization_policy": "fail_closed_visible_message",
+            "turn_run_id": "turnrun:turn:test:blocked",
+            "message_ref": "history-message:turn:test:blocked:assistant",
+            "event_id": "event:blocked-runtime",
+        },
+    )
+
+    assert [event_type for event_type, _ in events] == [TURN_COMPLETED_EVENT]
+    data = events[0][1]
+    assert data["status"] == "failed"
+    assert data["terminal_reason"]
+    assert data["final_message_ref"] == "history-message:turn:test:blocked:assistant"
+
+
 def test_model_admission_projects_tool_request_before_runtime_tool_lifecycle() -> None:
     events = _project_public_stream_event(
         "model_action_admission",
@@ -706,7 +751,7 @@ def test_model_admission_projects_tool_request_before_runtime_tool_lifecycle() -
     assert permission["permission_decision"] == "allow"
 
 
-def test_chat_bridge_generates_tool_call_id_without_reusing_request_id() -> None:
+def test_chat_bridge_does_not_generate_tool_call_id_for_legacy_identityless_admission() -> None:
     events = _project_public_stream_event(
         "model_action_admission",
         {
@@ -729,18 +774,51 @@ def test_chat_bridge_generates_tool_call_id_without_reusing_request_id() -> None
         },
     )
 
-    assert [event_type for event_type, _ in events] == [
-        TOOL_CALL_REQUESTED_EVENT,
-        TOOL_PERMISSION_DECIDED_EVENT,
-    ]
-    requested = events[0][1]
-    permission = events[1][1]
-    assert requested["request_id"] == "request:read"
-    assert requested["tool_call_id"]
-    assert requested["tool_call_id"] != "request:read"
-    assert requested["tool_lifecycle_id"] == requested["tool_call_id"]
-    assert permission["tool_call_id"] == requested["tool_call_id"]
-    assert permission["permission_decision_id"] == f"admission:{requested['tool_call_id']}"
+    assert events == []
+
+
+def test_chat_bridge_does_not_construct_tool_request_from_legacy_top_level_tool_fields() -> None:
+    events = _project_public_stream_event(
+        "model_action_admission",
+        {
+            "event": {
+                "event_id": "event:admission:top-level-tool-fields",
+                "payload": {
+                    "turn_id": "turn:test",
+                    "model_action_request": {
+                        "request_id": "request:legacy-read",
+                        "action_type": "tool_call",
+                        "tool_call_id": "call:legacy-top-level",
+                        "tool_name": "read_file",
+                        "tool_args": {"path": "README.md"},
+                    },
+                    "admission": {"decision": "allow"},
+                },
+                "refs": {"turn_run_ref": "turnrun:turn:test:1"},
+            },
+        },
+    )
+
+    assert events == []
+
+
+def test_tool_permission_decision_does_not_use_action_request_ref_as_tool_call_id() -> None:
+    data = _tool_permission_decided_data(
+        {
+            "event": {
+                "event_id": "event:permission:no-tool-id",
+                "payload": {
+                    "admission": {
+                        "decision": "allow",
+                        "action_request_ref": "model-action:read",
+                    },
+                },
+            },
+        },
+        request_data={"request_id": "model-action:read", "tool_name": "read_file"},
+    )
+
+    assert data == {}
 
 
 def test_chat_bridge_projects_tool_calls_array_without_admission_body_feedback() -> None:
@@ -1010,11 +1088,11 @@ def test_chat_bridge_rejects_model_wait_placeholder_before_append_and_mark_event
     assert registry.mark_event_calls == []
 
 
-def test_protocol_repair_status_stays_trace_only_without_public_surface() -> None:
+def test_protocol_repair_step_summary_stays_trace_only_without_public_surface() -> None:
     frame = _frame(
         "runtime_step_summary",
         {
-            "runtime_event_id": "event:protocol-repair",
+            "runtime_event_id": "event:runtime-repair",
             "source_task_event_offset": 14,
             "task_run_id": "taskrun:repair",
             "step": "model_action_protocol_repair_required:1",
@@ -1030,7 +1108,7 @@ def test_protocol_repair_status_stays_trace_only_without_public_surface() -> Non
     assert frame["source_authority"] == "runtime"
     assert frame["main_visibility"] == "hidden"
     assert frame["retention"] == "trace"
-    assert frame.get("status_kind") != "protocol_repair_status"
+    assert "status_kind" not in frame
     assert not frame.get("title")
     assert not frame.get("text")
     assert not frame.get("detail")
@@ -1142,7 +1220,7 @@ def test_runtime_control_observation_public_replay_keeps_only_signal_index() -> 
         assert frame["main_visibility"] == "hidden"
 
 
-def test_runtime_control_observation_replay_read_path_sanitizes_legacy_payload() -> None:
+def test_replay_read_path_rejects_noncanonical_projection_frame_and_sanitizes_control_signal() -> None:
     run = RuntimeRun(
         stream_run_id="strun:legacy",
         session_id="session:test",
@@ -1174,9 +1252,10 @@ def test_runtime_control_observation_replay_read_path_sanitizes_legacy_payload()
                 "public_projection_frame": {
                     "op": "item_upsert",
                     "slot": "status",
-                    "status_kind": "protocol_repair_status",
-                    "title": "private title",
-                    "detail": "private detail",
+                    "main_visibility": "visible_live",
+                    "retention": "transient",
+                    "title": "private noncanonical title",
+                    "detail": "private noncanonical detail",
                 },
             },
         },
@@ -1192,9 +1271,13 @@ def test_runtime_control_observation_replay_read_path_sanitizes_legacy_payload()
         "signal_kind": "agent_closeout_recovery_required",
     }
     assert records[0]["data"]["runtime_control_signal"] == envelope["data"]["runtime_control_signal"]
-    assert envelope["public_projection_frame"]["slot"] == "trace"
+    assert envelope["public_projection_frame"] == {}
+    assert "public_projection_frame" not in envelope["data"]
+    assert records[0]["public_projection_frame"] == {}
+    assert "public_projection_frame" not in records[0]["data"]
     assert "protocol_error" not in str(envelope)
     assert "closeout_instruction" not in str(envelope)
+    assert "private noncanonical" not in str(envelope)
     assert "private model output" not in str(records)
     assert "private closeout instruction" not in str(records)
 
@@ -1485,6 +1568,49 @@ def test_agent_closeout_recovery_turn_completed_stays_hidden_trace_only() -> Non
     assert frame["slot"] != "body"
 
 
+def test_protocol_contract_failure_turn_completed_stays_hidden_trace_only() -> None:
+    frame = _frame(
+        TURN_COMPLETED_EVENT,
+        {
+            "status": "failed",
+            "turn_run_id": "turnrun:test",
+            "terminal_reason": "task_contract_invalid",
+            "error_summary": "处理失败",
+        },
+    )
+
+    assert frame["op"] == "item_upsert"
+    assert frame["slot"] == "trace"
+    assert frame["source_authority"] == "runtime"
+    assert frame["main_visibility"] == "hidden"
+    assert frame["retention"] == "trace"
+    assert "status_kind" not in frame
+    assert "title" not in frame
+    assert "text" not in frame
+
+
+def test_runtime_transport_turn_completed_stays_hidden_trace_only() -> None:
+    frame = _frame(
+        TURN_COMPLETED_EVENT,
+        {
+            "status": "stopped",
+            "turn_run_id": "turnrun:test",
+            "terminal_reason": "runtime_process_restarted",
+            "completion_state": "interrupted",
+            "orphaned_by": "single_agent_runtime_host.startup_reconciliation",
+        },
+    )
+
+    assert frame["op"] == "item_upsert"
+    assert frame["slot"] == "trace"
+    assert frame["source_authority"] == "runtime"
+    assert frame["main_visibility"] == "hidden"
+    assert frame["retention"] == "trace"
+    assert "status_kind" not in frame
+    assert "title" not in frame
+    assert "text" not in frame
+
+
 def test_commit_ack_is_hidden_commit_authority() -> None:
     frame = _frame(
         SESSION_OUTPUT_COMMIT_ACK_EVENT,
@@ -1571,7 +1697,33 @@ def test_tool_observation_promotes_real_tool_call_id_for_public_completion() -> 
     assert observation.to_dict()["tool_call_id"] == "call:read"
 
 
-def test_task_tool_observation_wrapper_projects_inner_tool_completion_identity() -> None:
+def test_tool_observation_does_not_promote_diagnostics_action_request_tool_call_id() -> None:
+    observation = ToolObservation(
+        observation_id="toolobs:read:diagnostic-shadow",
+        invocation_id="toolinvoke:turnrun:1:read_file:shadow",
+        caller_kind="agent_turn",
+        caller_ref="turnrun:turn:test:1",
+        tool_name="read_file",
+        operation_id="op.read_file",
+        status="ok",
+        text="读取完成。",
+        diagnostics={
+            "action_request": {
+                "tool_call": {
+                    "id": "call:diagnostic-shadow",
+                    "name": "read_file",
+                    "args": {"path": "README.md"},
+                }
+            }
+        },
+    )
+
+    payload = observation.to_dict()
+    assert "tool_call_id" not in payload
+    assert payload["diagnostics"]["action_request"]["tool_call"]["id"] == "call:diagnostic-shadow"
+
+
+def test_task_tool_observation_wrapper_projects_inner_identity_without_diagnostics_args() -> None:
     events = _project_public_stream_event(
         "task_tool_observation_recorded",
         {
@@ -1626,10 +1778,42 @@ def test_task_tool_observation_wrapper_projects_inner_tool_completion_identity()
     assert completed["tool_lifecycle_id"] == "toolinv:read:1"
     assert completed["permission_decision_id"] == "admission:request:read"
     assert completed["tool_name"] == "read_file"
-    assert completed["target"] == "backend/capability_system/capabilities/retrieval/parser_adapter.py"
-    assert completed["arguments_preview"] == (
-        "path=backend/capability_system/capabilities/retrieval/parser_adapter.py, line_count=80"
+    assert "target" not in completed
+    assert "arguments_preview" not in completed
+
+
+def test_tool_completion_does_not_promote_wrapper_tool_call_id_without_envelope_identity() -> None:
+    events = _project_public_stream_event(
+        "task_tool_observation_recorded",
+        {
+            "event": {
+                "event_id": "event:tool-observation:wrapper-shadow",
+                "payload": {
+                    "observation": {
+                        "task_run_id": "taskrun:turn:test:1",
+                        "observation_type": "tool_result",
+                        "request_ref": "request:read",
+                        "payload": {
+                            "caller_ref": "turnrun:turn:test:1",
+                            "task_run_id": "taskrun:turn:test:1",
+                            "invocation_id": "toolinv:read:wrapper-shadow",
+                            "tool_name": "read_file",
+                            "status": "ok",
+                            "text": "读取完成。",
+                            "tool_call_id": "call:wrapper-shadow",
+                            "result_envelope": {
+                                "tool_name": "read_file",
+                                "text": "读取完成。",
+                            },
+                        },
+                    }
+                },
+                "refs": {"turn_run_ref": "turnrun:turn:test:1", "task_run_ref": "taskrun:turn:test:1"},
+            }
+        },
     )
+
+    assert events == []
 
 
 def test_agent_todo_summary_ignores_envelope_metadata_before_text_payload() -> None:

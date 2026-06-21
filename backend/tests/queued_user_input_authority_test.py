@@ -304,6 +304,24 @@ def test_latest_chat_run_active_only_hides_orphan_runtime_run(monkeypatch) -> No
     assert response.status_code == 204
 
 
+def test_latest_chat_run_active_only_unknown_session_returns_204_without_session_lookup(monkeypatch) -> None:
+    host = SimpleNamespace(
+        agent_run_supervisor=_supervisor_attached_to("strun:other", session_id="session:other"),
+        run_registry=SimpleNamespace(list_session_runs=lambda _session_id: []),
+    )
+    runtime = SimpleNamespace(
+        session_manager=SimpleNamespace(
+            get_history=lambda _session_id: (_ for _ in ()).throw(AssertionError("latest-run must not block on session storage lookup"))
+        ),
+        harness_runtime=SimpleNamespace(single_agent_runtime_host=host),
+    )
+    monkeypatch.setattr(chat_api, "require_runtime", lambda: runtime)
+
+    response = asyncio.run(chat_api.get_latest_chat_run_for_session("session-unknown", active_only=True))
+
+    assert response.status_code == 204
+
+
 def test_latest_chat_run_active_only_returns_attached_execution_signal(monkeypatch) -> None:
     session_id = "session-runs"
     attached = _runtime_run("strun:attached", session_id=session_id)
@@ -482,3 +500,62 @@ def test_queued_input_api_targets_live_active_turn_without_starting_second_run(t
     assert response["item"]["expected_active_turn_id"] == "turn:session-api-live:1"
     assert response["item"]["task_run_id"] == ""
     assert response["item"]["dispatch_stream_run_id"] == ""
+
+
+def test_create_chat_run_enqueues_when_session_primary_run_is_attached(tmp_path, monkeypatch) -> None:
+    store = QueuedUserInputStore(tmp_path)
+    session_id = "session-api-active-run"
+    active_run = _runtime_run("strun:session-api-active-run", session_id=session_id)
+    session_manager = SimpleNamespace(
+        get_history=lambda _session_id: {"scope": {"workspace_view": "chat", "task_environment_id": "", "project_id": ""}},
+        get_project_binding=lambda _session_id: {},
+        bind_project=lambda *_args, **_kwargs: None,
+    )
+    host = SimpleNamespace(
+        queued_user_inputs=store,
+        active_turn_registry=SimpleNamespace(
+            resolve_current=lambda _session_id: SimpleNamespace(
+                turn_id="turn:session-api-active-run:1",
+                bound_task_run_id="taskrun:session-api-active-run",
+                steerable=True,
+            )
+        ),
+        agent_run_supervisor=_supervisor_attached_to(active_run.stream_run_id, session_id=session_id),
+        run_registry=SimpleNamespace(list_session_runs=lambda _session_id: [active_run]),
+    )
+    runtime = SimpleNamespace(
+        base_dir=tmp_path,
+        session_manager=session_manager,
+        harness_runtime=SimpleNamespace(single_agent_runtime_host=host),
+    )
+    monkeypatch.setattr(chat_api, "require_runtime", lambda: runtime)
+    monkeypatch.setattr(
+        chat_api,
+        "_create_and_schedule_run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("active session input must be queued before creating another chat run")),
+    )
+
+    response = asyncio.run(
+        chat_api.create_chat_run(
+            chat_api.ChatRequest(
+                message="补充：优先修复 steer 队列。",
+                client_message_id="user:active-run-queued",
+                session_id=session_id,
+                environment_binding={"task_environment_id": "code"},
+                model_selection={"provider": "openai"},
+                permission_mode="full_access",
+            )
+        )
+    )
+    stored = store.list_session(session_id)
+
+    assert response["stream_run_id"] == active_run.stream_run_id
+    assert response["chat_run_execution_attached"] is True
+    assert response["accepted_as_queued_input"] is True
+    assert response["queue_authority"] == "api.chat.active_session_queue"
+    assert response["queued_input"]["client_message_id"] == "user:active-run-queued"
+    assert response["queued_input"]["input_policy"] == "steer"
+    assert response["queued_input"]["expected_active_turn_id"] == "turn:session-api-active-run:1"
+    assert response["queued_input"]["task_run_id"] == "taskrun:session-api-active-run"
+    assert [item.client_message_id for item in stored] == ["user:active-run-queued"]
+    assert stored[0].status == "queued"

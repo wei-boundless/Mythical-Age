@@ -9,7 +9,6 @@ from harness.runtime.control_events import runtime_signal_from_event_payload
 from harness.runtime.runtime_gateway import (
     CONTROL_SIGNAL_PUBLISHED_EVENT,
 )
-from harness.task_run_state_view import task_run_state_view
 from harness.task_run_status import is_stopped_or_terminal_task_run
 
 from .record import (
@@ -38,6 +37,20 @@ _RECOVERABLE_TURN_TERMINAL_REASONS = frozenset(
         "final_output_not_committable",
         "session_output_commit_not_committed",
         "agent_contract_feedback_required",
+    }
+)
+_RECOVERABLE_TURN_INTERRUPTION_REASONS = frozenset(
+    {
+        "runtime_process_restarted",
+        "runtime_cell_missing_after_restart",
+        "runtime_cell_cancelled",
+        "runtime_stream_interrupted",
+        "stream_cancelled",
+        "stream_exception",
+        "missing_terminal_event",
+        "projection_stream_exception",
+        "projection_stream_missing_terminal",
+        "task_bridge_context_missing",
     }
 )
 
@@ -81,10 +94,10 @@ def select_session_continuation(
     )
     selected_record: ContinuationRecord | None = None
     for task_run in candidates:
-        view = task_run_state_view(task_run, runtime_host=runtime_host)
-        if bool(view.get("graph_controlled")):
+        recovery_state = recovery_state_for_task_run(task_run, runtime_host=runtime_host)
+        if recovery_state.graph_controlled:
             continue
-        record = _record_from_task_run(runtime_host, task_run=task_run, view=view)
+        record = _record_from_task_run(runtime_host, task_run=task_run, recovery_state=recovery_state)
         if record is not None:
             selected_record = record
             break
@@ -100,15 +113,18 @@ def select_session_continuation(
     return ContinuationSelection(reason="no_supported_session_task_or_interrupted_turn")
 
 
-def _record_from_task_run(runtime_host: Any, *, task_run: Any, view: dict[str, Any]) -> ContinuationRecord | None:
+def _record_from_task_run(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    recovery_state: Any,
+) -> ContinuationRecord | None:
     task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
     session_id = str(getattr(task_run, "session_id", "") or "").strip()
     if not task_run_id or not session_id:
         return None
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    recovery_state = recovery_state_for_task_run(task_run, runtime_host=runtime_host)
-    work_state = str(view.get("task_work_state") or "")
-    status = str(getattr(task_run, "status", "") or view.get("task_status") or "")
+    status = str(getattr(task_run, "status", "") or recovery_state.status or "")
     terminal_reason = str(getattr(task_run, "terminal_reason", "") or diagnostics.get("terminal_reason") or "")
     terminal = bool(is_stopped_or_terminal_task_run(task_run, runtime_host=runtime_host))
     state = "none"
@@ -119,26 +135,28 @@ def _record_from_task_run(runtime_host: Any, *, task_run: Any, view: dict[str, A
         state = "recoverable"
         resume_strategy = "same_run_resume"
         resume_allowed = True
-    elif not terminal and work_state == "paused":
+    elif not terminal and bool(recovery_state.paused):
         state = "paused"
         resume_strategy = "same_run_resume" if bool(recovery_state.same_run_resumable) else "ask_user_confirm"
         resume_allowed = bool(recovery_state.executable)
         requires_user_confirmation = not resume_allowed
-    elif not terminal and work_state == "waiting_approval":
+    elif not terminal and recovery_state.status == "waiting_approval":
         state = "waiting_approval"
         resume_strategy = "require_approval"
         resume_allowed = bool(recovery_state.executable)
         requires_user_confirmation = True
-    elif not terminal and work_state in {"ready_to_continue", "waiting_user"} and bool(view.get("recoverable")):
+    elif not terminal and bool(recovery_state.recoverable):
         state = "recoverable"
         resume_strategy = "same_run_resume" if bool(recovery_state.same_run_resumable) else "ask_user_confirm"
         resume_allowed = bool(recovery_state.executable)
         requires_user_confirmation = not resume_allowed
-    elif terminal or work_state in {"completed", "failed", "stopped"}:
+    elif terminal or recovery_state.completed_iteration or recovery_state.stopped:
         state = "terminal_read_only"
     else:
         return None
 
+    work_state = state
+    recovery_cause = _recovery_cause_from_recovery_state(recovery_state)
     rollout = work_rollout_summary(runtime_host, task_run)
     contract = _load_contract(runtime_host, str(getattr(task_run, "task_contract_ref", "") or ""))
     latest_progress = _first_text(
@@ -146,7 +164,7 @@ def _record_from_task_run(runtime_host: Any, *, task_run: Any, view: dict[str, A
         rollout.get("latest_progress"),
         diagnostics.get("latest_step_summary"),
         diagnostics.get("summary"),
-        view.get("control_reason"),
+        recovery_state.reason,
         terminal_reason,
         status,
     )
@@ -165,7 +183,7 @@ def _record_from_task_run(runtime_host: Any, *, task_run: Any, view: dict[str, A
         goal=goal,
         latest_progress=latest_progress,
         latest_step=latest_step,
-        recovery_cause=str(view.get("recovery_cause") or ""),
+        recovery_cause=recovery_cause,
         terminal_reason=terminal_reason,
         status=status,
     )
@@ -180,10 +198,10 @@ def _record_from_task_run(runtime_host: Any, *, task_run: Any, view: dict[str, A
         state=state,  # type: ignore[arg-type]
         resume_allowed=resume_allowed,
         resume_strategy=resume_strategy,
-        recovery_cause=str(view.get("recovery_cause") or ""),
+        recovery_cause=recovery_cause,
         task_status=status,
-        executor_status=str(view.get("executor_status") or diagnostics.get("executor_status") or ""),
-        control_state=str(view.get("control_state") or ""),
+        executor_status=str(recovery_state.executor_status or diagnostics.get("executor_status") or ""),
+        control_state=str(recovery_state.control_state or ""),
         user_visible_goal=goal,
         latest_progress=latest_progress,
         last_completed_step=latest_step,
@@ -201,7 +219,13 @@ def _record_from_task_run(runtime_host: Any, *, task_run: Any, view: dict[str, A
         diagnostics={
             "task_work_state": work_state,
             "terminal_reason": terminal_reason,
-            "task_run_state_view": dict(view),
+            "task_state_summary": {
+                "task_status": str(recovery_state.status or status),
+                "task_work_state": work_state,
+                "executor_status": str(recovery_state.executor_status or diagnostics.get("executor_status") or ""),
+                "control_state": str(recovery_state.control_state or ""),
+                "recovery_cause": recovery_cause,
+            },
             "recovery_state": {
                 "recoverable": bool(recovery_state.recoverable),
                 "same_run_resumable": bool(recovery_state.same_run_resumable),
@@ -211,6 +235,17 @@ def _record_from_task_run(runtime_host: Any, *, task_run: Any, view: dict[str, A
             },
         },
     )
+
+
+def _recovery_cause_from_recovery_state(recovery_state: Any) -> str:
+    reason = str(getattr(recovery_state, "reason", "") or "").strip()
+    if reason in {
+        "task_executor_interrupted_by_runtime_restart",
+        "runtime_cell_missing_after_restart",
+        "runtime_process_restarted",
+    }:
+        return "runtime_restart"
+    return "" if reason in {"not_resumable", "executor_claimed", "paused", "approval_granted"} else reason
 
 
 def _latest_interrupted_turn_record(runtime_host: Any, *, session_id: str) -> InterruptedTurnContinuationRecord | None:
@@ -240,6 +275,9 @@ def _record_from_interrupted_turn_run(runtime_host: Any, turn_run: Any) -> Inter
         getattr(turn_run, "terminal_reason", "")
         or diagnostics.get("terminal_reason")
         or diagnostics.get("terminal_reason_detail")
+        or diagnostics.get("runtime_interruption_code")
+        or diagnostics.get("failure_code")
+        or diagnostics.get("reason")
         or ""
     ).strip()
     status = str(getattr(turn_run, "status", "") or diagnostics.get("terminal_status") or "").strip()
@@ -263,12 +301,15 @@ def _record_from_interrupted_turn_run(runtime_host: Any, turn_run: Any) -> Inter
         feedback.get("agent_feedback"),
         dict(feedback.get("structured_signal") or {}).get("message"),
         latest_signal.get("message"),
+        diagnostics.get("runtime_interruption_reason"),
+        diagnostics.get("failure_reason"),
         terminal_reason,
         status,
     )
     latest_step = _first_text(
         diagnostics.get("latest_step"),
         diagnostics.get("latest_tool_batch_event"),
+        diagnostics.get("runtime_interruption_event_type"),
         diagnostics.get("terminal_event_type"),
     )
     visible_stream = dict(diagnostics.get("assistant_visible_stream_continuity") or {})
@@ -281,7 +322,7 @@ def _record_from_interrupted_turn_run(runtime_host: Any, turn_run: Any) -> Inter
         session_id=session_id,
         turn_run_id=turn_run_id,
         turn_id=turn_id,
-        previous_stream_run_id=str(diagnostics.get("stream_run_id") or ""),
+        previous_stream_run_id=str(diagnostics.get("interrupted_stream_run_id") or diagnostics.get("stream_run_id") or ""),
         interruption_kind=interruption_kind,
         terminal_status=status,
         terminal_reason=terminal_reason,
@@ -307,6 +348,8 @@ def _record_from_interrupted_turn_run(runtime_host: Any, turn_run: Any) -> Inter
         diagnostics={
             "terminal_reason": terminal_reason,
             "terminal_status": status,
+            "runtime_interruption_code": str(diagnostics.get("runtime_interruption_code") or ""),
+            "semantic_terminal": diagnostics.get("semantic_terminal"),
             "latest_runtime_control_signal_kind": str(latest_signal.get("signal_kind") or ""),
             "latest_step_status": str(diagnostics.get("latest_step_status") or ""),
             "has_agent_contract_feedback": bool(feedback),
@@ -323,6 +366,9 @@ def _interrupted_turn_kind(
 ) -> str:
     reason = str(terminal_reason or "").strip()
     signal_kind = str(dict(runtime_control_signal or {}).get("signal_kind") or "").strip()
+    runtime_interruption = _runtime_interruption_reason_from_diagnostics(diagnostics)
+    if runtime_interruption:
+        return "runtime_execution_interrupted"
     if reason in _RECOVERABLE_TURN_TERMINAL_REASONS:
         if reason == "single_turn_tool_iteration_limit":
             return "tool_budget_exhausted"
@@ -337,6 +383,22 @@ def _interrupted_turn_kind(
         return "agent_contract_feedback_required"
     if str(status or "").strip() in {"failed", "aborted"} and reason in _RECOVERABLE_TURN_TERMINAL_REASONS:
         return "interrupted_turn_runtime_boundary"
+    return ""
+
+
+def _runtime_interruption_reason_from_diagnostics(diagnostics: dict[str, Any]) -> str:
+    if diagnostics.get("semantic_terminal") is not False and diagnostics.get("recoverable") is not True:
+        return ""
+    candidates = (
+        diagnostics.get("runtime_interruption_code"),
+        diagnostics.get("failure_code"),
+        diagnostics.get("reason"),
+        diagnostics.get("recovery_kind"),
+    )
+    for candidate in candidates:
+        reason = str(candidate or "").strip()
+        if reason in _RECOVERABLE_TURN_INTERRUPTION_REASONS:
+            return reason
     return ""
 
 

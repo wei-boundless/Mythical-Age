@@ -33,65 +33,15 @@ _CURRENT_WORK_ACTIONS = {
     "answer_about_active_work",
     "answer_then_continue_active_work",
 }
-_ACTION_FIELD_ALIASES = (
-    "action",
-    "intent",
-    "control_action",
-    "active_work_action",
-    "subaction",
-    "operation",
-)
-_ACTION_ALIASES = {
-    "continue": "continue_active_work",
-    "resume": "continue_active_work",
-    "resume_active_work": "continue_active_work",
-    "continue_work": "continue_active_work",
-    "continue_current_work": "continue_active_work",
-    "pause": "pause_active_work",
-    "pause_work": "pause_active_work",
-    "pause_current_work": "pause_active_work",
-    "stop": "stop_active_work",
-    "cancel": "stop_active_work",
-    "abort": "stop_active_work",
-    "stop_work": "stop_active_work",
-    "stop_current_work": "stop_active_work",
-    "append_instruction": "append_instruction_to_active_work",
-    "append_instructions": "append_instruction_to_active_work",
-    "append_user_instruction": "append_instruction_to_active_work",
-    "add_instruction": "append_instruction_to_active_work",
-    "add_requirement": "append_instruction_to_active_work",
-    "steer": "append_instruction_to_active_work",
-    "status": "answer_about_active_work",
-    "progress": "answer_about_active_work",
-    "answer_status": "answer_about_active_work",
-    "answer_about_work": "answer_about_active_work",
-    "answer_then_continue": "answer_then_continue_active_work",
-    "reply_then_continue": "answer_then_continue_active_work",
-    "answer_then_resume": "answer_then_continue_active_work",
-}
-_NON_CONTROL_RESPONSE_ACTIONS = {
-    "respond",
-    "normal_response",
-    "answer",
-    "reply",
-}
 
 
 def active_work_action_from_payload(payload: dict[str, Any] | None) -> str:
     raw = dict(payload or {})
-    for field in _ACTION_FIELD_ALIASES:
-        action = _normalize_action_name(raw.get(field))
-        if action:
-            return action
-    return ""
+    return str(raw.get("action") or "").strip()
 
 
-def _normalize_action_name(value: Any) -> str:
-    action = str(value or "").strip()
-    if not action:
-        return ""
-    normalized = action.lower().replace("-", "_").replace(" ", "_")
-    return _ACTION_ALIASES.get(normalized, normalized)
+def active_work_action_is_allowed(value: Any) -> bool:
+    return str(value or "").strip() in _ALLOWED_ACTIONS
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,42 +100,23 @@ def active_work_turn_decision_from_payload(payload: dict[str, Any] | None, *, us
     action = active_work_action_from_payload(raw)
     if authority != "harness.loop.active_work_turn_decision":
         return _denied_active_work_decision("active_work_turn_decision_authority_invalid")
-    response = public_active_work_text(str(raw.get("response") or raw.get("final_answer") or ""))
-    if action in _NON_CONTROL_RESPONSE_ACTIONS:
-        return ActiveWorkTurnDecision(
-            action="answer_about_active_work",
-            response=response,
-            reason="normalized_non_control_response",
-            relation_to_current_work=_normalize_relation_to_current_work(
-                raw.get("relation_to_current_work") or raw.get("relation")
-            ),
-            evidence=str(raw.get("evidence") or raw.get("routing_evidence") or "").strip(),
-            turn_response_policy="answer_only",
-            user_turn_kind=_normalize_user_turn_kind(raw.get("user_turn_kind") or raw.get("turn_kind") or raw.get("utterance_kind")),
-            answer_obligation="direct_answer_required",
-            continuation_strategy="none",
-        )
+    response = public_active_work_text(str(raw.get("response") or ""))
     if action not in _ALLOWED_ACTIONS:
         return _denied_active_work_decision("active_work_control_action_not_allowed")
     appended_instruction = str(raw.get("appended_instruction") or "").strip()
     if action == "append_instruction_to_active_work" and not appended_instruction:
         appended_instruction = str(user_message or "").strip()
-    relation_to_current_work = _normalize_relation_to_current_work(
-        raw.get("relation_to_current_work") or raw.get("relation")
-    )
-    evidence = str(raw.get("evidence") or raw.get("routing_evidence") or "").strip()
+    relation_to_current_work = _normalize_relation_to_current_work(raw.get("relation_to_current_work"))
+    evidence = str(raw.get("evidence") or "").strip()
     turn_response_policy = _normalize_turn_response_policy(raw.get("turn_response_policy"), action=action)
-    user_turn_kind = _normalize_user_turn_kind(raw.get("user_turn_kind") or raw.get("turn_kind") or raw.get("utterance_kind"))
+    user_turn_kind = _normalize_user_turn_kind(raw.get("user_turn_kind"))
     answer_obligation = _normalize_answer_obligation(
-        raw.get("answer_obligation") or raw.get("response_obligation"),
+        raw.get("answer_obligation"),
         user_turn_kind=user_turn_kind,
         turn_response_policy=turn_response_policy,
         action=action,
     )
-    continuation_strategy = _normalize_continuation_strategy(
-        raw.get("continuation_strategy") or raw.get("resume_strategy") or raw.get("continuation_mode"),
-        action=action,
-    )
+    continuation_strategy = _normalize_continuation_strategy(raw.get("continuation_strategy"))
     if action in _CURRENT_WORK_ACTIONS and relation_to_current_work != "current_work":
         denied_reason = (
             "active_work_relation_declared_independent"
@@ -255,9 +186,9 @@ def active_work_control_denial_observation(decision: ActiveWorkTurnDecision) -> 
 
 def _normalize_relation_to_current_work(value: Any) -> str:
     relation = str(value or "").strip().lower()
-    if relation in {"current_work", "current", "active_work", "task", "same_work"}:
+    if relation == "current_work":
         return "current_work"
-    if relation in {"independent_turn", "independent", "new_turn", "unrelated", "normal_response"}:
+    if relation == "independent_turn":
         return "independent_turn"
     return "ambiguous"
 
@@ -265,37 +196,33 @@ def _normalize_turn_response_policy(value: Any, *, action: str) -> str:
     policy = str(value or "").strip().lower()
     if policy in {"answer_only", "answer_then_active_work", "active_work_only", "no_user_reply"}:
         return policy
-    if policy in {"control_only", "status_only"}:
-        return "active_work_only"
     if action == "answer_then_continue_active_work":
         return "answer_then_active_work"
-    if action in {"normal_response", "start_new_work"}:
-        return "answer_only"
     return "answer_then_active_work"
 
 
 def _normalize_user_turn_kind(value: Any) -> str:
     kind = str(value or "").strip().lower()
-    if kind in {"question", "ask", "status_question", "progress_question"}:
+    if kind == "question":
         return "question"
-    if kind in {"complaint", "frustration", "critique", "status_critique", "latency_complaint"}:
+    if kind == "complaint":
         return "complaint"
-    if kind in {"command", "instruction", "control", "request"}:
+    if kind == "command":
         return "command"
-    if kind in {"mixed", "question_and_command", "ask_then_command"}:
+    if kind == "mixed":
         return "mixed"
-    if kind in {"statement", "chat", "comment"}:
+    if kind == "statement":
         return "statement"
     return "ambiguous"
 
 
 def _normalize_answer_obligation(value: Any, *, user_turn_kind: str, turn_response_policy: str, action: str) -> str:
     obligation = str(value or "").strip().lower()
-    if obligation in {"direct_answer_required", "answer_required", "must_answer", "answer_user_first"}:
+    if obligation == "direct_answer_required":
         return "direct_answer_required"
-    if obligation in {"acknowledgement_only", "ack_only", "ack"}:
+    if obligation == "acknowledgement_only":
         return "acknowledgement_only"
-    if obligation in {"none", "no_answer_required"}:
+    if obligation == "none":
         return "none"
     if turn_response_policy in {"active_work_only", "no_user_reply"}:
         return "none"
@@ -310,25 +237,10 @@ def _normalize_answer_obligation(value: Any, *, user_turn_kind: str, turn_respon
     return "unspecified"
 
 
-def _normalize_continuation_strategy(value: Any, *, action: str) -> str:
+def _normalize_continuation_strategy(value: Any) -> str:
     strategy = str(value or "").strip().lower()
-    aliases = {
-        "continue_same_run": "same_run_resume",
-        "same_run": "same_run_resume",
-        "resume": "same_run_resume",
-        "resume_same_task": "same_run_resume",
-        "running": "already_running",
-        "record_instruction": "already_running",
-        "wait": "defer",
-        "ask_first": "defer",
-        "no_resume": "none",
-        "normal_response": "none",
-    }
-    strategy = aliases.get(strategy, strategy)
     if strategy in {"same_run_resume", "already_running", "defer", "none"}:
         return strategy
-    if action in {"normal_response", "start_new_work", "answer_about_active_work", "ask_user", "pause_active_work", "stop_active_work"}:
-        return "none"
     return ""
 
 

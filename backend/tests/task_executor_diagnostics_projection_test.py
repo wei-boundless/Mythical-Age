@@ -15,6 +15,7 @@ from harness.loop.task_executor import (
     _runtime_control_signal_projection_from_observations,
     _step_summary_diagnostics_update,
 )
+from harness.loop.work_rollout import work_rollout_summary
 from harness.loop.task_run_execution_control import ExecutorControlSignal
 
 
@@ -147,6 +148,25 @@ def test_model_stage_summary_updates_public_and_model_diagnostics() -> None:
     assert update["latest_model_judgment"] == "已确认目标文件完整可用。"
     assert update["latest_next_action"] == "执行精确修改。"
     assert update["latest_completion_status"] == "working"
+
+
+def test_missing_work_rollout_does_not_fallback_to_task_diagnostics() -> None:
+    task_run = TaskRun(
+        task_run_id="taskrun:test:missing-rollout",
+        session_id="session-test",
+        task_id="task:test:missing-rollout",
+        execution_runtime_kind="single_agent_task",
+        status="blocked",
+        latest_event_offset=42,
+        diagnostics={
+            "latest_step": "legacy_diagnostic_step",
+            "latest_step_summary": "diagnostic summary must not become work rollout history",
+            "artifact_refs": [{"path": "legacy.txt"}],
+        },
+    )
+    runtime_host = SimpleNamespace(runtime_objects=_RuntimeObjectsStub())
+
+    assert work_rollout_summary(runtime_host, task_run) == {}
 
 
 def test_step_budget_boundary_records_model_visible_control_observation_and_public_wait_status() -> None:

@@ -11,15 +11,6 @@ from dataclasses import dataclass, is_dataclass, replace
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
-from langchain.agents import create_agent
-from langchain_core.messages import AIMessage, convert_to_messages
-from langchain_openai import ChatOpenAI
-
-try:
-    from langchain_deepseek import ChatDeepSeek
-except ImportError:  # pragma: no cover - optional dependency at runtime
-    ChatDeepSeek = None
-
 from bootstrap.settings import AppSettingsService
 from config import LLM_PROVIDER_DEFAULTS
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
@@ -37,6 +28,7 @@ from runtime.prompt_accounting import (
 )
 from runtime.tool_runtime.tool_call_policy import ToolCallBindingOptions
 
+from .lightweight_chat_model import LightweightChatModel, LightweightConversationAgent
 from .model_request import ModelRequestBuilder
 from .providers import ProviderRequestProfile, build_provider_adapter_result
 
@@ -53,53 +45,6 @@ _UTILITY_PROMPT_REFS_BY_PURPOSE: dict[str, tuple[str, ...]] = {
     "memory.maintenance_after_commit": ("agent.memory_system_agent.memory_maintenance.work_role",),
 }
 
-
-class _DeepSeekReasoningCompatChatModel(ChatDeepSeek):
-    """Preserve DeepSeek native thinking payload across tool-call round trips.
-
-    DeepSeek thinking mode requires the previous assistant tool-call message to
-    replay its `reasoning_content` on the next request. LangChain stores that
-    field in `AIMessage.additional_kwargs`, but the default OpenAI-compatible
-    message serializer drops it for chat/completions payloads. This is protocol
-    state for DeepSeek API replay, not a public progress note or generated
-    application-side chain of thought.
-    """
-
-    def _get_request_payload(
-        self,
-        input_: Any,
-        *,
-        stop: list[str] | None = None,
-        **kwargs: Any,
-    ) -> dict[str, Any]:
-        payload = super()._get_request_payload(input_, stop=stop, **kwargs)
-        raw_messages = payload.get("messages")
-        if not isinstance(raw_messages, list):
-            return payload
-        try:
-            original_messages = convert_to_messages(input_)
-        except Exception:
-            return payload
-
-        raw_input_messages = list(input_) if isinstance(input_, list) else []
-        for index, (original_message, serialized_message) in enumerate(zip(original_messages, raw_messages)):
-            if not isinstance(original_message, AIMessage):
-                continue
-            if not isinstance(serialized_message, dict):
-                continue
-            if str(serialized_message.get("role", "") or "").strip() != "assistant":
-                continue
-
-            raw_message = raw_input_messages[index] if index < len(raw_input_messages) else None
-            reasoning_content = _deepseek_reasoning_content_from_message(original_message, raw_message)
-            if reasoning_content:
-                serialized_message["reasoning_content"] = reasoning_content
-            if _deepseek_prefix_enabled_from_message(original_message, raw_message):
-                serialized_message["prefix"] = True
-
-        return payload
-
-
 def stringify_content(content: Any) -> str:
     if isinstance(content, str):
         return content
@@ -110,36 +55,6 @@ def stringify_content(content: Any) -> str:
                 parts.append(str(block.get("text", "")))
         return "".join(parts)
     return str(content or "")
-
-
-def _deepseek_reasoning_content_from_message(message: Any, raw_message: Any = None) -> str:
-    candidates: list[Any] = []
-    additional_kwargs = getattr(message, "additional_kwargs", None)
-    if isinstance(additional_kwargs, dict):
-        candidates.append(additional_kwargs.get("reasoning_content"))
-    if isinstance(raw_message, dict):
-        candidates.append(raw_message.get("reasoning_content"))
-        raw_additional_kwargs = raw_message.get("additional_kwargs")
-        if isinstance(raw_additional_kwargs, dict):
-            candidates.append(raw_additional_kwargs.get("reasoning_content"))
-    for candidate in candidates:
-        text = str(candidate or "").strip()
-        if text:
-            return text
-    return ""
-
-
-def _deepseek_prefix_enabled_from_message(message: Any, raw_message: Any = None) -> bool:
-    candidates: list[Any] = []
-    additional_kwargs = getattr(message, "additional_kwargs", None)
-    if isinstance(additional_kwargs, dict):
-        candidates.append(additional_kwargs.get("prefix"))
-    if isinstance(raw_message, dict):
-        candidates.append(raw_message.get("prefix"))
-        raw_additional_kwargs = raw_message.get("additional_kwargs")
-        if isinstance(raw_additional_kwargs, dict):
-            candidates.append(raw_additional_kwargs.get("prefix"))
-    return any(value is True or str(value or "").strip().lower() == "true" for value in candidates)
 
 
 @dataclass(frozen=True, slots=True)
@@ -756,48 +671,39 @@ class ModelRuntime:
         temperature = self._temperature_for_spec(spec)
         provider_adapter = self._provider_adapter_result_for_spec(spec)
         effective_base_url = str(provider_adapter.effective_base_url or spec.base_url)
-        if spec.provider == "deepseek":
+        provider = str(spec.provider or "").strip().lower()
+        if provider == "deepseek":
             self._validate_deepseek_mode_for_spec(spec)
-            if ChatDeepSeek is None:
-                raise RuntimeError("langchain-deepseek is not installed")
             if not spec.api_key:
                 raise RuntimeError("Missing API key for provider deepseek")
             thinking_enabled = self._thinking_enabled_for_spec(spec)
-            model_kwargs: dict[str, Any] = {
-                "model": spec.model,
-                "api_key": spec.api_key,
-                "base_url": effective_base_url,
-                "api_base": effective_base_url,
-                "timeout": timeout_seconds,
-                "max_retries": 0,
-                "max_tokens": max_output_tokens,
-            }
-            model_kwargs.update(dict(provider_adapter.model_kwargs or {}))
-            if thinking_enabled:
-                reasoning_effort = self._reasoning_effort_for_spec(spec)
-                if reasoning_effort:
-                    model_kwargs["reasoning_effort"] = reasoning_effort
-            else:
-                model_kwargs["temperature"] = temperature
-            return _DeepSeekReasoningCompatChatModel(**model_kwargs)
+            return LightweightChatModel(
+                provider=provider,
+                model=spec.model,
+                api_key=spec.api_key,
+                base_url=effective_base_url,
+                timeout_seconds=timeout_seconds,
+                max_output_tokens=max_output_tokens,
+                output_token_parameter="max_tokens",
+                temperature=None if thinking_enabled else temperature,
+                reasoning_effort=self._reasoning_effort_for_spec(spec) if thinking_enabled else "",
+                **_lightweight_model_provider_kwargs(provider_adapter.model_kwargs),
+            )
 
-        if not spec.api_key:
+        if not spec.api_key and provider != "ollama":
             raise RuntimeError(f"Missing API key for provider {spec.provider}")
-
-        model_kwargs: dict[str, Any] = {
-            "model": spec.model,
-            "api_key": spec.api_key,
-            "base_url": effective_base_url,
-            "temperature": temperature,
-            "timeout": timeout_seconds,
-            "max_retries": 0,
-            "max_completion_tokens": max_output_tokens,
-        }
-        model_kwargs.update(dict(provider_adapter.model_kwargs or {}))
-        reasoning_effort = self._chat_openai_reasoning_effort_for_spec(spec)
-        if reasoning_effort:
-            model_kwargs["reasoning_effort"] = reasoning_effort
-        return ChatOpenAI(**model_kwargs)
+        return LightweightChatModel(
+            provider=provider,
+            model=spec.model,
+            api_key=spec.api_key,
+            base_url=effective_base_url,
+            timeout_seconds=timeout_seconds,
+            max_output_tokens=max_output_tokens,
+            output_token_parameter=_output_token_parameter_for_provider(provider),
+            temperature=temperature,
+            reasoning_effort=self._chat_openai_reasoning_effort_for_spec(spec) or "",
+            **_lightweight_model_provider_kwargs(provider_adapter.model_kwargs),
+        )
 
     def _get_chat_model_for_spec(self, spec: ModelSpec):
         key = self._chat_model_pool_key(spec)
@@ -845,14 +751,10 @@ class ModelRuntime:
         agent_definition: AgentDefinition,
         model: Any,
     ):
-        return create_agent(
-            model=model,
-            tools=tools,
-            system_prompt=system_prompt,
-        )
+        return LightweightConversationAgent(model=model, tools=tools, system_prompt=system_prompt)
 
     async def _aclose_chat_model(self, model: Any) -> None:
-        close_targets = []
+        close_targets = [model]
         for attr_name in ("root_async_client", "root_client", "http_async_client", "http_client"):
             target = getattr(model, attr_name, None)
             if target is None:
@@ -862,7 +764,7 @@ class ModelRuntime:
             close_targets.append(target)
 
         for target in close_targets:
-            close_method = getattr(target, "close", None)
+            close_method = getattr(target, "aclose", None) or getattr(target, "close", None)
             if not callable(close_method):
                 continue
             try:
@@ -1199,11 +1101,16 @@ class ModelRuntime:
                         },
                     )
                 )
-            previous_stability_reports = ledger.list_prompt_stability(
-                **_previous_stability_report_filter(
-                    run_id=run_id,
-                    task_run_id=task_run_id,
-                    session_id=session_id,
+            scoped_reads_expensive = _prompt_accounting_scoped_reads_are_expensive(ledger)
+            previous_stability_reports = (
+                []
+                if scoped_reads_expensive
+                else ledger.list_prompt_stability(
+                    **_previous_stability_report_filter(
+                        run_id=run_id,
+                        task_run_id=task_run_id,
+                        session_id=session_id,
+                    )
                 )
             )
             previous_stability_report = _previous_stability_report(
@@ -1220,11 +1127,15 @@ class ModelRuntime:
                 created_at=created_at,
             )
             ledger.record_prompt_stability(stability_report)
-            previous_baselines = _previous_prompt_cache_baselines(
-                ledger,
-                run_id=run_id,
-                task_run_id=task_run_id,
-                session_id=session_id,
+            previous_baselines = (
+                []
+                if scoped_reads_expensive
+                else _previous_prompt_cache_baselines(
+                    ledger,
+                    run_id=run_id,
+                    task_run_id=task_run_id,
+                    session_id=session_id,
+                )
             )
             baseline_record = self._prompt_cache_baseline_tracker.build_active_record(
                 segment_map=segment_map,
@@ -1720,6 +1631,28 @@ def _compact_error_detail(detail: str, *, limit: int = 500) -> str:
     return normalized[: limit - 3] + "..."
 
 
+def _lightweight_model_provider_kwargs(model_kwargs: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(model_kwargs or {})
+    nested_model_kwargs = dict(payload.pop("model_kwargs", {}) or {})
+    extra_body = dict(payload.pop("extra_body", {}) or {})
+    response_format = dict(nested_model_kwargs.pop("response_format", {}) or {})
+    if nested_model_kwargs:
+        extra_body.update(nested_model_kwargs)
+    if payload:
+        extra_body.update(payload)
+    return {
+        "extra_body": extra_body,
+        "response_format": response_format,
+    }
+
+
+def _output_token_parameter_for_provider(provider: str) -> str:
+    normalized = str(provider or "").strip().lower()
+    if normalized == "openai":
+        return "max_completion_tokens"
+    return "max_tokens"
+
+
 def _bind_tools_with_options(
     model: Any,
     tools: list[Any],
@@ -1857,6 +1790,16 @@ def _previous_prompt_cache_baselines(ledger: Any, *, run_id: str, task_run_id: s
         if previous is None or float(getattr(record, "created_at", 0.0) or 0.0) >= float(getattr(previous, "created_at", 0.0) or 0.0):
             deduped[key] = record
     return sorted(deduped.values(), key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0))
+
+
+def _prompt_accounting_scoped_reads_are_expensive(ledger: Any) -> bool:
+    scoped_reads_are_expensive = getattr(ledger, "scoped_reads_are_expensive", None)
+    if not callable(scoped_reads_are_expensive):
+        return False
+    try:
+        return bool(scoped_reads_are_expensive())
+    except Exception:
+        return True
 
 
 def _previous_stability_report(

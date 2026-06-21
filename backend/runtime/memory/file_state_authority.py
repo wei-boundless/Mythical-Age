@@ -223,10 +223,10 @@ def file_state_events_from_observation(observation: dict[str, Any]) -> FileState
     envelope = tool_result_envelope_from_payload(payload)
     events: tuple[dict[str, Any], ...] = ()
     if envelope is None:
-        tool_call_id = str(payload.get("tool_call_id") or "")
+        tool_call_id = ""
     else:
         events = tuple(dict(item) for item in envelope.file_state_events)
-        tool_call_id = str(envelope.tool_call_id or payload.get("tool_call_id") or "")
+        tool_call_id = str(envelope.tool_call_id or "")
     return FileStateObservationEvents(
         observation_ref=observation_ref,
         tool_call_id=tool_call_id,

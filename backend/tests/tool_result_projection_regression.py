@@ -139,6 +139,45 @@ def test_tool_result_projector_normalizes_tool_source_prefix_for_read_file(tmp_p
     assert projection["evidence_policy"]["source_kind"] == "code_evidence"
 
 
+def test_tool_result_projector_does_not_promote_identity_from_wrapper_or_text_payload(tmp_path: Path) -> None:
+    projector = ToolResultProjector(root_dir=tmp_path, replacement_store=ReplacementStore(tmp_path))
+
+    projection, _ = projector.project(
+        {
+            "tool_name": "read_file",
+            "tool_call_id": "call:wrapper-shadow",
+            "action_request_id": "request:wrapper-shadow",
+            "result": json.dumps(
+                {
+                    "tool_name": "read_file",
+                    "tool_call_id": "call:text-shadow",
+                    "action_request_id": "request:text-shadow",
+                    "text": "7 | target = value",
+                    "structured_payload": {
+                        "tool_result": {
+                            "kind": "text_file",
+                            "path": "src/shadow.py",
+                            "start_line": 7,
+                            "end_line": 7,
+                            "returned_lines": 1,
+                            "line_count": 1,
+                            "total_lines": 9,
+                            "has_more": False,
+                        }
+                    },
+                }
+            ),
+        },
+        task_run_id="taskrun:identity-shadow",
+        projection_policy={"tool_result_preview_chars": 300},
+    )
+
+    assert projection["tool_name"] == "read_file"
+    assert "tool_call_id" not in projection
+    assert "action_request_id" not in projection
+    assert projection["content_range"]["path"] == "src/shadow.py"
+
+
 def test_tool_result_projector_does_not_content_replace_oversized_read_file_window(tmp_path: Path) -> None:
     projector = ToolResultProjector(root_dir=tmp_path, replacement_store=ReplacementStore(tmp_path))
     large_window = "\n".join(f"{line} |     value_{line} = compute({line})" for line in range(1, 180))

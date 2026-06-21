@@ -670,28 +670,16 @@ async def truncate_session_messages(
     project_id: str | None = Query(default=None, max_length=240),
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    assert_optional_session_scope(
-        runtime.session_manager,
-        session_id,
-        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
-    )
     try:
-        record = runtime.session_manager.truncate_messages_from(session_id, payload.message_index)
+        record = await asyncio.to_thread(
+            _truncate_session_messages_payload,
+            runtime,
+            session_id,
+            payload.message_index,
+            request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    try:
-        ledger = runtime.harness_runtime.single_agent_runtime_host.prompt_accounting_ledger
-        reset = getattr(ledger, "reset_prompt_cache_baseline", None)
-        if callable(reset):
-            reset(
-                request_id=f"pcachebaseline-reset:session-truncate:{session_id}:{payload.message_index}",
-                session_id=session_id,
-                reason="session_history_truncated",
-                reset_ref=f"session:{session_id}:message_index:{payload.message_index}",
-                diagnostics={"message_index": payload.message_index},
-            )
-    except Exception:
-        pass
     try:
         await runtime.memory_facade.arun_memory_maintenance_after_commit(
             session_id=session_id,
@@ -864,6 +852,38 @@ def _build_session_runtime_projection_payload(runtime: Any, session_id: str) -> 
         history=history,
         runtime_host=runtime.harness_runtime.single_agent_runtime_host,
     )
+
+
+def _truncate_session_messages_payload(
+    runtime: Any,
+    session_id: str,
+    message_index: int,
+    expected_scope: Any,
+) -> dict[str, Any]:
+    assert_optional_session_scope(
+        runtime.session_manager,
+        session_id,
+        expected_scope,
+    )
+    record = runtime.session_manager.truncate_messages_from(session_id, message_index)
+    _reset_prompt_cache_baseline_after_session_truncate(runtime, session_id=session_id, message_index=message_index)
+    return record
+
+
+def _reset_prompt_cache_baseline_after_session_truncate(runtime: Any, *, session_id: str, message_index: int) -> None:
+    try:
+        ledger = runtime.harness_runtime.single_agent_runtime_host.prompt_accounting_ledger
+        reset = getattr(ledger, "reset_prompt_cache_baseline", None)
+        if callable(reset):
+            reset(
+                request_id=f"pcachebaseline-reset:session-truncate:{session_id}:{message_index}",
+                session_id=session_id,
+                reason="session_history_truncated",
+                reset_ref=f"session:{session_id}:message_index:{message_index}",
+                diagnostics={"message_index": message_index},
+            )
+    except Exception:
+        pass
 
 
 def _latest_prompt_manifest_summary(runtime: Any, session_id: str) -> dict[str, Any]:

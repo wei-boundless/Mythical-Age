@@ -12,11 +12,13 @@ from fastapi import HTTPException
 import pytest
 
 import api.orchestration_harness as orchestration_harness
+import harness.runtime.task_run_control_gateway as task_run_control_gateway
 from api.orchestration_harness import _assert_expected_active_turn, _schedule_result_allows_progress
 from harness.entrypoint.models import HarnessRuntimeRequest
 from harness.runtime import SingleAgentRuntimeHost
 from harness.runtime.control_events import runtime_signal_from_event_payload
 from harness.loop.task_executor import append_user_work_instruction, is_task_run_executable, request_task_run_pause, resume_paused_task_run
+from harness.loop.active_turn_steering import claim_active_turn_queued_user_steers
 from harness.loop.task_executor_controller import TaskExecutorController
 from harness.loop.task_lifecycle import (
     TaskLifecycleRecord,
@@ -26,7 +28,7 @@ from harness.loop.task_lifecycle import (
     wait_task_launch_supervision,
 )
 from harness.loop.model_action_protocol import ModelActionRequest
-from runtime.shared.models import TaskRun
+from runtime.shared.models import TaskRun, TurnRun
 from tests.support.runtime_stubs import build_harness_runtime
 
 
@@ -442,6 +444,210 @@ def test_waiting_executor_without_explicit_recovery_boundary_is_not_executable(t
     assert resume["error"] == "task_run_not_resumable:waiting_executor"
 
 
+def test_api_resume_rejects_bare_recovery_action_without_scheduling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
+    task_run = TaskRun(
+        task_run_id="taskrun:bare-api-resume",
+        session_id="session:test",
+        task_id="task:bare-api-resume",
+        execution_runtime_kind="single_agent_task",
+        status="waiting_executor",
+        created_at=1,
+        updated_at=2,
+        diagnostics={"executor_status": "waiting_executor", "recovery_action": "resume_task_run"},
+    )
+    host.state_index.upsert_task_run(task_run)
+    schedule_calls: list[dict[str, object]] = []
+
+    def schedule_task_run_executor(*_args, **_kwargs):
+        schedule_calls.append(dict(_kwargs))
+        pytest.fail("bare recovery action must not reach scheduler")
+
+    monkeypatch.setattr(
+        orchestration_harness,
+        "require_runtime",
+        lambda: SimpleNamespace(
+            harness_runtime=SimpleNamespace(
+                single_agent_runtime_host=host,
+                schedule_task_run_executor=schedule_task_run_executor,
+            )
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(orchestration_harness.resume_harness_task_run(task_run.task_run_id))
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == "task_run_not_resumable:waiting_executor"
+    assert schedule_calls == []
+
+
+def test_api_resume_uses_control_gateway_before_scheduling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
+    task_run = TaskRun(
+        task_run_id="taskrun:api-resume",
+        session_id="session:test",
+        task_id="task:api-resume",
+        execution_runtime_kind="single_agent_task",
+        status="waiting_executor",
+        created_at=1,
+        updated_at=2,
+        diagnostics={
+            "executor_status": "waiting_executor",
+            "recovery_action": "resume_task_run",
+            "wait_reason": "model_call_recovery_required",
+            "recoverable_error": {"retryable": True, "error_code": "model_call_recovery_required"},
+        },
+    )
+    host.state_index.upsert_task_run(task_run)
+    schedule_calls: list[dict[str, object]] = []
+
+    def schedule_task_run_executor(task_run_id: str, **kwargs):
+        schedule_calls.append({"task_run_id": task_run_id, **dict(kwargs)})
+        return {"ok": True, "scheduled": True, "reason": "scheduled", "task_run_id": task_run_id}
+
+    monkeypatch.setattr(
+        orchestration_harness,
+        "require_runtime",
+        lambda: SimpleNamespace(
+            harness_runtime=SimpleNamespace(
+                single_agent_runtime_host=host,
+                schedule_task_run_executor=schedule_task_run_executor,
+            )
+        ),
+    )
+
+    response = asyncio.run(
+        orchestration_harness.resume_harness_task_run(
+            task_run.task_run_id,
+            orchestration_harness.TaskRunExecuteRequest(max_steps=7),
+        )
+    )
+
+    updated = host.state_index.get_task_run(task_run.task_run_id)
+    assert response["ok"] is True
+    assert response["authority"] == "harness.runtime.task_run_control_gateway"
+    assert response["background_started"] is True
+    assert updated is not None
+    assert dict(updated.diagnostics or {})["wait_reason"] == "resume_requested"
+    assert schedule_calls == [
+        {
+            "task_run_id": task_run.task_run_id,
+            "scheduler": "task_run_resume_api",
+            "turn_id": "",
+            "max_steps": 7,
+        }
+    ]
+
+
+def test_api_approval_resume_does_not_schedule_when_resume_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
+    task_run = TaskRun(
+        task_run_id="taskrun:approval-resume-rejected",
+        session_id="session:test",
+        task_id="task:approval-resume-rejected",
+        execution_runtime_kind="single_agent_task",
+        status="waiting_approval",
+        created_at=1,
+        updated_at=2,
+        diagnostics={
+            "executor_status": "waiting_approval",
+            "pending_approval": _pending_tool_approval("taskrun:approval-resume-rejected"),
+        },
+    )
+    host.state_index.upsert_task_run(task_run)
+    schedule_calls: list[dict[str, object]] = []
+
+    def schedule_task_run_executor(*_args, **_kwargs):
+        schedule_calls.append(dict(_kwargs))
+        pytest.fail("approval path must not schedule after resume rejection")
+
+    monkeypatch.setattr(
+        orchestration_harness,
+        "require_runtime",
+        lambda: SimpleNamespace(
+            harness_runtime=SimpleNamespace(
+                single_agent_runtime_host=host,
+                schedule_task_run_executor=schedule_task_run_executor,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        task_run_control_gateway,
+        "resume_paused_task_run",
+        lambda *_args, **_kwargs: {"ok": False, "task_run_id": task_run.task_run_id, "error": "task_run_resume_boundary_rejected"},
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(orchestration_harness.approve_harness_task_run_tool_call(task_run.task_run_id))
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == "task_run_resume_boundary_rejected"
+    assert schedule_calls == []
+
+
+def test_api_approval_resume_uses_control_gateway_before_scheduling(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
+    task_run = TaskRun(
+        task_run_id="taskrun:approval-api-resume",
+        session_id="session:test",
+        task_id="task:approval-api-resume",
+        execution_runtime_kind="single_agent_task",
+        status="waiting_approval",
+        created_at=1,
+        updated_at=2,
+        diagnostics={
+            "executor_status": "waiting_approval",
+            "pending_approval": _pending_tool_approval("taskrun:approval-api-resume"),
+        },
+    )
+    host.state_index.upsert_task_run(task_run)
+    schedule_calls: list[dict[str, object]] = []
+
+    def schedule_task_run_executor(task_run_id: str, **kwargs):
+        schedule_calls.append({"task_run_id": task_run_id, **dict(kwargs)})
+        return {"ok": True, "scheduled": True, "reason": "scheduled", "task_run_id": task_run_id}
+
+    monkeypatch.setattr(
+        orchestration_harness,
+        "require_runtime",
+        lambda: SimpleNamespace(
+            harness_runtime=SimpleNamespace(
+                single_agent_runtime_host=host,
+                schedule_task_run_executor=schedule_task_run_executor,
+            )
+        ),
+    )
+
+    response = asyncio.run(
+        orchestration_harness.approve_harness_task_run_tool_call(
+            task_run.task_run_id,
+            orchestration_harness.TaskRunApprovalRequest(max_steps=9, reason="user approved"),
+        )
+    )
+
+    updated = host.state_index.get_task_run(task_run.task_run_id)
+    assert response["ok"] is True
+    assert response["authority"] == "harness.runtime.task_run_control_gateway"
+    assert dict(response["approval"])["ok"] is True
+    assert updated is not None
+    assert dict(updated.diagnostics or {})["wait_reason"] == "resume_requested"
+    assert schedule_calls == [
+        {
+            "task_run_id": task_run.task_run_id,
+            "scheduler": "task_run_approval_resume_api",
+            "turn_id": "",
+            "max_steps": 9,
+        }
+    ]
+
+
 def test_append_user_work_instruction_rejects_terminal_task_run(tmp_path: Path) -> None:
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
     task_run = TaskRun(
@@ -468,17 +674,8 @@ def test_append_user_work_instruction_rejects_terminal_task_run(tmp_path: Path) 
     assert "active_task_steer_recorded" not in [event.event_type for event in host.event_log.list_events(task_run.task_run_id)]
 
 
-def test_active_turn_steer_records_lifecycle_without_model_decision(tmp_path: Path) -> None:
-    class ActiveWorkAppendModelRuntime:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        async def invoke_messages(self, *_args, **_kwargs):
-            self.calls += 1
-            raise AssertionError("explicit active-turn steer must not be routed through model decision")
-
-    model = ActiveWorkAppendModelRuntime()
-    runtime = build_harness_runtime(base_dir=tmp_path, model_runtime=model)
+def test_active_turn_queued_steer_records_lifecycle_without_direct_runtime_branch(tmp_path: Path) -> None:
+    runtime = build_harness_runtime(base_dir=tmp_path)
     host = runtime.single_agent_runtime_host
     task_run = TaskRun(
         task_run_id="taskrun:current",
@@ -499,39 +696,53 @@ def test_active_turn_steer_records_lifecycle_without_model_decision(tmp_path: Pa
         task_run_id="taskrun:current",
         state="running_task",
     )
-
-    async def _collect() -> list[dict[str, object]]:
-        events: list[dict[str, object]] = []
-        async for event in runtime.astream(
-            HarnessRuntimeRequest(
-                session_id="session:test",
-                message="等一下 task runtime 为什么必须有 task_environment？",
-                active_turn_input_policy="steer",
-                expected_active_turn_id="turn:session:test:old",
-            )
-        ):
-            events.append(event)
-        return events
+    turn_run = TurnRun(
+        turn_run_id="turnrun:session:test:old",
+        session_id="session:test",
+        turn_id="turn:session:test:old",
+        created_at=1,
+        updated_at=1,
+    )
+    host.state_index.upsert_turn_run(turn_run)
+    item = host.queued_user_inputs.enqueue(
+        session_id="session:test",
+        content="等一下 task runtime 为什么必须有 task_environment？",
+        client_message_id="user:queued-steer",
+        input_policy="steer",
+        expected_active_turn_id="turn:session:test:old",
+        task_run_id="taskrun:current",
+    )
 
     try:
-        events = asyncio.run(_collect())
+        batch = asyncio.run(
+            claim_active_turn_queued_user_steers(
+                host,
+                session_id="session:test",
+                turn_id="turn:session:test:old",
+                turn_run=turn_run,
+                stream_run_id="strun:session:test:active",
+                packet_ref="packet:queued-steer",
+                phase="before_model_action",
+                bound_task_run_id="taskrun:current",
+                source_authority="test.active_turn_queued_steer",
+            )
+        )
         updated = host.state_index.get_task_run("taskrun:current")
         event_types = [event.event_type for event in host.event_log.list_events("taskrun:current")]
+        stored = host.queued_user_inputs.get_item("session:test", item.queue_item_id)
 
-        assert model.calls == 0
-        assert any(
-            event.get("type") == "runtime_branch_decided"
-            and dict(event.get("runtime_branch") or {}).get("branch_kind") == "active_turn_steer"
-            for event in events
-        )
-        assert any(event.get("type") == "active_task_steer_accepted" for event in events)
-        assert any(event.get("type") == "done" and event.get("terminal_reason") == "active_task_steer_recorded" for event in events)
-        assert not any(event.get("terminal_reason") == "pause_active_work" for event in events)
+        assert [entry.queue_item_id for entry in batch.items] == [item.queue_item_id]
+        assert batch.model_message is not None
+        assert "不是新的独立任务" in str(batch.model_message.get("content") or "")
+        assert stored is not None
+        assert stored.status == "dispatched"
+        assert stored.dispatch_stream_run_id == "strun:session:test:active"
         assert updated is not None
         assert updated.status == "running"
         assert int(dict(updated.diagnostics or {}).get("pending_user_steer_count") or 0) >= 1
         assert "user_submission_recorded" in event_types
         assert "active_task_steer_recorded" in event_types
+        assert "task_run_pause_requested" not in event_types
         steer_signal_events = [
             event
             for event in host.event_log.list_events("taskrun:current")
@@ -544,27 +755,42 @@ def test_active_turn_steer_records_lifecycle_without_model_decision(tmp_path: Pa
         steer_signal = next(signal for signal in steer_signals if signal is not None and signal.signal_type == "control.steer.recorded")
         assert steer_signal.scope.session_id == "session:test"
         assert steer_signal.scope.task_run_id == "taskrun:current"
-        assert steer_signal.scope.turn_id == "turn:session:test:1"
+        assert steer_signal.scope.turn_id == "turn:session:test:old"
         assert steer_signal.payload["signal_kind"] == "active_task_steer"
         assert steer_signal.payload["steer_ref"]
         assert steer_signal.payload["submission_ref"]
-        assert "task_run_pause_requested" not in event_types
+        included_events = [
+            event
+            for event in host.event_log.list_events(turn_run.turn_run_id)
+            if event.event_type == "active_turn_steer_included"
+        ]
+        assert len(included_events) == 1
+        assert dict(included_events[0].payload)["packet_ref"] == "packet:queued-steer"
         messages = runtime.session_manager.load_session("session:test")
         assert len(messages) == 1
         assert messages[0]["role"] == "user"
-        assert messages[0]["turn_id"] == "turn:session:test:1"
+        assert messages[0]["turn_id"] == "turn:session:test:old"
     finally:
         claim.close()
 
 
-def test_active_turn_auto_input_records_steer_without_model_decision(tmp_path: Path) -> None:
+def test_active_turn_auto_input_uses_model_decision_not_direct_steer(tmp_path: Path) -> None:
     class ActiveWorkAppendModelRuntime:
         def __init__(self) -> None:
             self.calls = 0
 
         async def invoke_messages(self, *_args, **_kwargs):
             self.calls += 1
-            raise AssertionError("active work input must be routed through current-work boundary before model decision")
+            return SimpleNamespace(
+                content=json.dumps(
+                    {
+                        "authority": "harness.loop.model_action_request",
+                        "action_type": "respond",
+                        "final_answer": "我会先判断这条补充和当前任务的关系。",
+                    },
+                    ensure_ascii=False,
+                )
+            )
 
     model = ActiveWorkAppendModelRuntime()
     runtime = build_harness_runtime(base_dir=tmp_path, model_runtime=model)
@@ -605,36 +831,42 @@ def test_active_turn_auto_input_records_steer_without_model_decision(tmp_path: P
         updated = host.state_index.get_task_run("taskrun:current")
         event_types = [event.event_type for event in host.event_log.list_events("taskrun:current")]
 
-        assert model.calls == 0
-        assert any(
+        assert model.calls >= 1
+        boundary_event = next(
+            event
+            for event in events
+            if event.get("type") == "current_work_boundary_decided"
+        )
+        boundary_decision = dict(boundary_event.get("decision") or {})
+        assert boundary_decision.get("action") == "current_work_control_required"
+        assert boundary_decision.get("requires_model_boundary_decision") is True
+        assert "normalized_active_turn_input_policy" not in dict(boundary_decision.get("diagnostics") or {})
+        assert not any(
+            event.get("type") == "runtime_branch_decided"
+            and dict(event.get("runtime_branch") or {}).get("branch_kind") == "active_turn_steer"
+            for event in events
+        )
+        assert not any(
             event.get("type") == "current_work_boundary_decided"
             and dict(event.get("decision") or {}).get("action") == "current_work_control_required"
             for event in events
+            if event is not boundary_event
         )
-        assert any(event.get("type") == "active_task_steer_accepted" for event in events)
-        assert any(event.get("type") == "done" and event.get("terminal_reason") == "active_task_steer_recorded" for event in events)
+        assert not any(event.get("type") == "active_task_steer_accepted" for event in events)
+        assert any(event.get("type") == "done" and event.get("terminal_reason") == "respond" for event in events)
         assert updated is not None
         assert updated.status == "running"
-        assert int(dict(updated.diagnostics or {}).get("pending_user_steer_count") or 0) >= 1
-        assert "active_task_steer_recorded" in event_types
+        assert int(dict(updated.diagnostics or {}).get("pending_user_steer_count") or 0) == 0
+        assert "active_task_steer_recorded" not in event_types
         messages = runtime.session_manager.load_session("session:test")
-        assert len(messages) == 1
+        assert [message["role"] for message in messages] == ["user", "assistant"]
         assert messages[0]["content"] == "主题还应该加入字体"
     finally:
         claim.close()
 
 
-def test_current_work_boundary_receipt_revalidates_before_append(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    class StaleBoundaryModelRuntime:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        async def invoke_messages(self, *_args, **_kwargs):
-            self.calls += 1
-            raise AssertionError("explicit active-turn steer must revalidate without asking the model")
-
-    model = StaleBoundaryModelRuntime()
-    runtime = build_harness_runtime(base_dir=tmp_path, model_runtime=model)
+def test_stale_queued_steer_stays_queued_and_does_not_append_to_active_task(tmp_path: Path) -> None:
+    runtime = build_harness_runtime(base_dir=tmp_path)
     host = runtime.single_agent_runtime_host
     task_run = TaskRun(
         task_run_id="taskrun:current",
@@ -654,50 +886,46 @@ def test_current_work_boundary_receipt_revalidates_before_append(tmp_path: Path,
         task_run_id="taskrun:current",
         state="running_task",
     )
-    original_compare = host.active_turn_registry.compare_and_update_current_turn
-    compare_calls = {"count": 0}
-
-    def compare_and_stale_on_receipt(*args, **kwargs):
-        compare_calls["count"] += 1
-        if compare_calls["count"] == 1:
-            return original_compare(*args, **kwargs)
-        return {
-            "accepted": False,
-            "denied_reason": "active_turn_unavailable",
-            "expected_turn_id": str(kwargs.get("expected_turn_id") or ""),
-            "actual_turn_id": "",
-            "expected_task_run_id": str(kwargs.get("expected_task_run_id") or ""),
-            "actual_task_run_id": "",
-            "owner_instance_id": "",
-            "terminal_reason": "active_turn_unavailable",
-            "authority": "harness.runtime.active_turn.compare_and_update_current_turn",
-        }
-
-    monkeypatch.setattr(host.active_turn_registry, "compare_and_update_current_turn", compare_and_stale_on_receipt)
-
-    async def _collect() -> list[dict[str, object]]:
-        events: list[dict[str, object]] = []
-        async for event in runtime.astream(
-            HarnessRuntimeRequest(
-                session_id="session:test",
-                message="接着加一条要求。",
-                active_turn_input_policy="steer",
-                expected_active_turn_id="turn:session:test:old",
-            )
-        ):
-            events.append(event)
-        return events
+    turn_run = TurnRun(
+        turn_run_id="turnrun:session:test:new",
+        session_id="session:test",
+        turn_id="turn:session:test:new",
+        created_at=1,
+        updated_at=1,
+    )
+    host.state_index.upsert_turn_run(turn_run)
+    item = host.queued_user_inputs.enqueue(
+        session_id="session:test",
+        content="接着加一条要求。",
+        client_message_id="user:stale-queued-steer",
+        input_policy="steer",
+        expected_active_turn_id="turn:session:test:new",
+        task_run_id="taskrun:current",
+    )
 
     try:
-        events = asyncio.run(_collect())
+        batch = asyncio.run(
+            claim_active_turn_queued_user_steers(
+                host,
+                session_id="session:test",
+                turn_id="turn:session:test:old",
+                turn_run=turn_run,
+                stream_run_id="strun:session:test:active",
+                packet_ref="packet:stale-queued-steer",
+                phase="before_model_action",
+                bound_task_run_id="taskrun:current",
+                source_authority="test.stale_queued_steer",
+            )
+        )
         event_types = [event.event_type for event in host.event_log.list_events("taskrun:current")]
+        stored = host.queued_user_inputs.get_item("session:test", item.queue_item_id)
 
-        assert not any(event.get("type") == "active_task_steer_accepted" for event in events)
-        assert any(event.get("type") == "runtime_status" and event.get("terminal_reason") == "active_turn_unavailable" for event in events)
-        assert any(event.get("type") == "error" and event.get("terminal_reason") == "active_turn_unavailable" for event in events)
+        assert batch.items == ()
+        assert batch.events == ()
+        assert stored is not None
+        assert stored.status == "queued"
+        assert stored.expected_active_turn_id == "turn:session:test:new"
         assert "active_task_steer_recorded" not in event_types
-        assert compare_calls["count"] >= 2
-        assert model.calls == 0
     finally:
         claim.close()
 
@@ -755,3 +983,19 @@ def test_active_turn_steer_does_not_promote_latest_task_when_active_turn_missing
     assert model.calls >= 1
     assert not any(event.get("type") == "active_task_steer_accepted" for event in events)
     assert any(event.get("type") == "done" and event.get("terminal_reason") == "respond" for event in events)
+
+
+def _pending_tool_approval(task_run_id: str) -> dict[str, object]:
+    return {
+        "status": "pending",
+        "task_run_id": task_run_id,
+        "approval_request_id": f"approval-request:{task_run_id}",
+        "action_request_ref": f"request:{task_run_id}",
+        "tool_call_id": f"call:{task_run_id}",
+        "tool_name": "write_file",
+        "operation_id": f"operation:{task_run_id}",
+        "directive_ref": f"runtime-directive:{task_run_id}",
+        "approval_risk_fingerprint": f"risk:{task_run_id}",
+        "tool_args_hash": f"hash:{task_run_id}",
+        "created_at": 1.0,
+    }

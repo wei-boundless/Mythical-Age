@@ -82,6 +82,23 @@ def _recoverable_task() -> TaskRun:
     )
 
 
+def _bare_recovery_action_task() -> TaskRun:
+    return TaskRun(
+        task_run_id="taskrun:session-continuation:bare-recovery",
+        session_id="session-continuation",
+        task_id="task:continuation:bare-recovery",
+        execution_runtime_kind="single_agent_task",
+        status="waiting_executor",
+        latest_event_offset=9,
+        updated_at=90.0,
+        diagnostics={
+            "executor_status": "waiting_executor",
+            "recovery_action": "resume_task_run",
+            "latest_public_progress_note": "旧诊断残留不应授权恢复。",
+        },
+    )
+
+
 def _interrupted_turn() -> TurnRun:
     return TurnRun(
         turn_run_id="turnrun:session-continuation:4:def",
@@ -126,6 +143,27 @@ def _completed_turn() -> TurnRun:
     )
 
 
+def _runtime_interrupted_turn() -> TurnRun:
+    return TurnRun(
+        turn_run_id="turnrun:session-continuation:runtime-interrupted",
+        session_id="session-continuation",
+        turn_id="turn:session-continuation:runtime-interrupted",
+        execution_runtime_kind="single_agent_turn",
+        status="running",
+        latest_event_offset=42,
+        updated_at=160.0,
+        diagnostics={
+            "turn_id": "turn:session-continuation:runtime-interrupted",
+            "interrupted_stream_run_id": "strun:session-continuation:runtime-interrupted",
+            "runtime_interruption_event_type": "runtime_interruption_recorded",
+            "runtime_interruption_code": "runtime_process_restarted",
+            "runtime_interruption_reason": "runtime_cell_missing_after_restart",
+            "recoverable": True,
+            "semantic_terminal": False,
+        },
+    )
+
+
 def _generic_interrupted_turn_with_diagnostic_signal() -> TurnRun:
     return TurnRun(
         turn_run_id="turnrun:session-continuation:6:jkl",
@@ -160,6 +198,17 @@ def test_selector_builds_recoverable_continuation_record_from_waiting_executor()
     assert selection.record.task_run_id == "taskrun:session-continuation:3:abc"
     assert selection.record.recovery_cause == "runtime_restart"
     assert selection.record.latest_progress
+    assert "task_run_state_view" not in selection.record.diagnostics
+
+
+def test_selector_does_not_promote_bare_recovery_action_to_continuation_record() -> None:
+    selection = select_session_continuation(
+        _Host([_bare_recovery_action_task()]),
+        session_id="session-continuation",
+    )
+
+    assert selection.record is None
+    assert selection.reason == "no_supported_session_task_or_interrupted_turn"
 
 
 def test_selector_builds_continuation_context_from_interrupted_turn_tool_limit() -> None:
@@ -178,6 +227,22 @@ def test_selector_builds_continuation_context_from_interrupted_turn_tool_limit()
     assert selection.interrupted_turn.visible_assistant_prefix_sha256 == "sha256:test-visible-prefix"
     assert "exact read evidence" in selection.interrupted_turn.model_visible_summary
     assert "已公开" in selection.interrupted_turn.model_visible_summary
+
+
+def test_selector_builds_continuation_context_from_runtime_interruption() -> None:
+    selection = select_session_continuation(
+        _Host([], turn_runs=[_runtime_interrupted_turn()]),
+        session_id="session-continuation",
+    )
+
+    assert selection.record is None
+    assert selection.interrupted_turn is not None
+    assert selection.interrupted_turn.turn_run_id == "turnrun:session-continuation:runtime-interrupted"
+    assert selection.interrupted_turn.previous_stream_run_id == "strun:session-continuation:runtime-interrupted"
+    assert selection.interrupted_turn.interruption_kind == "runtime_execution_interrupted"
+    assert selection.interrupted_turn.terminal_status == "running"
+    assert selection.interrupted_turn.terminal_reason == "runtime_process_restarted"
+    assert selection.interrupted_turn.diagnostics["semantic_terminal"] is False
 
 
 def test_selector_uses_gateway_signal_for_generic_interrupted_turn(tmp_path) -> None:

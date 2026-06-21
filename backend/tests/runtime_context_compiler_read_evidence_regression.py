@@ -77,6 +77,64 @@ def test_historical_read_evidence_refs_do_not_publish_continuation_hints(tmp_pat
     assert "next_start_line" not in evidence_ref
 
 
+def test_current_read_evidence_does_not_use_wrapper_tool_call_id_as_exact_ref(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime_state"
+    task_run_id = "taskrun:read-evidence-wrapper-shadow"
+    scope = task_run_file_evidence_scope(task_run_id, session_id="session:read-evidence-wrapper-shadow")
+    artifact = ReadObservationArtifactStore(runtime_root).write_read_observation(
+        task_run_id=task_run_id,
+        scope=scope,
+        path="notes.txt",
+        text="1 | hidden exact text",
+        start_line=1,
+        end_line=1,
+        returned_lines=1,
+        line_count=1,
+        total_lines=1,
+        has_more=False,
+        content_sha256="sha256:notes-shadow",
+        tool_call_id="call:canonical-read",
+    )
+    file_state = [
+        {
+            "path": "notes.txt",
+            "status": "partial",
+            "read_ranges": [
+                {
+                    "start_line": 1,
+                    "end_line": 1,
+                    "observation_ref": "call:wrapper-shadow",
+                    "exact_artifact_ref": artifact["artifact_ref"],
+                    "artifact_ref_status": "exact",
+                    "visible_exact": True,
+                }
+            ],
+        }
+    ]
+
+    payload = build_read_evidence_projection_payload(
+        storage_root=runtime_root,
+        file_state=file_state,
+        packet_id="rtpacket:read-evidence-wrapper-shadow",
+        current_observations=[
+            {
+                "observation_id": "obs:current-read",
+                "tool_call_id": "call:wrapper-shadow",
+                "payload": {
+                    "result_envelope": {
+                        "tool_name": "read_file",
+                        "structured_payload": {"tool_result": {"visible_exact": True}},
+                    }
+                },
+            }
+        ],
+    )
+
+    assert payload["visible_exact_in_packet"] is False
+    assert "read_evidence_injections" not in payload
+    assert payload["read_evidence_refs"][0]["artifact_ref"] == artifact["artifact_ref"]
+
+
 def test_task_execution_compiler_injects_current_exact_read_observation_text_once(tmp_path: Path) -> None:
     runtime_root = tmp_path / "runtime_state"
     task_run_id = "taskrun:read-evidence-injection"

@@ -4,7 +4,13 @@ import hashlib
 import re
 from typing import Any
 
-from evidence import AgentEvidenceFact, AgentEvidenceHint, AgentEvidenceItem, AgentEvidencePacket, AgentEvidenceUnknown
+from evidence.agent_evidence_packet import (
+    AgentEvidenceFact,
+    AgentEvidenceHint,
+    AgentEvidenceItem,
+    AgentEvidencePacket,
+    AgentEvidenceUnknown,
+)
 
 from .web_text import best_web_excerpt, clean_web_text
 

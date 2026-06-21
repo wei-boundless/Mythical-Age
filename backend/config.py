@@ -47,7 +47,7 @@ LLM_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         "display_name": "DeepSeek",
         "model": "deepseek-v4-flash",
         "base_url": "https://api.deepseek.com",
-        "adapter": "deepseek_langchain",
+        "adapter": "deepseek",
         "credential_envs": (
             "DEEPSEEK_API_KEY",
             "DEEPSEEK_WRITING_API_KEY",

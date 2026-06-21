@@ -301,6 +301,40 @@ def test_session_tokens_cache_invalidates_when_prompt_accounting_changes(tmp_pat
     assert second["context_meter"]["current_context_tokens"] > 88_000
 
 
+def test_session_tokens_skips_raw_accounting_when_scoped_reads_are_expensive(tmp_path: Path, monkeypatch) -> None:
+    runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
+
+    class ExpensiveLedger:
+        def scoped_reads_are_expensive(self) -> bool:
+            return True
+
+        def summarize_session(self, _session_id: str) -> dict[str, object]:
+            return {"total_tokens": 123, "prompt_tokens": 100}
+
+        def list_token_usage(self, **_kwargs):
+            raise AssertionError("session token panel must not scan raw token usage")
+
+    runtime.harness_runtime = SimpleNamespace(
+        single_agent_runtime_host=SimpleNamespace(prompt_accounting_ledger=ExpensiveLedger())
+    )
+    monkeypatch.setattr(tokens_api, "require_runtime", lambda: runtime)
+
+    response = asyncio.run(
+        tokens_api.session_tokens(
+            session_id,
+            workspace_view=None,
+            task_environment_id=None,
+            project_id=None,
+        )
+    )
+
+    meter = response["context_meter"]
+    assert response["billing_totals"]["total_tokens"] == 123
+    assert meter["estimate_mode"] == "session_pressure"
+    assert meter["diagnostics"]["raw_record_count"] == 0
+    assert meter["diagnostics"]["session_pressure_used_as_current_context"] is True
+
+
 def test_session_tokens_counts_only_provider_protocol_messages_as_protocol_pressure(tmp_path: Path, monkeypatch) -> None:
     runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
     monkeypatch.setattr(tokens_api, "require_runtime", lambda: runtime)

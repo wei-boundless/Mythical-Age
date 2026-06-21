@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from langchain_core.tools import BaseTool
+from capability_system.tools.base_tool import BaseTool
 
 from capability_system.tools.contracts import (
     ToolPromptExposurePolicy,

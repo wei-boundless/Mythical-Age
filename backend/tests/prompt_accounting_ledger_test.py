@@ -256,12 +256,16 @@ def test_prompt_accounting_ledger_summary_index_serves_scoped_summaries_when_raw
     (ledger.ledger_dir / "segment_maps.jsonl").write_text("x" * (ledger.SUMMARY_SCAN_MAX_BYTES + 1), encoding="utf-8")
 
     indexed = ledger.summarize_tasks(["taskrun:indexed", "taskrun:missing"])
+    session_summary = ledger.summarize_session("session:indexed")
     summaries = ledger.list_run_summaries(limit=10)
 
     assert indexed["taskrun:indexed"]["total_tokens"] == 120
     assert indexed["taskrun:indexed"]["predicted_total_tokens"] == 300
     assert indexed["taskrun:indexed"]["cache_savings_tokens"] == 50
     assert indexed["taskrun:missing"]["record_count"] == 0
+    assert session_summary["total_tokens"] == 120
+    assert session_summary["predicted_total_tokens"] == 300
+    assert session_summary["cache_savings_tokens"] == 50
     assert summaries[0]["summary"]["total_tokens"] == 120
     summary_payload = next(
         payload
@@ -273,6 +277,29 @@ def test_prompt_accounting_ledger_summary_index_serves_scoped_summaries_when_raw
     )
     assert "diagnostics" not in next(iter(summary_payload["usage_records"].values()))
     assert "diagnostics" not in next(iter(summary_payload["cache_records"].values()))
+
+
+def test_prompt_accounting_append_does_not_scan_global_jsonl_signature(tmp_path) -> None:
+    ledger = PromptAccountingLedger(tmp_path)
+
+    def fail_signature(_filename: str):
+        raise AssertionError("append must not scan all jsonl paths")
+
+    ledger._jsonl_signature = fail_signature  # type: ignore[method-assign]
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:append:provider_usage",
+            request_id="modelreq:append",
+            task_run_id="taskrun:append",
+            session_id="session:append",
+            source="provider_usage",
+            prompt_tokens=10,
+            total_tokens=12,
+            created_at=1.0,
+        )
+    )
+
+    assert ledger.summarize_task("taskrun:append")["total_tokens"] == 12
 
 
 def test_prompt_accounting_retention_compacts_old_details_into_token_stats(tmp_path) -> None:
@@ -669,11 +696,7 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert tool_index_payload["available_tools"][0]["input_schema_ref"].startswith("sha256:")
     assert tool_index_payload["available_tools"][0]["input_schema_summary"]["properties"]["path"] == "string"
     assert tool_index_payload["available_tools"][0]["input_schema_summary"]["required"] == ["path"]
-    assert volatile_payload["task_state"]["task_run_state"]["diagnostics"] == {
-        "executor_status": "retrying",
-        "recoverable_error": "tool_failed",
-        "recovery_action": "retry_with_current_file",
-    }
+    assert "task_run_state" not in volatile_payload["task_state"]
     assert volatile_payload["task_state"]["latest_tool_results"][0]["structured_error"] == {
         "code": "tool_http_error",
         "message": "Fetch failed for https://example.invalid/rss.xml",

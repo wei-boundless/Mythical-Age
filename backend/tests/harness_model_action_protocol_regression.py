@@ -104,6 +104,31 @@ def test_json_request_task_run_normalizes_numbered_completion_criteria_without_c
     assert contract.capability_intent["needed_capability_groups"] == ["runtime_inspection"]
 
 
+def test_request_task_run_parser_rejects_incomplete_task_contract_before_lifecycle() -> None:
+    from harness.loop.model_action_protocol import model_action_request_from_payload
+
+    action_request, diagnostics = model_action_request_from_payload(
+        {
+            "authority": "harness.loop.model_action_request",
+            "action_type": "request_task_run",
+            "task_contract_seed": {
+                "working_scope": {"target_objects": ["backend"]},
+                "capability_intent": {"needed_capability_groups": ["file_work"]},
+                "skill_intent": {"selected_skill_ids": [], "candidate_skill_ids": []},
+                "observation_contract": {"evidence_policy": "observation_required"},
+            },
+        },
+        turn_id="turn:test:incomplete-task-contract",
+        allowed_action_types=("request_task_run", "respond", "ask_user", "block"),
+    )
+
+    assert action_request is None
+    errors = set(diagnostics["validation_errors"])
+    assert "user_visible_goal_required_for_request_task_run" in errors
+    assert "task_run_goal_required_for_request_task_run" in errors
+    assert "completion_evidence_required_for_request_task_run" in errors
+
+
 def test_single_agent_action_schema_treats_large_review_as_task_entry_condition() -> None:
     from harness.runtime.compiler import model_action_request_schema
 
@@ -279,6 +304,204 @@ def test_native_request_task_run_requires_json_action_transport() -> None:
     assert native_errors[0]["action_issue"]["code"] == "control_action_requires_json_action"
     assert native_errors[0]["action_issue"]["requested_action_type"] == "request_task_run"
     assert native_errors[0]["repairable"] is True
+
+
+def test_legacy_native_task_run_request_alias_is_rejected_not_canonicalized() -> None:
+    from types import SimpleNamespace
+
+    from harness.loop.single_agent_turn import _single_agent_action_request_from_response
+
+    parsed = _single_agent_action_request_from_response(
+        SimpleNamespace(
+            content="",
+            tool_calls=[
+                {
+                    "id": "call:legacy-task-action",
+                    "name": "task_run_request",
+                    "args": {
+                        "user_visible_goal": "修复运行监控。",
+                        "task_run_goal": "修复运行监控和日志分离。",
+                    },
+                }
+            ],
+        ),
+        request_id="model-response:test:legacy-native-task-action",
+        turn_id="turn:test:legacy-native-task-action",
+        packet_ref="packet:test:legacy-native-task-action",
+        iteration=1,
+        allowed_action_types=("respond", "ask_user", "block", "request_task_run", "tool_call"),
+        phase="tool_loop",
+    )
+
+    assert parsed.action_request is None
+    assert parsed.error is not None
+    native_errors = parsed.error["diagnostics"]["native_action_errors"]
+    assert native_errors[0]["code"] == "native_control_action_alias_not_allowed"
+    assert native_errors[0]["action_issue"]["code"] == "control_action_alias_not_allowed"
+    assert native_errors[0]["action_issue"]["requested_action_type"] == "task_run_request"
+    assert native_errors[0]["repair_contract"]["canonical_action_type"] == "request_task_run"
+
+
+def test_legacy_control_alias_inside_command_transport_is_rejected_not_executed() -> None:
+    from types import SimpleNamespace
+
+    from harness.loop.single_agent_turn import _single_agent_action_request_from_response
+
+    parsed = _single_agent_action_request_from_response(
+        SimpleNamespace(
+            content="",
+            tool_calls=[
+                {
+                    "id": "call:legacy-command-action",
+                    "name": "bash",
+                    "args": {"command": "echo task_run_request"},
+                }
+            ],
+        ),
+        request_id="model-response:test:legacy-command-action",
+        turn_id="turn:test:legacy-command-action",
+        packet_ref="packet:test:legacy-command-action",
+        iteration=1,
+        allowed_action_types=("respond", "ask_user", "block", "request_task_run", "tool_call"),
+        phase="tool_loop",
+    )
+
+    assert parsed.action_request is None
+    assert parsed.error is not None
+    native_errors = parsed.error["diagnostics"]["native_action_errors"]
+    assert native_errors[0]["code"] == "native_control_action_alias_not_allowed"
+    assert native_errors[0]["action_issue"]["requested_tool_name"] == "bash"
+    assert native_errors[0]["action_issue"]["requested_action_type"] == "task_run_request"
+    assert native_errors[0]["repair_contract"]["canonical_action_type"] == "request_task_run"
+
+
+def test_single_agent_native_provider_tools_exclude_model_actions() -> None:
+    from harness.loop.single_agent_turn import _native_tools_for_packet
+
+    bindings = _native_tools_for_packet(
+        ("respond", "ask_user", "block", "request_task_run", "tool_call"),
+        available_tools=(
+            {"tool_name": "read_file", "description": "Read a file", "input_schema": {"type": "object"}},
+            {"tool_name": "request_task_run", "description": "Start a task"},
+            {"tool_name": "task_run_request", "description": "Legacy task action alias"},
+            {"tool_name": "ask_user", "description": "Ask the user"},
+            {"tool_name": "block", "description": "Block"},
+            {"tool_name": "respond", "description": "Respond"},
+        ),
+    )
+
+    assert [item["name"] for item in bindings] == ["read_file"]
+
+
+def test_single_agent_parser_rejects_surrounding_text_json_action_when_required() -> None:
+    from harness.loop.single_agent_turn import _single_agent_action_request_from_response
+
+    parsed = _single_agent_action_request_from_response(
+        SimpleNamespace(
+            content=(
+                "我先说明一下修复方向。\n"
+                + json.dumps(
+                    {
+                        "authority": "harness.loop.model_action_request",
+                        "action_type": "respond",
+                        "final_answer": "已经完成。",
+                    },
+                    ensure_ascii=False,
+                )
+            ),
+            tool_calls=[],
+        ),
+        request_id="model-response:test:surrounding-text-json",
+        turn_id="turn:test:surrounding-text-json",
+        packet_ref="packet:test:surrounding-text-json",
+        iteration=1,
+        allowed_action_types=("respond", "ask_user", "block"),
+        phase="protocol_recovery",
+        require_json_action=True,
+        public_response_required=True,
+    )
+
+    assert parsed.action_request is None
+    assert parsed.assistant_final_text == ""
+    assert parsed.error is not None
+    assert parsed.error["code"] == "single_agent_turn_model_protocol_error"
+    assert "json_action_must_not_use_surrounding_text" in parsed.error["reason"]
+    diagnostics = parsed.error["diagnostics"]
+    action_issue = diagnostics["action_issue"]
+    detected_action = diagnostics["detected_json_action"]
+    rejected_transport = diagnostics["rejected_action_transport"]
+    assert action_issue["requested_action_type"] == "respond"
+    assert action_issue["model_intent_preserved"] is True
+    assert "该动作没有执行" in action_issue["repair_instruction"]
+    assert detected_action["action_type"] == "respond"
+    assert detected_action["execution_state"] == "not_executed"
+    assert rejected_transport["actual_transport"] == "json_action_with_surrounding_text"
+    assert rejected_transport["execution_state"] == "not_executed"
+    assert diagnostics["rejected_json_action_payload"]["final_answer"] == "已经完成。"
+    assert diagnostics["repair_contract"]["detected_action_type"] == "respond"
+
+
+def test_runtime_control_signal_reports_detected_unexecuted_json_action() -> None:
+    from harness.loop.single_agent_turn import (
+        _model_protocol_violation_control_signal,
+        _runtime_control_signal_recovery_messages,
+        _single_agent_action_request_from_response,
+    )
+
+    action = {
+        "authority": "harness.loop.model_action_request",
+        "action_type": "request_task_run",
+        "public_progress_note": "我已判断需要进入持续任务。",
+        "task_contract_seed": {
+            "user_visible_goal": "修复 agent 输出吞没问题。",
+            "task_run_goal": "修复控制契约恢复链路。",
+            "working_scope": {"target_objects": ["backend/harness/loop/single_agent_turn.py"]},
+            "completion_criteria": ["恢复提示保留被拒绝 action", "TaskRun 可在重提后启动"],
+            "capability_intent": {"needed_capability_groups": ["file_work"], "reason": "需要改代码和测试。"},
+            "skill_intent": {"selected_skill_ids": [], "candidate_skill_ids": []},
+            "observation_contract": {"evidence_policy": "observation_required"},
+        },
+    }
+    parsed = _single_agent_action_request_from_response(
+        SimpleNamespace(content="我已经掌握链路，现在发起持续任务。\n" + json.dumps(action, ensure_ascii=False)),
+        request_id="model-response:test:surrounding-task-json",
+        turn_id="turn:test:surrounding-task-json",
+        packet_ref="packet:test:surrounding-task-json",
+        iteration=1,
+        allowed_action_types=("respond", "ask_user", "block", "request_task_run", "tool_call"),
+        phase="tool_loop",
+        require_json_action=True,
+    )
+
+    assert parsed.error is not None
+    signal = _model_protocol_violation_control_signal(
+        turn_id="turn:test:surrounding-task-json",
+        packet_ref="packet:test:surrounding-task-json",
+        phase="tool_loop",
+        protocol_error=parsed.error,
+        allowed_action_types=("respond", "ask_user", "block", "request_task_run", "tool_call"),
+        recovery_attempt=1,
+        max_recovery_attempts=3,
+        response_preview="preview",
+    )
+    recovery_messages = _runtime_control_signal_recovery_messages(
+        [{"role": "user", "content": "请修复。"}],
+        turn_id="turn:test:surrounding-task-json",
+        control_signal=signal,
+        allowed_action_types=("respond", "ask_user", "block", "request_task_run", "tool_call"),
+    )
+    recovery_prompt = str(recovery_messages[-1]["content"])
+
+    assert signal["detected_unexecuted_action"]["action_type"] == "request_task_run"
+    assert signal["rejected_json_action_payload"]["task_contract_seed"]["task_run_goal"] == "修复控制契约恢复链路。"
+    assert signal["rejected_action_transport"]["execution_state"] == "not_executed"
+    assert signal["tool_calls_allowed_after_signal"] is True
+    assert "tool_call" in signal["allowed_agent_actions"]
+    assert "未执行、未启动任务、未写入状态" in signal["repair_instruction"]
+    assert "previous_model_action_execution" in recovery_prompt
+    assert "rejected_json_action_payload" in recovery_prompt
+    assert "request_task_run" in recovery_prompt
+    assert '"tool_call_allowed": true' in recovery_prompt
 
 
 def test_single_agent_parser_rejects_nested_respond_payload_final_answer() -> None:
@@ -872,7 +1095,7 @@ def test_single_agent_parser_rejects_native_tool_call_when_json_action_required(
     assert parsed.error["diagnostics"]["action_issue"]["category"] == "service_unavailable"
     assert parsed.error["diagnostics"]["action_issue"]["code"] == "native_tool_call_transport_not_available"
 
-def test_malformed_agent_action_request_can_recover_to_plain_assistant_message() -> None:
+def test_malformed_agent_action_request_recovers_through_agent_closeout_with_protocol_reason() -> None:
     class MalformedThenCloseoutRuntime:
         def __init__(self) -> None:
             self.invocations = 0
@@ -904,11 +1127,12 @@ def test_malformed_agent_action_request_can_recover_to_plain_assistant_message()
     done_text = "\n".join(str(event.get("content") or "") for event in events if event.get("type") == "done")
     assert "重新确认输入" in done_text
     assert any(dict(signal or {}).get("signal_kind") == "model_protocol_violation" for signal in control_signals)
-    assert done["terminal_reason"] == "assistant_message"
-    assert done["answer_source"] == "harness.single_agent_turn"
+    assert done["terminal_reason"] == "single_agent_turn_json_action_required"
+    assert done["answer_source"] == "harness.single_agent_turn.agent_closeout"
     assert done["answer_channel"] == "conversation"
+    assert done["completion_state"] == "protocol_recovery_exhausted"
     assert assistant_messages
-    assert assistant_messages[-1]["answer_source"] == "harness.single_agent_turn"
+    assert assistant_messages[-1]["answer_source"] == "harness.single_agent_turn.agent_closeout"
     assert "重新确认输入" in str(assistant_messages[-1].get("content") or "")
     assert not any(event.get("type") == "done" and "authority" in str(event.get("content") or "") for event in events)
     assert any(event.get("type") == "single_agent_turn_started" for event in events)
@@ -1164,8 +1388,8 @@ def test_single_agent_turn_native_control_actions_do_not_execute_original_when_r
     assert str(done.get("content") or "") == ""
     assert feedback_payloads
     feedback_text = str(feedback_payloads[-1]["agent_feedback"])
-    assert "single_agent_turn_empty_response" in feedback_text
-    assert "上一条输出没有满足当前动作合同" in feedback_text
+    assert "没有提交本阶段要求的 JSON action" in feedback_text
+    assert "只输出一个 authority 为 harness.loop.model_action_request 的 JSON 对象" in feedback_text
     assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
     assert not assistant_messages
 
@@ -1573,6 +1797,31 @@ def test_active_work_control_request_rejects_intent_alias_and_requires_action() 
     assert "active_work_action_required" in diagnostics["validation_errors"]
 
 
+def test_active_work_control_request_rejects_action_alias() -> None:
+    from harness.loop.model_action_protocol import model_action_request_from_payload
+
+    action, diagnostics = model_action_request_from_payload(
+        {
+            "authority": "harness.loop.model_action_request",
+            "request_id": "model-action:test:active-work-action-alias",
+            "turn_id": "turn:test:active-work-action-alias",
+            "action_type": "active_work_control",
+            "public_progress_note": "我会继续当前工作。",
+            "active_work_control": {
+                "action": "continue",
+                "relation_to_current_work": "current_work",
+                "response": "好，我接着处理。",
+            },
+        },
+        turn_id="turn:test:active-work-action-alias",
+        allowed_action_types=("respond", "active_work_control"),
+    )
+
+    assert action is None
+    assert diagnostics["status"] == "invalid"
+    assert "active_work_action_not_allowed" in diagnostics["validation_errors"]
+
+
 def test_active_work_control_request_accepts_canonical_action_field() -> None:
     from harness.loop.model_action_protocol import model_action_request_from_payload
 
@@ -1711,6 +1960,72 @@ def test_active_work_turn_decision_maps_no_user_reply_to_no_answer_obligation() 
     assert decision.action == "continue_active_work"
     assert decision.turn_response_policy == "no_user_reply"
     assert decision.answer_obligation == "none"
+
+
+def test_active_work_turn_decision_rejects_field_and_action_aliases() -> None:
+    from harness.loop.active_work import active_work_turn_decision_from_payload
+
+    field_alias_decision = active_work_turn_decision_from_payload(
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "intent": "continue_active_work",
+            "relation_to_current_work": "current_work",
+        }
+    )
+    action_alias_decision = active_work_turn_decision_from_payload(
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "continue",
+            "relation_to_current_work": "current_work",
+        }
+    )
+    relation_alias_decision = active_work_turn_decision_from_payload(
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "continue_active_work",
+            "relation": "current_work",
+        }
+    )
+    relation_value_alias_decision = active_work_turn_decision_from_payload(
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "continue_active_work",
+            "relation_to_current_work": "current",
+        }
+    )
+
+    assert field_alias_decision.accepted is False
+    assert field_alias_decision.denied_reason == "active_work_control_action_not_allowed"
+    assert action_alias_decision.accepted is False
+    assert action_alias_decision.denied_reason == "active_work_control_action_not_allowed"
+    assert relation_alias_decision.accepted is False
+    assert relation_alias_decision.denied_reason == "active_work_relation_ambiguous"
+    assert relation_value_alias_decision.accepted is False
+    assert relation_value_alias_decision.denied_reason == "active_work_relation_ambiguous"
+
+
+def test_active_work_turn_decision_ignores_removed_payload_aliases() -> None:
+    from harness.loop.active_work import active_work_turn_decision_from_payload
+
+    decision = active_work_turn_decision_from_payload(
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "continue_active_work",
+            "relation_to_current_work": "current_work",
+            "final_answer": "旧字段不应成为控制回应。",
+            "routing_evidence": "旧字段不应成为证据。",
+            "turn_kind": "question",
+            "response_obligation": "none",
+            "resume_strategy": "same_run_resume",
+        }
+    )
+
+    assert decision.accepted is True
+    assert decision.response == ""
+    assert decision.evidence == ""
+    assert decision.user_turn_kind == "ambiguous"
+    assert decision.answer_obligation == "acknowledgement_only"
+    assert decision.continuation_strategy == ""
 
 
 def test_model_action_request_rejects_removed_registered_engagement_action() -> None:

@@ -84,12 +84,12 @@ def build_task_tool_approval_grant(
     pending = dict(pending_approval or {})
     task_run_id = str(getattr(task_run, "task_run_id", "") or pending.get("task_run_id") or "")
     action_request_ref = str(pending.get("action_request_ref") or "").strip()
-    tool_call_id = str(pending.get("tool_call_id") or action_request_ref).strip()
+    tool_call_id = str(pending.get("tool_call_id") or "").strip()
     tool_name = str(pending.get("tool_name") or "").strip()
     operation_id = str(pending.get("operation_id") or "").strip()
     directive_ref = str(pending.get("directive_ref") or "").strip()
     fingerprint = str(pending.get("approval_risk_fingerprint") or "").strip()
-    if not (task_run_id and operation_id and directive_ref and fingerprint):
+    if not (task_run_id and tool_call_id and operation_id and directive_ref and fingerprint):
         return None
     now = time.time()
     identity = _stable_hash(
@@ -331,6 +331,7 @@ def grant_matches_pending(grant: TaskToolApprovalGrant, pending_approval: dict[s
     return (
         grant.task_run_id == str(pending.get("task_run_id") or "")
         and grant.action_request_ref == str(pending.get("action_request_ref") or "")
+        and grant.tool_call_id == str(pending.get("tool_call_id") or "")
         and grant.operation_id == str(pending.get("operation_id") or "")
         and grant.directive_ref == str(pending.get("directive_ref") or "")
         and grant.approval_risk_fingerprint == str(pending.get("approval_risk_fingerprint") or "")

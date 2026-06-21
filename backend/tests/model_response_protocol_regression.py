@@ -61,3 +61,21 @@ def test_model_response_protocol_reports_unmounted_native_tool_transport_as_serv
     )
 
     assert protocol.protocol_errors == ("native_tool_call_transport_not_available",)
+
+
+def test_model_response_protocol_rejects_surrounding_text_when_json_action_required() -> None:
+    response = SimpleNamespace(
+        content='我先说明一下。\n{"authority":"harness.loop.model_action_request","action_type":"respond","final_answer":"done"}'
+    )
+
+    protocol = model_response_protocol_from_response(
+        response,
+        request_id="modelreq:surrounding-text",
+        turn_id="turn:surrounding-text",
+        require_json_action=True,
+        allow_native_tool_calls=False,
+    )
+
+    assert protocol.json_payload["action_type"] == "respond"
+    assert protocol.parse_diagnostics["parsed_with_embedded_object_repair"] is True
+    assert protocol.protocol_errors == ("json_action_must_not_use_surrounding_text",)

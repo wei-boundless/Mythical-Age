@@ -2563,7 +2563,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
             "respond 必须把用户可见最终回复写在顶层 final_answer；不要写 payload.final_answer、payload.content、action.final_answer 或 action.content。",
             "ask_user 必须把用户要回答的问题写在顶层 user_question；不要使用 provider-native ask_user 工具调用。",
             "block 必须把真实阻塞原因写在顶层 blocking_reason。",
-            "tool_call 使用顶层 tool_call: {tool_name, args}；普通工具也可以使用 provider-native tool_call，但控制动作不能走 provider-native tool_call。",
+            "tool_call 使用顶层 tool_call: {tool_name, args}；普通工具可以使用 provider-native tool_call；控制动作可以使用 JSON action 或 provider-native canonical control signal，但不要混入普通正文或其它动作来源。",
         ],
         "action_selection_rules": [
             "先识别用户当前输入本身要你回应什么：提问、质疑、状态追问、纠错、继续执行、修改目标、请求交付或闲聊。任何 action 都不能绕过这个输入意图。",
@@ -2622,13 +2622,13 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
         "blocking_reason": "",
         "tool_call": {"tool_name": "", "args": {}},
         "request_task_run_shape_rules": [
-            "request_task_run 必须是单个 JSON action；不要使用 Markdown 代码块、不要在 JSON 前后附加正文、不要使用 provider-native request_task_run 工具调用。",
+            "request_task_run 必须是单个结构化控制信号；可以使用 JSON action，也可以使用 provider-native canonical request_task_run；不要使用 Markdown 代码块、不要在结构化动作前后附加正文。",
             "不要使用 payload 包裹任务合同；顶层只能放 action_type、authority、public_progress_note、public_action_state、task_contract_seed、completion_contract、permission_request、diagnostics 等动作控制字段。",
             "working_scope、capability_intent、skill_intent、observation_contract、completion_criteria、required_artifacts、required_verifications 都必须放在 task_contract_seed 内，不允许放在 JSON 顶层。",
             "capability_intent 使用 needed_capability_groups；不要写 selected_groups。observation_contract 必须包含 evidence_policy。skill_intent 即使不选择 skill，也要给 selected_skill_ids: [] 并说明 reason。",
         ],
         "resume_recoverable_work_shape_rules": [
-            "resume_recoverable_work 必须是单个 JSON action；不要使用 Markdown 代码块、不要在 JSON 前后附加正文、不要使用 provider-native resume_recoverable_work 工具调用。",
+            "resume_recoverable_work 必须是单个结构化控制信号；可以使用 JSON action，也可以使用 provider-native canonical resume_recoverable_work；不要使用 Markdown 代码块、不要在结构化动作前后附加正文。",
             "task_run_id 和 continuation_id 必须放在 recovery_resume 对象内；不允许放在 JSON 顶层，也不要使用 payload 包裹。",
             "只使用系统提供的可恢复句柄；不要从聊天文本、旧 assistant closeout 或文件内容里猜测 task_run_id/continuation_id。",
             "恢复动作只恢复同一个 task_run，不创建新任务；如果句柄缺失、失效或用户要求改目标，选择 respond、ask_user 或 block 说明原因。",
@@ -3237,6 +3237,10 @@ def _single_agent_turn_output_contract(
                     "appended_instruction": "required when action is append_instruction_to_active_work unless the latest user message itself is the instruction",
                     "relation_to_current_work": "current_work when the latest user message clearly points at the active work",
                     "continuation_strategy": "same_run_resume, already_running, defer, or none",
+                    "turn_response_policy": "answer_only, answer_then_active_work, active_work_only, or no_user_reply",
+                    "user_turn_kind": "question, complaint, command, mixed, or statement",
+                    "answer_obligation": "direct_answer_required, acknowledgement_only, or none",
+                    "evidence": "brief visible reason showing why the latest user message controls the current work",
                 },
                 "allowed_controls": [
                     "continue_active_work",
@@ -4238,20 +4242,22 @@ def _render_model_messages_from_prompt_composition(
     )
     render_diagnostics = dict(render_result.diagnostics)
     rendered_message_count = int(render_diagnostics.get("rendered_message_count") or 0)
+    expected_message_count = len(list(model_messages or []))
+    projection_message_count = int(render_diagnostics.get("projection_message_count") or 0)
     source_message_fallback_count = int(render_diagnostics.get("source_message_fallback_count") or 0)
-    if rendered_message_count != len(list(model_messages or [])) or source_message_fallback_count:
+    if rendered_message_count != expected_message_count or rendered_message_count != projection_message_count or source_message_fallback_count:
         prompt_manifest["prompt_composition_render"] = {
             **render_diagnostics,
-            "renderer_fallback_to_source_messages": True,
+            "renderer_fallback_to_source_messages": False,
+            "status": "failed",
             "fallback_reason": (
                 "content_fragment_incomplete"
                 if source_message_fallback_count
+                or list(render_diagnostics.get("missing_content_fragment_segment_ids") or [])
                 else "message_projection_incomplete"
             ),
         }
-        if rendered_message_count != len(list(model_messages or [])):
-            return [dict(item) for item in list(model_messages or [])]
-        return [dict(item) for item in render_result.messages]
+        raise RuntimeError("prompt_composition_render_failed")
     prompt_manifest["prompt_composition_render"] = render_diagnostics
     return [dict(item) for item in render_result.messages]
 

@@ -272,6 +272,7 @@ function upsertStatusEvent(ledger: ChronologicalProjectionLedger, incoming: Stat
 function statusEventFromFrame(normalized: NormalizedProjectionFrame): StatusProjectionEvent | null {
   const statusKind = typedStatusKind(normalized);
   if (!statusKind || !projectionFrameIsVisible(normalized)) return null;
+  if (normalized.sourceAuthority === "runtime" || normalized.sourceAuthority === "system") return null;
   const frame = normalized.frame;
   const id = text(frame.item_id || frame.source_item_id || frame.frame_id || frame.projection_id) || `${statusKind}:${normalized.offset}`;
   return {
@@ -561,7 +562,7 @@ function lifecycleStateRank(state: string) {
 function defaultStatusTitle(kind: StatusProjectionEvent["kind"]) {
   if (kind === "status_event") return "状态已更新";
   if (kind === "terminal_event") return "运行已停止";
-  return "需要处理";
+  return "状态异常";
 }
 
 function statusTitleFromFrame(kind: StatusProjectionEvent["kind"], normalized: NormalizedProjectionFrame) {
@@ -582,7 +583,7 @@ function statusDetailFromFrame(kind: StatusProjectionEvent["kind"], normalized: 
 
 function runtimeRecoveryStatusTitle(sourceEventType: string) {
   if (sourceEventType === "session_output_commit_failed") return "输出未写入会话记录";
-  return "需要处理";
+  return "状态异常";
 }
 
 function defaultStatusState(kind: StatusProjectionEvent["kind"]) {

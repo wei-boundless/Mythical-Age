@@ -146,9 +146,10 @@ def _current_exact_read_refs(observations: list[dict[str, Any]] | tuple[dict[str
         if tool_result and tool_result.get("visible_exact") is True:
             _add_ref(refs, tool_result.get("exact_artifact_ref"))
             _add_ref(refs, tool_result.get("reusable_result_ref"))
-        for payload in (observation, source, envelope, tool_result):
+        for payload in (observation, source):
             _add_ref(refs, payload.get("observation_id"))
             _add_ref(refs, payload.get("observation_ref"))
+        for payload in (envelope, tool_result):
             _add_ref(refs, payload.get("tool_call_id"))
             _add_ref(refs, payload.get("tool_result_ref"))
     return refs

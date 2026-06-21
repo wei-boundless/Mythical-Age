@@ -926,9 +926,13 @@ def _active_task_steer_status_spec(data: dict[str, Any]) -> dict[str, Any]:
 
 def _turn_terminal_spec(data: dict[str, Any]) -> dict[str, Any]:
     state = text(data.get("status") or data.get("state")).lower()
+    if _is_runtime_transport_terminal(data):
+        return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
     if state not in {"failed", "error", "stopped", "aborted", "cancelled", "canceled", "blocked"}:
         return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
     if _is_agent_closeout_recovery_terminal(data):
+        return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
+    if _is_runtime_protocol_terminal(data):
         return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
     terminal_kind = "terminal_event" if state in {"stopped", "aborted", "cancelled", "canceled"} else "recovery_event"
     detail = public_text(
@@ -973,7 +977,42 @@ def _is_agent_closeout_recovery_terminal(data: dict[str, Any]) -> bool:
     )
 
 
+_RUNTIME_PROTOCOL_TERMINAL_REASONS = frozenset(
+    {
+        "task_contract_invalid",
+        "model_action_invalid",
+        "model_action_protocol_repair_required",
+        "protocol_recovery_exhausted",
+        "single_agent_turn_invalid_json_action",
+        "single_agent_turn_json_action_required",
+        "single_agent_turn_model_protocol_error",
+        "single_agent_turn_multiple_action_sources",
+        "single_agent_turn_protocol_error",
+        "tool_limit_closeout_protocol_failed",
+    }
+)
+
+
+def _is_runtime_protocol_terminal(data: dict[str, Any]) -> bool:
+    reason_values = {
+        text(data.get("terminal_reason")),
+        text(data.get("completion_state")),
+        text(data.get("failure_code")),
+        text(data.get("code")),
+        text(data.get("reason")),
+    }
+    if reason_values & _RUNTIME_PROTOCOL_TERMINAL_REASONS:
+        return True
+    signal = record(data.get("runtime_control_signal"))
+    if text(signal.get("signal_kind")) == "model_protocol_violation":
+        return True
+    protocol_error = record(data.get("protocol_error"))
+    return text(protocol_error.get("code")) in _RUNTIME_PROTOCOL_TERMINAL_REASONS
+
+
 def _stream_terminal_status_spec(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
+    if _is_runtime_transport_terminal(data) or event_type in {"error", "stopped"}:
+        return _hidden_trace_spec(event_type, data)
     terminal_kind = "terminal_event" if event_type == "stopped" else "recovery_event"
     detail = public_text(data.get("error") or data.get("reason") or data.get("terminal_reason") or data.get("message"), limit=260)
     title = "运行已停止" if terminal_kind == "terminal_event" else _runtime_recovery_title(detail)
@@ -1023,6 +1062,40 @@ def _typed_status_spec(
     if commit:
         result["commit"] = commit
     return result
+
+
+_RUNTIME_TRANSPORT_TERMINAL_REASONS = frozenset(
+    {
+        "runtime_process_restarted",
+        "runtime_cell_missing_after_restart",
+        "runtime_cell_cancelled",
+        "stream_cancelled",
+        "stream_exception",
+        "missing_terminal_event",
+        "projection_stream_exception",
+        "projection_stream_missing_terminal",
+        "task_bridge_context_missing",
+    }
+)
+
+
+def _is_runtime_transport_terminal(data: dict[str, Any]) -> bool:
+    if data.get("semantic_terminal") is False:
+        return True
+    if text(data.get("completion_state")) == "interrupted":
+        return True
+    reason_values = {
+        text(data.get("terminal_reason")),
+        text(data.get("stopped_reason")),
+        text(data.get("failure_code")),
+        text(data.get("code")),
+        text(data.get("reason")),
+        text(data.get("runtime_interruption_code")),
+    }
+    if reason_values & _RUNTIME_TRANSPORT_TERMINAL_REASONS:
+        return True
+    orphaned_by = text(data.get("orphaned_by"))
+    return orphaned_by.startswith("single_agent_runtime_host.") or orphaned_by.startswith("api.chat.")
 
 
 def _runtime_recovery_title(detail: str) -> str:

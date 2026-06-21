@@ -408,7 +408,7 @@ function publicTimelineTone(entries: ActivityEntry[]): PublicTimelineActivityTon
 }
 
 function statusKindLabel(kind: StatusProjectionBlock["kind"]) {
-  if (kind === "recovery_event") return "需要处理";
+  if (kind === "recovery_event") return "状态异常";
   if (kind === "terminal_event") return "运行已结束";
   return "状态更新";
 }
@@ -430,7 +430,7 @@ function statusBlockTone(block: StatusProjectionBlock): PublicTimelineActivityTo
 }
 
 function statusBlockLabel(block: StatusProjectionBlock, tone: PublicTimelineActivityTone) {
-  if (block.kind === "recovery_event") return "需处理";
+  if (block.kind === "recovery_event") return "异常";
   if (block.kind === "terminal_event") return toolRoundStatusLabel(tone);
   if (tone === "done") return "已接收";
   if (tone === "waiting") return "等待中";

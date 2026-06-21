@@ -69,38 +69,39 @@ def classify_normalized_tool_result(
     )
 
 
-def pending_tool_control_actions_from_normalized_tool_result(normalized: dict[str, Any]) -> list[dict[str, Any]]:
+def pending_subagent_result_actions_from_normalized_tool_result(normalized: dict[str, Any]) -> list[dict[str, Any]]:
     semantic = classify_normalized_tool_result(normalized)
     return [
         dict(item)
-        for item in dict_tuple(dict(semantic.get("execution_control") or {}).get("pending_tool_control_actions"))
+        for item in dict_tuple(dict(semantic.get("execution_control") or {}).get("pending_subagent_result_actions"))
     ]
 
 
-def pending_tool_control_actions_from_observation(observation: dict[str, Any]) -> list[dict[str, Any]]:
+def pending_subagent_result_actions_from_observation(observation: dict[str, Any]) -> list[dict[str, Any]]:
     source = _source_observation_payload(observation)
     payload = dict(source.get("payload") or {})
     envelope = dict(payload.get("result_envelope") or source.get("result_envelope") or {})
+    identity_source = envelope if envelope else payload
     structured = _merge_dicts(payload.get("structured_payload"), envelope.get("structured_payload"))
     control = structured.get("subagent_control")
     return _subagent_result_actions(
         control if isinstance(control, dict) else {},
         source_tool=_tool_name(source=source, payload=payload, envelope=envelope),
         observation_ref=str(source.get("observation_id") or observation.get("observation_id") or source.get("observation_ref") or ""),
-        tool_call_id=str(envelope.get("tool_call_id") or payload.get("tool_call_id") or ""),
-        action_request_id=str(envelope.get("action_request_id") or payload.get("action_request_id") or ""),
+        tool_call_id=str(identity_source.get("tool_call_id") or ""),
+        action_request_id=str(identity_source.get("action_request_id") or ""),
     )
 
 
-def merge_pending_tool_control_actions(*groups: Any, limit: int = 12) -> list[dict[str, Any]]:
+def merge_pending_subagent_result_actions(*groups: Any, limit: int = 12) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
     for group in groups:
         for item in dict_tuple(group):
-            action = _control_action_projection(item)
+            action = _subagent_result_action_projection(item)
             if not action:
                 continue
-            key = _control_action_key(action)
+            key = _subagent_result_action_key(action)
             if key in seen:
                 continue
             seen.add(key)
@@ -130,7 +131,7 @@ def _subagent_result_actions(
             continue
         result_ref = str(row.get("result_ref") or "").strip()
         actions.append(
-            _control_action_projection(
+            _subagent_result_action_projection(
                 {
                     "source_tool": source_tool,
                     "observation_ref": observation_ref,
@@ -151,10 +152,10 @@ def _subagent_result_actions(
                 }
             )
         )
-    return merge_pending_tool_control_actions(actions)
+    return merge_pending_subagent_result_actions(actions)
 
 
-def _control_action_projection(value: dict[str, Any]) -> dict[str, Any]:
+def _subagent_result_action_projection(value: dict[str, Any]) -> dict[str, Any]:
     args = dict(value.get("args") or value.get("collect_subagent_result_args") or {})
     subagent_run_ref = str(args.get("subagent_run_ref") or value.get("subagent_run_ref") or "").strip()
     action = str(value.get("action") or "").strip()
@@ -186,7 +187,7 @@ def _execution_control_projection(pending_actions: list[dict[str, Any]]) -> dict
     if not pending_actions:
         return {}
     return {
-        "pending_tool_control_actions": pending_actions,
+        "pending_subagent_result_actions": pending_actions,
         "authority": "runtime.execution_control.semantic_payload_classifier",
     }
 
@@ -302,7 +303,7 @@ def _looks_like_subagent_control(value: dict[str, Any]) -> bool:
     )
 
 
-def _control_action_key(action: dict[str, Any]) -> str:
+def _subagent_result_action_key(action: dict[str, Any]) -> str:
     args = dict(action.get("args") or {})
     result_ref = str(action.get("result_ref") or "").strip()
     return "|".join(
@@ -331,7 +332,7 @@ def _merge_dicts(*values: Any) -> dict[str, Any]:
 def _tool_name(*, source: dict[str, Any], payload: dict[str, Any], envelope: dict[str, Any]) -> str:
     raw_source = str(source.get("source") or "")
     source_name = raw_source.split(":", 1)[1].strip() if raw_source.startswith("tool:") else raw_source
-    return _normalized_tool_name(payload.get("tool_name") or envelope.get("tool_name") or source.get("tool_name") or source_name or "")
+    return _normalized_tool_name(envelope.get("tool_name") or payload.get("tool_name") or source.get("tool_name") or source_name or "")
 
 
 def _normalized_tool_name(value: Any) -> str:

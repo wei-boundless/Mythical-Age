@@ -186,11 +186,11 @@ def tool_result_envelope_from_payload(payload: dict[str, Any] | None) -> ToolRes
     envelope = item.get("result_envelope")
     if isinstance(envelope, dict):
         try:
-            tool_name = str(envelope.get("tool_name") or item.get("tool_name") or "")
-            tool_args = dict(envelope.get("tool_args") or item.get("tool_args") or {})
-            tool_call_id = str(envelope.get("tool_call_id") or item.get("tool_call_id") or "")
-            action_request_id = str(envelope.get("action_request_id") or item.get("request_ref") or item.get("action_request_ref") or "")
-            caller_ref = str(envelope.get("caller_ref") or item.get("caller_ref") or "")
+            tool_name = str(envelope.get("tool_name") or "")
+            tool_args = dict(envelope.get("tool_args") or {})
+            tool_call_id = str(envelope.get("tool_call_id") or "")
+            action_request_id = str(envelope.get("action_request_id") or "")
+            caller_ref = str(envelope.get("caller_ref") or "")
             idempotency_key = str(envelope.get("idempotency_key") or dict(envelope.get("execution_receipt") or {}).get("idempotency_key") or "")
             if not idempotency_key:
                 idempotency_key = build_tool_result_idempotency_key(
@@ -207,9 +207,9 @@ def tool_result_envelope_from_payload(payload: dict[str, Any] | None) -> ToolRes
                 status=str(envelope.get("status") or "ok"),
                 tool_call_id=tool_call_id,
                 action_request_id=action_request_id,
-                caller_kind=str(envelope.get("caller_kind") or item.get("caller_kind") or ""),
+                caller_kind=str(envelope.get("caller_kind") or ""),
                 caller_ref=caller_ref,
-                text=str(envelope.get("text") or item.get("result") or ""),
+                text=str(envelope.get("text") or ""),
                 structured_payload=dict(envelope.get("structured_payload") or {}),
                 observed_paths=tuple(str(value) for value in list(envelope.get("observed_paths") or []) if str(value).strip()),
                 matched_paths=tuple(str(value) for value in list(envelope.get("matched_paths") or []) if str(value).strip()),
@@ -219,8 +219,8 @@ def tool_result_envelope_from_payload(payload: dict[str, Any] | None) -> ToolRes
                 artifact_state_events=tuple(dict(value) for value in list(envelope.get("artifact_state_events") or []) if isinstance(value, dict)),
                 verification_events=tuple(dict(value) for value in list(envelope.get("verification_events") or []) if isinstance(value, dict)),
                 command_receipt=dict(envelope.get("command_receipt") or {}),
-                execution_receipt=dict(envelope.get("execution_receipt") or item.get("execution_receipt") or {}),
-                result_ref=str(envelope.get("result_ref") or item.get("result_ref") or ""),
+                execution_receipt=dict(envelope.get("execution_receipt") or {}),
+                result_ref=str(envelope.get("result_ref") or ""),
                 idempotency_key=idempotency_key,
                 error=str(envelope.get("error") or ""),
                 diagnostics=dict(envelope.get("diagnostics") or {}),

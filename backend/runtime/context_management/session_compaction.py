@@ -12,6 +12,19 @@ TOKEN_COUNTER = TokenCounterRegistry()
 CompactionMode = Literal["preview", "run", "auto"]
 PressureLevel = Literal["auto", "microcompact", "full_compact"]
 PressureSource = Literal["context", "history"]
+
+
+class _EmptyPromptAccountingLedger:
+    def list_token_usage(self, **_kwargs: Any) -> list[Any]:
+        return []
+
+    def list_prompt_cache(self, **_kwargs: Any) -> list[Any]:
+        return []
+
+    def summarize_session(self, _session_id: str) -> dict[str, Any]:
+        return {}
+
+
 def count_tokens(text: str) -> int:
     return TOKEN_COUNTER.count_text(text, provider="local", model="session_compaction").tokens
 
@@ -25,16 +38,6 @@ def prompt_accounting_ledger(runtime: Any) -> Any:
     if ledger is not None:
         return ledger
 
-    class _EmptyPromptAccountingLedger:
-        def list_token_usage(self, **_kwargs: Any) -> list[Any]:
-            return []
-
-        def list_prompt_cache(self, **_kwargs: Any) -> list[Any]:
-            return []
-
-        def summarize_session(self, _session_id: str) -> dict[str, Any]:
-            return {}
-
     return _EmptyPromptAccountingLedger()
 
 
@@ -46,16 +49,17 @@ def build_context_usage_snapshot(
     session_record: dict[str, Any] | None = None,
 ) -> Any:
     ledger = prompt_accounting_ledger(runtime)
+    observation_ledger = _context_observation_ledger(ledger)
     static = _runtime_static_settings(runtime)
     provider = str(getattr(static, "llm_provider", "") or "")
     model = str(getattr(static, "llm_model", "") or "")
     reserved_output_tokens = int(getattr(static, "llm_max_output_tokens", 0) or 0)
     meter = ContextUsageMeter(
-        ledger,
+        observation_ledger,
         default_reserved_output_tokens=reserved_output_tokens,
     )
     context_fingerprint = _messages_context_fingerprint(raw_messages)
-    previous_context_fingerprint = _latest_record_context_fingerprint(ledger, session_id=session_id)
+    previous_context_fingerprint = _latest_record_context_fingerprint(observation_ledger, session_id=session_id)
     pressure = _build_session_pressure(
         runtime,
         session_id=session_id,
@@ -82,6 +86,17 @@ def build_context_usage_snapshot(
         context_fingerprint=context_fingerprint,
         previous_context_fingerprint=previous_context_fingerprint,
     )
+
+
+def _context_observation_ledger(ledger: Any) -> Any:
+    scoped_reads_are_expensive = getattr(ledger, "scoped_reads_are_expensive", None)
+    if callable(scoped_reads_are_expensive):
+        try:
+            if bool(scoped_reads_are_expensive()):
+                return _EmptyPromptAccountingLedger()
+        except Exception:
+            return _EmptyPromptAccountingLedger()
+    return ledger
 
 
 def _runtime_static_settings(runtime: Any) -> Any:

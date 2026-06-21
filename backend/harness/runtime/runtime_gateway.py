@@ -192,6 +192,14 @@ class RuntimeGateway:
         wanted = str(signal_id or "").strip()
         if not wanted:
             return None
+        list_recent_raw_events = getattr(self.event_log, "list_recent_raw_events", None)
+        if callable(list_recent_raw_events):
+            signal = _published_signal_by_id(list_recent_raw_events(run_id, limit=240), wanted)
+            if signal is not None:
+                return signal
+        signal = _published_signal_by_id(self.event_log.list_recent_events(run_id, limit=240), wanted)
+        if signal is not None:
+            return signal
         return _published_signal_by_id(self.event_log.list_events(run_id), wanted)
 
     def can_consume_by_id(self, run_id: str, *, signal_id: str) -> bool:

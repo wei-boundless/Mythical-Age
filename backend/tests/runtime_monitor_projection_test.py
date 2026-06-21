@@ -621,6 +621,59 @@ def test_runtime_monitor_actions_use_activity_control_capability(tmp_path):
     assert stopped_actions["stop_task"]["enabled"] is False
 
 
+def test_runtime_monitor_execute_control_intent_uses_gateway_not_projection_action(tmp_path, monkeypatch):
+    running_without_claim = task_run(
+        task_run_id="taskrun:projection-disabled-pause",
+        session_id="session-projection-disabled-pause",
+        status="running",
+        diagnostics={"executor_status": "running"},
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([running_without_claim]),
+        event_log=EventLogStub(),
+        backend_dir=tmp_path / "backend",
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    runtime = SimpleNamespace(
+        base_dir=tmp_path / "backend",
+        harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host),
+    )
+    action_service = RuntimeMonitorActionService(runtime=runtime, monitor_service=service)
+
+    preflight = asyncio.run(
+        action_service.preflight(
+            {
+                "action": "pause_task",
+                "signal_id": "taskrun:projection-disabled-pause",
+            }
+        )
+    )
+    assert preflight["accepted"] is False
+    assert preflight["disabled_reason"] == "not_active_task"
+
+    pause_calls = []
+
+    def fake_pause_task_run(self, task_run_id, *, reason="", requested_by="user"):
+        pause_calls.append((self.runtime_host, task_run_id, reason, requested_by))
+        return {"ok": True, "accepted": True, "task_run_id": task_run_id, "reason": reason}
+
+    monkeypatch.setattr("harness.runtime.task_run_control_gateway.TaskRunControlGateway.pause_task_run", fake_pause_task_run)
+
+    result = asyncio.run(
+        action_service.execute(
+            {
+                "action": "pause_task",
+                "signal_id": "taskrun:projection-disabled-pause",
+                "reason": "operator_control_intent",
+            }
+        )
+    )
+
+    assert result["accepted"] is True
+    assert result["effects"]["accepted"] is True
+    assert pause_calls == [(runtime_host, "taskrun:projection-disabled-pause", "operator_control_intent", "user")]
+
+
 def test_runtime_monitor_summary_counts_only_running_graph_tasks(tmp_path):
     now = time.time()
     running_graph = task_run(
@@ -873,6 +926,35 @@ def test_runtime_monitor_action_uses_current_signal_authority_with_stale_source_
     assert runtime_host.state_index.get_task_run("taskrun:completed") is completed
 
 
+def test_runtime_monitor_capacity_eviction_is_projection_only_without_hidden_store_write(tmp_path):
+    tasks = [
+        task_run(
+            task_run_id=f"taskrun:completed:{index}",
+            session_id=f"session-completed-{index}",
+            status="completed",
+            terminal_reason="completed",
+            created_at=100.0 + index,
+            updated_at=200.0 + index,
+            diagnostics={"title": f"已完成任务 {index}"},
+        )
+        for index in range(15)
+    ]
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub(tasks),
+        event_log=EventLogStub(),
+        backend_dir=tmp_path / "backend",
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+
+    monitor = service.collect_global_runtime_monitor(limit=20)
+
+    lanes = monitor["management"]["lanes"]
+    assert len(lanes["recent"]) == 12
+    assert len(lanes["hidden"]) == 3
+    assert {item["visibility"]["hidden_reason"] for item in lanes["hidden"]} == {"capacity_evicted"}
+    assert not service.retention_store.hidden_path.exists()
+
+
 def test_runtime_monitor_management_projects_stale_waiting_executor_as_closeable(tmp_path):
     now = time.time()
     stale_waiting = task_run(
@@ -993,11 +1075,11 @@ def test_runtime_monitor_close_runtime_stops_and_hides_signal(tmp_path, monkeypa
     action_service = RuntimeMonitorActionService(runtime=runtime, monitor_service=service)
     stop_calls = []
 
-    def fake_stop_task_run(host, task_run_id, *, reason="", requested_by="user"):
-        stop_calls.append((host, task_run_id, reason, requested_by))
+    def fake_stop_task_run(self, task_run_id, *, reason="", requested_by="user"):
+        stop_calls.append((self.runtime_host, task_run_id, reason, requested_by))
         return {"ok": True, "accepted": True, "task_run_id": task_run_id, "reason": reason}
 
-    monkeypatch.setattr("harness.loop.task_executor.stop_task_run", fake_stop_task_run)
+    monkeypatch.setattr("harness.runtime.task_run_control_gateway.TaskRunControlGateway.stop_task_run", fake_stop_task_run)
 
     result = asyncio.run(
         action_service.execute(
@@ -1061,7 +1143,7 @@ def test_runtime_monitor_resume_action_is_not_a_backend_control_path(tmp_path, m
     result = asyncio.run(action_service.execute({"action": "resume_task", "signal_id": "taskrun:paused-resume"}))
 
     assert result["accepted"] is False
-    assert result["disabled_reason"] == "action_not_available"
+    assert result["disabled_reason"] == "unsupported_action"
     assert schedule_calls == []
 
 

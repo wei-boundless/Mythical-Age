@@ -3,21 +3,18 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from capability_system.mcp.local_registry import get_local_mcp_unit
 from permissions.operations import build_default_operation_registry
 from capability_system.tools.native_tool_runtime import ToolRuntime
 from capability_system.tools.validators import validate_filesystem_path
-from evidence import MCPExecutionPlan, MCPRequest
-from evidence.orchestrator import EvidenceOrchestrator
-from evidence.output_policy import RAGEvidenceOutputPolicy
-from evidence.pdf_worker import PDFWorker
-from evidence.retrieval_worker import RetrievalWorker
-from evidence.structured_data_worker import StructuredDataWorker
-from evidence.image_ocr_worker import ImageOCRWorker
+from evidence.mcp_models import MCPExecutionPlan, MCPRequest
 from permissions import OperationGate, OperationGatePipelineContext, ResourcePolicy
 from capability_system.capabilities.retrieval import RetrievalService
+
+if TYPE_CHECKING:
+    from evidence.orchestrator import EvidenceOrchestrator
 
 
 @dataclass(slots=True)
@@ -54,18 +51,8 @@ class LocalCapabilityMCPExecutor:
         self.operation_gate = operation_gate or OperationGate(self.operation_registry)
         self.resource_policy = resource_policy
         self.permission_mode = permission_mode
-        output_policy = (
-            RAGEvidenceOutputPolicy(model_runtime=self.model_runtime)
-            if self.model_runtime is not None
-            else _NoModelOutputPolicy()
-        )
-        self.orchestrator = orchestrator or EvidenceOrchestrator(
-            retrieval_worker=RetrievalWorker(retrieval_service=self.retrieval_service),
-            pdf_worker=PDFWorker(root_dir=self.backend_dir),
-            structured_data_worker=StructuredDataWorker(root_dir=self.backend_dir),
-            image_ocr_worker=ImageOCRWorker(root_dir=_workspace_root_for_mcp(self.backend_dir)),
-            output_policy=output_policy,
-        )
+        self._provided_orchestrator = orchestrator
+        self._orchestrators_by_route: dict[str, EvidenceOrchestrator] = {}
 
     async def execute(self, request: LocalMCPToolRequest) -> dict[str, Any]:
         unit = get_local_mcp_unit(request.route)
@@ -122,7 +109,8 @@ class LocalCapabilityMCPExecutor:
         end_event: dict[str, Any] | None = None
         evidence_event: dict[str, Any] | None = None
         events: list[dict[str, Any]] = []
-        async for event in self.orchestrator.stream_execution(
+        orchestrator = self._orchestrator_for_route(unit.route)
+        async for event in orchestrator.stream_execution(
             session_id=request.session_id,
             execution=None,
             mcp_plan=plan,
@@ -175,6 +163,49 @@ class LocalCapabilityMCPExecutor:
         if unit.route == "retrieval":
             constraints["top_k"] = max(int(request.top_k or 1), 1)
         return constraints
+
+    def _orchestrator_for_route(self, route: str):
+        if self._provided_orchestrator is not None:
+            return self._provided_orchestrator
+        normalized = str(route or "").strip() or "retrieval"
+        cached = self._orchestrators_by_route.get(normalized)
+        if cached is None:
+            cached = self._build_orchestrator_for_route(normalized)
+            self._orchestrators_by_route[normalized] = cached
+        return cached
+
+    def _build_orchestrator_for_route(self, route: str):
+        from evidence.orchestrator import EvidenceOrchestrator
+        from evidence.output_policy import RAGEvidenceOutputPolicy
+        from evidence.retrieval_worker import RetrievalWorker
+
+        output_policy = (
+            RAGEvidenceOutputPolicy(model_runtime=self.model_runtime)
+            if self.model_runtime is not None
+            else _NoModelOutputPolicy()
+        )
+        pdf_worker = None
+        structured_data_worker = None
+        image_ocr_worker = None
+        if route == "pdf":
+            from evidence.pdf_worker import PDFWorker
+
+            pdf_worker = PDFWorker(root_dir=self.backend_dir)
+        elif route == "structured_data":
+            from evidence.structured_data_worker import StructuredDataWorker
+
+            structured_data_worker = StructuredDataWorker(root_dir=self.backend_dir)
+        elif route == "image_ocr":
+            from evidence.image_ocr_worker import ImageOCRWorker
+
+            image_ocr_worker = ImageOCRWorker(root_dir=_workspace_root_for_mcp(self.backend_dir))
+        return EvidenceOrchestrator(
+            retrieval_worker=RetrievalWorker(retrieval_service=self.retrieval_service),
+            pdf_worker=pdf_worker,
+            structured_data_worker=structured_data_worker,
+            image_ocr_worker=image_ocr_worker,
+            output_policy=output_policy,
+        )
 
 
 def _compact_execution_events(

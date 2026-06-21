@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -79,6 +80,18 @@ def _replay_payload(client, replay_url: str, *, wait_for_terminal: bool = True) 
 
 def _replay_event_types(payload: dict) -> list[str]:
     return [str(event.get("public_event_type") or "") for event in list(payload.get("events") or []) if isinstance(event, dict)]
+
+
+def _run_payload_until_status(client, stream_run_id: str, status: str) -> dict:
+    payload: dict = {}
+    for _attempt in range(100):
+        response = client.get(f"/api/chat/runs/{stream_run_id}")
+        assert response.status_code == 200
+        payload = response.json()
+        if payload.get("status") == status:
+            return payload
+        time.sleep(0.02)
+    return payload
 
 
 def test_chat_accepts_per_turn_model_selection() -> None:
@@ -315,7 +328,7 @@ def test_workbench_current_session_ref_persists_authoritative_session_scope() ->
         }
 
 
-def test_stream_chat_emits_error_when_runtime_ends_without_terminal_event() -> None:
+def test_stream_chat_records_orphaned_runtime_interruption_without_terminal_event() -> None:
     with isolated_app_client(app) as client:
         runtime = app_runtime.require_ready()
 
@@ -332,13 +345,17 @@ def test_stream_chat_emits_error_when_runtime_ends_without_terminal_event() -> N
             )
 
             assert response.status_code == 200
-            replay = _replay_payload(client, response.json()["replay_url"])
+            run_payload = _run_payload_until_status(client, response.json()["stream_run_id"], "orphaned")
+            replay = _replay_payload(client, response.json()["replay_url"], wait_for_terminal=False)
             replay_text = json.dumps(replay, ensure_ascii=False)
             assert "input_commit_gate" in _replay_event_types(replay)
             assert "task_intent_decision" in _replay_event_types(replay)
-            assert "turn_completed" in _replay_event_types(replay)
-            assert '"status": "failed"' in replay_text
-            assert "输出流没有正常收口" in replay_text
+            assert "turn_completed" not in _replay_event_types(replay)
+            assert run_payload["status"] == "orphaned"
+            assert run_payload["terminal_event"] == ""
+            assert run_payload["diagnostics"]["runtime_interruption_code"] == "missing_terminal_event"
+            assert run_payload["diagnostics"]["semantic_terminal"] is False
+            assert "输出流没有正常收口" not in replay_text
         finally:
             runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
@@ -375,6 +392,62 @@ def test_session_messages_can_be_truncated_for_edit_resend() -> None:
         )
         assert response.status_code == 200
         assert response.json()["messages"] == []
+
+
+def test_session_truncate_does_not_block_health_while_reset_waits() -> None:
+    with isolated_app_client(app) as client:
+        runtime = app_runtime.require_ready()
+        created = client.post("/api/sessions", json={"title": "Edit resend responsive"})
+        assert created.status_code == 200
+        session_id = created.json()["id"]
+
+        runtime.session_manager.append_messages(
+            session_id,
+            [
+                {"role": "user", "content": "old question"},
+                {"role": "assistant", "content": "old answer"},
+            ],
+        )
+        ledger = runtime.harness_runtime.single_agent_runtime_host.prompt_accounting_ledger
+        original_reset = ledger.reset_prompt_cache_baseline
+        reset_started = threading.Event()
+        release_reset = threading.Event()
+        truncate_result: dict[str, object] = {}
+        health_result: dict[str, object] = {}
+
+        def waiting_reset(**kwargs):
+            reset_started.set()
+            assert release_reset.wait(2.0)
+            return original_reset(**kwargs)
+
+        def post_truncate() -> None:
+            truncate_result["response"] = client.post(
+                f"/api/sessions/{session_id}/messages/truncate",
+                json={"message_index": 0},
+            )
+
+        def get_health() -> None:
+            health_result["response"] = client.get("/health")
+
+        ledger.reset_prompt_cache_baseline = waiting_reset
+        truncate_thread = threading.Thread(target=post_truncate)
+        health_thread = threading.Thread(target=get_health)
+        try:
+            truncate_thread.start()
+            assert reset_started.wait(2.0)
+            health_thread.start()
+            health_thread.join(0.5)
+            assert not health_thread.is_alive()
+        finally:
+            release_reset.set()
+            truncate_thread.join(2.0)
+            health_thread.join(2.0)
+            ledger.reset_prompt_cache_baseline = original_reset
+
+        health_response = health_result.get("response")
+        truncate_response = truncate_result.get("response")
+        assert getattr(health_response, "status_code", None) == 200
+        assert getattr(truncate_response, "status_code", None) == 200
 
 
 def test_removed_agent_control_plane_routes_stay_absent() -> None:

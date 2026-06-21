@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from langchain_core.tools import BaseTool
+from capability_system.tools.base_tool import BaseTool
 
 from capability_system.tools.contracts import ToolExecutionContract
 from capability_system.tools.native_tool_catalog import ToolDefinition, build_tool_instances

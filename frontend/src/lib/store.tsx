@@ -27,12 +27,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [runtime] = useState(() => new WorkspaceRuntime(store));
 
   useEffect(() => {
+    let cancelled = false;
     void runtime.initialize()
       .then(() => {
+        if (cancelled) return;
         runtime.startRunMonitor();
       })
       .catch(() => undefined);
     return () => {
+      cancelled = true;
       runtime.dispose();
     };
   }, [runtime]);

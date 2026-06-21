@@ -9,7 +9,11 @@ from tests.support.harness_runtime_facade_support import *
 from harness.runtime.assembly import build_runtime_assembly_profile
 from harness.runtime.control_events import RuntimeSignalScope
 from harness.loop.model_action_protocol import ModelActionRequest, TaskExecutionModelActionRequest
-from harness.loop.task_executor import _pause_executor_for_tool_approval
+from harness.loop.task_executor import (
+    TaskToolChildActionProtocolError,
+    _pause_executor_for_tool_approval,
+    _task_tool_child_action_requests,
+)
 from harness.loop.task_lifecycle import contract_from_action_request, start_task_lifecycle
 from harness.loop.turn_to_task_context_handoff import build_turn_to_task_context_handoff_seed
 from harness.task_run_state_view import task_run_state_view
@@ -42,6 +46,23 @@ def _wait_until(condition, *, timeout: float = 3.0, interval: float = 0.01, reas
             return
         time.sleep(interval)
     raise AssertionError(reason)
+
+
+def test_task_tool_child_requests_do_not_generate_missing_tool_call_id() -> None:
+    action = TaskExecutionModelActionRequest(
+        request_id="task-action:missing-tool-id",
+        turn_id="turn:missing-tool-id",
+        action_type="tool_call",
+        tool_call={"tool_name": "read_file", "args": {"path": "README.md"}},
+        tool_calls=({"tool_name": "read_file", "args": {"path": "README.md"}},),
+    )
+
+    try:
+        _task_tool_child_action_requests(action)
+    except TaskToolChildActionProtocolError as exc:
+        assert exc.code == "task_tool_call_id_required"
+    else:
+        raise AssertionError("task executor must not generate a fallback tool_call_id")
 
 
 def _wait_for_running_executor(host, task_run_id: str, model=None, *, timeout: float = 3.0) -> None:
@@ -569,7 +590,22 @@ def test_task_run_tool_lifecycle_preserves_model_tool_call_id(tmp_path) -> None:
         )
     )
 
-    result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=3))
+    async def _work() -> dict[str, object]:
+        return await runtime.execute_task_run(task_run_id, max_steps=3)
+
+    schedule = host.agent_run_supervisor.schedule_task_run(
+        task_run_id=task_run_id,
+        work_factory=_work,
+        scheduler="test.task-tool-lifecycle-id",
+        max_steps=3,
+    )
+    assert schedule["scheduled"] is True
+    cell = host.agent_run_supervisor.cell_by_id(str(schedule.get("run_cell_id") or ""))
+    assert cell is not None
+    assert cell.worker_handle is not None
+    assert cell.worker_handle.join(timeout=60)
+    assert cell.worker_handle.error is None
+    result = cell.worker_handle.result
     events = host.event_log.list_events(task_run_id)
     admission_event = next(
         event
@@ -658,12 +694,14 @@ def test_old_cell_tool_observation_is_rejected_before_observation_write(tmp_path
         "payload": {
             "tool_name": "read_file",
             "tool_call_id": "call:late-tool",
+            "agent_run_id": str(schedule["agent_run_id"]),
+            "run_cell_id": str(schedule["run_cell_id"]),
             "status": "ok",
             "result_ref": "tool-result:old-late-tool",
             "execution_receipt": {
                 "task_run_id": task_run_id,
-                "agent_run_id": stale_scope["agent_run_id"],
-                "run_cell_id": stale_scope["run_cell_id"],
+                "agent_run_id": str(schedule["agent_run_id"]),
+                "run_cell_id": str(schedule["run_cell_id"]),
                 "tool_invocation_id": "toolinv:old-late-tool",
             },
             "result_envelope": {
@@ -722,6 +760,7 @@ def test_old_cell_tool_observation_is_rejected_before_observation_write(tmp_path
         assert "task_tool_observation_recorded" not in event_types
         assert dict(late_event.payload)["event_kind"] == "tool_observation"
         assert dict(dict(late_event.payload)["scope_status"])["reason"] == "stale_run_cell"
+        assert dict(late_event.refs)["run_cell_ref"] == stale_scope["run_cell_id"]
     finally:
         release.set()
         cell = host.agent_run_supervisor.cell_by_id(str(schedule.get("run_cell_id") or ""))
@@ -895,7 +934,12 @@ def test_task_run_pending_approval_preserves_model_tool_call_id(tmp_path) -> Non
                 "operation_id": "op.write_file",
                 "approval_risk_fingerprint": "approval-risk:write-file-model",
                 "operation_gate": {"decision": "requires_approval"},
-                "execution_receipt": {"tool_call_id": "call:write-file-model"},
+                "execution_receipt": {"tool_call_id": "call:write-file-shadow"},
+                "result_envelope": {
+                    "operation_id": "op.write_file",
+                    "tool_call_id": "call:write-file-model",
+                    "execution_receipt": {"tool_call_id": "call:write-file-model"},
+                },
             },
         },
         observation_event=SimpleNamespace(offset=7),
@@ -925,6 +969,7 @@ def test_task_run_pending_approval_preserves_model_tool_call_id(tmp_path) -> Non
     assert result["error"] == "waiting_approval"
     assert result["pending_approval"]["action_request_ref"] == "request:write-file"
     assert result["pending_approval"]["tool_call_id"] == "call:write-file-model"
+    assert result["pending_approval"]["execution_receipt"]["tool_call_id"] == "call:write-file-model"
     assert dict(updated_task.diagnostics)["pending_approval"]["tool_call_id"] == "call:write-file-model"
     assert approval_result["accepted"] is True
     assert len(approval_requested) == 1
@@ -936,6 +981,39 @@ def test_task_run_pending_approval_preserves_model_tool_call_id(tmp_path) -> Non
     assert dict(approval_granted[0]["payload"])["approval_request_id"] == result["pending_approval"]["approval_request_id"]
     assert dict(approval_requested[0]["scope"])["task_run_id"] == task_run_id
     assert dict(approval_granted[0]["scope"])["task_run_id"] == task_run_id
+
+
+def test_task_tool_approval_grant_requires_and_matches_tool_call_id() -> None:
+    from harness.loop.task_tool_approval import build_task_tool_approval_grant, grant_matches_pending
+
+    task = SimpleNamespace(task_run_id="taskrun:approval-identity")
+    pending = {
+        "task_run_id": "taskrun:approval-identity",
+        "approval_request_id": "approval-request:identity",
+        "action_request_ref": "request:write-file",
+        "tool_call_id": "call:write-file-a",
+        "tool_name": "write_file",
+        "operation_id": "op.write_file",
+        "directive_ref": "runtime-directive:approval:identity",
+        "approval_risk_fingerprint": "approval-risk:identity",
+    }
+
+    assert build_task_tool_approval_grant(
+        task_run=task,
+        pending_approval={key: value for key, value in pending.items() if key != "tool_call_id"},
+        requested_by="user",
+    ) is None
+
+    grant = build_task_tool_approval_grant(
+        task_run=task,
+        pending_approval=pending,
+        requested_by="user",
+    )
+
+    assert grant is not None
+    assert grant.tool_call_id == "call:write-file-a"
+    assert grant_matches_pending(grant, pending) is True
+    assert grant_matches_pending(grant, {**pending, "tool_call_id": "call:write-file-b"}) is False
 
 
 def test_tool_approval_request_requires_runtime_gateway(tmp_path) -> None:
@@ -2142,6 +2220,103 @@ def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> 
     assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "explicit_contract"
     assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_authority") == "harness.explicit_contract_task"
 
+
+def test_invalid_explicit_contract_fails_closed_without_model_action_loop() -> None:
+    class NoModelFallbackRuntime:
+        async def invoke_messages(self, *_args, **_kwargs):
+            raise AssertionError("invalid explicit contract must not fall back to model action loop")
+
+    runtime = build_harness_runtime(model_runtime=NoModelFallbackRuntime())
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-invalid-explicit-contract",
+                message="按无效合同启动任务。",
+                runtime_contract={
+                    "task_environment_id": "env.coding.vibe_workspace",
+                    "system_issued_contract": True,
+                    "task_contract": {
+                        "contract_id": "contract:explicit:invalid",
+                    },
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    stream_types = [str(event.get("type") or "") for event in events]
+    branch = dict(next(event for event in events if event.get("type") == "runtime_branch_decided").get("runtime_branch") or {})
+    runtime_status = next(event for event in events if event.get("type") == "runtime_status")
+    error = next(event for event in events if event.get("type") == "error")
+
+    assert branch.get("branch_kind") == "explicit_contract_task"
+    assert "model_action_request" not in stream_types
+    assert "model_action_admission" not in stream_types
+    assert "task_run_lifecycle_started" not in stream_types
+    assert runtime_status["terminal_reason"] == "explicit_contract_invalid"
+    assert runtime_status["state"] == "blocked"
+    assert error["code"] == "explicit_contract_invalid"
+    assert error["answer_finalization_policy"] == "fail_closed_visible_message"
+
+
+def test_task_model_action_stream_failure_does_not_non_stream_resample() -> None:
+    fallback_called = False
+
+    def failing_streamer(_messages, **_kwargs):
+        async def _stream():
+            raise RuntimeError("stream transport dropped")
+            yield SimpleNamespace(content="unreachable")
+
+        return _stream()
+
+    async def forbidden_invoker(_messages, **_kwargs):
+        nonlocal fallback_called
+        fallback_called = True
+        return SimpleNamespace(
+            content=json.dumps(
+                _action_request(
+                    action_type="respond",
+                    final_answer="This would be a re-sampled control decision.",
+                ),
+                ensure_ascii=False,
+            )
+        )
+
+    async def _invoke() -> None:
+        await task_executor_module._invoke_task_model_action_response(
+            invoker=forbidden_invoker,
+            streamer=failing_streamer,
+            messages=[],
+            model_selection={
+                "provider": "test",
+                "model": "json-action",
+                "stream_policy": {
+                    "enabled": True,
+                    "fallback_to_non_stream_on_error": True,
+                },
+            },
+            accounting_context={},
+        )
+
+    try:
+        asyncio.run(_invoke())
+    except Exception as exc:
+        assert getattr(exc, "code", "") == "non_stream_fallback_disabled_for_task_action_protocol"
+        assert getattr(exc, "retryable", None) is True
+    else:
+        raise AssertionError("task action stream failure must fail closed instead of falling back")
+
+    policy = task_executor_module._stream_policy_for_task_model_requirement(
+        {"fallback_to_non_stream_on_error": True},
+        requirement={"streaming_required": True},
+    )
+    assert policy["fallback_to_non_stream_on_error"] is False
+    assert fallback_called is False
+
+
 def test_plain_task_contract_selection_does_not_bypass_agent_turn() -> None:
     runtime = build_harness_runtime(
         model_runtime=SingleMessageModelRuntimeStub(
@@ -2630,6 +2805,95 @@ def test_single_agent_turn_json_request_task_run_starts_real_task_lifecycle() ->
 
     assert "task_run_lifecycle_started" in stream_types
     assert admissions
+    assert dict(admissions[0].get("model_action_request") or {}).get("action_type") == "request_task_run"
+    assert task_run_id.startswith("taskrun:")
+    assert stored_task is not None
+    assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "single_agent_turn_json_action"
+
+
+def test_single_agent_turn_surrounding_text_request_task_run_recovery_starts_lifecycle() -> None:
+    task_seed = _canonical_task_contract_seed({
+        "user_visible_goal": "修复 agent 输出吞没问题。",
+        "task_run_goal": "修复控制契约恢复链路，确保被拒绝 action 能准确回传给 agent。",
+        "required_artifacts": [{"artifact_kind": "code_change", "user_visible_name": "恢复契约修复"}],
+        "required_verifications": [{"verification_kind": "pytest"}],
+        "completion_criteria": ["恢复 observation 包含未执行 action", "重提 JSON 后启动真实 TaskRun"],
+    }, capability_groups=["file_work"])
+    action = _action_request(
+        action_type="request_task_run",
+        public_progress_note="我已判断需要进入持续任务，并会保留可验证的完成标准。",
+        task_contract_seed=task_seed,
+    )
+
+    class SurroundingTextThenJsonTaskRunModelRuntime:
+        def __init__(self) -> None:
+            self.invocation_count = 0
+            self.recovery_inputs: list[str] = []
+
+        async def invoke_messages(self, messages, **_kwargs):
+            self.invocation_count += 1
+            if self.invocation_count == 1:
+                return SimpleNamespace(
+                    content="我已经掌握了 CSS，现在发起持续任务。\n" + json.dumps(action, ensure_ascii=False)
+                )
+            self.recovery_inputs.append(
+                "\n\n".join(str(dict(message).get("content") or "") for message in list(messages or []) if isinstance(message, dict))
+            )
+            return SimpleNamespace(content=json.dumps(action, ensure_ascii=False))
+
+    model = SurroundingTextThenJsonTaskRunModelRuntime()
+    runtime = build_harness_runtime(model_runtime=model)
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-surrounding-text-taskrun",
+                message="帮我修复 agent 输出吞没问题。",
+                runtime_contract={
+                    "allowed_operations": ["op.model_response"],
+                    "control_capabilities": {
+                        "may_request_task_run": True,
+                        "requires_json_action_protocol": True,
+                        "may_use_subagents": False,
+                    },
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    stream_types = [str(event.get("type") or "") for event in events]
+    lifecycle = [event for event in events if event.get("type") == "task_run_lifecycle_started"][0]
+    task_run_event = dict(lifecycle.get("event") or {})
+    payload = dict(task_run_event.get("payload") or {})
+    task_run = dict(payload.get("task_run") or {})
+    task_run_id = str(task_run.get("task_run_id") or "")
+    stored_task = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+    admissions = _admission_payloads(events)
+    control_signals = [
+        dict(dict(event.get("event") or {}).get("payload") or {}).get("runtime_control_signal")
+        for event in events
+        if event.get("type") == "turn_runtime_control_signal_observed"
+    ]
+    protocol_signal = next(
+        dict(signal or {})
+        for signal in control_signals
+        if dict(signal or {}).get("signal_kind") == "model_protocol_violation"
+    )
+
+    assert model.invocation_count == 2
+    assert model.recovery_inputs
+    assert "previous_model_action_execution" in model.recovery_inputs[0]
+    assert "rejected_json_action_payload" in model.recovery_inputs[0]
+    assert "request_task_run" in model.recovery_inputs[0]
+    assert protocol_signal["detected_unexecuted_action"]["action_type"] == "request_task_run"
+    assert protocol_signal["rejected_action_transport"]["execution_state"] == "not_executed"
+    assert "request_task_run" in protocol_signal["allowed_agent_actions"]
+    assert "task_run_lifecycle_started" in stream_types
+    assert admissions
+    assert dict(admissions[0].get("admission") or {}).get("decision") == "allow"
     assert dict(admissions[0].get("model_action_request") or {}).get("action_type") == "request_task_run"
     assert task_run_id.startswith("taskrun:")
     assert stored_task is not None

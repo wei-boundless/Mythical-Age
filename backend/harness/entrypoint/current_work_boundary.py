@@ -245,7 +245,7 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
             active_work=active_work,
             active_check=active_check,
             boundary_input=boundary_input,
-            diagnostics={"normalized_active_turn_input_policy": "steer"},
+            requires_model=True,
         )
     return _decision(
         session_id=session_id,
@@ -259,7 +259,7 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
         active_work=active_work,
         active_check=active_check,
         boundary_input=boundary_input,
-        requires_model=False,
+        requires_model=True,
     )
 
 

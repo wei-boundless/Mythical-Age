@@ -8,8 +8,7 @@ from typing import Any, Type
 from urllib.parse import urlparse
 
 import httpx
-from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
-from langchain_core.tools import BaseTool
+from capability_system.tools.base_tool import AsyncCallbackManagerForToolRun, BaseTool, CallbackManagerForToolRun
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from capability_system.tools.tool_units.tavily_search import API_URL, build_headers, load_backend_env, shape_response

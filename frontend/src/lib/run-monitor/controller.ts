@@ -60,6 +60,7 @@ export class RunMonitorController {
 
   start() {
     if (typeof window === "undefined") return;
+    if (this.active && this.eventSource) return;
     this.active = true;
     if (typeof EventSource !== "undefined") {
       this.openStream();

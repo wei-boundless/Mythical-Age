@@ -181,6 +181,7 @@ export class WorkspaceRuntime {
   private fileChangeHydrateInFlight = new Map<string, Promise<void>>();
   private fileChangeHydratedAtByKey = new Map<string, number>();
   private fileChangeRecordFingerprints = new Map<string, string>();
+  private disposed = false;
 
   readonly actions: StoreActions;
 
@@ -377,10 +378,16 @@ export class WorkspaceRuntime {
   }
 
   startRunMonitor() {
+    if (this.disposed) {
+      return;
+    }
     this.runMonitorController.start();
   }
 
   async initialize() {
+    if (this.disposed) {
+      return;
+    }
     if (this.initializePromise) {
       return this.initializePromise;
     }
@@ -774,6 +781,7 @@ export class WorkspaceRuntime {
   }
 
   dispose() {
+    this.disposed = true;
     if (typeof window === "undefined") {
       return;
     }
@@ -1421,7 +1429,7 @@ export class WorkspaceRuntime {
       && current.activeStreamSessionIds.includes(sessionId)
       && current.messages.length > 0
     ) {
-      return current.messages;
+      return this.mergeActiveStreamProjectionMessages(current.messages, refreshedMessages);
     }
     return refreshedMessages;
   }
@@ -1436,9 +1444,127 @@ export class WorkspaceRuntime {
       && current.activeStreamSessionIds.includes(sessionId)
       && current.messages.length > 0
     ) {
-      return current.activeProjectionsByKey;
+      return this.mergeActiveStreamProjectionState(current.activeProjectionsByKey, refreshedActiveProjections);
     }
     return refreshedActiveProjections;
+  }
+
+  private mergeActiveStreamProjectionMessages(currentMessages: Message[], refreshedMessages: Message[]) {
+    if (!refreshedMessages.length) {
+      return currentMessages;
+    }
+    const nextMessages = [...currentMessages];
+    const messageIds = new Set(nextMessages.map((message) => message.id));
+    for (const refreshed of refreshedMessages) {
+      const existingIndex = nextMessages.findIndex((message) =>
+        message.id === refreshed.id
+        || (
+          message.role === refreshed.role
+          && message.role === "assistant"
+          && this.messagesShareRuntimeIdentity(message, refreshed)
+        )
+        || (
+          message.role === refreshed.role
+          && message.role === "user"
+          && Boolean(message.sourceTurnId && refreshed.sourceTurnId && message.sourceTurnId === refreshed.sourceTurnId)
+        )
+      );
+      if (existingIndex >= 0) {
+        nextMessages[existingIndex] = this.mergeActiveStreamProjectionMessage(nextMessages[existingIndex], refreshed);
+        messageIds.add(nextMessages[existingIndex].id);
+        continue;
+      }
+      if (!this.refreshedMessageCanEnterActiveStream(refreshed)) {
+        continue;
+      }
+      if (!messageIds.has(refreshed.id)) {
+        nextMessages.push(refreshed);
+        messageIds.add(refreshed.id);
+      }
+    }
+    return this.sortMessagesBySourceIndex(nextMessages);
+  }
+
+  private refreshedMessageCanEnterActiveStream(message: Message) {
+    if (message.role !== "assistant") {
+      return true;
+    }
+    return Boolean(message.projectionKeyString || message.projectionView);
+  }
+
+  private mergeActiveStreamProjectionMessage(current: Message, refreshed: Message): Message {
+    if (current.role !== refreshed.role) {
+      return current;
+    }
+    return {
+      ...current,
+      content: current.content || refreshed.content,
+      toolCalls: current.toolCalls.length ? current.toolCalls : refreshed.toolCalls,
+      retrievals: current.retrievals.length ? current.retrievals : refreshed.retrievals,
+      sourceIndex: current.sourceIndex ?? refreshed.sourceIndex,
+      sourceTurnId: current.sourceTurnId || refreshed.sourceTurnId,
+      sourceStreamRunId: current.sourceStreamRunId || refreshed.sourceStreamRunId,
+      sourceRunId: current.sourceRunId || refreshed.sourceRunId,
+      sourceTaskRunId: current.sourceTaskRunId || refreshed.sourceTaskRunId,
+      sourceTurnRunId: current.sourceTurnRunId || refreshed.sourceTurnRunId,
+      projectionKeyString: refreshed.projectionKeyString || current.projectionKeyString,
+      projectionView: current.projectionView ?? refreshed.projectionView,
+      closeoutSummary: current.closeoutSummary ?? refreshed.closeoutSummary,
+      runtimeLogRef: current.runtimeLogRef ?? refreshed.runtimeLogRef,
+      toolEventCount: current.toolEventCount ?? refreshed.toolEventCount,
+      answerChannel: current.answerChannel ?? refreshed.answerChannel,
+      answerSource: current.answerSource ?? refreshed.answerSource,
+      answerCanonicalState: current.answerCanonicalState ?? refreshed.answerCanonicalState,
+      answerPersistPolicy: current.answerPersistPolicy ?? refreshed.answerPersistPolicy,
+      answerFinalizationPolicy: current.answerFinalizationPolicy ?? refreshed.answerFinalizationPolicy,
+      answerFallbackReason: current.answerFallbackReason ?? refreshed.answerFallbackReason,
+      answerSelectedChannel: current.answerSelectedChannel ?? refreshed.answerSelectedChannel,
+      answerSelectedSource: current.answerSelectedSource ?? refreshed.answerSelectedSource,
+      answerLeakFlags: current.answerLeakFlags ?? refreshed.answerLeakFlags,
+      image: current.image ?? refreshed.image ?? null,
+      attachments: current.attachments?.length ? current.attachments : refreshed.attachments,
+    };
+  }
+
+  private mergeActiveStreamProjectionState(
+    current: StoreState["activeProjectionsByKey"],
+    refreshed: StoreState["activeProjectionsByKey"],
+  ) {
+    const next = { ...current };
+    for (const [key, refreshedProjection] of Object.entries(refreshed)) {
+      const currentProjection = next[key];
+      if (!currentProjection || this.projectionStateIsNewer(refreshedProjection, currentProjection)) {
+        next[key] = refreshedProjection;
+      }
+    }
+    return next;
+  }
+
+  private projectionStateIsNewer(
+    candidate: StoreState["activeProjectionsByKey"][string],
+    current: StoreState["activeProjectionsByKey"][string],
+  ) {
+    const candidateOffset = Number(candidate.ledger?.cursor?.maxOffset ?? 0);
+    const currentOffset = Number(current.ledger?.cursor?.maxOffset ?? 0);
+    if (candidateOffset !== currentOffset) {
+      return candidateOffset > currentOffset;
+    }
+    if (!current.view && candidate.view) {
+      return true;
+    }
+    const candidateContentLength = String(candidate.view?.canonicalContent ?? candidate.ledger?.bodyText ?? "").length;
+    const currentContentLength = String(current.view?.canonicalContent ?? current.ledger?.bodyText ?? "").length;
+    return candidateContentLength > currentContentLength;
+  }
+
+  private sortMessagesBySourceIndex(messages: Message[]) {
+    return [...messages].sort((left, right) => {
+      const leftIndex = left.sourceIndex ?? Number.MAX_SAFE_INTEGER;
+      const rightIndex = right.sourceIndex ?? Number.MAX_SAFE_INTEGER;
+      if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+      if (left.role !== right.role) return left.role === "user" ? -1 : 1;
+      return left.id.localeCompare(right.id);
+    });
   }
 
   private mergeVolatileMessageProgress(refreshedMessages: Message[], currentMessages: Message[]) {
@@ -2694,9 +2820,19 @@ export class WorkspaceRuntime {
     }
     this.recoveringStreamSessionIds.add(sessionId);
     try {
-      const latestRun = await getLatestChatRunForSession(sessionId, this.sessionScopeForSession(sessionId)).catch(() => undefined);
+      let latestRunLookupFailed = false;
+      const latestRun = await getLatestChatRunForSession(sessionId, this.sessionScopeForSession(sessionId)).catch(() => {
+        latestRunLookupFailed = true;
+        return null;
+      });
       if (this.store.getState().activeStreamSessionIds.includes(sessionId)) {
-        if (latestRun === null) {
+        if (latestRunLookupFailed) {
+          if (!this.streamingSessionCache.has(sessionId) || this.visibleSessionNeedsHistoryHydration(sessionId)) {
+            await this.refreshSessionDetails(sessionId).catch(() => undefined);
+          }
+          return true;
+        }
+        if (!latestRun) {
           this.releaseActiveChatStreamForSwitch(sessionId);
           clearChatStreamCursor(sessionId);
           await this.refreshSessionDetails(sessionId).catch(() => undefined);
@@ -2712,37 +2848,32 @@ export class WorkspaceRuntime {
           return true;
         }
       }
-      const cursor = readChatStreamCursor(sessionId);
-      const latestRunCursor = this.chatRunCursorFromActiveRun(latestRun);
-      let effectiveCursor = cursor?.streamRunId ? cursor : latestRunCursor;
-      let streamRunId = effectiveCursor?.streamRunId || "";
-      if (!streamRunId) {
+      if (!latestRun) {
+        clearChatStreamCursor(sessionId);
         return false;
       }
-      let cursorRun = latestRun?.stream_run_id === streamRunId
-        ? latestRun
-        : await getChatRun(streamRunId).catch(() => null);
+      const cursor = readChatStreamCursor(sessionId);
+      const latestRunCursor = this.chatRunCursorFromActiveRun(latestRun);
+      if (!latestRunCursor) {
+        clearChatStreamCursor(sessionId);
+        return false;
+      }
+      const cursorMatchesLatestRun = cursor?.streamRunId === latestRunCursor.streamRunId
+        && cursor?.eventLogId === latestRunCursor.eventLogId;
+      const effectiveCursor: ChatStreamCursor = cursorMatchesLatestRun && cursor ? cursor : latestRunCursor;
+      if (cursor?.streamRunId && !cursorMatchesLatestRun) {
+        clearChatStreamCursor(sessionId);
+      }
+      const streamRunId = latestRunCursor.streamRunId;
+      const cursorRun = latestRun;
       if (
         !cursorRun
         || cursorRun.session_id !== sessionId
-        || cursorRun.event_log_id !== effectiveCursor?.eventLogId
+        || cursorRun.event_log_id !== effectiveCursor.eventLogId
         || cursorRun.is_reconnectable === false
       ) {
         clearChatStreamCursor(sessionId);
-        if (!latestRunCursor || latestRunCursor.streamRunId === streamRunId) {
-          return false;
-        }
-        effectiveCursor = latestRunCursor;
-        streamRunId = latestRunCursor.streamRunId;
-        cursorRun = latestRun?.stream_run_id === streamRunId ? latestRun : null;
-        if (
-          !cursorRun
-          || cursorRun.session_id !== sessionId
-          || cursorRun.event_log_id !== effectiveCursor.eventLogId
-          || cursorRun.is_reconnectable === false
-        ) {
-          return false;
-        }
+        return false;
       }
       if (this.chatRunCursorAlreadyReachedTerminal(cursorRun, effectiveCursor)) {
         clearChatStreamCursor(sessionId);

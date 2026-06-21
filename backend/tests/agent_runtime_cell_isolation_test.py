@@ -950,6 +950,51 @@ def test_single_turn_chat_run_enters_primary_runtime_cell_and_blocks_same_sessio
             cell.worker_handle.join(timeout=3)
 
 
+def test_single_turn_primary_cells_are_isolated_by_session(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    host.agent_run_supervisor.max_active_cells = 1
+    run_a = host.run_registry.create_run(session_id="session:chat-a")
+    run_b = host.run_registry.create_run(session_id="session:chat-b")
+    started: set[str] = set()
+    release = threading.Event()
+
+    async def chat_work(session_id: str) -> dict[str, str]:
+        started.add(session_id)
+        while not release.is_set():
+            await asyncio.sleep(0.01)
+        return {"status": "completed"}
+
+    scheduled_a = host.agent_run_supervisor.schedule_single_turn(
+        session_id="session:chat-a",
+        stream_run_id=run_a.stream_run_id,
+        work_factory=lambda: chat_work("session:chat-a"),
+        scheduler="test-chat-run",
+    )
+    scheduled_b = host.agent_run_supervisor.schedule_single_turn(
+        session_id="session:chat-b",
+        stream_run_id=run_b.stream_run_id,
+        work_factory=lambda: chat_work("session:chat-b"),
+        scheduler="test-chat-run",
+    )
+    cell_a = host.agent_run_supervisor.active_cell_for_stream_run(run_a.stream_run_id, session_id="session:chat-a")
+    cell_b = host.agent_run_supervisor.active_cell_for_stream_run(run_b.stream_run_id, session_id="session:chat-b")
+    try:
+        assert scheduled_a["scheduled"] is True
+        assert scheduled_b["scheduled"] is True
+        assert scheduled_a["run_cell_id"] != scheduled_b["run_cell_id"]
+        assert cell_a is not None
+        assert cell_b is not None
+        assert cell_a.scope.session_id == "session:chat-a"
+        assert cell_b.scope.session_id == "session:chat-b"
+        assert _wait_until(lambda: started == {"session:chat-a", "session:chat-b"})
+    finally:
+        release.set()
+        if cell_a is not None and cell_a.worker_handle is not None:
+            cell_a.worker_handle.join(timeout=3)
+        if cell_b is not None and cell_b.worker_handle is not None:
+            cell_b.worker_handle.join(timeout=3)
+
+
 def test_runtime_run_cell_cancel_requires_session_scope(tmp_path) -> None:
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
     run = host.run_registry.create_run(session_id="session:cell-isolation")

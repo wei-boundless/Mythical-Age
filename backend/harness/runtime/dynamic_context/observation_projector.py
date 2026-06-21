@@ -6,7 +6,7 @@ from artifact_system.artifact_authority import dedupe_artifact_refs, model_visib
 
 from .models import compact_text, dict_tuple, drop_empty
 from .replacement_store import ReplacementStore
-from .semantic_payload_classifier import merge_pending_tool_control_actions
+from .semantic_payload_classifier import merge_pending_subagent_result_actions
 from .structured_error_projection import structured_error_projection
 from .tool_result_projector import ToolResultProjector
 
@@ -31,7 +31,7 @@ class ObservationProjector:
         active_failures: list[dict[str, Any]] = []
         historical_failures: list[dict[str, Any]] = []
         artifact_evidence: list[dict[str, Any]] = []
-        pending_tool_control_actions: list[dict[str, Any]] = []
+        pending_subagent_result_actions: list[dict[str, Any]] = []
         refs: list[str] = []
         replacement_records: list[dict[str, Any]] = []
         for item in list(observations or []):
@@ -44,8 +44,8 @@ class ObservationProjector:
             refs.append(str(projection.get("observation_id") or projection.get("observation_ref") or ""))
             replacement_records.append(record)
             execution_control = dict(projection.get("execution_control") or {})
-            pending_tool_control_actions.extend(
-                dict_tuple(execution_control.get("pending_tool_control_actions"))
+            pending_subagent_result_actions.extend(
+                dict_tuple(execution_control.get("pending_subagent_result_actions"))
             )
             if projection.get("artifact_refs"):
                 artifact_evidence.extend(dict_tuple(projection.get("artifact_refs")))
@@ -62,9 +62,9 @@ class ObservationProjector:
                     "latest_observations": latest,
                     "active_failures": active_failures[-failure_limit:],
                     "historical_failures": historical_failures[-failure_limit:],
-                    "pending_tool_control_actions": merge_pending_tool_control_actions(
-                        pending_tool_control_actions,
-                        limit=int(policy.get("pending_tool_control_action_limit") or 12),
+                    "pending_subagent_result_actions": merge_pending_subagent_result_actions(
+                        pending_subagent_result_actions,
+                        limit=int(policy.get("pending_subagent_result_action_limit") or 12),
                     ),
                     "artifact_evidence": dedupe_artifact_refs(artifact_evidence),
                     "omitted_observations": {

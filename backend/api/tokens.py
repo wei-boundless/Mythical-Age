@@ -138,6 +138,12 @@ def _session_tokens_cache_signature(
 
 
 def _ledger_file_signature(ledger: Any, filename: str) -> tuple[int, int]:
+    ledger_signature = getattr(ledger, "_jsonl_signature", None)
+    if callable(ledger_signature):
+        try:
+            return tuple(ledger_signature(filename))  # type: ignore[return-value]
+        except Exception:
+            return (0, 0)
     ledger_dir = getattr(ledger, "ledger_dir", None)
     if ledger_dir is None:
         return (0, 0)
@@ -510,4 +516,3 @@ def _file_tokens_payload(runtime: Any, payload: FileTokensRequest) -> dict[str, 
         files.append({"path": relative_path, "tokens": count})
 
     return {"files": files, "total_tokens": total}
-

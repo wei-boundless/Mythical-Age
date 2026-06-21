@@ -515,7 +515,8 @@ def _single_agent_turn_model_action_surface(
         actions.append("request_task_run")
     if bool(control_capabilities.get("may_control_active_work") is True):
         actions.append("active_work_control")
-    if _has_recoverable_work_candidate(session_context):
+    resumable_work_action_candidate = _has_resumable_work_action_candidate(session_context)
+    if resumable_work_action_candidate:
         actions.append("resume_recoverable_work")
     if model_visible_tools:
         actions.append("tool_call")
@@ -525,7 +526,7 @@ def _single_agent_turn_model_action_surface(
             "source": "runtime_capabilities_and_state_candidates",
             "may_request_task_run": bool(control_capabilities.get("may_request_task_run") is True),
             "may_control_active_work": bool(control_capabilities.get("may_control_active_work") is True),
-            "recoverable_work_candidate": _has_recoverable_work_candidate(session_context),
+            "resumable_work_action_candidate": resumable_work_action_candidate,
             "visible_tool_count": len(model_visible_tools),
         },
     )
@@ -577,7 +578,7 @@ def _single_agent_turn_tool_plan(
     )
 
 
-def _has_recoverable_work_candidate(session_context: dict[str, Any] | None) -> bool:
+def _has_resumable_work_action_candidate(session_context: dict[str, Any] | None) -> bool:
     payload = dict(session_context or {})
     record = dict(payload.get("recoverable_work") or {})
     if not record:
@@ -586,6 +587,7 @@ def _has_recoverable_work_candidate(session_context: dict[str, Any] | None) -> b
     return bool(
         str(record.get("continuation_id") or "").strip()
         and str(record.get("task_run_id") or "").strip()
+        and record.get("resume_allowed") is True
         and state
         and state != "terminal_read_only"
     )

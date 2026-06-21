@@ -74,6 +74,49 @@ def test_single_turn_request_task_run_schema_shows_nested_contract_shape() -> No
     assert dict(seed["observation_contract"])["evidence_policy"] == "observation_required"
 
 
+def test_single_turn_active_work_control_contract_exposes_canonical_control_fields() -> None:
+    result = RuntimeCompiler(base_dir=_backend_dir()).compile_single_agent_turn_packet(
+        session_id="session:active-work-control-shape",
+        turn_id="turn:active-work-control-shape",
+        agent_invocation_id="aginvoke:active-work-control-shape",
+        user_message="继续当前任务。",
+        history=[],
+        active_work_context={
+            "session_id": "session:active-work-control-shape",
+            "active_work_id": "turn:active",
+            "task_run_id": "taskrun:active-work-control-shape",
+            "status": "waiting_executor",
+            "resumable": True,
+        },
+        current_work_boundary_receipt={
+            "receipt_id": "cwreceipt:active-work-control-shape",
+            "boundary_decision": "current_work_control_required",
+            "observation_state": "controllable_current_work",
+            "active_work_ref": {"task_run_id": "taskrun:active-work-control-shape", "actual_active_turn_id": "turn:active"},
+            "operation_availability": {"active_work_control": True},
+            "authority": "harness.entrypoint.current_work_boundary_receipt",
+        },
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "control_capabilities": {"may_request_task_run": True, "may_control_active_work": True},
+        },
+    )
+
+    control_actions = dict(result.packet.output_contract.get("control_actions") or {})
+    active_work = dict(control_actions.get("active_work_control") or {})
+    payload_schema = dict(active_work.get("payload_schema") or {})
+
+    assert payload_schema["relation_to_current_work"].startswith("current_work")
+    assert "turn_response_policy" in payload_schema
+    assert "user_turn_kind" in payload_schema
+    assert "answer_obligation" in payload_schema
+    assert "evidence" in payload_schema
+    assert "resume_strategy" not in payload_schema
+    assert "response_obligation" not in payload_schema
+    assert "routing_evidence" not in payload_schema
+
+
 def test_single_turn_resume_recoverable_work_schema_shows_nested_handle_shape() -> None:
     schema = model_action_request_schema("turn:resume-shape")
 

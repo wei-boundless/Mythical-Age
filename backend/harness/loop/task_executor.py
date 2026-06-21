@@ -34,7 +34,6 @@ from runtime.shared.file_observation_policy import read_window_fingerprint_defau
 from runtime.tool_runtime import ToolInvocationRequest
 from runtime.shared.tool_identity import (
     canonical_action_tool_call_id,
-    ensure_tool_call_id,
     permission_decision_id,
 )
 
@@ -52,8 +51,8 @@ from harness.runtime.packet_context import (
     runtime_packet_evidence_signal_scope,
 )
 from harness.runtime.dynamic_context.semantic_payload_classifier import (
-    merge_pending_tool_control_actions,
-    pending_tool_control_actions_from_observation,
+    merge_pending_subagent_result_actions,
+    pending_subagent_result_actions_from_observation,
 )
 from harness.runtime.services import TaskExecutorServices
 from harness.runtime.tool_batch_planner import ToolBatchGroup, build_tool_batch_plan
@@ -164,6 +163,30 @@ class TaskRunExecutorInterrupted(Exception):
     def __init__(self, signal: ExecutorControlSignal) -> None:
         super().__init__(f"task_run_executor_interrupted:{signal.kind}")
         self.signal = signal
+
+
+class TaskModelActionStreamProtocolError(RuntimeError):
+    def __init__(
+        self,
+        *,
+        stream_error: Exception,
+        model_selection: dict[str, Any],
+    ) -> None:
+        detail = f"task model action stream failed; non-stream fallback is disabled for JSON action protocol: {stream_error}"
+        super().__init__(detail)
+        self.code = "non_stream_fallback_disabled_for_task_action_protocol"
+        self.provider = str(dict(model_selection or {}).get("provider") or "")
+        self.model = str(dict(model_selection or {}).get("model") or "")
+        self.detail = detail
+        self.retryable = bool(getattr(stream_error, "retryable", True))
+        self.user_message = "任务模型动作流式调用失败。为避免重采样控制动作，已保留任务在可恢复状态。"
+
+
+class TaskToolChildActionProtocolError(RuntimeError):
+    def __init__(self, code: str) -> None:
+        normalized = str(code or "task_tool_child_action_invalid").strip()
+        super().__init__(normalized)
+        self.code = normalized
 
 
 def is_task_run_executable(task_run: Any, *, runtime_host: Any | None = None) -> bool:
@@ -2040,7 +2063,49 @@ async def _process_task_tool_call_batch(
     step_index: int,
     action_event_offset: int | float = 0,
 ) -> dict[str, Any]:
-    child_requests = _task_tool_child_action_requests(action_request)
+    try:
+        child_requests = _task_tool_child_action_requests(action_request)
+    except TaskToolChildActionProtocolError as exc:
+        repair_observation = _model_protocol_repair_observation(
+            task_run_id=current_task.task_run_id,
+            packet_ref=packet_ref,
+            step_index=step_index,
+            diagnostics={
+                "status": "rejected",
+                "validation_errors": [exc.code],
+                "authority": "harness.loop.task_executor.task_tool_child_action_protocol",
+            },
+            runtime_fingerprint=runtime_fingerprint,
+        )
+        raw_observations.append(repair_observation)
+        runtime_host.runtime_objects.put_object("observation", repair_observation["observation_id"], repair_observation)
+        runtime_host.event_log.append(
+            current_task.task_run_id,
+            "task_model_action_protocol_repair_required",
+            payload={"observation": repair_observation, "diagnostics": {"validation_errors": [exc.code]}},
+            refs={
+                "task_run_ref": current_task.task_run_id,
+                "runtime_invocation_packet_ref": packet_ref,
+                "observation_ref": repair_observation["observation_id"],
+                "action_request_ref": action_request.request_id,
+            },
+        )
+        _record_task_step_summary(
+            runtime_host,
+            task_run_id=current_task.task_run_id,
+            step=f"model_action_protocol_repair_required:{step_index}",
+            status="running",
+            summary=repair_observation["summary"],
+            presentation_source=_PROTOCOL_REPAIR_PRESENTATION_SOURCE,
+            refs={"observation_ref": repair_observation["observation_id"], "action_request_ref": action_request.request_id},
+        )
+        return {
+            "current_task": current_task,
+            "raw_observations": raw_observations,
+            "observations": observations,
+            "execution_state": execution_state,
+            "artifact_refs": artifact_refs,
+        }
     if not child_requests:
         return {
             "current_task": current_task,
@@ -3670,12 +3735,16 @@ def _task_tool_child_action_requests(action_request: AnyModelActionRequest) -> l
         tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
         tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
         child_request_id = action_request.request_id if len(raw_calls) == 1 else f"{action_request.request_id}:tool:{index + 1}"
-        tool_call = ensure_tool_call_id({
+        tool_call_id = str(tool_call.get("id") or tool_call.get("tool_call_id") or "").strip()
+        if not tool_call_id:
+            raise TaskToolChildActionProtocolError("task_tool_call_id_required")
+        tool_call = {
             **tool_call,
+            "id": tool_call_id,
             "tool_name": tool_name,
             "name": tool_name,
             "args": tool_args,
-        }, request_id=child_request_id, ordinal=index)
+        }
         result.append(
             TaskExecutionModelActionRequest(
                 request_id=child_request_id,
@@ -3843,9 +3912,11 @@ async def _invoke_task_model_action_response(
                 model_selection=model_selection,
                 accounting_context=accounting_context,
             )
-        except Exception:
-            if not callable(invoker) or not _task_stream_non_stream_fallback_enabled(stream_policy):
-                raise
+        except Exception as exc:
+            raise TaskModelActionStreamProtocolError(
+                stream_error=exc,
+                model_selection=model_selection,
+            ) from exc
     if not callable(invoker):
         raise RuntimeError("model_runtime.invoke_messages is unavailable")
     return await call_model_invoker(
@@ -3894,17 +3965,6 @@ def _task_model_stream_chunk_text(chunk: Any) -> str:
     from runtime.model_gateway.model_runtime import stringify_content
 
     return stringify_content(getattr(chunk, "content", chunk))
-
-
-def _task_stream_non_stream_fallback_enabled(stream_policy: dict[str, Any]) -> bool:
-    for key in (
-        "fallback_to_non_stream_on_error",
-        "fallback_to_non_stream",
-        "recover_with_non_stream",
-    ):
-        if key in stream_policy:
-            return bool(stream_policy.get(key) is not False)
-    return True
 
 
 def _model_selection_with_json_object_contract(model_selection: dict[str, Any]) -> dict[str, Any]:
@@ -4449,7 +4509,7 @@ def _stream_policy_for_task_model_requirement(
             **policy,
             "enabled": True,
             "mode": str(policy.get("mode") or "model_text_stream"),
-            "fallback_to_non_stream_on_error": bool(policy.get("fallback_to_non_stream_on_error", True) is not False),
+            "fallback_to_non_stream_on_error": False,
             "chunk_strategy": str(policy.get("chunk_strategy") or "adaptive_buffer"),
             "first_flush_delay_ms": _stream_policy_int(policy.get("first_flush_delay_ms"), default=70),
             "target_buffer_delay_ms": _stream_policy_int(policy.get("target_buffer_delay_ms"), default=150),
@@ -6464,8 +6524,9 @@ def _pause_executor_for_tool_approval(
     now = time.time()
     observation_ref = str(observation.get("observation_id") or "")
     payload = dict(observation.get("payload") or {})
+    identity_source, execution_receipt = _trusted_tool_observation_identity_source(payload)
     tool_name = _observation_tool_name(observation)
-    operation_id = str(payload.get("operation_id") or dict(payload.get("result_envelope") or {}).get("operation_id") or "").strip()
+    operation_id = str(identity_source.get("operation_id") or payload.get("operation_id") or "").strip()
     tool_call = dict(getattr(action_request, "tool_call", {}) or {})
     tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
     tool_call_id = _canonical_tool_call_id(action_request)
@@ -6488,7 +6549,7 @@ def _pause_executor_for_tool_approval(
         "created_at": now,
         "authority": "runtime.tool_approval_control",
         "operation_gate": dict(payload.get("operation_gate") or {}),
-        "execution_receipt": dict(payload.get("execution_receipt") or {}),
+        "execution_receipt": execution_receipt,
     }
     approval_signal = publish_task_tool_approval_requested(
         runtime_host,
@@ -7079,34 +7140,31 @@ def _task_tool_observation_scope_status(
     )
 
 
+def _trusted_tool_observation_identity_source(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    result_envelope = dict(payload.get("result_envelope") or {})
+    if result_envelope:
+        return result_envelope, dict(result_envelope.get("execution_receipt") or {})
+    return payload, dict(payload.get("execution_receipt") or {})
+
+
 def _task_tool_observation_scope_payload(*, task_run: Any, observation: dict[str, Any]) -> dict[str, str]:
     payload = dict((observation or {}).get("payload") or {})
-    result_envelope = dict(payload.get("result_envelope") or {})
-    execution_receipt = {
-        **dict(result_envelope.get("execution_receipt") or {}),
-        **dict(payload.get("execution_receipt") or {}),
-    }
-    task_scope = _agent_run_scope_payload(task_run)
+    identity_source, execution_receipt = _trusted_tool_observation_identity_source(payload)
     return {
         "task_run_id": str(
             execution_receipt.get("task_run_id")
-            or payload.get("task_run_id")
+            or identity_source.get("task_run_id")
             or (observation or {}).get("task_run_id")
             or getattr(task_run, "task_run_id", "")
             or ""
         ).strip(),
         "agent_run_id": str(
             execution_receipt.get("agent_run_id")
-            or payload.get("agent_run_id")
-            or result_envelope.get("agent_run_id")
-            or task_scope.get("agent_run_id")
+            or identity_source.get("agent_run_id")
             or ""
         ).strip(),
         "run_cell_id": str(
             execution_receipt.get("run_cell_id")
-            or payload.get("run_cell_id")
-            or result_envelope.get("run_cell_id")
-            or task_scope.get("run_cell_id")
             or ""
         ).strip(),
     }
@@ -7167,15 +7225,26 @@ def _record_late_task_tool_observation_rejected(
 ) -> Any | None:
     scope = _task_tool_observation_scope_payload(task_run=task_run, observation=observation)
     action_request = row.get("action_request")
+    tool_call = dict(getattr(action_request, "tool_call", {}) or row.get("tool_call") or {})
     payload = dict((observation or {}).get("payload") or {})
+    identity_source, execution_receipt = _trusted_tool_observation_identity_source(payload)
     result_envelope = dict(payload.get("result_envelope") or {})
+    tool_call_id = str(_canonical_tool_call_id(action_request) if action_request is not None else "").strip()
+    if not tool_call_id:
+        tool_call_id = str(identity_source.get("tool_call_id") or execution_receipt.get("tool_call_id") or "").strip()
     late_payload = {
         "observation_id": str((observation or {}).get("observation_id") or ""),
-        "request_ref": str((observation or {}).get("request_ref") or getattr(action_request, "request_id", "") or ""),
-        "tool_name": str(payload.get("tool_name") or result_envelope.get("tool_name") or ""),
-        "tool_call_id": str((observation or {}).get("tool_call_id") or payload.get("tool_call_id") or result_envelope.get("tool_call_id") or ""),
+        "request_ref": str(
+            getattr(action_request, "request_id", "")
+            or identity_source.get("action_request_id")
+            or identity_source.get("request_ref")
+            or execution_receipt.get("request_ref")
+            or ""
+        ),
+        "tool_name": str(tool_call.get("tool_name") or tool_call.get("name") or identity_source.get("tool_name") or ""),
+        "tool_call_id": tool_call_id,
         "status": _observation_status(observation),
-        "result_ref": str(payload.get("result_ref") or result_envelope.get("result_ref") or ""),
+        "result_ref": str(identity_source.get("result_ref") or execution_receipt.get("result_ref") or ""),
         "content_chars": int((observation or {}).get("content_chars") or len(str(payload.get("text") or ""))),
         "packet_ref": str(packet_ref or ""),
         "tool_batch_ref": str(tool_batch_ref or ""),
@@ -7273,19 +7342,19 @@ def _observations_for_packet(
         for observation in deduped
     ]
     projection = _build_execution_state_projection(records)
-    pending_tool_control_actions = merge_pending_tool_control_actions(
-        *[pending_tool_control_actions_from_observation(observation) for observation in deduped],
+    pending_subagent_result_actions = merge_pending_subagent_result_actions(
+        *[pending_subagent_result_actions_from_observation(observation) for observation in deduped],
         limit=12,
     )
-    pending_tool_control_actions = _filter_consumed_subagent_pending_actions(
+    pending_subagent_result_actions = _filter_consumed_subagent_pending_actions(
         runtime_host,
         task_run_id,
-        pending_tool_control_actions,
+        pending_subagent_result_actions,
     )
-    if pending_tool_control_actions:
+    if pending_subagent_result_actions:
         projection = {
             **projection,
-            "pending_tool_control_actions": pending_tool_control_actions,
+            "pending_subagent_result_actions": pending_subagent_result_actions,
         }
     runtime_control_signals = _runtime_control_signal_projection_from_observations(
         deduped,

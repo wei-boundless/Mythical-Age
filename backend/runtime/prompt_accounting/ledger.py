@@ -313,9 +313,17 @@ class PromptAccountingLedger:
         )
 
     def summarize_session(self, session_id: str) -> dict[str, Any]:
+        normalized = str(session_id or "").strip()
+        if not normalized:
+            return _empty_usage_summary()
+        indexed = self._summary_for_session(normalized)
+        if indexed is not None:
+            return indexed
+        if not self._summary_scan_allowed():
+            return _empty_usage_summary()
         return summarize_usage_records(
-            self.list_token_usage(session_id=session_id),
-            cache_records=self.list_prompt_cache(session_id=session_id),
+            self.list_token_usage(session_id=normalized),
+            cache_records=self.list_prompt_cache(session_id=normalized),
         )
 
     def summarize_all(self) -> dict[str, Any]:
@@ -1227,7 +1235,7 @@ class PromptAccountingLedger:
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("a", encoding="utf-8", newline="\n") as handle:
                 handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
-            self._apply_append_to_filtered_read_cache(filename, self._jsonl_signature(filename), payload)
+            self._invalidate_filtered_read_cache(filename)
 
     def _summary_for_key(self, key: str) -> dict[str, Any] | None:
         normalized = str(key or "").strip()
@@ -1246,6 +1254,22 @@ class PromptAccountingLedger:
         if not merged:
             return _empty_usage_summary()
         return dict(merged[0].get("summary") or _empty_usage_summary())
+
+    def _summary_for_session(self, session_id: str) -> dict[str, Any] | None:
+        normalized = str(session_id or "").strip()
+        if not normalized:
+            return None
+        entries = [
+            dict(item)
+            for item in [*self.list_retained_token_summaries(limit=10_000), *self._read_summary_manifest()]
+            if str(item.get("session_id") or "") == normalized
+        ]
+        if not entries:
+            return None
+        merged = _merge_summary_rows(entries)
+        if not merged:
+            return _empty_usage_summary()
+        return _aggregate_summary_entries(merged)
 
     def _upsert_usage_summary(self, record: ModelTokenUsageRecord) -> None:
         key = _summary_key_for_usage(record)
@@ -1479,7 +1503,9 @@ class PromptAccountingLedger:
         return paths
 
     def _jsonl_signature(self, filename: str) -> tuple[int, int]:
-        paths = self._jsonl_paths(filename)
+        return self._jsonl_signature_for_paths(self._jsonl_paths(filename))
+
+    def _jsonl_signature_for_paths(self, paths: list[Path]) -> tuple[int, int]:
         mtime_total = 0
         size_total = 0
         for path in paths:
@@ -1492,9 +1518,6 @@ class PromptAccountingLedger:
         return sum(_file_signature(path)[1] for path in self._jsonl_paths(filename))
 
     def _read_jsonl(self, filename: str, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[dict[str, Any]]:
-        paths = self._jsonl_paths(filename)
-        if not paths:
-            return []
         normalized_run_id = str(run_id or "")
         normalized_task_run_id = str(task_run_id or "")
         normalized_session_id = str(session_id or "")
@@ -1506,7 +1529,10 @@ class PromptAccountingLedger:
             session_id=normalized_session_id,
         )
         with self._lock:
-            signature = self._jsonl_signature(filename)
+            paths = self._jsonl_paths(filename)
+            if not paths:
+                return []
+            signature = self._jsonl_signature_for_paths(paths)
             if cacheable:
                 cached = self._filtered_read_cache.get(cache_key)
                 if cached is not None:
@@ -1514,26 +1540,30 @@ class PromptAccountingLedger:
                     if cached_signature == signature:
                         return [dict(row) for row in cached_rows]
 
-            rows: list[dict[str, Any]] = []
-            for path in paths:
-                with path.open("r", encoding="utf-8") as handle:
-                    for line in handle:
-                        stripped = line.strip()
-                        if not stripped:
-                            continue
-                        if prefilter and not _line_matches_prefilter(stripped, prefilter):
-                            continue
-                        try:
-                            payload = json.loads(stripped)
-                        except JSONDecodeError:
-                            continue
-                        if isinstance(payload, dict):
-                            rows.append(payload)
-            if cacheable:
-                self._filtered_read_cache[cache_key] = (signature, [dict(row) for row in rows])
+        rows: list[dict[str, Any]] = []
+        for path in paths:
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    if prefilter and not _line_matches_prefilter(stripped, prefilter):
+                        continue
+                    try:
+                        payload = json.loads(stripped)
+                    except JSONDecodeError:
+                        continue
+                    if isinstance(payload, dict):
+                        rows.append(payload)
+        if cacheable:
+            with self._lock:
+                current_paths = self._jsonl_paths(filename)
+                current_signature = self._jsonl_signature_for_paths(current_paths)
+                if current_paths == paths and current_signature == signature:
+                    self._filtered_read_cache[cache_key] = (signature, [dict(row) for row in rows])
                 if len(self._filtered_read_cache) > 256:
                     self._filtered_read_cache.pop(next(iter(self._filtered_read_cache)))
-            return rows
+        return rows
 
     def _iter_jsonl_rows(self, filename: str):
         for path in self._jsonl_paths(filename):
@@ -1557,22 +1587,6 @@ class PromptAccountingLedger:
         for key in list(self._filtered_read_cache):
             if key[0] == target:
                 self._filtered_read_cache.pop(key, None)
-
-    def _apply_append_to_filtered_read_cache(
-        self,
-        filename: str,
-        signature: tuple[int, int],
-        payload: dict[str, Any],
-    ) -> None:
-        target = str(filename or "")
-        for key, (_cached_signature, cached_rows) in list(self._filtered_read_cache.items()):
-            if key[0] != target:
-                continue
-            _filename, run_id, task_run_id, session_id = key
-            next_rows = list(cached_rows)
-            if _row_matches_filter(payload, run_id=run_id, task_run_id=task_run_id, session_id=session_id):
-                next_rows.append(dict(payload))
-            self._filtered_read_cache[key] = (signature, next_rows)
 
     def _rewrite_jsonl_path(self, path: Path, *, should_delete: Any) -> dict[str, Any]:
         if not path.exists():
@@ -2106,20 +2120,6 @@ def _json_field_markers(field: str, value: str) -> tuple[str, str]:
 
 def _line_matches_prefilter(line: str, groups: tuple[tuple[str, ...], ...]) -> bool:
     return all(any(marker in line for marker in group) for group in groups)
-
-
-def _row_matches_filter(row: dict[str, Any], *, run_id: str, task_run_id: str, session_id: str) -> bool:
-    if session_id and str(row.get("session_id") or "") != session_id:
-        return False
-    if task_run_id:
-        row_task_run_id = str(row.get("task_run_id") or "")
-        row_run_id = str(row.get("run_id") or "")
-        return task_run_id in {row_task_run_id, row_run_id}
-    if run_id:
-        row_run_id = str(row.get("run_id") or "")
-        row_task_run_id = str(row.get("task_run_id") or "")
-        return run_id in {row_run_id, row_task_run_id}
-    return True
 
 
 def _retention_group_id(row: dict[str, Any], *, primary_fields: tuple[str, ...]) -> str:

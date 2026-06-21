@@ -304,6 +304,9 @@ def compact_event_for_tail(event: dict[str, Any]) -> dict[str, Any]:
             for key in ("source", "summary", "observation_type")
             if observation.get(key) not in (None, "")
         }
+    signal = payload.get("signal")
+    if isinstance(signal, dict):
+        compact_payload["signal"] = _compact_value(signal)
     return {
         "event_id": str(event.get("event_id") or ""),
         "run_id": str(event.get("run_id") or event.get("task_run_id") or ""),

@@ -7,7 +7,7 @@ from runtime.shared.models import TurnRun
 from sessions import SessionManager
 
 
-def test_stream_failure_reconciliation_records_terminal_projection_without_assistant_body(tmp_path: Path) -> None:
+def test_runtime_interruption_records_recoverable_state_without_agent_terminal(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     runtime_root = tmp_path / "runtime"
     backend_dir.mkdir()
@@ -34,7 +34,7 @@ def test_stream_failure_reconciliation_records_terminal_projection_without_assis
         )
     )
 
-    result = host.close_chat_turn_run_for_stream_failure(
+    result = host.record_chat_turn_run_runtime_interruption(
         run,
         code="runtime_process_restarted",
         reason="runtime_cell_missing_after_restart",
@@ -51,29 +51,26 @@ def test_stream_failure_reconciliation_records_terminal_projection_without_assis
         if str((event.payload or {}).get("public_event_type") or "") == "turn_completed"
     ]
 
-    assert result["public_terminal_event_appended"] is True
+    turn_events = host.event_log.list_events(turn_run_id)
+
+    assert result["runtime_interruption_recorded"] is True
+    assert result["public_terminal_event_appended"] is False
+    assert result["turn_run_closed"] is False
+    assert result["turn_run_interruption_recorded"] is True
     assert "visible_message_appended" not in result
     assert [item["role"] for item in history] == ["user"]
     assert [item["content"] for item in history] == ["继续修复"]
     assert current is not None
-    assert current.status == "stopped"
-    assert current.terminal_event == "turn_completed"
+    assert current.status == "orphaned"
+    assert current.terminal_event == ""
+    assert dict(current.diagnostics or {})["recoverable"] is True
+    assert dict(current.diagnostics or {})["semantic_terminal"] is False
+    assert dict(current.diagnostics or {})["runtime_interruption_code"] == "runtime_process_restarted"
     assert reconciled_turn is not None
-    assert reconciled_turn.status == "aborted"
-    assert reconciled_turn.terminal_reason == "internal_error"
-    assert len(terminal_events) == 1
-    data = dict(terminal_events[0].payload["data"])
-    frame = dict(data.get("public_projection_frame") or {})
-    assert data["status"] == "stopped"
-    assert data["terminal_reason"] == "runtime_process_restarted"
-    assert frame["op"] == "item_upsert"
-    assert frame["slot"] == "status"
-    assert frame["main_visibility"] == "visible_live"
-    assert frame["retention"] == "final"
-    assert frame["status_kind"] == "terminal_event"
-    assert frame["source_authority"] == "runtime"
-    assert frame["source_event_type"] == "turn_completed"
-    assert frame["slot"] != "body"
-    assert frame["anchor"]["session_id"] == session_id
-    assert frame["anchor"]["turn_id"] == turn_id
-    assert frame["anchor"]["turn_run_id"] == turn_run_id
+    assert reconciled_turn.status == "running"
+    assert reconciled_turn.terminal_reason == ""
+    assert dict(reconciled_turn.diagnostics or {})["recoverable"] is True
+    assert dict(reconciled_turn.diagnostics or {})["semantic_terminal"] is False
+    assert dict(reconciled_turn.diagnostics or {})["runtime_interruption_code"] == "runtime_process_restarted"
+    assert not terminal_events
+    assert [event.event_type for event in turn_events] == []

@@ -11,7 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
 from harness.loop.task_executor import _observations_for_packet, _strip_terminal_diagnostics
 from harness.runtime.compiler import _runtime_observations_model_visible_payload
 from harness.runtime.dynamic_context.task_state_projector import TaskStateProjector
-from harness.runtime.dynamic_context.semantic_payload_classifier import pending_tool_control_actions_from_observation
+from harness.runtime.dynamic_context.semantic_payload_classifier import pending_subagent_result_actions_from_observation
 from runtime.memory.file_evidence_scope import task_run_file_evidence_scope
 from tests.support.runtime_stubs import build_harness_runtime
 
@@ -370,7 +370,7 @@ def test_task_observation_projection_preserves_subagent_collect_control_action()
         current_fingerprint=fingerprint,
     )["execution_state"]["system_projection"]
 
-    action = projection["pending_tool_control_actions"][0]
+    action = projection["pending_subagent_result_actions"][0]
     assert action["source_tool"] == "observe_subagents"
     assert action["tool_call_id"] == "call:observe-subagents"
     assert action["action"] == "collect_subagent_result"
@@ -440,11 +440,11 @@ def test_task_observation_projection_preserves_collected_subagent_final_answer()
     assert projection["last_action_receipts"][0]["subagent_result"]["final_answer"] == final_answer
 
 
-def test_pending_tool_control_action_observation_projection_merges_structured_payload_sources() -> None:
+def test_pending_subagent_result_action_observation_projection_merges_structured_payload_sources() -> None:
     subagent_run_ref = "agrun:taskrun:merged-structured-control:child"
     result_ref = "rtobj:agent_run_result:merged-child"
 
-    actions = pending_tool_control_actions_from_observation(
+    actions = pending_subagent_result_actions_from_observation(
         {
             "observation_id": "obs:observe-subagents:merged",
             "source": "tool:observe_subagents",
@@ -479,6 +479,44 @@ def test_pending_tool_control_action_observation_projection_merges_structured_pa
     assert actions[0]["action"] == "collect_subagent_result"
     assert actions[0]["args"] == {"subagent_run_ref": subagent_run_ref}
     assert actions[0]["result_ref"] == result_ref
+
+
+def test_pending_subagent_result_action_ignores_wrapper_identity_when_envelope_exists() -> None:
+    subagent_run_ref = "agrun:taskrun:shadowed-structured-control:child"
+
+    actions = pending_subagent_result_actions_from_observation(
+        {
+            "observation_id": "obs:observe-subagents:shadowed",
+            "source": "tool:observe_subagents",
+            "payload": {
+                "tool_name": "read_file",
+                "tool_call_id": "call:wrapper-shadow",
+                "action_request_id": "act:wrapper-shadow",
+                "result_envelope": {
+                    "tool_name": "observe_subagents",
+                    "structured_payload": {
+                        "subagent_control": {
+                            "subagents": [
+                                {
+                                    "subagent_run_ref": subagent_run_ref,
+                                    "status": "completed",
+                                    "result_ref": "rtobj:agent_run_result:shadowed-child",
+                                    "result_state": "unread",
+                                    "result_unread": True,
+                                    "result_available": True,
+                                    "collect_subagent_result_args": {"subagent_run_ref": subagent_run_ref},
+                                }
+                            ]
+                        }
+                    },
+                },
+            },
+        }
+    )
+
+    assert actions[0]["source_tool"] == "observe_subagents"
+    assert "tool_call_id" not in actions[0]
+    assert "action_request_id" not in actions[0]
 
 
 def test_terminal_diagnostics_are_stripped_before_task_resume_packet() -> None:
