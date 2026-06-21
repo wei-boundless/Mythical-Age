@@ -30,36 +30,6 @@ GLOBAL_RECENT_TASK_RUN_LIMIT = 240
 ACTIVE_EXECUTOR_TASK_RUN_INDEX_ID = "default"
 TASK_RUN_SUMMARY_AUTHORITY = "orchestration.task_run.monitor_summary"
 
-LEGACY_TASK_RUN_STATUS_ALIASES = {
-    "success": "completed",
-    "succeeded": "completed",
-    "done": "completed",
-    "error": "failed",
-    "cancelled": "aborted",
-    "canceled": "aborted",
-    "stopped": "aborted",
-    "user_aborted": "aborted",
-    "blocked_expired": "aborted",
-    "runtime_retention_expired": "aborted",
-    "approval_expired": "aborted",
-}
-
-LEGACY_AGENT_RUN_STATUS_ALIASES = {
-    "created": "pending",
-    "waiting_executor": "pending",
-    "waiting_approval": "running",
-    "blocked": "failed",
-    "aborted": "killed",
-    "cancelled": "killed",
-    "canceled": "killed",
-    "stopped": "killed",
-    "error": "failed",
-    "success": "completed",
-    "succeeded": "completed",
-    "done": "completed",
-}
-
-
 TASK_RUN_SUMMARY_DIAGNOSTIC_KEYS = {
     "active_contract_revision_count",
     "active_node_id",
@@ -1493,18 +1463,16 @@ def _task_run_from_payload(payload: dict[str, Any]) -> TaskRun:
 
 def _canonical_task_run_status(value: Any) -> str:
     status = str(value or "created").strip()
-    normalized = LEGACY_TASK_RUN_STATUS_ALIASES.get(status, status)
-    if normalized not in CANONICAL_TASK_RUN_STATUSES:
+    if status not in CANONICAL_TASK_RUN_STATUSES:
         raise ValueError(f"TaskRun status is not canonical: {status}")
-    return normalized
+    return status
 
 
 def _canonical_agent_run_status(value: Any) -> str:
     status = str(value or "pending").strip()
-    normalized = LEGACY_AGENT_RUN_STATUS_ALIASES.get(status, status)
-    if normalized not in CANONICAL_AGENT_RUN_STATUSES:
+    if status not in CANONICAL_AGENT_RUN_STATUSES:
         raise ValueError(f"AgentRun status is not canonical: {status}")
-    return normalized
+    return status
 
 
 def _task_run_monitor_summary_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1842,4 +1810,3 @@ def _worker_spawn_result_from_payload(payload: dict[str, Any]) -> WorkerAgentSpa
 
 def _safe_index_key(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))[:180]
-

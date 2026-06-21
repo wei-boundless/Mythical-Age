@@ -321,8 +321,8 @@ def _request_signal(
         record.signal = signal
         if record.model_task is not None and not record.model_task.done():
             _cancel_model_task(record, reason=reason or kind)
-    supervisor = getattr(runtime_host, "agent_run_supervisor", None)
-    active_cell = supervisor.active_cell_for_task_run(task_run_id) if supervisor is not None else None
+    session_id = str(getattr(task_run, "session_id", "") or "").strip() if task_run is not None else ""
+    active_cell = _active_cell_for_task_run(runtime_host, task_run_id=task_run_id, session_id=session_id)
     if active_cell is not None:
         active_cell.tool_invocation_registry.cancel_by_caller(
             task_run_id=task_run_id,
@@ -477,12 +477,23 @@ def _runtime_gateway_publish_available(runtime_host: Any) -> bool:
     return callable(getattr(runtime_gateway, "publish", None))
 
 
-def _runtime_signal_scope_for_task_run(runtime_host: Any, *, task_run_id: str) -> RuntimeSignalScope:
+def _active_cell_for_task_run(runtime_host: Any, *, task_run_id: str, session_id: str) -> Any | None:
     supervisor = getattr(runtime_host, "agent_run_supervisor", None)
-    active_cell = supervisor.active_cell_for_task_run(task_run_id) if supervisor is not None else None
+    getter = getattr(supervisor, "active_cell_for_task_run", None)
+    if not callable(getter):
+        return None
+    try:
+        return getter(task_run_id, session_id=str(session_id or "").strip())
+    except Exception:
+        return None
+
+
+def _runtime_signal_scope_for_task_run(runtime_host: Any, *, task_run_id: str) -> RuntimeSignalScope:
+    task_run = getattr(getattr(runtime_host, "state_index", None), "get_task_run", lambda _task_run_id: None)(task_run_id)
+    session_id = str(getattr(task_run, "session_id", "") or "").strip() if task_run is not None else ""
+    active_cell = _active_cell_for_task_run(runtime_host, task_run_id=task_run_id, session_id=session_id)
     if active_cell is not None:
         return signal_scope_from_agent_scope(active_cell.scope)
-    task_run = getattr(getattr(runtime_host, "state_index", None), "get_task_run", lambda _task_run_id: None)(task_run_id)
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {}) if task_run is not None else {}
     scope = diagnostics.get("agent_run_scope")
     scope_payload = dict(scope or {}) if isinstance(scope, dict) else {}

@@ -20,6 +20,10 @@ class ManagedFileReadRequest(BaseModel):
     session_id: str = Field(default="", max_length=240)
 
 
+class ManagedFileSelectOpenRequest(BaseModel):
+    session_id: str = Field(default="", max_length=240)
+
+
 class ManagedFileWriteRequest(BaseModel):
     target: ManagedFileTarget
     content: str
@@ -53,4 +57,3 @@ class VSCodeCommandResultRequest(BaseModel):
     document_sha256: str = Field(default="", max_length=160)
     applied_at: str = Field(default="", max_length=120)
     metadata: dict[str, Any] = Field(default_factory=dict)
-

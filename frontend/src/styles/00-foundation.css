@@ -1,7 +1,7 @@
 :root {
   --font-display: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Source Han Sans SC", "Noto Sans SC", system-ui, sans-serif;
   --font-mono: "Cascadia Mono", "Consolas", "SFMono-Regular", monospace;
-  --console-bg: #f3f6f9;
+  --console-bg: #ffffff;
   --console-bg-raised: #f8fafc;
   --console-surface: #ffffff;
   --console-surface-muted: #f1f5f9;
@@ -37,9 +37,9 @@
   --console-control-height: 36px;
   --console-toolbar-height: 42px;
   --console-icon-button-size: 34px;
-  --console-font-size-ui: 14px;
-  --console-font-size-page: 15px;
-  --console-font-size-body: 16px;
+  --console-font-size-ui: 15px;
+  --console-font-size-page: 16px;
+  --console-font-size-body: 17px;
   --workbench-bg: var(--console-bg);
   --workbench-surface: var(--console-surface);
   --workbench-surface-soft: var(--console-surface-muted);

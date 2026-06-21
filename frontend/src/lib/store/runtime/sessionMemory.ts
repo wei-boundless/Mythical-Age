@@ -64,10 +64,12 @@ export function sessionRefFromStoredValue(raw: unknown): SessionRef | null {
   }
   const scope = parsed.scope && typeof parsed.scope === "object" ? parsed.scope : undefined;
   const poolKey = parsed.poolKey ?? (parsed.pool_key as SessionPoolKey | undefined) ?? sessionPoolKeyForScope(scope);
+  const updatedAt = Number(parsed.updatedAt ?? parsed.updated_at ?? 0);
   return {
     sessionId,
     ...(scope ? { scope } : {}),
     poolKey,
+    ...(Number.isFinite(updatedAt) && updatedAt > 0 ? { updatedAt } : {}),
   };
 }
 
@@ -93,6 +95,7 @@ export function rememberSessionRef(ref: SessionRef) {
     sessionId,
     ...(scope ? { scope } : {}),
     poolKey: ref.poolKey ?? sessionPoolKeyForScope(scope),
+    updatedAt: Number.isFinite(ref.updatedAt) && Number(ref.updatedAt) > 0 ? Number(ref.updatedAt) : Date.now() / 1000,
   }));
 }
 

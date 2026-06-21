@@ -1676,7 +1676,6 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
             setFocusMode={setReaderFocusMode}
             setNewFileContent={setNewFileContent}
             setNewFilePath={setNewFilePath}
-            setSelectedFilePath={setSelectedFilePath}
             setSelectedNodeId={setSelectedNodeId}
             visibleChapterFiles={visibleChapterFiles}
             writeNewFile={writeNewFile}

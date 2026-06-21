@@ -32,7 +32,33 @@ def test_task_execution_accepts_canonical_tool_calls_array() -> None:
     assert len(action.to_dict()["tool_calls"]) == 2
 
 
-def test_task_execution_rejects_tool_calls_without_model_public_response() -> None:
+def test_task_execution_accepts_public_progress_without_public_action_state() -> None:
+    action, diagnostics = task_execution_action_request_from_payload(
+        {
+            "authority": "harness.loop.model_action_request",
+            "request_id": "model-action:test:batch-progress-only",
+            "turn_id": "taskrun:test:batch-progress-only",
+            "action_type": "tool_call",
+            "public_progress_note": "准备读取 README 来确认当前实现。",
+            "tool_calls": [
+                {"tool_name": "read_file", "args": {"path": "README.md"}},
+            ],
+        },
+        turn_id="taskrun:test:batch-progress-only",
+        allowed_action_types=("respond", "ask_user", "tool_call", "block"),
+    )
+
+    assert diagnostics["status"] == "accepted"
+    assert diagnostics["validation_errors"] == []
+    assert diagnostics["contract_gaps"] == ["public_action_state_missing_for_tool_call"]
+    assert action is not None
+    assert action.public_progress_note == "准备读取 README 来确认当前实现。"
+    assert action.public_action_state == {}
+    assert action.diagnostics["contract_gaps"] == diagnostics["contract_gaps"]
+    assert action.tool_calls[0]["args"]["path"] == "README.md"
+
+
+def test_task_execution_accepts_tool_calls_without_model_public_response_as_contract_gap() -> None:
     action, diagnostics = task_execution_action_request_from_payload(
         {
             "authority": "harness.loop.model_action_request",
@@ -47,14 +73,19 @@ def test_task_execution_rejects_tool_calls_without_model_public_response() -> No
         allowed_action_types=("respond", "ask_user", "tool_call", "block"),
     )
 
-    assert action is None
-    assert diagnostics["status"] == "invalid"
-    assert "public_response_required" in diagnostics["validation_errors"]
-    assert "public_progress_note_required" in diagnostics["validation_errors"]
-    assert "public_action_state_required" in diagnostics["validation_errors"]
+    assert diagnostics["status"] == "accepted"
+    assert diagnostics["validation_errors"] == []
+    assert diagnostics["contract_gaps"] == [
+        "public_progress_note_missing_for_tool_call",
+        "public_action_state_missing_for_tool_call",
+    ]
+    assert action is not None
+    assert action.public_progress_note == ""
+    assert action.public_action_state == {}
+    assert action.diagnostics["contract_gaps"] == diagnostics["contract_gaps"]
 
 
-def test_task_execution_rejects_single_tool_call_without_tool_calls_array() -> None:
+def test_task_execution_accepts_single_tool_call_and_normalizes_to_tool_calls_array() -> None:
     action, diagnostics = task_execution_action_request_from_payload(
         {
             "authority": "harness.loop.model_action_request",
@@ -72,9 +103,12 @@ def test_task_execution_rejects_single_tool_call_without_tool_calls_array() -> N
         allowed_action_types=("respond", "ask_user", "tool_call", "block"),
     )
 
-    assert action is None
-    assert diagnostics["status"] == "invalid"
-    assert "tool_calls_required_for_tool_call" in diagnostics["validation_errors"]
+    assert diagnostics["status"] == "accepted"
+    assert diagnostics["validation_errors"] == []
+    assert action is not None
+    assert action.tool_call["tool_name"] == "read_file"
+    assert len(action.tool_calls) == 1
+    assert action.tool_calls[0]["args"]["path"] == "README.md"
 
 
 def test_task_execution_rejects_any_single_tool_call_shadow_when_tool_calls_array_is_present() -> None:

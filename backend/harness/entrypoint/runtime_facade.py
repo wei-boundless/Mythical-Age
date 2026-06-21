@@ -12,6 +12,7 @@ from evidence.output_policy import RAGEvidenceOutputPolicy
 from observability import build_debug_trace_event, start_turn_trace
 from capability_system.tools.authorization import build_tool_authorization_index
 from harness import GraphHarness
+from harness.current_work_receipt import current_work_control_availability_from_receipt
 from harness.continuation import (
     build_recovery_boundary_input,
     build_recovery_packet,
@@ -659,7 +660,6 @@ class HarnessRuntimeFacade:
                                 else "assistant_message_not_committed"
                             ),
                             "answer_finalization_policy": "fail_closed_visible_message",
-                            "output_commit": dict(commit_result.receipt),
                             "diagnostics": {
                                 "runtime_unavailable": True,
                                 "runtime_branch": dict(runtime_branch or {}),
@@ -905,7 +905,6 @@ class HarnessRuntimeFacade:
             "phase": "recovery_boundary",
             "terminal_reason": str(recovery_decision.get("reason") or ""),
             "recovery_boundary_receipt": recovery_receipt,
-            "output_commit": dict(commit_result.receipt),
         }
         yield final_answer_event(
             content=output_content,
@@ -913,7 +912,7 @@ class HarnessRuntimeFacade:
             answer_source="harness.continuation.recovery_boundary",
             terminal_reason=str(recovery_decision.get("reason") or ""),
             execution_posture="recovery_boundary_status",
-            extra={"recovery_boundary_receipt": recovery_receipt, "output_commit": dict(commit_result.receipt)},
+            extra={"recovery_boundary_receipt": recovery_receipt},
         )
 
     async def _run_recovery_resume_request(
@@ -1045,7 +1044,6 @@ class HarnessRuntimeFacade:
             "recovery_packet_ref": packet_ref,
             "recovery_boundary_receipt": recovery_receipt,
             "schedule_result": schedule_result,
-            "output_commit": dict(commit_result.receipt),
         }
         yield {
             "type": "runtime_status",
@@ -1059,7 +1057,6 @@ class HarnessRuntimeFacade:
             "turn_id": turn_id,
             "recovery_packet_ref": packet_ref,
             "recovery_boundary_receipt": recovery_receipt,
-            "output_commit": dict(commit_result.receipt),
         }
         yield final_answer_event(
             content=output_content,
@@ -1072,7 +1069,6 @@ class HarnessRuntimeFacade:
                 "task_run_id": task_run_id,
                 "recovery_packet_ref": packet_ref,
                 "recovery_boundary_receipt": recovery_receipt,
-                "output_commit": dict(commit_result.receipt),
             },
         )
 
@@ -1099,7 +1095,6 @@ class HarnessRuntimeFacade:
         output_content = commit_result.decision.content
         event_extra = {
             "recovery_boundary_receipt": recovery_receipt,
-            "output_commit": dict(commit_result.receipt),
             **dict(extra or {}),
         }
         return [
@@ -1360,8 +1355,6 @@ class HarnessRuntimeFacade:
             **refs,
             "current_work_boundary_receipt": receipt,
         }
-        if commit_result is not None:
-            runtime_status["output_commit"] = dict(commit_result.receipt)
         yield runtime_status
         if public_control_content:
             yield final_answer_event(
@@ -1374,7 +1367,6 @@ class HarnessRuntimeFacade:
                     "runtime_branch": dict(receipt.get("runtime_branch_ref") or {}),
                     "active_work": dict(action_request.active_work_control or {}),
                     "current_work_boundary_receipt": receipt,
-                    "output_commit": dict(commit_result.receipt) if commit_result is not None else {},
                     **refs,
                 },
             )
@@ -1521,9 +1513,9 @@ class HarnessRuntimeFacade:
     ) -> tuple[ActiveWorkContext | None, str]:
         if active_work_context is None:
             return None, "active_work_context_missing_for_control"
-        operations = dict(receipt.get("operation_availability") or {})
-        if operations.get("active_work_control") is not True:
-            return None, "active_work_control_unavailable"
+        active_work_availability = current_work_control_availability_from_receipt(receipt)
+        if not active_work_availability.available:
+            return None, active_work_availability.reason or "active_work_control_unavailable"
         refs = dict(receipt.get("active_work_ref") or {})
         expected_task_run_id = str(receipt.get("task_run_ref") or refs.get("task_run_id") or active_work_context.task_run_id or "").strip()
         expected_active_turn_id = str(
@@ -1550,7 +1542,7 @@ class HarnessRuntimeFacade:
             return None, "current_work_task_run_missing"
         if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
             return None, "current_work_task_run_not_single_agent"
-        if is_stopped_or_terminal_task_run(task_run):
+        if is_stopped_or_terminal_task_run(task_run, runtime_host=self.single_agent_runtime_host):
             return None, "current_work_task_run_terminal"
         context = self._active_work_context_from_task_run(
             session_id=session_id,
@@ -1681,7 +1673,7 @@ class HarnessRuntimeFacade:
         if task_run is None:
             return None
         status = str(getattr(task_run, "status", "") or "")
-        if is_stopped_or_terminal_task_run(task_run):
+        if is_stopped_or_terminal_task_run(task_run, runtime_host=self.single_agent_runtime_host):
             return None
         if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
             return None
@@ -1702,18 +1694,20 @@ class HarnessRuntimeFacade:
     ) -> ActiveWorkContext | None:
         diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
         status = str(getattr(task_run, "status", "") or "")
-        if is_stopped_or_terminal_task_run(task_run):
+        if is_stopped_or_terminal_task_run(task_run, runtime_host=self.single_agent_runtime_host):
             return None
         if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
             return None
-        control = diagnostics.get("runtime_control") if isinstance(diagnostics.get("runtime_control"), dict) else {}
-        view = task_run_state_view(task_run)
-        control_state = str(view.get("control_state") or dict(control or {}).get("state") or "")
-        recovery_state = recovery_state_for_task_run(task_run)
+        view = task_run_state_view(task_run, runtime_host=self.single_agent_runtime_host)
+        control_state = str(view.get("control_state") or "")
+        recovery_state = recovery_state_for_task_run(task_run, runtime_host=self.single_agent_runtime_host)
         same_run_allowed = bool(view.get("can_resume") or recovery_state.same_run_resumable)
-        running = bool(view.get("running_claimed") or view.get("task_work_state") == "active")
+        running = bool(view.get("running_claimed"))
         work_state = str(view.get("task_work_state") or "")
-        if control_state == "paused" or work_state == "paused":
+        paused = control_state == "paused" or work_state == "paused"
+        if not (running or same_run_allowed or paused):
+            return None
+        if paused:
             continuation_kind = "paused"
         elif running:
             continuation_kind = "active"
@@ -1745,7 +1739,7 @@ class HarnessRuntimeFacade:
             latest_step_name=str(diagnostics.get("latest_step") or ""),
             resumable=bool(view.get("can_resume") or same_run_allowed),
             running=running,
-            paused=control_state == "paused" or work_state == "paused",
+            paused=paused,
             queued_user_instruction_count=int(diagnostics.get("pending_user_steer_count") or 0),
             execution_runtime_kind=str(getattr(task_run, "execution_runtime_kind", "") or ""),
             continuation_kind=continuation_kind,
@@ -1762,14 +1756,8 @@ class HarnessRuntimeFacade:
             task_status = str(getattr(task_run, "status", "") or "").strip()
             if task_run is not None and task_status not in {
                 "completed",
-                "success",
                 "failed",
                 "aborted",
-                "cancelled",
-                "canceled",
-                "error",
-                "stopped",
-                "user_aborted",
             }:
                 return
         try:
@@ -2335,6 +2323,7 @@ class HarnessRuntimeFacade:
                 payload,
             ),
             execute_task_run_callback=self.execute_task_run,
+            schedule_task_run_executor_callback=self.schedule_task_run_executor,
             memory_context_provider=lambda payload: self._runtime_memory_context_for_task_execution(dict(payload or {})),
         )
 
@@ -3355,15 +3344,9 @@ def _recent_work_outcome_status(*, status: str, terminal_reason: str) -> bool:
     normalized_reason = str(terminal_reason or "").strip()
     if normalized_status in {
         "completed",
-        "success",
         "failed",
-        "error",
         "aborted",
-        "cancelled",
-        "canceled",
         "blocked",
-        "stopped",
-        "user_aborted",
     }:
         return True
     return normalized_reason in {
@@ -3374,7 +3357,7 @@ def _recent_work_outcome_status(*, status: str, terminal_reason: str) -> bool:
         "task_execution_step_budget_exceeded",
         "task_executor_schedule_failed",
         "executor_failed",
-        "background_executor_missing_after_restart",
+        "runtime_cell_missing_after_restart",
     }
 
 

@@ -2,9 +2,6 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-import shutil
-import subprocess
-import sys
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -15,7 +12,6 @@ from api.session_summary import enrich_session_summaries, enrich_session_summary
 from api.sessions import _select_project_directory_with_windows_dialog
 from code_environment.models import CodeEnvironmentWorkspaceTreeResponse
 from code_environment.workspace_tree import build_workspace_tree
-from integrations.vscode_connection import get_vscode_connection_store
 from project_workspaces import ProjectWorkspaceMissing, ProjectWorkspaceService
 
 
@@ -173,51 +169,6 @@ async def project_workspace_tree(
     if not root.is_dir():
         raise HTTPException(status_code=404, detail="project workspace root not found")
     return await asyncio.to_thread(build_workspace_tree, root, max_depth=max_depth, max_entries=max_entries)
-
-
-@router.post("/project-workspaces/{project_key}/open-vscode")
-async def open_project_workspace_in_vscode(project_key: str) -> dict[str, Any]:
-    runtime = require_runtime()
-    try:
-        project = _service(runtime).workspace_for_key(project_key)
-    except ProjectWorkspaceMissing as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    workspace_root = str(project.get("workspace_root") or "").strip()
-    if not Path(workspace_root).expanduser().is_dir():
-        raise HTTPException(status_code=404, detail="project workspace root not found")
-    current_status = get_vscode_connection_store().project_status(workspace_root)
-    if current_status.connected and not current_status.stale:
-        return {
-            "authority": "project_workspaces.open_vscode",
-            "ok": True,
-            "project": project,
-            "command": [],
-            "window_mode": "existing_project_connection",
-            "connection_reused": True,
-            "connection_status": current_status.to_dict(),
-        }
-    executable = shutil.which("code")
-    if not executable:
-        raise HTTPException(status_code=503, detail="VS Code CLI `code` was not found on PATH")
-    command = [executable, "--new-window", workspace_root]
-    try:
-        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform.startswith("win") else 0
-        subprocess.Popen(
-            command,
-            creationflags=creationflags,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"failed to open VS Code: {exc}") from exc
-    return {
-        "authority": "project_workspaces.open_vscode",
-        "ok": True,
-        "project": project,
-        "command": command,
-        "window_mode": "new_window",
-    }
 
 
 def _service(runtime: Any) -> ProjectWorkspaceService:

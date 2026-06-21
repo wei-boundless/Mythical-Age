@@ -77,12 +77,13 @@ def agent_scope_from_task_run(
     run_cell_id: str = "",
     turn_id: str = "",
     parent_agent_run_id: str = "",
+    invocation_kind: AgentInvocationKind = "task_run",
     created_at: float | None = None,
 ) -> AgentRunScope:
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     return build_agent_run_scope(
         session_id=str(getattr(task_run, "session_id", "") or ""),
-        invocation_kind="task_run",
+        invocation_kind=invocation_kind,
         task_run_id=str(getattr(task_run, "task_run_id", "") or ""),
         turn_id=str(turn_id or diagnostics.get("latest_interaction_turn_id") or ""),
         parent_agent_run_id=parent_agent_run_id,

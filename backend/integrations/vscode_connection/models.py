@@ -5,6 +5,36 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class VSCodeConnectionLease:
+    session_id: str
+    workspace_root: str
+    project_key: str
+    connection_id: str
+    acquired_at: float
+    last_heartbeat_at: float
+    expires_at: float
+    source: str = ""
+    client_name: str = ""
+    duplicate_rejected_count: int = 0
+    authority: str = "integrations.vscode_connection.lease"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "session_id": self.session_id,
+            "workspace_root": self.workspace_root,
+            "project_key": self.project_key,
+            "connection_id": self.connection_id,
+            "acquired_at": self.acquired_at,
+            "last_heartbeat_at": self.last_heartbeat_at,
+            "expires_at": self.expires_at,
+            "source": self.source,
+            "client_name": self.client_name,
+            "duplicate_rejected_count": self.duplicate_rejected_count,
+            "authority": self.authority,
+        }
+
+
+@dataclass(frozen=True)
 class VSCodeContextSnapshot:
     session_id: str
     editor_context: dict[str, Any]
@@ -39,9 +69,12 @@ class VSCodeConnectionStatus:
     visible_files: list[dict[str, Any]] = field(default_factory=list)
     open_tabs: list[dict[str, Any]] = field(default_factory=list)
     limits: dict[str, Any] = field(default_factory=dict)
-    connection_session_id: str = ""
     connection_id: str = ""
-    reused_project_connection: bool = False
+    lease_active: bool = False
+    lease_expires_at: float = 0.0
+    lease_last_heartbeat_at: float = 0.0
+    duplicate_rejected_count: int = 0
+    poller_count: int = 0
     authority: str = "integrations.vscode_connection.status"
 
     def to_dict(self) -> dict[str, Any]:
@@ -59,12 +92,41 @@ class VSCodeConnectionStatus:
             "visible_files": [dict(item) for item in self.visible_files],
             "open_tabs": [dict(item) for item in self.open_tabs],
             "limits": dict(self.limits),
-            "connection_session_id": self.connection_session_id,
             "connection_id": self.connection_id,
-            "reused_project_connection": self.reused_project_connection,
+            "lease_active": self.lease_active,
+            "lease_expires_at": self.lease_expires_at,
+            "lease_last_heartbeat_at": self.lease_last_heartbeat_at,
+            "duplicate_rejected_count": self.duplicate_rejected_count,
+            "poller_count": self.poller_count,
             "authority": self.authority,
         }
 
 
 class VSCodeConnectionConflict(ValueError):
     pass
+
+
+class VSCodeConnectionLeaseConflict(ValueError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        retry_after_ms: int = 15_000,
+        status_code: int = 429,
+        owner: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.retry_after_ms = int(retry_after_ms)
+        self.status_code = int(status_code)
+        self.owner = dict(owner or {})
+
+    def to_detail(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "message": str(self),
+            "retry_after_ms": self.retry_after_ms,
+            "owner": dict(self.owner),
+            "authority": "integrations.vscode_connection.lease_conflict",
+        }

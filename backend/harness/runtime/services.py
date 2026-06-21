@@ -144,6 +144,7 @@ class TaskExecutorServices:
     backend_config: dict[str, Any]
     assistant_message_committer: Any | None = None
     execute_task_run_callback: Any | None = None
+    schedule_task_run_executor_callback: Any | None = None
     memory_context_provider: Any | None = None
 
     def all_tool_instances(self) -> list[Any]:

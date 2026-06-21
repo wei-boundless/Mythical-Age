@@ -34,20 +34,25 @@ async def chat_session_live(websocket: WebSocket, session_id: str) -> None:
     host = runtime.harness_runtime.single_agent_runtime_host
     registry = host.run_registry
     replay = host.stream_replay
-    await websocket.send_json(
-        {
-            "type": "hello",
-            "protocol": AGENT_LIVE_PROTOCOL,
-            "session_id": validated_session_id,
-            "server_time": time.time(),
-            "heartbeat_interval_ms": int(_HEARTBEAT_INTERVAL_SECONDS * 1000),
-            "ack_policy": {
-                "required": True,
-                "max_unacked_events": 200,
-                "lag_warning_ms": 3000,
+    try:
+        await _send_json(
+            websocket,
+            {
+                "type": "hello",
+                "protocol": AGENT_LIVE_PROTOCOL,
+                "session_id": validated_session_id,
+                "server_time": time.time(),
+                "heartbeat_interval_ms": int(_HEARTBEAT_INTERVAL_SECONDS * 1000),
+                "ack_policy": {
+                    "required": True,
+                    "max_unacked_events": 200,
+                    "lag_warning_ms": 3000,
+                },
             },
-        }
-    )
+        )
+    except WebSocketDisconnect:
+        logger.debug("Chat live client disconnected before subscribe", extra={"session_id": validated_session_id})
+        return
 
     try:
         subscribe = await asyncio.wait_for(websocket.receive_json(), timeout=_SUBSCRIBE_TIMEOUT_SECONDS)
@@ -82,7 +87,8 @@ async def chat_session_live(websocket: WebSocket, session_id: str) -> None:
                 return_when=asyncio.FIRST_COMPLETED,
             )
             if not done:
-                await websocket.send_json(
+                await _send_json(
+                    websocket,
                     {
                         "type": "heartbeat",
                         "protocol": AGENT_LIVE_PROTOCOL,
@@ -91,7 +97,7 @@ async def chat_session_live(websocket: WebSocket, session_id: str) -> None:
                         "event_offset": latest_offset,
                         "last_ack_offset": last_ack_offset,
                         "server_time": time.time(),
-                    }
+                    },
                 )
                 continue
             if receive_task in done:
@@ -112,12 +118,13 @@ async def chat_session_live(websocket: WebSocket, session_id: str) -> None:
                     await websocket.close(code=1000)
                     return
                 queue_task = asyncio.create_task(subscription.queue.get())
+    except WebSocketDisconnect:
+        logger.debug("Chat live client disconnected", extra={"session_id": validated_session_id, "stream_run_id": run.stream_run_id})
+        return
     finally:
         host.event_log.unsubscribe(subscription)
         for task in (queue_task, receive_task):
-            if task is not None and not task.done():
-                task.cancel()
-                task.add_done_callback(_discard_task_exception)
+            await _cancel_and_drain_task(task)
 
 
 def _resolve_subscription(registry: Any, session_id: str, message: Any) -> tuple[RuntimeRun, int, str]:
@@ -161,7 +168,7 @@ async def _send_catchup(websocket: WebSocket, replay: Any, registry: Any, run: R
             continue
         latest_offset = int(event.offset)
         envelope = replay.to_public_envelope(current, event, sent_at_key="server_ws_sent_at")
-        await websocket.send_json(envelope)
+        await _send_json(websocket, envelope)
         terminal = terminal or bool(envelope.get("terminal") is True)
         if terminal:
             break
@@ -169,7 +176,8 @@ async def _send_catchup(websocket: WebSocket, replay: Any, registry: Any, run: R
 
 
 async def _send_terminal(websocket: WebSocket, run: RuntimeRun, latest_offset: int) -> None:
-    await websocket.send_json(
+    await _send_json(
+        websocket,
         {
             "type": "terminal",
             "protocol": AGENT_LIVE_PROTOCOL,
@@ -177,21 +185,40 @@ async def _send_terminal(websocket: WebSocket, run: RuntimeRun, latest_offset: i
             "event_log_id": run.event_log_id,
             "event_offset": int(latest_offset),
             "status": str(run.status or "completed"),
-        }
+        },
     )
 
 
 async def _send_error_and_close(websocket: WebSocket, *, code: str, status_code: int) -> None:
     with contextlib.suppress(Exception):
-        await websocket.send_json(
+        await _send_json(
+            websocket,
             {
                 "type": "error",
                 "protocol": AGENT_LIVE_PROTOCOL,
                 "code": code,
                 "server_time": time.time(),
-            }
+            },
         )
-    await websocket.close(code=status_code)
+    with contextlib.suppress(Exception):
+        await websocket.close(code=status_code)
+
+
+async def _send_json(websocket: WebSocket, payload: dict[str, Any]) -> None:
+    try:
+        await websocket.send_json(payload)
+    except WebSocketDisconnect:
+        raise
+    except Exception as exc:
+        if _is_client_disconnected_error(exc):
+            raise WebSocketDisconnect(code=1006) from exc
+        raise
+
+
+def _is_client_disconnected_error(exc: Exception) -> bool:
+    name = exc.__class__.__name__
+    message = str(exc).lower()
+    return name == "ClientDisconnected" or "disconnect" in message or "websocket is not connected" in message
 
 
 def _safe_int(value: Any, default: int) -> int:
@@ -201,6 +228,10 @@ def _safe_int(value: Any, default: int) -> int:
         return int(default)
 
 
-def _discard_task_exception(task: asyncio.Task[Any]) -> None:
+async def _cancel_and_drain_task(task: asyncio.Task[Any] | None) -> None:
+    if task is None:
+        return
+    if not task.done():
+        task.cancel()
     with contextlib.suppress(BaseException):
-        task.exception()
+        await task

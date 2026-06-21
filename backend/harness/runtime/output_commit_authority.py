@@ -14,6 +14,7 @@ class OutputCommitRequest:
     run_id: str
     session_id: str
     content: str
+    stream_run_id: str = ""
     turn_id: str = ""
     turn_run_id: str = ""
     task_run_id: str = ""
@@ -148,7 +149,6 @@ class OutputCommitAuthority:
         request: OutputCommitRequest,
         *,
         committer: Callable[[dict[str, Any]], Any] | None,
-        before_checked: Callable[[PreparedOutputCommit], Any] | None = None,
     ) -> OutputCommitResult:
         stale_result = self._stale_scope_result(request, event_kind="output_commit")
         if stale_result is not None:
@@ -161,8 +161,6 @@ class OutputCommitAuthority:
                 commit_gate={},
             )
         prepared = self.prepare(request)
-        if callable(before_checked):
-            before_checked(prepared)
         checked_event = self._record_checked(prepared)
         checked_offset = _event_offset(checked_event)
         checked_stream_event = _stream_event_from_runtime_event("session_output_commit_checked", checked_event)
@@ -218,7 +216,6 @@ class OutputCommitAuthority:
         request: OutputCommitRequest,
         *,
         committer: Callable[[str, dict[str, Any]], Any] | None,
-        before_checked: Callable[[PreparedOutputCommit], Any] | None = None,
     ) -> OutputCommitResult:
         stale_result = self._stale_scope_result(request, event_kind="output_commit")
         if stale_result is not None:
@@ -231,8 +228,6 @@ class OutputCommitAuthority:
                 commit_gate={},
             )
         prepared = self.prepare(request)
-        if callable(before_checked):
-            before_checked(prepared)
         checked_event = self._record_checked(prepared)
         checked_offset = _event_offset(checked_event)
         checked_stream_event = _stream_event_from_runtime_event("session_output_commit_checked", checked_event)
@@ -274,6 +269,8 @@ class OutputCommitAuthority:
     def _commit_payload(self, prepared: PreparedOutputCommit) -> dict[str, Any]:
         payload = dict(prepared.commit_gate.commit_candidate.payload)
         payload.update(dict(prepared.request.commit_payload_overrides or {}))
+        if prepared.request.stream_run_id:
+            payload["stream_run_id"] = prepared.request.stream_run_id
         if prepared.request.agent_run_id:
             payload["agent_run_id"] = prepared.request.agent_run_id
         if prepared.request.run_cell_id:
@@ -283,13 +280,32 @@ class OutputCommitAuthority:
     def _stale_scope_result(self, request: OutputCommitRequest, *, event_kind: str) -> OutputCommitResult | None:
         runtime_host = self.runtime_host
         supervisor = getattr(runtime_host, "agent_run_supervisor", None) if runtime_host is not None else None
-        checker = getattr(supervisor, "current_scope_status_for_task_run", None)
         task_run_id = str(request.task_run_id or "").strip()
+        stream_run_id = _stream_run_id_from_commit_request(request)
         agent_run_id = str(request.agent_run_id or "").strip()
         run_cell_id = str(request.run_cell_id or "").strip()
-        if not task_run_id or not run_cell_id or not callable(checker):
+        if not run_cell_id or supervisor is None:
             return None
-        scope_status = dict(checker(task_run_id, agent_run_id=agent_run_id, run_cell_id=run_cell_id) or {})
+        if task_run_id:
+            checker = getattr(supervisor, "current_scope_status_for_task_run", None)
+            if not callable(checker):
+                return None
+            scope_status = dict(checker(task_run_id, agent_run_id=agent_run_id, run_cell_id=run_cell_id) or {})
+        elif stream_run_id:
+            checker = getattr(supervisor, "current_scope_status_for_stream_run", None)
+            if not callable(checker):
+                return None
+            scope_status = dict(
+                checker(
+                    stream_run_id,
+                    session_id=str(request.session_id or ""),
+                    agent_run_id=agent_run_id,
+                    run_cell_id=run_cell_id,
+                )
+                or {}
+            )
+        else:
+            return None
         if scope_status.get("accepted") is True:
             return None
         recorder = getattr(supervisor, "record_late_event_rejected", None)
@@ -297,11 +313,15 @@ class OutputCommitAuthority:
         if callable(recorder):
             recorder(
                 task_run_id=task_run_id,
+                stream_run_id=stream_run_id,
+                session_id=str(request.session_id or ""),
+                event_log_run_id=str(request.run_id or ""),
                 agent_run_id=agent_run_id,
                 run_cell_id=run_cell_id,
                 event_kind=event_kind,
                 reason=reason,
                 payload={
+                    "stream_run_id": stream_run_id,
                     "turn_id": request.turn_id,
                     "turn_run_id": request.turn_run_id,
                     "task_id": request.task_id,
@@ -331,6 +351,7 @@ class OutputCommitAuthority:
             "session_output_commit_checked",
             payload={
                 "session_id": request.session_id,
+                "stream_run_id": request.stream_run_id,
                 "turn_id": request.turn_id,
                 "turn_run_id": request.turn_run_id,
                 "task_run_id": request.task_run_id,
@@ -400,6 +421,7 @@ class OutputCommitAuthority:
         normalized_reason = str(reason or normalized_status).strip()
         payload = {
             "session_id": str(request.session_id or ""),
+            "stream_run_id": str(request.stream_run_id or ""),
             "turn_id": str(request.turn_id or ""),
             "turn_run_id": str(request.turn_run_id or ""),
             "task_run_id": str(request.task_run_id or ""),
@@ -491,6 +513,19 @@ def _public_committer_result(committer_result: Any) -> dict[str, Any]:
 
 def _text_sha256(value: str) -> str:
     return "sha256:" + hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
+
+
+def _stream_run_id_from_commit_request(request: OutputCommitRequest) -> str:
+    explicit = str(request.stream_run_id or "").strip()
+    if explicit:
+        return explicit
+    for value in (request.turn_run_id, request.run_id):
+        candidate = str(value or "").strip()
+        if candidate.startswith("turnrun:"):
+            candidate = candidate[len("turnrun:"):]
+        if candidate.startswith("strun:"):
+            return candidate
+    return ""
 
 
 def _event_offset(event: Any) -> int:

@@ -5,6 +5,5 @@ export * from "./memory";
 export * from "./orchestration";
 export * from "./graph";
 export * from "./capability";
-export * from "./codeEnvironment";
 export * from "./taskSystem";
 export * from "./health";

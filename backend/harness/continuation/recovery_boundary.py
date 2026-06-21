@@ -4,6 +4,9 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+from harness.current_work_receipt import current_work_boundary_receipt_allows_active_work_control
+from harness.recovery_receipt import RECOVERY_BOUNDARY_RECEIPT_AUTHORITY
+
 from .record import ContinuationRecord, continuation_record_from_payload
 
 
@@ -72,7 +75,7 @@ class RecoveryBoundaryReceipt:
     public_projection_policy: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     enforced: bool = False
-    authority: str = "harness.continuation.recovery_boundary_receipt"
+    authority: str = RECOVERY_BOUNDARY_RECEIPT_AUTHORITY
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -103,8 +106,7 @@ def decide_recovery_boundary(boundary_input: RecoveryBoundaryInput) -> RecoveryB
     record = continuation_record_from_payload(boundary_input.continuation_record)
     policy = str(boundary_input.recovery_input_policy or "auto").strip().lower() or "auto"
     current_receipt = dict(boundary_input.current_work_boundary_receipt or {})
-    current_ops = dict(current_receipt.get("operation_availability") or {})
-    if current_ops.get("active_work_control") is True:
+    if current_work_boundary_receipt_allows_active_work_control(current_receipt):
         return _decision(boundary_input, "no_recoverable_work", reason="live_active_work_has_priority")
     if record is None:
         return _decision(boundary_input, "no_recoverable_work", reason="continuation_record_missing")

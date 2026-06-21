@@ -22,7 +22,7 @@ def test_formal_run_models_reject_noncanonical_statuses() -> None:
         )
 
 
-def test_state_index_normalizes_legacy_run_statuses_on_read(tmp_path) -> None:
+def test_state_index_rejects_noncanonical_run_statuses_on_read(tmp_path) -> None:
     state_index = RuntimeStateIndex(tmp_path)
     state_index._write_record(
         "task_runs",
@@ -47,8 +47,11 @@ def test_state_index_normalizes_legacy_run_statuses_on_read(tmp_path) -> None:
     )
     state_index._append_index_id("task_agent_runs", "taskrun:legacy", "agrun:legacy")
 
-    assert state_index.get_task_run("taskrun:legacy").status == "aborted"
-    assert state_index.list_task_agent_runs("taskrun:legacy")[0].status == "pending"
+    with pytest.raises(ValueError, match="TaskRun status is not canonical"):
+        state_index.get_task_run("taskrun:legacy")
+
+    with pytest.raises(ValueError, match="AgentRun status is not canonical"):
+        state_index.list_task_agent_runs("taskrun:legacy")
 
 
 def test_state_index_compacts_task_run_heavy_diagnostics(tmp_path) -> None:
@@ -340,5 +343,4 @@ def test_state_index_record_read_returns_default_when_file_is_temporarily_locked
     monkeypatch.setattr(type(record_path), "read_text", locked_read_text)
 
     assert state_index.get_task_run("taskrun:locked") is None
-
 

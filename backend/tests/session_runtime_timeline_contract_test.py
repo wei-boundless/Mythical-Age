@@ -4,7 +4,11 @@ from types import SimpleNamespace
 
 from harness.loop.agent_correction_lifecycle import agent_correction_lifecycle_payload
 from harness.runtime.projection.projector import project_public_projection_event
-from harness.runtime.session_timeline import build_session_runtime_projection, build_session_runtime_timeline
+from harness.runtime.session_timeline import (
+    _task_closeout_summary,
+    build_session_runtime_projection,
+    build_session_runtime_timeline,
+)
 from runtime.output_stream.public_contract import (
     ASSISTANT_PUBLIC_FEEDBACK_EVENT,
     ASSISTANT_TEXT_FINAL_EVENT,
@@ -173,6 +177,31 @@ def _public_ledger_record(
         "data": {**data, "public_projection_frame": frame},
         "public_projection_frame": frame,
     }
+
+
+def test_task_closeout_summary_ignores_diagnostics_final_answer_shadow_text() -> None:
+    task_run = SimpleNamespace(
+        diagnostics={
+            "final_answer": "diagnostics shadow final answer",
+            "latest_public_status": "diagnostics shadow status",
+        }
+    )
+
+    summary = _task_closeout_summary(
+        task_run,
+        session_output_commit={"state": "committed", "reason": "committed"},
+        projection_frames=[
+            {"slot": "body", "text": "committed body frame"},
+        ],
+    )
+    fallback = _task_closeout_summary(
+        task_run,
+        session_output_commit={"state": "committed", "reason": "committed"},
+        projection_frames=[],
+    )
+
+    assert summary == "committed body frame"
+    assert fallback == "任务已完成。"
 
 
 def test_session_runtime_timeline_closed_task_uses_public_ledger_closeout_surface() -> None:

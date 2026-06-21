@@ -40,6 +40,7 @@ type RunMonitorHost = {
   refreshSessionDetails: (sessionId: string) => Promise<void>;
   hydrateLatestOrchestrationSnapshot: (sessionId: string) => Promise<boolean>;
   syncWorkspaceViewUrl: (view: StoreState["activeWorkspaceView"]) => void;
+  onStreamPayload: (payload: RunMonitorEventPayload | null) => void;
 };
 
 export class RunMonitorController {
@@ -361,6 +362,7 @@ export class RunMonitorController {
       this.scheduleReconnect();
     };
     source.addEventListener("runtime_monitor_snapshot", (event) => this.handleStreamMessage(event));
+    source.addEventListener("runtime_monitor_file_change", (event) => this.handleStreamMessage(event));
     source.addEventListener("runtime_monitor_heartbeat", () => {
       this.store.setState((prev) => ({ ...prev, runMonitorStreamStatus: "connected" }));
     });
@@ -368,7 +370,9 @@ export class RunMonitorController {
 
   private handleStreamMessage(event: MessageEvent) {
     try {
-      this.applyStreamPayload(JSON.parse(String(event.data || "{}")) as RunMonitorEventPayload);
+      const payload = JSON.parse(String(event.data || "{}")) as RunMonitorEventPayload;
+      this.applyStreamPayload(payload);
+      this.host.onStreamPayload(payload);
     } catch (error) {
       this.store.setState((prev) => ({
         ...prev,

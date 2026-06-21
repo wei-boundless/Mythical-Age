@@ -49,8 +49,15 @@ function requestTimeoutMs(path: string) {
   if (isSessionTokensPath(path)) {
     return 8000;
   }
-  if (path.includes("/project-binding/select-directory") || path.includes("/project-workspaces/select-directory")) {
+  if (
+    path.includes("/project-binding/select-directory")
+    || path.includes("/project-workspaces/select-directory")
+    || path.includes("/file-management/files/select-open")
+  ) {
     return 90000;
+  }
+  if (/^\/sessions\/[^/]+\/chat-model-selection(?:\?|$)/.test(path)) {
+    return 30000;
   }
   if (
     path === "/tasks/overview"

@@ -128,6 +128,18 @@ def test_active_turn_bound_current_work_reports_control_operation_available_with
     assert current_work_boundary_receipt_allows_active_work_control(receipt) is True
 
 
+def test_active_work_control_receipt_requires_current_work_boundary_authority() -> None:
+    receipt = {
+        "receipt_id": "cwreceipt:shadow",
+        "decision_id": "cwbd:shadow",
+        "boundary_decision": "current_work_control_required",
+        "active_work_ref": {"task_run_id": "taskrun:active", "actual_active_turn_id": "turn:active"},
+        "operation_availability": {"active_work_control": True},
+    }
+
+    assert current_work_boundary_receipt_allows_active_work_control(receipt) is False
+
+
 def test_running_active_work_requires_steer_policy_for_control() -> None:
     boundary_input = build_current_work_boundary_input(
         turn_input_facts=_facts(policy="auto", expected_turn_id="turn:active"),
@@ -246,10 +258,12 @@ def test_compiler_does_not_project_active_work_controls_when_receipt_unavailable
 def test_compiler_uses_current_work_boundary_receipt_as_state_observation() -> None:
     receipt = {
         "receipt_id": "cwreceipt:active",
+        "decision_id": "cwbd:active",
         "boundary_decision": "current_work_control_required",
         "observation_state": "controllable_current_work",
         "active_work_ref": {"task_run_id": "taskrun:active", "actual_active_turn_id": "turn:active"},
         "operation_availability": {"active_work_control": True},
+        "authority": "harness.entrypoint.current_work_boundary_receipt",
         "diagnostics": {"decision": {"reason": "active_work_boundary_ready", "relation_to_current_work": "active_turn_bound_current_work"}},
     }
     result = RuntimeCompiler().compile_single_agent_turn_packet(
@@ -274,6 +288,44 @@ def test_compiler_uses_current_work_boundary_receipt_as_state_observation() -> N
     projected_active_work = dict(dynamic_payload["active_work_context"])
     assert "continue_active_work" in projected_active_work["available_controls"]
     assert projected_active_work["read_only_context"] is False
+
+
+def test_compiler_treats_shadow_current_work_receipt_true_as_read_only_state() -> None:
+    receipt = {
+        "receipt_id": "cwreceipt:shadow",
+        "decision_id": "cwbd:shadow",
+        "boundary_decision": "current_work_control_required",
+        "observation_state": "controllable_current_work",
+        "active_work_ref": {"task_run_id": "taskrun:active", "actual_active_turn_id": "turn:active"},
+        "operation_availability": {"active_work_control": True},
+    }
+
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:compiler-boundary",
+        turn_id="turn:compiler-boundary-shadow",
+        agent_invocation_id="aginvoke:compiler-boundary-shadow",
+        user_message="继续当前任务。",
+        history=[],
+        active_work_context=_active_work(),
+        current_work_boundary_receipt=receipt,
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "control_capabilities": {"may_request_task_run": True, "may_control_active_work": True},
+        },
+    )
+
+    packet_context = dict(result.packet.diagnostics["runtime_packet_context"])
+    dynamic_payload = _message_payload_with_title(result.packet, "Single agent turn dynamic runtime")
+    projected_active_work = dict(dynamic_payload["active_work_context"])
+    projected_receipt = dict(dynamic_payload["current_work_boundary_receipt"])
+
+    assert "active_work_control" in result.packet.allowed_action_types
+    assert packet_context["operation_availability"]["active_work_control"] is False
+    assert packet_context["operation_availability"]["active_work_control_reason"] == "current_work_receipt_authority_invalid"
+    assert projected_receipt["operation_availability"]["active_work_control"] is False
+    assert projected_active_work["available_controls"] == []
+    assert projected_active_work["read_only_context"] is True
 
 
 def test_compiler_exposes_recoverable_work_as_model_decision_context_not_active_control() -> None:

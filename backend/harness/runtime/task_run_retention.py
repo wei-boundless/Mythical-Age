@@ -8,6 +8,7 @@ from typing import Any
 
 from harness.loop.task_run_execution_control import ExecutorControlSignal, request_executor_control_signal
 from harness.loop.work_rollout import append_work_rollout_item
+from harness.task_run_status import runtime_control_state_from_task_run
 from harness.runtime.dynamic_context.manager import dynamic_context_storage_root
 from harness.runtime.dynamic_context.replacement_store import ReplacementStore
 from runtime.cache_manager import SANDBOX_CACHE_NAMESPACE, runtime_cache_manager_for_host
@@ -112,7 +113,11 @@ class TaskRunLifecycleRetention:
         if _graph_controlled(diagnostics):
             return {"expired": False, "reason": "graph_controlled"}
         control = _runtime_control(diagnostics)
-        control_state = str(control.get("state") or "").strip()
+        control_state = runtime_control_state_from_task_run(
+            task_run,
+            runtime_host=self.runtime_host,
+            runtime_control=control,
+        )
         if control_state in PAUSED_CONTROL_STATES:
             return {"expired": False, "reason": "paused_control_state"}
         timestamp = _last_activity_time(task_run)
@@ -125,7 +130,11 @@ class TaskRunLifecycleRetention:
         active_claim = self._has_active_executor_claim(task_run)
         if active_claim:
             requested_at = float(control.get("requested_at") or 0.0)
-            if control_state in STOP_CONTROL_STATES and requested_at and now - requested_at >= self.policy.stop_grace_seconds:
+            if (
+                control_state in STOP_CONTROL_STATES
+                and requested_at
+                and now - requested_at >= self.policy.stop_grace_seconds
+            ):
                 active_claim = False
             else:
                 return {
@@ -159,9 +168,9 @@ class TaskRunLifecycleRetention:
 
     def _has_active_executor_claim(self, task_run: Any) -> bool:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
-        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-        executor_status = str(diagnostics.get("executor_status") or "").strip()
-        if executor_status in {"scheduled", "running", "retrying", "recovering"}:
+        session_id = str(getattr(task_run, "session_id", "") or "").strip()
+        active_cell = _active_agent_cell(self.runtime_host, task_run_id, session_id=session_id)
+        if active_cell is not None:
             return True
         registry = getattr(self.runtime_host, "_task_run_execution_control", None)
         record = dict(registry or {}).get(task_run_id) if isinstance(registry, dict) else None
@@ -171,10 +180,6 @@ class TaskRunLifecycleRetention:
                 return True
             done = getattr(model_task, "done", None)
             return not callable(done) or not bool(done())
-        for task in _background_executor_tasks(self.runtime_host, task_run_id):
-            done = getattr(task, "done", None)
-            if not callable(done) or not bool(done()):
-                return True
         return False
 
     def _request_retention_stop(self, task_run: Any, *, now: float, decision: dict[str, Any]) -> dict[str, Any]:
@@ -232,11 +237,11 @@ class TaskRunLifecycleRetention:
         lifecycle_ref = self._sync_lifecycle_object(updated, terminal_reason=terminal_reason, now=now)
         rollout = self._append_rollout(updated, terminal_reason=terminal_reason, event_offset=event_offset)
         active_turn = self._complete_active_turn(updated, terminal_reason=terminal_reason)
+        cell_cancel = self._cancel_active_cell(task_run=updated, reason=terminal_reason)
         release = EphemeralRuntimeCacheReleaser(runtime_host=self.runtime_host).release_task_run(
             task_run_id=task_run_id,
             reason=terminal_reason,
         )
-        self._cancel_executor_tasks(task_run_id=task_run_id, reason=terminal_reason)
         return {
             "authority": f"{self.authority}.terminal_update",
             "task_run_id": task_run_id,
@@ -247,6 +252,7 @@ class TaskRunLifecycleRetention:
             "lifecycle_ref": lifecycle_ref,
             "work_rollout": _to_dict(rollout),
             "active_turn": _to_dict(active_turn),
+            "cell_cancel": cell_cancel,
             "released_cache_effects": release,
         }
 
@@ -357,14 +363,25 @@ class TaskRunLifecycleRetention:
         except Exception:
             return {}
 
-    def _cancel_executor_tasks(self, *, task_run_id: str, reason: str) -> None:
-        for task in _background_executor_tasks(self.runtime_host, task_run_id):
-            cancel = getattr(task, "cancel", None)
-            if callable(cancel):
-                try:
-                    cancel(msg=reason)
-                except TypeError:
-                    cancel()
+    def _cancel_active_cell(self, *, task_run: Any, reason: str) -> dict[str, Any]:
+        task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
+        session_id = str(getattr(task_run, "session_id", "") or "").strip()
+        supervisor = getattr(self.runtime_host, "agent_run_supervisor", None)
+        if supervisor is None or not task_run_id or not session_id:
+            return {
+                "authority": f"{self.authority}.cell_cancel",
+                "cancelled": False,
+                "reason": "cell_cancel_scope_unavailable",
+                "task_run_id": task_run_id,
+                "session_id": session_id,
+            }
+        cancelled = bool(supervisor.cancel_task_run(task_run_id, session_id=session_id, reason=reason))
+        return {
+            "authority": f"{self.authority}.cell_cancel",
+            "cancelled": cancelled,
+            "task_run_id": task_run_id,
+            "session_id": session_id,
+        }
 
     def _empty_result(self, *, reason: str) -> dict[str, Any]:
         return {
@@ -613,14 +630,14 @@ def _graph_controlled(diagnostics: dict[str, Any]) -> bool:
     )
 
 
-def _background_executor_tasks(runtime_host: Any, task_run_id: str) -> list[Any]:
-    tasks_by_name = getattr(runtime_host, "_background_tasks_by_name", None)
-    if not isinstance(tasks_by_name, dict):
-        return []
-    result: list[Any] = []
-    for name in (f"task-run-executor:{task_run_id}", f"task-run-executor-recover:{task_run_id}"):
-        result.extend(list(tasks_by_name.get(name, set()) or []))
-    return result
+def _active_agent_cell(runtime_host: Any, task_run_id: str, *, session_id: str = "") -> Any | None:
+    supervisor = getattr(runtime_host, "agent_run_supervisor", None)
+    if supervisor is None:
+        return None
+    active_cell = getattr(supervisor, "active_cell_for_task_run", None)
+    if not callable(active_cell):
+        return None
+    return active_cell(str(task_run_id or "").strip(), session_id=str(session_id or "").strip())
 
 
 def _task_run_agent_scope(runtime_host: Any, task_run_id: str) -> dict[str, str]:

@@ -153,23 +153,33 @@ def model_action_request_from_payload(
     blocking_reason = str(raw.get("blocking_reason") or "").strip()
     public_progress_note = _public_progress_note(raw.get("public_progress_note"))
     public_action_state = _public_action_state(raw.get("public_action_state"))
-    if public_response_required and not _has_model_public_response(
+    has_model_public_response = _has_model_public_response(
         action_type=action_type,
         public_progress_note=public_progress_note,
         public_action_state=public_action_state,
         final_answer=final_answer,
         user_question=user_question,
         blocking_reason=blocking_reason,
-    ):
+    )
+    if public_response_required and not has_model_public_response:
         errors.append("public_response_required")
     if require_public_progress_note and not public_progress_note:
-        if action_type == "tool_call" and not public_response_required:
-            contract_gaps.append("public_progress_note_missing_for_tool_call")
+        if not public_response_required:
+            if action_type == "tool_call" or not has_model_public_response:
+                contract_gaps.append(
+                    "public_progress_note_missing_for_tool_call"
+                    if action_type == "tool_call"
+                    else "public_progress_note_missing"
+                )
         else:
             errors.append("public_progress_note_required")
     if require_public_action_state and not _has_public_action_state(public_action_state):
-        if action_type == "tool_call" and not public_response_required:
-            contract_gaps.append("public_action_state_missing_for_tool_call")
+        if not public_response_required:
+            contract_gaps.append(
+                "public_action_state_missing_for_tool_call"
+                if action_type == "tool_call"
+                else "public_action_state_missing"
+            )
         else:
             errors.append("public_action_state_required")
     if action_type == "respond" and not final_answer:
@@ -258,7 +268,7 @@ def task_execution_action_request_from_payload(
     turn_id: str,
     require_public_progress_note: bool = True,
     require_public_action_state: bool = True,
-    public_response_required: bool = True,
+    public_response_required: bool = False,
     allowed_action_types: tuple[str, ...] | set[str] | None = None,
 ) -> tuple[TaskExecutionModelActionRequest | None, dict[str, Any]]:
     raw = dict(payload or {})
@@ -330,6 +340,7 @@ def task_execution_action_request_from_payload(
     ), {
         "status": "accepted",
         "validation_errors": [],
+        "contract_gaps": list(dict(action_request.diagnostics or {}).get("contract_gaps") or []),
         "authority": "harness.loop.model_action_protocol",
     }
 
@@ -555,6 +566,11 @@ def _task_execution_tool_calls(raw: dict[str, Any]) -> tuple[tuple[dict[str, Any
         calls = list(raw_tool_calls)
     elif _has_non_empty_value(raw_tool_calls):
         errors.append("tool_calls_must_be_array")
+        calls = []
+    elif isinstance(raw_tool_call, dict):
+        calls = [dict(raw_tool_call)]
+    elif _has_non_empty_value(raw_tool_call):
+        errors.append("tool_call_must_be_object")
         calls = []
     else:
         calls = []

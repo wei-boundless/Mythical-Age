@@ -8,6 +8,8 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +30,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SESSION_TITLE = "New Session"
 SESSION_TITLE_MAX_CHARS = 32
+
+_SESSION_HISTORY_INFLIGHT_LOCK = threading.RLock()
+_SESSION_HISTORY_INFLIGHT: dict[tuple[str, tuple[int, int]], asyncio.Task[dict[str, Any]]] = {}
 
 
 class CreateSessionRequest(BaseModel):
@@ -56,6 +61,13 @@ class ActiveTaskEnvironmentRequest(BaseModel):
 
 class SessionPermissionModeRequest(BaseModel):
     mode: str = Field(..., min_length=1, max_length=80)
+
+
+class SessionChatModelSelectionRequest(BaseModel):
+    selection_id: str = Field(..., min_length=1, max_length=240)
+    provider: str = Field(default="", max_length=120)
+    model: str = Field(default="", max_length=240)
+    source: str = Field(default="user", max_length=80)
 
 
 class ProjectBindingRequest(BaseModel):
@@ -237,13 +249,36 @@ async def get_session_history(
     project_id: str | None = Query(default=None, max_length=240),
 ) -> dict[str, Any]:
     runtime = require_runtime()
+    requested_scope = request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id)
     await asyncio.to_thread(
         assert_optional_session_scope,
         runtime.session_manager,
         session_id,
-        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+        requested_scope,
     )
-    return await asyncio.to_thread(runtime.session_manager.get_history, session_id)
+    return await _get_session_history_coalesced(runtime.session_manager, session_id)
+
+
+async def _get_session_history_coalesced(session_manager: Any, session_id: str) -> dict[str, Any]:
+    signature = await asyncio.to_thread(session_manager.session_storage_signature, session_id)
+    key = (str(session_id or "").strip(), signature)
+    with _SESSION_HISTORY_INFLIGHT_LOCK:
+        request = _SESSION_HISTORY_INFLIGHT.get(key)
+        if request is None:
+            request = asyncio.create_task(asyncio.to_thread(session_manager.get_history, session_id))
+            _SESSION_HISTORY_INFLIGHT[key] = request
+            request.add_done_callback(lambda completed, cache_key=key: _release_session_history_request(cache_key, completed))
+    history = await asyncio.shield(request)
+    return dict(history or {})
+
+
+def _release_session_history_request(
+    key: tuple[str, tuple[int, int]],
+    request: asyncio.Task[dict[str, Any]],
+) -> None:
+    with _SESSION_HISTORY_INFLIGHT_LOCK:
+        if _SESSION_HISTORY_INFLIGHT.get(key) is request:
+            _SESSION_HISTORY_INFLIGHT.pop(key, None)
 
 
 @router.get("/sessions/{session_id}/conversation-state")
@@ -306,6 +341,31 @@ async def set_session_permission_mode(
         request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
     )
     return runtime.session_manager.set_permission_mode(session_id, payload.mode)
+
+
+@router.put("/sessions/{session_id}/chat-model-selection")
+async def set_session_chat_model_selection(
+    session_id: str,
+    payload: SessionChatModelSelectionRequest,
+    workspace_view: str | None = Query(default=None, max_length=80),
+    task_environment_id: str | None = Query(default=None, max_length=200),
+    project_id: str | None = Query(default=None, max_length=240),
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    assert_optional_session_scope(
+        runtime.session_manager,
+        session_id,
+        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+    )
+    return runtime.session_manager.set_chat_model_selection(
+        session_id,
+        {
+            "selection_id": payload.selection_id,
+            "provider": payload.provider,
+            "model": payload.model,
+            "source": payload.source or "user",
+        },
+    )
 
 
 @router.get("/sessions/{session_id}/project-binding")

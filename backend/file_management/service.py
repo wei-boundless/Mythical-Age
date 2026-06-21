@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from code_environment.workspace_tree import _is_excluded_relative_path
 from project_layout import ProjectLayout
 from runtime.file_changes import FileChangeTracker
+from runtime.file_change_signals import publish_file_change_record
 
 from .access_table import build_file_access_table
 from .api_models import ManagedFileTarget
@@ -363,7 +364,7 @@ class ManagedFileService:
     def _record_change(self, *, resolved: "_ResolvedManagedFile", result: Any, receipt: dict[str, Any], source: str, reason: str, action: str) -> dict[str, Any]:
         root = _root_from_result(result) or resolved.project_root
         try:
-            return FileChangeTracker(self.runtime.base_dir).record_text_change(
+            record = FileChangeTracker(self.runtime.base_dir).record_text_change(
                 session_id=resolved.context.session_id,
                 task_run_id=resolved.context.task_run_id,
                 agent_run_id=resolved.context.agent_run_id or resolved.context.actor_id,
@@ -388,6 +389,13 @@ class ManagedFileService:
                     "authority": "file_management.service.change_metadata",
                 },
             )
+            publish_file_change_record(
+                self.runtime,
+                record,
+                action=action,
+                source="file_management.service",
+            )
+            return record
         except Exception as exc:
             return {"status": "error", "error": str(exc), "authority": "file_management.service.change_record_error"}
 
@@ -499,4 +507,3 @@ def _normalize_sha256(value: str) -> str:
 
 def _sha256_text(value: str) -> str:
     return stable_content_hash(str(value or ""))
-

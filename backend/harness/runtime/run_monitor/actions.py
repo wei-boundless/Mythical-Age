@@ -147,7 +147,7 @@ class RuntimeMonitorActionService:
                 "authority": "runtime_monitor.actions.delete_record_preview",
                 "task_run_id": task_run_id,
                 "status": status,
-                "terminal": status in {"completed", "success", "failed", "aborted", "cancelled", "error"},
+                "terminal": status in {"completed", "failed", "aborted"},
                 "estimated_effects": {
                     "task_runs": 1,
                     "event_log": "task_run_scope",
@@ -262,10 +262,12 @@ class RuntimeMonitorActionService:
 
     def _spawn_background_cleanup(self, coro: Any, *, name: str) -> None:
         spawner = getattr(self.host, "spawn_background_task", None)
-        if callable(spawner):
-            spawner(coro, name=name)
-            return
-        asyncio.create_task(coro, name=name)
+        if not callable(spawner):
+            close = getattr(coro, "close", None)
+            if callable(close):
+                close()
+            raise RuntimeError("runtime monitor cleanup requires host.spawn_background_task")
+        spawner(coro, name=name)
 
     def _pause_task(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
         from harness.loop.task_executor import request_task_run_pause
@@ -369,8 +371,7 @@ def _receipt(*, action: str, accepted: bool, mode: str, reason: str = "") -> dic
 
 
 def _background_task_running(host: Any, name: str) -> bool:
-    tasks_by_name = getattr(host, "_background_tasks_by_name", {})
-    if not isinstance(tasks_by_name, dict):
-        return False
-    tasks = tasks_by_name.get(name, set())
-    return any(not getattr(task, "done", lambda: True)() for task in list(tasks or []))
+    checker = getattr(host, "background_task_running", None)
+    if not callable(checker):
+        raise RuntimeError("runtime monitor cleanup requires host.background_task_running")
+    return bool(checker(name))

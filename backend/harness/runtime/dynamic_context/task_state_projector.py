@@ -7,6 +7,7 @@ from typing import Any
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, model_visible_artifact_refs
 from runtime.shared.file_observation_policy import recommended_window_for_gap
 
+from ..runtime_control_signal_projection import canonical_runtime_control_signal_projection
 from .models import compact_text, dict_tuple, drop_empty
 from .semantic_payload_classifier import merge_pending_tool_control_actions
 from .todo_plan_projection import project_todo_plan
@@ -82,7 +83,9 @@ class TaskStateProjector:
             observation_projection.get("pending_tool_control_actions"),
             limit=12,
         )
-        runtime_control_signals = list(dict_tuple(execution_projection.get("runtime_control_signals")))
+        runtime_control_signals = canonical_runtime_control_signal_projection(
+            execution_projection.get("runtime_control_signals")
+        )
         payload = {
             "runtime_status": str(execution_projection.get("runtime_status") or task_run_state.get("status") or ""),
             "current_step": dict(execution_projection.get("current_step") or {}),

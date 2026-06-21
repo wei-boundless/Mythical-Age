@@ -4,6 +4,7 @@ from typing import Any
 
 from artifact_system.artifact_authority import artifact_refs_from_events, dedupe_artifact_refs
 from harness.task_run_state_view import task_run_state_view
+from harness.task_run_status import runtime_control_state_from_task_run
 from harness.runtime.event_query import list_runtime_events, runtime_event_count
 from harness.runtime.public_progress import public_runtime_progress_summary
 from harness.runtime.session_output_commit_projection import project_session_output_commit_state
@@ -22,7 +23,6 @@ from .lifecycle import (
     ended_at,
     is_terminal_status,
     monitor_bucket,
-    runtime_control,
     task_lifecycle,
 )
 
@@ -87,9 +87,9 @@ class RuntimeMonitorProjector:
         last_activity_at = max(created_at, updated_at, latest_event_at)
         last_activity_age_seconds = max(0.0, current_time - last_activity_at) if last_activity_at else 0.0
         status = str(getattr(task_run, "status", "") or "")
-        state_view = task_run_state_view(task_run)
-        control = dict(state_view.get("runtime_control") or runtime_control(diagnostics))
-        control_state = str(state_view.get("control_state") or control.get("state") or "")
+        state_view = task_run_state_view(task_run, runtime_host=self.runtime_host)
+        control = dict(state_view.get("runtime_control") or {})
+        control_state = str(state_view.get("control_state") or "")
         control_capability = dict(state_view.get("control_capability") or {})
         activity = dict(state_view.get("activity") or {})
         terminal = is_terminal_status(status)
@@ -955,7 +955,10 @@ class RuntimeMonitorProjector:
     def _is_global_live_task_run_candidate(self, task_run: Any) -> bool:
         status = str(getattr(task_run, "status", "") or "").strip()
         diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-        control_state = str(runtime_control(diagnostics).get("state") or "").strip()
+        control_state = runtime_control_state_from_task_run(
+            task_run,
+            runtime_host=self.runtime_host,
+        )
         if status in RUNNING_TASK_RUN_STATUSES | WAITING_TASK_RUN_STATUSES | BLOCKED_TASK_RUN_STATUSES:
             return True
         if control_state in {"pause_requested", "paused", "resume_requested", "stop_requested"}:

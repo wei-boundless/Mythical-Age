@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from api.deps import require_runtime
 from project_layout import ProjectLayout
 from runtime.file_changes import FileChangeConflict, FileChangeMissing, FileChangeTracker
+from runtime.file_change_signals import publish_file_change_record
 
 router = APIRouter()
 MAX_DIFF_CONTENT_CHARS = 600_000
@@ -109,6 +110,7 @@ async def rollback_file_change(record_id: str, payload: FileChangeRollbackReques
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except FileChangeConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    publish_file_change_record(runtime, record, action="rollback", source="api.file_changes.rollback")
     return {
         "record": record,
         "rolled_back": True,

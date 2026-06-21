@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
+import time
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,6 +17,7 @@ from harness.entrypoint.models import HarnessRuntimeRequest
 from harness.runtime import SingleAgentRuntimeHost
 from harness.runtime.control_events import runtime_signal_from_event_payload
 from harness.loop.task_executor import append_user_work_instruction, is_task_run_executable, request_task_run_pause, resume_paused_task_run
+from harness.loop.task_executor_controller import TaskExecutorController
 from harness.loop.task_lifecycle import (
     TaskLifecycleRecord,
     TaskRunContract,
@@ -24,6 +28,64 @@ from harness.loop.task_lifecycle import (
 from harness.loop.model_action_protocol import ModelActionRequest
 from runtime.shared.models import TaskRun
 from tests.support.runtime_stubs import build_harness_runtime
+
+
+class LiveExecutorClaim:
+    def __init__(self, host: SingleAgentRuntimeHost, task_run_id: str, run_cell_id: str, release: threading.Event) -> None:
+        self.host = host
+        self.task_run_id = task_run_id
+        self.run_cell_id = run_cell_id
+        self.release = release
+
+    def close(self) -> None:
+        self.release.set()
+        cell = self.host.agent_run_supervisor.cell_by_id(self.run_cell_id)
+        worker_handle = getattr(cell, "worker_handle", None) if cell is not None else None
+        if worker_handle is not None:
+            worker_handle.join(timeout=3)
+
+
+def _start_live_task_run_executor(
+    host: SingleAgentRuntimeHost,
+    task_run_id: str,
+    *,
+    turn_id: str = "turn:session:test:old",
+) -> LiveExecutorClaim:
+    release = threading.Event()
+    started = threading.Event()
+
+    async def execute(_task_run_id: str, *, max_steps: int) -> dict[str, str]:
+        del max_steps
+        started.set()
+        while not release.is_set():
+            await asyncio.sleep(0.01)
+        return {"status": "completed"}
+
+    controller = TaskExecutorController(runtime_host=host, execute_task_run_callback=execute)
+    result = controller.schedule(
+        task_run_id,
+        scheduler="test-live-executor",
+        turn_id=turn_id,
+        max_steps=1,
+    )
+    assert result["ok"] is True
+    assert result["scheduled"] is True
+    run_cell_id = str(result.get("run_cell_id") or "")
+    assert run_cell_id
+    assert _wait_until(
+        lambda: started.is_set()
+        and host.agent_run_supervisor.active_cell_for_task_run(task_run_id, session_id="session:test") is not None
+    )
+    return LiveExecutorClaim(host, task_run_id, run_cell_id, release)
+
+
+def _wait_until(predicate, *, timeout: float = 3.0) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return predicate()
 
 
 class RuntimeAssemblyStub:
@@ -125,11 +187,12 @@ def test_active_turn_pause_request_enters_waiting_safe_boundary(tmp_path: Path) 
         session_id="session:test",
         task_id="task:current",
         execution_runtime_kind="single_agent_task",
-        status="running",
+        status="created",
         created_at=1,
         updated_at=2,
     )
     host.state_index.upsert_task_run(task_run)
+    claim = _start_live_task_run_executor(host, task_run.task_run_id)
     host.active_turn_registry.start(session_id="session:test", turn_id="turn:session:test:1")
     host.active_turn_registry.bind_task_run(
         session_id="session:test",
@@ -138,13 +201,16 @@ def test_active_turn_pause_request_enters_waiting_safe_boundary(tmp_path: Path) 
         state="running_task",
     )
 
-    result = request_task_run_pause(host, task_run.task_run_id, reason="test_pause", requested_by="user")
+    try:
+        result = request_task_run_pause(host, task_run.task_run_id, reason="test_pause", requested_by="user")
 
-    active = host.active_turn_registry.snapshot("session:test")
-    assert result["ok"] is True
-    assert active is not None
-    assert active.bound_task_run_id == task_run.task_run_id
-    assert active.state == "waiting_safe_boundary"
+        active = host.active_turn_registry.snapshot("session:test")
+        assert result["ok"] is True
+        assert active is not None
+        assert active.bound_task_run_id == task_run.task_run_id
+        assert active.state == "waiting_safe_boundary"
+    finally:
+        claim.close()
 
 
 def test_active_turn_launch_supervision_enters_waiting_approval(tmp_path: Path) -> None:
@@ -345,8 +411,6 @@ def test_execute_task_run_rejects_mismatched_active_turn(tmp_path: Path, monkeyp
     )
 
     with pytest.raises(HTTPException) as exc:
-        import asyncio
-
         asyncio.run(
             orchestration_harness.execute_harness_task_run(
                 "taskrun:current",
@@ -405,8 +469,6 @@ def test_append_user_work_instruction_rejects_terminal_task_run(tmp_path: Path) 
 
 
 def test_active_turn_steer_records_lifecycle_without_model_decision(tmp_path: Path) -> None:
-    import asyncio
-
     class ActiveWorkAppendModelRuntime:
         def __init__(self) -> None:
             self.calls = 0
@@ -423,12 +485,13 @@ def test_active_turn_steer_records_lifecycle_without_model_decision(tmp_path: Pa
         session_id="session:test",
         task_id="task:current",
         execution_runtime_kind="single_agent_task",
-        status="running",
+        status="created",
         created_at=1,
         updated_at=2,
         diagnostics={"turn_id": "turn:session:test:old"},
     )
     host.state_index.upsert_task_run(task_run)
+    claim = _start_live_task_run_executor(host, task_run.task_run_id)
     host.active_turn_registry.start(session_id="session:test", turn_id="turn:session:test:old")
     host.active_turn_registry.bind_task_run(
         session_id="session:test",
@@ -450,50 +513,51 @@ def test_active_turn_steer_records_lifecycle_without_model_decision(tmp_path: Pa
             events.append(event)
         return events
 
-    events = asyncio.run(_collect())
-    updated = host.state_index.get_task_run("taskrun:current")
-    event_types = [event.event_type for event in host.event_log.list_events("taskrun:current")]
+    try:
+        events = asyncio.run(_collect())
+        updated = host.state_index.get_task_run("taskrun:current")
+        event_types = [event.event_type for event in host.event_log.list_events("taskrun:current")]
 
-    assert model.calls == 0
-    assert any(
-        event.get("type") == "runtime_branch_decided"
-        and dict(event.get("runtime_branch") or {}).get("branch_kind") == "active_turn_steer"
-        for event in events
-    )
-    assert any(event.get("type") == "active_task_steer_accepted" for event in events)
-    assert any(event.get("type") == "done" and event.get("terminal_reason") == "active_task_steer_recorded" for event in events)
-    assert not any(event.get("terminal_reason") == "pause_active_work" for event in events)
-    assert updated is not None
-    assert updated.status == "running"
-    assert int(dict(updated.diagnostics or {}).get("pending_user_steer_count") or 0) >= 1
-    assert "user_submission_recorded" in event_types
-    assert "active_task_steer_recorded" in event_types
-    steer_signal_events = [
-        event
-        for event in host.event_log.list_events("taskrun:current")
-        if event.event_type == "runtime_control_signal_published"
-    ]
-    steer_signals = [
-        runtime_signal_from_event_payload(dict(event.payload or {}))
-        for event in steer_signal_events
-    ]
-    steer_signal = next(signal for signal in steer_signals if signal is not None and signal.signal_type == "control.steer.recorded")
-    assert steer_signal.scope.session_id == "session:test"
-    assert steer_signal.scope.task_run_id == "taskrun:current"
-    assert steer_signal.scope.turn_id == "turn:session:test:1"
-    assert steer_signal.payload["signal_kind"] == "active_task_steer"
-    assert steer_signal.payload["steer_ref"]
-    assert steer_signal.payload["submission_ref"]
-    assert "task_run_pause_requested" not in event_types
-    messages = runtime.session_manager.load_session("session:test")
-    assert len(messages) == 1
-    assert messages[0]["role"] == "user"
-    assert messages[0]["turn_id"] == "turn:session:test:1"
+        assert model.calls == 0
+        assert any(
+            event.get("type") == "runtime_branch_decided"
+            and dict(event.get("runtime_branch") or {}).get("branch_kind") == "active_turn_steer"
+            for event in events
+        )
+        assert any(event.get("type") == "active_task_steer_accepted" for event in events)
+        assert any(event.get("type") == "done" and event.get("terminal_reason") == "active_task_steer_recorded" for event in events)
+        assert not any(event.get("terminal_reason") == "pause_active_work" for event in events)
+        assert updated is not None
+        assert updated.status == "running"
+        assert int(dict(updated.diagnostics or {}).get("pending_user_steer_count") or 0) >= 1
+        assert "user_submission_recorded" in event_types
+        assert "active_task_steer_recorded" in event_types
+        steer_signal_events = [
+            event
+            for event in host.event_log.list_events("taskrun:current")
+            if event.event_type == "runtime_control_signal_published"
+        ]
+        steer_signals = [
+            runtime_signal_from_event_payload(dict(event.payload or {}))
+            for event in steer_signal_events
+        ]
+        steer_signal = next(signal for signal in steer_signals if signal is not None and signal.signal_type == "control.steer.recorded")
+        assert steer_signal.scope.session_id == "session:test"
+        assert steer_signal.scope.task_run_id == "taskrun:current"
+        assert steer_signal.scope.turn_id == "turn:session:test:1"
+        assert steer_signal.payload["signal_kind"] == "active_task_steer"
+        assert steer_signal.payload["steer_ref"]
+        assert steer_signal.payload["submission_ref"]
+        assert "task_run_pause_requested" not in event_types
+        messages = runtime.session_manager.load_session("session:test")
+        assert len(messages) == 1
+        assert messages[0]["role"] == "user"
+        assert messages[0]["turn_id"] == "turn:session:test:1"
+    finally:
+        claim.close()
 
 
 def test_current_work_boundary_receipt_revalidates_before_append(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import asyncio
-
     class StaleBoundaryModelRuntime:
         def __init__(self) -> None:
             self.calls = 0
@@ -505,17 +569,17 @@ def test_current_work_boundary_receipt_revalidates_before_append(tmp_path: Path,
     model = StaleBoundaryModelRuntime()
     runtime = build_harness_runtime(base_dir=tmp_path, model_runtime=model)
     host = runtime.single_agent_runtime_host
-    host.state_index.upsert_task_run(
-        TaskRun(
-            task_run_id="taskrun:current",
-            session_id="session:test",
-            task_id="task:current",
-            execution_runtime_kind="single_agent_task",
-            status="running",
-            created_at=1,
-            updated_at=2,
-        )
+    task_run = TaskRun(
+        task_run_id="taskrun:current",
+        session_id="session:test",
+        task_id="task:current",
+        execution_runtime_kind="single_agent_task",
+        status="created",
+        created_at=1,
+        updated_at=2,
     )
+    host.state_index.upsert_task_run(task_run)
+    claim = _start_live_task_run_executor(host, task_run.task_run_id)
     host.active_turn_registry.start(session_id="session:test", turn_id="turn:session:test:old")
     host.active_turn_registry.bind_task_run(
         session_id="session:test",
@@ -557,20 +621,21 @@ def test_current_work_boundary_receipt_revalidates_before_append(tmp_path: Path,
             events.append(event)
         return events
 
-    events = asyncio.run(_collect())
-    event_types = [event.event_type for event in host.event_log.list_events("taskrun:current")]
+    try:
+        events = asyncio.run(_collect())
+        event_types = [event.event_type for event in host.event_log.list_events("taskrun:current")]
 
-    assert not any(event.get("type") == "active_task_steer_accepted" for event in events)
-    assert any(event.get("type") == "runtime_status" and event.get("terminal_reason") == "active_turn_unavailable" for event in events)
-    assert any(event.get("type") == "error" and event.get("terminal_reason") == "active_turn_unavailable" for event in events)
-    assert "active_task_steer_recorded" not in event_types
-    assert compare_calls["count"] >= 2
-    assert model.calls == 0
+        assert not any(event.get("type") == "active_task_steer_accepted" for event in events)
+        assert any(event.get("type") == "runtime_status" and event.get("terminal_reason") == "active_turn_unavailable" for event in events)
+        assert any(event.get("type") == "error" and event.get("terminal_reason") == "active_turn_unavailable" for event in events)
+        assert "active_task_steer_recorded" not in event_types
+        assert compare_calls["count"] >= 2
+        assert model.calls == 0
+    finally:
+        claim.close()
 
 
 def test_active_turn_steer_does_not_promote_latest_task_when_active_turn_missing(tmp_path: Path) -> None:
-    import asyncio
-
     class BoundaryObservationModelRuntime:
         def __init__(self) -> None:
             self.calls = 0

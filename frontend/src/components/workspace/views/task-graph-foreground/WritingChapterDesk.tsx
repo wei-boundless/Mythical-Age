@@ -84,7 +84,6 @@ type WritingChapterDeskProps = {
   setFocusMode: Dispatch<SetStateAction<boolean>>;
   setNewFileContent: Dispatch<SetStateAction<string>>;
   setNewFilePath: Dispatch<SetStateAction<string>>;
-  setSelectedFilePath: Dispatch<SetStateAction<string>>;
   setSelectedNodeId: Dispatch<SetStateAction<string>>;
   writeNewFile: () => Promise<void>;
 };
@@ -198,7 +197,6 @@ export function WritingChapterDesk({
   setFocusMode,
   setNewFileContent,
   setNewFilePath,
-  setSelectedFilePath,
   setSelectedNodeId,
   writeNewFile,
 }: WritingChapterDeskProps) {
@@ -303,15 +301,6 @@ export function WritingChapterDesk({
                   <span>{action === "save-file" ? "保存中" : "保存文件"}</span>
                 </button>
               </div>
-
-              {fileEditorMode === "edit" ? (
-                <div className="graph-foreground-edit-path">
-                  <label>
-                    <span>当前文件</span>
-                    <input onChange={(event) => setSelectedFilePath(event.target.value)} placeholder="选择或输入文件路径" value={selectedFilePath} />
-                  </label>
-                </div>
-              ) : null}
 
               <div className="graph-foreground-chapter-actions graph-foreground-chapter-actions--sticky" aria-label="章节审核动作">
                 <div>

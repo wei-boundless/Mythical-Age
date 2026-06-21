@@ -88,6 +88,35 @@ def test_execution_kernel_preserves_operation_unavailable_as_lifecycle_denial() 
     assert payload["diagnostics"]["permit_decision"] == "operation_unavailable"
 
 
+def test_execution_kernel_rejects_shadow_current_work_receipt_true() -> None:
+    action = ModelActionRequest(
+        request_id="model-action:kernel:active-work-shadow",
+        turn_id="turn:kernel:active-work-shadow",
+        action_type="active_work_control",
+        active_work_control={"action": "continue_active_work"},
+    )
+
+    lifecycle = decide_model_action_lifecycle(
+        action,
+        invocation_kind="single_agent_turn",
+        packet_allowed_action_types=("respond", "ask_user", "block", "active_work_control"),
+        current_work_boundary_receipt={
+            "receipt_id": "cwreceipt:shadow",
+            "decision_id": "cwbd:shadow",
+            "boundary_decision": "current_work_control_required",
+            "active_work_ref": {"task_run_id": "taskrun:active", "actual_active_turn_id": "turn:active"},
+            "operation_availability": {"active_work_control": True},
+        },
+    )
+
+    payload = lifecycle.to_dict()
+
+    assert lifecycle.allowed is False
+    assert payload["admission"]["decision"] == "operation_unavailable"
+    assert payload["admission"]["action_issue"]["availability_reason"] == "current_work_receipt_authority_invalid"
+    assert payload["action_permit"]["decision"] == "operation_unavailable"
+
+
 def test_execution_kernel_rebuilds_permit_from_existing_admission_with_resource_scope() -> None:
     action = ModelActionRequest(
         request_id="model-action:kernel:write",

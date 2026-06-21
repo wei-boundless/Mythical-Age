@@ -26,10 +26,20 @@ class SessionRuntimeLifecycleManager:
         task_run_ids = set(refs["task_run_ids"])
         turn_run_ids = set(refs["turn_run_ids"])
         runtime_runs = list(refs["runtime_runs"])
+        task_run_sessions = await asyncio.to_thread(self._task_run_sessions, task_run_ids)
+        runtime_run_sessions = self._runtime_run_sessions(runtime_runs)
         executor_stop_effect = self._request_executor_stop(task_run_ids=task_run_ids)
         tombstone_effect = await asyncio.to_thread(self.host.state_index.mark_session_deleted, normalized)
+        cell_cancel_effect = self.host.cancel_task_run_cells(
+            task_run_sessions=task_run_sessions,
+            reason="session_deleted",
+        )
+        runtime_cell_cancel_effect = self.host.cancel_runtime_run_cells(
+            runtime_run_sessions=runtime_run_sessions,
+            reason="session_deleted",
+        )
         cancel_effect = await self.host.cancel_background_tasks(
-            names=self._background_task_names(task_run_ids=task_run_ids, runtime_runs=runtime_runs),
+            names=self._background_task_names(session_id=normalized),
             reason="session_deleted",
         )
         late_refs = await asyncio.to_thread(
@@ -47,6 +57,15 @@ class SessionRuntimeLifecycleManager:
             "timed_out": False,
             "reason": "no_late_runtime_tasks",
         }
+        late_cell_cancel_effect = {
+            "authority": "single_agent_runtime_host.cancel_task_run_cells",
+            "requested_task_run_ids": [],
+            "cancelled_count": 0,
+            "cancelled_task_run_ids": [],
+            "rejected": [],
+            "missing_scope_task_run_ids": [],
+            "reason": "no_late_runtime_tasks",
+        }
         late_executor_stop_effect = {
             "authority": "harness.runtime.session_lifecycle.executor_stop",
             "requested_task_run_ids": [],
@@ -54,13 +73,34 @@ class SessionRuntimeLifecycleManager:
             "control_signals": [],
             "failed_task_run_ids": [],
         }
+        late_runtime_cell_cancel_effect = {
+            "authority": "single_agent_runtime_host.cancel_runtime_run_cells",
+            "requested_stream_run_ids": [],
+            "cancelled_count": 0,
+            "cancelled_stream_run_ids": [],
+            "rejected": [],
+            "missing_scope_stream_run_ids": [],
+            "reason": "no_late_runtime_tasks",
+        }
         if late_task_run_ids or late_runtime_runs:
+            late_task_run_sessions = await asyncio.to_thread(self._task_run_sessions, late_task_run_ids)
+            late_runtime_run_sessions = self._runtime_run_sessions(late_runtime_runs)
             late_executor_stop_effect = self._request_executor_stop(task_run_ids=late_task_run_ids)
+            late_cell_cancel_effect = self.host.cancel_task_run_cells(
+                task_run_sessions=late_task_run_sessions,
+                reason="session_deleted",
+            )
+            late_runtime_cell_cancel_effect = self.host.cancel_runtime_run_cells(
+                runtime_run_sessions=late_runtime_run_sessions,
+                reason="session_deleted",
+            )
             late_cancel_effect = await self.host.cancel_background_tasks(
-                names=self._background_task_names(task_run_ids=late_task_run_ids, runtime_runs=late_runtime_runs),
+                names=self._background_task_names(session_id=normalized),
                 reason="session_deleted",
             )
             task_run_ids |= late_task_run_ids
+            task_run_sessions.update(late_task_run_sessions)
+            runtime_run_sessions.update(late_runtime_run_sessions)
             runtime_runs.extend(late_runtime_runs)
         turn_run_ids |= await asyncio.to_thread(self._session_turn_run_ids, normalized)
         active_turn_effect = self.host.active_turn_registry.clear_session(normalized, reason="session_deleted")
@@ -78,6 +118,10 @@ class SessionRuntimeLifecycleManager:
             "task_run_ids": sorted(task_run_ids),
             "turn_run_ids": sorted(turn_run_ids),
             "effects": {
+                "agent_cells": cell_cancel_effect,
+                "late_agent_cells": late_cell_cancel_effect,
+                "runtime_run_cells": runtime_cell_cancel_effect,
+                "late_runtime_run_cells": late_runtime_cell_cancel_effect,
                 "background_tasks": cancel_effect,
                 "late_background_tasks": late_cancel_effect,
                 "executor_stop": executor_stop_effect,
@@ -90,6 +134,25 @@ class SessionRuntimeLifecycleManager:
                 "project_maintenance": storage_effect["project_maintenance"],
             },
         }
+
+    def _task_run_sessions(self, task_run_ids: set[str]) -> dict[str, str]:
+        result: dict[str, str] = {}
+        for task_run_id in task_run_ids:
+            task_run = self.host.state_index.get_task_run(task_run_id)
+            session_id = str(getattr(task_run, "session_id", "") or "").strip() if task_run is not None else ""
+            if session_id:
+                result[str(task_run_id or "").strip()] = session_id
+        return result
+
+    @staticmethod
+    def _runtime_run_sessions(runtime_runs: list[Any]) -> dict[str, str]:
+        result: dict[str, str] = {}
+        for run in runtime_runs:
+            stream_run_id = str(getattr(run, "stream_run_id", "") or "").strip()
+            session_id = str(getattr(run, "session_id", "") or "").strip()
+            if stream_run_id and session_id:
+                result[stream_run_id] = session_id
+        return result
 
     def _session_history(self, session_id: str) -> dict[str, Any]:
         try:
@@ -182,16 +245,9 @@ class SessionRuntimeLifecycleManager:
         }
 
     @staticmethod
-    def _background_task_names(*, task_run_ids: set[str], runtime_runs: list[Any]) -> set[str]:
-        names: set[str] = set()
-        for task_run_id in task_run_ids:
-            names.add(f"task-run-executor:{task_run_id}")
-            names.add(f"task-run-executor-recover:{task_run_id}")
-        for run in runtime_runs:
-            stream_run_id = str(getattr(run, "stream_run_id", "") or "").strip()
-            if stream_run_id:
-                names.add(f"chat-run-{stream_run_id}")
-        return names
+    def _background_task_names(*, session_id: str) -> set[str]:
+        normalized = str(session_id or "").strip()
+        return {f"queued-input-dispatch:{normalized}"} if normalized else set()
 
     def _delete_bound_graph_task(self, binding: dict[str, Any]) -> dict[str, Any]:
         graph_run_id = str(dict(binding or {}).get("graph_run_id") or "").strip()

@@ -281,6 +281,7 @@ _RUNTIME_EVENT_FACT_TYPES = {
     "execution_record_created",
     "execution_result_recorded",
     "execution_result_reused",
+    "file_change_recorded",
     "loop_error",
     "loop_terminal",
     "model_action_admission_checked",

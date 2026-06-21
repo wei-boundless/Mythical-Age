@@ -4,6 +4,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
+from fastapi import WebSocketDisconnect
 
 from api.chat_live import _resolve_subscription, _send_catchup, chat_session_live
 from runtime.shared.events import RuntimeEvent
@@ -157,6 +158,21 @@ def test_chat_live_subscribes_before_replay(monkeypatch: pytest.MonkeyPatch) -> 
     assert [message["type"] for message in websocket.messages] == ["hello", "event", "terminal"]
 
 
+def test_chat_live_returns_when_client_disconnects_before_subscribe(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = SimpleNamespace(
+        harness_runtime=SimpleNamespace(
+            single_agent_runtime_host=SimpleNamespace(
+                run_registry=SimpleNamespace(),
+                event_log=SimpleNamespace(),
+                stream_replay=SimpleNamespace(),
+            ),
+        ),
+    )
+    monkeypatch.setattr("api.chat_live.require_runtime", lambda: runtime)
+
+    asyncio.run(chat_session_live(_DisconnectingWebSocket(), "session-test"))  # type: ignore[arg-type]
+
+
 class _SubscribingEventLog:
     def __init__(self, events: list[RuntimeEvent]) -> None:
         self.events = events
@@ -196,3 +212,12 @@ class _ScriptedWebSocket:
 
     async def close(self, code: int) -> None:
         self.closed_code = int(code)
+
+
+class _DisconnectingWebSocket:
+    async def accept(self) -> None:
+        return None
+
+    async def send_json(self, payload: dict) -> None:
+        del payload
+        raise WebSocketDisconnect(code=1006)

@@ -37,7 +37,7 @@ def test_stream_failure_reconciliation_records_terminal_projection_without_assis
     result = host.close_chat_turn_run_for_stream_failure(
         run,
         code="runtime_process_restarted",
-        reason="background_executor_missing_after_restart",
+        reason="runtime_cell_missing_after_restart",
         orphaned_by="test",
     )
 

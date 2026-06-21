@@ -1272,14 +1272,6 @@
   color: #155e75;
 }
 
-.graph-foreground-edit-path {
-  padding: 0 10px;
-}
-
-.graph-foreground-library__editor .graph-foreground-edit-path label {
-  padding: 8px 0 0;
-}
-
 .graph-foreground-mode-switch button {
   min-height: 26px;
   border: 1px solid transparent;

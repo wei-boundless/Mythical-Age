@@ -4,13 +4,17 @@ import asyncio
 from types import SimpleNamespace
 
 from api.chat import (
+    ChatTaskBridgeContext,
     _agent_todo_observation_summary,
     _allow_public_stream_flush,
     _append_chat_public_event,
+    _append_task_bridge_terminal,
     _is_task_executor_handoff_terminal,
+    _project_task_runtime_event_to_chat,
     _project_public_stream_event,
     _public_terminal_reason,
     _run_chat_to_event_log,
+    _task_terminal_context_from_task_run,
     replay_chat_run_events,
 )
 from harness.entrypoint.models import HarnessRuntimeRequest
@@ -23,6 +27,7 @@ from runtime.output_stream.public_contract import (
     ASSISTANT_TEXT_FINAL_EVENT,
     SESSION_OUTPUT_COMMIT_ACK_EVENT,
     SESSION_OUTPUT_COMMIT_FAILED_EVENT,
+    TASK_BRIDGE_TERMINAL_EVENT,
     TOOL_CALL_REQUESTED_EVENT,
     TOOL_ITEM_COMPLETED_EVENT,
     TOOL_ITEM_STARTED_EVENT,
@@ -312,6 +317,218 @@ def test_chat_run_events_replay_returns_public_envelopes(monkeypatch) -> None:
     response = asyncio.run(replay_chat_run_events("strun:test", after_offset=-1, limit=10))
 
     assert response == expected
+
+
+def _task_bridge_context() -> ChatTaskBridgeContext:
+    return ChatTaskBridgeContext(
+        bridge_id="task-bridge:test",
+        stream_run_id="strun:test",
+        event_log_id="chatrun:test",
+        session_id="session:test",
+        turn_id="turn:test",
+        turn_run_id="turnrun:test",
+        task_run_id="taskrun:turn:test:1",
+        assistant_message_ref="assistant:turn:test",
+        source_handoff_event_id="event:handoff",
+        source_handoff_event_offset=1,
+        task_event_start_offset=2,
+        public_sequence_base=0,
+        created_at=1.0,
+    )
+
+
+def _task_bridge_runtime(run: RuntimeRun, replay: _OffsetReplaySpy) -> SimpleNamespace:
+    return SimpleNamespace(
+        harness_runtime=SimpleNamespace(
+            single_agent_runtime_host=SimpleNamespace(
+                run_registry=_MutableRegistrySpy(run),
+                stream_replay=replay,
+            )
+        )
+    )
+
+
+def test_task_bridge_terminal_does_not_infer_commit_failure_from_diagnostics_final_answer() -> None:
+    run = RuntimeRun(
+        stream_run_id="strun:test",
+        session_id="session:test",
+        event_log_id="chatrun:test",
+        root_request_ref="chatreq:test",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    replay = _OffsetReplaySpy()
+
+    _append_task_bridge_terminal(
+        _task_bridge_runtime(run, replay),
+        run,
+        run,
+        request=HarnessRuntimeRequest(session_id="session:test", message="hello"),
+        context={
+            "task_run_id": "taskrun:turn:test:1",
+            "status": "completed",
+            "terminal_reason": "completed",
+            "final_answer": "diagnostics-only final answer must not decide commit failure",
+        },
+        projection_lifecycle=ProjectionLifecycleState(),
+        bridge_context=_task_bridge_context(),
+        task_event=SimpleNamespace(event_id="event:terminal", offset=3),
+        output_observed=False,
+        commit_observed=False,
+    )
+
+    assert [call["public_event_type"] for call in replay.append_public_event_calls] == [
+        TASK_BRIDGE_TERMINAL_EVENT,
+        TURN_COMPLETED_EVENT,
+    ]
+
+
+def test_task_bridge_terminal_records_commit_failure_when_final_output_lacks_commit_event() -> None:
+    run = RuntimeRun(
+        stream_run_id="strun:test",
+        session_id="session:test",
+        event_log_id="chatrun:test",
+        root_request_ref="chatreq:test",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    replay = _OffsetReplaySpy()
+
+    _append_task_bridge_terminal(
+        _task_bridge_runtime(run, replay),
+        run,
+        run,
+        request=HarnessRuntimeRequest(session_id="session:test", message="hello"),
+        context={
+            "task_run_id": "taskrun:turn:test:1",
+            "status": "failed",
+            "terminal_reason": "session_output_commit_failed",
+        },
+        projection_lifecycle=ProjectionLifecycleState(),
+        bridge_context=_task_bridge_context(),
+        task_event=SimpleNamespace(event_id="event:terminal", offset=13),
+        output_observed=True,
+        commit_observed=False,
+    )
+
+    assert [call["public_event_type"] for call in replay.append_public_event_calls] == [
+        SESSION_OUTPUT_COMMIT_FAILED_EVENT,
+        TASK_BRIDGE_TERMINAL_EVENT,
+        TURN_COMPLETED_EVENT,
+    ]
+    assert replay.append_public_event_calls[0]["data"]["reason"] == "task_terminal_final_without_commit_event"
+
+
+def test_task_bridge_terminal_ignores_diagnostics_output_commit_shadow_receipt() -> None:
+    context = _task_terminal_context_from_task_run(
+        {
+            "task_run_id": "taskrun:turn:test:1",
+            "status": "completed",
+            "terminal_reason": "completed",
+            "diagnostics": {
+                "output_commit": {
+                    "authority": "harness.session_output_commit",
+                    "event_type": "session_output_commit_ack",
+                    "event_id": "event:shadow",
+                    "state": "committed",
+                    "event_offset": 12,
+                    "content_sha256": "sha256:shadow",
+                },
+            },
+        }
+    )
+    run = RuntimeRun(
+        stream_run_id="strun:test",
+        session_id="session:test",
+        event_log_id="chatrun:test",
+        root_request_ref="chatreq:test",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    replay = _OffsetReplaySpy()
+
+    _append_task_bridge_terminal(
+        _task_bridge_runtime(run, replay),
+        run,
+        run,
+        request=HarnessRuntimeRequest(session_id="session:test", message="hello"),
+        context=context,
+        projection_lifecycle=ProjectionLifecycleState(),
+        bridge_context=_task_bridge_context(),
+        task_event=SimpleNamespace(event_id="event:terminal", offset=13),
+        output_observed=False,
+        commit_observed=False,
+    )
+
+    assert "output_commit_state" not in context
+    assert [call["public_event_type"] for call in replay.append_public_event_calls] == [
+        TASK_BRIDGE_TERMINAL_EVENT,
+        TURN_COMPLETED_EVENT,
+    ]
+
+
+def test_task_bridge_output_observed_requires_final_or_repair_event() -> None:
+    class _TaskEvent:
+        def __init__(self, event_type: str, payload: dict, *, offset: int) -> None:
+            self.run_id = "taskrun:turn:test:1"
+            self.event_id = f"event:{offset}"
+            self.event_type = event_type
+            self.payload = dict(payload)
+            self.refs = {"task_run_ref": self.run_id}
+            self.offset = offset
+            self.created_at = float(offset)
+
+        def to_dict(self) -> dict:
+            return {
+                "run_id": self.run_id,
+                "event_id": self.event_id,
+                "event_type": self.event_type,
+                "payload": dict(self.payload),
+                "refs": dict(self.refs),
+                "offset": self.offset,
+                "created_at": self.created_at,
+            }
+
+    run = RuntimeRun(
+        stream_run_id="strun:test",
+        session_id="session:test",
+        event_log_id="chatrun:test",
+        root_request_ref="chatreq:test",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    runtime = _task_bridge_runtime(run, _OffsetReplaySpy())
+    context = _task_bridge_context()
+    request = HarnessRuntimeRequest(session_id="session:test", message="hello")
+
+    current, terminal, delta_state = _project_task_runtime_event_to_chat(
+        runtime,
+        run,
+        run,
+        request=request,
+        task_event=_TaskEvent(ASSISTANT_TEXT_DELTA_EVENT, {"content": "partial"}, offset=2),
+        bridge_context=context,
+        projection_lifecycle=ProjectionLifecycleState(),
+    )
+    _current, terminal_after_final, final_state = _project_task_runtime_event_to_chat(
+        runtime,
+        run,
+        current,
+        request=request,
+        task_event=_TaskEvent(ASSISTANT_TEXT_FINAL_EVENT, {"content": "complete"}, offset=3),
+        bridge_context=context,
+        projection_lifecycle=ProjectionLifecycleState(),
+        output_observed=delta_state["output_observed"],
+    )
+
+    assert terminal is False
+    assert terminal_after_final is False
+    assert delta_state["output_observed"] is False
+    assert final_state["output_observed"] is True
 
 
 def test_public_projection_frame_exposes_dual_channel_contract() -> None:

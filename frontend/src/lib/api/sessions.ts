@@ -111,6 +111,22 @@ export async function setSessionPermissionMode(sessionId: string, mode: string, 
   });
 }
 
+export async function setSessionChatModelSelection(
+  sessionId: string,
+  payload: {
+    selection_id: string;
+    provider?: string;
+    model?: string;
+    source?: string;
+  },
+  scope?: Partial<SessionScope>,
+) {
+  return request<ConversationState>(withSessionScopeQuery(`/sessions/${sessionId}/chat-model-selection`, scope), {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function listProjectWorkspaces() {
   return request<{
     authority: string;
@@ -184,16 +200,19 @@ export async function getProjectWorkspaceTree(projectKey: string, options: { max
   );
 }
 
-export async function openProjectWorkspaceInVSCode(projectKey: string) {
-  return request<{
-    authority: string;
-    ok: boolean;
-    project: ProjectWorkspaceSummary;
-    command: string[];
-    window_mode: string;
-  }>(`/project-workspaces/${encodeURIComponent(projectKey)}/open-vscode`, {
-    method: "POST",
-  });
+export async function getSessionWorkspaceTree(options: {
+  maxDepth?: number;
+  maxEntries?: number;
+  sessionId?: string;
+  scope?: Partial<SessionScope>;
+} = {}) {
+  const params = sessionScopeQuery(options.scope);
+  params.set("max_depth", String(options.maxDepth || 10));
+  params.set("max_entries", String(options.maxEntries || 10000));
+  if (options.sessionId) {
+    params.set("session_id", options.sessionId);
+  }
+  return request<CodeEnvironmentWorkspaceTree>(`/code-environment/workspace-tree?${params.toString()}`);
 }
 
 export async function getSessionTimeline(sessionId: string, scope?: Partial<SessionScope>) {

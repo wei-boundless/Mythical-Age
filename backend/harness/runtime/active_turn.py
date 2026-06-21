@@ -100,8 +100,8 @@ class ActiveTurnRegistry:
             self._update(record, state="terminal", steerable=False, terminal_reason="bound_task_run_missing")
             return None
         status = str(getattr(task_run, "status", "") or "").strip()
-        control_state = runtime_control_state_from_task_run(task_run)
-        if is_stopped_or_terminal_task_run(task_run):
+        control_state = runtime_control_state_from_task_run(task_run, runtime_host=self.runtime_host)
+        if is_stopped_or_terminal_task_run(task_run, runtime_host=self.runtime_host):
             self._update(
                 record,
                 state="terminal",

@@ -3,7 +3,6 @@ from __future__ import annotations
 import inspect
 import time
 import uuid
-import asyncio
 from dataclasses import replace
 from typing import Any
 
@@ -145,7 +144,7 @@ class SubagentControl:
             },
         )
         self._append_event(task_run.task_run_id, "subagent_spawned", child_run=child_run, message=message)
-        self._append_child_task_run(
+        schedule_result = self._append_child_task_run(
             parent_task_run=task_run,
             child_task_run_id=child_task_run_id,
             child_agent_run=child_run,
@@ -156,6 +155,18 @@ class SubagentControl:
             expected_outputs=expected_outputs,
             runtime_assembly=runtime_assembly,
         )
+        if not bool(schedule_result.get("ok")):
+            return {
+                "ok": False,
+                "status": "blocked",
+                "error": str(schedule_result.get("error") or schedule_result.get("reason") or "subagent_schedule_failed"),
+                "subagent_run_ref": child_run.agent_run_id,
+                "subtask_run_ref": child_task_run_id,
+                "target_agent_id": normalized_target,
+                "message_ref": message.message_id,
+                "scheduler_status": str(schedule_result.get("scheduler_status") or "schedule_failed"),
+                "schedule": schedule_result,
+            }
         return {
             "ok": True,
             "status": child_run.status,
@@ -163,7 +174,9 @@ class SubagentControl:
             "subtask_run_ref": child_task_run_id,
             "target_agent_id": normalized_target,
             "message_ref": message.message_id,
-            "scheduler_status": "scheduled",
+            "scheduler_status": str(schedule_result.get("scheduler_status") or "scheduled"),
+            "run_cell_id": str(schedule_result.get("run_cell_id") or ""),
+            "agent_run_id": str(schedule_result.get("agent_run_id") or ""),
         }
 
     async def send_message(
@@ -394,7 +407,7 @@ class SubagentControl:
         context_refs: list[str],
         expected_outputs: list[str],
         runtime_assembly: dict[str, Any],
-    ) -> None:
+    ) -> dict[str, Any]:
         runtime_contract = dict(dict(parent_task_run.diagnostics or {}).get("runtime_contract") or {})
         runtime_profile = dict(runtime_contract.get("runtime_profile") or {})
         runtime_contract["runtime_profile"] = runtime_profile
@@ -454,51 +467,122 @@ class SubagentControl:
             },
         )
         self.runtime_host.state_index.upsert_task_run(child_task_run)
-        execute = _raw_service_callback(self.services, "execute_task_run_callback")
-        if not callable(execute):
-            return
+        schedule = _raw_service_callback(self.services, "schedule_task_run_executor_callback")
+        if not callable(schedule):
+            return self._mark_child_schedule_failed(
+                child_task_run_id=child_task_run_id,
+                child_agent_run=child_agent_run,
+                error="subagent_scheduler_unavailable",
+                schedule_result={},
+            )
+        try:
+            result = schedule(child_task_run_id, scheduler="subagent_control", max_steps=6)
+        except Exception as exc:
+            return self._mark_child_schedule_failed(
+                child_task_run_id=child_task_run_id,
+                child_agent_run=child_agent_run,
+                error=str(exc) or exc.__class__.__name__,
+                schedule_result={},
+            )
+        schedule_result = dict(result or {}) if isinstance(result, dict) else {}
+        if not bool(schedule_result.get("ok")):
+            return self._mark_child_schedule_failed(
+                child_task_run_id=child_task_run_id,
+                child_agent_run=child_agent_run,
+                error=str(schedule_result.get("reason") or schedule_result.get("error") or "subagent_schedule_failed"),
+                schedule_result=schedule_result,
+            )
+        self._append_message(
+            task_run_id=child_task_run_id,
+            parent_agent_run_ref=str(child_agent_run.parent_agent_run_ref),
+            subagent_run_ref=str(child_agent_run.agent_run_id),
+            direction="system",
+            message_type="status",
+            content="subagent task scheduled in isolated agent runtime cell",
+            refs={
+                "task_run_status": "waiting_executor",
+                "scheduler": "subagent_control",
+                "run_cell_id": str(schedule_result.get("run_cell_id") or ""),
+                "agent_run_id": str(schedule_result.get("agent_run_id") or ""),
+                "worker_backend": str(schedule_result.get("worker_backend") or ""),
+            },
+        )
+        return {
+            "ok": True,
+            "scheduler_status": str(schedule_result.get("reason") or "scheduled"),
+            "run_cell_id": str(schedule_result.get("run_cell_id") or ""),
+            "agent_run_id": str(schedule_result.get("agent_run_id") or ""),
+            "worker_backend": str(schedule_result.get("worker_backend") or ""),
+        }
 
-        async def _runner() -> None:
-            try:
-                result = execute(child_task_run_id, max_steps=6)
-                if hasattr(result, "__await__"):
-                    await result
-                latest_task_run = self.runtime_host.state_index.get_task_run(child_task_run_id)
-                if latest_task_run is not None:
-                    self._append_message(
-                        task_run_id=child_task_run_id,
-                        parent_agent_run_ref=str(child_agent_run.parent_agent_run_ref),
-                        subagent_run_ref=str(child_agent_run.agent_run_id),
-                        direction="system",
-                        message_type="status",
-                        content=_child_status_summary(latest_task_run),
-                        refs={
-                            "task_run_status": str(latest_task_run.status or ""),
-                            "terminal_reason": str(latest_task_run.terminal_reason or ""),
+    def _mark_child_schedule_failed(
+        self,
+        *,
+        child_task_run_id: str,
+        child_agent_run: AgentRun,
+        error: str,
+        schedule_result: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = time.time()
+        normalized_error = str(error or "subagent_schedule_failed").strip()
+        current_task = self.runtime_host.state_index.get_task_run(child_task_run_id)
+        if current_task is not None:
+            self.runtime_host.state_index.upsert_task_run(
+                replace(
+                    current_task,
+                    status="blocked",
+                    updated_at=now,
+                    terminal_reason="subagent_schedule_failed",
+                    diagnostics={
+                        **dict(getattr(current_task, "diagnostics", {}) or {}),
+                        "executor_status": "blocked",
+                        "executor_lease_state": "blocked",
+                        "latest_step": "subagent_schedule_failed",
+                        "latest_step_status": "blocked",
+                        "latest_step_summary": f"子 Agent 调度失败：{normalized_error}",
+                        "recoverable_error": {
+                            "error_code": "subagent_schedule_failed",
+                            "retryable": True,
+                            "detail": normalized_error,
                         },
-                    )
-            except Exception as exc:
-                self._append_message(
-                    task_run_id=child_task_run_id,
-                    parent_agent_run_ref=str(child_agent_run.parent_agent_run_ref),
-                    subagent_run_ref=str(child_agent_run.agent_run_id),
-                    direction="system",
-                    message_type="error",
-                    content=str(exc),
-                    refs={"error": str(exc)},
+                        "recovery_action": "rerun_task_executor",
+                    },
                 )
-                self.runtime_host.event_log.append(
-                    child_task_run_id,
-                    "subagent_executor_failed",
-                    payload={"task_run_id": child_task_run_id, "error": str(exc)},
-                    refs={"task_run_ref": child_task_run_id},
-                )
-
-        spawner = getattr(self.runtime_host, "spawn_background_task", None)
-        if callable(spawner):
-            spawner(_runner(), name=f"subagent-executor:{child_task_run_id}")
-            return
-        asyncio.create_task(_runner())
+            )
+        self.runtime_host.state_index.upsert_agent_run(
+            replace(
+                child_agent_run,
+                status="failed",
+                updated_at=now,
+                diagnostics={
+                    **dict(child_agent_run.diagnostics or {}),
+                    "terminal_reason": "subagent_schedule_failed",
+                    "schedule_error": normalized_error,
+                    "schedule_result": dict(schedule_result or {}),
+                },
+            )
+        )
+        self._append_message(
+            task_run_id=child_task_run_id,
+            parent_agent_run_ref=str(child_agent_run.parent_agent_run_ref),
+            subagent_run_ref=str(child_agent_run.agent_run_id),
+            direction="system",
+            message_type="error",
+            content=normalized_error,
+            refs={"error": normalized_error, "scheduler": "subagent_control"},
+        )
+        self.runtime_host.event_log.append(
+            child_task_run_id,
+            "subagent_schedule_failed",
+            payload={"task_run_id": child_task_run_id, "error": normalized_error, "schedule": dict(schedule_result or {})},
+            refs={"task_run_ref": child_task_run_id, "subagent_run_ref": child_agent_run.agent_run_id},
+        )
+        return {
+            "ok": False,
+            "scheduler_status": "schedule_failed",
+            "error": normalized_error,
+            "schedule": dict(schedule_result or {}),
+        }
 
 
 def _child_status_summary(task_run: Any) -> str:
@@ -511,24 +595,9 @@ def _child_status_summary(task_run: Any) -> str:
 
 def _canonical_agent_run_status(value: Any) -> str:
     status = str(value or "pending").strip()
-    aliases = {
-        "created": "pending",
-        "waiting_executor": "pending",
-        "waiting_approval": "running",
-        "blocked": "failed",
-        "aborted": "killed",
-        "cancelled": "killed",
-        "canceled": "killed",
-        "stopped": "killed",
-        "error": "failed",
-        "success": "completed",
-        "succeeded": "completed",
-        "done": "completed",
-    }
-    normalized = aliases.get(status, status)
-    if normalized not in {"pending", "running", "completed", "failed", "killed"}:
+    if status not in {"pending", "running", "completed", "failed", "killed"}:
         raise ValueError(f"AgentRun status must be canonical: {status}")
-    return normalized
+    return status
 
 
 def _request_child_task_run_stop(runtime_host: Any, *, child_task_run_id: str, reason: str) -> dict[str, Any]:
@@ -539,7 +608,7 @@ def _request_child_task_run_stop(runtime_host: Any, *, child_task_run_id: str, r
     if child_task is None:
         return {"ok": False, "error": "child_task_run_not_found", "task_run_id": task_run_id}
     status = str(getattr(child_task, "status", "") or "").strip()
-    if status in {"completed", "success", "failed", "aborted", "cancelled", "canceled", "error"}:
+    if status in {"completed", "failed", "aborted"}:
         return {"ok": True, "accepted": False, "task_run_id": task_run_id, "status": status}
     from harness.loop.task_executor import stop_task_run
 

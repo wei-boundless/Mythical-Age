@@ -157,15 +157,6 @@ _TASK_RUN_STOP_REQUESTED = "stop_requested"
 _TASK_RUN_STOPPED = "stopped"
 _TASK_RUN_REPLAN_REQUESTED = "replan_requested"
 _TASK_RUN_INTERRUPTED_FOR_REPLAN = "interrupted_for_replan"
-_TASK_RUN_CONTROL_STATES = {
-    _TASK_RUN_PAUSE_REQUESTED,
-    _TASK_RUN_PAUSED,
-    _TASK_RUN_RESUME_REQUESTED,
-    _TASK_RUN_STOP_REQUESTED,
-    _TASK_RUN_STOPPED,
-    _TASK_RUN_REPLAN_REQUESTED,
-    _TASK_RUN_INTERRUPTED_FOR_REPLAN,
-}
 
 
 class TaskRunExecutorInterrupted(Exception):
@@ -174,21 +165,56 @@ class TaskRunExecutorInterrupted(Exception):
         self.signal = signal
 
 
-def is_task_run_executable(task_run: Any) -> bool:
-    return recovery_state_for_task_run(task_run).executable
+def is_task_run_executable(task_run: Any, *, runtime_host: Any | None = None) -> bool:
+    return recovery_state_for_task_run(task_run, runtime_host=runtime_host).executable
 
 
-def is_task_run_executor_claimed(task_run: Any) -> bool:
-    return recovery_state_for_task_run(task_run).running_claimed
+def is_task_run_executor_claimed(task_run: Any, *, runtime_host: Any | None = None) -> bool:
+    return _active_task_run_executor_cell(runtime_host, task_run) is not None or _has_live_executor_control_record(runtime_host, task_run)
 
 
-def task_run_control_state(task_run: Any) -> str:
-    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    control = diagnostics.get(_TASK_RUN_CONTROL_KEY)
-    if not isinstance(control, dict):
+def _active_task_run_executor_cell(runtime_host: Any | None, task_run: Any) -> Any | None:
+    supervisor = getattr(runtime_host, "agent_run_supervisor", None) if runtime_host is not None else None
+    getter = getattr(supervisor, "active_cell_for_task_run", None)
+    if not callable(getter):
+        return None
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
+    if not task_run_id:
+        return None
+    session_id = str(getattr(task_run, "session_id", "") or "").strip()
+    try:
+        return getter(task_run_id, session_id=session_id)
+    except Exception:
+        return None
+
+
+def _has_live_executor_control_record(runtime_host: Any | None, task_run: Any) -> bool:
+    if runtime_host is None:
+        return False
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
+    if not task_run_id:
+        return False
+    registry = getattr(runtime_host, "_task_run_execution_control", None)
+    record = dict(registry or {}).get(task_run_id) if isinstance(registry, dict) else None
+    if record is None:
+        return False
+    model_task = getattr(record, "model_task", None)
+    if model_task is None:
+        return True
+    done = getattr(model_task, "done", None)
+    return not callable(done) or not bool(done())
+
+
+def _visible_task_run_control_state(task_run: Any, control: dict[str, Any], *, runtime_host: Any | None = None) -> str:
+    state = runtime_control_state_from_task_run(task_run, runtime_host=runtime_host, runtime_control=control)
+    if state in {_TASK_RUN_PAUSE_REQUESTED, _TASK_RUN_REPLAN_REQUESTED, _TASK_RUN_STOP_REQUESTED}:
+        signal_ref = str(control.get("runtime_control_signal_ref") or "").strip()
+        return state if signal_ref else ""
+    if state == _TASK_RUN_PAUSED and str(getattr(task_run, "status", "") or "") != "waiting_executor":
         return ""
-    state = str(control.get("state") or "").strip()
-    return state if state in _TASK_RUN_CONTROL_STATES else ""
+    if state == _TASK_RUN_INTERRUPTED_FOR_REPLAN and str(getattr(task_run, "status", "") or "") != "waiting_executor":
+        return ""
+    return state
 
 
 def _bind_active_turn_for_task_state(runtime_host: Any, task_run: Any, *, state: str) -> None:
@@ -215,14 +241,14 @@ def _bind_active_turn_for_task_state(runtime_host: Any, task_run: Any, *, state:
         return
 
 
-def _is_task_run_resumable_for_user_control(task_run: Any) -> bool:
-    return recovery_state_for_task_run(task_run).same_run_resumable
+def _is_task_run_resumable_for_user_control(task_run: Any, *, runtime_host: Any | None = None) -> bool:
+    return recovery_state_for_task_run(task_run, runtime_host=runtime_host).same_run_resumable
 
 
-def _task_run_terminal_conflict_reason(task_run: Any) -> str:
+def _task_run_terminal_conflict_reason(task_run: Any, *, runtime_host: Any | None = None) -> str:
     status = str(getattr(task_run, "status", "") or "").strip()
     terminal_reason = str(getattr(task_run, "terminal_reason", "") or "").strip()
-    control_state = runtime_control_state_from_task_run(task_run)
+    control_state = runtime_control_state_from_task_run(task_run, runtime_host=runtime_host)
     reason = terminal_reason or control_state or status or "unknown"
     return f"task_run_terminal:{reason}"
 
@@ -375,13 +401,18 @@ def request_task_run_pause(runtime_host: Any, task_run_id: str, *, reason: str =
     if _origin_kind(task_run) == "graph_node_assigned":
         return _conflict(task_run_id, "graph_node_task_run_controlled_by_graph_runtime")
     status = str(getattr(task_run, "status", "") or "")
-    if is_stopped_or_terminal_task_run(task_run):
-        return _conflict(task_run_id, _task_run_terminal_conflict_reason(task_run))
-    current_state = task_run_control_state(task_run)
+    if is_stopped_or_terminal_task_run(task_run, runtime_host=runtime_host):
+        return _conflict(task_run_id, _task_run_terminal_conflict_reason(task_run, runtime_host=runtime_host))
+    current_state = runtime_control_state_from_task_run(task_run, runtime_host=runtime_host)
     if status == "waiting_executor" and current_state == _TASK_RUN_PAUSED:
-        return {"ok": True, "accepted": True, "task_run": task_run.to_dict(), "control": _runtime_control_payload(task_run)}
+        return {"ok": True, "accepted": True, "task_run": task_run.to_dict(), "control": _runtime_control_payload(task_run, runtime_host=runtime_host)}
     now = time.time()
-    if status in {"created", "waiting_executor", "waiting_approval", "blocked"}:
+    executor_claimed = is_task_run_executor_claimed(task_run, runtime_host=runtime_host)
+    if not executor_claimed:
+        updated_status = "waiting_executor" if status in {"created", "running", "queued", "in_progress", "waiting_executor", "blocked"} else status
+        control_state = _TASK_RUN_PAUSED
+        latest_step_status = "waiting_executor" if updated_status == "waiting_executor" else str(updated_status or status)
+    elif status in {"created", "waiting_executor", "waiting_approval", "blocked"}:
         updated_status = "waiting_executor" if status in {"created", "waiting_executor", "blocked"} else status
         control_state = _TASK_RUN_PAUSED if updated_status == "waiting_executor" else _TASK_RUN_PAUSE_REQUESTED
         latest_step_status = "waiting_executor" if updated_status == "waiting_executor" else "waiting_approval"
@@ -411,27 +442,35 @@ def request_task_run_pause(runtime_host: Any, task_run_id: str, *, reason: str =
         },
         refs={"task_run_ref": task_run_id, **_executor_control_signal_trace_refs(control_signal)},
     )
+    updated_diagnostics = _diagnostics_with_runtime_control(
+        dict(task_run.diagnostics or {}),
+        state=control_state,
+        requested_by=requested_by,
+        requested_at=event.created_at or now,
+        reason=reason,
+        latest_step="task_run_pause_requested",
+        latest_step_status=latest_step_status,
+        latest_step_summary=(
+            "暂停请求已记录；当前步骤收口后任务会停在可继续状态。"
+            if control_state == _TASK_RUN_PAUSE_REQUESTED
+            else "任务已暂停，后续可以继续执行。"
+        ),
+        control_signal=control_signal,
+    )
+    if control_state == _TASK_RUN_PAUSED and updated_status == "waiting_executor":
+        updated_diagnostics = {
+            **_strip_runtime_lease_diagnostics(updated_diagnostics),
+            "executor_status": "waiting_executor",
+            "wait_reason": "user_paused",
+            "recovery_action": "resume_task_run",
+        }
     updated = replace(
         task_run,
         status=updated_status,  # type: ignore[arg-type]
         updated_at=event.created_at or now,
         latest_event_offset=event.offset,
         terminal_reason="" if updated_status == "waiting_executor" else getattr(task_run, "terminal_reason", ""),
-        diagnostics=_diagnostics_with_runtime_control(
-            dict(task_run.diagnostics or {}),
-            state=control_state,
-            requested_by=requested_by,
-            requested_at=event.created_at or now,
-            reason=reason,
-            latest_step="task_run_pause_requested",
-            latest_step_status=latest_step_status,
-            latest_step_summary=(
-                "暂停请求已记录；当前步骤收口后任务会停在可继续状态。"
-                if control_state == _TASK_RUN_PAUSE_REQUESTED
-                else "任务已暂停，后续可以继续执行。"
-            ),
-            control_signal=control_signal,
-        ),
+        diagnostics=updated_diagnostics,
     )
     runtime_host.state_index.upsert_task_run(updated)
     _bind_active_turn_for_task_state(
@@ -475,7 +514,7 @@ def request_task_run_pause(runtime_host: Any, task_run_id: str, *, reason: str =
             event_offset=event.offset,
             refs={"task_run_ref": task_run_id},
         )
-    return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "control": _runtime_control_payload(updated)}
+    return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "control": _runtime_control_payload(updated, runtime_host=runtime_host)}
 
 
 def resume_paused_task_run(
@@ -494,14 +533,14 @@ def resume_paused_task_run(
     if _origin_kind(task_run) == "graph_node_assigned":
         return _conflict(task_run_id, "graph_node_task_run_controlled_by_graph_runtime")
     status = str(getattr(task_run, "status", "") or "")
-    if is_stopped_or_terminal_task_run(task_run):
-        return _conflict(task_run_id, _task_run_terminal_conflict_reason(task_run))
+    if is_stopped_or_terminal_task_run(task_run, runtime_host=runtime_host):
+        return _conflict(task_run_id, _task_run_terminal_conflict_reason(task_run, runtime_host=runtime_host))
     if status == "waiting_approval" and matching_approval_grant_for_pending(task_run) is None:
         return _conflict(task_run_id, "task_run_waiting_approval_requires_grant")
-    if not _is_task_run_resumable_for_user_control(task_run):
+    if not _is_task_run_resumable_for_user_control(task_run, runtime_host=runtime_host):
         return _conflict(task_run_id, f"task_run_not_resumable:{status}")
     now = time.time()
-    recovery_state = recovery_state_for_task_run(task_run)
+    recovery_state = recovery_state_for_task_run(task_run, runtime_host=runtime_host)
     resume_status = "waiting_executor" if recovery_state.same_run_resumable else status
     resume_recovery_action = recovery_state.recovery_action or "resume_task_run"
     resume_recoverable = dict(dict(task_run.diagnostics or {}).get("recoverable_error") or {})
@@ -565,7 +604,7 @@ def resume_paused_task_run(
         event_offset=event.offset,
         refs={"task_run_ref": task_run_id, **({"turn_ref": turn_id} if turn_id else {})},
     )
-    return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "control": _runtime_control_payload(updated)}
+    return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "control": _runtime_control_payload(updated, runtime_host=runtime_host)}
 
 
 def stop_task_run(runtime_host: Any, task_run_id: str, *, reason: str = "", requested_by: str = "user") -> dict[str, Any]:
@@ -577,10 +616,10 @@ def stop_task_run(runtime_host: Any, task_run_id: str, *, reason: str = "", requ
     if _origin_kind(task_run) == "graph_node_assigned":
         return _conflict(task_run_id, "graph_node_task_run_controlled_by_graph_runtime")
     status = str(getattr(task_run, "status", "") or "")
-    if is_stopped_or_terminal_task_run(task_run):
-        return {"ok": True, "accepted": False, "task_run": task_run.to_dict(), "control": _runtime_control_payload(task_run)}
+    if is_stopped_or_terminal_task_run(task_run, runtime_host=runtime_host):
+        return {"ok": True, "accepted": False, "task_run": task_run.to_dict(), "control": _runtime_control_payload(task_run, runtime_host=runtime_host)}
     now = time.time()
-    executor_claimed = is_task_run_executor_claimed(task_run)
+    executor_claimed = is_task_run_executor_claimed(task_run, runtime_host=runtime_host)
     control_signal: ExecutorControlSignal | None = None
     if executor_claimed:
         control_signal = request_executor_control_signal(
@@ -628,7 +667,7 @@ def stop_task_run(runtime_host: Any, task_run_id: str, *, reason: str = "", requ
             status="running",
             summary="停止请求已记录；当前步骤收口后任务会结束。",
         )
-        return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "control": _runtime_control_payload(updated)}
+        return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "control": _runtime_control_payload(updated, runtime_host=runtime_host)}
     updated, lifecycle, finished_event = _finish_user_stopped_task(
         runtime_host,
         task_run=replace(
@@ -661,7 +700,7 @@ def stop_task_run(runtime_host: Any, task_run_id: str, *, reason: str = "", requ
         "task_run": updated.to_dict(),
         "lifecycle": lifecycle.to_dict(),
         "event": finished_event,
-        "control": _runtime_control_payload(updated),
+        "control": _runtime_control_payload(updated, runtime_host=runtime_host),
     }
 
 
@@ -681,12 +720,12 @@ def append_user_work_instruction(
         return _conflict(task_run_id, "not_single_agent_task_run")
     if _origin_kind(task_run) == "graph_node_assigned":
         return _conflict(task_run_id, "graph_node_task_run_controlled_by_graph_runtime")
-    if is_stopped_or_terminal_task_run(task_run):
-        return _conflict(task_run_id, _task_run_terminal_conflict_reason(task_run))
+    if is_stopped_or_terminal_task_run(task_run, runtime_host=runtime_host):
+        return _conflict(task_run_id, _task_run_terminal_conflict_reason(task_run, runtime_host=runtime_host))
     instruction = str(content or "").strip()
     if not instruction:
         return _conflict(task_run_id, "user_work_instruction_empty")
-    if is_task_run_executor_claimed(task_run) and not callable(getattr(getattr(runtime_host, "runtime_gateway", None), "publish", None)):
+    if is_task_run_executor_claimed(task_run, runtime_host=runtime_host) and not callable(getattr(getattr(runtime_host, "runtime_gateway", None), "publish", None)):
         return _conflict(task_run_id, "runtime_gateway_control_signal_unavailable")
     result = create_active_task_steer(
         runtime_host,
@@ -702,7 +741,7 @@ def append_user_work_instruction(
         return result
     updated = runtime_host.state_index.get_task_run(task_run_id) or task_run
     steer_ref = str(dict(result.get("steer") or {}).get("steer_id") or "")
-    if is_task_run_executor_claimed(updated):
+    if is_task_run_executor_claimed(updated, runtime_host=runtime_host):
         control_signal = request_executor_control_signal(
             runtime_host,
             task_run_id=task_run_id,
@@ -788,9 +827,11 @@ async def execute_task_run(
     control_result = _apply_runtime_control_boundary(runtime_host, task_run=task_run, agent_run=None, boundary="executor_start")
     if control_result is not None:
         return control_result
-    if is_task_run_executor_claimed(task_run):
-        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-        executor_status = str(diagnostics.get("executor_status") or "")
+    active_executor_cell = _active_task_run_executor_cell(runtime_host, task_run)
+    live_executor_claimed = active_executor_cell is not None or _has_live_executor_control_record(runtime_host, task_run)
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    executor_status = str(diagnostics.get("executor_status") or "")
+    if active_executor_cell is not None:
         if executor_status == "running":
             recovered = _recover_stale_graph_node_executor_claim(
                 runtime_host,
@@ -800,11 +841,15 @@ async def execute_task_run(
             if recovered is None:
                 return _conflict(task_run_id, "task_run_executor_already_running")
             task_run = recovered
-        elif executor_status == "scheduled":
-            pass
-        else:
-            return _conflict(task_run_id, "task_run_executor_already_running")
-    if not is_task_run_executable(task_run) and not is_task_run_executor_claimed(task_run):
+    elif executor_status == "running":
+        recovered = _recover_stale_graph_node_executor_claim(
+            runtime_host,
+            task_run=task_run,
+            graph_node_authorization=graph_node_authorization,
+        )
+        if recovered is not None:
+            task_run = recovered
+    if not is_task_run_executable(task_run, runtime_host=runtime_host) and not live_executor_claimed:
         if not _authorized_graph_node_executor_resume(task_run, authorization=graph_node_authorization):
             return _conflict(task_run_id, f"task_run_not_executable:{task_run.status}")
     elif graph_node_authorization is not None and not _authorized_graph_node_executor_resume(task_run, authorization=graph_node_authorization):
@@ -2743,15 +2788,8 @@ def _record_pending_runtime_control_signal_for_agent(
             executor_epoch=executor_epoch,
         )
     if signal is None:
-        signal = _executor_control_signal_from_task_run_with_gateway_backfill(
-            runtime_host,
-            latest_task,
-            executor_epoch=executor_epoch,
-            default_reason=boundary or "runtime_control_signal",
-        )
-    if signal is None:
         return None
-    fingerprint = _runtime_control_signal_fingerprint(latest_task, signal=signal)
+    fingerprint = _runtime_control_signal_fingerprint(latest_task, signal=signal, runtime_host=runtime_host)
     if _runtime_control_signal_already_delivered(latest_task, signal=signal, fingerprint=fingerprint):
         clear_executor_signal(
             runtime_host,
@@ -2806,6 +2844,7 @@ def _record_pending_runtime_control_signal_for_agent(
             "recorded": False,
         }
     observation = _runtime_control_signal_observation(
+        runtime_host=runtime_host,
         task_run=latest_task,
         signal=signal,
         packet_ref=packet_ref,
@@ -2829,7 +2868,7 @@ def _record_pending_runtime_control_signal_for_agent(
     event = runtime_host.event_log.append(
         latest_task.task_run_id,
         "task_runtime_control_signal_observed",
-        payload={"observation": observation, "control": _runtime_control_payload(latest_task)},
+        payload={"observation": observation, "control": _runtime_control_payload(latest_task, runtime_host=runtime_host)},
         refs={
             "task_run_ref": latest_task.task_run_id,
             "observation_ref": observation["observation_id"],
@@ -2888,6 +2927,7 @@ def _record_pending_runtime_control_signal_for_agent(
 
 def _runtime_control_signal_observation(
     *,
+    runtime_host: Any | None = None,
     task_run: Any,
     signal: ExecutorControlSignal,
     packet_ref: str,
@@ -2895,8 +2935,8 @@ def _runtime_control_signal_observation(
     step_index: int,
     fingerprint: str,
 ) -> dict[str, Any]:
-    control = _runtime_control_payload(task_run)
-    state = str(control.get("state") or task_run_control_state(task_run) or "").strip()
+    control = _runtime_control_payload(task_run, runtime_host=runtime_host)
+    state = str(control.get("state") or "").strip()
     kind = str(signal.kind or "").strip()
     if kind == "stop":
         instruction = (
@@ -3156,14 +3196,14 @@ def _mark_replan_control_signals_consumed_by_model_action(
     return result
 
 
-def _runtime_control_signal_fingerprint(task_run: Any, *, signal: ExecutorControlSignal) -> str:
-    control = _runtime_control_payload(task_run)
+def _runtime_control_signal_fingerprint(task_run: Any, *, signal: ExecutorControlSignal, runtime_host: Any | None = None) -> str:
+    control = _runtime_control_payload(task_run, runtime_host=runtime_host)
     return "sha256:" + _stable_hash(
         {
             "task_run_id": str(getattr(task_run, "task_run_id", "") or signal.task_run_id or ""),
             "executor_epoch": int(signal.executor_epoch or 0),
             "kind": str(signal.kind or ""),
-            "state": str(control.get("state") or task_run_control_state(task_run) or ""),
+            "state": str(control.get("state") or ""),
             "requested_by": str(control.get("requested_by") or signal.requested_by or ""),
             "requested_at": float(control.get("requested_at") or signal.requested_at or 0.0),
             "reason": str(control.get("reason") or signal.reason or ""),
@@ -3186,10 +3226,10 @@ def _runtime_control_signal_already_delivered(
     if not isinstance(control, dict):
         return False
     return (
-        str(control.get("agent_signal_ref") or "").strip() == signal_ref
-        and str(control.get("agent_signal_fingerprint") or "") == fingerprint
-        and str(control.get("agent_signal_kind") or "") == str(signal.kind or "")
-        and bool(str(control.get("agent_signal_observation_ref") or "").strip())
+        str(control.get("runtime_control_signal_ref") or "").strip() == signal_ref
+        and str(control.get("runtime_control_signal_fingerprint") or "") == fingerprint
+        and str(control.get("runtime_control_signal_kind") or "") == str(signal.kind or "")
+        and bool(str(control.get("runtime_control_signal_observation_ref") or "").strip())
     )
 
 
@@ -3236,21 +3276,34 @@ def _mark_runtime_control_signal_delivered(
     now = float(observation.get("created_at") or time.time())
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     control = dict(diagnostics.get(_TASK_RUN_CONTROL_KEY) or {})
-    if control or task_run_control_state(task_run):
+    signal_ref = str(getattr(signal, "signal_id", "") or "").strip()
+    event_ref = str(getattr(signal, "control_event_ref", "") or "").strip()
+    signal_state = {
+        "pause": _TASK_RUN_PAUSE_REQUESTED,
+        "replan": _TASK_RUN_REPLAN_REQUESTED,
+        "stop": _TASK_RUN_STOP_REQUESTED,
+    }.get(str(signal.kind or "").strip(), "")
+    signal_control = {
+        **control,
+        "state": signal_state or str(control.get("state") or ""),
+        **({"runtime_control_signal_ref": signal_ref} if signal_ref else {}),
+        **({"runtime_control_event_ref": event_ref} if event_ref else {}),
+    }
+    visible_state = _visible_task_run_control_state(task_run, signal_control, runtime_host=runtime_host)
+    if signal_ref or control or visible_state:
         control = {
-            **control,
-            "state": str(control.get("state") or task_run_control_state(task_run) or ""),
+            **signal_control,
+            "state": visible_state,
             "requested_by": str(control.get("requested_by") or signal.requested_by or "system"),
             "requested_at": float(control.get("requested_at") or signal.requested_at or now),
             "reason": str(control.get("reason") or signal.reason or ""),
             "authority": "orchestration.task_run_control",
-            "agent_signal_kind": str(signal.kind or ""),
-            "agent_signal_ref": str(getattr(signal, "signal_id", "") or ""),
-            "agent_signal_fingerprint": fingerprint,
-            "agent_signal_observation_ref": str(observation.get("observation_id") or ""),
-            "agent_signal_requested_at": float(control.get("requested_at") or signal.requested_at or now),
-            "agent_signal_delivered_at": now,
-            "agent_signal_boundary": str(boundary or ""),
+            "runtime_control_signal_kind": str(signal.kind or ""),
+            "runtime_control_signal_fingerprint": fingerprint,
+            "runtime_control_signal_observation_ref": str(observation.get("observation_id") or ""),
+            "runtime_control_signal_requested_at": float(control.get("requested_at") or signal.requested_at or now),
+            "runtime_control_signal_delivered_at": now,
+            "runtime_control_signal_boundary": str(boundary or ""),
         }
         diagnostics[_TASK_RUN_CONTROL_KEY] = control
     diagnostics.update(
@@ -3685,7 +3738,7 @@ async def _invoke_task_model_action(
         turn_id=task_run_id,
         require_public_progress_note=True,
         require_public_action_state=True,
-        public_response_required=True,
+        public_response_required=False,
         allowed_action_types=tuple(getattr(packet, "allowed_action_types", ()) or ()),
     )
     if action_request is None:
@@ -3971,14 +4024,6 @@ async def _execute_task_tool_call(
         runtime_host,
         task_run=latest_task_run,
         executor_epoch=executor_epoch,
-    )
-    if signal is not None:
-        raise TaskRunExecutorInterrupted(signal)
-    signal = _executor_control_signal_from_task_run_with_gateway_backfill(
-        runtime_host,
-        latest_task_run,
-        executor_epoch=executor_epoch,
-        default_reason="before_tool_execution",
     )
     if signal is not None:
         raise TaskRunExecutorInterrupted(signal)
@@ -5039,7 +5084,6 @@ def _finish_specialist_runtime_execution(
         diagnostics={
             **dict(task_run.diagnostics or {}),
             "artifact_refs": artifact_refs,
-            "final_answer": summary,
             "specialist_runtime": task_runtime_diagnostics,
             "specialist_result_ref": result_ref,
             "execution_result_status": closeout_status,
@@ -5069,7 +5113,6 @@ def _finish_specialist_runtime_execution(
             task_candidate,
             diagnostics={
                 **dict(task_candidate.diagnostics or {}),
-                "output_commit": dict(output_commit),
                 "output_commit_status": _commit_receipt_status(output_commit),
             },
         )
@@ -5159,7 +5202,6 @@ def _finish_executor_success(
         diagnostics={
             **dict(task_run.diagnostics or {}),
             "artifact_refs": artifact_refs,
-            "final_answer": final_answer,
             "final_action_diagnostics": dict(final_action_diagnostics or {}),
             "execution_result_status": "completed",
         },
@@ -5185,7 +5227,6 @@ def _finish_executor_success(
             success_task,
             diagnostics={
                 **dict(success_task.diagnostics or {}),
-                "output_commit": dict(commit_receipt),
                 "output_commit_status": "committed",
             },
         ),
@@ -5269,7 +5310,7 @@ def _finish_executor_agent_controlled_runtime_boundary(
         terminal_reason = f"runtime_control_{signal_kind or 'signal'}"
         agent_status = "failed"
         result_status = "failed"
-        control_state = str(payload.get("runtime_control_state") or task_run_control_state(task_run) or "")
+        control_state = str(payload.get("runtime_control_state") or "")
         executor_status = "waiting_executor"
         recovery_action = "rerun_task_executor"
         rollout_title = "等待调整"
@@ -5277,7 +5318,7 @@ def _finish_executor_agent_controlled_runtime_boundary(
         latest_step = "task_run_agent_controlled_runtime_boundary"
         latest_summary = "agent 已根据运行控制信号完成当前边界收口。"
 
-    control = _runtime_control_payload(task_run)
+    control = _runtime_control_payload(task_run, runtime_host=runtime_host)
     diagnostics = _diagnostics_with_runtime_control(
         _strip_terminal_diagnostics(dict(task_run.diagnostics or {})),
         state=control_state,
@@ -5292,7 +5333,6 @@ def _finish_executor_agent_controlled_runtime_boundary(
         {
             "executor_status": executor_status,
             "artifact_refs": artifact_refs,
-            "final_answer": final_answer,
             "final_action_diagnostics": dict(getattr(action_request, "diagnostics", {}) or {}),
             "agent_controlled_runtime_boundary": {
                 "signal_kind": signal_kind,
@@ -5369,7 +5409,6 @@ def _finish_executor_agent_controlled_runtime_boundary(
         )
         diagnostics = {
             **dict(diagnostics),
-            "output_commit": dict(output_commit),
             "output_commit_status": _commit_receipt_status(output_commit),
         }
         task_candidate = replace(task_candidate, diagnostics=diagnostics)
@@ -5522,15 +5561,16 @@ def _commit_task_run_final_message(
     result = authority.commit_sync(
         request,
         committer=committer,
-        before_checked=lambda prepared: _record_task_assistant_text_final(
+    )
+    if str(result.receipt.get("state") or result.receipt.get("status") or "") == "committed":
+        _record_task_assistant_text_final(
             runtime_host,
             task_run=task_run,
-            content=prepared.commit_content,
-            decision=prepared.decision,
+            content=result.decision.content,
+            decision=result.decision,
             completion_state=completion_state,
             terminal_reason=terminal_reason,
-        ),
-    )
+        )
     return dict(result.receipt)
 
 
@@ -5692,10 +5732,8 @@ def _finish_executor_output_commit_failure(
             task_run,
             diagnostics={
                 **dict(getattr(task_run, "diagnostics", {}) or {}),
-                "final_answer": final_answer,
                 "artifact_refs": artifact_refs,
                 "execution_result_status": "completed",
-                "output_commit": dict(commit_receipt),
                 "output_commit_status": status,
                 "output_commit_failure_reason": reason,
             },
@@ -5844,7 +5882,8 @@ def _executor_public_terminal_reason(reason: str) -> str:
         "waiting_executor": "等待继续",
         "waiting_user": "等待你的确认",
         "waiting_approval": "等待权限确认",
-        "background_executor_missing_after_restart": "连接恢复后需要重新接续运行",
+        "runtime_cell_missing_after_restart": "连接恢复后需要重新接续运行",
+        "runtime_cell_cancelled": "运行已停止",
         "completed": "已完成",
         "failed": "运行中断",
         "blocked": "处理遇到阻塞",
@@ -6040,155 +6079,12 @@ def _pause_executor_for_model_recovery(
 
 def _apply_runtime_control_boundary(runtime_host: Any, *, task_run: Any, agent_run: Any | None, boundary: str) -> dict[str, Any] | None:
     current = runtime_host.state_index.get_task_run(task_run.task_run_id) or task_run
-    recovery_state = recovery_state_for_task_run(current)
+    recovery_state = recovery_state_for_task_run(current, runtime_host=runtime_host)
     if recovery_state.stopped:
-        if task_run_control_state(current) == _TASK_RUN_STOP_REQUESTED:
+        if recovery_state.control_state == _TASK_RUN_STOP_REQUESTED:
             return None
         return _stop_executor_for_terminal_control(runtime_host, task_run=current, agent_run=agent_run, boundary=boundary)
     return None
-
-
-def _executor_control_signal_from_task_run(
-    task_run: Any,
-    *,
-    executor_epoch: int,
-    default_reason: str,
-) -> ExecutorControlSignal | None:
-    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    state = task_run_control_state(task_run)
-    recovery_state = recovery_state_for_task_run(task_run)
-    if recovery_state.stopped or state in {_TASK_RUN_STOP_REQUESTED, _TASK_RUN_STOPPED}:
-        kind = "stop"
-    elif state in {_TASK_RUN_PAUSE_REQUESTED, _TASK_RUN_PAUSED}:
-        kind = "pause"
-    elif state in {_TASK_RUN_REPLAN_REQUESTED, _TASK_RUN_INTERRUPTED_FOR_REPLAN}:
-        kind = "replan"
-    else:
-        return None
-    control = _runtime_control_payload(task_run)
-    raw_control = diagnostics.get(_TASK_RUN_CONTROL_KEY)
-    control_refs = dict(raw_control or {}) if isinstance(raw_control, dict) else {}
-    signal = ExecutorControlSignal(
-        kind=kind,  # type: ignore[arg-type]
-        task_run_id=str(getattr(task_run, "task_run_id", "") or ""),
-        executor_epoch=int(executor_epoch or 0),
-        reason=str(control.get("reason") or default_reason),
-        requested_by=str(control.get("requested_by") or "system"),
-        requested_at=float(control.get("requested_at") or time.time()),
-        steer_ref=str(control.get("steer_ref") or diagnostics.get("latest_user_steer_ref") or ""),
-        signal_id=str(control_refs.get("runtime_control_signal_ref") or control_refs.get("agent_signal_ref") or ""),
-        control_event_ref=str(control_refs.get("runtime_control_event_ref") or control_refs.get("agent_signal_event_ref") or ""),
-    )
-    if _runtime_control_signal_already_delivered(
-        task_run,
-        signal=signal,
-        fingerprint=_runtime_control_signal_fingerprint(task_run, signal=signal),
-    ):
-        return None
-    return signal
-
-
-def _executor_control_signal_from_task_run_with_gateway_backfill(
-    runtime_host: Any,
-    task_run: Any,
-    *,
-    executor_epoch: int,
-    default_reason: str,
-) -> ExecutorControlSignal | None:
-    signal = _executor_control_signal_from_task_run(
-        task_run,
-        executor_epoch=executor_epoch,
-        default_reason=default_reason,
-    )
-    if signal is None or signal.signal_id:
-        return signal
-    backfilled = _publish_runtime_control_signal_backfill(runtime_host, task_run=task_run, signal=signal)
-    return backfilled
-
-
-def _publish_runtime_control_signal_backfill(
-    runtime_host: Any,
-    *,
-    task_run: Any,
-    signal: ExecutorControlSignal,
-) -> ExecutorControlSignal | None:
-    runtime_gateway = getattr(runtime_host, "runtime_gateway", None)
-    publish = getattr(runtime_gateway, "publish", None)
-    if not callable(publish):
-        return None
-    task_run_id = str(getattr(task_run, "task_run_id", "") or signal.task_run_id or "")
-    if not task_run_id:
-        return None
-    signal_id = _runtime_control_backfill_signal_id(
-        task_run=task_run,
-        signal=signal,
-    )
-    try:
-        event = publish(
-            task_run_id,
-            signal_type="control.signal.requested",
-            signal_id=signal_id,
-            scope=_runtime_signal_scope_for_task_run(task_run),
-            source_authority="harness.loop.task_executor.runtime_control_backfill",
-            payload={
-                "signal_kind": str(signal.kind or ""),
-                "task_run_id": task_run_id,
-                "executor_epoch": int(signal.executor_epoch or 0),
-                "reason": str(signal.reason or ""),
-                "requested_by": str(signal.requested_by or "system"),
-                "requested_at": float(signal.requested_at or time.time()),
-                "steer_ref": str(signal.steer_ref or ""),
-                "adapter": "task_run_diagnostics_backfill",
-            },
-            visibility="runtime_private",
-            refs={
-                "task_run_ref": task_run_id,
-                **({"steer_ref": str(signal.steer_ref or "")} if str(signal.steer_ref or "").strip() else {}),
-            },
-        )
-    except Exception:
-        return None
-    signal_payload = dict(dict(getattr(event, "payload", {}) or {}).get("signal") or {})
-    signal_id = str(signal_payload.get("signal_id") or "")
-    if not signal_id:
-        return None
-    return ExecutorControlSignal(
-        kind=signal.kind,
-        task_run_id=task_run_id,
-        executor_epoch=int(signal.executor_epoch or 0),
-        reason=str(signal.reason or ""),
-        requested_by=str(signal.requested_by or "system"),
-        requested_at=float(signal.requested_at or time.time()),
-        steer_ref=str(signal.steer_ref or ""),
-        signal_id=signal_id,
-        control_event_ref=str(getattr(event, "event_id", "") or ""),
-    )
-
-
-def _runtime_control_backfill_signal_id(
-    *,
-    task_run: Any,
-    signal: ExecutorControlSignal,
-) -> str:
-    task_run_id = str(getattr(task_run, "task_run_id", "") or signal.task_run_id or "taskrun").strip()
-    kind = str(signal.kind or "control").strip() or "control"
-    fingerprint = _runtime_control_signal_fingerprint(task_run, signal=signal)
-    digest = "".join(ch for ch in fingerprint if ch.isalnum())[-20:] or _stable_hash(
-        {
-            "task_run_id": task_run_id,
-            "kind": kind,
-            "executor_epoch": int(signal.executor_epoch or 0),
-        }
-    )[:20]
-    safe_task = _runtime_control_signal_ref_fragment(task_run_id)
-    safe_kind = _runtime_control_signal_ref_fragment(kind)
-    return f"control-backfill:{safe_task}:{safe_kind}:{digest}"
-
-
-def _runtime_control_signal_ref_fragment(value: str) -> str:
-    fragment = "".join(ch if ch.isalnum() else "-" for ch in str(value or "").strip().lower())
-    fragment = "-".join(part for part in fragment.split("-") if part)
-    return fragment[:64] or "runtime-control"
 
 
 def _executor_control_signal_from_boundary_result(
@@ -6197,13 +6093,6 @@ def _executor_control_signal_from_boundary_result(
     task_run: Any,
     executor_epoch: int,
 ) -> ExecutorControlSignal:
-    signal = _executor_control_signal_from_task_run(
-        task_run,
-        executor_epoch=executor_epoch,
-        default_reason=str(result.get("error") or result.get("reason") or "runtime_control_boundary"),
-    )
-    if signal is not None:
-        return signal
     error = str(result.get("error") or result.get("reason") or "").strip()
     kind = "stop"
     if error == "task_run_paused":
@@ -6228,7 +6117,11 @@ def _stop_executor_for_terminal_control(runtime_host: Any, *, task_run: Any, age
                     agent_run,
                     status="killed",
                     updated_at=time.time(),
-                    diagnostics={**dict(agent_run.diagnostics or {}), "terminal_reason": "user_aborted", "runtime_control": _runtime_control_payload(task_run)},
+                    diagnostics={
+                        **dict(agent_run.diagnostics or {}),
+                        "terminal_reason": "user_aborted",
+                        "runtime_control": _runtime_control_payload(task_run, runtime_host=runtime_host),
+                    },
                 )
             )
         return {"ok": False, "task_run": task_run.to_dict(), "error": "user_aborted", "boundary": boundary}
@@ -6237,18 +6130,19 @@ def _stop_executor_for_terminal_control(runtime_host: Any, *, task_run: Any, age
 
 def _pause_executor_for_user_control(runtime_host: Any, *, task_run: Any, agent_run: Any | None, boundary: str) -> dict[str, Any]:
     now = time.time()
+    control = _runtime_control_payload(task_run, runtime_host=runtime_host)
     event = runtime_host.event_log.append(
         task_run.task_run_id,
         "task_run_paused",
-        payload={"task_run_id": task_run.task_run_id, "boundary": boundary, "control": _runtime_control_payload(task_run)},
+        payload={"task_run_id": task_run.task_run_id, "boundary": boundary, "control": control},
         refs={"task_run_ref": task_run.task_run_id},
     )
     diagnostics = _diagnostics_with_runtime_control(
         _strip_terminal_diagnostics(dict(task_run.diagnostics or {})),
         state=_TASK_RUN_PAUSED,
-        requested_by=str(_runtime_control_payload(task_run).get("requested_by") or "user"),
-        requested_at=float(_runtime_control_payload(task_run).get("requested_at") or now),
-        reason=str(_runtime_control_payload(task_run).get("reason") or ""),
+        requested_by=str(control.get("requested_by") or "user"),
+        requested_at=float(control.get("requested_at") or now),
+        reason=str(control.get("reason") or ""),
         latest_step="task_run_paused",
         latest_step_status="waiting_executor",
         latest_step_summary="已在安全边界暂停，后续可以从这里继续。",
@@ -6274,7 +6168,11 @@ def _pause_executor_for_user_control(runtime_host: Any, *, task_run: Any, agent_
                 agent_run,
                 status="failed",
                 updated_at=event.created_at or now,
-                diagnostics={**dict(agent_run.diagnostics or {}), "terminal_reason": "user_paused", "runtime_control": _runtime_control_payload(paused_task)},
+                diagnostics={
+                    **dict(agent_run.diagnostics or {}),
+                    "terminal_reason": "user_paused",
+                    "runtime_control": _runtime_control_payload(paused_task, runtime_host=runtime_host),
+                },
             )
         )
     _record_task_step_summary(
@@ -6299,7 +6197,7 @@ def _pause_executor_for_user_control(runtime_host: Any, *, task_run: Any, agent_
 
 def _stop_executor_for_user_control(runtime_host: Any, *, task_run: Any, agent_run: Any | None, boundary: str) -> dict[str, Any]:
     now = time.time()
-    control = _runtime_control_payload(task_run)
+    control = _runtime_control_payload(task_run, runtime_host=runtime_host)
     event = runtime_host.event_log.append(
         task_run.task_run_id,
         "task_run_stopped",
@@ -6330,7 +6228,11 @@ def _stop_executor_for_user_control(runtime_host: Any, *, task_run: Any, agent_r
                 agent_run,
                 status="killed",
                 updated_at=event.created_at or now,
-                diagnostics={**dict(agent_run.diagnostics or {}), "terminal_reason": "user_aborted", "runtime_control": _runtime_control_payload(stopped_task)},
+                diagnostics={
+                    **dict(agent_run.diagnostics or {}),
+                    "terminal_reason": "user_aborted",
+                    "runtime_control": _runtime_control_payload(stopped_task, runtime_host=runtime_host),
+                },
             )
         )
     finished_task, finished_lifecycle, finished_event = _finish_user_stopped_task(
@@ -6363,7 +6265,7 @@ def _replan_executor_for_user_control(
     signal: ExecutorControlSignal | None,
 ) -> dict[str, Any]:
     now = time.time()
-    control = _runtime_control_payload(task_run)
+    control = _runtime_control_payload(task_run, runtime_host=runtime_host)
     requested_by = str(control.get("requested_by") or getattr(signal, "requested_by", "") or "user")
     requested_at = float(control.get("requested_at") or getattr(signal, "requested_at", 0.0) or now)
     reason = str(control.get("reason") or getattr(signal, "reason", "") or "conversation_steer_while_running")
@@ -6413,7 +6315,7 @@ def _replan_executor_for_user_control(
                 diagnostics={
                     **dict(agent_run.diagnostics or {}),
                     "terminal_reason": "user_interrupt_replan_required",
-                    "runtime_control": _runtime_control_payload(paused_task),
+                    "runtime_control": _runtime_control_payload(paused_task, runtime_host=runtime_host),
                     "recoverable_error": recoverable_error,
                 },
             )
@@ -6442,12 +6344,13 @@ def _replan_executor_for_user_control(
 
 def _finish_user_stopped_task(runtime_host: Any, *, task_run: Any, reason: str = "") -> tuple[Any, TaskLifecycleRecord, dict[str, Any]]:
     lifecycle = _load_lifecycle(runtime_host, task_run)
+    control = _runtime_control_payload(task_run, runtime_host=runtime_host)
     stopped_diagnostics = _diagnostics_with_runtime_control(
         _strip_runtime_lease_diagnostics(dict(task_run.diagnostics or {})),
         state=_TASK_RUN_STOPPED,
-        requested_by=str(_runtime_control_payload(task_run).get("requested_by") or "user"),
-        requested_at=float(_runtime_control_payload(task_run).get("requested_at") or time.time()),
-        reason=reason or str(_runtime_control_payload(task_run).get("reason") or ""),
+        requested_by=str(control.get("requested_by") or "user"),
+        requested_at=float(control.get("requested_at") or time.time()),
+        reason=reason or str(control.get("reason") or ""),
         latest_step="task_run_stopped",
         latest_step_status="aborted",
         latest_step_summary="任务已按用户要求停止。",
@@ -6798,7 +6701,7 @@ def _pause_executor_for_step_budget(runtime_host: Any, *, task_run: Any, agent_r
     signal_event = runtime_host.event_log.append(
         task_run.task_run_id,
         "task_runtime_control_signal_observed",
-        payload={"observation": observation, "control": _runtime_control_payload(paused_task)},
+        payload={"observation": observation, "control": _runtime_control_payload(paused_task, runtime_host=runtime_host)},
         refs={
             "task_run_ref": task_run.task_run_id,
             "observation_ref": observation["observation_id"],
@@ -7226,6 +7129,7 @@ def _record_late_task_tool_observation_rejected(
     if callable(recorder):
         return recorder(
             task_run_id=str(scope.get("task_run_id") or getattr(task_run, "task_run_id", "") or ""),
+            session_id=str(scope.get("session_id") or getattr(task_run, "session_id", "") or ""),
             agent_run_id=str(scope.get("agent_run_id") or ""),
             run_cell_id=str(scope.get("run_cell_id") or ""),
             event_kind="tool_observation",
@@ -7484,7 +7388,6 @@ def _runtime_control_signal_projection_from_observations(
             {
                 "observation_ref": str(observation.get("observation_id") or ""),
                 "runtime_control_signal_ref": signal_ref,
-                "signal_id": signal_ref,
                 "signal_kind": str(payload.get("signal_kind") or ""),
                 "runtime_control_state": str(payload.get("runtime_control_state") or ""),
                 "requested_by": str(payload.get("requested_by") or ""),
@@ -8341,15 +8244,16 @@ def _strip_runtime_lease_diagnostics(diagnostics: dict[str, Any]) -> dict[str, A
     return payload
 
 
-def _runtime_control_payload(task_run: Any) -> dict[str, Any]:
+def _runtime_control_payload(task_run: Any, *, runtime_host: Any | None = None) -> dict[str, Any]:
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     control = diagnostics.get(_TASK_RUN_CONTROL_KEY)
     if not isinstance(control, dict):
         return {}
-    signal_ref = str(control.get("runtime_control_signal_ref") or control.get("agent_signal_ref") or "").strip()
-    event_ref = str(control.get("runtime_control_event_ref") or control.get("agent_signal_event_ref") or "").strip()
+    signal_ref = str(control.get("runtime_control_signal_ref") or "").strip()
+    event_ref = str(control.get("runtime_control_event_ref") or "").strip()
+    state = _visible_task_run_control_state(task_run, control, runtime_host=runtime_host)
     return {
-        "state": task_run_control_state(task_run),
+        "state": state,
         "requested_by": str(control.get("requested_by") or ""),
         "requested_at": float(control.get("requested_at") or 0.0),
         "reason": str(control.get("reason") or ""),

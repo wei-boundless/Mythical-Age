@@ -93,7 +93,7 @@ def activity_state(item: dict[str, Any]) -> ActivityState:
     lifecycle = _text(item.get("lifecycle"))
     bucket = _text(item.get("bucket"))
     terminal_reason = _text(item.get("terminal_reason"))
-    control_state = _text(item.get("control_state") or dict(item.get("runtime_control") or {}).get("state"))
+    control_state = _text(item.get("control_state"))
 
     if _is_user_stopped(status=status, terminal_reason=terminal_reason, control_state=control_state):
         return "stopped"
@@ -175,7 +175,7 @@ def _is_resumable(
         return bool(capability.get("can_resume_task")), str(capability.get("control_reason") or "control_capability")
     if "is_resumable" in capability:
         return bool(capability.get("is_resumable")), str(capability.get("control_reason") or "control_capability")
-    control_state = _text(item.get("control_state") or dict(item.get("runtime_control") or {}).get("state"))
+    control_state = _text(item.get("control_state"))
     if control_state == "paused" or _text(item.get("status")) == "paused":
         return True, "paused_task"
     return False, "not_resumable"

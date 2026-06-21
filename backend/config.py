@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
 import threading
 from dataclasses import dataclass
 from functools import lru_cache
@@ -469,6 +470,23 @@ def _warn_runtime_config_issue(path: Path, reason: str, detail: str) -> None:
         return
     _RUNTIME_CONFIG_WARNING_KEYS.add(key)
     _LOGGER.warning("Ignoring runtime config at %s: %s", path, detail)
+
+
+def _atomic_write_runtime_config(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(payload, ensure_ascii=False, indent=2)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+            handle.write("\n")
+        os.replace(tmp_path, path)
+    finally:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _runtime_payload() -> dict[str, Any]:
@@ -1145,11 +1163,7 @@ class RuntimeConfigManager:
                         f"expected a JSON object, got {type(current).__name__}",
                     )
             merged.update(payload)
-            self._config_path.write_text(
-                json.dumps(merged, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-                newline="\n",
-            )
+            _atomic_write_runtime_config(self._config_path, merged)
             return merged
 
     def get_rag_mode(self) -> bool:

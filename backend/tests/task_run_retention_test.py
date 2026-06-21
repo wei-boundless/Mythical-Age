@@ -14,6 +14,7 @@ from runtime.shared.models import TaskRun
 from runtime.shared.runtime_object_store import RuntimeObjectStore
 from runtime.tool_runtime.tool_invocation_control import registry_for
 from harness.runtime.runtime_gateway import RuntimeGateway
+from harness.loop.task_run_execution_control import register_executor_epoch
 from runtime_objects.tool_result_storage import ToolResultStore
 
 
@@ -145,9 +146,10 @@ def test_retention_active_claim_stop_preserves_gateway_signal_identity(tmp_path:
             task_run_id,
             status="blocked",
             updated_at=100.0,
-            diagnostics={"executor_status": "running", "executor_epoch": 9},
+            diagnostics={"executor_epoch": 9},
         )
     )
+    register_executor_epoch(host, task_run_id=task_run_id, executor_epoch=9)
 
     sweep = RuntimeMonitorService(runtime_host=host, freshness_seconds=300)._sweep_expired_task_runs(now=120.0, limit=20)
     current = host.state_index.get_task_run(task_run_id)
@@ -166,14 +168,13 @@ def test_retention_active_claim_stop_preserves_gateway_signal_identity(tmp_path:
 
     assert current is not None
     assert len(requested) == 1
-    assert len(unavailable) == 1
+    assert unavailable == []
     signal_id = requested[0]["signal_id"]
     control = dict(current.diagnostics["runtime_control"])
     stop_request = dict(sweep["stop_requests"][0])
     assert control["state"] == "stop_requested"
     assert control["runtime_control_signal_ref"] == signal_id
     assert stop_request["runtime_control_signal_ref"] == signal_id
-    assert dict(unavailable[0]["payload"])["requested_signal_id"] == signal_id
     assert dict(requested[0]["payload"])["executor_epoch"] == 9
 
 
@@ -185,9 +186,10 @@ def test_retention_active_claim_stop_fails_closed_without_runtime_gateway(tmp_pa
             task_run_id,
             status="blocked",
             updated_at=100.0,
-            diagnostics={"executor_status": "running", "executor_epoch": 10},
+            diagnostics={"executor_epoch": 10},
         )
     )
+    register_executor_epoch(host, task_run_id=task_run_id, executor_epoch=10)
     host.runtime_gateway = None
 
     sweep = RuntimeMonitorService(runtime_host=host, freshness_seconds=300)._sweep_expired_task_runs(now=120.0, limit=20)
@@ -201,6 +203,76 @@ def test_retention_active_claim_stop_fails_closed_without_runtime_gateway(tmp_pa
     assert sweep["stop_request_failure_count"] == 1
     assert stop_request["stop_requested"] is False
     assert stop_request["error"] == "runtime_gateway_control_signal_unavailable"
+
+
+def test_retention_active_claim_ignores_bare_stop_requested_without_gateway_identity(tmp_path: Path) -> None:
+    host = _RuntimeHost(tmp_path / "runtime_state")
+    task_run_id = "taskrun:blocked-active-shadow-stop"
+    host.state_index.upsert_task_run(
+        _task_run(
+            task_run_id,
+            status="blocked",
+            updated_at=100.0,
+            diagnostics={
+                "executor_epoch": 11,
+                "runtime_control": {
+                    "state": "stop_requested",
+                    "requested_by": "test",
+                    "requested_at": 100.0,
+                    "reason": "shadow stop",
+                },
+            },
+        )
+    )
+    register_executor_epoch(host, task_run_id=task_run_id, executor_epoch=11)
+
+    sweep = RuntimeMonitorService(runtime_host=host, freshness_seconds=300)._sweep_expired_task_runs(now=120.0, limit=20)
+    current = host.state_index.get_task_run(task_run_id)
+    requested = [
+        dict(dict(event.payload or {}).get("signal") or {})
+        for event in host.event_log.list_events(task_run_id)
+        if event.event_type == "runtime_control_signal_published"
+        and dict(dict(event.payload or {}).get("signal") or {}).get("signal_type") == "control.signal.requested"
+    ]
+
+    assert current is not None
+    assert current.status == "blocked"
+    assert current.terminal_reason == ""
+    assert sweep["terminal_update_count"] == 0
+    assert sweep["stop_request_count"] == 1
+    assert len(requested) == 1
+    assert dict(current.diagnostics["runtime_control"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
+
+
+def test_retention_does_not_skip_shadow_pause_request_without_gateway_identity(tmp_path: Path) -> None:
+    host = _RuntimeHost(tmp_path / "runtime_state")
+    task_run_id = "taskrun:blocked-shadow-pause"
+    host.state_index.upsert_task_run(
+        _task_run(
+            task_run_id,
+            status="blocked",
+            updated_at=100.0,
+            diagnostics={
+                "runtime_control": {
+                    "state": "pause_requested",
+                    "requested_by": "test",
+                    "requested_at": 100.0,
+                    "reason": "shadow pause",
+                },
+            },
+        )
+    )
+
+    sweep = RuntimeMonitorService(runtime_host=host, freshness_seconds=300)._sweep_expired_task_runs(now=120.0, limit=20)
+    current = host.state_index.get_task_run(task_run_id)
+
+    assert current is not None
+    assert current.status == "aborted"
+    assert current.terminal_reason == "blocked_expired"
+    assert sweep["terminal_update_count"] == 1
+    assert sweep["stop_request_count"] == 0
+    assert {item["reason"] for item in sweep["skipped_reasons"]} != {"paused_control_state"}
+    assert dict(current.diagnostics["runtime_control"])["state"] == "stopped"
 
 
 def test_retention_keeps_fresh_blocked_visible(tmp_path: Path) -> None:

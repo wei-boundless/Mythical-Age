@@ -45,6 +45,32 @@ def test_single_turn_packet_context_owns_action_surface_independent_of_current_w
     assert context.effective_control_capabilities["may_control_active_work"] is True
 
 
+def test_single_turn_packet_context_rejects_shadow_current_work_receipt_true() -> None:
+    context = build_single_agent_turn_packet_context(
+        session_id="session:packet-context",
+        turn_id="turn:packet-context-shadow",
+        agent_invocation_id="aginvoke:packet-context-shadow",
+        user_message="继续。",
+        history=[],
+        current_work_boundary_receipt={
+            "receipt_id": "cwreceipt:shadow",
+            "decision_id": "cwbd:shadow",
+            "boundary_decision": "current_work_control_required",
+            "active_work_ref": {"task_run_id": "taskrun:active", "actual_active_turn_id": "turn:active"},
+            "operation_availability": {"active_work_control": True},
+        },
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "control_capabilities": {"may_request_task_run": True, "may_control_active_work": True},
+        },
+    )
+
+    assert context.allowed_action_types == ("respond", "ask_user", "block", "request_task_run", "active_work_control")
+    assert context.operation_availability["active_work_control"] is False
+    assert context.operation_availability["active_work_control_reason"] == "current_work_receipt_authority_invalid"
+
+
 def test_single_turn_packet_context_adds_tool_call_only_from_runtime_tool_plan() -> None:
     context = build_single_agent_turn_packet_context(
         session_id="session:packet-context-tool",

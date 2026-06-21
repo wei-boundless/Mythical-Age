@@ -4,6 +4,7 @@ import concurrent.futures
 import json
 import logging
 import sys
+import threading
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -369,6 +370,66 @@ def test_session_manager_records_permission_mode_as_conversation_state(tmp_path:
     assert manager.load_session_for_agent(session_id) == []
 
 
+def test_session_manager_records_chat_model_selection_as_conversation_state(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    backend_dir.mkdir()
+    manager = SessionManager(backend_dir)
+    session = manager.create_session(title="Model selection state")
+    session_id = session["id"]
+
+    assert session["conversation_state"]["chat_model_selection"] == {}
+
+    state = manager.set_chat_model_selection(
+        session_id,
+        {
+            "selection_id": "deepseek::deepseek-v4-pro",
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "base_url": "https://should-not-persist.example/v1",
+        },
+    )
+    history = manager.get_history(session_id)
+
+    assert state["chat_model_selection"]["selection_id"] == "deepseek::deepseek-v4-pro"
+    assert state["chat_model_selection"]["provider"] == "deepseek"
+    assert state["chat_model_selection"]["model"] == "deepseek-v4-pro"
+    assert "base_url" not in state["chat_model_selection"]
+    assert history["conversation_state"]["chat_model_selection"]["selection_id"] == "deepseek::deepseek-v4-pro"
+    assert manager.load_session_for_agent(session_id) == []
+
+
+def test_session_manager_history_reads_share_session_lock(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    backend_dir.mkdir()
+    manager = SessionManager(backend_dir)
+    session = manager.create_session(title="Locked reads")
+    session_id = session["id"]
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+
+    def hold_session_lock() -> None:
+        with manager._session_lock(session_id):
+            lock_held.set()
+            assert release_lock.wait(timeout=2)
+
+    def read_history() -> dict[str, object]:
+        assert lock_held.wait(timeout=2)
+        return manager.get_history(session_id)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        holder = executor.submit(hold_session_lock)
+        reader = executor.submit(read_history)
+        try:
+            assert lock_held.wait(timeout=2)
+            with pytest.raises(concurrent.futures.TimeoutError):
+                reader.result(timeout=0.1)
+            release_lock.set()
+            assert reader.result(timeout=2)["id"] == session_id
+            holder.result(timeout=2)
+        finally:
+            release_lock.set()
+
+
 def test_session_manager_agent_history_never_injects_compressed_context_as_message(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     backend_dir.mkdir()
@@ -462,4 +523,3 @@ def test_session_manager_public_history_filters_structured_tool_protocol_message
     truncated = manager.truncate_messages_from(session_id, 1)
 
     assert truncated["messages"] == [{"role": "user", "content": "修复 bug", "turn_id": "turn:1"}]
-

@@ -105,10 +105,9 @@ class TaskRecordLifecycleManager:
         session_id = str(getattr(task_run, "session_id", "") or "")
         executor_stop = self._stop_executors({task_run_id}, reason="task_record_deleted")
         tombstone = self.host.state_index.mark_task_run_deleted(task_run_id)
-        cancel = await self.host.cancel_background_tasks(
-            names=_executor_task_names({task_run_id}),
+        cell_cancel = self.host.cancel_task_run_cells(
+            task_run_sessions={task_run_id: session_id} if session_id else {},
             reason="task_record_deleted",
-            timeout_seconds=cancel_timeout_seconds,
         )
         active_turn = {}
         if session_id:
@@ -123,7 +122,7 @@ class TaskRecordLifecycleManager:
             "session_id": session_id,
             "tombstone": tombstone,
             "executor_stop": executor_stop,
-            "cancel_background_tasks": cancel,
+            "cell_cancel": cell_cancel,
             "active_turn": active_turn,
         }
 
@@ -158,7 +157,10 @@ class TaskRecordLifecycleManager:
             if str(item).strip()
         } | {task_run_id}
         executor_stop = self._stop_executors(task_run_ids, reason="task_record_deleted")
-        await self.host.cancel_background_tasks(names=_executor_task_names(task_run_ids), reason="graph_root_task_record_deleted")
+        cell_cancel = self.host.cancel_task_run_cells(
+            task_run_sessions=self._task_run_sessions(task_run_ids),
+            reason="graph_root_task_record_deleted",
+        )
         manager.delete_graph_run(graph_run_id)
         return {
             "authority": self.authority,
@@ -167,6 +169,7 @@ class TaskRecordLifecycleManager:
             "graph_run_id": graph_run_id,
             "task_run_ids": sorted(task_run_ids),
             "executor_stop": executor_stop,
+            "cell_cancel": cell_cancel,
             "deleted": True,
         }
 
@@ -208,6 +211,15 @@ class TaskRecordLifecycleManager:
             "failed_task_run_ids": sorted(failed),
         }
 
+    def _task_run_sessions(self, task_run_ids: set[str]) -> dict[str, str]:
+        result: dict[str, str] = {}
+        for task_run_id in task_run_ids:
+            task_run = self.host.state_index.get_task_run(task_run_id)
+            session_id = str(getattr(task_run, "session_id", "") or "").strip() if task_run is not None else ""
+            if session_id:
+                result[str(task_run_id or "").strip()] = session_id
+        return result
+
 
 def _origin_kind(diagnostics: dict[str, Any]) -> str:
     return str(diagnostics.get("origin_kind") or dict(diagnostics.get("origin") or {}).get("origin_kind") or "").strip()
@@ -219,9 +231,3 @@ def _graph_run_id(diagnostics: dict[str, Any]) -> str:
     return str(diagnostics.get("graph_run_id") or origin.get("graph_run_id") or runtime_scope.get("graph_run_id") or "").strip()
 
 
-def _executor_task_names(task_run_ids: set[str]) -> set[str]:
-    return {
-        name
-        for task_run_id in task_run_ids
-        for name in (f"task-run-executor:{task_run_id}", f"task-run-executor-recover:{task_run_id}")
-    }

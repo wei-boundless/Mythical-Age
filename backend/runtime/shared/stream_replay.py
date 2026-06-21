@@ -247,17 +247,12 @@ def _public_runtime_control_signal_index(value: Any) -> dict[str, str]:
     if not signal:
         return {}
     index: dict[str, str] = {}
-    for source_key, target_key in (
-        ("runtime_control_signal_ref", "runtime_control_signal_ref"),
-        ("signal_ref", "runtime_control_signal_ref"),
-        ("signal_id", "runtime_control_signal_ref"),
-        ("signal_kind", "signal_kind"),
-        ("kind", "signal_kind"),
-        ("control_kind", "signal_kind"),
-    ):
-        text = str(signal.get(source_key) or "").strip()
-        if text and target_key not in index:
-            index[target_key] = text
+    signal_ref = str(signal.get("runtime_control_signal_ref") or "").strip()
+    signal_kind = str(signal.get("signal_kind") or "").strip()
+    if signal_ref:
+        index["runtime_control_signal_ref"] = signal_ref
+    if signal_kind:
+        index["signal_kind"] = signal_kind
     return index
 
 

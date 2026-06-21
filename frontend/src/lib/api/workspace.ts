@@ -53,6 +53,13 @@ export async function readManagedFile(target: ManagedFileTarget, sessionId = "")
   });
 }
 
+export async function selectManagedFileForOpen(sessionId = "") {
+  return request<ManagedFileReadResponse & { selected_path?: string; display_path?: string }>("/file-management/files/select-open", {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+}
+
 export async function writeManagedFile(payload: {
   target: ManagedFileTarget;
   content: string;

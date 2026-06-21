@@ -4,7 +4,11 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-from harness.task_run_status import is_stopped_or_terminal_task_run
+from harness.current_work_receipt import (
+    CURRENT_WORK_BOUNDARY_RECEIPT_AUTHORITY,
+    current_work_boundary_receipt_allows_active_work_control as _receipt_allows_active_work_control,
+)
+from harness.task_run_status import is_terminal_task_run_reason, is_terminal_task_run_status
 
 
 CurrentWorkBoundaryAction = Literal[
@@ -78,7 +82,7 @@ class CurrentWorkBoundaryReceipt:
     actual_active_turn_id: str = ""
     public_projection_policy: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "harness.entrypoint.current_work_boundary_receipt"
+    authority: str = CURRENT_WORK_BOUNDARY_RECEIPT_AUTHORITY
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -285,9 +289,7 @@ def current_work_boundary_receipt_from_decision(decision: CurrentWorkBoundaryDec
 def current_work_boundary_receipt_allows_active_work_control(
     receipt: dict[str, Any] | CurrentWorkBoundaryReceipt | None,
 ) -> bool:
-    payload = receipt.to_dict() if hasattr(receipt, "to_dict") else dict(receipt or {})
-    operations = dict(payload.get("operation_availability") or {})
-    return bool(operations.get("active_work_control") is True)
+    return _receipt_allows_active_work_control(receipt)
 
 
 def _decision(
@@ -349,4 +351,6 @@ def _payload_from_object(value: Any | None) -> dict[str, Any]:
 
 
 def _terminal_active_work(active_work: dict[str, Any]) -> bool:
-    return is_stopped_or_terminal_task_run(active_work)
+    return is_terminal_task_run_status(active_work.get("status")) or is_terminal_task_run_reason(
+        active_work.get("terminal_reason")
+    )

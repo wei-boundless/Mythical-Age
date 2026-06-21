@@ -701,20 +701,14 @@ def _task_closeout_summary(
 ) -> str:
     if str(session_output_commit.get("state") or "").strip() != "committed":
         return ""
-    diagnostics = _dict_record(getattr(task_run, "diagnostics", {}) or {})
-    for value in (
-        diagnostics.get("final_answer"),
-        diagnostics.get("latest_public_status"),
-        session_output_commit.get("reason"),
-    ):
-        text = str(value or "").strip()
-        if text and text != "committed":
-            return text
     for frame in reversed(projection_frames):
         if str(frame.get("slot") or "") == "body":
             text = str(frame.get("text") or "").strip()
             if text:
                 return text
+    reason = str(session_output_commit.get("reason") or "").strip()
+    if reason and reason != "committed":
+        return reason
     return "任务已完成。"
 
 

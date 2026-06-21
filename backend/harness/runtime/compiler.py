@@ -41,6 +41,8 @@ from prompt_composition import (
 )
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, model_visible_artifact_refs, normalize_artifact_ref
 from agent_system.identity import normalize_agent_id_sequence
+from harness.current_work_receipt import current_work_operation_availability_from_receipt
+from harness.recovery_receipt import recovery_operation_availability_from_receipt
 from project_layout import ProjectLayout
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
 from runtime_objects.tool_result_storage import DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
@@ -64,6 +66,7 @@ from .packet_assembler import (
 from .prompt_segment_plan import build_prompt_segment_plan
 from .project_instructions import ProjectInstructionBundle, collect_project_instruction_bundle
 from .provider_tool_schema import stable_tool_schema_catalog_payload
+from .runtime_control_signal_projection import canonical_runtime_control_signal_projection
 from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
 from .task_contract_manifest import TaskContractManifest, build_task_contract_manifest_from_contract
 from .tool_catalog_manifest import ToolCatalogManifest, build_tool_catalog_manifest
@@ -1257,11 +1260,9 @@ class RuntimeCompiler:
             dynamic_payload["recovery_packet"] = recovery_packet_payload
         volatile_payload = dict(dynamic_context.volatile_state_projection or {})
         execution_projection = dict(dict(execution_state or {}).get("system_projection") or {})
-        runtime_control_signals = [
-            dict(item)
-            for item in list(execution_projection.get("runtime_control_signals") or [])
-            if isinstance(item, dict)
-        ]
+        runtime_control_signals = canonical_runtime_control_signal_projection(
+            execution_projection.get("runtime_control_signals")
+        )
         if runtime_control_signals:
             volatile_payload["runtime_control_signals"] = runtime_control_signals
             volatile_payload["latest_runtime_control_signal"] = dict(runtime_control_signals[-1])
@@ -2844,7 +2845,7 @@ def _current_work_boundary_receipt_model_visible_payload(receipt: dict[str, Any]
     if not payload:
         return {}
     decision = dict(dict(payload.get("diagnostics") or {}).get("decision") or {})
-    operations = dict(payload.get("operation_availability") or {})
+    operations = current_work_operation_availability_from_receipt(payload)
     return {
         "receipt_id": str(payload.get("receipt_id") or ""),
         "boundary_decision": str(payload.get("boundary_decision") or ""),
@@ -2955,7 +2956,7 @@ def _recovery_boundary_receipt_model_visible_payload(receipt: dict[str, Any] | N
     payload = dict(receipt or {})
     if not payload:
         return {}
-    operations = dict(payload.get("operation_availability") or {})
+    operations = recovery_operation_availability_from_receipt(payload)
     return _drop_empty_payload(
         {
             "receipt_id": str(payload.get("receipt_id") or ""),

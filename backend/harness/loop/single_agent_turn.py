@@ -4926,12 +4926,20 @@ async def _invoke_turn_tool(
     invocation_id = identity.invocation_id
     assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
     sandbox_scope = _single_turn_sandbox_scope(assembly_payload, runtime_host=runtime_host, turn_id=turn_id)
+    agent_scope = _turn_run_agent_scope(
+        runtime_host,
+        turn_run=turn_run,
+        session_id=session_id,
+        turn_id=turn_id,
+    )
     request = ToolInvocationRequest(
         invocation_id=invocation_id,
         caller_kind="agent_turn",
         caller_ref=turn_run.turn_run_id if turn_run is not None else f"turnrun:{turn_id}",
         session_id=session_id,
         turn_id=turn_id,
+        agent_run_id=str(agent_scope.get("agent_run_id") or ""),
+        run_cell_id=str(agent_scope.get("run_cell_id") or ""),
         action_request_ref=action_request.request_id,
         packet_ref=packet_ref,
         tool_name=tool_name,
@@ -4951,6 +4959,7 @@ async def _invoke_turn_tool(
         requested_constraints={
             "runtime_host": runtime_host,
             "runtime_assembly": assembly_payload,
+            "agent_scope": agent_scope,
             "backend_dir": str(getattr(runtime_host, "backend_dir", "") or assembly_payload.get("backend_dir") or ""),
         },
     )
@@ -5549,18 +5558,31 @@ async def _commit_final_message(
         turn_id=turn_id,
         source="harness.loop.single_agent_turn.commit_api_protocol_messages",
     )
+    agent_scope = _turn_run_agent_scope(
+        runtime_host,
+        turn_run=turn_run,
+        session_id=session_id,
+        turn_id=turn_id,
+    )
     request = OutputCommitRequest(
         run_id=turn_run.turn_run_id if turn_run is not None else f"turnrun:{turn_id}",
         session_id=session_id,
+        stream_run_id=str(agent_scope.get("stream_run_id") or ""),
         turn_id=turn_id,
         turn_run_id=turn_run.turn_run_id if turn_run is not None else "",
+        agent_run_id=str(agent_scope.get("agent_run_id") or ""),
+        run_cell_id=str(agent_scope.get("run_cell_id") or ""),
         content=content,
         answer_channel=answer_channel,
         answer_source=answer_source,
         execution_posture="single_agent_turn",
         has_tool_receipt=any(str(item.get("role") or "") == "tool" for item in sanitized_protocol_messages),
         commit_source="harness.loop.single_agent_turn",
-        refs={"turn_ref": turn_id, "turn_run_ref": turn_run.turn_run_id if turn_run is not None else ""},
+        refs={
+            "turn_ref": turn_id,
+            "turn_run_ref": turn_run.turn_run_id if turn_run is not None else "",
+            **_agent_scope_refs(agent_scope),
+        },
         commit_payload_overrides={"api_protocol_messages": sanitized_protocol_messages},
     )
     result = await OutputCommitAuthority(runtime_host).commit_async(
@@ -5654,6 +5676,13 @@ def _start_turn_runtime(
     now = time.time()
     stream_ref = str(stream_run_id or "").strip()
     turn_run_id = f"turnrun:{stream_ref}" if stream_ref else f"turnrun:{turn_id}:{uuid.uuid4().hex[:8]}"
+    agent_scope = _turn_run_agent_scope(
+        runtime_host,
+        session_id=session_id,
+        turn_id=turn_id,
+        turn_run_id=turn_run_id,
+        stream_run_id=stream_ref,
+    )
     turn_run = TurnRun(
         turn_run_id=turn_run_id,
         session_id=session_id,
@@ -5668,14 +5697,23 @@ def _start_turn_runtime(
             "stream_run_id": stream_ref,
             "source": "harness.loop.single_agent_turn",
             "execution_runtime_kind": "single_agent_turn",
+            "agent_run_scope": agent_scope,
+            "agent_run_id": str(agent_scope.get("agent_run_id") or ""),
+            "run_cell_id": str(agent_scope.get("run_cell_id") or ""),
         },
+    )
+    _record_turn_scope_on_runtime_run(
+        runtime_host,
+        stream_run_id=stream_ref,
+        agent_scope=agent_scope,
+        turn_run_id=turn_run_id,
     )
     runtime_host.state_index.upsert_turn_run(turn_run)
     event = runtime_host.event_log.append(
         turn_run_id,
         "agent_turn_received",
         payload={"turn_id": turn_id, "turn_run": turn_run.to_dict()},
-        refs={"turn_ref": turn_id, "turn_run_ref": turn_run.turn_run_id},
+        refs={"turn_ref": turn_id, "turn_run_ref": turn_run.turn_run_id, **_agent_scope_refs(agent_scope)},
     )
     updated = replace(turn_run, updated_at=event.created_at, latest_event_offset=event.offset)
     runtime_host.state_index.upsert_turn_run(updated)
@@ -5683,6 +5721,91 @@ def _start_turn_runtime(
     if active_registry is not None:
         active_registry.bind_turn_run(session_id=session_id, turn_id=turn_id, turn_run_id=turn_run_id)
     return updated, event.to_dict()
+
+
+def _turn_run_agent_scope(
+    runtime_host: Any | None,
+    *,
+    turn_run: TurnRun | None = None,
+    session_id: str = "",
+    turn_id: str = "",
+    turn_run_id: str = "",
+    stream_run_id: str = "",
+) -> dict[str, Any]:
+    diagnostics = dict(getattr(turn_run, "diagnostics", {}) or {}) if turn_run is not None else {}
+    scope = dict(diagnostics.get("agent_run_scope") or {}) if isinstance(diagnostics.get("agent_run_scope"), dict) else {}
+    normalized_session_id = str(session_id or getattr(turn_run, "session_id", "") or scope.get("session_id") or "").strip()
+    normalized_turn_id = str(turn_id or getattr(turn_run, "turn_id", "") or scope.get("turn_id") or "").strip()
+    normalized_turn_run_id = str(turn_run_id or getattr(turn_run, "turn_run_id", "") or scope.get("turn_run_id") or "").strip()
+    normalized_stream_run_id = str(stream_run_id or diagnostics.get("stream_run_id") or _stream_run_id_from_turn_run_id(normalized_turn_run_id) or "").strip()
+    if not scope and runtime_host is not None and normalized_stream_run_id:
+        supervisor = getattr(runtime_host, "agent_run_supervisor", None)
+        getter = getattr(supervisor, "active_cell_for_stream_run", None)
+        if callable(getter):
+            try:
+                cell = getter(normalized_stream_run_id, session_id=normalized_session_id)
+            except Exception:
+                cell = None
+            if cell is not None:
+                scope = dict(cell.scope.to_dict())
+    return {
+        "session_id": str(scope.get("session_id") or normalized_session_id),
+        "agent_run_id": str(scope.get("agent_run_id") or ""),
+        "run_cell_id": str(scope.get("run_cell_id") or ""),
+        "stream_run_id": normalized_stream_run_id,
+        "turn_id": normalized_turn_id,
+        "turn_run_id": normalized_turn_run_id,
+        "task_run_id": str(scope.get("task_run_id") or ""),
+        "invocation_kind": str(scope.get("invocation_kind") or "single_turn"),
+        "authority": "harness.loop.single_agent_turn.agent_scope",
+    }
+
+
+def _record_turn_scope_on_runtime_run(
+    runtime_host: Any,
+    *,
+    stream_run_id: str,
+    agent_scope: dict[str, Any],
+    turn_run_id: str,
+) -> None:
+    normalized_stream_run_id = str(stream_run_id or "").strip()
+    if not normalized_stream_run_id:
+        return
+    registry = getattr(runtime_host, "run_registry", None)
+    updater = getattr(registry, "update_run", None)
+    if not callable(updater):
+        return
+    try:
+        updater(
+            normalized_stream_run_id,
+            diagnostics={
+                "agent_run_scope": dict(agent_scope or {}),
+                "agent_run_id": str(dict(agent_scope or {}).get("agent_run_id") or ""),
+                "run_cell_id": str(dict(agent_scope or {}).get("run_cell_id") or ""),
+                "runtime_turn_run_id": str(turn_run_id or ""),
+            },
+        )
+    except Exception:
+        return
+
+
+def _stream_run_id_from_turn_run_id(turn_run_id: str) -> str:
+    value = str(turn_run_id or "").strip()
+    if value.startswith("turnrun:strun:"):
+        return value[len("turnrun:"):]
+    return ""
+
+
+def _agent_scope_refs(agent_scope: dict[str, Any] | None) -> dict[str, str]:
+    scope = dict(agent_scope or {})
+    refs: dict[str, str] = {}
+    agent_run_id = str(scope.get("agent_run_id") or "").strip()
+    run_cell_id = str(scope.get("run_cell_id") or "").strip()
+    if agent_run_id:
+        refs["agent_run_ref"] = agent_run_id
+    if run_cell_id:
+        refs["run_cell_ref"] = run_cell_id
+    return refs
 
 
 def _record_step_summary(
@@ -5915,11 +6038,18 @@ def _record_turn_runtime_control_signal(
     packet_ref: str,
     control_signal: dict[str, Any],
 ) -> dict[str, Any]:
+    agent_scope = _turn_run_agent_scope(
+        runtime_host,
+        turn_run=turn_run,
+        session_id=turn_run.session_id,
+        turn_id=turn_id,
+    )
     signal = _turn_runtime_control_signal_with_identity(
         turn_run=turn_run,
         turn_id=turn_id,
         packet_ref=packet_ref,
         control_signal=control_signal,
+        agent_scope=agent_scope,
     )
     if isinstance(control_signal, dict):
         control_signal.clear()
@@ -5953,6 +6083,7 @@ def _record_turn_runtime_control_signal(
             "turn_run_ref": turn_run.turn_run_id,
             "runtime_invocation_packet_ref": packet_ref,
             "runtime_control_signal_ref": signal["runtime_control_signal_ref"],
+            **_agent_scope_refs(agent_scope),
             **(
                 {"runtime_gateway_signal_event_ref": str(getattr(published_event, "event_id", "") or "")}
                 if published_event is not None
@@ -5988,13 +6119,21 @@ def _publish_turn_runtime_control_signal_to_gateway(
 ) -> Any | None:
     runtime_gateway = getattr(runtime_host, "runtime_gateway", None)
     publisher = getattr(runtime_gateway, "publish", None)
-    signal_id = str(signal.get("runtime_control_signal_ref") or signal.get("signal_id") or "").strip()
+    signal_id = str(signal.get("runtime_control_signal_ref") or "").strip()
     if not callable(publisher):
         raise RuntimeError("runtime_gateway.publish is required for turn runtime control signals")
     if not signal_id:
         raise ValueError("turn runtime control signal requires runtime_control_signal_ref")
+    agent_scope = _turn_run_agent_scope(
+        runtime_host,
+        turn_run=turn_run,
+        session_id=turn_run.session_id,
+        turn_id=turn_id,
+    )
     scope = RuntimeSignalScope(
         session_id=str(getattr(turn_run, "session_id", "") or ""),
+        agent_run_id=str(agent_scope.get("agent_run_id") or ""),
+        run_cell_id=str(agent_scope.get("run_cell_id") or ""),
         turn_id=str(turn_id or ""),
         turn_run_id=str(getattr(turn_run, "turn_run_id", "") or ""),
     )
@@ -6004,6 +6143,8 @@ def _publish_turn_runtime_control_signal_to_gateway(
         "boundary": "single_agent_turn_runtime_control",
         "turn_id": str(turn_id or ""),
         "turn_run_id": str(getattr(turn_run, "turn_run_id", "") or ""),
+        "agent_run_id": str(agent_scope.get("agent_run_id") or ""),
+        "run_cell_id": str(agent_scope.get("run_cell_id") or ""),
         "packet_ref": str(packet_ref or ""),
     }
     return publisher(
@@ -6021,6 +6162,7 @@ def _publish_turn_runtime_control_signal_to_gateway(
             "turn_run_ref": str(getattr(turn_run, "turn_run_id", "") or ""),
             "runtime_invocation_packet_ref": str(packet_ref or ""),
             "runtime_control_signal_ref": signal_id,
+            **_agent_scope_refs(agent_scope),
         },
     )
 
@@ -6062,9 +6204,10 @@ def _turn_runtime_control_signal_with_identity(
     turn_id: str,
     packet_ref: str,
     control_signal: dict[str, Any],
+    agent_scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     signal = dict(control_signal or {})
-    signal_ref = str(signal.get("runtime_control_signal_ref") or signal.get("signal_id") or "").strip()
+    signal_ref = str(signal.get("runtime_control_signal_ref") or "").strip()
     if not signal_ref:
         kind = str(signal.get("signal_kind") or signal.get("observation_type") or "runtime_control_signal").strip()
         structured = dict(signal.get("structured_signal") or {})
@@ -6090,12 +6233,13 @@ def _turn_runtime_control_signal_with_identity(
             json.dumps(identity_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()[:16]
         signal_ref = f"turnsig:{_runtime_control_signal_ref_fragment(kind)}:{digest}"
-    scope = dict(signal.get("runtime_control_scope") or {})
-    signal["signal_id"] = signal_ref
+    scope = {**dict(agent_scope or {}), **dict(signal.get("runtime_control_scope") or {})}
     signal["runtime_control_signal_ref"] = signal_ref
     signal["runtime_control_scope"] = {
         **scope,
         "session_id": str(turn_run.session_id or scope.get("session_id") or ""),
+        "agent_run_id": str(scope.get("agent_run_id") or ""),
+        "run_cell_id": str(scope.get("run_cell_id") or ""),
         "turn_id": str(turn_id or scope.get("turn_id") or ""),
         "turn_run_id": str(turn_run.turn_run_id or scope.get("turn_run_id") or ""),
         "packet_ref": str(packet_ref or scope.get("packet_ref") or signal.get("packet_ref") or ""),

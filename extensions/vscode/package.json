@@ -39,6 +39,11 @@
           "type": "string",
           "default": "",
           "description": "Optional existing session id. Leave empty to create and reuse a VS Code session automatically."
+        },
+        "langchainAgent.autoConnect": {
+          "type": "boolean",
+          "default": false,
+          "description": "Start the local agent background connection when VS Code starts without an explicit session binding."
         }
       }
     }

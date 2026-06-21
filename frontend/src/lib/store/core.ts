@@ -87,6 +87,8 @@ export function getDefaultState(): StoreState {
     inspectorDirty: false,
     inspectorTarget: null,
     inspectorLastChangeRecordId: "",
+    fileChangesRevision: 0,
+    fileChangeRecordsBySession: {},
     sessionEditorContexts: {},
     sidebarWidth: 308,
     inspectorWidth: 340,

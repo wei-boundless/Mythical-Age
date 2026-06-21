@@ -15,6 +15,7 @@ import type {
   SessionSummary,
   TaskEnvironmentCatalog,
   ConversationActiveEnvironment,
+  FileChangeRecord,
   ToolCall,
   ManagedFileTarget,
   WorkspaceContext,
@@ -249,10 +250,7 @@ export type WorkspaceView =
   | "capability-system"
   | "task-system"
   | "orchestration"
-  | "code-environment"
   | "system-config";
-
-export type TaskEnvironmentWorkspaceView = Extract<WorkspaceView, "chat" | "code-environment">;
 
 export type ChatModelSelection = {
   selection_id?: string;
@@ -322,6 +320,7 @@ export type SessionRef = {
   sessionId: string;
   scope?: Partial<SessionScope>;
   poolKey?: SessionPoolKey;
+  updatedAt?: number;
 };
 
 export type TaskGraphMonitorBinding = {
@@ -463,6 +462,8 @@ export type StoreState = {
   inspectorDirty: boolean;
   inspectorTarget: ManagedFileTarget | null;
   inspectorLastChangeRecordId: string;
+  fileChangesRevision: number;
+  fileChangeRecordsBySession: Record<string, FileChangeRecord[]>;
   sessionEditorContexts: Record<string, SessionEditorContext>;
   sidebarWidth: number;
   inspectorWidth: number;
@@ -499,7 +500,6 @@ export type StoreState = {
 
 export type StoreActions = {
   setWorkspaceView: (view: WorkspaceView) => void;
-  setTaskEnvironmentWorkspaceView: (view: TaskEnvironmentWorkspaceView) => void;
   refreshTaskEnvironmentCatalog: () => Promise<void>;
   setActiveTaskEnvironment: (environmentId: string, options?: { environmentLabel?: string; source?: string }) => Promise<void>;
   refreshWorkspaceTree: () => Promise<void>;
@@ -523,9 +523,12 @@ export type StoreActions = {
   setChatStreamDisplayEnabled: (enabled: boolean) => void;
   renameCurrentSession: (title: string) => Promise<void>;
   removeSession: (ref: SessionRef) => Promise<void>;
+  selectWorkspaceFile: () => Promise<string | null>;
   loadInspectorFile: (path: string) => Promise<void>;
   updateInspectorContent: (value: string) => void;
   saveInspector: () => Promise<void>;
+  hydrateFileChangesForSession: (sessionId?: string, options?: { force?: boolean; limit?: number }) => Promise<void>;
+  applyFileChangeRecord: (record: FileChangeRecord | Record<string, unknown>) => void;
   setSessionEditorPageState: (patch: SessionEditorPageStatePatch) => void;
   setSidebarWidth: (width: number) => void;
   setInspectorWidth: (width: number) => void;

@@ -81,7 +81,7 @@ def select_session_continuation(
     )
     selected_record: ContinuationRecord | None = None
     for task_run in candidates:
-        view = task_run_state_view(task_run)
+        view = task_run_state_view(task_run, runtime_host=runtime_host)
         if bool(view.get("graph_controlled")):
             continue
         record = _record_from_task_run(runtime_host, task_run=task_run, view=view)
@@ -106,11 +106,11 @@ def _record_from_task_run(runtime_host: Any, *, task_run: Any, view: dict[str, A
     if not task_run_id or not session_id:
         return None
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    recovery_state = recovery_state_for_task_run(task_run)
+    recovery_state = recovery_state_for_task_run(task_run, runtime_host=runtime_host)
     work_state = str(view.get("task_work_state") or "")
     status = str(getattr(task_run, "status", "") or view.get("task_status") or "")
     terminal_reason = str(getattr(task_run, "terminal_reason", "") or diagnostics.get("terminal_reason") or "")
-    terminal = bool(is_stopped_or_terminal_task_run(task_run))
+    terminal = bool(is_stopped_or_terminal_task_run(task_run, runtime_host=runtime_host))
     state = "none"
     resume_strategy = "unavailable"
     resume_allowed = False

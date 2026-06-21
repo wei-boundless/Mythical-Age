@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+from harness.current_work_receipt import current_work_control_availability_from_receipt
+
 from .model_action_protocol import AnyModelActionRequest
 
 
@@ -268,8 +270,8 @@ def admit_model_action(
         )
     if action_request.action_type == "active_work_control":
         receipt = dict(current_work_boundary_receipt or {})
-        operations = dict(receipt.get("operation_availability") or {})
-        if operations.get("active_work_control") is not True:
+        active_work_availability = current_work_control_availability_from_receipt(receipt)
+        if not active_work_availability.available:
             issue = _action_issue(
                 action_request,
                 category="operation_unavailable",
@@ -279,6 +281,7 @@ def admit_model_action(
                 extra={
                     "receipt_id": str(receipt.get("receipt_id") or ""),
                     "boundary_decision": str(receipt.get("boundary_decision") or ""),
+                    "availability_reason": active_work_availability.reason,
                 },
             )
             return AdmissionDecision(

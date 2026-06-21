@@ -56,26 +56,7 @@ def project_session_output_commit_state(
         }
     if latest:
         return {key: value for key, value in latest.items() if value not in ("", None)}
-    diagnostic_commit = _record(dict(diagnostics or {}).get("output_commit"))
-    state = str(
-        diagnostic_commit.get("state")
-        or diagnostic_commit.get("status")
-        or ""
-    ).strip()
-    if not state:
-        return {}
-    return {
-        "authority": authority,
-        "state": state,
-        "session_id": str(diagnostic_commit.get("session_id") or getattr(task_run, "session_id", "") or ""),
-        "turn_id": str(diagnostic_commit.get("turn_id") or dict(diagnostics or {}).get("turn_id") or ""),
-        "task_run_id": str(diagnostic_commit.get("task_run_id") or getattr(task_run, "task_run_id", "") or ""),
-        "task_id": str(diagnostic_commit.get("task_id") or getattr(task_run, "task_id", "") or ""),
-        "anchor_message_id": str(diagnostic_commit.get("anchor_message_id") or ""),
-        "content_sha256": str(diagnostic_commit.get("content_sha256") or ""),
-        "reason": str(diagnostic_commit.get("reason") or ""),
-        "commit_event_offset": _int_value(diagnostic_commit.get("event_offset"), fallback=-1),
-    }
+    return {}
 
 
 def _event_type(event: Any) -> str:

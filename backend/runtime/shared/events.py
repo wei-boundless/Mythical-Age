@@ -134,6 +134,7 @@ RuntimeEventType = Literal[
     "session_output_commit_failed",
     "session_output_commit_skipped",
     "chat_stream_event",
+    "file_change_recorded",
 ]
 
 

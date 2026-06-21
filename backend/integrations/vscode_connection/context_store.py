@@ -8,10 +8,18 @@ from typing import Any
 from project_workspaces import project_workspace_key
 from sessions import SessionProjectBindingConflict
 
-from .models import VSCodeConnectionConflict, VSCodeConnectionStatus, VSCodeContextSnapshot
+from .models import (
+    VSCodeConnectionConflict,
+    VSCodeConnectionLease,
+    VSCodeConnectionLeaseConflict,
+    VSCodeConnectionStatus,
+    VSCodeContextSnapshot,
+)
 from .path_normalization import normalize_workspace_root
 
 DEFAULT_STALE_AFTER_SECONDS = 60.0
+CONNECTION_LEASE_TTL_SECONDS = 45.0
+LEASE_CONFLICT_RETRY_AFTER_MS = 15_000
 LAUNCH_INTENT_TTL_SECONDS = 300.0
 ACTIVE_FILE_PREVIEW_LIMIT = 24_000
 SELECTION_TEXT_LIMIT = 8_000
@@ -26,18 +34,20 @@ class VSCodeConnectionStore:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._snapshots_by_session: dict[str, VSCodeContextSnapshot] = {}
-        self._snapshots_by_project_key: dict[str, VSCodeContextSnapshot] = {}
+        self._leases_by_key: dict[str, VSCodeConnectionLease] = {}
         self._launch_intents: dict[str, dict[str, Any]] = {}
         self._commands_by_session: dict[str, list[dict[str, Any]]] = {}
         self._command_results_by_session: dict[str, dict[str, dict[str, Any]]] = {}
+        self._active_command_polls: set[str] = set()
 
     def clear(self) -> None:
         with self._lock:
             self._snapshots_by_session.clear()
-            self._snapshots_by_project_key.clear()
+            self._leases_by_key.clear()
             self._launch_intents.clear()
             self._commands_by_session.clear()
             self._command_results_by_session.clear()
+            self._active_command_polls.clear()
 
     def register_launch_intent(self, *, session_id: str, workspace_root: str) -> dict[str, Any]:
         target_session_id = str(session_id or "").strip()
@@ -58,7 +68,12 @@ class VSCodeConnectionStore:
             self._launch_intents[target_session_id] = intent
         return dict(intent)
 
-    def resolve_launch_intent(self, *, workspace_roots: list[str], session_manager: Any | None = None) -> dict[str, Any]:
+    def resolve_launch_intent(
+        self,
+        *,
+        workspace_roots: list[str],
+        connection_id: str = "",
+    ) -> dict[str, Any]:
         roots = [
             normalize_workspace_root(item)
             for item in list(workspace_roots or [])[:WORKSPACE_ROOTS_LIMIT]
@@ -67,6 +82,7 @@ class VSCodeConnectionStore:
         if not roots:
             return {"session_id": "", "reason": "no_workspace_roots"}
         now = time.time()
+        payload: dict[str, Any] | None = None
         with self._lock:
             for key, intent in list(self._launch_intents.items()):
                 if float(intent.get("expires_at") or 0) <= now:
@@ -74,24 +90,111 @@ class VSCodeConnectionStore:
                     continue
                 intent_root = normalize_workspace_root(intent.get("workspace_root"))
                 if any(intent_root == root for root in roots):
-                    return {
+                    payload = {
                         "session_id": str(intent.get("session_id") or ""),
                         "workspace_root": intent_root,
                         "matched": True,
                         "authority": "integrations.vscode_connection.launch_intent",
                     }
-        project_session = _latest_project_session(session_manager, roots)
-        if project_session:
-            return {
-                "session_id": project_session["session_id"],
-                "workspace_root": project_session["workspace_root"],
-                "matched": True,
-                "match_source": "project_session_binding",
-                "authority": "integrations.vscode_connection.project_session_binding",
-            }
-        return {"session_id": "", "reason": "no_matching_launch_intent"}
+                    break
+        if payload is None:
+            return {"session_id": "", "reason": "no_matching_launch_intent"}
+        self._assert_resolve_allowed(payload, connection_id=connection_id)
+        return payload
 
-    def record_context(self, *, session_manager: Any, session_id: str, editor_context: dict[str, Any]) -> VSCodeContextSnapshot:
+    def acquire_connection(
+        self,
+        *,
+        session_manager: Any,
+        session_id: str,
+        workspace_roots: list[str],
+        connection_id: str = "",
+        source: str = "",
+        client_name: str = "",
+    ) -> VSCodeConnectionLease:
+        target_session_id = str(session_id or "").strip()
+        if not target_session_id:
+            raise ValueError("session_id is required")
+        normalized_connection_id = _normalize_connection_id(connection_id) or f"vscode:{uuid.uuid4().hex}"
+        workspace_root = self._connection_workspace_root(
+            session_manager=session_manager,
+            session_id=target_session_id,
+            workspace_roots=workspace_roots,
+            bind=True,
+        )
+        if not workspace_root:
+            raise VSCodeConnectionConflict("workspace_root is required")
+        now = time.time()
+        key = _lease_key(target_session_id, workspace_root)
+        with self._lock:
+            self._prune_expired_leases_locked(now)
+            existing = self._leases_by_key.get(key)
+            if existing is not None and existing.connection_id != normalized_connection_id and existing.expires_at > now:
+                rejected = self._increment_duplicate_rejection_locked(key, existing)
+                raise _lease_owned_conflict(rejected, now=now)
+            lease = VSCodeConnectionLease(
+                session_id=target_session_id,
+                workspace_root=workspace_root,
+                project_key=project_workspace_key(workspace_root),
+                connection_id=normalized_connection_id,
+                acquired_at=existing.acquired_at if existing and existing.connection_id == normalized_connection_id else now,
+                last_heartbeat_at=now,
+                expires_at=now + CONNECTION_LEASE_TTL_SECONDS,
+                source=str(source or "vscode").strip()[:120],
+                client_name=str(client_name or "").strip()[:240],
+                duplicate_rejected_count=int(existing.duplicate_rejected_count if existing else 0),
+            )
+            self._leases_by_key[key] = lease
+            return lease
+
+    def heartbeat_connection(
+        self,
+        *,
+        session_manager: Any,
+        session_id: str,
+        connection_id: str,
+        workspace_roots: list[str] | None = None,
+    ) -> VSCodeConnectionLease:
+        target_session_id = str(session_id or "").strip()
+        workspace_root = self._connection_workspace_root(
+            session_manager=session_manager,
+            session_id=target_session_id,
+            workspace_roots=list(workspace_roots or []),
+            bind=False,
+        )
+        lease = self.require_connection_owner(
+            session_id=target_session_id,
+            connection_id=connection_id,
+            workspace_root=workspace_root,
+            session_manager=session_manager,
+        )
+        return self._renew_lease(lease)
+
+    def release_connection(
+        self,
+        *,
+        session_manager: Any,
+        session_id: str,
+        connection_id: str,
+    ) -> dict[str, Any]:
+        lease = self.require_connection_owner(
+            session_id=session_id,
+            connection_id=connection_id,
+            session_manager=session_manager,
+        )
+        with self._lock:
+            self._leases_by_key.pop(_lease_key(lease.session_id, lease.workspace_root), None)
+            self._active_command_polls.discard(lease.connection_id)
+        return {"released": True, "lease": lease.to_dict(), "authority": "integrations.vscode_connection.lease_release"}
+
+    def record_context(
+        self,
+        *,
+        session_manager: Any,
+        session_id: str,
+        connection_id: str,
+        editor_context: dict[str, Any],
+    ) -> VSCodeContextSnapshot:
         target_session_id = str(session_id or "").strip()
         if not target_session_id:
             raise ValueError("session_id is required")
@@ -101,19 +204,179 @@ class VSCodeConnectionStore:
             session_id=target_session_id,
             workspace_roots=list(payload.get("workspace_roots") or []),
         )
+        lease = self.require_connection_owner(
+            session_id=target_session_id,
+            connection_id=connection_id,
+            workspace_root=workspace_root,
+            session_manager=session_manager,
+        )
         now = time.time()
         snapshot = VSCodeContextSnapshot(
             session_id=target_session_id,
             editor_context=payload,
             received_at=now,
             workspace_root=workspace_root,
-            connection_id=f"vscode:{target_session_id}",
+            connection_id=lease.connection_id,
         )
         with self._lock:
             self._snapshots_by_session[target_session_id] = snapshot
-            if workspace_root:
-                self._snapshots_by_project_key[project_workspace_key(workspace_root)] = snapshot
+        self._renew_lease(lease, now=now)
         return snapshot
+
+    def require_connection_owner(
+        self,
+        *,
+        session_id: str,
+        connection_id: str,
+        workspace_root: str = "",
+        session_manager: Any | None = None,
+    ) -> VSCodeConnectionLease:
+        target_session_id = str(session_id or "").strip()
+        normalized_connection_id = _normalize_connection_id(connection_id)
+        if not target_session_id:
+            raise ValueError("session_id is required")
+        if not normalized_connection_id:
+            raise VSCodeConnectionLeaseConflict(
+                "connection_id is required",
+                code="connection_id_required",
+                retry_after_ms=LEASE_CONFLICT_RETRY_AFTER_MS,
+                status_code=409,
+            )
+        root = normalize_workspace_root(workspace_root) or _session_project_root(session_manager, target_session_id)
+        now = time.time()
+        with self._lock:
+            self._prune_expired_leases_locked(now)
+            lease = self._lease_for_session_locked(target_session_id, root)
+            if lease is None:
+                raise VSCodeConnectionLeaseConflict(
+                    "VS Code connection lease is required",
+                    code="lease_required",
+                    retry_after_ms=LEASE_CONFLICT_RETRY_AFTER_MS,
+                    status_code=409,
+                )
+            if lease.connection_id != normalized_connection_id:
+                rejected = self._increment_duplicate_rejection_locked(_lease_key(lease.session_id, lease.workspace_root), lease)
+                raise _lease_owned_conflict(rejected, now=now)
+            return lease
+
+    def begin_command_poll(
+        self,
+        *,
+        session_id: str,
+        connection_id: str,
+        session_manager: Any | None = None,
+    ) -> VSCodeConnectionLease:
+        lease = self.require_connection_owner(
+            session_id=session_id,
+            connection_id=connection_id,
+            session_manager=session_manager,
+        )
+        with self._lock:
+            if lease.connection_id in self._active_command_polls:
+                raise VSCodeConnectionLeaseConflict(
+                    "VS Code connection already has an active command poll",
+                    code="duplicate_poller",
+                    retry_after_ms=LEASE_CONFLICT_RETRY_AFTER_MS,
+                    status_code=429,
+                    owner=lease.to_dict(),
+                )
+            self._active_command_polls.add(lease.connection_id)
+        return lease
+
+    def end_command_poll(self, connection_id: str) -> None:
+        normalized_connection_id = _normalize_connection_id(connection_id)
+        if not normalized_connection_id:
+            return
+        with self._lock:
+            self._active_command_polls.discard(normalized_connection_id)
+
+    def _connection_workspace_root(
+        self,
+        *,
+        session_manager: Any,
+        session_id: str,
+        workspace_roots: list[str],
+        bind: bool,
+    ) -> str:
+        roots = [item for item in (normalize_workspace_root(root) for root in workspace_roots) if item]
+        if roots and bind:
+            return _bind_or_validate_workspace_roots(
+                session_manager=session_manager,
+                session_id=session_id,
+                workspace_roots=roots,
+            )
+        if roots and not bind:
+            project_root = _session_project_root(session_manager, session_id)
+            if project_root and any(project_root == root for root in roots):
+                return project_root
+            return roots[0]
+        return _session_project_root(session_manager, session_id)
+
+    def _assert_resolve_allowed(self, payload: dict[str, Any], *, connection_id: str) -> None:
+        session_id = str(payload.get("session_id") or "").strip()
+        workspace_root = normalize_workspace_root(payload.get("workspace_root"))
+        if not session_id or not workspace_root:
+            return
+        normalized_connection_id = _normalize_connection_id(connection_id)
+        now = time.time()
+        with self._lock:
+            self._prune_expired_leases_locked(now)
+            lease = self._leases_by_key.get(_lease_key(session_id, workspace_root))
+            if lease is None:
+                return
+            if normalized_connection_id and lease.connection_id == normalized_connection_id:
+                return
+            rejected = self._increment_duplicate_rejection_locked(_lease_key(session_id, workspace_root), lease)
+            raise _lease_owned_conflict(rejected, now=now)
+
+    def _renew_lease(self, lease: VSCodeConnectionLease, *, now: float | None = None) -> VSCodeConnectionLease:
+        timestamp = float(now or time.time())
+        renewed = VSCodeConnectionLease(
+            session_id=lease.session_id,
+            workspace_root=lease.workspace_root,
+            project_key=lease.project_key,
+            connection_id=lease.connection_id,
+            acquired_at=lease.acquired_at,
+            last_heartbeat_at=timestamp,
+            expires_at=timestamp + CONNECTION_LEASE_TTL_SECONDS,
+            source=lease.source,
+            client_name=lease.client_name,
+            duplicate_rejected_count=lease.duplicate_rejected_count,
+        )
+        with self._lock:
+            self._leases_by_key[_lease_key(renewed.session_id, renewed.workspace_root)] = renewed
+        return renewed
+
+    def _lease_for_session_locked(self, session_id: str, workspace_root: str = "") -> VSCodeConnectionLease | None:
+        if workspace_root:
+            return self._leases_by_key.get(_lease_key(session_id, workspace_root))
+        candidates = [lease for lease in self._leases_by_key.values() if lease.session_id == session_id]
+        return max(candidates, key=lambda item: item.last_heartbeat_at, default=None)
+
+    def _prune_expired_leases_locked(self, now: float) -> None:
+        expired_connection_ids: set[str] = set()
+        for key, lease in list(self._leases_by_key.items()):
+            if lease.expires_at <= now:
+                expired_connection_ids.add(lease.connection_id)
+                self._leases_by_key.pop(key, None)
+        for connection_id in expired_connection_ids:
+            self._active_command_polls.discard(connection_id)
+
+    def _increment_duplicate_rejection_locked(self, key: str, lease: VSCodeConnectionLease) -> VSCodeConnectionLease:
+        updated = VSCodeConnectionLease(
+            session_id=lease.session_id,
+            workspace_root=lease.workspace_root,
+            project_key=lease.project_key,
+            connection_id=lease.connection_id,
+            acquired_at=lease.acquired_at,
+            last_heartbeat_at=lease.last_heartbeat_at,
+            expires_at=lease.expires_at,
+            source=lease.source,
+            client_name=lease.client_name,
+            duplicate_rejected_count=lease.duplicate_rejected_count + 1,
+        )
+        self._leases_by_key[key] = updated
+        return updated
 
     def latest_snapshot(
         self,
@@ -126,19 +389,19 @@ class VSCodeConnectionStore:
         if not target_session_id:
             return None
         project_root = _session_project_root(session_manager, target_session_id) if session_manager is not None else ""
+        now = time.time()
         with self._lock:
-            candidates = [self._snapshots_by_session.get(target_session_id)]
-            if project_root:
-                candidates.append(self._snapshots_by_project_key.get(project_workspace_key(project_root)))
-            snapshot = max(
-                [item for item in candidates if item is not None],
-                key=lambda item: item.received_at,
-                default=None,
-            )
+            self._prune_expired_leases_locked(now)
+            snapshot = self._snapshots_by_session.get(target_session_id)
+            lease = self._lease_for_session_locked(target_session_id, project_root)
         if snapshot is None:
             return None
+        if lease is None:
+            return None
+        if snapshot.connection_id and snapshot.connection_id != lease.connection_id:
+            return None
         if max_age_seconds is not None and max_age_seconds > 0:
-            if time.time() - snapshot.received_at > max_age_seconds:
+            if now - snapshot.received_at > max_age_seconds:
                 return None
         return snapshot
 
@@ -164,9 +427,14 @@ class VSCodeConnectionStore:
         stale_after_seconds: float = DEFAULT_STALE_AFTER_SECONDS,
     ) -> VSCodeConnectionStatus:
         target_session_id = str(session_id or "").strip()
+        now = time.time()
+        project_root = _session_project_root(session_manager, target_session_id) if session_manager is not None else ""
         snapshot = self.latest_snapshot(target_session_id, session_manager=session_manager, max_age_seconds=None)
-        if snapshot is None:
-            project_root = _session_project_root(session_manager, target_session_id) if session_manager is not None else ""
+        with self._lock:
+            self._prune_expired_leases_locked(now)
+            lease = self._lease_for_session_locked(target_session_id, project_root)
+            poller_count = 1 if lease and lease.connection_id in self._active_command_polls else 0
+        if snapshot is None and lease is None:
             return VSCodeConnectionStatus(
                 session_id=target_session_id,
                 status="disconnected",
@@ -176,21 +444,22 @@ class VSCodeConnectionStore:
                 workspace_root=project_root,
                 project_key=project_workspace_key(project_root) if project_root else "",
             )
-        age = time.time() - snapshot.received_at
-        stale = age > stale_after_seconds
-        editor_context = dict(snapshot.editor_context)
+        editor_context = dict(snapshot.editor_context) if snapshot is not None else {}
+        last_seen_at = max(float(snapshot.received_at if snapshot else 0.0), float(lease.last_heartbeat_at if lease else 0.0))
+        age = now - last_seen_at if last_seen_at else 0.0
+        stale = bool(lease is None or age > stale_after_seconds)
         active_file = dict(editor_context.get("active_file") or {})
         visible_files = [dict(item) for item in list(editor_context.get("visible_files") or [])]
         open_tabs = [dict(item) for item in list(editor_context.get("open_tabs") or [])]
         limits = dict(editor_context.get("limits") or {})
-        project_root = _session_project_root(session_manager, target_session_id) if session_manager is not None else ""
-        workspace_root = project_root or snapshot.workspace_root
+        workspace_root = project_root or (snapshot.workspace_root if snapshot else "") or (lease.workspace_root if lease else "")
+        connection_id = lease.connection_id if lease is not None else (snapshot.connection_id if snapshot is not None else "")
         return VSCodeConnectionStatus(
             session_id=target_session_id,
             status="stale" if stale else "connected",
-            connected=True,
+            connected=not stale,
             stale=stale,
-            last_seen_at=snapshot.received_at,
+            last_seen_at=last_seen_at,
             age_seconds=max(0.0, age),
             stale_after_seconds=stale_after_seconds,
             workspace_root=workspace_root,
@@ -199,50 +468,12 @@ class VSCodeConnectionStore:
             visible_files=visible_files,
             open_tabs=open_tabs,
             limits=limits,
-            connection_session_id=snapshot.session_id,
-            connection_id=snapshot.connection_id,
-            reused_project_connection=bool(snapshot.session_id and snapshot.session_id != target_session_id),
-        )
-
-    def project_status(self, workspace_root: str, *, stale_after_seconds: float = DEFAULT_STALE_AFTER_SECONDS) -> VSCodeConnectionStatus:
-        project_root = normalize_workspace_root(workspace_root)
-        project_key = project_workspace_key(project_root) if project_root else ""
-        with self._lock:
-            snapshot = self._snapshots_by_project_key.get(project_key) if project_key else None
-        if snapshot is None:
-            return VSCodeConnectionStatus(
-                session_id="",
-                status="disconnected",
-                connected=False,
-                stale=True,
-                stale_after_seconds=stale_after_seconds,
-                workspace_root=project_root,
-                project_key=project_key,
-            )
-        age = time.time() - snapshot.received_at
-        stale = age > stale_after_seconds
-        editor_context = dict(snapshot.editor_context)
-        active_file = dict(editor_context.get("active_file") or {})
-        visible_files = [dict(item) for item in list(editor_context.get("visible_files") or [])]
-        open_tabs = [dict(item) for item in list(editor_context.get("open_tabs") or [])]
-        limits = dict(editor_context.get("limits") or {})
-        return VSCodeConnectionStatus(
-            session_id="",
-            status="stale" if stale else "connected",
-            connected=True,
-            stale=stale,
-            last_seen_at=snapshot.received_at,
-            age_seconds=max(0.0, age),
-            stale_after_seconds=stale_after_seconds,
-            workspace_root=project_root,
-            project_key=project_key,
-            active_file=active_file,
-            visible_files=visible_files,
-            open_tabs=open_tabs,
-            limits=limits,
-            connection_session_id=snapshot.session_id,
-            connection_id=snapshot.connection_id,
-            reused_project_connection=True,
+            connection_id=connection_id,
+            lease_active=lease is not None,
+            lease_expires_at=float(lease.expires_at if lease else 0.0),
+            lease_last_heartbeat_at=float(lease.last_heartbeat_at if lease else 0.0),
+            duplicate_rejected_count=int(lease.duplicate_rejected_count if lease else 0),
+            poller_count=poller_count,
         )
 
     def enqueue_command(self, *, session_id: str, command: dict[str, Any]) -> dict[str, Any]:
@@ -277,16 +508,30 @@ class VSCodeConnectionStore:
                 self._commands_by_session.pop(target_session_id, None)
         return dict(command)
 
-    def record_command_result(self, *, session_id: str, command_id: str, result: dict[str, Any]) -> dict[str, Any]:
+    def record_command_result(
+        self,
+        *,
+        session_id: str,
+        command_id: str,
+        connection_id: str,
+        result: dict[str, Any],
+        session_manager: Any | None = None,
+    ) -> dict[str, Any]:
         target_session_id = str(session_id or "").strip()
         target_command_id = str(command_id or "").strip()
         if not target_session_id:
             raise ValueError("session_id is required")
         if not target_command_id:
             raise ValueError("command_id is required")
+        lease = self.require_connection_owner(
+            session_id=target_session_id,
+            connection_id=connection_id,
+            session_manager=session_manager,
+        )
         payload = {
             "session_id": target_session_id,
             "command_id": target_command_id,
+            "connection_id": lease.connection_id,
             "status": str(dict(result or {}).get("status") or "").strip() or "unknown",
             "message": str(dict(result or {}).get("message") or "").strip()[:2000],
             "dirty": bool(dict(result or {}).get("dirty")),
@@ -344,6 +589,29 @@ def _bind_or_validate_workspace_roots(*, session_manager: Any, session_id: str, 
     return normalize_workspace_root(binding.get("workspace_root"))
 
 
+def _normalize_connection_id(value: object) -> str:
+    text = str(value or "").strip()
+    return "".join(char if char.isalnum() or char in {"-", "_", ":", "."} else "-" for char in text)[:240]
+
+
+def _lease_key(session_id: str, workspace_root: str) -> str:
+    return f"{str(session_id or '').strip()}::{project_workspace_key(workspace_root)}"
+
+
+def _lease_owned_conflict(lease: VSCodeConnectionLease, *, now: float) -> VSCodeConnectionLeaseConflict:
+    retry_after_ms = max(
+        LEASE_CONFLICT_RETRY_AFTER_MS,
+        int(max(1.0, lease.expires_at - now) * 1000),
+    )
+    return VSCodeConnectionLeaseConflict(
+        "VS Code connection lease is owned by another connection",
+        code="lease_owned",
+        retry_after_ms=retry_after_ms,
+        status_code=429,
+        owner=lease.to_dict(),
+    )
+
+
 def _session_project_root(session_manager: Any | None, session_id: str) -> str:
     if session_manager is None:
         return ""
@@ -352,26 +620,6 @@ def _session_project_root(session_manager: Any | None, session_id: str) -> str:
     except Exception:
         return ""
     return normalize_workspace_root(dict(binding or {}).get("workspace_root"))
-
-
-def _latest_project_session(session_manager: Any | None, workspace_roots: list[str]) -> dict[str, str]:
-    if session_manager is None:
-        return {}
-    roots = [item for item in (normalize_workspace_root(root) for root in workspace_roots) if item]
-    if not roots:
-        return {}
-    try:
-        sessions = list(session_manager.list_sessions() or [])
-    except Exception:
-        return {}
-    for session in sorted(sessions, key=lambda item: float(dict(item).get("updated_at") or 0), reverse=True):
-        session_id = str(dict(session).get("id") or "").strip()
-        state = dict(dict(session).get("conversation_state") or {})
-        binding = dict(state.get("project_binding") or {})
-        session_root = normalize_workspace_root(binding.get("workspace_root"))
-        if session_id and any(session_root == root for root in roots):
-            return {"session_id": session_id, "workspace_root": session_root}
-    return {}
 
 
 def _normalize_editor_context(value: dict[str, Any]) -> dict[str, Any]:

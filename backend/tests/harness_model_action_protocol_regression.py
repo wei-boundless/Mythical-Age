@@ -1259,6 +1259,7 @@ def test_task_model_action_request_requires_public_progress_note_for_public_resp
         },
         turn_id="taskrun:test:progress-required",
         require_public_progress_note=True,
+        public_response_required=True,
     )
 
     assert action is None

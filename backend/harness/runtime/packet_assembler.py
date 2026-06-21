@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from harness.current_work_receipt import current_work_control_availability_from_receipt
 from runtime.memory.file_evidence_scope import session_file_evidence_scope, task_run_file_evidence_scope
 from runtime.memory.file_state_store import FileStateAuthorityStore
 
@@ -344,12 +345,12 @@ def _single_agent_turn_operation_availability(
     *,
     current_work_boundary_receipt: dict[str, Any],
 ) -> dict[str, Any]:
-    receipt_availability = dict(current_work_boundary_receipt.get("operation_availability") or {})
-    active_work_known = "active_work_control" in receipt_availability
+    active_work_availability = current_work_control_availability_from_receipt(current_work_boundary_receipt)
     return {
-        "active_work_control": bool(receipt_availability.get("active_work_control")) if active_work_known else None,
+        "active_work_control": active_work_availability.available if active_work_availability.observed else None,
         "source_authority": "harness.runtime.packet_assembler.operation_availability",
         "source_ref": str(current_work_boundary_receipt.get("receipt_id") or ""),
+        "active_work_control_reason": active_work_availability.reason,
     }
 
 

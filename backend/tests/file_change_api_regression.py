@@ -18,6 +18,7 @@ from api import vscode as vscode_api
 from integrations.vscode_connection.context_store import VSCodeConnectionStore
 from project_layout import ProjectLayout
 from runtime.file_changes import FileChangeTracker
+from runtime.shared.event_log import RuntimeEventLog
 
 
 def test_file_changes_api_lists_records_by_session(tmp_path: Path, monkeypatch) -> None:
@@ -101,7 +102,13 @@ def test_file_changes_api_rollback_rejects_external_target_change(tmp_path: Path
 
 
 def test_file_changes_api_rollback_restores_previous_content(tmp_path: Path, monkeypatch) -> None:
-    runtime = SimpleNamespace(base_dir=tmp_path)
+    event_log = RuntimeEventLog(tmp_path / "runtime_events")
+    runtime = SimpleNamespace(
+        base_dir=tmp_path,
+        harness_runtime=SimpleNamespace(
+            single_agent_runtime_host=SimpleNamespace(event_log=event_log)
+        ),
+    )
     monkeypatch.setattr(file_changes_api, "require_runtime", lambda: runtime)
     record = _record_change(FileChangeTracker(tmp_path), tmp_path, session_id="session-api")
 
@@ -115,6 +122,10 @@ def test_file_changes_api_rollback_restores_previous_content(tmp_path: Path, mon
     assert payload["rolled_back"] is True
     assert payload["record"]["status"] == "rolled_back"
     assert (tmp_path / "src" / "app.txt").read_text(encoding="utf-8") == "before"
+    events = event_log.list_events("taskrun-api")
+    assert [str(event.event_type) for event in events] == ["file_change_recorded"]
+    assert events[0].payload["action"] == "rollback"
+    assert events[0].payload["file_change_record"]["record_id"] == record["record_id"]
 
 
 def test_vscode_file_change_diff_open_enqueues_native_diff_command(tmp_path: Path, monkeypatch) -> None:
@@ -122,10 +133,18 @@ def test_vscode_file_change_diff_open_enqueues_native_diff_command(tmp_path: Pat
     session_manager = _SessionManagerStub(tmp_path)
     runtime = SimpleNamespace(base_dir=tmp_path, session_manager=session_manager)
     store = VSCodeConnectionStore()
+    lease = store.acquire_connection(
+        session_manager=session_manager,
+        session_id=session_id,
+        workspace_roots=[str(tmp_path)],
+        connection_id="vscode:test-owner",
+        source="test",
+    )
     record = _record_change(FileChangeTracker(tmp_path), tmp_path, session_id=session_id)
     store.record_context(
         session_manager=session_manager,
         session_id=session_id,
+        connection_id=lease.connection_id,
         editor_context={
             "source": "vscode",
             "workspace_roots": [str(tmp_path)],
@@ -143,8 +162,8 @@ def test_vscode_file_change_diff_open_enqueues_native_diff_command(tmp_path: Pat
             vscode_api.VSCodeOpenFileChangeDiffRequest(record_id=record["record_id"]),
         )
     )
-    next_command = asyncio.run(vscode_api.next_vscode_command(session_id))
-    empty = asyncio.run(vscode_api.next_vscode_command(session_id))
+    next_command = asyncio.run(vscode_api.next_vscode_command(session_id, connection_id=lease.connection_id))
+    empty = asyncio.run(vscode_api.next_vscode_command(session_id, wait_seconds=0, connection_id=lease.connection_id))
 
     assert payload["authority"] == "api.vscode.open_file_change_diff"
     assert next_command["status"] == "ok"

@@ -105,8 +105,20 @@ class SingleAgentRuntimeHost:
         )
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._background_tasks_by_name: dict[str, set[asyncio.Task[Any]]] = {}
+        self._control_loop: asyncio.AbstractEventLoop | None = None
+
+    def bind_control_loop(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
+        try:
+            candidate = loop or asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        if self._control_loop is not None and self._control_loop.is_running() and self._control_loop is not candidate:
+            return
+        if candidate.is_running():
+            self._control_loop = candidate
 
     def spawn_background_task(self, coro: Any, *, name: str = "") -> asyncio.Task[Any]:
+        self.bind_control_loop()
         kwargs = {"name": name} if name else {}
         task = asyncio.create_task(coro, **kwargs)
         self._background_tasks.add(task)
@@ -125,6 +137,47 @@ class SingleAgentRuntimeHost:
         task.add_done_callback(_discard)
         return task
 
+    def background_task_running(self, name: str) -> bool:
+        normalized = str(name or "").strip()
+        if not normalized:
+            return False
+        tasks = self._background_tasks_by_name.get(normalized, set())
+        return any(not task.done() for task in list(tasks or ()))
+
+    def spawn_control_background_task(
+        self,
+        coro_factory: Callable[[], Any],
+        *,
+        name: str = "",
+    ) -> asyncio.Task[Any] | None:
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+        control_loop = self._control_loop if self._control_loop is not None and self._control_loop.is_running() else current_loop
+        if control_loop is None or not control_loop.is_running():
+            return None
+
+        def _start() -> asyncio.Task[Any] | None:
+            try:
+                coro = coro_factory()
+            except Exception:
+                logger.exception("failed to create control background coroutine", extra={"task_name": name})
+                return None
+            try:
+                return self.spawn_background_task(coro, name=name)
+            except Exception:
+                close = getattr(coro, "close", None)
+                if callable(close):
+                    close()
+                logger.exception("failed to schedule control background task", extra={"task_name": name})
+                return None
+
+        if current_loop is control_loop:
+            return _start()
+        control_loop.call_soon_threadsafe(_start)
+        return None
+
     async def cancel_background_tasks(
         self,
         *,
@@ -135,12 +188,7 @@ class SingleAgentRuntimeHost:
         target_names = {str(item).strip() for item in names if str(item).strip()}
         current = asyncio.current_task()
         tasks: set[asyncio.Task[Any]] = set()
-        cell_cancelled_count = 0
-        supervisor = getattr(self, "agent_run_supervisor", None)
         for name in target_names:
-            task_run_id = _task_run_id_from_executor_task_name(name)
-            if task_run_id and supervisor is not None and supervisor.cancel_task_run(task_run_id, reason=reason):
-                cell_cancelled_count += 1
             tasks.update(self._background_tasks_by_name.get(name, set()))
         tasks = {task for task in tasks if task is not current and not task.done()}
         for task in tasks:
@@ -155,8 +203,85 @@ class SingleAgentRuntimeHost:
             "authority": "single_agent_runtime_host.cancel_background_tasks",
             "requested_names": sorted(target_names),
             "cancelled_count": len(tasks),
-            "cell_cancelled_count": cell_cancelled_count,
             "timed_out": timed_out,
+        }
+
+    def cancel_task_run_cells(
+        self,
+        *,
+        task_run_sessions: dict[str, str],
+        reason: str = "task_run_cancelled",
+    ) -> dict[str, Any]:
+        supervisor = getattr(self, "agent_run_supervisor", None)
+        requested: dict[str, str] = {
+            str(task_run_id or "").strip(): str(session_id or "").strip()
+            for task_run_id, session_id in dict(task_run_sessions or {}).items()
+            if str(task_run_id or "").strip()
+        }
+        cancelled: list[str] = []
+        rejected: list[dict[str, str]] = []
+        missing_scope: list[str] = []
+        for task_run_id, session_id in requested.items():
+            if not session_id:
+                missing_scope.append(task_run_id)
+                continue
+            if supervisor is not None and supervisor.cancel_task_run(task_run_id, session_id=session_id, reason=reason):
+                cancelled.append(task_run_id)
+                continue
+            rejected.append(
+                {
+                    "task_run_id": task_run_id,
+                    "expected_session_id": session_id,
+                    "reason": "active_cell_missing_or_session_mismatch",
+                }
+            )
+        return {
+            "authority": "single_agent_runtime_host.cancel_task_run_cells",
+            "requested_task_run_ids": sorted(requested),
+            "cancelled_count": len(cancelled),
+            "cancelled_task_run_ids": sorted(cancelled),
+            "rejected": rejected,
+            "missing_scope_task_run_ids": sorted(missing_scope),
+            "reason": str(reason or ""),
+        }
+
+    def cancel_runtime_run_cells(
+        self,
+        *,
+        runtime_run_sessions: dict[str, str],
+        reason: str = "runtime_run_cancelled",
+    ) -> dict[str, Any]:
+        supervisor = getattr(self, "agent_run_supervisor", None)
+        requested: dict[str, str] = {
+            str(stream_run_id or "").strip(): str(session_id or "").strip()
+            for stream_run_id, session_id in dict(runtime_run_sessions or {}).items()
+            if str(stream_run_id or "").strip()
+        }
+        cancelled: list[str] = []
+        rejected: list[dict[str, str]] = []
+        missing_scope: list[str] = []
+        for stream_run_id, session_id in requested.items():
+            if not session_id:
+                missing_scope.append(stream_run_id)
+                continue
+            if supervisor is not None and supervisor.cancel_stream_run(stream_run_id, session_id=session_id, reason=reason):
+                cancelled.append(stream_run_id)
+                continue
+            rejected.append(
+                {
+                    "stream_run_id": stream_run_id,
+                    "expected_session_id": session_id,
+                    "reason": "active_cell_missing_or_session_mismatch",
+                }
+            )
+        return {
+            "authority": "single_agent_runtime_host.cancel_runtime_run_cells",
+            "requested_stream_run_ids": sorted(requested),
+            "cancelled_count": len(cancelled),
+            "cancelled_stream_run_ids": sorted(cancelled),
+            "rejected": rejected,
+            "missing_scope_stream_run_ids": sorted(missing_scope),
+            "reason": str(reason or ""),
         }
 
     def _close_unowned_active_chat_runs(self) -> None:
@@ -180,7 +305,7 @@ class SingleAgentRuntimeHost:
             self.close_chat_turn_run_for_stream_failure_best_effort(
                 current,
                 code="runtime_process_restarted",
-                reason="background_executor_missing_after_restart",
+                reason="runtime_cell_missing_after_restart",
                 orphaned_by="single_agent_runtime_host.startup_reconciliation",
             )
 
@@ -343,7 +468,10 @@ class SingleAgentRuntimeHost:
                 bound_task_run = self.state_index.get_task_run(bound_task_run_id)
             except Exception:
                 bound_task_run = None
-            if bound_task_run is not None and not is_stopped_or_terminal_task_run(bound_task_run):
+            if bound_task_run is not None and not is_stopped_or_terminal_task_run(
+                bound_task_run,
+                runtime_host=self,
+            ):
                 return {
                     "released": False,
                     "reason": "bound_task_still_running",
@@ -679,14 +807,6 @@ def _event_count(event_log: Any, task_run_id: str, *, fallback: int) -> int:
     return int(fallback)
 
 
-def _task_run_id_from_executor_task_name(name: str) -> str:
-    value = str(name or "").strip()
-    for prefix in ("task-run-executor:", "task-run-executor-recover:"):
-        if value.startswith(prefix):
-            return value[len(prefix):]
-    return ""
-
-
 def _safe_runtime_object_id(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))[:180]
 
@@ -777,8 +897,8 @@ def _orphaned_chat_run_needs_turn_reconciliation(run: RuntimeRun) -> bool:
 def _orphaned_chat_run_failure_reason(failure_code: str) -> str:
     code = str(failure_code or "").strip()
     if code == "stream_cancelled":
-        return "background_executor_cancelled"
-    return "background_executor_missing_after_restart"
+        return "runtime_cell_cancelled"
+    return "runtime_cell_missing_after_restart"
 
 
 def _stream_failure_public_status(failure_code: str) -> str:

@@ -11,7 +11,6 @@ from .task_tool_approval import matching_approval_grant_for_pending
 
 STOP_CONTROL_STATES = {"stop_requested", "stopped"}
 PAUSE_CONTROL_STATES = {"pause_requested", "paused"}
-REPLAN_CONTROL_STATES = {"replan_requested", "interrupted_for_replan"}
 
 @dataclass(frozen=True, slots=True)
 class TaskRunRecoveryState:
@@ -32,14 +31,14 @@ class TaskRunRecoveryState:
     authority: str = "harness.loop.task_run_recovery_state"
 
 
-def recovery_state_for_task_run(task_run: Any) -> TaskRunRecoveryState:
+def recovery_state_for_task_run(task_run: Any, *, runtime_host: Any | None = None) -> TaskRunRecoveryState:
     status = normalize_task_run_status(getattr(task_run, "status", "") or "")
     terminal_reason = str(getattr(task_run, "terminal_reason", "") or "").strip()
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     executor_status = str(diagnostics.get("executor_status") or "").strip()
-    control_state = _control_state(diagnostics)
     recovery_action = str(diagnostics.get("recovery_action") or "").strip()
-    view = task_run_state_view(task_run)
+    view = task_run_state_view(task_run, runtime_host=runtime_host)
+    control_state = str(view.get("control_state") or "").strip()
     recoverable = bool(view.get("recoverable"))
     graph_controlled = bool(view.get("graph_controlled"))
     task_work_state = str(view.get("task_work_state") or "")
@@ -47,7 +46,6 @@ def recovery_state_for_task_run(task_run: Any) -> TaskRunRecoveryState:
     paused = task_work_state == "paused" or control_state in PAUSE_CONTROL_STATES
     completed_iteration = task_work_state == "completed" or status in COMPLETED_TASK_RUN_STATUSES
     running_claimed = bool(view.get("running_claimed"))
-    active_executable = bool(task_work_state == "active" and not graph_controlled)
 
     same_run_resumable = False
     reason = "not_resumable"
@@ -65,10 +63,8 @@ def recovery_state_for_task_run(task_run: Any) -> TaskRunRecoveryState:
     elif status == "waiting_approval" and matching_approval_grant_for_pending(task_run) is not None:
         same_run_resumable = True
         reason = "approval_granted"
-    elif active_executable:
-        reason = "active_task_run"
 
-    executable = (active_executable or same_run_resumable) and not paused and control_state not in STOP_CONTROL_STATES
+    executable = same_run_resumable and not paused and control_state not in STOP_CONTROL_STATES
     return TaskRunRecoveryState(
         status=status,
         executor_status=executor_status,
@@ -87,13 +83,5 @@ def recovery_state_for_task_run(task_run: Any) -> TaskRunRecoveryState:
     )
 
 
-def should_auto_continue_task_run(task_run: Any) -> bool:
-    return recovery_state_for_task_run(task_run).executable
-
-
-def _control_state(diagnostics: dict[str, Any]) -> str:
-    control = diagnostics.get("runtime_control")
-    if not isinstance(control, dict):
-        return ""
-    state = str(control.get("state") or "").strip()
-    return state if state in {"pause_requested", "paused", "resume_requested", "stop_requested", "stopped", *REPLAN_CONTROL_STATES} else ""
+def should_auto_continue_task_run(task_run: Any, *, runtime_host: Any | None = None) -> bool:
+    return recovery_state_for_task_run(task_run, runtime_host=runtime_host).executable

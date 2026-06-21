@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 from typing import Any
 
@@ -11,8 +12,48 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from harness.runtime.run_monitor import RuntimeMonitorActionService
+from runtime.file_change_signals import subscribe_file_change_signals, unsubscribe_file_change_signals
 
 router = APIRouter()
+
+
+class _RuntimeMonitorSnapshotCoalescer:
+    def __init__(self, *, ttl_seconds: float = 0.75) -> None:
+        self._ttl_seconds = max(0.0, float(ttl_seconds))
+        self._lock = threading.RLock()
+        self._in_flight: dict[tuple[int, int, int], asyncio.Task[dict[str, Any]]] = {}
+        self._cache: dict[tuple[int, int, int], tuple[float, dict[str, Any]]] = {}
+
+    async def collect(self, service: Any, *, limit: int) -> dict[str, Any]:
+        normalized_limit = max(1, int(limit or 1))
+        key = (id(asyncio.get_running_loop()), id(service), normalized_limit)
+        now = time.monotonic()
+        with self._lock:
+            cached = self._cache.get(key)
+            if cached and now - cached[0] <= self._ttl_seconds:
+                return cached[1]
+            task = self._in_flight.get(key)
+            if task is None:
+                task = asyncio.create_task(_collect_global_runtime_monitor_raw(service, limit=normalized_limit))
+                self._in_flight[key] = task
+                task.add_done_callback(lambda completed, cache_key=key: self._complete(cache_key, completed))
+        return await asyncio.shield(task)
+
+    def _complete(self, key: tuple[int, int, int], task: asyncio.Task[dict[str, Any]]) -> None:
+        monitor: dict[str, Any] | None = None
+        if not task.cancelled():
+            try:
+                monitor = task.result()
+            except Exception:
+                monitor = None
+        with self._lock:
+            if self._in_flight.get(key) is task:
+                self._in_flight.pop(key, None)
+            if monitor is not None:
+                self._cache[key] = (time.monotonic(), monitor)
+
+
+_RUNTIME_MONITOR_SNAPSHOT_COALESCER = _RuntimeMonitorSnapshotCoalescer()
 
 
 class RuntimeMonitorActionRequest(BaseModel):
@@ -48,6 +89,10 @@ def _action_service() -> RuntimeMonitorActionService:
 
 
 async def _collect_global_runtime_monitor(service: Any, *, limit: int) -> dict[str, Any]:
+    return await _RUNTIME_MONITOR_SNAPSHOT_COALESCER.collect(service, limit=limit)
+
+
+async def _collect_global_runtime_monitor_raw(service: Any, *, limit: int) -> dict[str, Any]:
     return await asyncio.to_thread(service.collect_global_runtime_monitor, limit=limit)
 
 
@@ -90,55 +135,78 @@ async def stream_runtime_monitor_events(request: Request, limit: int = 40, poll_
     service = _service()
     requested_limit = max(1, min(int(limit or 40), 100))
     poll_interval = _stream_poll_interval(poll_interval_seconds)
+    file_change_subscription = subscribe_file_change_signals(max_queue_size=200)
 
     async def event_generator():
-        yield _sse(
-            "runtime_monitor_heartbeat",
-            {
-                "updated_at": time.time(),
-                "source": "connected",
-            },
-        )
-        last_revision = ""
-        snapshot_source = "initial"
-        while not await request.is_disconnected():
-            started_at = time.time()
-            try:
-                monitor = await _collect_global_runtime_monitor(service, limit=requested_limit)
-            except Exception as exc:
-                yield _sse(
-                    "runtime_monitor_error",
-                    {
-                        "updated_at": time.time(),
-                        "source": "poll",
-                        "error": str(exc),
-                    },
+        try:
+            yield _sse(
+                "runtime_monitor_heartbeat",
+                {
+                    "updated_at": time.time(),
+                    "source": "connected",
+                },
+            )
+            last_revision = ""
+            snapshot_source = "initial"
+            next_snapshot_at = 0.0
+            while not await request.is_disconnected():
+                now = time.time()
+                if now >= next_snapshot_at:
+                    try:
+                        monitor = await _collect_global_runtime_monitor(service, limit=requested_limit)
+                    except Exception as exc:
+                        yield _sse(
+                            "runtime_monitor_error",
+                            {
+                                "updated_at": time.time(),
+                                "source": "poll",
+                                "error": str(exc),
+                            },
+                        )
+                        next_snapshot_at = time.time() + poll_interval
+                        continue
+                    revision = str(monitor.get("revision") or monitor.get("updated_at") or "")
+                    if revision and revision == last_revision:
+                        yield _sse(
+                            "runtime_monitor_heartbeat",
+                            {
+                                "updated_at": time.time(),
+                                "source": "unchanged",
+                                "revision": revision,
+                            },
+                        )
+                    else:
+                        last_revision = revision
+                        yield _sse(
+                            "runtime_monitor_snapshot",
+                            {
+                                "monitor": monitor,
+                                "source": snapshot_source,
+                                "updated_at": time.time(),
+                            },
+                            event_id=revision,
+                        )
+                        snapshot_source = "poll"
+                    next_snapshot_at = time.time() + poll_interval
+                    continue
+
+                payload = await _next_file_change_signal(
+                    file_change_subscription,
+                    timeout_seconds=max(0.0, min(next_snapshot_at - now, 1.0)),
                 )
-                await _sleep_until_next_poll(request, poll_interval=poll_interval, started_at=started_at)
-                continue
-            revision = str(monitor.get("revision") or monitor.get("updated_at") or "")
-            if revision and revision == last_revision:
+                if payload is None:
+                    continue
                 yield _sse(
-                    "runtime_monitor_heartbeat",
+                    "runtime_monitor_file_change",
                     {
-                        "updated_at": time.time(),
-                        "source": "unchanged",
-                        "revision": revision,
-                    },
-                )
-            else:
-                last_revision = revision
-                yield _sse(
-                    "runtime_monitor_snapshot",
-                    {
-                        "monitor": monitor,
-                        "source": snapshot_source,
+                        **payload,
+                        "source": "file_change_signal",
                         "updated_at": time.time(),
                     },
-                    event_id=revision,
+                    event_id=str(payload.get("event_id") or ""),
                 )
-                snapshot_source = "poll"
-            await _sleep_until_next_poll(request, poll_interval=poll_interval, started_at=started_at)
+        finally:
+            unsubscribe_file_change_signals(file_change_subscription)
 
     return StreamingResponse(
         event_generator(),
@@ -151,14 +219,14 @@ async def stream_runtime_monitor_events(request: Request, limit: int = 40, poll_
     )
 
 
-async def _sleep_until_next_poll(request: Request, *, poll_interval: float, started_at: float) -> None:
-    remaining = max(0.0, float(poll_interval) - (time.time() - float(started_at)))
-    while remaining > 0:
-        if await request.is_disconnected():
-            return
-        delay = min(0.25, remaining)
-        await asyncio.sleep(delay)
-        remaining -= delay
+async def _next_file_change_signal(subscription: Any, *, timeout_seconds: float) -> dict[str, Any] | None:
+    if subscription is None:
+        await asyncio.sleep(max(0.0, timeout_seconds))
+        return None
+    try:
+        return await asyncio.wait_for(subscription.queue.get(), timeout=max(0.01, float(timeout_seconds or 0.01)))
+    except asyncio.TimeoutError:
+        return None
 
 
 @router.get("/orchestration/runtime-monitor/sessions/{session_id}")

@@ -157,3 +157,31 @@ def test_session_permission_mode_api_updates_conversation_state(tmp_path: Path) 
 
     assert state["permission_mode"] == "plan"
     assert runtime.session_manager.get_history(session_id)["conversation_state"]["permission_mode"] == "plan"  # type: ignore[attr-defined]
+
+
+def test_session_chat_model_selection_api_updates_conversation_state(tmp_path: Path) -> None:
+    runtime = RuntimeBaseDirStub(tmp_path)
+    runtime.session_manager = SessionManager(tmp_path)  # type: ignore[attr-defined]
+    session = runtime.session_manager.create_session(title="Model session")  # type: ignore[attr-defined]
+    session_id = session["id"]
+    original = sessions_api.require_runtime
+    sessions_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        state = asyncio.run(
+            sessions_api.set_session_chat_model_selection(
+                session_id,
+                sessions_api.SessionChatModelSelectionRequest(
+                    selection_id="deepseek::deepseek-v4-pro",
+                    provider="deepseek",
+                    model="deepseek-v4-pro",
+                ),
+                workspace_view=None,
+                task_environment_id=None,
+                project_id=None,
+            )
+        )
+    finally:
+        sessions_api.require_runtime = original  # type: ignore[assignment]
+
+    assert state["chat_model_selection"]["selection_id"] == "deepseek::deepseek-v4-pro"
+    assert runtime.session_manager.get_history(session_id)["conversation_state"]["chat_model_selection"]["model"] == "deepseek-v4-pro"  # type: ignore[attr-defined]

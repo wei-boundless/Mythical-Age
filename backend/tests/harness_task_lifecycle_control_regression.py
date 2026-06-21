@@ -34,6 +34,46 @@ def _runtime_gateway_signals(
     ]
 
 
+def _wait_until(condition, *, timeout: float = 3.0, interval: float = 0.01, reason: str = "condition") -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if condition():
+            return
+        time.sleep(interval)
+    raise AssertionError(reason)
+
+
+def _wait_for_running_executor(host, task_run_id: str, model=None, *, timeout: float = 3.0) -> None:
+    def _running() -> bool:
+        task = host.state_index.get_task_run(task_run_id)
+        diagnostics = dict(getattr(task, "diagnostics", {}) or {}) if task is not None else {}
+        model_started = model is None or int(getattr(model, "calls", 0) or 0) >= 1
+        return diagnostics.get("executor_status") == "running" and model_started
+
+    _wait_until(_running, timeout=timeout, reason="scheduled executor did not enter running model call")
+
+
+def _wait_for_task_status(host, task_run_id: str, status: str, *, timeout: float = 5.0) -> None:
+    def _status_reached() -> bool:
+        task = host.state_index.get_task_run(task_run_id)
+        return task is not None and str(getattr(task, "status", "") or "") == status
+
+    _wait_until(_status_reached, timeout=timeout, reason=f"task did not reach {status}")
+
+
+def _join_scheduled_cell(host, schedule: dict[str, object], *, timeout: float = 3.0) -> None:
+    cell = host.agent_run_supervisor.cell_by_id(str(schedule.get("run_cell_id") or ""))
+    if cell is not None and cell.worker_handle is not None:
+        assert cell.worker_handle.join(timeout=timeout)
+
+
+def _assistant_final_text(events: list[dict[str, object]]) -> str:
+    finals = [event for event in events if event.get("event_type") == "assistant_text_final"]
+    if not finals:
+        return ""
+    return str(dict(finals[-1].get("payload") or {}).get("content") or "")
+
+
 def test_scoped_tool_observation_fails_closed_when_agent_scope_gate_unavailable() -> None:
     scoped_status = task_executor_module._agent_cell_scope_status(
         SimpleNamespace(),
@@ -250,7 +290,7 @@ def test_task_lifecycle_records_turn_to_task_handoff_and_materializes_file_state
     assert file_state[-1]["path"] == "backend/harness/loop/single_agent_turn.py"
 
 
-def test_task_run_success_commits_session_output_before_completed_lifecycle() -> None:
+def test_task_run_success_projects_body_after_commit_ack_before_completed_lifecycle() -> None:
     final_answer = "Executor final answer."
     runtime = build_harness_runtime(
         model_runtime=SingleMessageModelRuntimeStub(
@@ -269,7 +309,7 @@ def test_task_run_success_commits_session_output_before_completed_lifecycle() ->
         runtime,
         task_run_id="taskrun:turn:session-output-order:1:abc",
         session_id="session-output-order",
-        status="running",
+        status="created",
     )
     seeded = host.state_index.get_task_run(task_run_id)
     host.state_index.upsert_task_run(
@@ -282,7 +322,18 @@ def test_task_run_success_commits_session_output_before_completed_lifecycle() ->
         )
     )
 
-    result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=2))
+    schedule_result = runtime.schedule_task_run_executor(
+        task_run_id,
+        scheduler="test_session_output_order",
+        turn_id="turn:session-output-order:1",
+        max_steps=2,
+    )
+    cell = host.agent_run_supervisor.cell_by_id(str(schedule_result.get("run_cell_id") or ""))
+    assert schedule_result["ok"] is True
+    assert schedule_result["scheduled"] is True
+    assert cell is not None
+    assert cell.worker_handle is not None
+    assert cell.worker_handle.join(timeout=3)
     events = host.event_log.list_events(task_run_id)
     event_types = [str(event.event_type) for event in events]
     body_event = next(event for event in events if event.event_type == "assistant_text_final")
@@ -296,13 +347,12 @@ def test_task_run_success_commits_session_output_before_completed_lifecycle() ->
     messages = runtime.session_manager.load_session("session-output-order")
     finished_task = host.state_index.get_task_run(task_run_id)
 
-    assert result["ok"] is True
     assert finished_task.status == "completed"
     assert dict(body_event.payload)["content"] == final_answer
-    assert event_types.index("assistant_text_final") < event_types.index("session_output_commit_checked")
     assert event_types.index("session_output_commit_checked") < event_types.index("session_output_commit_ack")
+    assert event_types.index("session_output_commit_ack") < event_types.index("assistant_text_final")
     assert int(ack_event.offset) < int(completed_event.offset)
-    assert dict(result["output_commit"])["state"] == "committed"
+    assert dict(ack_event.payload)["state"] == "committed"
     assert dict(finished_task.diagnostics)["output_commit_status"] == "committed"
     assert messages[-1]["role"] == "assistant"
     assert messages[-1]["content"] == final_answer
@@ -398,7 +448,7 @@ def test_closed_cell_final_commit_is_rejected_before_session_write(tmp_path) -> 
     assert cell is not None
     assert cell.worker_handle is not None
     assert cell.worker_handle.join(timeout=3)
-    assert host.agent_run_supervisor.active_cell_for_task_run(task_run_id) is None
+    assert host.agent_run_supervisor.active_cell_for_task_run(task_run_id, session_id="session-closed-cell-commit") is None
 
     task = host.state_index.get_task_run(task_run_id)
     receipt = task_executor_module._commit_task_run_final_message(
@@ -443,7 +493,7 @@ def test_closed_cell_output_commit_skipped_uses_current_cell_gate(tmp_path) -> N
     assert cell is not None
     assert cell.worker_handle is not None
     assert cell.worker_handle.join(timeout=3)
-    assert host.agent_run_supervisor.active_cell_for_task_run(task_run_id) is None
+    assert host.agent_run_supervisor.active_cell_for_task_run(task_run_id, session_id="session-closed-cell-skipped") is None
 
     task = host.state_index.get_task_run(task_run_id)
     receipt = task_executor_module._record_session_output_commit_skipped(
@@ -705,7 +755,7 @@ def test_closed_cell_tool_observation_is_rejected_before_observation_write(tmp_p
     assert cell is not None
     assert cell.worker_handle is not None
     assert cell.worker_handle.join(timeout=3)
-    assert host.agent_run_supervisor.active_cell_for_task_run(task_run_id) is None
+    assert host.agent_run_supervisor.active_cell_for_task_run(task_run_id, session_id="session-closed-tool-cell") is None
 
     task = host.state_index.get_task_run(task_run_id)
     agent_run_id = str(schedule["agent_run_id"])
@@ -1060,24 +1110,24 @@ def test_running_stop_signal_is_observed_by_agent_before_closeout() -> None:
         runtime,
         task_run_id="taskrun:stop-signal",
         session_id="session-stop-signal",
-        status="running",
+        status="created",
     )
 
-    async def _run() -> tuple[dict[str, object], dict[str, object]]:
-        execution = asyncio.create_task(runtime.execute_task_run(task_run_id, max_steps=4))
-        for _ in range(100):
-            task = host.state_index.get_task_run(task_run_id)
-            diagnostics = dict(getattr(task, "diagnostics", {}) or {}) if task is not None else {}
-            if diagnostics.get("executor_status") == "running":
-                break
-            await asyncio.sleep(0.01)
-        else:
-            raise AssertionError("executor did not enter running state")
+    schedule = runtime.schedule_task_run_executor(task_run_id, scheduler="test_stop_signal", max_steps=4)
+    stop_requested = False
+    try:
+        assert schedule["scheduled"] is True
+        _wait_for_running_executor(host, task_run_id, model)
         stop_result = stop_task_run(host, task_run_id, reason="user_stop_test", requested_by="user")
-        result = await asyncio.wait_for(execution, timeout=3)
-        return stop_result, result
+        stop_requested = True
+        assert stop_result["accepted"] is True
+        _wait_for_task_status(host, task_run_id, "aborted")
+        _join_scheduled_cell(host, schedule)
+    finally:
+        if not stop_requested:
+            stop_task_run(host, task_run_id, reason="test_cleanup", requested_by="test")
+        _join_scheduled_cell(host, schedule, timeout=1)
 
-    stop_result, result = asyncio.run(_run())
     task = host.state_index.get_task_run(task_run_id)
     trace = host.get_trace(task_run_id, include_payloads=True)
     events = [dict(item) for item in list(dict(trace or {}).get("events") or [])]
@@ -1113,12 +1163,10 @@ def test_running_stop_signal_is_observed_by_agent_before_closeout() -> None:
     )
     second_model_payload = json.dumps(model.seen_messages[1:], ensure_ascii=False, default=str)
 
-    assert stop_result["accepted"] is True
-    assert result["error"] == "user_aborted"
-    assert result["final_answer"] == "agent-authored stop closeout"
     assert task is not None
     assert task.status == "aborted"
     assert task.terminal_reason == "user_aborted"
+    assert _assistant_final_text(events) == "agent-authored stop closeout"
     assert event_types.count("task_runtime_control_signal_observed") == 1
     assert len(gateway_requested) == 1
     assert len(gateway_observed) == 1
@@ -1177,33 +1225,20 @@ def test_scheduled_stop_signal_uses_cell_scoped_runtime_gateway() -> None:
         runtime,
         task_run_id="taskrun:scheduled-stop-signal",
         session_id="session-scheduled-stop-signal",
-        status="running",
+        status="created",
     )
 
     schedule = runtime.task_executor_controller.schedule(task_run_id, scheduler="test_stop_signal", max_steps=4)
     stop_requested = False
     try:
         assert schedule["scheduled"] is True
-        for _ in range(200):
-            task = host.state_index.get_task_run(task_run_id)
-            diagnostics = dict(getattr(task, "diagnostics", {}) or {}) if task is not None else {}
-            if diagnostics.get("executor_status") == "running" and model.calls >= 1:
-                break
-            time.sleep(0.01)
-        else:
-            raise AssertionError("scheduled executor did not enter running model call")
+        _wait_for_running_executor(host, task_run_id, model)
 
         stop_result = stop_task_run(host, task_run_id, reason="scheduled_user_stop_test", requested_by="user")
         stop_requested = True
         assert stop_result["accepted"] is True
 
-        for _ in range(300):
-            task = host.state_index.get_task_run(task_run_id)
-            if task is not None and str(getattr(task, "status", "") or "") == "aborted":
-                break
-            time.sleep(0.01)
-        else:
-            raise AssertionError("scheduled executor did not stop")
+        _wait_for_task_status(host, task_run_id, "aborted")
 
         trace = host.get_trace(task_run_id, include_payloads=True)
         events = [dict(item) for item in list(dict(trace or {}).get("events") or [])]
@@ -1261,7 +1296,7 @@ def test_scheduled_stop_signal_uses_cell_scoped_runtime_gateway() -> None:
             cell.worker_handle.join(timeout=1)
 
 
-def test_stop_signal_publishes_runtime_gateway_without_executor_registry() -> None:
+def test_stale_running_stop_finishes_without_gateway_signal() -> None:
     from harness.loop.task_executor import stop_task_run
 
     runtime = build_harness_runtime()
@@ -1284,7 +1319,7 @@ def test_stop_signal_publishes_runtime_gateway_without_executor_registry() -> No
         )
     )
 
-    stop_result = stop_task_run(host, task_run_id, reason="registry_missing_stop", requested_by="user")
+    stop_result = stop_task_run(host, task_run_id, reason="stale_running_stop", requested_by="user")
     trace = host.get_trace(task_run_id, include_payloads=True)
     events = [dict(item) for item in list(dict(trace or {}).get("events") or [])]
     requested = [
@@ -1300,22 +1335,19 @@ def test_stop_signal_publishes_runtime_gateway_without_executor_registry() -> No
         signal_type="control.signal.target_unavailable",
     )
 
+    stored = host.state_index.get_task_run(task_run_id)
     assert stop_result["accepted"] is True
-    assert len(requested) == 1
-    assert len(unavailable) == 1
-    assert requested[0]["signal_id"]
+    assert requested == []
+    assert unavailable == []
+    assert stored.status == "aborted"
+    assert stored.terminal_reason == "user_aborted"
+    assert dict(stored.diagnostics or {})["executor_status"] == "stopped"
     stop_requested_event = next(event for event in events if event.get("event_type") == "task_run_stop_requested")
-    stored_control = dict(dict(host.state_index.get_task_run(task_run_id).diagnostics or {}).get("runtime_control") or {})
-    assert dict(stop_result["control"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
-    assert stored_control["runtime_control_signal_ref"] == requested[0]["signal_id"]
-    assert dict(stop_requested_event["payload"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
-    assert dict(stop_requested_event["refs"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
-    assert dict(unavailable[0]["payload"])["requested_signal_id"] == requested[0]["signal_id"]
-    assert dict(unavailable[0]["payload"])["signal_kind"] == "stop"
-    assert dict(unavailable[0]["payload"])["unavailable_reason"] == "target_cell_unavailable"
-    assert dict(unavailable[0]["payload"])["pending_signal_remains_replayable"] is True
-    assert dict(requested[0]["payload"])["signal_kind"] == "stop"
-    assert dict(requested[0]["payload"])["executor_epoch"] == 42
+    stored_control = dict(dict(stored.diagnostics or {}).get("runtime_control") or {})
+    assert dict(stop_result["control"])["state"] == "stopped"
+    assert "runtime_control_signal_ref" not in stored_control
+    assert "runtime_control_signal_ref" not in dict(stop_requested_event["payload"])
+    assert "runtime_control_signal_ref" not in dict(stop_requested_event["refs"])
     assert host.runtime_gateway.drain(
         task_run_id,
         scope=RuntimeSignalScope(
@@ -1323,10 +1355,10 @@ def test_stop_signal_publishes_runtime_gateway_without_executor_registry() -> No
             task_run_id=task_run_id,
         ),
         signal_types={"control.signal.requested"},
-    ).pending_signals[0].signal_id == requested[0]["signal_id"]
+    ).pending_signals == ()
 
 
-def test_pause_signal_publishes_runtime_gateway_without_executor_registry() -> None:
+def test_stale_running_pause_settles_without_gateway_signal() -> None:
     from harness.loop.task_executor import request_task_run_pause
 
     runtime = build_harness_runtime()
@@ -1349,7 +1381,7 @@ def test_pause_signal_publishes_runtime_gateway_without_executor_registry() -> N
         )
     )
 
-    pause_result = request_task_run_pause(host, task_run_id, reason="registry_missing_pause", requested_by="user")
+    pause_result = request_task_run_pause(host, task_run_id, reason="stale_running_pause", requested_by="user")
     trace = host.get_trace(task_run_id, include_payloads=True)
     events = [dict(item) for item in list(dict(trace or {}).get("events") or [])]
     requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
@@ -1360,22 +1392,20 @@ def test_pause_signal_publishes_runtime_gateway_without_executor_registry() -> N
         signal_type="control.signal.target_unavailable",
     )
 
+    stored = host.state_index.get_task_run(task_run_id)
     assert pause_result["accepted"] is True
-    assert len(requested) == 1
-    assert len(unavailable) == 1
-    assert requested[0]["signal_id"]
+    assert requested == []
+    assert unavailable == []
+    assert stored.status == "waiting_executor"
+    assert stored.terminal_reason == ""
+    assert dict(stored.diagnostics or {})["executor_status"] == "waiting_executor"
+    assert dict(stored.diagnostics or {})["recovery_action"] == "resume_task_run"
     pause_requested_event = next(event for event in events if event.get("event_type") == "task_run_pause_requested")
-    stored_control = dict(dict(host.state_index.get_task_run(task_run_id).diagnostics or {}).get("runtime_control") or {})
-    assert dict(pause_result["control"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
-    assert stored_control["runtime_control_signal_ref"] == requested[0]["signal_id"]
-    assert dict(pause_requested_event["payload"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
-    assert dict(pause_requested_event["refs"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
-    assert dict(unavailable[0]["payload"])["requested_signal_id"] == requested[0]["signal_id"]
-    assert dict(unavailable[0]["payload"])["signal_kind"] == "pause"
-    assert dict(unavailable[0]["payload"])["unavailable_reason"] == "target_cell_unavailable"
-    assert dict(unavailable[0]["payload"])["pending_signal_remains_replayable"] is True
-    assert dict(requested[0]["payload"])["signal_kind"] == "pause"
-    assert dict(requested[0]["payload"])["executor_epoch"] == 43
+    stored_control = dict(dict(stored.diagnostics or {}).get("runtime_control") or {})
+    assert dict(pause_result["control"])["state"] == "paused"
+    assert "runtime_control_signal_ref" not in stored_control
+    assert "runtime_control_signal_ref" not in dict(pause_requested_event["payload"])
+    assert "runtime_control_signal_ref" not in dict(pause_requested_event["refs"])
     assert host.runtime_gateway.drain(
         task_run_id,
         scope=RuntimeSignalScope(
@@ -1383,10 +1413,10 @@ def test_pause_signal_publishes_runtime_gateway_without_executor_registry() -> N
             task_run_id=task_run_id,
         ),
         signal_types={"control.signal.requested"},
-    ).pending_signals[0].signal_id == requested[0]["signal_id"]
+    ).pending_signals == ()
 
 
-def test_replan_signal_publishes_runtime_gateway_without_executor_registry_and_preserves_steer_ref() -> None:
+def test_stale_running_replan_records_steer_without_gateway_signal() -> None:
     from harness.loop.task_executor import append_user_work_instruction
 
     runtime = build_harness_runtime()
@@ -1426,25 +1456,17 @@ def test_replan_signal_publishes_runtime_gateway_without_executor_registry_and_p
         signal_type="control.signal.target_unavailable",
     )
 
+    stored = host.state_index.get_task_run(task_run_id)
     assert replan_result["accepted"] is True
-    assert len(requested) == 1
-    assert len(unavailable) == 1
-    assert requested[0]["signal_id"]
-    replan_requested_event = next(event for event in events if event.get("event_type") == "task_run_replan_requested")
+    assert requested == []
+    assert unavailable == []
+    assert stored.status == "running"
+    assert dict(stored.diagnostics or {})["latest_user_steer_ref"] == steer_ref
+    assert not [event for event in events if event.get("event_type") == "task_run_replan_requested"]
     stored_control = dict(dict(host.state_index.get_task_run(task_run_id).diagnostics or {}).get("runtime_control") or {})
     result_control = dict(dict(replan_result["task_run"]).get("diagnostics") or {}).get("runtime_control") or {}
-    assert dict(result_control)["runtime_control_signal_ref"] == requested[0]["signal_id"]
-    assert stored_control["runtime_control_signal_ref"] == requested[0]["signal_id"]
-    assert dict(replan_requested_event["payload"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
-    assert dict(replan_requested_event["refs"])["runtime_control_signal_ref"] == requested[0]["signal_id"]
-    assert dict(unavailable[0]["payload"])["requested_signal_id"] == requested[0]["signal_id"]
-    assert dict(unavailable[0]["payload"])["signal_kind"] == "replan"
-    assert dict(unavailable[0]["payload"])["steer_ref"] == steer_ref
-    assert dict(unavailable[0]["payload"])["unavailable_reason"] == "target_cell_unavailable"
-    assert dict(unavailable[0]["payload"])["pending_signal_remains_replayable"] is True
-    assert dict(requested[0]["payload"])["signal_kind"] == "replan"
-    assert dict(requested[0]["payload"])["executor_epoch"] == 44
-    assert dict(requested[0]["payload"])["steer_ref"] == steer_ref
+    assert dict(result_control) == {}
+    assert stored_control == {}
     assert host.runtime_gateway.drain(
         task_run_id,
         scope=RuntimeSignalScope(
@@ -1452,10 +1474,10 @@ def test_replan_signal_publishes_runtime_gateway_without_executor_registry_and_p
             task_run_id=task_run_id,
         ),
         signal_types={"control.signal.requested"},
-    ).pending_signals[0].signal_id == requested[0]["signal_id"]
+    ).pending_signals == ()
 
 
-def test_active_pause_stop_and_replan_fail_closed_without_runtime_gateway() -> None:
+def test_stale_running_pause_stop_do_not_require_gateway_without_live_cell() -> None:
     from harness.loop.task_executor import append_user_work_instruction, request_task_run_pause, stop_task_run
 
     runtime = build_harness_runtime()
@@ -1490,16 +1512,17 @@ def test_active_pause_stop_and_replan_fail_closed_without_runtime_gateway() -> N
     stored = host.state_index.get_task_run(task_run_id)
     event_types = [event.event_type for event in host.event_log.list_events(task_run_id)]
 
-    assert pause_result["ok"] is False
-    assert pause_result["error"] == "runtime_gateway_control_signal_unavailable"
-    assert stop_result["ok"] is False
-    assert stop_result["error"] == "runtime_gateway_control_signal_unavailable"
+    assert pause_result["ok"] is True
+    assert pause_result["accepted"] is True
+    assert stop_result["ok"] is True
+    assert stop_result["accepted"] is True
     assert replan_result["ok"] is False
-    assert replan_result["error"] == "runtime_gateway_control_signal_unavailable"
-    assert stored.status == "running"
-    assert dict(stored.diagnostics or {})["executor_status"] == "running"
-    assert "task_run_pause_requested" not in event_types
-    assert "task_run_stop_requested" not in event_types
+    assert replan_result["error"] == "task_run_terminal:user_aborted"
+    assert stored.status == "aborted"
+    assert stored.terminal_reason == "user_aborted"
+    assert dict(stored.diagnostics or {})["executor_status"] == "stopped"
+    assert "task_run_pause_requested" in event_types
+    assert "task_run_stop_requested" in event_types
     assert "task_run_replan_requested" not in event_types
     assert "active_task_steer_recorded" not in event_types
 
@@ -1511,8 +1534,6 @@ def test_executor_observes_pending_gateway_stop_without_memory_signal() -> None:
 
         async def invoke_messages(self, messages, **_kwargs):
             self.calls += 1
-            if self.calls == 1:
-                await asyncio.sleep(60)
             return SimpleNamespace(
                 content=json.dumps(
                     _action_request(
@@ -1532,44 +1553,33 @@ def test_executor_observes_pending_gateway_stop_without_memory_signal() -> None:
         runtime,
         task_run_id="taskrun:gateway-replay-stop",
         session_id="session-gateway-replay-stop",
-        status="running",
+        status="created",
     )
 
-    async def _run() -> tuple[object, dict[str, object]]:
-        execution = asyncio.create_task(runtime.execute_task_run(task_run_id, max_steps=2))
-        for _ in range(200):
-            task = host.state_index.get_task_run(task_run_id)
-            diagnostics = dict(getattr(task, "diagnostics", {}) or {}) if task is not None else {}
-            if diagnostics.get("executor_status") == "running" and model.calls >= 1:
-                break
-            await asyncio.sleep(0.01)
-        else:
-            raise AssertionError("executor did not enter running model call")
-        task = host.state_index.get_task_run(task_run_id)
-        diagnostics = dict(getattr(task, "diagnostics", {}) or {}) if task is not None else {}
-        signal_event = host.runtime_gateway.publish(
-            task_run_id,
-            signal_type="control.signal.requested",
-            scope=RuntimeSignalScope(
-                session_id="session-gateway-replay-stop",
-                task_run_id=task_run_id,
-            ),
-            source_authority="test.runtime_gateway",
-            payload={
-                "signal_kind": "stop",
-                "task_run_id": task_run_id,
-                "executor_epoch": int(diagnostics.get("executor_epoch") or 0),
-                "reason": "gateway_replay_stop",
-                "requested_by": "user",
-                "requested_at": time.time(),
-                "adapter": "test_gateway_only",
-            },
-            refs={"task_run_ref": task_run_id},
-        )
-        result = await asyncio.wait_for(execution, timeout=5)
-        return signal_event, result
+    signal_event = host.runtime_gateway.publish(
+        task_run_id,
+        signal_type="control.signal.requested",
+        scope=RuntimeSignalScope(
+            session_id="session-gateway-replay-stop",
+            task_run_id=task_run_id,
+        ),
+        source_authority="test.runtime_gateway",
+        payload={
+            "signal_kind": "stop",
+            "task_run_id": task_run_id,
+            "executor_epoch": 0,
+            "reason": "gateway_replay_stop",
+            "requested_by": "user",
+            "requested_at": time.time(),
+            "adapter": "test_gateway_only",
+        },
+        refs={"task_run_ref": task_run_id},
+    )
+    schedule = runtime.schedule_task_run_executor(task_run_id, scheduler="test_gateway_replay_stop", max_steps=2)
+    assert schedule["scheduled"] is True
+    _wait_for_task_status(host, task_run_id, "aborted")
+    _join_scheduled_cell(host, schedule)
 
-    signal_event, result = asyncio.run(_run())
     trace = host.get_trace(task_run_id, include_payloads=True)
     events = [dict(item) for item in list(dict(trace or {}).get("events") or [])]
     requested = [
@@ -1596,8 +1606,7 @@ def test_executor_observes_pending_gateway_stop_without_memory_signal() -> None:
         if event.get("event_type") == "task_runtime_control_signal_observed"
     ]
 
-    assert result["error"] == "user_aborted"
-    assert result["final_answer"] == "Gateway replay stop closeout"
+    assert _assistant_final_text(events) == "Gateway replay stop closeout"
     assert len(requested) == 1
     assert len(observed) == 1
     assert len(consumed) == 1
@@ -1623,8 +1632,6 @@ def test_executor_observes_pending_gateway_pause_without_memory_signal() -> None
 
         async def invoke_messages(self, messages, **_kwargs):
             self.calls += 1
-            if self.calls == 1:
-                await asyncio.sleep(60)
             return SimpleNamespace(
                 content=json.dumps(
                     _action_request(
@@ -1642,44 +1649,33 @@ def test_executor_observes_pending_gateway_pause_without_memory_signal() -> None
         runtime,
         task_run_id="taskrun:gateway-replay-pause",
         session_id="session-gateway-replay-pause",
-        status="running",
+        status="created",
     )
 
-    async def _run() -> tuple[object, dict[str, object]]:
-        execution = asyncio.create_task(runtime.execute_task_run(task_run_id, max_steps=2))
-        for _ in range(200):
-            task = host.state_index.get_task_run(task_run_id)
-            diagnostics = dict(getattr(task, "diagnostics", {}) or {}) if task is not None else {}
-            if diagnostics.get("executor_status") == "running" and model.calls >= 1:
-                break
-            await asyncio.sleep(0.01)
-        else:
-            raise AssertionError("executor did not enter running model call")
-        task = host.state_index.get_task_run(task_run_id)
-        diagnostics = dict(getattr(task, "diagnostics", {}) or {}) if task is not None else {}
-        signal_event = host.runtime_gateway.publish(
-            task_run_id,
-            signal_type="control.signal.requested",
-            scope=RuntimeSignalScope(
-                session_id="session-gateway-replay-pause",
-                task_run_id=task_run_id,
-            ),
-            source_authority="test.runtime_gateway",
-            payload={
-                "signal_kind": "pause",
-                "task_run_id": task_run_id,
-                "executor_epoch": int(diagnostics.get("executor_epoch") or 0),
-                "reason": "gateway_replay_pause",
-                "requested_by": "user",
-                "requested_at": time.time(),
-                "adapter": "test_gateway_only",
-            },
-            refs={"task_run_ref": task_run_id},
-        )
-        result = await asyncio.wait_for(execution, timeout=5)
-        return signal_event, result
+    signal_event = host.runtime_gateway.publish(
+        task_run_id,
+        signal_type="control.signal.requested",
+        scope=RuntimeSignalScope(
+            session_id="session-gateway-replay-pause",
+            task_run_id=task_run_id,
+        ),
+        source_authority="test.runtime_gateway",
+        payload={
+            "signal_kind": "pause",
+            "task_run_id": task_run_id,
+            "executor_epoch": 0,
+            "reason": "gateway_replay_pause",
+            "requested_by": "user",
+            "requested_at": time.time(),
+            "adapter": "test_gateway_only",
+        },
+        refs={"task_run_ref": task_run_id},
+    )
+    schedule = runtime.schedule_task_run_executor(task_run_id, scheduler="test_gateway_replay_pause", max_steps=2)
+    assert schedule["scheduled"] is True
+    _wait_for_task_status(host, task_run_id, "waiting_executor")
+    _join_scheduled_cell(host, schedule)
 
-    signal_event, result = asyncio.run(_run())
     task = host.state_index.get_task_run(task_run_id)
     requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
     observed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_observed")
@@ -1692,11 +1688,9 @@ def test_executor_observes_pending_gateway_pause_without_memory_signal() -> None
         if event.get("event_type") == "task_runtime_control_signal_observed"
     ]
 
-    assert result["error"] == "waiting_executor"
-    assert result["final_answer"] == "Gateway replay pause closeout"
-    assert result["retryable"] is True
     assert task is not None
     assert task.status == "waiting_executor"
+    assert _assistant_final_text(events) == "Gateway replay pause closeout"
     assert dict(task.diagnostics)["recovery_action"] == "resume_task_run"
     assert len(requested) == 1
     assert len(observed) == 1
@@ -1729,8 +1723,6 @@ def test_executor_observes_pending_gateway_replan_without_memory_signal_and_cons
 
         async def invoke_messages(self, messages, **_kwargs):
             self.calls += 1
-            if self.calls == 1:
-                await asyncio.sleep(60)
             return SimpleNamespace(
                 content=json.dumps(
                     _action_request(
@@ -1758,53 +1750,42 @@ def test_executor_observes_pending_gateway_replan_without_memory_signal_and_cons
         runtime,
         task_run_id="taskrun:gateway-replay-replan",
         session_id="session-gateway-replay-replan",
-        status="running",
+        status="created",
     )
 
-    async def _run() -> tuple[object, str, dict[str, object]]:
-        execution = asyncio.create_task(runtime.execute_task_run(task_run_id, max_steps=4))
-        for _ in range(200):
-            task = host.state_index.get_task_run(task_run_id)
-            diagnostics = dict(getattr(task, "diagnostics", {}) or {}) if task is not None else {}
-            if diagnostics.get("executor_status") == "running" and model.calls >= 1:
-                break
-            await asyncio.sleep(0.01)
-        else:
-            raise AssertionError("executor did not enter running model call")
-        steer = create_active_task_steer(
-            host,
-            task_run_id,
-            content="把后续验证范围扩展到网关 replay。",
-            intent="append_instruction_to_active_work",
-        )
-        steer_ref = str(dict(steer["steer"])["steer_id"])
-        model.steer_ref = steer_ref
-        task = host.state_index.get_task_run(task_run_id)
-        diagnostics = dict(getattr(task, "diagnostics", {}) or {}) if task is not None else {}
-        signal_event = host.runtime_gateway.publish(
-            task_run_id,
-            signal_type="control.signal.requested",
-            scope=RuntimeSignalScope(
-                session_id="session-gateway-replay-replan",
-                task_run_id=task_run_id,
-            ),
-            source_authority="test.runtime_gateway",
-            payload={
-                "signal_kind": "replan",
-                "task_run_id": task_run_id,
-                "executor_epoch": int(diagnostics.get("executor_epoch") or 0),
-                "reason": "gateway_replay_replan",
-                "requested_by": "user",
-                "requested_at": time.time(),
-                "steer_ref": steer_ref,
-                "adapter": "test_gateway_only",
-            },
-            refs={"task_run_ref": task_run_id, "steer_ref": steer_ref},
-        )
-        result = await asyncio.wait_for(execution, timeout=5)
-        return signal_event, steer_ref, result
+    steer = create_active_task_steer(
+        host,
+        task_run_id,
+        content="把后续验证范围扩展到网关 replay。",
+        intent="append_instruction_to_active_work",
+    )
+    steer_ref = str(dict(steer["steer"])["steer_id"])
+    model.steer_ref = steer_ref
+    signal_event = host.runtime_gateway.publish(
+        task_run_id,
+        signal_type="control.signal.requested",
+        scope=RuntimeSignalScope(
+            session_id="session-gateway-replay-replan",
+            task_run_id=task_run_id,
+        ),
+        source_authority="test.runtime_gateway",
+        payload={
+            "signal_kind": "replan",
+            "task_run_id": task_run_id,
+            "executor_epoch": 0,
+            "reason": "gateway_replay_replan",
+            "requested_by": "user",
+            "requested_at": time.time(),
+            "steer_ref": steer_ref,
+            "adapter": "test_gateway_only",
+        },
+        refs={"task_run_ref": task_run_id, "steer_ref": steer_ref},
+    )
+    schedule = runtime.schedule_task_run_executor(task_run_id, scheduler="test_gateway_replay_replan", max_steps=4)
+    assert schedule["scheduled"] is True
+    _wait_for_task_status(host, task_run_id, "completed")
+    _join_scheduled_cell(host, schedule)
 
-    signal_event, steer_ref, result = asyncio.run(_run())
     requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
     observed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_observed")
     consumed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_consumed")
@@ -1816,8 +1797,7 @@ def test_executor_observes_pending_gateway_replan_without_memory_signal_and_cons
         if event.get("event_type") == "task_runtime_control_signal_observed"
     ]
 
-    assert result["ok"] is True
-    assert result["final_answer"] == "Gateway replay replan absorbed"
+    assert _assistant_final_text(events) == "Gateway replay replan absorbed"
     assert len(requested) == 1
     assert len(observed) == 1
     assert len(consumed) == 1
@@ -1838,367 +1818,6 @@ def test_executor_observes_pending_gateway_replan_without_memory_signal_and_cons
         task_run_id,
         scope=RuntimeSignalScope(
             session_id="session-gateway-replay-replan",
-            task_run_id=task_run_id,
-        ),
-        signal_types={"control.signal.requested"},
-    ).pending_signals == ()
-
-
-def test_executor_backfills_diagnostics_stop_signal_to_runtime_gateway_during_model_action() -> None:
-    class DiagnosticsStopModelRuntime:
-        def __init__(self) -> None:
-            self.calls = 0
-            self.release: asyncio.Event | None = None
-
-        async def invoke_messages(self, messages, **_kwargs):
-            self.calls += 1
-            if self.calls == 1 and self.release is not None:
-                await self.release.wait()
-            return SimpleNamespace(
-                content=json.dumps(
-                    _action_request(
-                        action_type="respond",
-                        final_answer="diagnostics stop closeout",
-                    ),
-                    ensure_ascii=False,
-                )
-            )
-
-    model = DiagnosticsStopModelRuntime()
-    runtime = build_harness_runtime(model_runtime=model)
-    host = runtime.single_agent_runtime_host
-    task_run_id = _seed_active_work(
-        runtime,
-        task_run_id="taskrun:diagnostics-stop-backfill",
-        session_id="session-diagnostics-stop-backfill",
-        status="running",
-    )
-
-    async def _run() -> dict[str, object]:
-        model.release = asyncio.Event()
-        execution = asyncio.create_task(runtime.execute_task_run(task_run_id, max_steps=4))
-        for _ in range(200):
-            task = host.state_index.get_task_run(task_run_id)
-            diagnostics = dict(getattr(task, "diagnostics", {}) or {}) if task is not None else {}
-            if diagnostics.get("executor_status") == "running" and model.calls >= 1:
-                break
-            await asyncio.sleep(0.01)
-        else:
-            raise AssertionError("executor did not enter first model action")
-        task = host.state_index.get_task_run(task_run_id)
-        host.state_index.upsert_task_run(
-            replace(
-                task,
-                diagnostics={
-                    **dict(task.diagnostics or {}),
-                    "runtime_control": {
-                        "state": "stop_requested",
-                        "requested_by": "user",
-                        "requested_at": time.time(),
-                        "reason": "legacy_stop_state",
-                    },
-                },
-            )
-        )
-        model.release.set()
-        return await asyncio.wait_for(execution, timeout=5)
-
-    result = asyncio.run(_run())
-    requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
-    observed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_observed")
-    consumed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_consumed")
-
-    assert model.calls == 2
-    assert result["error"] == "user_aborted"
-    assert result["final_answer"] == "diagnostics stop closeout"
-    assert len(requested) == 1
-    assert len(observed) == 1
-    assert len(consumed) == 1
-    assert requested[0]["source_authority"] == "harness.loop.task_executor.runtime_control_backfill"
-    assert requested[0]["signal_id"] == observed[0]["signal_id"]
-    assert requested[0]["signal_id"] == consumed[0]["signal_id"]
-    assert dict(requested[0]["payload"])["signal_kind"] == "stop"
-    assert dict(requested[0]["payload"])["adapter"] == "task_run_diagnostics_backfill"
-    assert dict(observed[0]["payload"])["boundary"] == "after_model_action:1"
-    assert host.runtime_gateway.drain(
-        task_run_id,
-        scope=RuntimeSignalScope(
-            session_id="session-diagnostics-stop-backfill",
-            task_run_id=task_run_id,
-        ),
-        signal_types={"control.signal.requested"},
-    ).pending_signals == ()
-
-
-def test_executor_diagnostics_backfill_signal_id_is_idempotent() -> None:
-    from harness.loop.task_executor import _executor_control_signal_from_task_run_with_gateway_backfill
-
-    runtime = build_harness_runtime()
-    host = runtime.single_agent_runtime_host
-    task_run_id = _seed_active_work(
-        runtime,
-        task_run_id="taskrun:diagnostics-backfill-idempotent",
-        session_id="session-diagnostics-backfill-idempotent",
-        status="running",
-    )
-    task = host.state_index.get_task_run(task_run_id)
-    host.state_index.upsert_task_run(
-        replace(
-            task,
-            diagnostics={
-                **dict(task.diagnostics or {}),
-                "runtime_control": {
-                    "state": "stop_requested",
-                    "requested_by": "user",
-                    "requested_at": 123.0,
-                    "reason": "legacy_stop_state",
-                },
-            },
-        )
-    )
-    task = host.state_index.get_task_run(task_run_id)
-
-    first = _executor_control_signal_from_task_run_with_gateway_backfill(
-        host,
-        task,
-        executor_epoch=0,
-        default_reason="legacy_stop_state",
-    )
-    second = _executor_control_signal_from_task_run_with_gateway_backfill(
-        host,
-        task,
-        executor_epoch=0,
-        default_reason="legacy_stop_state",
-    )
-    requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
-
-    assert first is not None
-    assert second is not None
-    assert first.signal_id == second.signal_id
-    assert first.signal_id.startswith("control-backfill:")
-    assert len(requested) == 1
-    assert requested[0]["signal_id"] == first.signal_id
-    assert dict(requested[0]["payload"])["adapter"] == "task_run_diagnostics_backfill"
-    assert dict(requested[0]["payload"])["signal_kind"] == "stop"
-
-
-def test_executor_diagnostics_backfill_requires_runtime_gateway() -> None:
-    from harness.loop.task_executor import _executor_control_signal_from_task_run_with_gateway_backfill
-
-    runtime = build_harness_runtime()
-    host = runtime.single_agent_runtime_host
-    task_run_id = _seed_active_work(
-        runtime,
-        task_run_id="taskrun:diagnostics-backfill-no-gateway",
-        session_id="session-diagnostics-backfill-no-gateway",
-        status="running",
-    )
-    task = host.state_index.get_task_run(task_run_id)
-    host.state_index.upsert_task_run(
-        replace(
-            task,
-            diagnostics={
-                **dict(task.diagnostics or {}),
-                "runtime_control": {
-                    "state": "stop_requested",
-                    "requested_by": "user",
-                    "requested_at": 123.0,
-                    "reason": "legacy_stop_state",
-                },
-            },
-        )
-    )
-    host.runtime_gateway = None
-    task = host.state_index.get_task_run(task_run_id)
-
-    signal = _executor_control_signal_from_task_run_with_gateway_backfill(
-        host,
-        task,
-        executor_epoch=0,
-        default_reason="legacy_stop_state",
-    )
-    requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
-
-    assert signal is None
-    assert requested == []
-
-
-def test_executor_backfills_diagnostics_pause_signal_to_runtime_gateway_during_model_action() -> None:
-    class DiagnosticsPauseModelRuntime:
-        def __init__(self) -> None:
-            self.calls = 0
-            self.release: asyncio.Event | None = None
-
-        async def invoke_messages(self, messages, **_kwargs):
-            self.calls += 1
-            if self.calls == 1 and self.release is not None:
-                await self.release.wait()
-            return SimpleNamespace(
-                content=json.dumps(
-                    _action_request(
-                        action_type="respond",
-                        final_answer="diagnostics pause closeout",
-                    ),
-                    ensure_ascii=False,
-                )
-            )
-
-    model = DiagnosticsPauseModelRuntime()
-    runtime = build_harness_runtime(model_runtime=model)
-    host = runtime.single_agent_runtime_host
-    task_run_id = _seed_active_work(
-        runtime,
-        task_run_id="taskrun:diagnostics-pause-backfill",
-        session_id="session-diagnostics-pause-backfill",
-        status="running",
-    )
-
-    async def _run() -> dict[str, object]:
-        model.release = asyncio.Event()
-        execution = asyncio.create_task(runtime.execute_task_run(task_run_id, max_steps=4))
-        for _ in range(200):
-            task = host.state_index.get_task_run(task_run_id)
-            diagnostics = dict(getattr(task, "diagnostics", {}) or {}) if task is not None else {}
-            if diagnostics.get("executor_status") == "running" and model.calls >= 1:
-                break
-            await asyncio.sleep(0.01)
-        else:
-            raise AssertionError("executor did not enter first model action")
-        task = host.state_index.get_task_run(task_run_id)
-        host.state_index.upsert_task_run(
-            replace(
-                task,
-                diagnostics={
-                    **dict(task.diagnostics or {}),
-                    "runtime_control": {
-                        "state": "pause_requested",
-                        "requested_by": "user",
-                        "requested_at": time.time(),
-                        "reason": "legacy_pause_state",
-                    },
-                },
-            )
-        )
-        model.release.set()
-        return await asyncio.wait_for(execution, timeout=5)
-
-    result = asyncio.run(_run())
-    task = host.state_index.get_task_run(task_run_id)
-    requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
-    observed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_observed")
-    consumed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_consumed")
-
-    assert model.calls == 2
-    assert result["error"] == "waiting_executor"
-    assert result["final_answer"] == "diagnostics pause closeout"
-    assert task is not None
-    assert task.status == "waiting_executor"
-    assert len(requested) == 1
-    assert len(observed) == 1
-    assert len(consumed) == 1
-    assert requested[0]["signal_id"] == observed[0]["signal_id"]
-    assert requested[0]["signal_id"] == consumed[0]["signal_id"]
-    assert dict(requested[0]["payload"])["signal_kind"] == "pause"
-    assert dict(requested[0]["payload"])["adapter"] == "task_run_diagnostics_backfill"
-    assert dict(observed[0]["payload"])["boundary"] == "after_model_action:1"
-    assert dict(consumed[0]["payload"])["lifecycle_status"] == "waiting_executor"
-    assert host.runtime_gateway.drain(
-        task_run_id,
-        scope=RuntimeSignalScope(
-            session_id="session-diagnostics-pause-backfill",
-            task_run_id=task_run_id,
-        ),
-        signal_types={"control.signal.requested"},
-    ).pending_signals == ()
-
-
-def test_executor_backfills_diagnostics_replan_signal_to_runtime_gateway_and_consumes_steer_ref() -> None:
-    from harness.loop.task_steering import create_active_task_steer
-
-    class DiagnosticsReplanModelRuntime:
-        def __init__(self) -> None:
-            self.calls = 0
-            self.steer_ref = ""
-
-        async def invoke_messages(self, messages, **_kwargs):
-            self.calls += 1
-            return SimpleNamespace(
-                content=json.dumps(
-                    _action_request(
-                        action_type="respond",
-                        final_answer="diagnostics replan absorbed",
-                        diagnostics={
-                            "consumed_steer_refs": [self.steer_ref],
-                            "contract_revision_decisions": [
-                                {
-                                    "steer_ref": self.steer_ref,
-                                    "status": "accepted",
-                                    "reason": "absorbed diagnostics backfill replan",
-                                }
-                            ],
-                        },
-                    ),
-                    ensure_ascii=False,
-                )
-            )
-
-    model = DiagnosticsReplanModelRuntime()
-    runtime = build_harness_runtime(model_runtime=model)
-    host = runtime.single_agent_runtime_host
-    task_run_id = _seed_active_work(
-        runtime,
-        task_run_id="taskrun:diagnostics-replan-backfill",
-        session_id="session-diagnostics-replan-backfill",
-        status="running",
-    )
-    steer = create_active_task_steer(
-        host,
-        task_run_id,
-        content="把后续验证范围扩展到 diagnostics backfill。",
-        intent="append_instruction_to_active_work",
-    )
-    steer_ref = str(dict(steer["steer"])["steer_id"])
-    model.steer_ref = steer_ref
-    task = host.state_index.get_task_run(task_run_id)
-    host.state_index.upsert_task_run(
-        replace(
-            task,
-            diagnostics={
-                **dict(task.diagnostics or {}),
-                "latest_user_steer_ref": steer_ref,
-                "runtime_control": {
-                    "state": "replan_requested",
-                    "requested_by": "user",
-                    "requested_at": time.time(),
-                    "reason": "legacy_replan_state",
-                },
-            },
-        )
-    )
-
-    result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=4))
-    requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
-    observed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_observed")
-    consumed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_consumed")
-
-    assert model.calls == 1
-    assert result["ok"] is True
-    assert result["final_answer"] == "diagnostics replan absorbed"
-    assert len(requested) == 1
-    assert len(observed) == 1
-    assert len(consumed) == 1
-    assert requested[0]["signal_id"] == observed[0]["signal_id"]
-    assert requested[0]["signal_id"] == consumed[0]["signal_id"]
-    assert dict(requested[0]["payload"])["signal_kind"] == "replan"
-    assert dict(requested[0]["payload"])["steer_ref"] == steer_ref
-    assert dict(requested[0]["payload"])["adapter"] == "task_run_diagnostics_backfill"
-    assert dict(observed[0]["payload"])["boundary"] == "step_start:1"
-    assert dict(consumed[0]["payload"])["steer_ref"] == steer_ref
-    assert dict(consumed[0]["payload"])["model_action_consumption"] == "consumed_steer_refs"
-    assert host.runtime_gateway.drain(
-        task_run_id,
-        scope=RuntimeSignalScope(
-            session_id="session-diagnostics-replan-backfill",
             task_run_id=task_run_id,
         ),
         signal_types={"control.signal.requested"},
@@ -2293,14 +1912,14 @@ def test_runtime_start_recovery_does_not_auto_schedule_recovered_executor() -> N
     assert recover_result["reason"] == "runtime_start_recovery_does_not_auto_schedule"
 
 
-def test_runtime_start_recovery_does_not_reconnect_user_controlled_interruption() -> None:
+def test_runtime_start_recovery_does_not_promote_unclaimed_shadow_control_to_gateway() -> None:
     runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     task_run_id = _seed_active_work(
         runtime,
-        task_run_id="taskrun:user-replan-interrupted",
-        session_id="session-user-replan-interrupted",
-        status="running",
+        task_run_id="taskrun:unclaimed-shadow-pause",
+        session_id="session-unclaimed-shadow-pause",
+        status="blocked",
     )
     task = host.state_index.get_task_run(task_run_id)
     host.state_index.upsert_task_run(
@@ -2308,115 +1927,27 @@ def test_runtime_start_recovery_does_not_reconnect_user_controlled_interruption(
             task,
             diagnostics={
                 **dict(task.diagnostics or {}),
-                "executor_status": "running",
                 "runtime_control": {
-                    "state": "replan_requested",
-                    "requested_by": "user",
-                    "reason": "new_user_instruction",
+                    "state": "pause_requested",
+                    "requested_by": "test",
+                    "reason": "shadow pause",
                 },
             },
         )
     )
 
     result = runtime.task_executor_controller.recover_interrupted_executor_leases()
-    duplicate_result = runtime.task_executor_controller.recover_interrupted_executor_leases()
     unchanged = host.state_index.get_task_run(task_run_id)
-    events = [event.event_type for event in host.event_log.list_events(task_run_id)]
     requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
-    unavailable = _runtime_gateway_signals(
-        host,
-        task_run_id,
-        "runtime_control_signal_published",
-        signal_type="control.signal.target_unavailable",
-    )
+    events = [event.event_type for event in host.event_log.list_events(task_run_id)]
 
     assert result["recovered_count"] == 0
     assert result["task_run_ids"] == []
-    assert result["user_controlled_interruption_task_run_ids"] == [task_run_id]
-    assert duplicate_result["user_controlled_interruption_task_run_ids"] == [task_run_id]
-    assert unchanged.status == "running"
-    assert dict(unchanged.diagnostics)["executor_status"] == "running"
-    assert len(requested) == 1
-    assert len(unavailable) == 1
-    runtime_control = dict(dict(unchanged.diagnostics)["runtime_control"])
-    assert runtime_control["runtime_control_signal_ref"] == requested[0]["signal_id"]
-    assert dict(requested[0]["payload"])["signal_kind"] == "replan"
-    assert dict(unavailable[0]["payload"])["requested_signal_id"] == requested[0]["signal_id"]
-    assert dict(unavailable[0]["payload"])["signal_kind"] == "replan"
-    assert dict(unavailable[0]["payload"])["unavailable_reason"] == "runtime_start_recovery_user_controlled_interruption"
-    assert dict(unavailable[0]["payload"])["pending_signal_remains_replayable"] is True
+    assert result["user_controlled_interruption_task_run_ids"] == []
+    assert unchanged.status == "blocked"
+    assert "runtime_control_signal_ref" not in dict(dict(unchanged.diagnostics)["runtime_control"])
+    assert requested == []
     assert "task_run_executor_recovered_after_runtime_start" not in events
-
-
-def test_runtime_start_recovery_does_not_replay_closed_user_control_signal() -> None:
-    runtime = build_harness_runtime()
-    host = runtime.single_agent_runtime_host
-    task_run_id = _seed_active_work(
-        runtime,
-        task_run_id="taskrun:closed-user-control-recovery",
-        session_id="session-closed-user-control-recovery",
-        status="running",
-    )
-    task = host.state_index.get_task_run(task_run_id)
-    host.state_index.upsert_task_run(
-        replace(
-            task,
-            diagnostics={
-                **dict(task.diagnostics or {}),
-                "executor_status": "running",
-                "runtime_control": {
-                    "state": "replan_requested",
-                    "requested_by": "user",
-                    "reason": "already_absorbed_instruction",
-                },
-            },
-        )
-    )
-    signal_event = host.runtime_gateway.publish(
-        task_run_id,
-        signal_type="control.signal.requested",
-        scope=RuntimeSignalScope(
-            session_id="session-closed-user-control-recovery",
-            task_run_id=task_run_id,
-        ),
-        source_authority="test.closed_control_signal",
-        payload={
-            "signal_kind": "replan",
-            "task_run_id": task_run_id,
-            "executor_epoch": 0,
-            "reason": "already_absorbed_instruction",
-            "requested_by": "user",
-            "requested_at": time.time(),
-        },
-        refs={"task_run_ref": task_run_id},
-    )
-    signal_id = str(dict(dict(signal_event.payload or {}).get("signal") or {}).get("signal_id") or "")
-    host.runtime_gateway.mark_consumed_by_id(
-        task_run_id,
-        signal_id=signal_id,
-        consumed_by="test.closed_control_signal",
-        payload={"terminal_reason": "already_absorbed"},
-    )
-
-    result = runtime.task_executor_controller.recover_interrupted_executor_leases()
-    duplicate_result = runtime.task_executor_controller.recover_interrupted_executor_leases()
-    requested = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_published")
-    unavailable = _runtime_gateway_signals(
-        host,
-        task_run_id,
-        "runtime_control_signal_published",
-        signal_type="control.signal.target_unavailable",
-    )
-    consumed = _runtime_gateway_signals(host, task_run_id, "runtime_control_signal_consumed")
-
-    assert result["recovered_count"] == 0
-    assert result["user_controlled_interruption_task_run_ids"] == [task_run_id]
-    assert duplicate_result["user_controlled_interruption_task_run_ids"] == [task_run_id]
-    assert len(requested) == 1
-    assert len(consumed) == 1
-    assert requested[0]["signal_id"] == signal_id
-    assert consumed[0]["signal_id"] == signal_id
-    assert unavailable == []
 
 
 def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> None:

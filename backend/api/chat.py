@@ -702,11 +702,7 @@ async def get_latest_session_continuation(session_id: str):
     runtime = require_runtime()
     validated_session_id = validate_session_id(session_id)
     host = runtime.harness_runtime.single_agent_runtime_host
-    active_work_present = False
-    try:
-        active_work_present = host.active_turn_registry.resolve_current(validated_session_id) is not None
-    except Exception:
-        active_work_present = False
+    active_work_present = _validated_active_work_context(runtime, validated_session_id) is not None
     selection = select_session_continuation(
         host,
         session_id=validated_session_id,
@@ -1044,6 +1040,7 @@ def _bind_or_validate_editor_project(runtime: Any, session_id: str, editor_conte
 
 def _create_and_schedule_run(runtime: Any, request: HarnessRuntimeRequest) -> RuntimeRun:
     host = runtime.harness_runtime.single_agent_runtime_host
+    host.bind_control_loop()
     request_runtime_profile = dict(request.runtime_profile or {})
     run = host.run_registry.create_run(
         session_id=request.session_id,
@@ -1066,11 +1063,69 @@ def _create_and_schedule_run(runtime: Any, request: HarnessRuntimeRequest) -> Ru
             "stream_run_id": run.stream_run_id,
         },
     )
-    host.spawn_background_task(
-        _run_chat_to_event_log(runtime, run, request),
-        name=f"chat-run-{run.stream_run_id}",
+    invocation_kind = "background" if _is_steer_chat_request(request) else "single_turn"
+    schedule_result = host.agent_run_supervisor.schedule_single_turn(
+        session_id=request.session_id,
+        stream_run_id=run.stream_run_id,
+        work_factory=lambda: _run_chat_to_event_log(runtime, run, request),
+        scheduler="api.chat",
+        invocation_kind=invocation_kind,
+        primary=invocation_kind == "single_turn",
+        on_done=lambda _scope, _handle: _schedule_queued_input_dispatch(
+            runtime,
+            request.session_id,
+            reason="chat_run_cell_done",
+        ),
     )
-    return run
+    if not bool(schedule_result.get("scheduled")) and str(schedule_result.get("reason") or "") != "already_running":
+        return _fail_chat_run_schedule(
+            runtime,
+            run,
+            schedule_result=schedule_result,
+        )
+    return host.run_registry.get_run(run.stream_run_id) or run
+
+
+def _is_steer_chat_request(request: HarnessRuntimeRequest) -> bool:
+    policy = str(getattr(request, "active_turn_input_policy", "") or "").strip().lower()
+    expected_turn_id = str(getattr(request, "expected_active_turn_id", "") or "").strip()
+    return bool(policy == "steer" and expected_turn_id)
+
+
+def _fail_chat_run_schedule(runtime: Any, run: RuntimeRun, *, schedule_result: dict[str, Any]) -> RuntimeRun:
+    host = runtime.harness_runtime.single_agent_runtime_host
+    registry = host.run_registry
+    replay = host.stream_replay
+    reason = str(schedule_result.get("reason") or "runtime_cell_schedule_failed")
+    start_data = {"status": "running"}
+    _attach_public_projection_frame(
+        "chat_run_started",
+        start_data,
+        session_id=run.session_id,
+        sequence=0,
+    )
+    start_event = replay.append_public_event(run, public_event_type="chat_run_started", data=start_data)
+    current = registry.mark_event(run, latest_event_offset=start_event.offset, status="running")
+    data = _turn_completed_data(
+        "error",
+        {
+            "error": "运行未能启动",
+            "code": "runtime_cell_schedule_failed",
+            "reason": reason,
+        },
+    )
+    terminal_event = replay.append_public_event(current, public_event_type=TURN_COMPLETED_EVENT, data=data)
+    return registry.mark_event(
+        current,
+        latest_event_offset=terminal_event.offset,
+        status="failed",
+        terminal_event=TURN_COMPLETED_EVENT,
+        diagnostics={
+            "reason": "runtime_cell_schedule_failed",
+            "failure_reason": reason,
+            "runtime_cell_schedule": dict(schedule_result or {}),
+        },
+    )
 
 
 def _queued_input_response(runtime: Any, session_id: str, item: QueuedUserInput) -> dict[str, Any]:
@@ -1092,8 +1147,8 @@ def _schedule_queued_input_dispatch(runtime: Any, session_id: str, *, reason: st
     host = runtime.harness_runtime.single_agent_runtime_host
     if not hasattr(host, "queued_user_inputs"):
         return
-    host.spawn_background_task(
-        _dispatch_next_queued_input(runtime, normalized, reason=reason),
+    host.spawn_control_background_task(
+        lambda: _dispatch_next_queued_input(runtime, normalized, reason=reason),
         name=f"queued-input-dispatch:{normalized}",
     )
 
@@ -1412,7 +1467,6 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                     "chat_stream_bridge": "task_run",
                 },
             )
-            _schedule_queued_input_dispatch(runtime, request.session_id, reason="chat_run_orphaned_after_exception")
             return
         previous_offset = _latest_public_event_offset(current)
         logged = replay.append_public_event(
@@ -1434,7 +1488,6 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             code="stream_exception",
             reason=str(exc) or "Chat stream failed.",
         )
-        _schedule_queued_input_dispatch(runtime, request.session_id, reason="chat_run_failed")
         return
     if not terminal_event:
         current = registry.get_run(run.stream_run_id) or current
@@ -1452,7 +1505,6 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                     "chat_stream_bridge": "task_run",
                 },
             )
-            _schedule_queued_input_dispatch(runtime, request.session_id, reason="chat_run_orphaned_missing_terminal")
             return
         previous_offset = _latest_public_event_offset(current)
         logged = replay.append_public_event(
@@ -1474,7 +1526,6 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             code="missing_terminal_event",
             reason="Chat stream ended without a terminal event.",
         )
-    _schedule_queued_input_dispatch(runtime, request.session_id, reason="chat_run_terminal")
 
 
 def _append_chat_public_event(
@@ -1822,7 +1873,7 @@ def _project_task_runtime_event_to_chat(
     if event_type in TASK_BRIDGE_PUBLIC_EVENT_TYPES:
         for public_event_type, data in _project_public_stream_event(event_type, stream_event):
             _apply_bridge_context_to_public_data(data, bridge_context, task_event=task_event, source_event_type=event_type)
-            if public_event_type in {ASSISTANT_TEXT_DELTA_EVENT, ASSISTANT_TEXT_FINAL_EVENT, ASSISTANT_STREAM_REPAIR_EVENT}:
+            if public_event_type in {ASSISTANT_TEXT_FINAL_EVENT, ASSISTANT_STREAM_REPAIR_EVENT}:
                 terminal_output_state["output_observed"] = True
             if public_event_type in {
                 SESSION_OUTPUT_COMMIT_ACK_EVENT,
@@ -1937,8 +1988,8 @@ def _append_task_bridge_terminal(
     active_turn_id = bridge_context.turn_id
     source_task_event_id = str(getattr(task_event, "event_id", "") or "").strip()
     source_task_event_offset = int(getattr(task_event, "offset", -1) or -1) if task_event is not None else -1
-    final_answer = _safe_visible_final_answer(context.get("final_answer"))
-    if final_answer and (not output_observed or not commit_observed):
+    output_commit_expected = bool(output_observed)
+    if output_commit_expected and (not output_observed or not commit_observed):
         current = _append_chat_public_event(
             registry=registry,
             replay=replay,
@@ -2081,7 +2132,7 @@ def _bridge_context_has_live_bound_task(runtime: Any, bridge_context: ChatTaskBr
         task_run = host.state_index.get_task_run(task_run_id)
     except Exception:
         return False
-    return task_run is not None and not is_stopped_or_terminal_task_run(task_run)
+    return task_run is not None and not is_stopped_or_terminal_task_run(task_run, runtime_host=host)
 
 
 def _task_run_snapshot_is_terminal(host: Any, task_run_id: str) -> bool:
@@ -2122,7 +2173,6 @@ def _task_terminal_context_from_task_run(
     task = _record(task_run)
     lifecycle_payload = _record(lifecycle)
     diagnostics = _record(task.get("diagnostics"))
-    output_commit = _record(diagnostics.get("output_commit"))
     task_run_id = str(task.get("task_run_id") or lifecycle_payload.get("task_run_id") or fallback_task_run_id or "").strip()
     status = str(task.get("status") or lifecycle_payload.get("status") or "").strip().lower()
     terminal_reason = str(task.get("terminal_reason") or lifecycle_payload.get("terminal_reason") or status or "completed").strip()
@@ -2132,25 +2182,9 @@ def _task_terminal_context_from_task_run(
         "turn_run_id": str(diagnostics.get("turn_run_id") or "").strip(),
         "status": status,
         "terminal_reason": terminal_reason,
-        "final_answer": diagnostics.get("final_answer") or "",
-        "message_ref": str(
-            output_commit.get("anchor_message_id")
-            or output_commit.get("message_ref")
-            or output_commit.get("message_id")
-            or ""
-        ).strip(),
         "answer_source": str(diagnostics.get("answer_source") or "harness.loop.task_executor.completed"),
         "error_summary": "处理失败" if status in {"failed", "blocked"} else "",
     }
-
-
-def _safe_visible_final_answer(value: Any) -> str:
-    content = sanitize_visible_assistant_content(str(value or "")).strip()
-    if not content:
-        return ""
-    if contains_internal_protocol(content) or contains_inline_pseudo_tool_call(content):
-        return ""
-    return content
 
 
 def _public_turn_status_for_task_status(value: Any) -> str:
@@ -2280,24 +2314,22 @@ def _runtime_run_task_run_id(run: RuntimeRun) -> str:
 
 
 def _active_session_task_run_id(runtime: Any, session_id: str) -> str:
-    host = runtime.harness_runtime.single_agent_runtime_host
-    monitor_service = getattr(host, "runtime_monitor_service", None)
-    if monitor_service is not None:
-        try:
-            monitor = monitor_service.get_session_live_monitor(session_id, limit=20)
-            active_task_run_id = str(monitor.get("active_task_run_id") or "").strip()
-            if active_task_run_id:
-                return active_task_run_id
-        except Exception:
-            logger.debug("Failed to read active session task run for latest chat run selection.", exc_info=True)
-    active_turn_registry = getattr(host, "active_turn_registry", None)
-    if active_turn_registry is not None:
-        try:
-            active_turn = active_turn_registry.resolve_current(session_id)
-            return str(getattr(active_turn, "bound_task_run_id", "") or "").strip()
-        except Exception:
-            logger.debug("Failed to read active turn for latest chat run selection.", exc_info=True)
+    active_work_context = _validated_active_work_context(runtime, session_id)
+    if active_work_context is not None:
+        return str(getattr(active_work_context, "task_run_id", "") or "").strip()
     return ""
+
+
+def _validated_active_work_context(runtime: Any, session_id: str) -> Any | None:
+    harness_runtime = getattr(runtime, "harness_runtime", None)
+    resolver = getattr(harness_runtime, "_active_work_context_from_active_turn", None)
+    if not callable(resolver):
+        return None
+    try:
+        return resolver(session_id)
+    except Exception:
+        logger.debug("Failed to resolve validated active work context.", exc_info=True)
+        return None
 
 
 def _run_response(runtime: Any, run: RuntimeRun) -> dict[str, Any]:
@@ -3181,7 +3213,8 @@ def _public_runtime_reason_label(reason: str) -> str:
         "waiting_user": "等待你的确认",
         "waiting_approval": "等待权限确认",
         "task_executor_scheduled": "任务已进入执行流程",
-        "background_executor_missing_after_restart": "连接恢复后需要重新接续运行",
+        "runtime_cell_missing_after_restart": "连接恢复后需要重新接续运行",
+        "runtime_cell_cancelled": "输出流已取消",
         "missing_terminal_event": "输出流没有正常收口",
         "stream_exception": "输出流异常中断",
         "stream_cancelled": "输出流已取消",

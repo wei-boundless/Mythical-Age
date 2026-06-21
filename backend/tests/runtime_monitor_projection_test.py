@@ -3,6 +3,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+from harness.loop.task_run_execution_control import register_executor_epoch
 from harness.runtime.run_monitor import RuntimeMonitorActionService, RuntimeMonitorProjector, RuntimeMonitorService
 from harness.runtime.run_monitor.signals import build_runtime_monitor_envelope
 
@@ -550,10 +551,10 @@ def test_runtime_monitor_actions_use_activity_control_capability(tmp_path):
     paused = task_run(
         task_run_id="taskrun:paused",
         session_id="session-paused",
-        status="running",
+        status="waiting_executor",
         created_at=now - 5,
         updated_at=now - 1,
-        diagnostics={"runtime_control": {"state": "paused"}},
+        diagnostics={"executor_status": "waiting_executor", "runtime_control": {"state": "paused"}},
     )
     running = task_run(
         task_run_id="taskrun:running",
@@ -576,6 +577,7 @@ def test_runtime_monitor_actions_use_activity_control_capability(tmp_path):
         event_log=EventLogStub(),
         backend_dir=tmp_path / "backend",
     )
+    register_executor_epoch(runtime_host, task_run_id="taskrun:running", executor_epoch=1)
     service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
     monitor = service.collect_global_runtime_monitor(limit=20)
@@ -1016,7 +1018,7 @@ def test_runtime_monitor_resume_action_is_not_a_backend_control_path(tmp_path, m
         status="waiting_executor",
         created_at=120.0,
         updated_at=150.0,
-        diagnostics={"runtime_control": {"state": "paused"}},
+        diagnostics={"executor_status": "waiting_executor", "runtime_control": {"state": "paused"}},
     )
     runtime_host = SimpleNamespace(
         state_index=StateIndexStub([paused]),
@@ -1077,10 +1079,21 @@ def test_runtime_monitor_delete_action_queues_physical_cleanup_and_hides_signal(
             "timeout_seconds": timeout_seconds,
         }
 
+    def cancel_task_run_cells(*, task_run_sessions, reason=""):
+        return {
+            "authority": "single_agent_runtime_host.cancel_task_run_cells",
+            "requested_task_run_sessions": dict(task_run_sessions),
+            "reason": reason,
+            "cancelled_count": 0,
+        }
+
     def spawn_background_task(coro, *, name=""):
         spawned_names.append(name)
         coro.close()
         return SimpleNamespace(done=lambda: False)
+
+    def background_task_running(name):
+        return False
 
     runtime_host = SimpleNamespace(
         state_index=state_index,
@@ -1088,6 +1101,8 @@ def test_runtime_monitor_delete_action_queues_physical_cleanup_and_hides_signal(
         backend_dir=tmp_path / "backend",
         active_turn_registry=SimpleNamespace(complete_bound_task=lambda **_kwargs: {}),
         cancel_background_tasks=cancel_background_tasks,
+        cancel_task_run_cells=cancel_task_run_cells,
+        background_task_running=background_task_running,
         spawn_background_task=spawn_background_task,
     )
     service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
@@ -1476,7 +1491,7 @@ def test_project_task_run_exposes_session_output_commit_ack_from_event_log():
     }
 
 
-def test_project_task_run_exposes_session_output_commit_from_diagnostics_without_detail_fetch():
+def test_project_task_run_rejects_diagnostics_output_commit_shadow_receipt():
     projector = RuntimeMonitorProjector(EventLogStub())
     run = task_run(
         status="completed",
@@ -1484,14 +1499,14 @@ def test_project_task_run_exposes_session_output_commit_from_diagnostics_without
         diagnostics={
             "turn_id": "turn:session-a:1",
             "output_commit": {
+                "authority": "harness.session_output_commit",
+                "event_type": "session_output_commit_ack",
+                "event_id": "event:shadow",
                 "state": "committed",
                 "session_id": "session-a",
                 "turn_id": "turn:session-a:1",
                 "task_run_id": "taskrun:turn:session-a:1:abc",
-                "task_id": "task:turn:session-a:1",
-                "anchor_message_id": "history-message:turn:session-a:1:assistant",
-                "content_sha256": "sha256:from-diagnostics",
-                "reason": "committed",
+                "content_sha256": "sha256:shadow-diagnostics",
                 "event_offset": 12,
             },
         },
@@ -1499,9 +1514,7 @@ def test_project_task_run_exposes_session_output_commit_from_diagnostics_without
 
     item = projector.project_task_run(run, now=150.0, include_runtime_details=False)
 
-    assert item["session_output_commit"]["state"] == "committed"
-    assert item["session_output_commit"]["content_sha256"] == "sha256:from-diagnostics"
-    assert item["session_output_commit"]["commit_event_offset"] == 12
+    assert "session_output_commit" not in item
     assert projector.event_log.list_recent_event_calls == []
 
 

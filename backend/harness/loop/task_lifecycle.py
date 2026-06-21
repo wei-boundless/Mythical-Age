@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field, replace
 from typing import Any, AsyncIterator, Awaitable, Callable, Literal
 
 from runtime.shared.models import AgentRun, TaskRun
-from harness.task_run_status import is_terminal_task_run_status
+from harness.task_run_status import is_stopped_or_terminal_task_run, is_terminal_task_run_status
 from harness.task_contract_normalization import contract_string_tuple
 
 from .presentation import error_event, turn_completed_event
@@ -259,24 +259,22 @@ def current_session_task_run(runtime_host: Any, *, session_id: str) -> Any | Non
     candidates = [
         item
         for item in task_runs
-        if _is_current_session_task_run(item)
+        if _is_current_session_task_run(item, runtime_host=runtime_host)
     ]
     if not candidates:
         return None
     return sorted(candidates, key=_current_session_task_sort_key, reverse=True)[0]
 
 
-def _is_current_session_task_run(task_run: Any) -> bool:
+def _is_current_session_task_run(task_run: Any, *, runtime_host: Any | None = None) -> bool:
     if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
         return False
     status = str(getattr(task_run, "status", "") or "").strip()
     if is_terminal_task_run_status(status):
         return False
-    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    control = diagnostics.get("runtime_control") if isinstance(diagnostics.get("runtime_control"), dict) else {}
-    control_state = str(dict(control or {}).get("state") or "").strip()
-    if control_state in {"stop_requested", "stopped"}:
+    if is_stopped_or_terminal_task_run(task_run, runtime_host=runtime_host):
         return False
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     origin = dict(diagnostics.get("origin") or {})
     origin_kind = str(origin.get("origin_kind") or diagnostics.get("origin_kind") or "").strip()
     if origin_kind == "graph_node_assigned":

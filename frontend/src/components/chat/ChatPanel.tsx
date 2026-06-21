@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
+import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
 import { sessionSummaryIsRunning } from "@/lib/sessionTaskPresentation";
 import { useAppStoreActions, useAppStoreSelector } from "@/lib/store";
 import { shallowEqual } from "@/lib/store/hooks";
@@ -164,7 +165,12 @@ export function ChatPanel() {
 
       <div className="chat-panel-footer min-w-0">
         <div className="chat-panel-status-row">
-          {suppressFooterActivity ? null : <SessionActivityBar activity={sessionActivity} active={currentSessionActive} />}
+          <div className="chat-panel-status-row__left">
+            <WorkspaceModeSwitcher ariaLabel="切换当前会话任务环境" className="chat-environment-switcher" />
+          </div>
+          <div className="chat-panel-status-row__activity">
+            {suppressFooterActivity ? null : <SessionActivityBar activity={sessionActivity} active={currentSessionActive} />}
+          </div>
           <div className="chat-panel-status-row__right">
             <SessionTokenMeter tokenStats={tokenStats} />
           </div>

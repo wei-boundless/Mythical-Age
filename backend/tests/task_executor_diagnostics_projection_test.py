@@ -6,7 +6,6 @@ from runtime.shared.models import AgentRun, TaskRun
 from harness.runtime.runtime_gateway import RuntimeGateway
 from harness.runtime.control_events import RuntimeSignalScope
 from harness.loop.task_executor import (
-    _executor_control_signal_from_task_run,
     _mark_replan_control_signals_consumed_by_model_action,
     _mark_runtime_control_signal_delivered,
     _matching_runtime_control_signal_observation,
@@ -286,8 +285,9 @@ def test_runtime_control_signal_projection_requires_gateway_signal_ref() -> None
 
     assert len(projection) == 1
     assert projection[0]["runtime_control_signal_ref"] == "rtsig:canonical"
-    assert projection[0]["signal_id"] == "rtsig:canonical"
     assert projection[0]["signal_kind"] == "replan"
+    assert "signal_id" not in projection[0]
+    assert "kind" not in projection[0]
 
 
 def test_runtime_control_signal_existing_observation_must_match_gateway_signal_ref() -> None:
@@ -369,9 +369,9 @@ def test_runtime_control_signal_delivered_diagnostics_must_match_gateway_signal_
         updated_at=1.0,
         diagnostics={
             "runtime_control": {
-                "agent_signal_kind": "replan",
-                "agent_signal_fingerprint": fingerprint,
-                "agent_signal_observation_ref": "obs:legacy",
+                "runtime_control_signal_kind": "replan",
+                "runtime_control_signal_fingerprint": fingerprint,
+                "runtime_control_signal_observation_ref": "obs:legacy",
             }
         },
     )
@@ -385,10 +385,10 @@ def test_runtime_control_signal_delivered_diagnostics_must_match_gateway_signal_
         updated_at=1.0,
         diagnostics={
             "runtime_control": {
-                "agent_signal_ref": "rtsig:other",
-                "agent_signal_kind": "replan",
-                "agent_signal_fingerprint": fingerprint,
-                "agent_signal_observation_ref": "obs:other",
+                "runtime_control_signal_ref": "rtsig:other",
+                "runtime_control_signal_kind": "replan",
+                "runtime_control_signal_fingerprint": fingerprint,
+                "runtime_control_signal_observation_ref": "obs:other",
             }
         },
     )
@@ -402,10 +402,10 @@ def test_runtime_control_signal_delivered_diagnostics_must_match_gateway_signal_
         updated_at=1.0,
         diagnostics={
             "runtime_control": {
-                "agent_signal_ref": "rtsig:canonical",
-                "agent_signal_kind": "replan",
-                "agent_signal_fingerprint": fingerprint,
-                "agent_signal_observation_ref": "obs:canonical",
+                "runtime_control_signal_ref": "rtsig:canonical",
+                "runtime_control_signal_kind": "replan",
+                "runtime_control_signal_fingerprint": fingerprint,
+                "runtime_control_signal_observation_ref": "obs:canonical",
             }
         },
     )
@@ -480,10 +480,9 @@ def test_mark_runtime_control_signal_delivered_persists_gateway_signal_ref() -> 
     )
 
     control = dict(updated.diagnostics["runtime_control"])
-    assert control["agent_signal_ref"] == "rtsig:delivered"
-    assert control["agent_signal_observation_ref"] == "obs:delivered"
+    assert control["runtime_control_signal_ref"] == "rtsig:delivered"
+    assert control["runtime_control_signal_observation_ref"] == "obs:delivered"
     assert _runtime_control_signal_already_delivered(updated, signal=signal, fingerprint=fingerprint) is True
-    assert _executor_control_signal_from_task_run(updated, executor_epoch=1, default_reason="test") is None
     assert runtime_host.state_index.get_task_run(task_run.task_run_id) == updated
 
 

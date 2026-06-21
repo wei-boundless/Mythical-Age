@@ -8,6 +8,7 @@ from harness.task_run_status import (
     STOPPED_TASK_RUN_STATUSES,
     is_terminal_task_run_reason,
     normalize_task_run_status,
+    runtime_control_state_from_task_run,
 )
 
 WAITING_APPROVAL_STATUSES = {"waiting_approval"}
@@ -16,18 +17,28 @@ PAUSED_CONTROL_STATES = {"pause_requested", "paused"}
 STOP_CONTROL_STATES = {"stop_requested", "stopped"}
 
 
-def task_run_state_view(task_run: Any, *, monitor: dict[str, Any] | None = None) -> dict[str, Any]:
+def task_run_state_view(
+    task_run: Any,
+    *,
+    monitor: dict[str, Any] | None = None,
+    runtime_host: Any | None = None,
+) -> dict[str, Any]:
     monitor_record = dict(monitor or {}) if isinstance(monitor, dict) else {}
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     status = normalize_task_run_status(getattr(task_run, "status", "") or monitor_record.get("status"))
     terminal_reason = _text(getattr(task_run, "terminal_reason", "") or monitor_record.get("terminal_reason"))
     control = _runtime_control(diagnostics, monitor_record)
-    control_state = _text(control.get("state"))
+    control_state = runtime_control_state_from_task_run(
+        task_run,
+        runtime_host=runtime_host,
+        runtime_control=control,
+    )
     executor_status = _text(diagnostics.get("executor_status") or monitor_record.get("executor_status"))
     executor_lease_state = _executor_lease_state(
         status=status,
         terminal_reason=terminal_reason,
         executor_status=executor_status,
+        control_state=control_state,
         diagnostics=diagnostics,
         monitor=monitor_record,
     )
@@ -52,6 +63,7 @@ def task_run_state_view(task_run: Any, *, monitor: dict[str, Any] | None = None)
     pending_approval = _record(diagnostics.get("pending_approval"))
     waiting_approval = status in WAITING_APPROVAL_STATUSES and _text(pending_approval.get("status")) != "approved"
     graph_controlled = _graph_controlled(diagnostics)
+    live_executor_claim = _has_live_executor_claim(runtime_host, task_run)
 
     if completed:
         work_state = "completed"
@@ -67,21 +79,23 @@ def task_run_state_view(task_run: Any, *, monitor: dict[str, Any] | None = None)
         work_state = "ready_to_continue"
     elif status == "blocked":
         work_state = "waiting_user"
-    elif status == "waiting_executor" and executor_lease_state in {"scheduled", "running"}:
+    elif live_executor_claim and executor_lease_state in {"scheduled", "running", "recovering"}:
         work_state = "active"
     elif resumable_breakpoint or executor_lease_state in {"lost", "none", "recovering"} and recovery_action in RECOVERY_ACTIONS:
         work_state = "ready_to_continue"
     elif status == "waiting_executor":
         work_state = "waiting_user"
+    elif status in {"created", "running", "queued", "in_progress"}:
+        work_state = "pending_executor"
     else:
-        work_state = "active"
+        work_state = "waiting_user"
 
     can_resume = (
         not graph_controlled
         and work_state in {"ready_to_continue", "paused"}
         and control_state not in STOP_CONTROL_STATES
     )
-    running_claimed = work_state == "active" and executor_lease_state in {"scheduled", "running", "recovering"}
+    running_claimed = live_executor_claim and work_state == "active" and executor_lease_state in {"scheduled", "running", "recovering"}
     terminal = work_state in {"completed", "failed", "stopped"}
     can_pause = (
         not graph_controlled
@@ -144,11 +158,12 @@ def task_run_state_view(task_run: Any, *, monitor: dict[str, Any] | None = None)
         "executor_status": executor_status,
         "executor_lease_state": executor_lease_state,
         "control_state": control_state,
-        "runtime_control": control,
+        "runtime_control": _visible_runtime_control(control, control_state=control_state),
         "recoverable": recoverable,
         "recovery_cause": recovery_cause,
         "recovery_action": recovery_action,
         "graph_controlled": graph_controlled,
+        "live_executor_claim": live_executor_claim,
         "running_claimed": running_claimed,
         "can_pause": can_pause,
         "can_resume": can_resume,
@@ -166,11 +181,11 @@ def _executor_lease_state(
     status: str,
     terminal_reason: str,
     executor_status: str,
+    control_state: str,
     diagnostics: dict[str, Any],
     monitor: dict[str, Any],
 ) -> str:
     recovery_action = _text(diagnostics.get("recovery_action") or monitor.get("recovery_action"))
-    control_state = _text(_record(diagnostics.get("runtime_control")).get("state") or _record(monitor.get("runtime_control")).get("state"))
     if status == "waiting_executor" and recovery_action in RECOVERY_ACTIONS:
         return "lost"
     if status == "waiting_executor" and (terminal_reason == "waiting_executor" or control_state in {"resume_requested", "paused", "interrupted_for_replan"}):
@@ -245,13 +260,30 @@ def _runtime_control(diagnostics: dict[str, Any], monitor: dict[str, Any]) -> di
         "requested_at": float(control.get("requested_at") or 0.0),
         "reason": str(control.get("reason") or ""),
         "authority": str(control.get("authority") or "orchestration.task_run_control"),
+        **(
+            {"runtime_control_signal_ref": str(control.get("runtime_control_signal_ref") or "")}
+            if str(control.get("runtime_control_signal_ref") or "").strip()
+            else {}
+        ),
+        **(
+            {"runtime_control_event_ref": str(control.get("runtime_control_event_ref") or "")}
+            if str(control.get("runtime_control_event_ref") or "").strip()
+            else {}
+        ),
     }
+
+
+def _visible_runtime_control(control: dict[str, Any], *, control_state: str) -> dict[str, Any]:
+    state = _text(control_state)
+    if not state:
+        return {}
+    return {**dict(control or {}), "state": state}
 
 
 def _public_activity_state(work_state: str, executor_lease_state: str) -> str:
     if work_state == "active":
         return "running"
-    if work_state in {"ready_to_continue", "waiting_user", "waiting_approval"}:
+    if work_state in {"ready_to_continue", "waiting_user", "waiting_approval", "pending_executor"}:
         return "waiting"
     if work_state == "paused":
         return "paused"
@@ -269,6 +301,7 @@ def _public_activity_label(work_state: str, *, recovery_cause: str = "") -> str:
         return "运行时重启后待续跑"
     return {
         "active": "运行中",
+        "pending_executor": "等待执行器",
         "ready_to_continue": "可继续",
         "paused": "已暂停",
         "waiting_user": "等待处理",
@@ -284,6 +317,8 @@ def _public_activity_detail(work_state: str, *, recovery_cause: str = "") -> str
         return "后端运行时已重启，任务已停在可恢复边界；点击继续或发送继续后会从当前任务继续调度。"
     if work_state == "ready_to_continue":
         return "任务已停在可恢复边界，可以继续调度。"
+    if work_state == "pending_executor":
+        return "任务已创建，正在等待执行器接管。"
     if work_state == "waiting_user":
         return "任务正在等待用户处理。"
     if work_state == "waiting_approval":
@@ -309,6 +344,8 @@ def _control_reason(
         return "running_task"
     if executor_lease_state == "lost":
         return "executor_lease_lost"
+    if work_state == "pending_executor":
+        return "pending_executor"
     if work_state in {"completed", "failed", "stopped"}:
         return "terminal"
     if work_state == "waiting_approval":
@@ -332,6 +369,32 @@ def _graph_controlled(diagnostics: dict[str, Any]) -> bool:
     origin = diagnostics.get("origin")
     origin_kind = str(diagnostics.get("origin_kind") or dict(origin or {}).get("origin_kind") or "").strip() if isinstance(origin, dict) else str(diagnostics.get("origin_kind") or "").strip()
     return origin_kind == "graph_node_assigned" or bool(diagnostics.get("graph_run_id") or diagnostics.get("graph_harness_config_id"))
+
+
+def _has_live_executor_claim(runtime_host: Any | None, task_run: Any) -> bool:
+    if runtime_host is None:
+        return False
+    task_run_id = _text(getattr(task_run, "task_run_id", ""))
+    if not task_run_id:
+        return False
+    session_id = _text(getattr(task_run, "session_id", ""))
+    supervisor = getattr(runtime_host, "agent_run_supervisor", None)
+    active_cell = getattr(supervisor, "active_cell_for_task_run", None)
+    if callable(active_cell):
+        try:
+            if active_cell(task_run_id, session_id=session_id) is not None:
+                return True
+        except Exception:
+            pass
+    registry = getattr(runtime_host, "_task_run_execution_control", None)
+    record = dict(registry or {}).get(task_run_id) if isinstance(registry, dict) else None
+    if record is None:
+        return False
+    model_task = getattr(record, "model_task", None)
+    if model_task is None:
+        return True
+    done = getattr(model_task, "done", None)
+    return not callable(done) or not bool(done())
 
 
 def _record(value: Any) -> dict[str, Any]:

@@ -40,8 +40,18 @@ export type SessionProjectBinding = {
   authority?: string;
 };
 
+export type ConversationChatModelSelection = {
+  selection_id?: string;
+  provider?: string;
+  model?: string;
+  source?: string;
+  updated_at?: number;
+  authority?: string;
+};
+
 export type ConversationState = {
   active_task_environment?: ConversationActiveEnvironment;
+  chat_model_selection?: ConversationChatModelSelection;
   project_binding?: SessionProjectBinding;
   permission_mode?: string;
   authority?: string;
@@ -474,41 +484,6 @@ export type ManagedFileWriteResponse = {
   authority: string;
 };
 
-export type CodeEnvironmentDiagnostic = {
-  level: "info" | "warning" | "error";
-  code: string;
-  message: string;
-  path?: string | null;
-};
-
-export type CodeEnvironmentStatus = {
-  authority: string;
-  host: {
-    mode: "web" | "desktop";
-    local_runtime_available: boolean;
-    code_environment_host_available: boolean;
-  };
-  pi: {
-    available: boolean;
-    mode: "web_only" | "desktop_host" | "sidecar_ready" | "sidecar_running" | "error";
-    enabled: boolean;
-    sidecar_enabled: boolean;
-    sidecar_mode: string;
-    pi_source_root: string;
-    pi_cli_path: string;
-    workspace_root: string;
-    config_source: string;
-    workspace_root_policy: string;
-    node_version: string;
-    npm_version: string;
-    package_name: string;
-    coding_agent_package_name: string;
-    cli_built: boolean;
-    rpc_source_available: boolean;
-    diagnostics: CodeEnvironmentDiagnostic[];
-  };
-};
-
 export type CodeEnvironmentTreeNode = {
   name: string;
   path: string;
@@ -581,46 +556,6 @@ export type FileChangeDiffPayload = {
     record?: FileChangeRecord;
     [key: string]: unknown;
   };
-};
-
-export type CodeEnvironmentGitStatus = {
-  authority: string;
-  available: boolean;
-  branch: string;
-  items: Array<{ status: string; path: string }>;
-  changed_count?: number;
-  captured_at?: number;
-  cache_status?: "fresh" | "cached" | string;
-  diff_stat?: {
-    additions?: number;
-    deletions?: number;
-  };
-  gh_available?: boolean;
-  ttl_seconds?: number;
-  error?: string;
-};
-
-export type PiSidecarStatus = {
-  running: boolean;
-  pid?: number | null;
-  workspace_root: string;
-  cli_path: string;
-  started_at?: number | null;
-  last_error: string;
-  stderr_tail: string;
-};
-
-export type PiSidecarLifecycleResponse = {
-  authority: string;
-  status: PiSidecarStatus;
-};
-
-export type PiSidecarCommandResponse = {
-  authority: string;
-  command: "get_state" | "get_available_models" | string;
-  success: boolean;
-  response: Record<string, unknown>;
-  error: string;
 };
 
 export type AgentTaskConnectionProfile = {
@@ -2762,6 +2697,11 @@ export type RuntimeMonitorActionResult = {
 export type RunMonitorEventPayload = {
   source?: string;
   monitor?: RuntimeMonitorEnvelope;
+  file_change_record?: FileChangeRecord | Record<string, unknown>;
+  event_type?: string;
+  event_id?: string;
+  event_offset?: number;
+  run_id?: string;
   updated_at?: number;
 };
 

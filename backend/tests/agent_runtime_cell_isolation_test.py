@@ -10,10 +10,12 @@ from typing import get_args
 
 from harness.loop.task_run_execution_control import _latest_requested_control_signal, request_executor_stop
 from harness.loop.task_executor_controller import TaskExecutorController
+from harness.loop.single_agent_turn import _start_turn_runtime
 from harness.runtime.agent_scope import build_agent_run_scope
 from harness.runtime.control_events import RuntimeSignalScope, build_runtime_signal_envelope
 from harness.runtime.agent_worker_backend import AgentWorkerHandle
 from harness.runtime.agent_runtime_cell import AgentRuntimeCell
+from harness.runtime.output_commit_authority import OutputCommitAuthority, OutputCommitRequest
 from harness.runtime.single_agent_host import SingleAgentRuntimeHost
 from runtime.shared.models import TaskRun
 from runtime.tool_runtime.tool_invocation_control import (
@@ -132,6 +134,59 @@ def test_runtime_gateway_drains_by_scope_and_consumes_once(tmp_path) -> None:
     consumed = host.runtime_gateway.drain("taskrun:a", scope=scope_a)
     assert consumed.pending_signals == ()
     assert signal_a.refs["signal_ref"] == snapshot_a.pending_signals[0].signal_id
+
+
+def test_runtime_gateway_task_scoped_signal_drains_into_current_cell_scope(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    task_scope = RuntimeSignalScope(session_id="session:gateway-task-scope", task_run_id="taskrun:gateway-task-scope")
+    current_cell_scope = RuntimeSignalScope(
+        session_id="session:gateway-task-scope",
+        task_run_id="taskrun:gateway-task-scope",
+        agent_run_id="agent:current",
+        run_cell_id="cell:current",
+    )
+    other_cell_scope = RuntimeSignalScope(
+        session_id="session:gateway-task-scope",
+        task_run_id="taskrun:gateway-task-scope",
+        agent_run_id="agent:other",
+        run_cell_id="cell:other",
+    )
+
+    host.runtime_gateway.publish(
+        "taskrun:gateway-task-scope",
+        signal_type="control.signal.requested",
+        scope=task_scope,
+        source_authority="test",
+        payload={"signal_kind": "stop", "reason": "task_scope"},
+    )
+    host.runtime_gateway.publish(
+        "taskrun:gateway-task-scope",
+        signal_type="control.signal.requested",
+        scope=other_cell_scope,
+        source_authority="test",
+        payload={"signal_kind": "stop", "reason": "other_cell"},
+    )
+    host.runtime_gateway.publish(
+        "taskrun:gateway-task-scope",
+        signal_type="tool.execution.started",
+        scope=task_scope,
+        source_authority="test",
+        payload={"tool_invocation_id": "tool:task-scope", "reason": "tool_task_scope"},
+    )
+
+    control_snapshot = host.runtime_gateway.drain(
+        "taskrun:gateway-task-scope",
+        scope=current_cell_scope,
+        signal_types={"control.signal.requested"},
+    )
+    tool_snapshot = host.runtime_gateway.drain(
+        "taskrun:gateway-task-scope",
+        scope=current_cell_scope,
+        signal_types={"tool.execution.started"},
+    )
+
+    assert [signal.payload["reason"] for signal in control_snapshot.pending_signals] == ["task_scope"]
+    assert tool_snapshot.pending_signals == ()
 
 
 def test_runtime_gateway_publish_is_idempotent_for_explicit_signal_id(tmp_path) -> None:
@@ -777,8 +832,14 @@ def test_active_cell_control_signal_uses_gateway_not_mailbox_shadow_route(tmp_pa
     try:
         assert scheduled["scheduled"] is True
         assert _wait_until(started.is_set)
-        assert _wait_until(lambda: host.agent_run_supervisor.active_cell_for_task_run(task_run_id) is not None)
-        cell = host.agent_run_supervisor.active_cell_for_task_run(task_run_id)
+        assert _wait_until(
+            lambda: host.agent_run_supervisor.active_cell_for_task_run(
+                task_run_id,
+                session_id="session:cell-isolation",
+            )
+            is not None
+        )
+        cell = host.agent_run_supervisor.active_cell_for_task_run(task_run_id, session_id="session:cell-isolation")
         assert cell is not None
         cell.mailbox.drain()
         cell.tool_invocation_registry.start(
@@ -824,10 +885,321 @@ def test_active_cell_control_signal_uses_gateway_not_mailbox_shadow_route(tmp_pa
             cell.worker_handle.join(timeout=3)
 
 
+def test_single_turn_chat_run_enters_primary_runtime_cell_and_blocks_same_session_primary_work(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    run = host.run_registry.create_run(session_id="session:cell-isolation")
+    second_run = host.run_registry.create_run(session_id="session:cell-isolation")
+    _insert_task_run(host, "taskrun:blocked-by-chat")
+    started = threading.Event()
+    release = threading.Event()
+    task_executed = threading.Event()
+
+    async def chat_work() -> dict[str, str]:
+        started.set()
+        while not release.is_set():
+            await asyncio.sleep(0.01)
+        return {"status": "completed"}
+
+    async def execute_task(task_run_id: str, *, max_steps: int) -> dict[str, str]:
+        del task_run_id, max_steps
+        task_executed.set()
+        return {"status": "completed"}
+
+    scheduled = host.agent_run_supervisor.schedule_single_turn(
+        session_id="session:cell-isolation",
+        stream_run_id=run.stream_run_id,
+        work_factory=chat_work,
+        scheduler="test-chat-run",
+    )
+    cell = host.agent_run_supervisor.active_cell_for_stream_run(run.stream_run_id, session_id="session:cell-isolation")
+    controller = TaskExecutorController(runtime_host=host, execute_task_run_callback=execute_task)
+    try:
+        assert scheduled["scheduled"] is True
+        assert scheduled["stream_run_id"] == run.stream_run_id
+        assert cell is not None
+        assert cell.scope.invocation_kind == "single_turn"
+        assert cell.scope.turn_run_id == f"turnrun:{run.stream_run_id}"
+        assert started.wait(timeout=3)
+
+        blocked_turn = host.agent_run_supervisor.schedule_single_turn(
+            session_id="session:cell-isolation",
+            stream_run_id=second_run.stream_run_id,
+            work_factory=chat_work,
+            scheduler="test-chat-run",
+        )
+        blocked_task = controller.schedule("taskrun:blocked-by-chat", scheduler="test", max_steps=1)
+
+        assert blocked_turn["scheduled"] is False
+        assert blocked_turn["reason"] == "session_primary_task_active"
+        assert blocked_turn["run_cell_id"]
+        assert host.agent_run_supervisor.active_cell_for_stream_run(second_run.stream_run_id, session_id="session:cell-isolation") is None
+        assert blocked_task["scheduled"] is False
+        assert blocked_task["reason"] == "session_primary_task_active"
+        assert task_executed.is_set() is False
+
+        backpressure_events = [
+            event
+            for event in host.event_log.list_events(f"turnrun:{second_run.stream_run_id}")
+            if event.event_type == "agent_runtime_cell_backpressure"
+        ]
+        assert len(backpressure_events) == 1
+        assert dict(backpressure_events[0].payload)["active_turn_run_id"] == f"turnrun:{run.stream_run_id}"
+    finally:
+        release.set()
+        if cell is not None and cell.worker_handle is not None:
+            cell.worker_handle.join(timeout=3)
+
+
+def test_background_steer_runtime_cell_does_not_claim_primary_session_gate(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    _insert_task_run(host, "taskrun:primary")
+    run = host.run_registry.create_run(session_id="session:cell-isolation")
+    primary_started = threading.Event()
+    steer_started = threading.Event()
+    release = threading.Event()
+
+    async def execute_task(task_run_id: str, *, max_steps: int) -> dict[str, str]:
+        del task_run_id, max_steps
+        primary_started.set()
+        while not release.is_set():
+            await asyncio.sleep(0.01)
+        return {"status": "completed"}
+
+    async def steer_work() -> dict[str, str]:
+        steer_started.set()
+        while not release.is_set():
+            await asyncio.sleep(0.01)
+        return {"status": "completed"}
+
+    controller = TaskExecutorController(runtime_host=host, execute_task_run_callback=execute_task)
+    primary = controller.schedule("taskrun:primary", scheduler="test", max_steps=1)
+    primary_cell = host.agent_run_supervisor.active_cell_for_task_run("taskrun:primary", session_id="session:cell-isolation")
+    steer_cell = None
+    try:
+        assert primary["scheduled"] is True
+        assert primary_cell is not None
+        assert primary_started.wait(timeout=3)
+
+        steer = host.agent_run_supervisor.schedule_single_turn(
+            session_id="session:cell-isolation",
+            stream_run_id=run.stream_run_id,
+            work_factory=steer_work,
+            scheduler="test-steer",
+            invocation_kind="background",
+            primary=False,
+        )
+        steer_cell = host.agent_run_supervisor.active_cell_for_stream_run(run.stream_run_id, session_id="session:cell-isolation")
+
+        assert steer["scheduled"] is True
+        assert steer_cell is not None
+        assert steer_cell.scope.invocation_kind == "background"
+        assert steer_started.wait(timeout=3)
+    finally:
+        release.set()
+        if primary_cell is not None and primary_cell.worker_handle is not None:
+            primary_cell.worker_handle.join(timeout=3)
+        if steer_cell is not None and steer_cell.worker_handle is not None:
+            steer_cell.worker_handle.join(timeout=3)
+
+
+def test_runtime_run_cell_cancel_requires_session_scope(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    run = host.run_registry.create_run(session_id="session:cell-isolation")
+    started = threading.Event()
+
+    async def chat_work() -> dict[str, str]:
+        started.set()
+        while True:
+            await asyncio.sleep(0.01)
+
+    scheduled = host.agent_run_supervisor.schedule_single_turn(
+        session_id="session:cell-isolation",
+        stream_run_id=run.stream_run_id,
+        work_factory=chat_work,
+        scheduler="test-chat-run",
+    )
+    cell = host.agent_run_supervisor.active_cell_for_stream_run(run.stream_run_id, session_id="session:cell-isolation")
+    try:
+        assert scheduled["scheduled"] is True
+        assert cell is not None
+        assert started.wait(timeout=3)
+
+        wrong_session = host.cancel_runtime_run_cells(
+            runtime_run_sessions={run.stream_run_id: "session:other"},
+            reason="test_wrong_session",
+        )
+        assert wrong_session["cancelled_count"] == 0
+        assert wrong_session["rejected"][0]["reason"] == "active_cell_missing_or_session_mismatch"
+        assert cell.is_running()
+
+        correct_session = host.cancel_runtime_run_cells(
+            runtime_run_sessions={run.stream_run_id: "session:cell-isolation"},
+            reason="test_cancel",
+        )
+        assert correct_session["cancelled_count"] == 1
+        assert correct_session["cancelled_stream_run_ids"] == [run.stream_run_id]
+        assert _wait_until(lambda: cell.status in {"cancel_requested", "cancelled"})
+    finally:
+        if cell is not None and cell.worker_handle is not None:
+            cell.worker_handle.request_cancel("test_cleanup")
+            cell.worker_handle.join(timeout=3)
+
+
+def test_single_turn_start_binds_turn_run_to_active_runtime_cell_scope(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    run = host.run_registry.create_run(session_id="session:cell-isolation")
+    release = threading.Event()
+
+    async def chat_work() -> dict[str, str]:
+        while not release.is_set():
+            await asyncio.sleep(0.01)
+        return {"status": "completed"}
+
+    scheduled = host.agent_run_supervisor.schedule_single_turn(
+        session_id="session:cell-isolation",
+        stream_run_id=run.stream_run_id,
+        work_factory=chat_work,
+        scheduler="test-chat-run",
+    )
+    cell = host.agent_run_supervisor.active_cell_for_stream_run(run.stream_run_id, session_id="session:cell-isolation")
+    try:
+        assert scheduled["scheduled"] is True
+        assert cell is not None
+
+        turn_run, start_event = _start_turn_runtime(
+            host,
+            session_id="session:cell-isolation",
+            turn_id="turn:cell-bound",
+            agent_profile_ref="main_interactive_agent",
+            stream_run_id=run.stream_run_id,
+        )
+        refreshed_run = host.run_registry.get_run(run.stream_run_id)
+        diagnostics = dict(turn_run.diagnostics or {})
+        agent_scope = dict(diagnostics.get("agent_run_scope") or {})
+        refs = dict(start_event.get("refs") or {})
+
+        assert agent_scope["agent_run_id"] == scheduled["agent_run_id"]
+        assert agent_scope["run_cell_id"] == scheduled["run_cell_id"]
+        assert agent_scope["turn_id"] == "turn:cell-bound"
+        assert agent_scope["turn_run_id"] == f"turnrun:{run.stream_run_id}"
+        assert refs["agent_run_ref"] == scheduled["agent_run_id"]
+        assert refs["run_cell_ref"] == scheduled["run_cell_id"]
+        assert dict(refreshed_run.diagnostics or {})["runtime_turn_run_id"] == turn_run.turn_run_id
+        assert dict(refreshed_run.diagnostics or {})["run_cell_id"] == scheduled["run_cell_id"]
+    finally:
+        release.set()
+        if cell is not None and cell.worker_handle is not None:
+            cell.worker_handle.join(timeout=3)
+
+
+def test_single_turn_old_cell_final_commit_is_rejected_before_session_write(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    run = host.run_registry.create_run(session_id="session:cell-isolation")
+    old_release = threading.Event()
+    new_release = threading.Event()
+    old_started = threading.Event()
+    new_started = threading.Event()
+    committed_payloads: list[dict[str, object]] = []
+
+    async def old_chat_work() -> dict[str, str]:
+        old_started.set()
+        while not old_release.is_set():
+            await asyncio.sleep(0.01)
+        return {"status": "completed"}
+
+    async def new_chat_work() -> dict[str, str]:
+        new_started.set()
+        while not new_release.is_set():
+            await asyncio.sleep(0.01)
+        return {"status": "completed"}
+
+    async def commit_assistant_message(session_id: str, payload: dict[str, object]) -> dict[str, object]:
+        committed_payloads.append({"session_id": session_id, **payload})
+        return {"appended_messages": [{"id": "assistant:late-final"}]}
+
+    old_scheduled = host.agent_run_supervisor.schedule_single_turn(
+        session_id="session:cell-isolation",
+        stream_run_id=run.stream_run_id,
+        work_factory=old_chat_work,
+        scheduler="test-chat-run",
+    )
+    old_cell = host.agent_run_supervisor.active_cell_for_stream_run(run.stream_run_id, session_id="session:cell-isolation")
+    new_cell = None
+    try:
+        assert old_scheduled["scheduled"] is True
+        assert old_cell is not None
+        assert old_started.wait(timeout=3)
+        old_turn_run, _ = _start_turn_runtime(
+            host,
+            session_id="session:cell-isolation",
+            turn_id="turn:old-cell-final",
+            agent_profile_ref="main_interactive_agent",
+            stream_run_id=run.stream_run_id,
+        )
+        old_scope = dict(dict(old_turn_run.diagnostics or {}).get("agent_run_scope") or {})
+
+        old_release.set()
+        assert old_cell.worker_handle is not None
+        assert old_cell.worker_handle.join(timeout=3)
+        assert _wait_until(lambda: host.agent_run_supervisor.active_cell_for_stream_run(run.stream_run_id, session_id="session:cell-isolation") is None)
+
+        new_scheduled = host.agent_run_supervisor.schedule_single_turn(
+            session_id="session:cell-isolation",
+            stream_run_id=run.stream_run_id,
+            work_factory=new_chat_work,
+            scheduler="test-chat-run",
+        )
+        new_cell = host.agent_run_supervisor.active_cell_for_stream_run(run.stream_run_id, session_id="session:cell-isolation")
+        assert new_scheduled["scheduled"] is True
+        assert new_cell is not None
+        assert new_started.wait(timeout=3)
+        assert new_scheduled["run_cell_id"] != old_scheduled["run_cell_id"]
+
+        result = asyncio.run(
+            OutputCommitAuthority(host).commit_async(
+                OutputCommitRequest(
+                    run_id=old_turn_run.turn_run_id,
+                    session_id="session:cell-isolation",
+                    stream_run_id=run.stream_run_id,
+                    turn_id="turn:old-cell-final",
+                    turn_run_id=old_turn_run.turn_run_id,
+                    agent_run_id=str(old_scope.get("agent_run_id") or ""),
+                    run_cell_id=str(old_scope.get("run_cell_id") or ""),
+                    content="late final from old cell",
+                    execution_posture="single_agent_turn",
+                    refs={
+                        "turn_ref": "turn:old-cell-final",
+                        "turn_run_ref": old_turn_run.turn_run_id,
+                        "agent_run_ref": str(old_scope.get("agent_run_id") or ""),
+                        "run_cell_ref": str(old_scope.get("run_cell_id") or ""),
+                    },
+                ),
+                committer=commit_assistant_message,
+            )
+        )
+
+        assert committed_payloads == []
+        assert result.receipt["event_type"] == "session_output_commit_skipped"
+        assert result.receipt["reason"] == "agent_cell_stale_run_cell"
+        assert dict(result.receipt["commit_gate"])["scope_status"]["reason"] == "stale_run_cell"
+        events = host.event_log.list_events(old_turn_run.turn_run_id)
+        assert not any(event.event_type == "session_output_commit_checked" for event in events)
+        late_event = next(event for event in events if event.event_type == "agent_runtime_cell_late_event_rejected")
+        assert dict(late_event.payload)["stream_run_id"] == run.stream_run_id
+        assert dict(late_event.payload)["event_kind"] == "output_commit"
+    finally:
+        old_release.set()
+        new_release.set()
+        if old_cell is not None and old_cell.worker_handle is not None:
+            old_cell.worker_handle.join(timeout=3)
+        if new_cell is not None and new_cell.worker_handle is not None:
+            new_cell.worker_handle.join(timeout=3)
+
+
 def test_task_executor_controller_schedules_task_runs_in_isolated_cells(tmp_path) -> None:
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
     _insert_task_run(host, "taskrun:a")
-    _insert_task_run(host, "taskrun:b")
+    _insert_task_run(host, "taskrun:b", session_id="session:cell-isolation-b")
     started: set[str] = set()
     release = threading.Event()
 
@@ -846,8 +1218,8 @@ def test_task_executor_controller_schedules_task_runs_in_isolated_cells(tmp_path
     assert result_a["agent_run_id"] != result_b["agent_run_id"]
     assert result_a["run_cell_id"] != result_b["run_cell_id"]
 
-    cell_a = host.agent_run_supervisor.active_cell_for_task_run("taskrun:a")
-    cell_b = host.agent_run_supervisor.active_cell_for_task_run("taskrun:b")
+    cell_a = host.agent_run_supervisor.active_cell_for_task_run("taskrun:a", session_id="session:cell-isolation")
+    cell_b = host.agent_run_supervisor.active_cell_for_task_run("taskrun:b", session_id="session:cell-isolation-b")
     assert cell_a is not None
     assert cell_b is not None
     assert cell_a.mailbox is not cell_b.mailbox
@@ -871,7 +1243,11 @@ def test_task_executor_controller_schedules_task_runs_in_isolated_cells(tmp_path
     )
 
     assert _wait_until(lambda: started == {"taskrun:a", "taskrun:b"})
-    assert host.agent_run_supervisor.cancel_task_run("taskrun:a", reason="test_cancel_a") is True
+    assert host.agent_run_supervisor.cancel_task_run(
+        "taskrun:a",
+        session_id="session:cell-isolation",
+        reason="test_cancel_a",
+    ) is True
     assert cell_a.cancellation_token.cancelled is True
     assert cell_b.cancellation_token.cancelled is False
     assert cell_a.tool_invocation_registry.record("toolinv:cell-a").status == "cancelled"
@@ -905,7 +1281,7 @@ def test_task_executor_controller_commits_schedule_with_claimed_cell_identity(tm
 
     controller = TaskExecutorController(runtime_host=host, execute_task_run_callback=execute)
     result = controller.schedule(task_run_id, scheduler="test", turn_id="turn:claimed-schedule", max_steps=3)
-    cell = host.agent_run_supervisor.active_cell_for_task_run(task_run_id)
+    cell = host.agent_run_supervisor.active_cell_for_task_run(task_run_id, session_id="session:cell-isolation")
     try:
         assert result["scheduled"] is True
         assert result["agent_run_id"]
@@ -959,7 +1335,7 @@ def test_task_executor_controller_does_not_mark_backpressured_task_scheduled(tmp
 
     controller = TaskExecutorController(runtime_host=host, execute_task_run_callback=execute)
     result_active = controller.schedule("taskrun:active", scheduler="test", max_steps=1)
-    cell_active = host.agent_run_supervisor.active_cell_for_task_run("taskrun:active")
+    cell_active = host.agent_run_supervisor.active_cell_for_task_run("taskrun:active", session_id="session:cell-isolation")
     try:
         assert result_active["scheduled"] is True
         assert cell_active is not None
@@ -989,24 +1365,89 @@ def test_task_executor_controller_does_not_mark_backpressured_task_scheduled(tmp
 
         assert result_blocked["scheduled"] is False
         assert result_blocked["ok"] is False
-        assert result_blocked["reason"] == "max_active_cells_reached"
+        assert result_blocked["reason"] == "session_primary_task_active"
         assert result_blocked["agent_run_id"]
         assert result_blocked["run_cell_id"]
-        assert host.agent_run_supervisor.active_cell_for_task_run("taskrun:backpressured") is None
+        assert host.agent_run_supervisor.active_cell_for_task_run(
+            "taskrun:backpressured",
+            session_id="session:cell-isolation",
+        ) is None
         assert scheduled_events == []
         assert blocked_diagnostics.get("executor_status") in {None, ""}
         assert blocked_diagnostics.get("executor_lease_state") in {None, ""}
         assert "agent_run_scope" not in blocked_diagnostics
         assert len(backpressure_events) == 1
-        assert dict(backpressure_events[0].payload)["reason"] == "max_active_cells_reached"
+        assert dict(backpressure_events[0].payload)["reason"] == "session_primary_task_active"
+        assert dict(backpressure_events[0].payload)["active_task_run_id"] == "taskrun:active"
         assert dict(dict(backpressure_events[0].payload)["agent_scope"])["run_cell_id"] == result_blocked["run_cell_id"]
         assert len(drained.pending_signals) == 1
         assert drained.pending_signals[0].scope.run_cell_id == result_blocked["run_cell_id"]
-        assert drained.pending_signals[0].payload["reason"] == "max_active_cells_reached"
+        assert drained.pending_signals[0].payload["reason"] == "session_primary_task_active"
     finally:
         release.set()
         if cell_active is not None and cell_active.worker_handle is not None:
             cell_active.worker_handle.join(timeout=3)
+
+
+def test_same_session_can_hold_multiple_tasks_but_only_one_active_primary_cell(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
+    _insert_task_run(host, "taskrun:first")
+    _insert_task_run(host, "taskrun:second")
+    started: set[str] = set()
+    release_first = threading.Event()
+    release_second = threading.Event()
+
+    async def execute(task_run_id: str, *, max_steps: int) -> dict[str, str]:
+        del max_steps
+        started.add(task_run_id)
+        release = release_first if task_run_id == "taskrun:first" else release_second
+        while not release.is_set():
+            await asyncio.sleep(0.01)
+        return {"status": "completed"}
+
+    controller = TaskExecutorController(runtime_host=host, execute_task_run_callback=execute)
+    first = controller.schedule("taskrun:first", scheduler="test", max_steps=1)
+    cell_first = host.agent_run_supervisor.active_cell_for_task_run("taskrun:first", session_id="session:cell-isolation")
+    try:
+        assert first["scheduled"] is True
+        assert cell_first is not None
+        assert _wait_until(lambda: started == {"taskrun:first"})
+
+        blocked = controller.schedule("taskrun:second", scheduler="test", max_steps=1)
+        second_before_release = host.state_index.get_task_run("taskrun:second")
+        second_diagnostics = dict(second_before_release.diagnostics or {})
+
+        assert blocked["scheduled"] is False
+        assert blocked["reason"] == "session_primary_task_active"
+        assert host.agent_run_supervisor.active_cell_for_task_run("taskrun:second", session_id="session:cell-isolation") is None
+        assert second_before_release is not None
+        assert second_before_release.status == "created"
+        assert second_diagnostics.get("executor_status") in {None, ""}
+        assert second_diagnostics.get("executor_lease_state") in {None, ""}
+
+        release_first.set()
+        assert cell_first.worker_handle is not None
+        assert cell_first.worker_handle.join(timeout=3)
+        assert _wait_until(
+            lambda: host.agent_run_supervisor.active_cell_for_task_run("taskrun:first", session_id="session:cell-isolation") is None
+        )
+
+        second = controller.schedule("taskrun:second", scheduler="test", max_steps=1)
+        cell_second = host.agent_run_supervisor.active_cell_for_task_run("taskrun:second", session_id="session:cell-isolation")
+
+        assert second["scheduled"] is True
+        assert cell_second is not None
+        assert second["run_cell_id"] != first["run_cell_id"]
+        assert _wait_until(lambda: started == {"taskrun:first", "taskrun:second"})
+    finally:
+        release_first.set()
+        release_second.set()
+        cell_first = host.agent_run_supervisor.cell_by_id(str(first.get("run_cell_id") or ""))
+        if cell_first is not None and cell_first.worker_handle is not None:
+            cell_first.worker_handle.join(timeout=3)
+        second_cell = host.agent_run_supervisor.active_cell_for_task_run("taskrun:second", session_id="session:cell-isolation")
+        if second_cell is not None and second_cell.worker_handle is not None:
+            second_cell.worker_handle.join(timeout=3)
 
 
 def test_task_executor_controller_cleans_cell_claim_when_worker_start_fails(tmp_path) -> None:
@@ -1047,7 +1488,7 @@ def test_task_executor_controller_cleans_cell_claim_when_worker_start_fails(tmp_
     assert result["error"] == "worker backend offline"
     assert result["run_cell_id"]
     assert executed.is_set() is False
-    assert host.agent_run_supervisor.active_cell_for_task_run(task_run_id) is None
+    assert host.agent_run_supervisor.active_cell_for_task_run(task_run_id, session_id="session:cell-isolation") is None
     assert host.agent_run_supervisor.cell_by_id(result["run_cell_id"]) is None
     assert task_run.status == "blocked"
     assert task_run.terminal_reason == "task_executor_schedule_failed"
@@ -1124,7 +1565,7 @@ def test_task_executor_controller_recover_scheduled_closes_worker_start_failure(
     assert result["run_cell_id"]
     assert result["run_cell_id"] != "runcell:old"
     assert executed.is_set() is False
-    assert host.agent_run_supervisor.active_cell_for_task_run(task_run_id) is None
+    assert host.agent_run_supervisor.active_cell_for_task_run(task_run_id, session_id="session:cell-isolation") is None
     assert host.agent_run_supervisor.cell_by_id(result["run_cell_id"]) is None
     assert task_run.status == "blocked"
     assert task_run.terminal_reason == "task_executor_schedule_failed"
@@ -1179,7 +1620,7 @@ def test_task_executor_controller_marks_cell_failed_when_execute_callback_raises
     assert cell.status == "failed"
     assert cell.worker_handle.error is not None
     assert "executor exploded" in str(cell.worker_handle.error)
-    assert host.agent_run_supervisor.active_cell_for_task_run(task_run_id) is None
+    assert host.agent_run_supervisor.active_cell_for_task_run(task_run_id, session_id="session:cell-isolation") is None
     assert task_run.status == "blocked"
     assert task_run.terminal_reason == "executor_failed"
     assert diagnostics["executor_status"] == "blocked"
@@ -1205,7 +1646,7 @@ def test_task_executor_controller_marks_cell_failed_when_execute_callback_raises
 def test_cell_mailbox_overflow_publishes_scoped_backpressure_event(tmp_path) -> None:
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
     _insert_task_run(host, "taskrun:mailbox-a")
-    _insert_task_run(host, "taskrun:mailbox-b")
+    _insert_task_run(host, "taskrun:mailbox-b", session_id="session:cell-isolation-b")
     release = threading.Event()
 
     async def work() -> dict[str, str]:
@@ -1263,7 +1704,7 @@ def test_cell_mailbox_overflow_publishes_scoped_backpressure_event(tmp_path) -> 
             for signal in host.runtime_gateway.drain(
                 "taskrun:mailbox-b",
                 scope=RuntimeSignalScope(
-                    session_id="session:cell-isolation",
+                    session_id="session:cell-isolation-b",
                     task_run_id="taskrun:mailbox-b",
                     agent_run_id=scheduled_b["agent_run_id"],
                     run_cell_id=scheduled_b["run_cell_id"],
@@ -1297,7 +1738,7 @@ def test_cancel_requested_cell_does_not_block_other_agent_slot(tmp_path) -> None
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
     host.agent_run_supervisor.max_active_cells = 1
     _insert_task_run(host, "taskrun:a")
-    _insert_task_run(host, "taskrun:b")
+    _insert_task_run(host, "taskrun:b", session_id="session:cell-isolation-b")
     started: set[str] = set()
     release = threading.Event()
 
@@ -1317,14 +1758,18 @@ def test_cancel_requested_cell_does_not_block_other_agent_slot(tmp_path) -> None
     assert result_a["scheduled"] is True
     assert _wait_until(lambda: started == {"taskrun:a"})
 
-    cell_a = host.agent_run_supervisor.active_cell_for_task_run("taskrun:a")
+    cell_a = host.agent_run_supervisor.active_cell_for_task_run("taskrun:a", session_id="session:cell-isolation")
     assert cell_a is not None
-    assert host.agent_run_supervisor.cancel_task_run("taskrun:a", reason="cancel_a") is True
+    assert host.agent_run_supervisor.cancel_task_run(
+        "taskrun:a",
+        session_id="session:cell-isolation",
+        reason="cancel_a",
+    ) is True
     assert _wait_until(lambda: cell_a.status == "cancel_requested")
     assert cell_a.is_running()
 
     result_b = controller.schedule("taskrun:b", scheduler="test", max_steps=1)
-    cell_b = host.agent_run_supervisor.active_cell_for_task_run("taskrun:b")
+    cell_b = host.agent_run_supervisor.active_cell_for_task_run("taskrun:b", session_id="session:cell-isolation-b")
 
     assert result_b["scheduled"] is True
     assert cell_b is not None
@@ -1360,7 +1805,13 @@ def test_supervisor_cancels_terminal_task_run_cell(tmp_path) -> None:
         max_steps=1,
     )
     assert scheduled["scheduled"] is True
-    assert _wait_until(lambda: host.agent_run_supervisor.active_cell_for_task_run("taskrun:terminal-cell") is not None)
+    assert _wait_until(
+        lambda: host.agent_run_supervisor.active_cell_for_task_run(
+            "taskrun:terminal-cell",
+            session_id="session:cell-isolation",
+        )
+        is not None
+    )
     task_run = host.state_index.get_task_run("taskrun:terminal-cell")
     host.state_index.upsert_task_run(replace(task_run, status="completed", updated_at=time.time()))
 
@@ -1377,17 +1828,25 @@ def test_supervisor_cancels_terminal_task_run_cell(tmp_path) -> None:
     assert cell.status == "cancelled"
 
 
-def _insert_task_run(host: SingleAgentRuntimeHost, task_run_id: str) -> None:
+def _insert_task_run(
+    host: SingleAgentRuntimeHost,
+    task_run_id: str,
+    *,
+    session_id: str = "session:cell-isolation",
+    execution_runtime_kind: str = "single_agent_task",
+    status: str = "created",
+    diagnostics: dict | None = None,
+) -> None:
     host.state_index.upsert_task_run(
         TaskRun(
             task_run_id=task_run_id,
-            session_id="session:cell-isolation",
+            session_id=session_id,
             task_id=f"task:{task_run_id}",
-            execution_runtime_kind="single_agent_task",
-            status="running",
+            execution_runtime_kind=execution_runtime_kind,
+            status=status,
             created_at=time.time(),
             updated_at=time.time(),
-            diagnostics={},
+            diagnostics=dict(diagnostics or {}),
         )
     )
 

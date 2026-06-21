@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, AlertTriangle, CheckCircle2, Clock3, TimerReset, Workflow } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, Clock3, ScrollText, TimerReset, Workflow } from "lucide-react";
 import React from "react";
 
 import type { RuntimeMonitorActionPayload } from "@/lib/api";
@@ -75,6 +75,16 @@ function signalText(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function signalSubtitle(signal: RunMonitorSignal, stateLabel: string) {
+  const stateText = stateLabel.trim().toLowerCase();
+  const parts = [signal.line, signal.detail]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .filter((value) => value.toLowerCase() !== stateText);
+  return parts.join(" / ");
+}
+
 function signalOpenId(signal: RunMonitorSignal) {
   return signal.signal_id || signal.task_instance_id || signal.task_run_id || signal.graph_run_id || "";
 }
@@ -97,6 +107,8 @@ export function RunTaskLane({ signals, loading, actionLoading, onAction, onOpen,
         {visible.length ? visible.map((signal) => {
           const actions = visibleTaskLaneActions(signal);
           const hasLogAction = Boolean(onOpenLog && signal.task_run_id);
+          const stateLabel = signalStateLabel(signal);
+          const subtitle = signalSubtitle(signal, stateLabel);
           return (
             <div
               className={`run-monitor-task run-monitor-task--${signalVisualState(signal)}${actions.length || hasLogAction ? " run-monitor-task--has-actions" : ""}`}
@@ -104,13 +116,12 @@ export function RunTaskLane({ signals, loading, actionLoading, onAction, onOpen,
             >
               <span className="run-monitor-task__icon">{signalIcon(signal)}</span>
               <button className="run-monitor-task__body" disabled={!signalOpenId(signal)} onClick={() => onOpen(signalOpenId(signal))} type="button">
-                <strong>{signal.title}</strong>
-                <small>{signal.line}</small>
+                <span className="run-monitor-task__title-line">
+                  <strong>{signal.title}</strong>
+                  <span className="run-monitor-task__state-badge">{stateLabel}</span>
+                </span>
+                {subtitle ? <small>{subtitle}</small> : null}
               </button>
-              <span className="run-monitor-task__meta">
-                <strong>{signalStateLabel(signal)}</strong>
-                <small>{signal.detail}</small>
-              </span>
               <RunTaskLaneActions
                 actions={actions}
                 loadingAction={actionLoading}
@@ -152,13 +163,16 @@ function RunTaskLaneActions({
       {onOpenLog && signal.task_run_id ? (
         <button
           className="run-monitor-task__action"
+          aria-label="打开运行日志"
           onClick={(event) => {
             event.stopPropagation();
             onOpenLog(signal);
           }}
+          title="打开运行日志"
           type="button"
         >
-          日志
+          <ScrollText size={13} />
+          <span>日志</span>
         </button>
       ) : null}
       {actions.map((action) => (

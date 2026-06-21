@@ -361,9 +361,9 @@ def active_work_status_label(context: ActiveWorkContext) -> str:
         return "等待确认"
     if context.status in {"created", "running"}:
         return "正在处理"
-    if context.status in {"completed", "success"}:
+    if context.status == "completed":
         return "已完成"
-    if context.status in {"failed", "aborted", "cancelled", "error"}:
+    if context.status in {"failed", "aborted"}:
         return "已结束"
     return context.status or "处理中"
 

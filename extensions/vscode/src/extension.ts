@@ -1,24 +1,58 @@
 import * as vscode from "vscode";
-import { createChatRun, postEditorContext } from "./connection/apiClient";
+import { configuredSessionId, createChatRun, postEditorContext } from "./connection/apiClient";
 import { collectEditorContext } from "./connection/editorContext";
 import { startContextHeartbeat } from "./connection/heartbeat";
-import { resolveSessionId } from "./connection/sessionBinding";
+import { acquireConnectionLease } from "./connection/lease";
 
 let output: vscode.OutputChannel | undefined;
+let heartbeat: vscode.Disposable | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   output = vscode.window.createOutputChannel("Langchain Agent");
   context.subscriptions.push(output);
-  context.subscriptions.push(startContextHeartbeat(context, output));
+  if (shouldStartBackgroundConnection()) {
+    startBackgroundConnection(context);
+  }
   context.subscriptions.push(
     vscode.commands.registerCommand("langchainAgent.sendToAgent", () => sendCurrentContext(context)),
-    vscode.commands.registerCommand("langchainAgent.showEditorContext", showEditorContext)
+    vscode.commands.registerCommand("langchainAgent.showEditorContext", showEditorContext),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration("langchainAgent.sessionId") || event.affectsConfiguration("langchainAgent.autoConnect")) {
+        syncBackgroundConnection(context);
+      }
+    })
   );
 }
 
 export function deactivate(): void {
+  heartbeat?.dispose();
+  heartbeat = undefined;
   output?.dispose();
   output = undefined;
+}
+
+function syncBackgroundConnection(context: vscode.ExtensionContext): void {
+  if (shouldStartBackgroundConnection()) {
+    startBackgroundConnection(context);
+    return;
+  }
+  heartbeat?.dispose();
+  heartbeat = undefined;
+}
+
+function startBackgroundConnection(context: vscode.ExtensionContext): void {
+  if (heartbeat || !output) {
+    return;
+  }
+  heartbeat = startContextHeartbeat(context, output);
+  context.subscriptions.push(heartbeat);
+}
+
+function shouldStartBackgroundConnection(): boolean {
+  if (configuredSessionId()) {
+    return true;
+  }
+  return vscode.workspace.getConfiguration("langchainAgent").get<boolean>("autoConnect", false) === true;
 }
 
 async function sendCurrentContext(context: vscode.ExtensionContext): Promise<void> {
@@ -31,11 +65,17 @@ async function sendCurrentContext(context: vscode.ExtensionContext): Promise<voi
     return;
   }
   const editorContext = collectEditorContext();
-  const sessionId = await resolveSessionId(context, editorContext, { createIfMissing: true });
-  output?.show(true);
-  output?.appendLine(`Sending request to local agent session ${sessionId}.`);
   try {
-    await postEditorContext(sessionId, editorContext);
+    const lease = await acquireConnectionLease(context, editorContext, { createIfMissing: true });
+    if (!lease) {
+      vscode.window.showWarningMessage("No Langchain Agent session is available for this VS Code window.");
+      return;
+    }
+    const sessionId = lease.sessionId;
+    output?.show(true);
+    output?.appendLine(`Sending request to local agent session ${sessionId}.`);
+    await postEditorContext(sessionId, lease.connectionId, editorContext);
+    startBackgroundConnection(context);
     const run = await createChatRun({
       message: message.trim(),
       session_id: sessionId,

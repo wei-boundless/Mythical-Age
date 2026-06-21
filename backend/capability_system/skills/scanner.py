@@ -3,16 +3,15 @@ from __future__ import annotations
 import json
 import re
 import sys
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
-import yaml
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+from capability_system.skills.authoring import parse_frontmatter
 from capability_system.skills.contracts import (
     DEFAULT_SKILL_OUTPUT_RULE,
     SkillContract,
@@ -21,7 +20,6 @@ from capability_system.skills.contracts import (
 )
 from capability_system.skills.paths import CapabilitySkillPaths
 
-FRONTMATTER_PATTERN = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
 SECTION_HEADING_PATTERN = re.compile(r"^#{2,3}\s+(.+?)\s*$", re.MULTILINE)
 FENCED_CODE_PATTERN = re.compile(r"```.*?```", re.DOTALL)
 
@@ -54,35 +52,6 @@ class SkillRecord:
     schema_version: int = 3
     validation_errors: list[str] = field(default_factory=list)
 
-
-def _record_from_contract(contract: SkillContract) -> SkillRecord:
-    runtime = contract.runtime
-    return SkillRecord(
-        name=runtime.name,
-        title=runtime.title,
-        description=runtime.description,
-        path=runtime.path,
-        supported_modalities=list(runtime.supported_modalities),
-        supported_task_kinds=list(runtime.supported_task_kinds),
-        supported_source_kinds=list(runtime.supported_source_kinds),
-        capability_tags=list(runtime.capability_tags),
-        preferred_route=runtime.preferred_route,
-        forbidden_routes=list(runtime.forbidden_routes),
-        not_for=list(runtime.not_for),
-        routing_hints=list(runtime.routing_hints),
-        examples=list(runtime.examples),
-        activation_policy=runtime.activation_policy,
-        context_mode=runtime.context_mode,
-        route_authority=runtime.route_authority,
-        reference_paths=list(runtime.reference_paths),
-        requires_operations=list(runtime.requires_operations),
-        requires_capabilities=list(runtime.requires_capabilities),
-        prompt_use_when=contract.prompt.use_when,
-        prompt_subagent_handoff_protocol=contract.prompt.subagent_handoff_protocol,
-        prompt_return_protocol=contract.prompt.return_protocol,
-        prompt_output_rule=contract.prompt.output_rule,
-        validation_errors=list(contract.validation_errors),
-    )
 
 
 def _contract_from_record(record: SkillRecord, *, body: str = "") -> SkillContract:
@@ -118,14 +87,6 @@ def _contract_from_record(record: SkillRecord, *, body: str = "") -> SkillContra
     return contract
 
 
-def _parse_frontmatter(text: str) -> dict[str, Any]:
-    match = FRONTMATTER_PATTERN.match(text)
-    if not match:
-        return {}
-    data = yaml.safe_load(match.group(1)) or {}
-    return data if isinstance(data, dict) else {}
-
-
 def _coerce_str(value: Any, default: str = "") -> str:
     if value is None:
         return default
@@ -149,13 +110,6 @@ def _lookup(meta: dict[str, Any], path: str, default: Any = None) -> Any:
             return default
         current = current[segment]
     return current
-
-
-def _read_skill_body_without_frontmatter(text: str) -> str:
-    match = FRONTMATTER_PATTERN.match(text)
-    if not match:
-        return text
-    return text[match.end() :].strip()
 
 
 def _extract_description(meta: dict[str, Any], body: str, skill_dir_name: str) -> str:
@@ -190,8 +144,7 @@ def scan_skills(base_dir: Path) -> list[SkillRecord]:
 
     for skill_file in sorted(skills_dir.glob("*/SKILL.md")):
         text = skill_file.read_text(encoding="utf-8")
-        meta = _parse_frontmatter(text)
-        body = _read_skill_body_without_frontmatter(text)
+        meta, body = parse_frontmatter(text)
         metadata = meta.get("metadata") if isinstance(meta.get("metadata"), dict) else {}
         prompt_meta = meta.get("prompt") if isinstance(meta.get("prompt"), dict) else {}
         if not isinstance(prompt_meta, dict):
@@ -231,7 +184,7 @@ def scan_skills(base_dir: Path) -> list[SkillRecord]:
             prompt_return_protocol=_coerce_str(prompt_meta.get("return_protocol")),
             prompt_output_rule=_coerce_str(prompt_meta.get("output_rule")),
         )
-        records.append(_record_from_contract(_contract_from_record(record, body=body)))
+        records.append(record)
     return records
 
 

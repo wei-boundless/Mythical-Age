@@ -3,7 +3,6 @@
 import { lazy, Suspense, type ReactNode } from "react";
 
 import { CenterWorkspaceView } from "@/components/workspace/views/center/CenterWorkspaceView";
-import { CodeEnvironmentView } from "@/components/workspace/views/CodeEnvironmentView";
 import { WorkbenchShell } from "@/components/layout/WorkbenchShell";
 import type { WorkspaceView } from "@/lib/store/types";
 
@@ -38,11 +37,10 @@ function LazyView({ children }: { children: ReactNode }) {
 
 function renderCenterWorkspace({ centerTaskEnvironmentId, view }: WorkspaceRegistryContext) {
   return (
-    <SystemPageShell label={view === "code-environment" ? "代码环境" : "主会话"} view={view}>
+    <SystemPageShell label="主会话" view={view}>
       <WorkbenchShell hideMainToolbar>
         <section className="workbench-view-host workbench-view-host--chat" aria-label="主会话">
           <CenterWorkspaceView taskEnvironmentId={centerTaskEnvironmentId} />
-          {view === "code-environment" ? <CodeEnvironmentView /> : null}
         </section>
       </WorkbenchShell>
     </SystemPageShell>
@@ -54,11 +52,6 @@ export const WORKSPACE_REGISTRY: Record<WorkspaceView, WorkspaceViewDefinition> 
     label: "主会话",
     render: renderCenterWorkspace,
     view: "chat",
-  },
-  "code-environment": {
-    label: "代码环境",
-    render: renderCenterWorkspace,
-    view: "code-environment",
   },
   creative: {
     label: "图任务",

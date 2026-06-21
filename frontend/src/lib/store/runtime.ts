@@ -11,7 +11,6 @@ import {
   enqueueQueuedChatInput,
   getChatRun,
   getLatestChatRunForSession,
-  getCodeEnvironmentWorkspaceTree,
   getModelProviderConfig,
   getImageAssetConfig,
   getTaskEnvironmentCatalog,
@@ -25,16 +24,19 @@ import {
   resumeGraphRun,
   setPermissionMode as setRuntimePermissionMode,
   setSessionActiveTaskEnvironment,
+  setSessionChatModelSelection,
   setSessionPermissionMode,
   setWorkbenchCurrentSession,
   getSessionHistory,
   getSessionRuntimeProjection,
   getSessionSummary,
   getSessionTokens,
+  getSessionWorkspaceTree,
   getWorkbenchCurrentSession,
   getProjectWorkspaceTree,
   listProjectWorkspaces,
   listProjectWorkspaceSessions,
+  listFileChanges,
   listSessions,
   listSkills,
   renameSession,
@@ -43,6 +45,7 @@ import {
   saveFileForSession,
   writeManagedFile,
   createProjectWorkspaceSession,
+  selectManagedFileForOpen,
   selectProjectWorkspaceDirectory,
   stopOrchestrationHarnessTaskRun,
   clearChatStreamCursor,
@@ -53,7 +56,7 @@ import {
   truncateSessionMessages,
   uploadChatAttachment
 } from "@/lib/api";
-import type { ChatAttachment, ChatRun, ChatStreamCursor, ManagedFileTarget, PublicProjectionFrame, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, RuntimeMonitorSignal, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
+import type { ChatAttachment, ChatRun, ChatStreamCursor, FileChangeRecord, ManagedFileTarget, PublicProjectionFrame, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, RuntimeMonitorSignal, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
@@ -64,8 +67,6 @@ import { allRunMonitorSignals } from "../run-monitor/reducer";
 import { chatThinkingModeFromProviderConfig, isOpenAIReasoningModel, normalizeChatThinkingMode } from "./runtime/chatThinking";
 import {
   ACTIVE_TURN_STATES,
-  CODE_TASK_ENVIRONMENT_IDS,
-  CODING_TASK_ENVIRONMENT_ID,
   DEFAULT_INSPECTOR_PATH,
   DEFAULT_PERMISSION_MODE,
   FRONTEND_EDITOR_CONTEXT_TEXT_LIMIT,
@@ -105,7 +106,7 @@ import {
 import { streamEventStopsActiveWork } from "./runtime/streamEvents";
 import { isCatalogEnvironmentVisible, taskEnvironmentIdOf, taskEnvironmentLabelOf } from "./runtime/taskEnvironmentCatalog";
 import { errorDetailMessage, runtimeText } from "./runtime/text";
-import type { ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, FileChangeDiffCenterWorkspaceTarget, Message, PermissionMode, RuntimeLogCenterWorkspaceTarget, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
+import type { ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, FileChangeDiffCenterWorkspaceTarget, Message, PermissionMode, RuntimeLogCenterWorkspaceTarget, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionRef, StoreActions, StoreState, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
 
 type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
@@ -150,6 +151,7 @@ export class WorkspaceRuntime {
   private sessionRuntimeProjectionRequest = 0;
   private sessionRuntimeProjectionTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionTokenStatsTimer: ReturnType<typeof setTimeout> | null = null;
+  private sessionHistoryInFlight = new Map<string, Promise<Awaited<ReturnType<typeof getSessionHistory>>>>();
   private orchestrationHydrateRequest = 0;
   private workspaceTreeRequest = 0;
   private workspaceTreeInFlightKey = "";
@@ -170,6 +172,12 @@ export class WorkspaceRuntime {
   private pendingProjectionCommitHydrates = new Map<string, string>();
   private hydratedProjectionCommitKeys = new Set<string>();
   private firstUserTitleRequests = new Set<string>();
+  private pendingChatModelSelections = new Map<string, string>();
+  private chatModelSelectionPersistTimers = new Map<string, number>();
+  private selectedWorkspaceFileTargets = new Map<string, ManagedFileTarget>();
+  private fileChangeHydrateInFlight = new Map<string, Promise<void>>();
+  private fileChangeHydratedAtByKey = new Map<string, number>();
+  private fileChangeRecordFingerprints = new Map<string, string>();
 
   readonly actions: StoreActions;
 
@@ -188,13 +196,11 @@ export class WorkspaceRuntime {
       refreshSessionDetails: (sessionId) => this.refreshSessionDetails(sessionId),
       hydrateLatestOrchestrationSnapshot: (sessionId) => this.hydrateLatestOrchestrationSnapshot(sessionId),
       syncWorkspaceViewUrl: (view) => this.syncWorkspaceViewUrl(view),
+      onStreamPayload: (payload) => this.afterRunMonitorStreamPayload(payload),
     });
     this.actions = {
       setWorkspaceView: (view) => {
         this.setWorkspaceView(view);
-      },
-      setTaskEnvironmentWorkspaceView: (view) => {
-        this.setTaskEnvironmentWorkspaceView(view);
       },
       refreshTaskEnvironmentCatalog: async () => {
         await this.refreshTaskEnvironmentCatalog();
@@ -265,6 +271,9 @@ export class WorkspaceRuntime {
       removeSession: async (ref) => {
         await this.removeSession(ref);
       },
+      selectWorkspaceFile: async () => {
+        return await this.selectWorkspaceFile();
+      },
       loadInspectorFile: async (path) => {
         await this.loadInspectorFile(path);
       },
@@ -273,6 +282,12 @@ export class WorkspaceRuntime {
       },
       saveInspector: async () => {
         await this.saveInspector();
+      },
+      hydrateFileChangesForSession: async (sessionId, options) => {
+        await this.hydrateFileChangesForSession(sessionId, options);
+      },
+      applyFileChangeRecord: (record) => {
+        this.noteFileChangeSignalFromRecord(record);
       },
       setSessionEditorPageState: (patch) => {
         this.setSessionEditorPageState(patch);
@@ -381,17 +396,17 @@ export class WorkspaceRuntime {
       void this.refreshTaskEnvironmentCatalog().catch(() => undefined);
       let restoredCurrentSession = false;
       let preferLatestVisibleSession = false;
+      const persistedSessionRef = await this.readPersistedCurrentSessionRef();
       const rememberedSessionRef = readRememberedSessionRef();
-      if (rememberedSessionRef?.sessionId) {
-        const restored = await this.restoreRememberedSessionOnStartup(rememberedSessionRef);
+      const restoreCandidates = this.startupSessionRestoreCandidates(persistedSessionRef, rememberedSessionRef);
+      for (const candidate of restoreCandidates) {
+        const restored = await this.restoreRememberedSessionOnStartup(candidate);
         restoredCurrentSession = restored === "restored";
-        preferLatestVisibleSession = restored === "non_main";
-      } else {
-        const persistedSessionRef = await this.readPersistedCurrentSessionRef();
-        if (persistedSessionRef?.sessionId) {
-          const restored = await this.restoreRememberedSessionOnStartup(persistedSessionRef);
-          restoredCurrentSession = restored === "restored";
-          preferLatestVisibleSession = restored === "non_main";
+        if (restored === "non_main") {
+          preferLatestVisibleSession = true;
+        }
+        if (restoredCurrentSession) {
+          break;
         }
       }
       if (!restoredCurrentSession) {
@@ -422,6 +437,38 @@ export class WorkspaceRuntime {
     void this.loadWorkspaceMetadata().catch(() => undefined);
     void this.refreshWorkspaceTree().catch(() => undefined);
     void this.loadInspectorMemoryFile().catch(() => undefined);
+  }
+
+  private startupSessionRestoreCandidates(...refs: Array<SessionRef | null | undefined>) {
+    const candidates: SessionRef[] = [];
+    const seen = new Set<string>();
+    for (const ref of refs) {
+      if (!ref?.sessionId) {
+        continue;
+      }
+      const normalized = this.normalizeSessionRef(ref, this.store.getState());
+      if (!normalized.sessionId) {
+        continue;
+      }
+      const key = JSON.stringify({
+        sessionId: normalized.sessionId,
+        scope: normalized.scope ?? {},
+        poolKey: normalized.poolKey ?? MAIN_CHAT_POOL_KEY,
+      });
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      candidates.push(normalized);
+    }
+    return candidates.sort((left, right) => {
+      const rightUpdatedAt = Number(right.updatedAt || 0);
+      const leftUpdatedAt = Number(left.updatedAt || 0);
+      if (rightUpdatedAt !== leftUpdatedAt) {
+        return rightUpdatedAt - leftUpdatedAt;
+      }
+      return 0;
+    });
   }
 
   private async readPersistedCurrentSessionRef() {
@@ -740,6 +787,11 @@ export class WorkspaceRuntime {
       window.clearTimeout(this.sessionRuntimeProjectionTimer);
       this.sessionRuntimeProjectionTimer = null;
     }
+    this.sessionHistoryInFlight.clear();
+    for (const timer of this.chatModelSelectionPersistTimers.values()) {
+      window.clearTimeout(timer);
+    }
+    this.chatModelSelectionPersistTimers.clear();
     this.runMonitorController.stop();
   }
 
@@ -1167,7 +1219,7 @@ export class WorkspaceRuntime {
     const requestId = ++this.sessionDetailsRequest;
     try {
       const scope = this.sessionScopeForSession(sessionId);
-      const history = await getSessionHistory(sessionId, scope);
+      const history = await this.getSessionHistoryCoalesced(sessionId, scope);
       if (this.store.getState().currentSessionId !== sessionId || this.sessionDetailsRequest !== requestId) {
         return;
       }
@@ -1178,6 +1230,9 @@ export class WorkspaceRuntime {
         const permissionMode = history.conversation_state
           ? this.permissionModeFromConversationState(history.conversation_state)
           : this.permissionModeForSession(sessionId, prev);
+        const selectedChatModelId = history.conversation_state
+          ? this.pendingChatModelSelections.get(sessionId) ?? this.chatModelSelectionIdFromConversationState(history.conversation_state, prev.selectedChatModelId)
+          : this.normalizeChatModelSelectionId(prev.selectedChatModelId);
         const hydratedProjection = hydrateSessionRuntimeProjection(
           {
             messages: toUiMessages(history.messages),
@@ -1202,6 +1257,8 @@ export class WorkspaceRuntime {
           tokenStats: prev.tokenStats,
           conversationActiveEnvironment,
           permissionMode,
+          selectedChatModelId,
+          selectedChatMode: this.resolveSelectedChatMode(selectedChatModelId, prev.modelProviderConfig),
           sessions: prev.sessions.map((session) => session.id === sessionId
             ? {
                 ...session,
@@ -1249,6 +1306,36 @@ export class WorkspaceRuntime {
           },
         };
       });
+    }
+  }
+
+  private getSessionHistoryCoalesced(sessionId: string, scope: Partial<SessionScope> | undefined) {
+    const requestKey = this.sessionHistoryRequestKey(sessionId, scope);
+    const existing = this.sessionHistoryInFlight.get(requestKey);
+    if (existing) {
+      return existing;
+    }
+    const request = getSessionHistory(sessionId, scope);
+    this.sessionHistoryInFlight.set(requestKey, request);
+    void request.finally(() => {
+      if (this.sessionHistoryInFlight.get(requestKey) === request) {
+        this.sessionHistoryInFlight.delete(requestKey);
+      }
+    }).catch(() => undefined);
+    return request;
+  }
+
+  private sessionHistoryRequestKey(sessionId: string, scope: Partial<SessionScope> | undefined) {
+    const normalizedScope = this.normalizeSessionScope(scope);
+    return `${sessionId.trim()}|${JSON.stringify(normalizedScope ?? {})}`;
+  }
+
+  private invalidateSessionHistoryCache(sessionId: string) {
+    const prefix = `${sessionId.trim()}|`;
+    for (const key of this.sessionHistoryInFlight.keys()) {
+      if (key.startsWith(prefix)) {
+        this.sessionHistoryInFlight.delete(key);
+      }
     }
   }
 
@@ -1935,7 +2022,9 @@ export class WorkspaceRuntime {
     }
 
     const pending = (async () => {
-      const activeProjectKey = this.store.getState().activeProjectKey;
+      const initialState = this.store.getState();
+      const activeProjectKey = initialState.activeProjectKey;
+      const selectedChatModelId = this.normalizeChatModelSelectionId(initialState.selectedChatModelId);
       const created = activeProjectKey
         ? (await createProjectWorkspaceSession(activeProjectKey, DEFAULT_SESSION_TITLE)).session
         : await createSession(DEFAULT_SESSION_TITLE);
@@ -1949,7 +2038,10 @@ export class WorkspaceRuntime {
         sessions: [
           {
             ...created,
-            conversation_state: this.conversationStateWithPermissionMode(created.conversation_state, permissionMode),
+            conversation_state: this.conversationStateWithChatModelSelection(
+              this.conversationStateWithPermissionMode(created.conversation_state, permissionMode),
+              selectedChatModelId,
+            ),
           },
           ...prev.sessions.filter((session) => session.id !== created.id),
         ],
@@ -1957,7 +2049,10 @@ export class WorkspaceRuntime {
           ? [
               {
                 ...created,
-                conversation_state: this.conversationStateWithPermissionMode(created.conversation_state, permissionMode),
+                conversation_state: this.conversationStateWithChatModelSelection(
+                  this.conversationStateWithPermissionMode(created.conversation_state, permissionMode),
+                  selectedChatModelId,
+                ),
               },
               ...prev.projectSessions.filter((session) => session.id !== created.id),
             ]
@@ -1971,6 +2066,8 @@ export class WorkspaceRuntime {
         },
         conversationActiveEnvironment,
         permissionMode,
+        selectedChatModelId,
+        selectedChatMode: this.resolveSelectedChatMode(selectedChatModelId, prev.modelProviderConfig),
         messages: [],
         tokenStats: null
       }, created.id));
@@ -1989,6 +2086,12 @@ export class WorkspaceRuntime {
         console.debug("[workspace-runtime] default permission mode persist skipped", {
           event: "conversation_permission_mode_default_persist_failed",
           error: this.errorMessage(error, "默认权限模式写入失败。"),
+        });
+      });
+      await this.persistSelectedChatModel(created.id, selectedChatModelId).catch((error) => {
+        console.debug("[workspace-runtime] default chat model selection persist skipped", {
+          event: "conversation_chat_model_selection_default_persist_failed",
+          error: this.errorMessage(error, "默认模型选择写入失败。"),
         });
       });
       this.projectPermissionModeToRuntime(permissionMode);
@@ -2118,6 +2221,7 @@ export class WorkspaceRuntime {
       sessionId,
       scope,
       poolKey: ref.poolKey ?? sessionPoolKeyForScope(scope),
+      ...(Number.isFinite(Number(ref.updatedAt)) && Number(ref.updatedAt) > 0 ? { updatedAt: Number(ref.updatedAt) } : {}),
     };
   }
 
@@ -2133,6 +2237,57 @@ export class WorkspaceRuntime {
 
   private permissionModeFromConversationState(conversationState: SessionSummary["conversation_state"] | null | undefined) {
     return this.normalizePermissionMode(conversationState?.permission_mode || DEFAULT_PERMISSION_MODE);
+  }
+
+  private normalizeChatModelSelectionId(selectionId: string | null | undefined) {
+    return String(selectionId || "").trim() || "system-default";
+  }
+
+  private chatModelSelectionIdFromConversationState(
+    conversationState: SessionSummary["conversation_state"] | null | undefined,
+    fallback = "system-default",
+  ) {
+    return this.normalizeChatModelSelectionId(conversationState?.chat_model_selection?.selection_id || fallback);
+  }
+
+  private chatModelSelectionStateForId(selectionId: string) {
+    const normalized = this.normalizeChatModelSelectionId(selectionId);
+    if (normalized === "system-default") {
+      return {
+        selection_id: "system-default",
+        provider: "",
+        model: "",
+        source: "user",
+      };
+    }
+    const [provider, ...modelParts] = normalized.split("::");
+    return {
+      selection_id: normalized,
+      provider: provider.trim().toLowerCase(),
+      model: modelParts.join("::").trim(),
+      source: "user",
+    };
+  }
+
+  private conversationStateWithChatModelSelection(
+    conversationState: SessionSummary["conversation_state"] | null | undefined,
+    selectionId: string,
+  ): NonNullable<SessionSummary["conversation_state"]> {
+    return {
+      ...(conversationState ?? {}),
+      chat_model_selection: this.chatModelSelectionStateForId(selectionId),
+      authority: conversationState?.authority || "sessions.conversation_state",
+    };
+  }
+
+  private sessionsWithChatModelSelection(sessions: SessionSummary[], sessionId: string, selectionId: string) {
+    return sessions.map((session) => session.id === sessionId
+      ? {
+          ...session,
+          conversation_state: this.conversationStateWithChatModelSelection(session.conversation_state, selectionId),
+        }
+      : session
+    );
   }
 
   private permissionModeForSession(
@@ -2358,11 +2513,14 @@ export class WorkspaceRuntime {
     this.persistCurrentSessionRef(normalized);
     const streamingCache = this.streamingSessionCache.get(normalized.sessionId);
     if (this.store.getState().activeStreamSessionIds.includes(normalized.sessionId) && streamingCache) {
-      const selectedSession = this.store.getState().sessions.find((session) => session.id === normalized.sessionId);
+      const currentState = this.store.getState();
+      const selectedSession = currentState.sessions.find((session) => session.id === normalized.sessionId);
       const conversationActiveEnvironment = this.shouldUseConversationEnvironment(normalized)
-        ? this.activeEnvironmentForSession(selectedSession) ?? this.store.getState().conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment()
-        : this.store.getState().conversationActiveEnvironment;
-      const permissionMode = this.permissionModeForSession(normalized.sessionId, this.store.getState());
+        ? this.activeEnvironmentForSession(selectedSession) ?? currentState.conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment()
+        : currentState.conversationActiveEnvironment;
+      const permissionMode = this.permissionModeForSession(normalized.sessionId, currentState);
+      const selectedChatModelId = this.pendingChatModelSelections.get(normalized.sessionId)
+        ?? this.chatModelSelectionIdFromConversationState(selectedSession?.conversation_state, "system-default");
       this.store.setState((prev) => this.withVisibleEditorContextForSession({
         ...prev,
         currentSessionId: normalized.sessionId,
@@ -2370,6 +2528,8 @@ export class WorkspaceRuntime {
         activeSessionRef: normalized,
         conversationActiveEnvironment,
         permissionMode,
+        selectedChatModelId,
+        selectedChatMode: this.resolveSelectedChatMode(selectedChatModelId, prev.modelProviderConfig),
         messages: streamingCache.messages,
         activeProjectionsByKey: streamingCache.activeProjectionsByKey,
         orchestrationSnapshot: streamingCache.orchestrationSnapshot,
@@ -2382,11 +2542,14 @@ export class WorkspaceRuntime {
       void this.refreshWorkspaceTree().catch(() => undefined);
       return true;
     }
-    const selectedSession = this.store.getState().sessions.find((session) => session.id === normalized.sessionId);
+    const currentState = this.store.getState();
+    const selectedSession = currentState.sessions.find((session) => session.id === normalized.sessionId);
     const conversationActiveEnvironment = this.shouldUseConversationEnvironment(normalized)
-      ? this.activeEnvironmentForSession(selectedSession) ?? this.store.getState().conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment()
-      : this.store.getState().conversationActiveEnvironment;
-    const permissionMode = this.permissionModeForSession(normalized.sessionId, this.store.getState());
+      ? this.activeEnvironmentForSession(selectedSession) ?? currentState.conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment()
+      : currentState.conversationActiveEnvironment;
+    const permissionMode = this.permissionModeForSession(normalized.sessionId, currentState);
+    const selectedChatModelId = this.pendingChatModelSelections.get(normalized.sessionId)
+      ?? this.chatModelSelectionIdFromConversationState(selectedSession?.conversation_state, "system-default");
     this.store.setState((prev) => this.withVisibleEditorContextForSession({
       ...prev,
       currentSessionId: normalized.sessionId,
@@ -2394,6 +2557,8 @@ export class WorkspaceRuntime {
       activeSessionRef: normalized,
       conversationActiveEnvironment,
       permissionMode,
+      selectedChatModelId,
+      selectedChatMode: this.resolveSelectedChatMode(selectedChatModelId, prev.modelProviderConfig),
       messages: [],
       activeProjectionsByKey: {},
       orchestrationSnapshot: null,
@@ -2462,7 +2627,9 @@ export class WorkspaceRuntime {
       }
       this.applyActiveTurnSnapshotFromChatRun(cursorRun);
       this.updateActiveChatStreamBinding(sessionId, this.chatRunBinding(cursorRun));
-      await this.refreshSessionDetails(sessionId).catch(() => undefined);
+      if (this.visibleSessionNeedsHistoryHydration(sessionId)) {
+        await this.refreshSessionDetails(sessionId).catch(() => undefined);
+      }
       this.startRecoveredChatRunStream(sessionId, streamRunId, cursor, cursorRun);
       return true;
     } finally {
@@ -2859,6 +3026,7 @@ export class WorkspaceRuntime {
               if (this.stoppedStreamingSessionIds.has(sessionId)) {
                 return;
               }
+              this.noteFileChangeSignalFromPayload(data);
               this.updateActiveChatStreamBinding(sessionId, this.eventChatStreamBinding(data, streamRunId));
               const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
               const deferProjectionViewBuild = this.streamEventCanUseDeferredVisibleFlush(event, data);
@@ -2899,7 +3067,6 @@ export class WorkspaceRuntime {
           {
             signal: abortController.signal,
             initialCursor: cursor,
-            replayFromStart: true,
           }
         );
         streamEndedWithError = streamResult.terminalStatus === "failed";
@@ -3037,6 +3204,7 @@ export class WorkspaceRuntime {
       }));
       throw error;
     }
+    this.invalidateSessionHistoryCache(sessionId);
     const activeStreamState = this.store.getState();
     if (hasFiles && activeStreamState.activeStreamSessionIds.includes(sessionId)) {
       const message = "当前运行中暂不支持追加图片，请等待本轮结束。";
@@ -3192,6 +3360,7 @@ export class WorkspaceRuntime {
             if (this.stoppedStreamingSessionIds.has(sessionId)) {
               return;
             }
+            this.noteFileChangeSignalFromPayload(data);
             this.updateActiveChatStreamBinding(sessionId, this.eventChatStreamBinding(data));
             const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
             const deferProjectionViewBuild = this.streamEventCanUseDeferredVisibleFlush(event, data);
@@ -3694,6 +3863,7 @@ export class WorkspaceRuntime {
     if (!sessionId || !nextValue || state.activeStreamSessionIds.includes(sessionId)) {
       return;
     }
+    this.invalidateSessionHistoryCache(sessionId);
     const targetMessage = state.messages.find((message) => message.id === messageId);
     if (!targetMessage || targetMessage.role !== "user" || targetMessage.sourceIndex === undefined) {
       return;
@@ -3725,6 +3895,9 @@ export class WorkspaceRuntime {
     const state = this.store.getState();
     const sessionId = state.currentSessionId;
     const sessionScope = sessionId ? this.sessionScopeForSession(sessionId) : undefined;
+    if (sessionId) {
+      this.invalidateSessionHistoryCache(sessionId);
+    }
     const previousMode = state.permissionMode;
     const previousSessions = state.sessions;
     this.store.setState((prev) => ({
@@ -3785,12 +3958,93 @@ export class WorkspaceRuntime {
   }
 
   private setSelectedChatModel(selectionId: string) {
-    const normalized = selectionId.trim() || "system-default";
+    const normalized = this.normalizeChatModelSelectionId(selectionId);
+    const sessionId = this.store.getState().currentSessionId || "";
+    if (sessionId) {
+      this.pendingChatModelSelections.set(sessionId, normalized);
+      this.invalidateSessionHistoryCache(sessionId);
+    }
     this.store.setState((prev) => ({
       ...prev,
       selectedChatModelId: normalized,
-      selectedChatMode: this.resolveSelectedChatMode(normalized, prev.modelProviderConfig)
+      selectedChatMode: this.resolveSelectedChatMode(normalized, prev.modelProviderConfig),
+      sessions: sessionId
+        ? this.sessionsWithChatModelSelection(prev.sessions, sessionId, normalized)
+        : prev.sessions,
+      projectSessions: sessionId
+        ? this.sessionsWithChatModelSelection(prev.projectSessions, sessionId, normalized)
+        : prev.projectSessions,
     }));
+    if (!sessionId) {
+      return;
+    }
+    this.persistSelectedChatModelInBackground(sessionId, normalized);
+  }
+
+  private persistSelectedChatModelInBackground(sessionId: string, selectionId: string, attempt = 1) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return;
+    }
+    const previousTimer = this.chatModelSelectionPersistTimers.get(normalizedSessionId);
+    if (previousTimer) {
+      clearTimeout(previousTimer);
+      this.chatModelSelectionPersistTimers.delete(normalizedSessionId);
+    }
+    void this.persistSelectedChatModel(normalizedSessionId, selectionId).catch((error) => {
+      const pendingSelection = this.pendingChatModelSelections.get(normalizedSessionId);
+      if (pendingSelection !== this.normalizeChatModelSelectionId(selectionId)) {
+        return;
+      }
+      console.debug("[workspace-runtime] chat model selection persist retry scheduled", {
+        event: "chat_model_selection_persist_retry_scheduled",
+        sessionId: normalizedSessionId,
+        selectionId,
+        attempt,
+        error: this.errorMessage(error, "模型选择写入超时。"),
+      });
+      if (attempt >= 3 || typeof window === "undefined") {
+        return;
+      }
+      const timer = window.setTimeout(() => {
+        this.chatModelSelectionPersistTimers.delete(normalizedSessionId);
+        this.persistSelectedChatModelInBackground(normalizedSessionId, selectionId, attempt + 1);
+      }, attempt * 2500);
+      this.chatModelSelectionPersistTimers.set(normalizedSessionId, timer);
+    });
+  }
+
+  private async persistSelectedChatModel(sessionId: string, selectionId: string) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return;
+    }
+    const normalizedSelectionId = this.normalizeChatModelSelectionId(selectionId);
+    this.pendingChatModelSelections.set(normalizedSessionId, normalizedSelectionId);
+    this.invalidateSessionHistoryCache(normalizedSessionId);
+    try {
+      const conversationState = await setSessionChatModelSelection(
+        normalizedSessionId,
+        this.chatModelSelectionStateForId(normalizedSelectionId),
+        this.sessionScopeForSession(normalizedSessionId),
+      );
+      if (this.pendingChatModelSelections.get(normalizedSessionId) === normalizedSelectionId) {
+        this.pendingChatModelSelections.delete(normalizedSessionId);
+      }
+      this.store.setState((prev) => ({
+        ...prev,
+        sessions: prev.sessions.map((session) => session.id === normalizedSessionId
+          ? { ...session, conversation_state: conversationState }
+          : session
+        ),
+        projectSessions: prev.projectSessions.map((session) => session.id === normalizedSessionId
+          ? { ...session, conversation_state: conversationState }
+          : session
+        ),
+      }));
+    } catch (error) {
+      throw error;
+    }
   }
 
   private setSelectedChatMode(mode: ChatMode) {
@@ -4108,6 +4362,49 @@ export class WorkspaceRuntime {
     };
   }
 
+  private async selectWorkspaceFile(): Promise<string | null> {
+    try {
+      let state = this.store.getState();
+      let sessionId = state.currentSessionId || "";
+      if (!sessionId && state.activeProjectKey) {
+        sessionId = await this.ensureSession();
+        state = this.store.getState();
+      }
+      const file = await selectManagedFileForOpen(sessionId);
+      const displayPath = String(file.display_path || file.path || "").trim();
+      if (!displayPath) {
+        return null;
+      }
+      this.selectedWorkspaceFileTargets.set(displayPath, file.target);
+      this.store.setState((prev) => this.patchCurrentSessionEditorContext({
+        ...prev,
+        inspectorPath: displayPath,
+        inspectorContent: file.content,
+        inspectorContentSha256: file.content_sha256,
+        inspectorDirty: false,
+        inspectorTarget: file.target,
+        inspectorLastChangeRecordId: "",
+        workspaceTreeError: "",
+      }, {
+        activeFilePath: displayPath,
+        inspectorPath: displayPath,
+        inspectorContent: file.content,
+        inspectorContentSha256: file.content_sha256,
+        inspectorDirty: false,
+        inspectorTarget: file.target,
+        inspectorLastChangeRecordId: "",
+      }));
+      return displayPath;
+    } catch (error) {
+      if (isFileSelectionCancelled(error)) {
+        return null;
+      }
+      const message = this.errorMessage(error, "无法打开文件。");
+      this.store.setState((prev) => ({ ...prev, workspaceTreeError: message }));
+      throw new Error(message);
+    }
+  }
+
   private async renameCurrentSession(title: string) {
     const currentSessionId = this.store.getState().currentSessionId;
     if (!currentSessionId || !title.trim()) {
@@ -4246,6 +4543,29 @@ export class WorkspaceRuntime {
         sessionId = await this.ensureSession();
         state = this.store.getState();
       }
+      const selectedTarget = this.selectedWorkspaceFileTargets.get(String(path || "").trim());
+      if (selectedTarget) {
+        const file = await readManagedFile(selectedTarget, sessionId);
+        this.store.setState((prev) => this.patchCurrentSessionEditorContext({
+          ...prev,
+          inspectorPath: path,
+          inspectorContent: file.content,
+          inspectorContentSha256: file.content_sha256,
+          inspectorDirty: false,
+          inspectorTarget: file.target,
+          inspectorLastChangeRecordId: "",
+          workspaceTreeError: "",
+        }, {
+          activeFilePath: path,
+          inspectorPath: path,
+          inspectorContent: file.content,
+          inspectorContentSha256: file.content_sha256,
+          inspectorDirty: false,
+          inspectorTarget: file.target,
+          inspectorLastChangeRecordId: "",
+        }));
+        return;
+      }
       const scope = sessionId ? this.sessionScopeForSession(sessionId) : undefined;
       const logicalPath = normalizeInspectorLogicalPath(path);
       const legacyInternalFile = isLegacyInternalInspectorPath(logicalPath);
@@ -4346,7 +4666,7 @@ export class WorkspaceRuntime {
       }));
       const workspaceTree = activeProjectKey
         ? await getProjectWorkspaceTree(activeProjectKey)
-        : await getCodeEnvironmentWorkspaceTree({
+        : await getSessionWorkspaceTree({
             sessionId: sessionId || undefined,
             scope,
           });
@@ -4424,7 +4744,7 @@ export class WorkspaceRuntime {
     const scope = sessionId ? this.sessionScopeForSession(sessionId) : undefined;
     const logicalPath = normalizeInspectorLogicalPath(state.inspectorPath);
     const legacyInternalFile = isLegacyInternalInspectorPath(logicalPath);
-    if (sessionId && !this.sessionProjectRoot(state, sessionId) && !legacyInternalFile) {
+    if (sessionId && !this.sessionProjectRoot(state, sessionId) && !legacyInternalFile && !state.inspectorTarget) {
       this.store.setState((prev) => ({
         ...prev,
         workspaceTreeError: "当前会话未绑定项目，不能保存项目文件。",
@@ -4442,6 +4762,7 @@ export class WorkspaceRuntime {
           sessionId,
         });
         const recordId = fileChangeRecordId(payload.file_change_record);
+        this.noteFileChangeSignalFromRecord(payload.file_change_record);
         this.store.setState((prev) => this.patchCurrentSessionEditorContext({
           ...prev,
           inspectorPath: payload.path,
@@ -4492,6 +4813,92 @@ export class WorkspaceRuntime {
     }
   }
 
+  private noteFileChangeSignalFromPayload(payload: unknown) {
+    const record = fileChangeRecordFromPayload(payload);
+    this.noteFileChangeSignalFromRecord(record);
+  }
+
+  private noteFileChangeSignalFromRecord(record: unknown) {
+    const normalized = normalizeFileChangeRecord(record, this.store.getState().currentSessionId || "");
+    if (!normalized) {
+      return;
+    }
+    const fingerprint = fileChangeRecordFingerprint(normalized);
+    if (this.fileChangeRecordFingerprints.get(normalized.record_id) === fingerprint) {
+      return;
+    }
+    this.fileChangeRecordFingerprints.set(normalized.record_id, fingerprint);
+    this.store.setState((prev) => this.mergeFileChangeRecords(prev, normalized, { incrementRevision: true }));
+  }
+
+  private async hydrateFileChangesForSession(sessionId = "", options: { force?: boolean; limit?: number } = {}) {
+    const normalizedSessionId = String(sessionId || this.store.getState().currentSessionId || "").trim();
+    if (!normalizedSessionId) {
+      return;
+    }
+    const limit = Math.max(1, Math.min(Number(options.limit || 200), 500));
+    const key = `${normalizedSessionId}:${limit}`;
+    if (!options.force && this.fileChangeHydratedAtByKey.has(key)) {
+      return;
+    }
+    const inFlight = this.fileChangeHydrateInFlight.get(key);
+    if (inFlight) {
+      await inFlight;
+      return;
+    }
+    const hydrate = (async () => {
+      const payload = await listFileChanges({ sessionId: normalizedSessionId, limit });
+      const records = Array.isArray(payload.records)
+        ? payload.records
+            .map((item) => normalizeFileChangeRecord(item, normalizedSessionId))
+            .filter((item): item is FileChangeRecord => Boolean(item))
+        : [];
+      for (const item of records) {
+        this.fileChangeRecordFingerprints.set(item.record_id, fileChangeRecordFingerprint(item));
+      }
+      this.store.setState((prev) => ({
+        ...prev,
+        fileChangeRecordsBySession: {
+          ...prev.fileChangeRecordsBySession,
+          [normalizedSessionId]: sortFileChangeRecords(records).slice(0, limit),
+        },
+      }));
+      this.fileChangeHydratedAtByKey.set(key, Date.now());
+    })();
+    this.fileChangeHydrateInFlight.set(key, hydrate);
+    try {
+      await hydrate;
+    } finally {
+      if (this.fileChangeHydrateInFlight.get(key) === hydrate) {
+        this.fileChangeHydrateInFlight.delete(key);
+      }
+    }
+  }
+
+  private mergeFileChangeRecords(
+    state: StoreState,
+    record: FileChangeRecord,
+    options: { incrementRevision?: boolean } = {},
+  ): StoreState {
+    const sessionId = record.session_id || state.currentSessionId || "";
+    if (!sessionId) {
+      return state;
+    }
+    const current = state.fileChangeRecordsBySession[sessionId] ?? [];
+    const existingIndex = current.findIndex((item) => item.record_id === record.record_id);
+    const nextRecords = existingIndex >= 0
+      ? current.map((item, index) => (index === existingIndex ? record : item))
+      : [record, ...current];
+    return {
+      ...state,
+      fileChangesRevision: options.incrementRevision ? state.fileChangesRevision + 1 : state.fileChangesRevision,
+      fileChangeRecordsBySession: {
+        ...state.fileChangeRecordsBySession,
+        [sessionId]: sortFileChangeRecords(nextRecords).slice(0, 500),
+      },
+    };
+  }
+
   private setSessionEditorPageState(patch: SessionEditorPageStatePatch) {
     this.store.setState((prev) => {
       const clearsFiles = patch.activeFilePath === "" && Array.isArray(patch.openFilePaths) && patch.openFilePaths.length === 0;
@@ -4535,10 +4942,6 @@ export class WorkspaceRuntime {
       this.openCurrentTaskEnvironmentWorkspace();
       return;
     }
-    if (view === "code-environment") {
-      this.setTaskEnvironmentWorkspaceView(view);
-      return;
-    }
     this.syncWorkspaceViewUrl(view);
     this.store.setState((prev) => ({ ...prev, activeWorkspaceView: view }));
   }
@@ -4558,48 +4961,10 @@ export class WorkspaceRuntime {
     }));
   }
 
-  private setTaskEnvironmentWorkspaceView(view: TaskEnvironmentWorkspaceView) {
-    const taskEnvironmentId = this.defaultTaskEnvironmentIdForView(view);
-    void this.setActiveTaskEnvironment(taskEnvironmentId, { source: "workspace-mode" });
-  }
-
-  private defaultTaskEnvironmentIdForView(view: TaskEnvironmentWorkspaceView) {
-    const catalog = this.store.getState().taskEnvironmentCatalog;
-    if (view === "code-environment") {
-      const rememberedId = this.rememberedTaskEnvironmentId();
-      if (rememberedId && this.workspaceViewForTaskEnvironment(rememberedId) === "code-environment") {
-        return rememberedId;
-      }
-      for (const candidate of [CODING_TASK_ENVIRONMENT_ID]) {
-        if (catalog?.environments.some((item) => isCatalogEnvironmentVisible(item) && taskEnvironmentIdOf(item) === candidate)) {
-          return candidate;
-        }
-      }
-      const codeCandidate = catalog?.environments.find((item) => {
-        const kind = String(item.record?.environment_kind || "").trim();
-        return isCatalogEnvironmentVisible(item) && kind === "coding";
-      });
-      return taskEnvironmentIdOf(codeCandidate) || CODING_TASK_ENVIRONMENT_ID;
-    }
-    const rememberedId = this.rememberedTaskEnvironmentId();
-    if (rememberedId && this.workspaceViewForTaskEnvironment(rememberedId) === "chat") {
-      return rememberedId;
-    }
-    if (catalog?.environments.some((item) => isCatalogEnvironmentVisible(item) && taskEnvironmentIdOf(item) === GENERAL_TASK_ENVIRONMENT_ID)) {
-      return GENERAL_TASK_ENVIRONMENT_ID;
-    }
-    return taskEnvironmentIdOf(catalog?.environments.find((item) => isCatalogEnvironmentVisible(item) && !GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(taskEnvironmentIdOf(item))))
-      || GENERAL_TASK_ENVIRONMENT_ID;
-  }
-
   private workspaceViewForTaskEnvironment(taskEnvironmentId: string): WorkspaceView {
     const normalized = String(taskEnvironmentId || "").trim();
     if (GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(normalized)) {
       return "creative";
-    }
-    const kind = String(this.taskEnvironmentCatalogItem(normalized)?.record?.environment_kind || "").trim();
-    if (CODE_TASK_ENVIRONMENT_IDS.has(normalized) || kind === "coding") {
-      return "code-environment";
     }
     return "chat";
   }
@@ -4688,8 +5053,8 @@ export class WorkspaceRuntime {
     });
   }
 
-  private centerWorkspaceHostView(view: WorkspaceView): TaskEnvironmentWorkspaceView {
-    return view === "code-environment" ? "code-environment" : "chat";
+  private centerWorkspaceHostView(_view: WorkspaceView): WorkspaceView {
+    return "chat";
   }
 
   private openTaskGraphWorkspace(target: Omit<TaskGraphWorkspaceTarget, "layer" | "requested_at"> = {}) {
@@ -5260,6 +5625,11 @@ export class WorkspaceRuntime {
 
   applyRunMonitorStreamPayload(payload: RunMonitorEventPayload | null) {
     this.runMonitorController.applyStreamPayload(payload);
+    this.afterRunMonitorStreamPayload(payload);
+  }
+
+  private afterRunMonitorStreamPayload(payload: RunMonitorEventPayload | null) {
+    this.noteFileChangeSignalFromPayload(payload);
     this.syncCurrentSessionActivityFromRunMonitor();
     void this.refreshCurrentSessionTokenStats("run_monitor_stream").catch(() => undefined);
   }
@@ -5613,6 +5983,116 @@ function fileChangeRecordId(record: unknown) {
   }
   const recordId = (record as { record_id?: unknown }).record_id;
   return typeof recordId === "string" ? recordId.trim() : "";
+}
+
+function normalizeFileChangeRecord(value: unknown, sessionIdFallback = ""): FileChangeRecord | null {
+  const recordId = fileChangeRecordId(value);
+  if (!recordId || !value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const metadata = record.metadata && typeof record.metadata === "object" && !Array.isArray(record.metadata)
+    ? record.metadata as Record<string, unknown>
+    : undefined;
+  return {
+    record_id: recordId,
+    session_id: runtimeText(record.session_id) || sessionIdFallback,
+    task_run_id: runtimeText(record.task_run_id),
+    agent_run_id: runtimeText(record.agent_run_id),
+    tool_call_id: runtimeText(record.tool_call_id),
+    tool_name: runtimeText(record.tool_name),
+    operation_id: runtimeText(record.operation_id),
+    workspace_root: runtimeText(record.workspace_root),
+    logical_path: runtimeText(record.logical_path),
+    absolute_path: runtimeText(record.absolute_path),
+    before_exists: booleanValue(record.before_exists, true),
+    after_exists: booleanValue(record.after_exists, true),
+    before_sha256: runtimeText(record.before_sha256),
+    after_sha256: runtimeText(record.after_sha256),
+    before_snapshot_path: runtimeText(record.before_snapshot_path),
+    after_snapshot_path: runtimeText(record.after_snapshot_path),
+    status: runtimeText(record.status) || "recorded",
+    created_at: finiteNumber(record.created_at) ?? Date.now() / 1000,
+    rolled_back_at: finiteNumber(record.rolled_back_at),
+    rollback_error: runtimeText(record.rollback_error) || undefined,
+    metadata,
+    authority: runtimeText(record.authority) || undefined,
+  };
+}
+
+function booleanValue(value: unknown, fallback: boolean) {
+  if (typeof value === "boolean") return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return fallback;
+}
+
+function sortFileChangeRecords(records: FileChangeRecord[]) {
+  return [...records].sort((left, right) =>
+    Number(right.created_at || 0) - Number(left.created_at || 0)
+    || String(right.record_id).localeCompare(String(left.record_id))
+  );
+}
+
+function fileChangeRecordFingerprint(record: FileChangeRecord) {
+  return JSON.stringify([
+    record.record_id,
+    record.session_id,
+    record.task_run_id,
+    record.logical_path,
+    record.absolute_path,
+    record.before_exists,
+    record.after_exists,
+    record.before_sha256,
+    record.after_sha256,
+    record.status,
+    record.created_at,
+    record.rolled_back_at ?? null,
+    record.rollback_error ?? "",
+  ]);
+}
+
+function fileChangeRecordFromPayload(value: unknown, depth = 0): unknown {
+  if (!value || typeof value !== "object" || depth > 6) {
+    return null;
+  }
+  if (fileChangeRecordId(value)) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value.slice(0, 20)) {
+      const found = fileChangeRecordFromPayload(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const direct = record.file_change_record;
+  if (fileChangeRecordId(direct)) {
+    return direct;
+  }
+  for (const key of [
+    "payload",
+    "result",
+    "result_envelope",
+    "structured_payload",
+    "monitor",
+    "observation",
+    "event",
+    "events",
+    "signals",
+    "latest_event",
+    "metadata",
+    "data",
+  ]) {
+    const found = fileChangeRecordFromPayload(record[key], depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+function isFileSelectionCancelled(error: unknown) {
+  return /file selection cancelled|selection cancelled/i.test(errorDetailMessage(error));
 }
 
 function clientNow() {

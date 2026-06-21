@@ -323,6 +323,148 @@ def test_recovery_boundary_allows_resume_only_when_expected_handles_match() -> N
     assert "available_action_types_for_next_packet" not in receipt.to_dict()
 
 
+def test_recovery_boundary_ignores_shadow_current_work_receipt_true() -> None:
+    record = select_session_continuation(
+        _Host([_recoverable_task()]),
+        session_id="session-continuation",
+    ).record
+    assert record is not None
+
+    decision = decide_recovery_boundary(
+        build_recovery_boundary_input(
+            session_id="session-continuation",
+            turn_id="turn:session-continuation:4",
+            recovery_input_policy="resume",
+            expected_task_run_id=record.task_run_id,
+            expected_continuation_id=record.continuation_id,
+            continuation_record=record,
+            current_work_boundary_receipt={
+                "receipt_id": "cwreceipt:shadow",
+                "decision_id": "cwbd:shadow",
+                "boundary_decision": "current_work_control_required",
+                "active_work_ref": {"task_run_id": "taskrun:active", "actual_active_turn_id": "turn:active"},
+                "operation_availability": {"active_work_control": True},
+            },
+        )
+    )
+
+    assert decision.action == "resume_recoverable_work"
+    assert decision.reason == "recovery_boundary_ready"
+
+
+def test_recovery_boundary_prioritizes_trusted_live_current_work_receipt() -> None:
+    record = select_session_continuation(
+        _Host([_recoverable_task()]),
+        session_id="session-continuation",
+    ).record
+    assert record is not None
+
+    decision = decide_recovery_boundary(
+        build_recovery_boundary_input(
+            session_id="session-continuation",
+            turn_id="turn:session-continuation:4",
+            recovery_input_policy="resume",
+            expected_task_run_id=record.task_run_id,
+            expected_continuation_id=record.continuation_id,
+            continuation_record=record,
+            current_work_boundary_receipt={
+                "receipt_id": "cwreceipt:active",
+                "decision_id": "cwbd:active",
+                "boundary_decision": "current_work_control_required",
+                "active_work_ref": {"task_run_id": "taskrun:active", "actual_active_turn_id": "turn:active"},
+                "operation_availability": {"active_work_control": True},
+                "authority": "harness.entrypoint.current_work_boundary_receipt",
+            },
+        )
+    )
+
+    assert decision.action == "no_recoverable_work"
+    assert decision.reason == "live_active_work_has_priority"
+
+
+def test_recovery_boundary_receipt_projection_requires_authority() -> None:
+    record = select_session_continuation(
+        _Host([_recoverable_task()]),
+        session_id="session-continuation",
+    ).record
+    assert record is not None
+
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session-continuation",
+        turn_id="turn:session-continuation:4",
+        agent_invocation_id="aginvoke:session-continuation:4",
+        user_message="继续。",
+        history=[],
+        session_context={
+            "recoverable_work": record.to_dict(),
+            "recovery_boundary_receipt": {
+                "receipt_id": "rbreceipt:shadow",
+                "decision_id": "rbd:shadow",
+                "boundary_decision": "resume_recoverable_work",
+                "continuation_ref": record.continuation_id,
+                "task_run_ref": record.task_run_id,
+                "operation_availability": {"resume_recoverable_work": True},
+                "resume_execution_route": "task_executor_controller.schedule",
+                "enforced": True,
+            },
+        },
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "control_capabilities": {"may_request_task_run": True, "may_control_active_work": True},
+        },
+    )
+
+    dynamic_payload = _message_payload_with_title(result.packet, "Single agent turn dynamic runtime")
+    projected = dict(dynamic_payload["recovery_boundary_receipt"])
+
+    assert "resume_recoverable_work" in result.packet.allowed_action_types
+    assert projected["operation_availability"]["resume_recoverable_work"] is False
+    assert projected["read_only_context"] is True
+
+
+def test_recovery_boundary_receipt_projection_accepts_trusted_resume_receipt() -> None:
+    record = select_session_continuation(
+        _Host([_recoverable_task()]),
+        session_id="session-continuation",
+    ).record
+    assert record is not None
+    decision = decide_recovery_boundary(
+        build_recovery_boundary_input(
+            session_id="session-continuation",
+            turn_id="turn:session-continuation:4",
+            recovery_input_policy="resume",
+            expected_task_run_id=record.task_run_id,
+            expected_continuation_id=record.continuation_id,
+            continuation_record=record,
+        )
+    )
+    receipt = recovery_boundary_receipt_from_decision(decision)
+
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session-continuation",
+        turn_id="turn:session-continuation:4",
+        agent_invocation_id="aginvoke:session-continuation:4",
+        user_message="继续。",
+        history=[],
+        session_context={
+            "recoverable_work": record.to_dict(),
+            "recovery_boundary_receipt": receipt.to_dict(),
+        },
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "control_capabilities": {"may_request_task_run": True, "may_control_active_work": True},
+        },
+    )
+
+    dynamic_payload = _message_payload_with_title(result.packet, "Single agent turn dynamic runtime")
+    projected = dict(dynamic_payload["recovery_boundary_receipt"])
+
+    assert projected["operation_availability"]["resume_recoverable_work"] is True
+    assert projected["read_only_context"] is False
+
+
 def test_public_turn_input_facts_do_not_accept_resume_as_recovery_decision() -> None:
     facts = build_turn_input_facts(
         session_id="session-continuation",

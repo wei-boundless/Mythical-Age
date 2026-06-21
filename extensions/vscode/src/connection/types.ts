@@ -73,6 +73,27 @@ export type ChatRunResponse = {
   status?: string;
 };
 
+export type VSCodeConnectionLease = {
+  session_id: string;
+  workspace_root: string;
+  project_key: string;
+  connection_id: string;
+  acquired_at: number;
+  last_heartbeat_at: number;
+  expires_at: number;
+  source?: string;
+  client_name?: string;
+  duplicate_rejected_count?: number;
+  authority?: string;
+};
+
+export type VSCodeConnectionAcquireResponse = {
+  ok: boolean;
+  lease: VSCodeConnectionLease;
+  connection_status?: Record<string, unknown>;
+  authority?: string;
+};
+
 export type VSCodeCommand = {
   command_id?: string;
   type?: "open_diff" | "open_file" | string;
@@ -91,6 +112,8 @@ export type VSCodeCommandPollResponse = {
   status: "ok" | "empty" | string;
   command?: VSCodeCommand | null;
   commands?: VSCodeCommand[];
+  retry_after_ms?: number;
+  poll_reason?: string;
 };
 
 export type VSCodeCommandResultPayload = {

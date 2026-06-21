@@ -285,7 +285,7 @@ class RuntimeGateway:
                 continue
             if wanted_types and signal.signal_type not in wanted_types:
                 continue
-            if scope is not None and not _scope_matches(signal.scope, scope):
+            if scope is not None and not _scope_matches(signal.scope, scope, signal_type=signal.signal_type):
                 continue
             pending.append(signal)
             source_events.append(event)
@@ -406,13 +406,23 @@ def _consumed_signal_ids(events: list[RuntimeEvent]) -> set[str]:
     return consumed
 
 
-def _scope_matches(candidate: RuntimeSignalScope, expected: RuntimeSignalScope) -> bool:
+def _scope_matches(candidate: RuntimeSignalScope, expected: RuntimeSignalScope, *, signal_type: str = "") -> bool:
     candidate_payload = candidate.to_dict()
     expected_payload = expected.to_dict()
+    allow_task_scoped_child_match = str(signal_type or "").strip() in _TASK_SCOPED_CHILD_MATCH_SIGNAL_TYPES
     for key, expected_value in expected_payload.items():
-        if expected_value and str(candidate_payload.get(key) or "") != str(expected_value):
+        if not expected_value:
+            continue
+        candidate_value = str(candidate_payload.get(key) or "")
+        if candidate_value and candidate_value != str(expected_value):
+            return False
+        if not candidate_value and (key not in _CHILD_SCOPE_KEYS or not allow_task_scoped_child_match):
             return False
     return True
+
+
+_CHILD_SCOPE_KEYS = frozenset({"turn_id", "turn_run_id", "agent_run_id", "run_cell_id"})
+_TASK_SCOPED_CHILD_MATCH_SIGNAL_TYPES = frozenset({"control.signal.requested"})
 
 
 def _run_id_from_scope(scope: RuntimeSignalScope) -> str:

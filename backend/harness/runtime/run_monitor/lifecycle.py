@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from typing import Any
-
-
 RUNNING_TASK_RUN_STATUSES = {"created", "running"}
 WAITING_TASK_RUN_STATUSES = {"waiting_executor", "waiting_approval"}
 BLOCKED_TASK_RUN_STATUSES = {"blocked"}
-FAILED_TASK_RUN_STATUSES = {"failed", "aborted", "cancelled", "error"}
-COMPLETED_TASK_RUN_STATUSES = {"completed", "success"}
+FAILED_TASK_RUN_STATUSES = {"failed", "aborted"}
+COMPLETED_TASK_RUN_STATUSES = {"completed"}
 TERMINAL_TASK_RUN_STATUSES = COMPLETED_TASK_RUN_STATUSES | FAILED_TASK_RUN_STATUSES
 GLOBAL_MONITOR_BUCKETS = ("running", "waiting", "completed", "failed", "diagnostics")
 KNOWN_TASK_RUN_STATUSES = (
@@ -17,19 +14,6 @@ KNOWN_TASK_RUN_STATUSES = (
     | FAILED_TASK_RUN_STATUSES
     | COMPLETED_TASK_RUN_STATUSES
 )
-
-
-def runtime_control(diagnostics: dict[str, Any]) -> dict[str, Any]:
-    control = diagnostics.get("runtime_control")
-    if not isinstance(control, dict):
-        return {}
-    return {
-        "state": str(control.get("state") or ""),
-        "requested_by": str(control.get("requested_by") or ""),
-        "requested_at": float(control.get("requested_at") or 0.0),
-        "reason": str(control.get("reason") or ""),
-        "authority": str(control.get("authority") or "orchestration.task_run_control"),
-    }
 
 
 def task_lifecycle(

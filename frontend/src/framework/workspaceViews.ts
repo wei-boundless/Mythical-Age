@@ -10,7 +10,6 @@ export const WORKSPACE_VIEW_VALUES = [
   "capability-system",
   "task-system",
   "orchestration",
-  "code-environment",
   "system-config",
 ] as const satisfies readonly WorkspaceView[];
 
@@ -18,7 +17,7 @@ export const WORKSPACE_QUERY_VIEW_VALUES = WORKSPACE_VIEW_VALUES;
 
 export const WORKSPACE_QUERY_VIEWS: ReadonlySet<WorkspaceView> = new Set(WORKSPACE_QUERY_VIEW_VALUES);
 
-export const TASK_ENVIRONMENT_VIEWS: ReadonlySet<WorkspaceView> = new Set(["chat", "code-environment"]);
+export const TASK_ENVIRONMENT_VIEWS: ReadonlySet<WorkspaceView> = new Set(["chat"]);
 
 export type SystemNavItem = {
   icon: LucideIcon;

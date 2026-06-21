@@ -10,8 +10,8 @@ const api = vi.hoisted(() => ({
   deleteSession: vi.fn(),
   deriveSessionTitleFromFirstUserMessage: vi.fn(),
   enqueueQueuedChatInput: vi.fn(),
-  getCodeEnvironmentWorkspaceTree: vi.fn(),
   getProjectWorkspaceTree: vi.fn(),
+  getSessionWorkspaceTree: vi.fn(),
   getChatRun: vi.fn(),
   getLatestChatRunForSession: vi.fn(),
   getLatestSessionContinuation: vi.fn(),
@@ -33,6 +33,7 @@ const api = vi.hoisted(() => ({
   resumeGraphRun: vi.fn(),
   submitGraphRunUntilIdle: vi.fn(),
   setSessionActiveTaskEnvironment: vi.fn(),
+  setSessionChatModelSelection: vi.fn(),
   setSessionPermissionMode: vi.fn(),
   setPermissionMode: vi.fn(),
   getSessionHistory: vi.fn(),
@@ -48,10 +49,12 @@ const api = vi.hoisted(() => ({
   listSessions: vi.fn(),
   listProjectWorkspaces: vi.fn(),
   listProjectWorkspaceSessions: vi.fn(),
+  listFileChanges: vi.fn(),
   listSkills: vi.fn(),
   loadFile: vi.fn(),
   loadFileForSession: vi.fn(),
   readManagedFile: vi.fn(),
+  selectManagedFileForOpen: vi.fn(),
   writeManagedFile: vi.fn(),
   openManagedFileInVSCode: vi.fn(),
   saveFileForSession: vi.fn(),
@@ -70,8 +73,8 @@ vi.mock("@/lib/api", () => ({
   enqueueQueuedChatInput: api.enqueueQueuedChatInput,
   submitGraphRunUntilIdle: api.submitGraphRunUntilIdle,
   evaluateTaskGraphRunMonitor: vi.fn(),
-  getCodeEnvironmentWorkspaceTree: api.getCodeEnvironmentWorkspaceTree,
   getProjectWorkspaceTree: api.getProjectWorkspaceTree,
+  getSessionWorkspaceTree: api.getSessionWorkspaceTree,
   getChatRun: api.getChatRun,
   getLatestChatRunForSession: api.getLatestChatRunForSession,
   getLatestSessionContinuation: api.getLatestSessionContinuation,
@@ -97,6 +100,7 @@ vi.mock("@/lib/api", () => ({
   resumeOrchestrationHarnessTaskRun: api.resumeOrchestrationHarnessTaskRun,
   resumeGraphRun: api.resumeGraphRun,
   setSessionActiveTaskEnvironment: api.setSessionActiveTaskEnvironment,
+  setSessionChatModelSelection: api.setSessionChatModelSelection,
   setSessionPermissionMode: api.setSessionPermissionMode,
   setPermissionMode: api.setPermissionMode,
   getSessionHistory: api.getSessionHistory,
@@ -109,10 +113,12 @@ vi.mock("@/lib/api", () => ({
   listSessions: api.listSessions,
   listProjectWorkspaces: api.listProjectWorkspaces,
   listProjectWorkspaceSessions: api.listProjectWorkspaceSessions,
+  listFileChanges: api.listFileChanges,
   listSkills: api.listSkills,
   loadFile: api.loadFile,
   loadFileForSession: api.loadFileForSession,
   readManagedFile: api.readManagedFile,
+  selectManagedFileForOpen: api.selectManagedFileForOpen,
   writeManagedFile: api.writeManagedFile,
   openManagedFileInVSCode: api.openManagedFileInVSCode,
   renameSession: vi.fn(),
@@ -353,6 +359,52 @@ async function flushPromises(times = 5) {
   for (let index = 0; index < times; index += 1) {
     await Promise.resolve();
   }
+}
+
+function deepseekProviderConfig(defaultModel = "deepseek-v4-flash") {
+  return {
+    provider: "deepseek",
+    model: defaultModel,
+    base_url: "https://api.deepseek.com/v1",
+    credential_ref: "provider:deepseek:primary",
+    api_key_configured: true,
+    fallback_provider: "",
+    fallback_model: "",
+    fallback_base_url: "",
+    fallback_api_key_configured: false,
+    supported_providers: {
+      deepseek: {
+        provider: "deepseek",
+        default_model: defaultModel,
+        default_base_url: "https://api.deepseek.com/v1",
+        credential_ref: "provider:deepseek:primary",
+        capability_tags: ["reasoning", "openai_compatible"],
+        model_presets: ["deepseek-v4-pro", "deepseek-v4-flash"],
+      },
+    },
+    authority: "runtime.model_provider",
+  };
+}
+
+function sessionSummaryWithChatModel(id: string, selectionId = "system-default", updatedAt = 1) {
+  const [provider, ...modelParts] = selectionId === "system-default" ? ["", ""] : selectionId.split("::");
+  return {
+    id,
+    title: id,
+    created_at: 1,
+    updated_at: updatedAt,
+    message_count: 0,
+    conversation_state: {
+      authority: "sessions.conversation_state",
+      permission_mode: "full_access",
+      chat_model_selection: {
+        selection_id: selectionId,
+        provider,
+        model: modelParts.join("::"),
+        authority: "sessions.chat_model_selection",
+      },
+    },
+  };
 }
 
 function expectQueuedChatInputCall(callIndex: number, sessionId: string, message: string) {
@@ -609,8 +661,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       monitor: monitorForTest([]),
       updated_at: 1,
     });
-    api.getCodeEnvironmentWorkspaceTree.mockReset();
-    api.getCodeEnvironmentWorkspaceTree.mockResolvedValue({
+    api.getSessionWorkspaceTree.mockReset();
+    api.getSessionWorkspaceTree.mockResolvedValue({
       authority: "langchain-agent.code_environment.workspace_tree",
       root_name: "langchain-agent",
       root_path: "D:/AI应用/langchain-agent",
@@ -791,6 +843,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       project_key: "workspace:repo",
       sessions: [],
     });
+    api.listFileChanges.mockReset();
+    api.listFileChanges.mockResolvedValue({
+      records: [],
+      summary: { count: 0 },
+      authority: "api.file_changes.list",
+    });
     api.listSkills.mockReset();
     api.listSkills.mockResolvedValue([]);
     api.loadFile.mockReset();
@@ -831,7 +889,21 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.setSessionPermissionMode.mockReset();
     api.setSessionPermissionMode.mockImplementation(async (_sessionId, mode) => ({
       active_task_environment: {},
+      chat_model_selection: {},
       permission_mode: String(mode || "full_access"),
+      authority: "sessions.conversation_state",
+    }));
+    api.setSessionChatModelSelection.mockReset();
+    api.setSessionChatModelSelection.mockImplementation(async (_sessionId, payload) => ({
+      active_task_environment: {},
+      chat_model_selection: {
+        selection_id: String(payload.selection_id || "system-default"),
+        provider: String(payload.provider || ""),
+        model: String(payload.model || ""),
+        source: String(payload.source || "user"),
+        authority: "sessions.chat_model_selection",
+      },
+      permission_mode: "full_access",
       authority: "sessions.conversation_state",
     }));
     api.setPermissionMode.mockReset();
@@ -981,6 +1053,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       }],
     });
     const runtime = new WorkspaceRuntime(store);
+    const initialRevision = store.getState().fileChangesRevision;
 
     await runtime.actions.loadInspectorFile("src/app.ts");
     runtime.actions.updateInspectorContent("export const value = 2;\n");
@@ -1006,6 +1079,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.saveFileForSession).not.toHaveBeenCalled();
     expect(store.getState().inspectorContentSha256).toBe("sha-after");
     expect(store.getState().inspectorLastChangeRecordId).toBe("change:managed");
+    expect(store.getState().fileChangesRevision).toBe(initialRevision + 1);
+    expect(store.getState().fileChangeRecordsBySession["session:code"]?.[0]).toMatchObject({
+      record_id: "change:managed",
+      session_id: "session:code",
+      logical_path: "src/app.ts",
+    });
     expect(store.getState().inspectorDirty).toBe(false);
   });
 
@@ -1136,13 +1215,13 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
   it("opens workspace files inside the current shared center workspace", () => {
     const store = createStore<StoreState>({
       ...getDefaultState(),
-      activeWorkspaceView: "code-environment",
+      activeWorkspaceView: "task-system",
     });
     const runtime = new WorkspaceRuntime(store);
 
     runtime.actions.openWorkspaceFile(" AGENTS.md ");
 
-    expect(store.getState().activeWorkspaceView).toBe("code-environment");
+    expect(store.getState().activeWorkspaceView).toBe("chat");
     expect(store.getState().centerWorkspaceTarget).toMatchObject({
       layer: "file",
       file_path: "AGENTS.md",
@@ -1264,6 +1343,254 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat.mock.calls[0]?.[0]).toMatchObject({
       session_id: "session:plan",
       permission_mode: "plan",
+    });
+  });
+
+  it("signals file changes from chat stream tool results", async () => {
+    vi.useRealTimers();
+    api.listSessions.mockResolvedValue([
+      {
+        id: "session:file-change",
+        title: "File Change Session",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+        conversation_state: { authority: "sessions.conversation_state", permission_mode: "full_access" },
+      },
+    ]);
+    api.streamChat.mockImplementationOnce(async (_payload, handlers) => {
+      handlers.onEvent("tool_result", {
+        result_envelope: {
+          file_change_record: {
+            record_id: "filechange-stream",
+            session_id: "session:file-change",
+            logical_path: "src/app.ts",
+          },
+        },
+      });
+      handlers.onEvent("done", { content: "done" });
+      return { terminalEvent: "turn_completed", terminalStatus: "completed", streamRunId: "strun:file-change", eventLogId: "chatrun:file-change", lastEventOffset: 2 };
+    });
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await flushPromises();
+    const initialRevision = store.getState().fileChangesRevision;
+    await runtime.actions.sendMessage("写一个文件。");
+
+    expect(store.getState().fileChangesRevision).toBe(initialRevision + 1);
+    expect(store.getState().fileChangeRecordsBySession["session:file-change"]?.[0]).toMatchObject({
+      record_id: "filechange-stream",
+      session_id: "session:file-change",
+      logical_path: "src/app.ts",
+    });
+  });
+
+  it("hydrates file changes once and then relies on record signals", async () => {
+    api.listFileChanges.mockResolvedValueOnce({
+      records: [{
+        record_id: "filechange:initial",
+        session_id: "session:file-change",
+        logical_path: "src/initial.ts",
+        created_at: 10,
+      }],
+      summary: { count: 1 },
+      authority: "api.file_changes.list",
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:file-change",
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await Promise.all([
+      runtime.actions.hydrateFileChangesForSession("session:file-change"),
+      runtime.actions.hydrateFileChangesForSession("session:file-change"),
+    ]);
+    runtime.actions.applyFileChangeRecord({
+      record_id: "filechange:signal",
+      session_id: "session:file-change",
+      logical_path: "src/signal.ts",
+      created_at: 11,
+    });
+    await runtime.actions.hydrateFileChangesForSession("session:file-change");
+
+    expect(api.listFileChanges).toHaveBeenCalledTimes(1);
+    expect(store.getState().fileChangeRecordsBySession["session:file-change"].map((record) => record.record_id)).toEqual([
+      "filechange:signal",
+      "filechange:initial",
+    ]);
+  });
+
+  it("restores the selected chat model from the active conversation session", async () => {
+    vi.useRealTimers();
+    api.getModelProviderConfig.mockResolvedValue(deepseekProviderConfig("deepseek-v4-flash"));
+    api.listSessions.mockResolvedValue([
+      sessionSummaryWithChatModel("session:pro", "deepseek::deepseek-v4-pro", 2),
+      sessionSummaryWithChatModel("session:default", "system-default", 1),
+    ]);
+    api.getSessionHistory.mockImplementation(async (sessionId) => ({
+      id: String(sessionId),
+      title: "Session",
+      created_at: 1,
+      updated_at: 1,
+      compressed_context: "",
+      conversation_state: sessionSummaryWithChatModel(
+        String(sessionId),
+        String(sessionId) === "session:pro" ? "deepseek::deepseek-v4-pro" : "system-default",
+      ).conversation_state,
+      messages: [],
+    }));
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await flushPromises();
+
+    expect(store.getState().currentSessionId).toBe("session:pro");
+    expect(store.getState().selectedChatModelId).toBe("deepseek::deepseek-v4-pro");
+
+    await runtime.actions.selectSession({ sessionId: "session:default" });
+    await flushPromises();
+
+    expect(store.getState().currentSessionId).toBe("session:default");
+    expect(store.getState().selectedChatModelId).toBe("system-default");
+  });
+
+  it("coalesces duplicate session history refreshes for the same active session", async () => {
+    const sessionId = "session:coalesced-history";
+    let resolveHistory: ((value: {
+      messages: { role: string; content: string }[];
+      conversation_state: { authority: string; permission_mode: string };
+    }) => void) | undefined;
+    api.getSessionHistory.mockImplementation(() => new Promise((resolve) => {
+      resolveHistory = resolve;
+    }));
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: sessionId,
+      sessions: [{
+        id: sessionId,
+        title: "Coalesced History",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      refreshSessionDetails: (sessionId: string) => Promise<void>;
+    };
+
+    const first = runtime.refreshSessionDetails(sessionId);
+    const second = runtime.refreshSessionDetails(sessionId);
+
+    expect(api.getSessionHistory).toHaveBeenCalledTimes(1);
+    resolveHistory?.({
+      messages: [{ role: "assistant", content: "只读取一次" }],
+      conversation_state: { authority: "sessions.conversation_state", permission_mode: "full_access" },
+    });
+    await Promise.all([first, second]);
+
+    expect(api.getSessionHistory).toHaveBeenCalledTimes(1);
+    expect(store.getState().messages).toMatchObject([
+      { role: "assistant", content: "只读取一次" },
+    ]);
+  });
+
+  it("does not reuse completed session history refreshes after in-flight coalescing ends", async () => {
+    const sessionId = "session:history-no-ttl";
+    api.getSessionHistory
+      .mockResolvedValueOnce({
+        messages: [{ role: "assistant", content: "第一次读取" }],
+        conversation_state: { authority: "sessions.conversation_state", permission_mode: "full_access" },
+      })
+      .mockResolvedValueOnce({
+        messages: [{ role: "assistant", content: "第二次读取" }],
+        conversation_state: { authority: "sessions.conversation_state", permission_mode: "full_access" },
+      });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: sessionId,
+      sessions: [{
+        id: sessionId,
+        title: "No TTL History",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      refreshSessionDetails: (sessionId: string) => Promise<void>;
+    };
+
+    await runtime.refreshSessionDetails(sessionId);
+    await runtime.refreshSessionDetails(sessionId);
+
+    expect(api.getSessionHistory).toHaveBeenCalledTimes(2);
+    expect(store.getState().messages).toMatchObject([
+      { role: "assistant", content: "第二次读取" },
+    ]);
+  });
+
+  it("persists explicit chat model changes to the current session and uses them for chat runs", async () => {
+    vi.useRealTimers();
+    api.getModelProviderConfig.mockResolvedValue(deepseekProviderConfig("deepseek-v4-flash"));
+    api.listSessions.mockResolvedValue([
+      sessionSummaryWithChatModel("session:model-choice"),
+    ]);
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await flushPromises();
+    runtime.actions.setSelectedChatModel("deepseek::deepseek-v4-pro");
+    await flushPromises();
+    await runtime.actions.sendMessage("用当前会话模型回答");
+
+    expect(api.setSessionChatModelSelection).toHaveBeenCalledWith(
+      "session:model-choice",
+      {
+        selection_id: "deepseek::deepseek-v4-pro",
+        provider: "deepseek",
+        model: "deepseek-v4-pro",
+        source: "user",
+      },
+      undefined,
+    );
+    expect(api.streamChat.mock.calls[0]?.[0]?.model_selection).toMatchObject({
+      selection_id: "deepseek::deepseek-v4-pro",
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+    });
+  });
+
+  it("writes a preselected chat model to a newly created session", async () => {
+    vi.useRealTimers();
+    api.getModelProviderConfig.mockResolvedValue(deepseekProviderConfig("deepseek-v4-flash"));
+    api.listSessions.mockResolvedValue([]);
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await flushPromises();
+    runtime.actions.setSelectedChatModel("deepseek::deepseek-v4-pro");
+    await runtime.actions.sendMessage("新会话也使用我选的模型");
+
+    expect(store.getState().currentSessionId).toBe("session:fresh");
+    expect(api.setSessionChatModelSelection).toHaveBeenCalledWith(
+      "session:fresh",
+      {
+        selection_id: "deepseek::deepseek-v4-pro",
+        provider: "deepseek",
+        model: "deepseek-v4-pro",
+        source: "user",
+      },
+      undefined,
+    );
+    expect(api.streamChat.mock.calls[0]?.[0]?.model_selection).toMatchObject({
+      selection_id: "deepseek::deepseek-v4-pro",
+      model: "deepseek-v4-pro",
     });
   });
 
@@ -1801,7 +2128,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
   it("opens graph task operations inside the foreground graph task workspace by default", () => {
     const store = createStore<StoreState>({
       ...getDefaultState(),
-      activeWorkspaceView: "code-environment",
+      activeWorkspaceView: "chat",
     });
     const runtime = new WorkspaceRuntime(store);
 
@@ -2108,7 +2435,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     runtime.actions.openRunMonitorSignal("taskrun:turn:session-dev:1:abc");
     await flushPromises(12);
 
-    expect(store.getState().activeWorkspaceView).toBe("code-environment");
+    expect(store.getState().activeWorkspaceView).toBe("chat");
     expect(store.getState().currentSessionId).toBe("session-dev");
     expect(store.getState().conversationActiveEnvironment).toMatchObject({
       task_environment_id: "env.coding.vibe_workspace",
@@ -2223,16 +2550,19 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().runMonitorActionLoading).toBe("");
   });
 
-  it("starts the run monitor with an SSE stream and waits for the stream snapshot", async () => {
-    const instances: Array<{ close: ReturnType<typeof vi.fn> }> = [];
+  it("starts the run monitor with an SSE stream and consumes file change signals", async () => {
+    const instances: Array<{ close: ReturnType<typeof vi.fn>; listeners: Record<string, (event: MessageEvent) => void> }> = [];
     class MockEventSource {
       close = vi.fn();
+      listeners: Record<string, (event: MessageEvent) => void> = {};
 
       constructor(_url: string) {
         instances.push(this);
       }
 
-      addEventListener() {}
+      addEventListener(event: string, handler: (message: MessageEvent) => void) {
+        this.listeners[event] = handler;
+      }
     }
     vi.stubGlobal("EventSource", MockEventSource);
     api.getRunMonitor.mockResolvedValue(monitorForTest([]));
@@ -2245,6 +2575,24 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(instances).toHaveLength(1);
     expect(api.getRunMonitor).not.toHaveBeenCalled();
     expect(store.getState().runMonitorStreamStatus).toBe("connecting");
+
+    const initialRevision = store.getState().fileChangesRevision;
+    instances[0].listeners.runtime_monitor_file_change?.({
+      data: JSON.stringify({
+        source: "runtime_event_log",
+        file_change_record: {
+          record_id: "filechange-sse",
+          session_id: "session:sse",
+          logical_path: "src/app.ts",
+        },
+      }),
+    } as MessageEvent);
+    expect(store.getState().fileChangesRevision).toBe(initialRevision + 1);
+    expect(store.getState().fileChangeRecordsBySession["session:sse"]?.[0]).toMatchObject({
+      record_id: "filechange-sse",
+      session_id: "session:sse",
+      logical_path: "src/app.ts",
+    });
   });
 
   it("does not start legacy run monitor polling when SSE is unavailable", async () => {
@@ -3371,9 +3719,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           streamRunId: "strun:queued-dispatch",
           eventLogId: "chatrun:queued-dispatch",
         }),
-        replayFromStart: true,
       }),
     );
+    expect(api.streamExistingChatRun.mock.calls.at(-1)?.[3]).not.toHaveProperty("replayFromStart", true);
     expect(store.getState().messages.filter((message) => message.content === "补充一")).toHaveLength(1);
     expect(store.getState().sessionActivity).toMatchObject({
       event: expect.stringMatching(/user_input_queued|stream_cursor_restore_started|done/),
@@ -4747,7 +5095,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await flushPromises();
 
     expect(api.getSessionSummary).toHaveBeenCalledWith("session:current", undefined);
-    expect(api.getWorkbenchCurrentSession).not.toHaveBeenCalled();
+    expect(api.getWorkbenchCurrentSession).toHaveBeenCalledTimes(1);
     expect(api.listSessions).toHaveBeenCalledTimes(1);
     expect(api.listProjectWorkspaces).toHaveBeenCalledTimes(1);
     expect(store.getState().workspaceInitializing).toBe(false);
@@ -4757,10 +5105,13 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().messages).toMatchObject([
       { role: "assistant", content: "当前会话内容" },
     ]);
-    expect(window.localStorage.setItem).toHaveBeenCalledWith(
-      "agentWorkbench.lastActiveSessionRef",
-      JSON.stringify({ sessionId: "session:current", poolKey: "main-chat" }),
+    const rememberedRefWrite = vi.mocked(window.localStorage.setItem).mock.calls.find(([key]) =>
+      key === "agentWorkbench.lastActiveSessionRef"
     );
+    expect(rememberedRefWrite).toBeTruthy();
+    const rememberedRefPayload = JSON.parse(String(rememberedRefWrite?.[1] || "{}"));
+    expect(rememberedRefPayload).toMatchObject({ sessionId: "session:current", poolKey: "main-chat" });
+    expect(typeof rememberedRefPayload.updatedAt).toBe("number");
     expect(api.setWorkbenchCurrentSession).toHaveBeenCalledWith({
       sessionId: "session:current",
       scope: undefined,
@@ -4836,6 +5187,55 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.listProjectWorkspaces).toHaveBeenCalledTimes(1);
     expect(store.getState().currentSessionId).toBe("session:persisted");
     expect(store.getState().sessions.map((session) => session.id)).toContain("session:persisted");
+  });
+
+  it("prefers the newer backend current session over a stale browser ref", async () => {
+    vi.useRealTimers();
+    vi.mocked(window.localStorage.getItem).mockImplementation((key) =>
+      key === "agentWorkbench.lastActiveSessionRef"
+        ? JSON.stringify({ sessionId: "session:stale", poolKey: "main-chat" })
+        : null
+    );
+    api.getWorkbenchCurrentSession.mockResolvedValue({
+      authority: "workbench.current_session_ref",
+      current_session: {
+        authority: "workbench.current_session_ref",
+        session_id: "session:persisted-current",
+        scope: {},
+        pool_key: "main-chat",
+        updated_at: 20,
+      },
+    });
+    api.getSessionSummary.mockImplementation(async (sessionId) => ({
+      id: String(sessionId),
+      title: String(sessionId) === "session:persisted-current" ? "Persisted Current" : "Stale",
+      created_at: 1,
+      updated_at: String(sessionId) === "session:persisted-current" ? 20 : 1,
+      message_count: 0,
+    }));
+    api.listSessions.mockResolvedValue([{
+      id: "session:persisted-current",
+      title: "Persisted Current",
+      created_at: 1,
+      updated_at: 20,
+      message_count: 0,
+    }, {
+      id: "session:stale",
+      title: "Stale",
+      created_at: 1,
+      updated_at: 1,
+      message_count: 0,
+    }]);
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await flushPromises();
+
+    expect(api.getWorkbenchCurrentSession).toHaveBeenCalledTimes(1);
+    expect(api.getSessionSummary).toHaveBeenCalledWith("session:persisted-current", undefined);
+    expect(api.getSessionSummary).not.toHaveBeenCalledWith("session:stale", undefined);
+    expect(store.getState().currentSessionId).toBe("session:persisted-current");
   });
 
   it("restores a backend-persisted project-bound current session into its project workspace", async () => {
@@ -5341,9 +5741,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       expect.any(Object),
       expect.objectContaining({
         initialCursor: cursor,
-        replayFromStart: true,
       }),
     );
+    expect(api.streamExistingChatRun.mock.calls.at(-1)?.[3]).not.toHaveProperty("replayFromStart", true);
     expect(store.getState().currentSessionId).toBe("session:existing");
     expect(store.getState().messages.some((message) => message.role === "assistant" && message.content.includes("续"))).toBe(true);
     expect(store.getState().activeTurnSnapshot).toMatchObject({
@@ -5421,6 +5821,63 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     expect(api.getSessionHistory).toHaveBeenCalled();
     expect(api.streamChat).not.toHaveBeenCalled();
+  });
+
+  it("reattaches a recovered chat stream without rereading history when visible messages are already hydrated", async () => {
+    vi.useRealTimers();
+    const sessionId = "session:visible-recovery";
+    const cursor = {
+      streamRunId: "strun:visible-recovery",
+      eventLogId: "chatrun:visible-recovery",
+      lastEventOffset: 1,
+      lastEventId: "strun:visible-recovery:chatrun:visible-recovery:1",
+    };
+    api.readChatStreamCursor.mockReturnValue(cursor);
+    api.getChatRun.mockResolvedValue({
+      stream_run_id: cursor.streamRunId,
+      session_id: sessionId,
+      event_log_id: cursor.eventLogId,
+      root_request_ref: "chatreq:visible-recovery",
+      status: "running",
+      active_turn_snapshot: null,
+      diagnostics: {},
+      latest_event_offset: 1,
+      is_reconnectable: true,
+      replay_url: "/api/chat/runs/strun:visible-recovery/events/replay",
+      live_ws_url: "/api/chat/sessions/session:visible-recovery/live",
+    });
+    api.streamExistingChatRun.mockResolvedValue({
+      terminalEvent: "turn_completed",
+      terminalStatus: "completed",
+      streamRunId: cursor.streamRunId,
+      eventLogId: cursor.eventLogId,
+      lastEventOffset: 1,
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: sessionId,
+      sessions: [{
+        id: sessionId,
+        title: "Visible Recovery",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 2,
+      }],
+      messages: [
+        { id: "user:visible", role: "user", content: "已有历史", toolCalls: [], retrievals: [] },
+        { id: "assistant:visible", role: "assistant", content: "已有回答", toolCalls: [], retrievals: [] },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      reattachChatRunForSession: (sessionId: string) => Promise<boolean>;
+    };
+
+    const reattached = await runtime.reattachChatRunForSession(sessionId);
+    await flushPromises(10);
+
+    expect(reattached).toBe(true);
+    expect(api.getSessionHistory).not.toHaveBeenCalled();
+    expect(api.streamExistingChatRun).toHaveBeenCalled();
   });
 
   it("does not reattach the latest active chat run without a cursor", async () => {
@@ -6446,7 +6903,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().conversationActiveEnvironment?.task_environment_id).toBe("env.general.workspace");
   });
 
-  it("keeps the visible chat session when changing the outer task environment mode", async () => {
+  it("keeps the visible chat session when selecting a coding task environment", async () => {
     vi.useRealTimers();
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -6473,10 +6930,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     const runtime = new WorkspaceRuntime(store);
 
-    runtime.actions.setTaskEnvironmentWorkspaceView("code-environment");
+    await runtime.actions.setActiveTaskEnvironment("env.coding.vibe_workspace", { source: "workspace-mode" });
     await flushPromises();
 
-    expect(store.getState().activeWorkspaceView).toBe("code-environment");
+    expect(store.getState().activeWorkspaceView).toBe("chat");
     expect(store.getState().currentSessionId).toBe("session:general");
     expect(store.getState().messages.map((message) => message.content)).toEqual(["通用环境问题", "通用环境回答"]);
     expect(store.getState().conversationActiveEnvironment).toMatchObject({
@@ -6520,7 +6977,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     runtime.actions.setWorkspaceView("chat");
     await flushPromises();
 
-    expect(store.getState().activeWorkspaceView).toBe("code-environment");
+    expect(store.getState().activeWorkspaceView).toBe("chat");
     expect(store.getState().conversationActiveEnvironment).toMatchObject({
       task_environment_id: "env.coding.vibe_workspace",
       environment_label: "Vibe 编码工作区",

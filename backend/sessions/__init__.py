@@ -89,12 +89,13 @@ class SessionManager:
         return self._summary_from_payload(payload)
 
     def session_storage_signature(self, session_id: str) -> tuple[int, int]:
-        path = self._session_path(session_id)
-        try:
-            stat = path.stat()
-        except OSError as exc:
-            raise ValueError("Unknown session_id") from exc
-        return int(stat.st_mtime_ns), int(stat.st_size)
+        with self._session_lock(session_id):
+            path = self._session_path(session_id)
+            try:
+                stat = path.stat()
+            except OSError as exc:
+                raise ValueError("Unknown session_id") from exc
+            return int(stat.st_mtime_ns), int(stat.st_size)
 
     def create_session(
         self,
@@ -320,6 +321,16 @@ class SessionManager:
             self._write_payload(session_id, payload)
             return state
 
+    def set_chat_model_selection(self, session_id: str, selection: dict[str, Any]) -> dict[str, Any]:
+        with self._session_lock(session_id):
+            payload = self._read_payload(session_id)
+            state = _normalize_conversation_state(dict(payload.get("conversation_state") or {}))
+            state["chat_model_selection"] = _normalize_chat_model_selection(selection)
+            payload["conversation_state"] = state
+            payload["updated_at"] = time.time()
+            self._write_payload(session_id, payload)
+            return state
+
     def update_turn_environment_snapshot(
         self,
         session_id: str,
@@ -532,7 +543,8 @@ class SessionManager:
         rows: list[dict[str, Any]] = []
         for path in self.sessions_dir.glob("*.json"):
             try:
-                payload = self._read_payload_from_path(path, session_id=path.stem)
+                with self._session_lock(path.stem):
+                    payload = self._read_payload_from_path(path, session_id=path.stem)
             except SessionStorageError as exc:
                 logger.warning("Skipping unreadable session payload %s: %s", path, exc)
                 rows.append(_unreadable_session_payload(path, error=str(exc)))
@@ -546,29 +558,30 @@ class SessionManager:
 
     def _summary_from_path(self, path: Path) -> dict[str, Any]:
         session_id = path.stem
-        try:
-            stat = path.stat()
-        except OSError as exc:
-            logger.warning("Skipping unreadable session payload %s: %s", path, exc)
-            return self._summary_from_payload(_unreadable_session_payload(path, error=str(exc)))
-        cached = self._cached_summary(path.name, mtime_ns=stat.st_mtime_ns, size=stat.st_size)
-        if cached is not None:
-            return cached
-        try:
-            payload = self._read_payload_from_path(path, session_id=session_id)
-            summary = self._summary_from_payload(payload)
-        except SessionStorageError as exc:
-            logger.warning("Skipping unreadable session payload %s: %s", path, exc)
-            summary = self._summary_from_payload(_unreadable_session_payload(path, error=str(exc)))
-        try:
-            latest_stat = path.stat()
-            mtime_ns = latest_stat.st_mtime_ns
-            size = latest_stat.st_size
-        except OSError:
-            mtime_ns = stat.st_mtime_ns
-            size = stat.st_size
-        self._store_cached_summary(path.name, mtime_ns=mtime_ns, size=size, summary=summary)
-        return _clone_summary(summary)
+        with self._session_lock(session_id):
+            try:
+                stat = path.stat()
+            except OSError as exc:
+                logger.warning("Skipping unreadable session payload %s: %s", path, exc)
+                return self._summary_from_payload(_unreadable_session_payload(path, error=str(exc)))
+            cached = self._cached_summary(path.name, mtime_ns=stat.st_mtime_ns, size=stat.st_size)
+            if cached is not None:
+                return cached
+            try:
+                payload = self._read_payload_from_path(path, session_id=session_id)
+                summary = self._summary_from_payload(payload)
+            except SessionStorageError as exc:
+                logger.warning("Skipping unreadable session payload %s: %s", path, exc)
+                summary = self._summary_from_payload(_unreadable_session_payload(path, error=str(exc)))
+            try:
+                latest_stat = path.stat()
+                mtime_ns = latest_stat.st_mtime_ns
+                size = latest_stat.st_size
+            except OSError:
+                mtime_ns = stat.st_mtime_ns
+                size = stat.st_size
+            self._store_cached_summary(path.name, mtime_ns=mtime_ns, size=size, summary=summary)
+            return _clone_summary(summary)
 
     def _summary_from_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         message_count = _public_message_count(list(payload.get("messages") or []))
@@ -589,10 +602,11 @@ class SessionManager:
         return summary
 
     def _read_payload(self, session_id: str) -> dict[str, Any]:
-        path = self._session_path(session_id)
-        if not path.exists():
-            raise ValueError("Unknown session_id")
-        return self._read_payload_from_path(path, session_id=session_id)
+        with self._session_lock(session_id):
+            path = self._session_path(session_id)
+            if not path.exists():
+                raise ValueError("Unknown session_id")
+            return self._read_payload_from_path(path, session_id=session_id)
 
     def _read_payload_from_path(self, path: Path, *, session_id: str) -> dict[str, Any]:
         try:
@@ -612,32 +626,33 @@ class SessionManager:
         return payload
 
     def _write_payload(self, session_id: str, payload: dict[str, Any]) -> None:
-        path = self._session_path(session_id)
-        content = json.dumps(payload, ensure_ascii=False, indent=2)
-        tmp_path: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                "w",
-                encoding="utf-8",
-                dir=path.parent,
-                prefix=f".{path.name}.",
-                suffix=".tmp",
-                delete=False,
-            ) as handle:
-                tmp_path = Path(handle.name)
-                handle.write(content)
-                handle.write("\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            _replace_file_atomically(tmp_path, path)
-            self._invalidate_summary_cache(session_id)
-        except OSError as exc:
-            if tmp_path is not None:
-                try:
-                    tmp_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
-            raise SessionStorageError(f"failed to write session payload: {session_id}") from exc
+        with self._session_lock(session_id):
+            path = self._session_path(session_id)
+            content = json.dumps(payload, ensure_ascii=False, indent=2)
+            tmp_path: Path | None = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    "w",
+                    encoding="utf-8",
+                    dir=path.parent,
+                    prefix=f".{path.name}.",
+                    suffix=".tmp",
+                    delete=False,
+                ) as handle:
+                    tmp_path = Path(handle.name)
+                    handle.write(content)
+                    handle.write("\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                _replace_file_atomically(tmp_path, path)
+                self._invalidate_summary_cache(session_id)
+            except OSError as exc:
+                if tmp_path is not None:
+                    try:
+                        tmp_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                raise SessionStorageError(f"failed to write session payload: {session_id}") from exc
 
     def _session_path(self, session_id: str) -> Path:
         safe = _safe_session_id(session_id)
@@ -775,6 +790,35 @@ def _normalize_active_task_environment(payload: dict[str, Any] | None) -> dict[s
     }
 
 
+def _normalize_chat_model_selection(payload: dict[str, Any] | None) -> dict[str, Any]:
+    raw = dict(payload or {})
+    selection_id = str(raw.get("selection_id") or raw.get("id") or "").strip()
+    provider = str(raw.get("provider") or "").strip().lower()
+    model = str(raw.get("model") or raw.get("selected_model") or "").strip()
+    if not selection_id:
+        if provider and model:
+            selection_id = f"{provider}::{model}"
+        else:
+            return {}
+    if selection_id == "system-default":
+        provider = ""
+        model = ""
+    elif "::" in selection_id and (not provider or not model):
+        selected_provider, selected_model = selection_id.split("::", 1)
+        provider = provider or selected_provider.strip().lower()
+        model = model or selected_model.strip()
+    if selection_id != "system-default" and (not provider or not model):
+        return {}
+    return {
+        "selection_id": selection_id,
+        "provider": provider,
+        "model": model,
+        "source": str(raw.get("source") or "user").strip() or "user",
+        "updated_at": _float(raw.get("updated_at")) or time.time(),
+        "authority": "sessions.chat_model_selection",
+    }
+
+
 def _normalize_project_binding(
     payload: dict[str, Any] | None,
     *,
@@ -804,9 +848,11 @@ def _normalize_project_binding(
 def _normalize_conversation_state(payload: dict[str, Any] | None) -> dict[str, Any]:
     raw = dict(payload or {})
     active = _normalize_active_task_environment(dict(raw.get("active_task_environment") or {}))
+    chat_model_selection = _normalize_chat_model_selection(dict(raw.get("chat_model_selection") or {}))
     project_binding = _normalize_project_binding(dict(raw.get("project_binding") or {}), validate_root=False)
     return {
         "active_task_environment": active,
+        "chat_model_selection": chat_model_selection,
         "project_binding": project_binding,
         "permission_mode": _normalize_session_permission_mode(raw.get("permission_mode")),
         "authority": str(raw.get("authority") or "sessions.conversation_state"),

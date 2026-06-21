@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -16,6 +17,7 @@ from file_management.service import (
     ManagedFileService,
     ManagedFileServiceContext,
 )
+from runtime.shared.event_log import RuntimeEventLog
 from sessions import SessionManager
 from tests.support.runtime_stubs import RuntimeBaseDirStub
 
@@ -25,6 +27,10 @@ class ManagedFileRuntimeStub(RuntimeBaseDirStub):
         super().__init__(base_dir)
         self.session_manager = SessionManager(base_dir)
         self.refreshed_paths: list[str] = []
+        self.event_log = RuntimeEventLog(base_dir / "runtime_events")
+        self.harness_runtime = SimpleNamespace(
+            single_agent_runtime_host=SimpleNamespace(event_log=self.event_log)
+        )
 
     def refresh_indexes_for_path(self, path: str) -> None:
         self.refreshed_paths.append(path)
@@ -55,6 +61,10 @@ def test_managed_project_file_api_reads_writes_and_records_change(tmp_path: Path
     assert write_payload["file_change_record"]["session_id"] == session_id
     assert write_payload["file_change_record"]["logical_path"] == "src/app.py"
     assert runtime.refreshed_paths == ["src/app.py"]
+    signal_run_id = f"session:{session_id}:file_changes"
+    events = runtime.event_log.list_events(signal_run_id)
+    assert [str(event.event_type) for event in events] == ["file_change_recorded"]
+    assert events[0].payload["file_change_record"]["record_id"] == write_payload["file_change_record"]["record_id"]
 
 
 def test_managed_project_file_api_rejects_stale_expected_hash(tmp_path: Path, monkeypatch) -> None:

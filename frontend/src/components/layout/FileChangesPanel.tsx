@@ -5,13 +5,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import {
-  listFileChanges,
   openFileChangeDiffInVSCode,
   rollbackFileChange,
   type FileChangeRecord,
 } from "@/lib/api";
-import { sessionSummaryIsRunning } from "@/lib/sessionTaskPresentation";
-import { useAppStore } from "@/lib/store";
+import { useAppStoreActions, useAppStoreSelector } from "@/lib/store";
+import { shallowEqual } from "@/lib/store/hooks";
 import {
   collectCurrentConversationTaskRunIds,
   partitionFileChangeRecords,
@@ -20,6 +19,7 @@ import {
 
 const INITIAL_REFRESH_DELAY_MS = 1200;
 const FILE_CHANGE_REFRESH_LIMIT = 200;
+const EMPTY_FILE_CHANGE_RECORDS: FileChangeRecord[] = [];
 
 function formatChangeTime(timestamp: number) {
   if (!Number.isFinite(timestamp) || timestamp <= 0) return "无时间";
@@ -66,8 +66,22 @@ function changeStatusIcon(record: FileChangeRecord) {
 
 export function FileChangesPanel({ embedded = false }: { embedded?: boolean } = {}) {
   const confirm = useConfirmDialog();
-  const { activeStreamSessionIds, activeTurnSnapshot, currentSessionId, messages, openFileChangeDiff, sessions } = useAppStore();
-  const [records, setRecords] = useState<FileChangeRecord[]>([]);
+  const {
+    activeTurnTaskRunId,
+    currentSessionId,
+    messageTaskRunKey,
+    records,
+    sessions,
+  } = useAppStoreSelector((state) => ({
+    activeTurnTaskRunId: String(state.activeTurnSnapshot?.task_run_id || ""),
+    currentSessionId: state.currentSessionId,
+    messageTaskRunKey: taskRunKeyFromMessages(state.messages),
+    records: state.currentSessionId
+      ? state.fileChangeRecordsBySession[state.currentSessionId] ?? EMPTY_FILE_CHANGE_RECORDS
+      : EMPTY_FILE_CHANGE_RECORDS,
+    sessions: state.sessions,
+  }), shallowEqual);
+  const { applyFileChangeRecord, hydrateFileChangesForSession, openFileChangeDiff } = useAppStoreActions();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [actionLoading, setActionLoading] = useState("");
@@ -76,14 +90,16 @@ export function FileChangesPanel({ embedded = false }: { embedded?: boolean } = 
     () => sessions.find((session) => session.id === currentSessionId) ?? null,
     [currentSessionId, sessions],
   );
-  const sessionActive = Boolean(
-    currentSessionId
-    && (activeStreamSessionIds.includes(currentSessionId) || (currentSession && sessionSummaryIsRunning(currentSession))),
-  );
   const activeRecords = useMemo(() => records.filter((record) => record.status !== "rolled_back"), [records]);
   const currentConversationTaskRunIds = useMemo(
-    () => collectCurrentConversationTaskRunIds({ activeTurnSnapshot, currentSession, messages }),
-    [activeTurnSnapshot, currentSession, messages],
+    () => collectCurrentConversationTaskRunIds({
+      activeTurnSnapshot: activeTurnTaskRunId ? { task_run_id: activeTurnTaskRunId } : null,
+      currentSession,
+      messages: messageTaskRunKey
+        ? messageTaskRunKey.split("\n").map((taskRunId) => ({ sourceTaskRunId: taskRunId }))
+        : [],
+    }),
+    [activeTurnTaskRunId, currentSession, messageTaskRunKey],
   );
   const scopedRecords = useMemo(
     () => partitionFileChangeRecords(activeRecords, currentConversationTaskRunIds),
@@ -107,25 +123,25 @@ export function FileChangesPanel({ embedded = false }: { embedded?: boolean } = 
             : "暂无变更"
     : "未选择会话";
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options: { force?: boolean } = {}) => {
     if (!currentSessionId) {
-      setRecords([]);
       setError("");
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const payload = await listFileChanges({ sessionId: currentSessionId, limit: FILE_CHANGE_REFRESH_LIMIT });
-      const nextRecords = Array.isArray(payload.records) ? payload.records : [];
-      setRecords(nextRecords);
+      await hydrateFileChangesForSession(currentSessionId, {
+        force: Boolean(options.force),
+        limit: FILE_CHANGE_REFRESH_LIMIT,
+      });
       setError("");
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : "文件变更读取失败。");
     } finally {
       setLoading(false);
     }
-  }, [currentSessionId]);
+  }, [currentSessionId, hydrateFileChangesForSession]);
 
   useEffect(() => {
     if (!currentSessionId) {
@@ -137,14 +153,6 @@ export function FileChangesPanel({ embedded = false }: { embedded?: boolean } = 
     }, INITIAL_REFRESH_DELAY_MS);
     return () => window.clearTimeout(timer);
   }, [currentSessionId, refresh]);
-
-  useEffect(() => {
-    if (!currentSessionId || !sessionActive) return;
-    const timer = window.setInterval(() => {
-      void refresh();
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, [currentSessionId, refresh, sessionActive]);
 
   function handleOpenFinalDiff(group: FileChangeGroup) {
     const path = group.path;
@@ -203,7 +211,7 @@ export function FileChangesPanel({ embedded = false }: { embedded?: boolean } = 
     setActionLoading(`rollback:${record.record_id}`);
     try {
       const payload = await rollbackFileChange(record.record_id);
-      setRecords((current) => current.map((item) => item.record_id === record.record_id ? payload.record : item));
+      applyFileChangeRecord(payload.record);
       setError("");
     } catch (rollbackError) {
       setError(rollbackError instanceof Error ? rollbackError.message : "回滚失败。");
@@ -358,7 +366,7 @@ export function FileChangesPanel({ embedded = false }: { embedded?: boolean } = 
           {embedded ? null : <span>变更</span>}
           <strong>{headline}</strong>
         </div>
-        <button aria-label="刷新文件变更" disabled={loading || !currentSessionId} onClick={() => void refresh()} type="button">
+        <button aria-label="刷新文件变更" disabled={loading || !currentSessionId} onClick={() => void refresh({ force: true })} type="button">
           <RefreshCw className={loading ? "spin" : ""} size={15} />
         </button>
       </header>
@@ -380,18 +388,26 @@ export function FileChangesPanel({ embedded = false }: { embedded?: boolean } = 
               </>
             ) : (
               <div className="file-changes-empty file-changes-empty--compact">
-                <FileClock size={17} />
-                <strong>当前对话暂无变更</strong>
-                <span>其它任务的文件修改已在下方单独列出。</span>
+                <span className="file-changes-empty__icon">
+                  <FileClock size={16} />
+                </span>
+                <div className="file-changes-empty__copy">
+                  <strong>当前对话暂无变更</strong>
+                  <span>其它任务的文件修改已在下方单独列出。</span>
+                </div>
               </div>
             )}
             {renderOtherTaskSection(otherTaskBuckets)}
           </>
         ) : (
           <div className="file-changes-empty">
-            <FileClock size={17} />
-            <strong>{loading ? "同步中" : "暂无变更"}</strong>
-            <span>{currentSessionId ? "当前会话还没有文件变更记录。" : "选择会话后显示文件变更。"}</span>
+            <span className="file-changes-empty__icon">
+              <FileClock size={16} />
+            </span>
+            <div className="file-changes-empty__copy">
+              <strong>{loading ? "同步中" : "暂无变更"}</strong>
+              <span>{currentSessionId ? "当前会话还没有文件变更记录。" : "选择会话后显示文件变更。"}</span>
+            </div>
           </div>
         )}
       </div>
@@ -495,4 +511,17 @@ function isArtifactChange(record: FileChangeRecord) {
   if (["output", "outputs", "artifacts", "exports", "reports", "dist", "build", "coverage"].includes(root)) return true;
   if (parts.some((part) => ["artifacts", "screenshots", "playwright", "generated", "exports", "reports"].includes(part))) return true;
   return /\.(png|jpe?g|webp|gif|svg|pdf|docx|pptx|xlsx|zip|mp4|mov|webm)$/i.test(path);
+}
+
+function taskRunKeyFromMessages(messages: Array<{ sourceTaskRunId?: string; runtimeProgress?: Array<{ taskRunId?: string }> }>) {
+  const ids = new Set<string>();
+  for (const message of messages) {
+    const sourceTaskRunId = textValue(message.sourceTaskRunId);
+    if (sourceTaskRunId) ids.add(sourceTaskRunId);
+    for (const progress of message.runtimeProgress ?? []) {
+      const taskRunId = textValue(progress.taskRunId);
+      if (taskRunId) ids.add(taskRunId);
+    }
+  }
+  return Array.from(ids).sort().join("\n");
 }

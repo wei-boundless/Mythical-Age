@@ -5,9 +5,9 @@ import time
 from dataclasses import replace
 from typing import Any
 
-from .task_run_execution_control import ExecutorControlSignal, ensure_executor_control_signal
 from .task_run_recovery_state import recovery_state_for_task_run, should_auto_continue_task_run
 from .work_rollout import append_work_rollout_item
+from harness.task_run_status import runtime_control_state_from_task_run
 
 
 class TaskExecutorController:
@@ -60,7 +60,20 @@ class TaskExecutorController:
                 scheduler=scheduler,
                 recovered_from=recovered_from,
             )
-        if _is_task_run_executor_claimed(task_run):
+        active_cell = _active_task_run_executor_cell(runtime_host, task_run)
+        if active_cell is not None:
+            return _schedule_result(
+                ok=True,
+                scheduled=False,
+                task_run_id=task_run_id,
+                reason="already_running",
+                scheduler=scheduler,
+                agent_run_id=active_cell.scope.agent_run_id,
+                run_cell_id=active_cell.scope.run_cell_id,
+                worker_backend=active_cell.worker_backend.backend_name,
+                recovered_from=recovered_from,
+            )
+        if _has_live_executor_control_record(runtime_host, task_run):
             return _schedule_result(
                 ok=True,
                 scheduled=False,
@@ -69,7 +82,7 @@ class TaskExecutorController:
                 scheduler=scheduler,
                 recovered_from=recovered_from,
             )
-        if not _is_task_run_executable(task_run):
+        if not _is_task_run_schedulable(task_run, runtime_host=runtime_host):
             return _schedule_result(
                 ok=False,
                 scheduled=False,
@@ -167,24 +180,7 @@ class TaskExecutorController:
                 scheduler=scheduler,
                 recovered_from=recovered_from,
             )
-        if not _is_task_run_executor_claimed(task_run):
-            return self.schedule(
-                task_run_id,
-                scheduler=scheduler,
-                max_steps=max_steps,
-                recovered_from="",
-            )
-        executor_status = str(dict(getattr(task_run, "diagnostics", {}) or {}).get("executor_status") or "")
-        if executor_status != "scheduled":
-            return _schedule_result(
-                ok=False,
-                scheduled=False,
-                task_run_id=task_run_id,
-                reason="already_running",
-                scheduler=scheduler,
-                recovered_from=recovered_from,
-            )
-        active_cell = _agent_run_supervisor(runtime_host).active_cell_for_task_run(task_run_id)
+        active_cell = _active_task_run_executor_cell(runtime_host, task_run)
         if active_cell is not None:
             return _schedule_result(
                 ok=True,
@@ -196,6 +192,23 @@ class TaskExecutorController:
                 run_cell_id=active_cell.scope.run_cell_id,
                 worker_backend=active_cell.worker_backend.backend_name,
                 recovered_from=recovered_from,
+            )
+        if _has_live_executor_control_record(runtime_host, task_run):
+            return _schedule_result(
+                ok=True,
+                scheduled=False,
+                task_run_id=task_run_id,
+                reason="already_running",
+                scheduler=scheduler,
+                recovered_from=recovered_from,
+            )
+        executor_status = str(dict(getattr(task_run, "diagnostics", {}) or {}).get("executor_status") or "")
+        if executor_status != "scheduled":
+            return self.schedule(
+                task_run_id,
+                scheduler=scheduler,
+                max_steps=max_steps,
+                recovered_from="",
             )
         supervisor_result = _agent_run_supervisor(runtime_host).schedule_task_run(
             task_run_id=task_run_id,
@@ -233,19 +246,14 @@ class TaskExecutorController:
             if _origin_kind(task_run) == "graph_node_assigned":
                 skipped_graph_node_task_run_ids.append(task_run_id)
                 continue
-            diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-            runtime_control = diagnostics.get("runtime_control")
-            control_state = str(runtime_control.get("state") or "").strip() if isinstance(runtime_control, dict) else ""
-            if control_state in {"pause_requested", "paused", "stop_requested", "stopped", "replan_requested", "interrupted_for_replan"}:
-                _ensure_user_controlled_interruption_signal_on_gateway(
-                    self.runtime_host,
-                    task_run=task_run,
-                    control_state=control_state,
-                    runtime_control=dict(runtime_control or {}) if isinstance(runtime_control, dict) else {},
-                )
-                user_controlled_interruption_task_run_ids.append(task_run_id)
+            if _has_live_task_run_executor_claim(self.runtime_host, task_run):
                 continue
-            if not _is_task_run_executor_claimed(task_run):
+            if not _has_durable_executor_lease_marker(task_run, runtime_host=self.runtime_host):
+                continue
+            diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+            control_state = runtime_control_state_from_task_run(task_run, runtime_host=self.runtime_host)
+            if control_state in {"pause_requested", "paused", "stop_requested", "stopped", "replan_requested", "interrupted_for_replan"}:
+                user_controlled_interruption_task_run_ids.append(task_run_id)
                 continue
             event = self.runtime_host.event_log.append(
                 task_run_id,
@@ -553,15 +561,74 @@ def _should_auto_continue(runtime_host: Any, *, task_run_id: str, result: dict[s
     task_run = runtime_host.state_index.get_task_run(task_run_id)
     if task_run is None:
         return False
-    return should_auto_continue_task_run(task_run)
+    return should_auto_continue_task_run(task_run, runtime_host=runtime_host)
 
 
-def _is_task_run_executable(task_run: Any) -> bool:
-    return recovery_state_for_task_run(task_run).executable
+def _is_task_run_schedulable(task_run: Any, *, runtime_host: Any | None = None) -> bool:
+    if recovery_state_for_task_run(task_run, runtime_host=runtime_host).executable:
+        return True
+    return _is_initial_task_run_schedule(task_run)
 
 
-def _is_task_run_executor_claimed(task_run: Any) -> bool:
-    return recovery_state_for_task_run(task_run).running_claimed
+def _is_initial_task_run_schedule(task_run: Any) -> bool:
+    status = str(getattr(task_run, "status", "") or "").strip()
+    if status != "created":
+        return False
+    if str(getattr(task_run, "terminal_reason", "") or "").strip():
+        return False
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    if str(diagnostics.get("executor_status") or diagnostics.get("executor_lease_state") or "").strip():
+        return False
+    return True
+
+
+def _has_durable_executor_lease_marker(task_run: Any, *, runtime_host: Any | None = None) -> bool:
+    del runtime_host
+    status = str(getattr(task_run, "status", "") or "").strip()
+    if status in {"completed", "failed", "aborted"}:
+        return False
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    executor_status = str(diagnostics.get("executor_status") or "").strip()
+    executor_lease_state = str(diagnostics.get("executor_lease_state") or "").strip()
+    return executor_status in {"scheduled", "running", "retrying", "recovering"} or executor_lease_state in {
+        "scheduled",
+        "running",
+        "recovering",
+    }
+
+
+def _active_task_run_executor_cell(runtime_host: Any, task_run: Any) -> Any | None:
+    supervisor = getattr(runtime_host, "agent_run_supervisor", None)
+    getter = getattr(supervisor, "active_cell_for_task_run", None)
+    if not callable(getter):
+        return None
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
+    if not task_run_id:
+        return None
+    session_id = str(getattr(task_run, "session_id", "") or "").strip()
+    try:
+        return getter(task_run_id, session_id=session_id)
+    except Exception:
+        return None
+
+
+def _has_live_task_run_executor_claim(runtime_host: Any, task_run: Any) -> bool:
+    return _active_task_run_executor_cell(runtime_host, task_run) is not None or _has_live_executor_control_record(runtime_host, task_run)
+
+
+def _has_live_executor_control_record(runtime_host: Any, task_run: Any) -> bool:
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
+    if not task_run_id:
+        return False
+    registry = getattr(runtime_host, "_task_run_execution_control", None)
+    record = dict(registry or {}).get(task_run_id) if isinstance(registry, dict) else None
+    if record is None:
+        return False
+    model_task = getattr(record, "model_task", None)
+    if model_task is None:
+        return True
+    done = getattr(model_task, "done", None)
+    return not callable(done) or not bool(done())
 
 
 def _is_single_agent_task_run(task_run: Any) -> bool:
@@ -583,64 +650,6 @@ def _agent_run_supervisor(runtime_host: Any) -> Any:
     if supervisor is None:
         raise RuntimeError("TaskExecutorController requires AgentRunSupervisor")
     return supervisor
-
-
-def _ensure_user_controlled_interruption_signal_on_gateway(
-    runtime_host: Any,
-    *,
-    task_run: Any,
-    control_state: str,
-    runtime_control: dict[str, Any],
-) -> None:
-    task_run_id = str(getattr(task_run, "task_run_id", "") or "")
-    if not task_run_id:
-        return
-    if control_state in {"stop_requested", "stopped"}:
-        kind = "stop"
-    elif control_state in {"pause_requested", "paused"}:
-        kind = "pause"
-    elif control_state in {"replan_requested", "interrupted_for_replan"}:
-        kind = "replan"
-    else:
-        return
-    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    signal = ensure_executor_control_signal(
-        runtime_host,
-        task_run_id=task_run_id,
-        kind=kind,  # type: ignore[arg-type]
-        reason=str(runtime_control.get("reason") or "runtime_start_recovery_user_controlled_interruption"),
-        requested_by=str(runtime_control.get("requested_by") or "user"),
-        steer_ref=str(runtime_control.get("steer_ref") or diagnostics.get("latest_user_steer_ref") or ""),
-        unavailable_reason="runtime_start_recovery_user_controlled_interruption",
-    )
-    if signal is not None:
-        _record_runtime_control_signal_ref(runtime_host, task_run=task_run, signal=signal)
-
-
-def _record_runtime_control_signal_ref(runtime_host: Any, *, task_run: Any, signal: ExecutorControlSignal) -> None:
-    signal_ref = str(getattr(signal, "signal_id", "") or "").strip()
-    if not signal_ref:
-        return
-    task_run_id = str(getattr(task_run, "task_run_id", "") or getattr(signal, "task_run_id", "") or "").strip()
-    if not task_run_id:
-        return
-    state_index = getattr(runtime_host, "state_index", None)
-    get_task_run = getattr(state_index, "get_task_run", None)
-    upsert_task_run = getattr(state_index, "upsert_task_run", None)
-    if not callable(get_task_run) or not callable(upsert_task_run):
-        return
-    current = get_task_run(task_run_id) or task_run
-    diagnostics = dict(getattr(current, "diagnostics", {}) or {})
-    control = dict(diagnostics.get("runtime_control") or {}) if isinstance(diagnostics.get("runtime_control"), dict) else {}
-    if str(control.get("runtime_control_signal_ref") or "").strip() == signal_ref:
-        return
-    event_ref = str(getattr(signal, "control_event_ref", "") or "").strip()
-    diagnostics["runtime_control"] = {
-        **control,
-        "runtime_control_signal_ref": signal_ref,
-        **({"runtime_control_event_ref": event_ref} if event_ref else {}),
-    }
-    upsert_task_run(replace(current, diagnostics=diagnostics))
 
 
 def _origin_kind(task_run: Any) -> str:
