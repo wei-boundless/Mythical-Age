@@ -63,6 +63,7 @@ def test_single_turn_request_task_run_schema_shows_nested_contract_shape() -> No
 
     assert any("不要使用 payload" in rule for rule in shape_rules)
     assert any("必须放在 task_contract_seed 内" in rule for rule in shape_rules)
+    assert any("provider-native canonical request_task_run" in rule for rule in shape_rules)
     assert any("不要写 selected_groups" in rule for rule in shape_rules)
     assert "capability_intent" not in example
     assert "skill_intent" not in example
@@ -125,7 +126,7 @@ def test_single_turn_resume_recoverable_work_schema_shows_nested_handle_shape() 
     recovery_resume = dict(example.get("recovery_resume") or {})
 
     assert "resume_recoverable_work" in str(schema.get("action_type") or "")
-    assert any("provider-native resume_recoverable_work" in rule for rule in shape_rules)
+    assert any("provider-native canonical resume_recoverable_work" in rule for rule in shape_rules)
     assert any("必须放在 recovery_resume 对象内" in rule for rule in shape_rules)
     assert "task_run_id" not in example
     assert "continuation_id" not in example

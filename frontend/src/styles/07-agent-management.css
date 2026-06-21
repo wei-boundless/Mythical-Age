@@ -3729,8 +3729,7 @@ body {
 }
 
 .system-page-shell,
-.system-page-content,
-.agent-workbench {
+.system-page-content {
   background: var(--console-surface);
 }
 
@@ -3812,7 +3811,6 @@ textarea,
   border-radius: var(--console-radius-md);
 }
 
-.agent-workbench,
 .system-page-shell {
   background: var(--console-surface);
 }

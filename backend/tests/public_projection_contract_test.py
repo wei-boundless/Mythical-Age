@@ -751,6 +751,43 @@ def test_model_admission_projects_tool_request_before_runtime_tool_lifecycle() -
     assert permission["permission_decision"] == "allow"
 
 
+def test_model_admission_projects_terminal_command_as_public_target() -> None:
+    command = "npm test -- src/components/chat/PublicTimelineActivity.test.ts"
+    events = _project_public_stream_event(
+        "model_action_admission",
+        {
+            "event": {
+                "event_id": "event:admission:terminal",
+                "payload": {
+                    "turn_id": "turn:test",
+                    "model_action_request": {
+                        "request_id": "request:terminal",
+                        "action_type": "tool_call",
+                        "tool_call": {
+                            "id": "call:terminal",
+                            "tool_name": "terminal",
+                            "args": {"command": command, "cwd": "D:/AI/langchain-agent"},
+                        },
+                    },
+                    "admission": {"decision": "allow", "decision_id": "permit:terminal"},
+                },
+                "refs": {"turn_run_ref": "turnrun:turn:test:terminal"},
+            },
+        },
+    )
+
+    requested = next(data for event_type, data in events if event_type == TOOL_CALL_REQUESTED_EVENT)
+    assert requested["tool_call_id"] == "call:terminal"
+    assert requested["tool_name"] == "terminal"
+    assert requested["target"] == command
+    assert f"command={command}" in requested["arguments_preview"]
+
+    frame = _frame(TOOL_CALL_REQUESTED_EVENT, requested)
+    assert frame["title"] == f"运行命令：{command}"
+    assert frame["target"] == command
+    assert frame["arguments_preview"]
+
+
 def test_chat_bridge_does_not_generate_tool_call_id_for_legacy_identityless_admission() -> None:
     events = _project_public_stream_event(
         "model_action_admission",
@@ -1244,8 +1281,8 @@ def test_replay_read_path_rejects_noncanonical_projection_frame_and_sanitizes_co
             "data": {
                 "turn_run_id": "turnrun:test",
                 "runtime_control_signal": {
-                    "runtime_control_signal_ref": "rtsig:legacy",
-                    "signal_kind": "agent_closeout_recovery_required",
+                    "runtime_control_signal_ref": "rtsig:protocol",
+                    "signal_kind": "model_protocol_violation",
                     "protocol_error": {"raw_model_output": "private model output"},
                     "closeout_instruction": "private closeout instruction",
                 },
@@ -1267,8 +1304,8 @@ def test_replay_read_path_rejects_noncanonical_projection_frame_and_sanitizes_co
     records = service.list_public_event_records(run)
 
     assert envelope["data"]["runtime_control_signal"] == {
-        "runtime_control_signal_ref": "rtsig:legacy",
-        "signal_kind": "agent_closeout_recovery_required",
+        "runtime_control_signal_ref": "rtsig:protocol",
+        "signal_kind": "model_protocol_violation",
     }
     assert records[0]["data"]["runtime_control_signal"] == envelope["data"]["runtime_control_signal"]
     assert envelope["public_projection_frame"] == {}
@@ -1365,6 +1402,41 @@ def test_assistant_public_feedback_projects_as_body_frame() -> None:
     assert frame["source_authority"] == "model"
     assert frame["main_visibility"] == "visible_live"
     assert frame["text"] == "已确认目标文件完整可用。"
+
+
+def test_assistant_public_feedback_body_is_not_truncated_to_title_preview() -> None:
+    full_feedback = (
+        "现在我已完全读取了整个主题系统。以下是完整的审查结论和修复方案。\n\n"
+        "## 审查结论\n\n"
+        "主题系统由主题变量层和工作台外壳层组成。这里故意写一段很长的反馈，"
+        "超过投影标题预览的长度，正文通道仍然必须保持完整，因为这是 agent "
+        "已经公开输出给用户的反馈正文，不是状态标题，也不是工具摘要。"
+        "为了覆盖真实事故，还要继续补充足够长的分析段落，让标题预览必然被缩短，"
+        "同时正文里的最后一段、最后一个标记和换行都必须原样保留下来。\n\n"
+        "TAIL-MUST-SURVIVE"
+    )
+
+    frame = project_public_projection_event(
+        ASSISTANT_PUBLIC_FEEDBACK_EVENT,
+        {
+            "runtime_event_id": "event:stage:long-feedback",
+            "source_task_event_offset": 10,
+            "task_run_id": "taskrun:stage",
+            "step": "model_action_public_feedback",
+            "status": "running",
+            "presentation_source": "model_action.assistant_content_preamble",
+            "public_progress_note": full_feedback,
+            "feedback_identity": "feedback:long",
+        },
+        session_id="session:test",
+        sequence=1,
+    )["public_projection_frame"]
+
+    assert frame["source_event_type"] == ASSISTANT_PUBLIC_FEEDBACK_EVENT
+    assert frame["lossless"] is True
+    assert frame["text"] == full_feedback
+    assert "TAIL-MUST-SURVIVE" in frame["text"]
+    assert frame["title"].endswith("...")
 
 
 def test_no_public_event_feedback_projects_only_thinking_text() -> None:
@@ -1546,13 +1618,13 @@ def test_task_bridge_terminal_authority_rejects_waiting_as_chat_completion() -> 
         assert _public_turn_status_for_task_status(status) != "completed"
 
 
-def test_agent_closeout_recovery_turn_completed_stays_hidden_trace_only() -> None:
+def test_agent_contract_feedback_turn_completed_stays_hidden_trace_only() -> None:
     frame = _frame(
         TURN_COMPLETED_EVENT,
         {
             "status": "failed",
             "turn_run_id": "turnrun:test",
-            "terminal_reason": "agent_closeout_recovery_required",
+            "terminal_reason": "agent_contract_feedback_required",
             "error_summary": "内部纠错观察",
         },
     )
@@ -1930,7 +2002,7 @@ def test_tool_failure_feedback_survives_completion_projection_detail() -> None:
     assert frame["detail"] == error_text
 
 
-def test_agent_contract_feedback_projection_initializes_raw_data_before_branch() -> None:
+def test_agent_contract_feedback_required_is_not_public_stream_event() -> None:
     raw_event = {
         "event": {
             "event_id": "event:agent-contract-feedback",
@@ -1939,32 +2011,18 @@ def test_agent_contract_feedback_projection_initializes_raw_data_before_branch()
                 "model_visible": True,
                 "agent_contract_feedback": {
                     "signal_kind": "agent_contract_feedback_required",
-                    "agent_feedback": "这是一条执行契约反馈，不是用户消息。",
+                    "agent_feedback": "上一条输出没有进入会话，也不会展示给用户。",
                 },
             },
         }
     }
     events = _project_public_stream_event("agent_contract_feedback_required", raw_event)
 
-    assert [event_type for event_type, _ in events] == ["agent_contract_feedback_required"]
-    data = events[0][1]
-    assert data["turn_id"] == "turn:test:feedback"
-    assert data["runtime_event_id"] == "event:agent-contract-feedback"
-    assert data["agent_contract_feedback"]["signal_kind"] == "agent_contract_feedback_required"
-
-    frame = project_public_projection_event(
-        events[0][0],
-        data,
-        session_id="session:test",
-        sequence=1,
-    )["public_projection_frame"]
-
-    assert frame["main_visibility"] == "hidden"
-    assert frame["slot"] == "trace"
+    assert events == []
 
 
 def test_public_terminal_reason_names_agent_closeout_boundaries() -> None:
-    assert _public_terminal_reason("agent_contract_feedback_required") == "需要 agent 重新收口"
+    assert _public_terminal_reason("agent_contract_feedback_required") == "状态已更新"
     assert _public_terminal_reason("tool_budget_exhausted") == "本轮工具预算已用完"
     assert _public_terminal_reason("single_turn_tool_iteration_limit") == "本轮工具预算已用完"
     assert _public_terminal_reason("single_agent_turn_empty_response") == "agent 未生成可发布回复"

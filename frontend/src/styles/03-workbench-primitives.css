@@ -3977,11 +3977,14 @@ body {
 }
 
 .agent-workbench .public-run-activity {
-  color: #334155;
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 12px;
+  color: var(--console-text-soft, #334155);
 }
 
 .agent-workbench .public-run-activity::before {
-  background: #c7d6e6;
+  display: none;
 }
 
 .agent-workbench .public-run-activity__line::before,
@@ -3993,34 +3996,408 @@ body {
 
 .agent-workbench .public-run-activity__line p,
 .agent-workbench .public-run-activity__todo-head p {
-  color: #1f2937;
-}
-
-.agent-workbench .public-run-activity__line-detail,
-.agent-workbench .public-run-activity__body-note .public-run-activity__body,
-.agent-workbench .public-run-activity__tool-round summary,
-.agent-workbench .public-run-activity__tool-window summary {
-  color: #3f4b5d;
-  font-size: 13px;
-}
-
-.agent-workbench .public-run-activity__line p,
-.agent-workbench .public-run-activity__todo-head p {
+  color: var(--console-text, #1f2937);
   font-size: 14px;
 }
 
-.agent-workbench .public-run-activity__tool-window-status {
-  font-weight: 700;
+.agent-workbench .public-run-activity__line-detail,
+.agent-workbench .public-run-activity__body-note .public-run-activity__body {
+  color: var(--console-text-soft, #3f4b5d);
+  font-size: 13px;
+}
+
+.agent-workbench .public-run-activity__tool-round,
+.agent-workbench .public-run-activity__tool-window {
+  min-width: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.agent-workbench .public-run-activity__tool-window--nested {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.agent-workbench .public-run-activity__tool-round summary,
+.agent-workbench .public-run-activity__tool-window summary {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 6px;
+  color: var(--console-text-soft, #3f4b5d);
+  cursor: pointer;
+  font-size: 13px;
+  list-style: none;
+  transition: color 140ms ease, transform 140ms ease;
+}
+
+.agent-workbench .public-run-activity__tool-round summary {
+  grid-template-columns: 24px minmax(0, 1fr) auto 16px;
+  min-height: 46px;
+}
+
+.agent-workbench .public-run-activity__tool-window--nested summary {
+  min-height: 38px;
+  padding: 7px 4px;
+}
+
+.agent-workbench .public-run-activity__tool-round summary:hover,
+.agent-workbench .public-run-activity__tool-window summary:hover {
+  color: #0f172a;
+}
+
+.agent-workbench .public-run-activity__tool-round summary::-webkit-details-marker,
+.agent-workbench .public-run-activity__tool-window summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-workbench .public-run-activity__tool-window-icon,
+.agent-workbench .public-run-activity__tool-round-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: transparent;
+  color: #2563eb;
+  opacity: 0.9;
+}
+
+.agent-workbench .public-run-activity__tool-window--nested .public-run-activity__tool-window-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.agent-workbench .public-run-activity__tool-window[data-tool-family="write"] .public-run-activity__tool-window-icon,
+.agent-workbench .public-run-activity__tool-round[data-tool-family="write"] .public-run-activity__tool-round-icon {
+  color: #9a6500;
+}
+
+.agent-workbench .public-run-activity__tool-window[data-tool-family="search"] .public-run-activity__tool-window-icon,
+.agent-workbench .public-run-activity__tool-round[data-tool-family="search"] .public-run-activity__tool-round-icon {
+  color: #0f7a4d;
+}
+
+.agent-workbench .public-run-activity__tool-window[data-tool-family="command"] .public-run-activity__tool-window-icon,
+.agent-workbench .public-run-activity__tool-round[data-tool-family="command"] .public-run-activity__tool-round-icon {
+  color: #1f2937;
+}
+
+.agent-workbench .public-run-activity__tool-window[data-tool-family="file"] .public-run-activity__tool-window-icon,
+.agent-workbench .public-run-activity__tool-round[data-tool-family="file"] .public-run-activity__tool-round-icon {
+  color: #2563eb;
+}
+
+.agent-workbench .public-run-activity__tool-window[data-tool-family="inspect"] .public-run-activity__tool-window-icon,
+.agent-workbench .public-run-activity__tool-round[data-tool-family="inspect"] .public-run-activity__tool-round-icon {
+  color: #0f766e;
+}
+
+.agent-workbench .public-run-activity__tool-window[data-tool-family="media"] .public-run-activity__tool-window-icon,
+.agent-workbench .public-run-activity__tool-round[data-tool-family="media"] .public-run-activity__tool-round-icon {
+  color: #6d45b8;
+}
+
+.agent-workbench .public-run-activity__tool-window-copy,
+.agent-workbench .public-run-activity__tool-round-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.agent-workbench .public-run-activity__tool-window-title,
+.agent-workbench .public-run-activity__tool-round-preview {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--console-text, #111827);
+  font-size: 14px;
+  font-weight: 760;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-workbench .public-run-activity__tool-action {
+  flex: 0 0 auto;
+}
+
+.agent-workbench .public-run-activity__tool-target {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(56vw, 620px);
+  overflow: hidden;
+  color: #31445b;
+  font-family: var(--console-mono, "Cascadia Code", monospace);
+  font-size: 12px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-workbench .public-run-activity__tool-window-subtitle {
+  overflow: hidden;
+  color: var(--console-muted, #64748b);
+  font-size: 12px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-workbench .public-run-activity__tool-round-meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: max-content;
+}
+
+.agent-workbench .public-run-activity__tool-caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  transition: transform 140ms ease;
+}
+
+.agent-workbench .public-run-activity__tool-window[open] > summary .public-run-activity__tool-caret,
+.agent-workbench .public-run-activity__tool-round[open] > summary .public-run-activity__tool-caret {
+  transform: rotate(180deg);
+}
+
+.agent-workbench .public-run-activity__tool-window-status,
+.agent-workbench .public-run-activity__tool-round-count {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: transparent;
+  color: #64748b;
+  font-size: 11.5px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.agent-workbench .public-run-activity__tool-status-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(248, 250, 252, 0.95);
+}
+
+.agent-workbench .public-run-activity__tool-window-status--done,
+.agent-workbench .public-run-activity__tool-round--done .public-run-activity__tool-window-status {
+  color: #0f7a4c;
+}
+
+.agent-workbench .public-run-activity__tool-window-status--done .public-run-activity__tool-status-dot,
+.agent-workbench .public-run-activity__tool-round--done .public-run-activity__tool-status-dot {
+  border-color: #16a34a;
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
+}
+
+.agent-workbench .public-run-activity__tool-window-status--running,
+.agent-workbench .public-run-activity__tool-round--running .public-run-activity__tool-window-status {
+  color: #475569;
+}
+
+.agent-workbench .public-run-activity__tool-window-status--running .public-run-activity__tool-status-dot,
+.agent-workbench .public-run-activity__tool-round--running .public-run-activity__tool-status-dot {
+  border-color: #94a3b8;
+  background: #ffffff;
+}
+
+.agent-workbench .public-run-activity__tool-window-status--waiting,
+.agent-workbench .public-run-activity__tool-round--waiting .public-run-activity__tool-window-status {
+  color: #835400;
+}
+
+.agent-workbench .public-run-activity__tool-window-status--waiting .public-run-activity__tool-status-dot,
+.agent-workbench .public-run-activity__tool-round--waiting .public-run-activity__tool-status-dot {
+  border-color: #d97706;
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
+}
+
+.agent-workbench .public-run-activity__tool-window-status--soft_error,
+.agent-workbench .public-run-activity__tool-round--soft_error .public-run-activity__tool-window-status {
+  color: #b42318;
+}
+
+.agent-workbench .public-run-activity__tool-window-status--soft_error .public-run-activity__tool-status-dot,
+.agent-workbench .public-run-activity__tool-round--soft_error .public-run-activity__tool-status-dot {
+  border-color: #dc2626;
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+}
+
+.agent-workbench .public-run-activity__tool-round--soft_error .public-run-activity__tool-round-icon,
+.agent-workbench .public-run-activity__tool-window--soft_error .public-run-activity__tool-window-icon {
+  color: #b42318;
+}
+
+.agent-workbench .public-run-activity__tool-round-count {
+  margin-left: auto;
+}
+
+.agent-workbench .public-run-activity__tool-round-body,
+.agent-workbench .public-run-activity__tool-window-body {
+  display: grid;
+  gap: 13px;
+  border-top: 0;
+  width: min(100% - 40px, 980px);
+  margin: 4px 0 14px 42px;
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(247, 250, 253, 0.52));
+  padding: 16px 18px 18px;
+}
+
+.agent-workbench .public-run-activity__tool-round-body {
+  gap: 9px;
+  border-top: 0;
+  width: auto;
+  margin: 2px 0 14px 38px;
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.48);
+  padding: 12px 14px;
+}
+
+.agent-workbench .public-run-activity__tool-window--nested .public-run-activity__tool-window-body {
+  border-top: 0;
+  width: min(100% - 32px, 940px);
+  margin: 2px 0 13px 32px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.5);
+  padding: 14px 16px 16px;
+}
+
+.agent-workbench .public-run-activity__tool-meta {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+}
+
+.agent-workbench .public-run-activity__tool-meta-item {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+  min-width: 0;
+  border-radius: 999px;
+  background: transparent;
+  padding: 0;
+}
+
+.agent-workbench .public-run-activity__tool-meta-item dt {
+  color: #6b7788;
+  font-size: 12px;
+  font-weight: 720;
+  line-height: 1.55;
+}
+
+.agent-workbench .public-run-activity__tool-meta-item dd {
+  min-width: 0;
+  margin: 0;
+  color: #182235;
+  font-family: var(--console-mono, "Cascadia Code", monospace);
+  font-size: 12.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .agent-workbench .public-run-activity__tool-console {
-  border-left-color: #cfd9e5;
-  color: #111827;
+  display: grid;
+  gap: 13px;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--console-text, #111827);
+}
+
+.agent-workbench .public-run-activity__tool-console-row + .public-run-activity__tool-console-row {
+  border-top: 0;
+}
+
+.agent-workbench .public-run-activity__tool-console-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+  overflow: visible;
+  border: 0;
+  border-left-width: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.agent-workbench .public-run-activity__tool-console-row--output {
+  background: transparent;
+}
+
+.agent-workbench .public-run-activity__tool-console-label {
+  padding: 0;
+  color: #6b7788;
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.7;
+  letter-spacing: 0;
 }
 
 .agent-workbench .public-run-activity__tool-console-command,
 .agent-workbench .public-run-activity__tool-console-output {
-  color: #1f2937;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--console-text, #1f2937);
+  font-family: var(--console-mono, "Cascadia Code", monospace);
+  font-size: 12.5px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.agent-workbench .public-run-activity__tool-console-output {
+  color: #526071;
+}
+
+@container (max-width: 560px) {
+  .agent-workbench .public-run-activity__tool-round summary,
+  .agent-workbench .public-run-activity__tool-window summary {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .agent-workbench .public-run-activity__tool-round-meta {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .agent-workbench .public-run-activity__tool-round-body,
+  .agent-workbench .public-run-activity__tool-window-body {
+    margin-left: 28px;
+  }
 }
 
 .runtime-log-panel,

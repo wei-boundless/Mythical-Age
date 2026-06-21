@@ -126,6 +126,52 @@ class PromptAccountingLedger:
                 records[key] = record
         return sorted(records.values(), key=lambda item: item.created_at)
 
+    def list_recent_token_usage(
+        self,
+        *,
+        run_id: str = "",
+        task_run_id: str = "",
+        session_id: str = "",
+        limit: int = 512,
+    ) -> list[ModelTokenUsageRecord]:
+        records: dict[str, ModelTokenUsageRecord] = {}
+        normalized_run_id = str(run_id or "")
+        normalized_task_run_id = str(task_run_id or "")
+        normalized_session_id = str(session_id or "")
+        groups = _line_prefilter(
+            run_id=normalized_run_id,
+            task_run_id=normalized_task_run_id,
+            session_id=normalized_session_id,
+        )
+        target = max(1, int(limit or 512))
+        with self._lock:
+            paths = list(reversed(self._jsonl_paths("token_usage.jsonl")))
+        for path in paths:
+            for line in _iter_jsonl_lines_reverse(path):
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if groups and not _line_matches_prefilter(stripped, groups):
+                    continue
+                try:
+                    row = json.loads(stripped)
+                except JSONDecodeError:
+                    continue
+                if normalized_run_id and str(row.get("run_id") or row.get("task_run_id") or "") != normalized_run_id:
+                    continue
+                if normalized_task_run_id and str(row.get("task_run_id") or "") != normalized_task_run_id:
+                    continue
+                if normalized_session_id and str(row.get("session_id") or "") != normalized_session_id:
+                    continue
+                record = ModelTokenUsageRecord.from_dict(row)
+                key = record.usage_id or f"{record.request_id}:{record.source}:{record.created_at}"
+                if key in records:
+                    continue
+                records[key] = record
+                if len(records) >= target:
+                    return sorted(records.values(), key=lambda item: item.created_at)
+        return sorted(records.values(), key=lambda item: item.created_at)
+
     def list_prompt_cache(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[PromptCacheRecord]:
         records: dict[str, PromptCacheRecord] = {}
         for row in self._read_jsonl("prompt_cache.jsonl", run_id=run_id, task_run_id=task_run_id, session_id=session_id):
@@ -2077,6 +2123,30 @@ def _jsonl_line_count(path: Path) -> int:
             return sum(1 for line in handle if line.strip())
     except OSError:
         return 0
+
+
+def _iter_jsonl_lines_reverse(path: Path, *, block_size: int = 1024 * 1024):
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, 2)
+            position = handle.tell()
+            buffer = b""
+            while position > 0:
+                read_size = min(max(4096, int(block_size or 4096)), position)
+                position -= read_size
+                handle.seek(position)
+                chunk = handle.read(read_size)
+                if not chunk:
+                    break
+                parts = (chunk + buffer).split(b"\n")
+                buffer = parts[0]
+                for line in reversed(parts[1:]):
+                    if line:
+                        yield line.decode("utf-8", errors="ignore").rstrip("\r")
+            if buffer:
+                yield buffer.decode("utf-8", errors="ignore").rstrip("\r")
+    except OSError:
+        return
 
 
 def _segment_from_dict(payload: dict[str, Any]) -> PromptSegment:

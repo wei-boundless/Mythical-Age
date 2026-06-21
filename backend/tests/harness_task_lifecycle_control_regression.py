@@ -2040,8 +2040,8 @@ def test_runtime_start_recovery_marks_network_interrupted_executor_resumable() -
     assert state_view["task_work_state"] == "ready_to_continue"
     assert state_view["recovery_cause"] == "runtime_restart"
     assert state_view["control_reason"] == "runtime_restart_waiting_resume"
-    assert state_view["activity"]["activity_label"] == "运行时重启后待续跑"
-    assert "后端运行时已重启" in state_view["activity"]["detail"]
+    assert state_view["activity"]["activity_label"] == "连接恢复后待续跑"
+    assert "连接已恢复" in state_view["activity"]["detail"]
 
 
 def test_runtime_start_recovery_does_not_auto_schedule_recovered_executor() -> None:
@@ -2811,7 +2811,7 @@ def test_single_agent_turn_json_request_task_run_starts_real_task_lifecycle() ->
     assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "single_agent_turn_json_action"
 
 
-def test_single_agent_turn_surrounding_text_request_task_run_recovery_starts_lifecycle() -> None:
+def test_single_agent_turn_surrounding_text_fenced_request_task_run_starts_lifecycle_without_recovery() -> None:
     task_seed = _canonical_task_contract_seed({
         "user_visible_goal": "修复 agent 输出吞没问题。",
         "task_run_goal": "修复控制契约恢复链路，确保被拒绝 action 能准确回传给 agent。",
@@ -2825,23 +2825,23 @@ def test_single_agent_turn_surrounding_text_request_task_run_recovery_starts_lif
         task_contract_seed=task_seed,
     )
 
-    class SurroundingTextThenJsonTaskRunModelRuntime:
+    class SurroundingTextFencedJsonTaskRunModelRuntime:
         def __init__(self) -> None:
             self.invocation_count = 0
-            self.recovery_inputs: list[str] = []
 
         async def invoke_messages(self, messages, **_kwargs):
+            del messages
             self.invocation_count += 1
-            if self.invocation_count == 1:
-                return SimpleNamespace(
-                    content="我已经掌握了 CSS，现在发起持续任务。\n" + json.dumps(action, ensure_ascii=False)
+            return SimpleNamespace(
+                content=(
+                    "我已经掌握了 CSS，现在发起持续任务。\n"
+                    "```json\n"
+                    + json.dumps(action, ensure_ascii=False)
+                    + "\n```"
                 )
-            self.recovery_inputs.append(
-                "\n\n".join(str(dict(message).get("content") or "") for message in list(messages or []) if isinstance(message, dict))
             )
-            return SimpleNamespace(content=json.dumps(action, ensure_ascii=False))
 
-    model = SurroundingTextThenJsonTaskRunModelRuntime()
+    model = SurroundingTextFencedJsonTaskRunModelRuntime()
     runtime = build_harness_runtime(model_runtime=model)
 
     async def _collect() -> list[dict[str, object]]:
@@ -2872,29 +2872,18 @@ def test_single_agent_turn_surrounding_text_request_task_run_recovery_starts_lif
     task_run_id = str(task_run.get("task_run_id") or "")
     stored_task = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
     admissions = _admission_payloads(events)
-    control_signals = [
-        dict(dict(event.get("event") or {}).get("payload") or {}).get("runtime_control_signal")
-        for event in events
-        if event.get("type") == "turn_runtime_control_signal_observed"
-    ]
-    protocol_signal = next(
-        dict(signal or {})
-        for signal in control_signals
-        if dict(signal or {}).get("signal_kind") == "model_protocol_violation"
-    )
 
-    assert model.invocation_count == 2
-    assert model.recovery_inputs
-    assert "previous_model_action_execution" in model.recovery_inputs[0]
-    assert "rejected_json_action_payload" in model.recovery_inputs[0]
-    assert "request_task_run" in model.recovery_inputs[0]
-    assert protocol_signal["detected_unexecuted_action"]["action_type"] == "request_task_run"
-    assert protocol_signal["rejected_action_transport"]["execution_state"] == "not_executed"
-    assert "request_task_run" in protocol_signal["allowed_agent_actions"]
+    assert model.invocation_count == 1
+    assert "turn_runtime_control_signal_observed" not in stream_types
+    assert "agent_contract_feedback_required" not in stream_types
     assert "task_run_lifecycle_started" in stream_types
     assert admissions
     assert dict(admissions[0].get("admission") or {}).get("decision") == "allow"
     assert dict(admissions[0].get("model_action_request") or {}).get("action_type") == "request_task_run"
+    diagnostics = dict(dict(admissions[0].get("model_action_request") or {}).get("diagnostics") or {})
+    parse_transport = dict(diagnostics.get("parse_transport") or {})
+    assert parse_transport["embedded_action_object"] is True
+    assert parse_transport["markdown_fence"] is True
     assert task_run_id.startswith("taskrun:")
     assert stored_task is not None
     assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "single_agent_turn_json_action"

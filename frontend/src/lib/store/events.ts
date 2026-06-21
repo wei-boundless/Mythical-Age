@@ -595,6 +595,10 @@ function patchAssistantStreamAnchor(state: StoreState, session: StreamSession): 
 }
 
 const ACTIVE_TASK_GATE_RELEASE_STATES = new Set([
+  "completed",
+  "complete",
+  "success",
+  "succeeded",
   "stopped",
   "stop_requested",
   "aborted",

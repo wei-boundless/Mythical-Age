@@ -76,7 +76,7 @@ def _recoverable_task() -> TaskRun:
             },
             "recovery_action": "rerun_task_executor",
             "latest_step": "task_executor_recovered_after_runtime_start",
-            "latest_public_progress_note": "后端运行时已重启，当前工作已恢复为可继续状态。",
+            "latest_public_progress_note": "连接已恢复，当前工作已恢复为可继续状态。",
             "goal": "修复页面交互问题",
         },
     )
@@ -120,6 +120,62 @@ def _interrupted_turn() -> TurnRun:
                 "content_utf8_bytes": 54,
                 "truncated_from_start": False,
                 "authority": "harness.loop.single_agent_turn.assistant_stream_continuity",
+            },
+        },
+    )
+
+
+def _contract_feedback_interrupted_turn() -> TurnRun:
+    return TurnRun(
+        turn_run_id="turnrun:session-continuation:contract-feedback",
+        session_id="session-continuation",
+        turn_id="turn:session-continuation:contract-feedback",
+        execution_runtime_kind="single_agent_turn",
+        status="failed",
+        latest_event_offset=33,
+        updated_at=170.0,
+        terminal_reason="agent_contract_feedback_required",
+        diagnostics={
+            "turn_id": "turn:session-continuation:contract-feedback",
+            "latest_step": "agent_contract_feedback_required",
+            "latest_agent_contract_feedback": {
+                "signal_kind": "agent_contract_feedback_required",
+                "lifecycle": "agent_contract_feedback_required",
+                "contract_feedback_state": "execution_contract_feedback_required",
+                "phase": "tool_limit_tool_loop",
+                "reason": "tool_budget_exhausted",
+                "visible_assistant_message_allowed": False,
+                "tool_calls_allowed_after_signal": False,
+                "agent_closeout_required": True,
+                "agent_feedback": "上一条输出没有进入会话，也不会展示给用户；请提交合法 JSON action。",
+                "required_action_protocol": {
+                    "authority": "harness.loop.model_action_request",
+                    "allowed_action_types": ["respond", "ask_user", "block"],
+                    "tool_call_allowed": False,
+                    "structured_action_required": True,
+                },
+                "contract_failure": {
+                    "kind": "agent_output_contract_not_satisfied",
+                    "closeout_attempts": 2,
+                    "phase": "tool_limit_tool_loop",
+                    "reason": "tool_budget_exhausted",
+                    "protocol_error": {"raw_model_output": "private raw model output"},
+                    "specific_feedback": [
+                        {
+                            "category": "protocol_violation",
+                            "code": "json_action_required",
+                            "situation_feedback": "上一条输出无法可靠归类。",
+                            "repair_instruction": "只输出一个 JSON action。",
+                            "expected_next_action": "选择 respond、ask_user 或 block。",
+                        }
+                    ],
+                },
+                "observed_facts": {"successful_tool_observation_count": 1},
+                "structured_signal": {
+                    "code": "single_agent_turn_agent_contract_feedback_required",
+                    "message": "请提交合法 JSON action。",
+                    "retryable": True,
+                },
             },
         },
     )
@@ -227,6 +283,27 @@ def test_selector_builds_continuation_context_from_interrupted_turn_tool_limit()
     assert selection.interrupted_turn.visible_assistant_prefix_sha256 == "sha256:test-visible-prefix"
     assert "exact read evidence" in selection.interrupted_turn.model_visible_summary
     assert "已公开" in selection.interrupted_turn.model_visible_summary
+
+
+def test_selector_preserves_agent_contract_feedback_for_interrupted_turn_context() -> None:
+    selection = select_session_continuation(
+        _Host([], turn_runs=[_contract_feedback_interrupted_turn()]),
+        session_id="session-continuation",
+    )
+
+    assert selection.interrupted_turn is not None
+    assert selection.interrupted_turn.interruption_kind == "agent_contract_feedback_required"
+    assert selection.interrupted_turn.diagnostics["has_agent_contract_feedback"] is True
+    feedback = dict(selection.interrupted_turn.agent_contract_feedback)
+    failure = dict(feedback["contract_failure"])
+    protocol = dict(feedback["required_action_protocol"])
+
+    assert feedback["signal_kind"] == "agent_contract_feedback_required"
+    assert "上一条输出没有进入会话" in feedback["agent_feedback"]
+    assert protocol["authority"] == "harness.loop.model_action_request"
+    assert protocol["allowed_action_types"] == ["respond", "ask_user", "block"]
+    assert failure["specific_feedback"][0]["code"] == "json_action_required"
+    assert "raw_model_output" not in json.dumps(feedback, ensure_ascii=False)
 
 
 def test_selector_builds_continuation_context_from_runtime_interruption() -> None:

@@ -188,12 +188,6 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "summary",
         "status",
     },
-    "agent_contract_feedback_required": {
-        "turn_id",
-        "model_visible",
-        "agent_contract_feedback",
-        "event",
-    },
     "runtime_status": {
         "title",
         "detail",
@@ -2092,8 +2086,7 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list
     if normalized in {"model_action_request", "agent_turn_terminal"}:
         return []
     if normalized == "agent_contract_feedback_required":
-        data = _agent_contract_feedback_required_data(raw_data)
-        return [(normalized, data)] if data else []
+        return []
     if normalized == "harness_run_started" and _is_turn_trace_only_harness_start(event):
         return []
     if normalized in {"step_summary_recorded", "runtime_step_summary"}:
@@ -2204,22 +2197,6 @@ def _stream_recovery_public_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
 
 
-def _agent_contract_feedback_required_data(raw_data: dict[str, Any]) -> dict[str, Any]:
-    raw_event = _record(raw_data.get("event"))
-    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
-    feedback = _record(payload.get("agent_contract_feedback") or raw_data.get("agent_contract_feedback"))
-    if not feedback:
-        return {}
-    return _redact_public_stream_data(
-        {
-            "turn_id": str(payload.get("turn_id") or feedback.get("turn_id") or ""),
-            "model_visible": bool(payload.get("model_visible", True)),
-            "agent_contract_feedback": feedback,
-            "runtime_event_id": str(raw_event.get("event_id") or raw_data.get("event_id") or ""),
-        }
-    )
-
-
 def _turn_completed_data(source_event_type: str, raw_data: dict[str, Any]) -> dict[str, Any]:
     source = str(source_event_type or "").strip().lower()
     requested_status = str(raw_data.get("status") or "").strip().lower()
@@ -2294,7 +2271,7 @@ def _tool_call_requested_items(raw_data: dict[str, Any]) -> list[dict[str, Any]]
         if not tool_name or not tool_call_id or _is_agent_todo_tool_name(tool_name):
             continue
         args = _tool_call_args(tool, request=request if len(tool_calls) == 1 else {})
-        target = _safe_public_tool_target(args)
+        target = _safe_public_tool_target(args, tool_name=tool_name)
         data: dict[str, Any] = {
             "item_id": tool_call_id,
             "request_id": request_id or tool_call_id,
@@ -2823,6 +2800,9 @@ def _tool_arguments_preview(args: dict[str, Any]) -> str:
         "pattern",
         "cwd",
         "command",
+        "cmd",
+        "script",
+        "code",
         "url",
     )
     skipped = {"content", "replacement", "new_content", "old_content", "patch", "diff"}
@@ -2834,18 +2814,33 @@ def _tool_arguments_preview(args: dict[str, Any]) -> str:
             continue
         text = _safe_public_action_text(f"{key}={value}")
         if text:
-            parts.append(text[:120] if key == "command" else text[:80])
+            parts.append(text[:120] if key in {"command", "cmd", "script", "code"} else text[:80])
         if len(parts) >= 6:
             break
     return ", ".join(parts)[:240]
 
 
-def _safe_public_tool_target(args: dict[str, Any]) -> str:
-    for key in ("path", "file", "file_path", "target", "url", "query"):
+def _safe_public_tool_target(args: dict[str, Any], *, tool_name: str = "") -> str:
+    keys = ["path", "file", "file_path", "target", "url", "query"]
+    if _is_public_command_tool(tool_name):
+        keys = ["command", "cmd", "script", "code", *keys]
+    for key in keys:
         value = _safe_public_action_text(args.get(key))
         if value:
             return value[:180]
     return ""
+
+
+def _is_public_command_tool(tool_name: str) -> bool:
+    return str(tool_name or "").strip().lower() in {
+        "bash",
+        "cmd",
+        "command",
+        "powershell",
+        "python_repl",
+        "shell",
+        "terminal",
+    }
 
 
 def _public_action_state(value: Any) -> dict[str, str]:
@@ -2899,7 +2894,7 @@ def _public_terminal_reason(value: Any) -> str:
     }:
         return "work_control"
     if _looks_like_runtime_reason_code(reason):
-        return "运行状态已更新"
+        return "状态已更新"
     return reason
 
 
@@ -2916,11 +2911,9 @@ def _public_runtime_reason_label(reason: str) -> str:
         "missing_terminal_event": "输出流没有正常收口",
         "stream_exception": "输出流异常中断",
         "stream_cancelled": "输出流已取消",
-        "agent_contract_feedback_required": "需要 agent 重新收口",
         "tool_budget_exhausted": "本轮工具预算已用完",
         "single_turn_tool_iteration_limit": "本轮工具预算已用完",
         "single_agent_turn_empty_response": "agent 未生成可发布回复",
-        "tool_limit_closeout_protocol_failed": "agent 收口动作未满足要求",
         "tool_limit_missing_answer": "agent 收口缺少可发布回复",
         "completed": "已完成",
         "failed": "处理失败",

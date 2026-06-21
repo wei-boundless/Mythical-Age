@@ -2803,11 +2803,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           lifecycle: "waiting",
           bucket: "waiting",
           activity_state: "waiting",
-          activity_label: "运行时重启后待续跑",
+          activity_label: "连接恢复后待续跑",
           recovery_cause: "runtime_restart",
           control_reason: "runtime_restart_waiting_resume",
           activity: {
-            detail: "后端运行时已重启，任务已停在可恢复边界；点击继续或发送继续后会从当前任务继续调度。",
+            detail: "连接已恢复，任务已停在可恢复边界；点击继续或发送继续后会从当前任务继续调度。",
           },
           route: { kind: "agent_runtime_run", session_id: "session:restart", task_run_id: taskRunId },
         }),
@@ -2816,8 +2816,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     expect(store.getState().sessionActivity).toMatchObject({
       level: "waiting",
-      title: "运行时重启后待续跑",
-      detail: expect.stringContaining("后端运行时已重启"),
+      title: "连接恢复后待续跑",
+      detail: expect.stringContaining("连接已恢复"),
     });
   });
 
@@ -3435,6 +3435,63 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       task_run_id: "taskrun:background",
       state: "waiting_executor",
     });
+  });
+
+  it("releases active-turn routing after a completed backend closeout signal", async () => {
+    const taskRunId = "taskrun:session-closeout:1";
+    const activeTurnId = "turn:session-closeout:1";
+    api.streamChat
+      .mockImplementationOnce(async (_payload, handlers) => {
+        handlers.onEvent("runtime_status", {
+          title: "任务运行中",
+          state: "running",
+          phase: "task_run",
+          runtime_task_run_id: taskRunId,
+          active_turn_id: activeTurnId,
+        });
+        handlers.onEvent("turn_completed", {
+          status: "completed",
+          task_run_id: taskRunId,
+          runtime_task_run_id: taskRunId,
+          active_turn_id: activeTurnId,
+          turn_id: activeTurnId,
+          completion_state: "completed",
+          terminal_reason: "completed",
+        });
+        return { terminalEvent: "turn_completed", terminalStatus: "completed", streamRunId: "strun:closeout", eventLogId: "chatrun:closeout", lastEventOffset: 2 };
+      })
+      .mockImplementationOnce(async (_payload, handlers) => {
+        handlers.onEvent("done", { content: "新问题已正常发送" });
+        return { terminalEvent: "turn_completed", terminalStatus: "completed", streamRunId: "strun:after-closeout", eventLogId: "chatrun:after-closeout", lastEventOffset: 1 };
+      });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:closeout",
+      sessions: [{
+        id: "session:closeout",
+        title: "Closeout",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("开始任务");
+
+    expect(store.getState().activeTurnSnapshot).toBeNull();
+
+    await runtime.actions.sendMessage("收口后的新问题");
+
+    expect(api.enqueueQueuedChatInput).not.toHaveBeenCalled();
+    expect(api.streamChat).toHaveBeenCalledTimes(2);
+    expect(api.streamChat.mock.calls[1]?.[0]).toMatchObject({
+      message: "收口后的新问题",
+      session_id: "session:closeout",
+      active_turn_input_policy: "auto",
+      expected_active_turn_id: "",
+    });
+    expect(store.getState().sessionActivity.event).not.toBe("user_input_queued");
   });
 
   it("queues active-task input through the backend while the main chat stream is still open", async () => {
@@ -4281,32 +4338,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.content).toBe("");
     expect(assistant?.answerCanonicalState).toBe("stable_answer");
   });
-
-  it("does not keep tool-budget system fallback text as assistant prose", () => {
-    let transition = startStreamingTurn(getDefaultState(), "继续");
-    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_final", {
-      sequence: 1,
-      content: "本轮已经达到工具预算上限，且收口裁决仍不可安全展示。已停止继续调用工具，避免把内部工具协议或动作残片当作回答。",
-      content_sha256: "sha256:tool-budget-internal",
-      answer_channel: "blocked",
-      answer_source: "harness.single_agent_turn.tool_limit_closeout",
-      answer_canonical_state: "stable_answer",
-      answer_persist_policy: "persist_canonical",
-    });
-    transition = reduceStreamEvent(transition.state, transition.session, "done", {
-      content: "本轮已经达到工具预算上限，且收口裁决仍不可安全展示。已停止继续调用工具，避免把内部工具协议或动作残片当作回答。",
-      answer_channel: "blocked",
-      answer_source: "harness.single_agent_turn.tool_limit_closeout",
-      answer_canonical_state: "stable_answer",
-      answer_persist_policy: "persist_canonical",
-    });
-
-    const assistant = transition.state.messages.at(-1);
-    expect(assistant?.role).toBe("assistant");
-    expect(assistant?.content).toBe("");
-    expect(assistant?.answerSource).toBe("harness.single_agent_turn.tool_limit_closeout");
-  });
-
   it("does not use done summary as assistant prose when final content is absent", () => {
     let transition = startStreamingTurn(getDefaultState(), "修一下页面反馈");
     transition = reduceStreamEvent(transition.state, transition.session, "done", {
@@ -6576,6 +6607,61 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       expect.any(Object),
     );
     expect(store.getState().currentSessionId).toBe("session:new");
+  });
+
+  it("does not carry a previous active turn into the first message of a new session", async () => {
+    vi.useRealTimers();
+    api.createSession.mockResolvedValue({
+      id: "session:new-clean",
+      title: "New Session",
+      created_at: 2,
+      updated_at: 2,
+      message_count: 0,
+    });
+    api.listSessions.mockResolvedValue([{
+      id: "session:new-clean",
+      title: "New Session",
+      created_at: 2,
+      updated_at: 2,
+      message_count: 0,
+    }]);
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:old",
+      sessions: [{
+        id: "session:old",
+        title: "Old",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 1,
+      }],
+      activeTurnSnapshot: {
+        turn_id: "turn:session-old:1",
+        task_run_id: "taskrun:session-old:1",
+        state: "running_task",
+      },
+      taskGraphLiveMonitor: itemForMonitor({
+        session_id: "session:old",
+        task_run_id: "taskrun:session-old:1",
+        status: "running",
+        execution_runtime_kind: "single_agent_task",
+      }) as any,
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.createNewSession();
+    expect(store.getState().currentSessionId).toBe("session:new-clean");
+    expect(store.getState().activeTurnSnapshot).toBeNull();
+    expect(store.getState().taskGraphLiveMonitor).toBeNull();
+
+    await runtime.actions.sendMessage("新对话第一句");
+
+    expect(api.enqueueQueuedChatInput).not.toHaveBeenCalled();
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
+    expect(api.streamChat.mock.calls[0]?.[0]).toMatchObject({
+      message: "新对话第一句",
+      session_id: "session:new-clean",
+    });
   });
 
   it("derives a session title from the first user message after the first completed turn", async () => {

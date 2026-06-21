@@ -140,7 +140,8 @@ describe("ChatMessage", () => {
     expect(html).toContain("记录");
     expect(html).toContain("public-run-activity__body-note");
     expect(html).not.toContain("本轮记录");
-    expect(html).toContain("读取文件 ChatMessage.tsx");
+    expect(html).toContain("读取文件");
+    expect(html).toContain("ChatMessage.tsx");
     expect(html).toContain("public-run-activity__tool-window");
     expect(html.indexOf("public-run-activity__archive")).toBeLessThan(html.indexOf("已经完成的正文。"));
     expect(html.indexOf("收口前的过程正文。")).toBeLessThan(html.indexOf("已经完成的正文。"));
@@ -157,7 +158,8 @@ describe("ChatMessage", () => {
 
     expect(html).toContain("已经完成的正文。");
     expect(html).toContain("运行状态");
-    expect(html).toContain("读取文件 ChatMessage.tsx");
+    expect(html).toContain("读取文件");
+    expect(html).toContain("ChatMessage.tsx");
     expect(html).toContain("public-run-activity");
   });
 
@@ -172,7 +174,8 @@ describe("ChatMessage", () => {
 
     expect(html).toContain("已经完成的正文。");
     expect(html).toContain("运行状态");
-    expect(html).toContain("读取文件 ChatMessage.tsx");
+    expect(html).toContain("读取文件");
+    expect(html).toContain("ChatMessage.tsx");
     expect(html).toContain("public-run-activity");
   });
 
@@ -189,7 +192,8 @@ describe("ChatMessage", () => {
     });
 
     expect(html).toContain("运行状态");
-    expect(html).toContain("读取文件 ChatMessage.tsx");
+    expect(html).toContain("读取文件");
+    expect(html).toContain("ChatMessage.tsx");
     expect(html).toContain("public-run-activity");
   });
 
@@ -215,8 +219,9 @@ describe("ChatMessage", () => {
       }),
     });
 
-    expect(html).toContain("工具操作");
+    expect(html).toContain("data-tool-family=\"file\"");
     expect(html).toContain("backend/capability_system/capabilities/retrieval/parser_adapter.py");
+    expect(html).not.toContain("读取请求");
     expect(html).not.toContain("$ tool");
   });
 

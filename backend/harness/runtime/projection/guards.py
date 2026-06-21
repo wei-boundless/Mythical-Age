@@ -46,6 +46,20 @@ def public_text(value: Any, *, limit: int = 220) -> str:
     return text
 
 
+def public_body_text(value: Any) -> str:
+    """Return user-visible assistant body text without presentation truncation."""
+
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if not public_runtime_progress_summary(raw):
+        return ""
+    normalized = raw.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if looks_structured_payload(normalized) or looks_internal_text(normalized):
+        return ""
+    return normalized
+
+
 def public_state(value: Any) -> str:
     normalized = str(value or "").strip().lower()
     if normalized in {"failed", "error", "blocked"}:

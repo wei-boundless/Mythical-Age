@@ -47,12 +47,12 @@ def model_response_protocol_from_response(
     native_tool_calls = tuple(normalize_tool_call_dicts(response, provider=resolved_provider))
     json_payload, parse_diagnostics = parse_json_object_with_diagnostics(content)
     errors: list[str] = []
-    if require_json_action and bool(parse_diagnostics.get("unwrapped_markdown_fence") is True):
-        errors.append("json_action_must_not_use_markdown_fence")
-    if require_json_action and bool(parse_diagnostics.get("parsed_with_trailing_repair") is True):
-        errors.append("json_action_must_not_use_trailing_text")
-    if require_json_action and bool(parse_diagnostics.get("parsed_with_embedded_object_repair") is True):
-        errors.append("json_action_must_not_use_surrounding_text")
+    # `require_json_action` means the text transport must contain one
+    # unambiguous structured action. Models commonly wrap that object in
+    # Markdown fences or a short natural-language preamble; when the parser can
+    # isolate exactly one action-like object, preserve the agent decision
+    # instead of treating transport style as a protocol failure.
+    del require_json_action
     if native_tool_calls and not allow_native_tool_calls:
         errors.append("native_tool_call_transport_not_available")
     digest = _response_digest(
@@ -104,11 +104,13 @@ def parse_json_object_with_diagnostics(content: Any) -> tuple[dict[str, Any], di
                 diagnostics["starts_with"] = text[:24]
                 diagnostics["ends_with"] = text[-24:] if text else ""
                 return {}, diagnostics
-            parsed, leading, trailing = embedded
+            parsed, leading, trailing, parsed_from_markdown_fence = embedded
             diagnostics["parsed_with_embedded_object_repair"] = True
             diagnostics["ignored_leading_text"] = _compact_text(leading, limit=240)
             if trailing:
                 diagnostics["ignored_trailing_text"] = _compact_text(trailing, limit=240)
+            if parsed_from_markdown_fence:
+                diagnostics["parsed_from_markdown_fence"] = True
             diagnostics["embedded_json_repair_authority"] = "runtime.model_gateway.model_response_protocol"
         if repaired is not None:
             parsed, trailing = repaired
@@ -144,7 +146,7 @@ def _parse_json_object_prefix_with_ignorable_trailing_text(text: str) -> tuple[d
     return None
 
 
-def _parse_single_embedded_json_object(text: str) -> tuple[dict[str, Any], str, str] | None:
+def _parse_single_embedded_json_object(text: str) -> tuple[dict[str, Any], str, str, bool] | None:
     decoder = json.JSONDecoder()
     candidates: list[tuple[int, int, dict[str, Any]]] = []
     for index, char in enumerate(text):
@@ -167,7 +169,17 @@ def _parse_single_embedded_json_object(text: str) -> tuple[dict[str, Any], str, 
     start, end, payload = selected[0]
     leading = text[:start].strip()
     trailing = text[end:].strip()
-    return payload, leading, trailing
+    return payload, leading, trailing, _span_inside_markdown_fence(text, start, end)
+
+
+def _span_inside_markdown_fence(text: str, start: int, end: int) -> bool:
+    opening = text.rfind("```", 0, max(0, start))
+    if opening < 0:
+        return False
+    closing = text.find("```", max(0, end))
+    if closing < 0:
+        return False
+    return True
 
 
 def _looks_like_model_action_object(payload: dict[str, Any]) -> bool:

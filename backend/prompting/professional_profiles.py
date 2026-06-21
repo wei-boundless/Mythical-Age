@@ -49,7 +49,7 @@ _PROFILES: dict[str, ProfessionalPromptProfile] = {
         ),
         forbidden_outputs=(
             "不要只复述表面失败项。",
-            "不要输出工具调用、DSML、参数片段或内部协议。",
+            "不要输出工具调用、DSML、参数片段或内部字段。",
             "不要编造未执行的测试结果。",
         ),
         prompt=(
@@ -66,7 +66,7 @@ _PROFILES: dict[str, ProfessionalPromptProfile] = {
             "3. 应该补充的回归测试。\n"
             "4. 证据不足或仍需确认的边界。\n\n"
             "不要只复述表面失败项。\n"
-            "不要输出工具调用、DSML、参数片段或内部协议。"
+            "不要输出工具调用、DSML、参数片段或内部字段。"
         ),
     ),
     "professional.runtime_trace_analysis": ProfessionalPromptProfile(

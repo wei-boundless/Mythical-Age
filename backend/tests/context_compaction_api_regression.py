@@ -149,6 +149,7 @@ def test_session_tokens_exposes_context_meter_and_billing_totals(tmp_path: Path,
     assert response["context_meter"]["input_capacity_tokens"] == 926_272
     assert response["context_meter"]["replacement_threshold_tokens"] == 850_000
     assert response["context_meter"]["compaction_remaining_tokens"] <= response["context_meter"]["replacement_threshold_tokens"]
+    assert response["compaction_readiness"]["compaction_pressure_tokens"] == response["context_meter"]["compaction_pressure_tokens"]
     assert response["cumulative_transcript_message_count"] == 4
     assert response["cumulative_transcript_tokens"] >= response["raw_history_tokens"]
     assert response["compression_saved_tokens"] == response["cumulative_transcript_tokens"] - response["history_tokens"]
@@ -257,6 +258,68 @@ def test_session_tokens_adds_pending_messages_after_local_prediction(tmp_path: P
     assert meter["diagnostics"]["observed_context_source"] == "local_prediction"
 
 
+def test_session_tokens_adds_pending_provider_protocol_after_local_prediction(tmp_path: Path, monkeypatch) -> None:
+    runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.harness_runtime = SimpleNamespace(
+        single_agent_runtime_host=SimpleNamespace(prompt_accounting_ledger=ledger)
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:pending-protocol:local_prediction",
+            request_id="modelreq:pending-protocol",
+            session_id=session_id,
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            source="local_prediction",
+            prompt_tokens=40_000,
+            total_tokens=40_000,
+            created_at=10.0,
+            diagnostics={"cache_metric_scope": "agent_runtime", "packet_ref": "rtpacket:pending-protocol"},
+        )
+    )
+    runtime.session_manager.append_api_messages(
+        session_id,
+        [
+            {
+                "role": "assistant",
+                "turn_id": "turn:pending-protocol",
+                "created_at": 11.0,
+                "tool_calls": [
+                    {
+                        "id": "call:pending-read",
+                        "type": "function",
+                        "function": {"name": "read_file", "arguments": "{\"path\":\"large.py\"}"},
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "turn_id": "turn:pending-protocol",
+                "tool_call_id": "call:pending-read",
+                "content": "pending tool result line\n" * 200,
+                "created_at": 12.0,
+            },
+        ],
+    )
+    monkeypatch.setattr(tokens_api, "require_runtime", lambda: runtime)
+
+    response = asyncio.run(
+        tokens_api.session_tokens(
+            session_id,
+            workspace_view=None,
+            task_environment_id=None,
+            project_id=None,
+        )
+    )
+
+    meter = response["context_meter"]
+    assert meter["current_context_tokens"] > 40_000
+    assert meter["estimated_pending_tokens"] > 0
+    assert meter["diagnostics"]["provider_estimated_pending_tokens"] > 0
+    assert meter["diagnostics"]["observed_context_source"] == "local_prediction"
+
+
 def test_session_tokens_cache_invalidates_when_prompt_accounting_changes(tmp_path: Path, monkeypatch) -> None:
     runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
     ledger = PromptAccountingLedger(tmp_path)
@@ -333,6 +396,60 @@ def test_session_tokens_skips_raw_accounting_when_scoped_reads_are_expensive(tmp
     assert meter["estimate_mode"] == "session_pressure"
     assert meter["diagnostics"]["raw_record_count"] == 0
     assert meter["diagnostics"]["session_pressure_used_as_current_context"] is True
+
+
+def test_session_tokens_uses_recent_usage_when_scoped_reads_are_expensive(tmp_path: Path, monkeypatch) -> None:
+    runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
+
+    class ExpensiveLedgerWithRecentUsage:
+        def scoped_reads_are_expensive(self) -> bool:
+            return True
+
+        def summarize_session(self, _session_id: str) -> dict[str, object]:
+            return {"total_tokens": 155_000, "prompt_tokens": 155_000}
+
+        def list_token_usage(self, **_kwargs):
+            raise AssertionError("context meter must not use full token usage scan for expensive ledgers")
+
+        def list_recent_token_usage(self, **kwargs):
+            assert kwargs["session_id"] == session_id
+            assert 0 < int(kwargs["limit"]) <= 32
+            return [
+                ModelTokenUsageRecord(
+                    usage_id="tokuse:modelreq:recent:local_prediction",
+                    request_id="modelreq:recent",
+                    session_id=session_id,
+                    provider="deepseek",
+                    model="deepseek-v4-pro",
+                    source="local_prediction",
+                    prompt_tokens=155_000,
+                    total_tokens=155_000,
+                    created_at=9_999_999_999.0,
+                    diagnostics={"cache_metric_scope": "agent_runtime", "packet_ref": "rtpacket:recent"},
+                )
+            ]
+
+    runtime.harness_runtime = SimpleNamespace(
+        single_agent_runtime_host=SimpleNamespace(prompt_accounting_ledger=ExpensiveLedgerWithRecentUsage())
+    )
+    monkeypatch.setattr(tokens_api, "require_runtime", lambda: runtime)
+
+    response = asyncio.run(
+        tokens_api.session_tokens(
+            session_id,
+            workspace_view=None,
+            task_environment_id=None,
+            project_id=None,
+        )
+    )
+
+    meter = response["context_meter"]
+    assert meter["estimate_mode"] == "local_predicted_no_provider_anchor"
+    assert meter["current_context_tokens"] == 155_000
+    assert meter["compaction_pressure_tokens"] == 155_000
+    assert meter["diagnostics"]["raw_record_count"] == 1
+    assert meter["diagnostics"]["current_context_authority"] == "runtime.prompt_accounting.model_request_accounting"
+    assert meter["diagnostics"]["session_pressure_used_as_current_context"] is False
 
 
 def test_session_tokens_counts_only_provider_protocol_messages_as_protocol_pressure(tmp_path: Path, monkeypatch) -> None:

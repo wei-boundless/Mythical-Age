@@ -125,7 +125,6 @@ def _configured_single_turn_tool_iterations() -> int:
 
 _MAX_SINGLE_TURN_TOOL_ITERATIONS = _configured_single_turn_tool_iterations()
 _TOOL_LIMIT_CLOSEOUT_ACTION_TYPES = ("respond", "ask_user", "block")
-_TOOL_LIMIT_CLOSEOUT_SOURCE = "harness.single_agent_turn.tool_limit_closeout"
 _AGENT_CLOSEOUT_SOURCE = "harness.single_agent_turn.agent_closeout"
 _AGENT_CONTRACT_FEEDBACK_SOURCE = "harness.single_agent_turn.agent_contract_feedback"
 _ASSISTANT_CONTENT_PREAMBLE_PROGRESS_SOURCE = "model_action.assistant_content_preamble"
@@ -190,6 +189,152 @@ def _meaningful_visible_answer(content: str) -> bool:
     return any(ch.isalnum() or "\u4e00" <= ch <= "\u9fff" for ch in visible)
 
 
+def _runtime_error_payload(error: dict[str, Any] | Any) -> dict[str, Any]:
+    payload = dict(error or {}) if isinstance(error, dict) else {"reason": str(error or "")}
+    return _drop_empty_dict(
+        {
+            "type": str(payload.get("type") or "error"),
+            "code": str(payload.get("code") or ""),
+            "reason": _compact_text(payload.get("reason"), limit=1200),
+            "source": "harness.loop.single_agent_turn.model_invocation",
+        }
+    )
+
+
+def _drop_empty_dict(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in dict(payload or {}).items()
+        if value not in ("", None, [], {}, ())
+    }
+
+
+def _agent_visible_action_facts(signal: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(signal or {})
+    protocol_error = dict(payload.get("protocol_error") or {})
+    diagnostics = dict(protocol_error.get("diagnostics") or {})
+    detected_action = dict(payload.get("detected_unexecuted_action") or diagnostics.get("detected_json_action") or {})
+    previous_payload = payload.get("rejected_json_action_payload") or diagnostics.get("rejected_json_action_payload")
+    return _drop_empty_dict(
+        {
+            "kind": str(payload.get("signal_kind") or payload.get("observation_type") or ""),
+            "phase": str(payload.get("phase") or ""),
+            "state": _agent_visible_action_state(payload),
+            "attempt": _drop_empty_dict(
+                {
+                    "current": payload.get("recovery_attempt"),
+                    "max": payload.get("max_recovery_attempts"),
+                    "same_repair_channel_exhausted": bool(payload.get("recovery_exhausted") is True),
+                }
+            ),
+            "allowed_actions": [str(item) for item in list(payload.get("allowed_agent_actions") or ()) if str(item)],
+            "tool_call_allowed": bool(payload.get("tool_calls_allowed_after_signal")),
+            "tool_budget": _drop_empty_dict(
+                {
+                    "used_tool_iterations": payload.get("used_tool_iterations"),
+                    "max_tool_iterations": payload.get("max_tool_iterations"),
+                }
+            ),
+            "attempted_actions_not_executed": list(payload.get("attempted_actions_not_executed") or []),
+            "recent_observations": list(payload.get("recent_observations") or [])[:3],
+            "public_response_required": bool(payload.get("public_response_required")),
+            "previous_action": _drop_empty_dict(
+                {
+                    "execution_state": str(detected_action.get("execution_state") or "not_executed") if detected_action else "",
+                    "action_type": str(detected_action.get("action_type") or ""),
+                    "top_level_keys": list(detected_action.get("top_level_keys") or []),
+                    "task_contract_seed_summary": dict(detected_action.get("task_contract_seed_summary") or {}),
+                    "payload": previous_payload if isinstance(previous_payload, dict) else {},
+                }
+            ),
+            "previous_response_preview": _compact_text(payload.get("previous_response_preview"), limit=900),
+            "observed_facts": dict(payload.get("observed_facts") or {}),
+        }
+    )
+
+
+def _agent_visible_action_state(signal: dict[str, Any]) -> str:
+    kind = str(signal.get("signal_kind") or "").strip()
+    if kind == "model_protocol_violation":
+        return "previous_action_not_executed"
+    if kind == "tool_budget_exhausted":
+        return "tool_budget_exhausted"
+    if kind == "final_output_not_committable":
+        return "previous_answer_not_saved"
+    if kind == "consecutive_tool_failures":
+        return "tool_failures"
+    return str(signal.get("runtime_control_state") or signal.get("reason") or "")
+
+
+def _agent_visible_action_fields(allowed_action_types: tuple[str, ...] | list[str]) -> dict[str, str]:
+    allowed = {str(item) for item in list(allowed_action_types or ()) if str(item)}
+    fields: dict[str, str] = {}
+    if "respond" in allowed:
+        fields["respond"] = "final_answer"
+    if "ask_user" in allowed:
+        fields["ask_user"] = "user_question"
+    if "block" in allowed:
+        fields["block"] = "blocking_reason"
+    if "request_task_run" in allowed:
+        fields["request_task_run"] = "task_contract_seed"
+    if "tool_call" in allowed:
+        fields["tool_call"] = "tool_call or tool_calls"
+    if "active_work_control" in allowed:
+        fields["active_work_control"] = "active_work_control"
+    if "resume_recoverable_work" in allowed:
+        fields["resume_recoverable_work"] = "recovery_resume"
+    return fields
+
+
+def _agent_closeout_lifecycle_payload(
+    *,
+    reason: str,
+    phase: str,
+    control_signal: dict[str, Any] | None = None,
+    protocol_error: dict[str, Any] | None = None,
+    previous_invalid_response: str = "",
+    closeout_attempt: int = 1,
+    max_closeout_attempts: int = 2,
+) -> dict[str, Any]:
+    signal = dict(control_signal or {})
+    return _drop_empty_dict(
+        {
+            "observation_type": "agent_closeout_lifecycle",
+            "lifecycle": "agent_authored_closeout",
+            "cause": str(reason or "").strip(),
+            "phase": str(phase or "").strip(),
+            "attempt": _drop_empty_dict(
+                {
+                    "current": int(closeout_attempt or 0),
+                    "max": int(max_closeout_attempts or 0),
+                }
+            ),
+            "tool_channel": "closed",
+            "allowed_actions": list(_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES),
+            "required_user_visible_decision": {
+                "respond": "final_answer when facts are enough to answer or summarize",
+                "ask_user": "user_question when user choice or missing input is required",
+                "block": "blocking_reason when facts, permissions, or environment are insufficient",
+            },
+            "facts": _agent_visible_action_facts(signal),
+            "protocol_error": dict(protocol_error or {}),
+            "previous_invalid_response_preview": _compact_text(previous_invalid_response, limit=1200),
+            "agent_obligations": [
+                "base the closeout only on observed facts and user-visible implications",
+                "state what is confirmed, what is incomplete, and how work can continue",
+                "write the final user-facing judgment in your own words",
+            ],
+            "forbidden": [
+                "do not call tools",
+                "do not output provider-native tool_calls",
+                "do not expose action fields, internal refs, protocol diagnostics, or debug payloads",
+                "do not present unverified work as complete",
+            ],
+            "authority": "harness.loop.single_agent_turn.agent_closeout_lifecycle",
+        }
+    )
+
+
 def _structured_closeout_payload(content: str) -> Any | None:
     text = str(content or "").strip()
     if not text:
@@ -207,15 +352,6 @@ def _structured_closeout_payload(content: str) -> Any | None:
         return json.loads(candidate)
     except Exception:
         return None
-
-
-def _looks_like_structured_closeout_payload(content: str) -> bool:
-    parsed = _structured_closeout_payload(content)
-    if isinstance(parsed, dict):
-        keys = {str(key) for key in parsed.keys()}
-        return bool(keys & {"authority", "action_type", "tool_call", "tool_calls", "active_work_control", "recovery_resume"})
-    return isinstance(parsed, list) and any(isinstance(item, dict) for item in parsed)
-
 
 def _agent_authored_closeout_content_from_structured_payload(
     content: str,
@@ -288,46 +424,6 @@ def _tool_limit_closeout_control_signal(
         "authority": "harness.loop.single_agent_turn.runtime_control_signal",
     }
 
-
-def _tool_limit_closeout_messages(
-    model_messages: list[dict[str, Any]],
-    *,
-    turn_id: str,
-    control_signal: dict[str, Any],
-) -> list[dict[str, Any]]:
-    closeout_payload = {
-        "runtime_control_signal": dict(control_signal or {}),
-        "required_action_protocol": {
-            "authority": "harness.loop.model_action_request",
-            "allowed_action_types": list(_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES),
-            "tool_call_allowed": False,
-            "json_only": True,
-        },
-    }
-    instruction = (
-        "系统运行控制观察如下。它不是最终回复，而是交给你的收口信号。\n"
-        f"{json.dumps(closeout_payload, ensure_ascii=False, sort_keys=True)}\n\n"
-        "你现在是本轮收口负责人。你不能再调用工具，不能输出 provider-native tool_calls，"
-        "也不能在 JSON 外输出正文。\n"
-        "你只能输出一个 JSON action，authority 必须是 harness.loop.model_action_request，"
-        "action_type 只能是 respond、ask_user 或 block。\n"
-        "如果当前事实足以告知用户进展或结果，选择 respond 并填写 final_answer。\n"
-        "如果任务还没完成但需要用户决定是否继续，选择 ask_user 并填写 user_question。\n"
-        "如果当前事实不足以可靠继续或可靠总结，选择 block 并填写 blocking_reason。\n"
-        "无论选择哪一种，都要把工具预算耗尽后的收口问题写成用户能理解的 agent 判断："
-        "哪些已经确认、哪些没完成、为什么本轮不能继续工具、下一步如何恢复；"
-        "不要泄露错误码、JSON schema、action 字段或系统拦截过程。"
-    )
-    return _sanitize_model_messages(
-        [
-            *[dict(item) for item in list(model_messages or []) if isinstance(item, dict)],
-            {"role": "system", "content": instruction, "turn_id": turn_id},
-        ],
-        turn_id=turn_id,
-        source="harness.loop.single_agent_turn.tool_limit_closeout",
-    )
-
-
 def _consecutive_tool_failure_closeout_control_signal(
     *,
     turn_id: str,
@@ -387,6 +483,7 @@ def _model_protocol_violation_control_signal(
 ) -> dict[str, Any]:
     allowed = [str(item) for item in list(allowed_action_types or ()) if str(item)]
     tool_calls_allowed = "tool_call" in set(allowed)
+    recovery_exhausted = int(recovery_attempt or 0) >= int(max_recovery_attempts or 0)
     code = str(protocol_error.get("code") or "single_agent_turn_model_protocol_error")
     reason = str(protocol_error.get("reason") or code)
     diagnostics = dict(protocol_error.get("diagnostics") or {})
@@ -396,16 +493,21 @@ def _model_protocol_violation_control_signal(
     rejected_payload_dict = dict(rejected_payload or {}) if isinstance(rejected_payload, dict) else {}
     specific_repair = _protocol_error_specific_repair_instruction(protocol_error)
     instruction = (
-        "上一轮模型动作没有通过运行时动作合同校验。系统没有执行该动作。"
-        "你必须先吸收这条运行控制观察，再重新选择一个合法动作。"
-        "只能输出一个 JSON action；不要使用 Markdown 代码块；不要在 JSON 前后附加解释文字。"
+        "上一轮动作没有进入执行队列。"
+        "请根据用户目标、已观察事实、allowed_agent_actions 和未执行原因，重新提交一个合法动作。"
+        "整段输出只能包含一个 action-like 对象和一个动作来源。"
     )
+    if recovery_exhausted:
+        instruction += (
+            "同一修复通道已经达到上限；不要重复同一无效动作形状。"
+            "请重新评估当前事实，选择一个新的合法动作。"
+        )
     if detected_action:
         detected_action_type = str(detected_action.get("action_type") or "").strip()
         action_hint = f"（action_type={detected_action_type}）" if detected_action_type else ""
         instruction += (
-            f"系统已检测到上一轮包含一个 JSON action{action_hint}，但它的运输形状不合法，所以未执行、未启动任务、未写入状态。"
-            "如果该动作仍是你的判断，请把同一个动作作为单个原始 JSON action 重新提交。"
+            f"上一轮输出中已有一个 JSON action{action_hint}，但没有进入执行队列。"
+            "如果该动作仍是你的判断，请保留语义意图，修正字段，并作为唯一动作重新提交。"
         )
     if specific_repair:
         instruction += f"具体修复：{specific_repair}"
@@ -415,18 +517,20 @@ def _model_protocol_violation_control_signal(
             "或 public_action_state.current_judgment，说明已确认事实、影响和下一步。"
         )
     if not tool_calls_allowed:
-        instruction += "当前阶段不允许继续调用工具；只能选择 respond、ask_user 或 block 收口。"
+        instruction += "当前阶段工具通道关闭；请在 allowed_agent_actions 内选择 respond、ask_user、block 或其他已开放控制动作。"
     return {
         "observation_type": "runtime_control_signal",
         "source": "system:runtime_control_signal",
         "signal_kind": "model_protocol_violation",
-        "runtime_control_state": "model_action_recovery_required",
+        "runtime_control_state": "model_action_contract_feedback_required" if recovery_exhausted else "model_action_recovery_required",
         "turn_id": turn_id,
         "packet_ref": packet_ref,
         "phase": phase,
         "recovery_attempt": int(recovery_attempt or 0),
         "max_recovery_attempts": int(max_recovery_attempts or 0),
-        "agent_closeout_required": not tool_calls_allowed,
+        "recovery_exhausted": recovery_exhausted,
+        "fresh_agent_decision_required": True,
+        "agent_closeout_required": False,
         "allowed_agent_actions": allowed,
         "tool_calls_allowed_after_signal": bool(tool_calls_allowed),
         "public_response_required": bool(public_response_required),
@@ -441,7 +545,7 @@ def _model_protocol_violation_control_signal(
             "message": instruction,
             "reason": reason,
             "origin": "single_agent_turn_model_protocol_boundary",
-            "retryable": int(recovery_attempt or 0) < int(max_recovery_attempts or 0),
+            "retryable": not recovery_exhausted,
         },
         "authority": "harness.loop.single_agent_turn.runtime_control_signal",
     }
@@ -462,7 +566,7 @@ def _final_output_not_committable_control_signal(
     instruction = (
         "上一轮最终输出没有通过会话输出提交门禁，因此没有写入用户会话。"
         "你必须停止复述被拒绝内容，改为给用户一个安全、简洁、可见的收口反馈。"
-        "不要泄露内部协议、动作 JSON、tool_calls 或提交门禁字段。"
+        "不要泄露内部字段、动作 JSON、tool_calls 或提交门禁字段。"
     )
     return {
         "observation_type": "runtime_control_signal",
@@ -500,37 +604,31 @@ def _runtime_control_signal_recovery_messages(
     turn_id: str,
     control_signal: dict[str, Any],
     allowed_action_types: tuple[str, ...],
+    recovery_exhausted: bool = False,
 ) -> list[dict[str, Any]]:
     signal = dict(control_signal or {})
     detected_action = dict(signal.get("detected_unexecuted_action") or {})
-    rejected_transport = dict(signal.get("rejected_action_transport") or {})
-    rejected_payload = dict(signal.get("rejected_json_action_payload") or {})
+    allowed = [str(item) for item in list(allowed_action_types or ()) if str(item)]
     payload = {
-        "runtime_control_signal": signal,
-        "required_action_protocol": {
+        "facts": _agent_visible_action_facts(signal),
+        "allowed_action_types": allowed,
+        "tool_call_allowed": "tool_call" in set(allowed_action_types or ()),
+        "required_fields": _agent_visible_action_fields(allowed),
+        "output": {
             "authority": "harness.loop.model_action_request",
-            "allowed_action_types": [str(item) for item in list(allowed_action_types or ()) if str(item)],
-            "tool_call_allowed": "tool_call" in set(allowed_action_types or ()),
-            "json_only": True,
+            "shape": "one identifiable action-like object",
         },
     }
+    if recovery_exhausted:
+        payload["facts"]["same_repair_channel_exhausted"] = True
     if detected_action:
-        payload["previous_model_action_execution"] = {
-            "state": "not_executed",
-            "detected_json_action": detected_action,
-            "rejected_action_transport": rejected_transport,
-            "rejected_json_action_payload": rejected_payload,
-            "agent_next_step": (
-                "如果检测到的动作仍是你的决策，请把该动作作为单个原始 JSON 对象重新提交。"
-                "如果你判断还需要新证据，请在 allowed_action_types 允许时选择 tool_call 等其他 JSON action。"
-            ),
-        }
+        payload["previous_action"] = detected_action
     instruction = (
-        "系统运行控制观察如下。它是模型可见的 observation/control signal，不是最终回复。\n"
+        "请根据以下事实选择下一步动作。\n"
         f"{json.dumps(payload, ensure_ascii=False, sort_keys=True)}\n\n"
-        "你必须基于这条观察重新输出一个合法 JSON action。"
-        "不要重复上一轮违规输出；不要使用 Markdown 代码块；不要输出 provider-native tool_calls；"
-        "不要在 JSON 前后附加解释文字。"
+        "保留用户目标和已确认事实，从 allowed_action_types 中选择一个 action_type。"
+        "如果上一轮动作仍然正确，修正字段后重新提交。"
+        "整段输出只能包含一个 action-like 对象。"
     )
     return _sanitize_model_messages(
         [
@@ -565,27 +663,28 @@ def _tool_followup_action_contract_messages(
 ) -> list[dict[str, Any]]:
     allowed = tuple(str(item) for item in tuple(allowed_action_types or ()) if str(item))
     payload = {
-        "required_action_protocol": {
-            "authority": "harness.loop.model_action_request",
-            "allowed_action_types": list(allowed),
-            "assistant_body_transport": "disabled_for_tool_observation_followup",
-            "json_action_required_when_not_using_provider_native_tool_call": True,
-            "provider_native_tool_call_allowed": "tool_call" in set(allowed),
+        "allowed_action_types": list(allowed),
+        "required_fields": _agent_visible_action_fields(allowed),
+        "tool_call_allowed": "tool_call" in set(allowed),
+        "output": {
+            "assistant_message": "事实已经足够回答用户时，直接输出用户可见的自然语言正文。",
+            "control_action": "需要 ask_user、block、request_task_run、active_work_control 或 JSON tool_call 时，输出一个可识别 action-like 对象。",
+            "text_transport": "控制动作可以带很短说明，但必须只有一个可识别动作对象；普通最终回答不需要 JSON 包裹。",
         },
         "tool_followup_iteration": int(tool_iteration or 0),
     }
     instruction = (
         "你是正在根据刚才工具观察决定下一步的 coding agent。\n"
-        "这不是普通正文续写阶段；你需要提交一个运行时能唯一解释的下一步动作。\n"
+        "请选择一个下一步动作。\n"
         f"{json.dumps(payload, ensure_ascii=False, sort_keys=True)}\n\n"
-        "如果已经足够回答用户，输出一个 JSON action：action_type=respond，并把用户可见回复写入 final_answer。\n"
-        "如果需要用户补充，输出 action_type=ask_user，并填写 user_question。\n"
-        "如果当前事实或权限不足，输出 action_type=block，并填写 blocking_reason。\n"
-        "如果需要启动持续任务，输出 action_type=request_task_run，并把 user_visible_goal、task_run_goal、"
+        "如果已经足够回答用户，直接写用户可见的最终回复；这会作为你的 respond 收口。\n"
+        "如果需要用户补充，提交 action_type=ask_user，并填写 user_question。\n"
+        "如果当前事实或权限不足，提交 action_type=block，并填写 blocking_reason。\n"
+        "如果需要启动持续任务，提交 action_type=request_task_run，并把 user_visible_goal、task_run_goal、"
         "working_scope、capability_intent、skill_intent、observation_contract 和完成证据全部放入 task_contract_seed。\n"
         "如果仍需普通工具且工具通道可用，可以发起 provider-native tool_call 或 JSON tool_call；"
-        "工具前置说明可以作为你的公开进展，但不要把控制合同或 task_contract_seed 写成普通正文。\n"
-        "不要在 JSON action 前后附加自然语言解释；不要泄露字段名、协议错误或系统处理过程给用户。"
+        "工具前置说明可以作为公开进展，但 task_contract_seed 必须留在动作对象内。\n"
+        "只有控制动作和工具动作需要动作对象；不要为了最终回答把自然语言正文塞进 JSON。"
     )
     return _sanitize_model_messages(
         [
@@ -611,32 +710,35 @@ def _agent_authored_closeout_messages(
     control_signal: dict[str, Any] | None = None,
     protocol_error: dict[str, Any] | None = None,
     previous_invalid_response: str = "",
+    closeout_attempt: int = 1,
+    max_closeout_attempts: int = 2,
 ) -> list[dict[str, Any]]:
-    closeout_payload = {
-        key: value
-        for key, value in {
-            "reason": str(reason or "").strip(),
-            "phase": str(phase or "").strip(),
-            "runtime_control_signal": dict(control_signal or {}),
-            "protocol_error": dict(protocol_error or {}),
-            "previous_invalid_response": str(previous_invalid_response or "").strip()[:1200],
-        }.items()
-        if value not in ("", None, [], {}, ())
-    }
+    closeout_lifecycle = _agent_closeout_lifecycle_payload(
+        reason=reason,
+        phase=phase,
+        control_signal=control_signal,
+        protocol_error=protocol_error,
+        previous_invalid_response=previous_invalid_response,
+        closeout_attempt=closeout_attempt,
+        max_closeout_attempts=max_closeout_attempts,
+    )
     instruction = (
         "你是一名正在收口的 coding agent。\n"
-        "系统已经停止继续执行工具；现在必须由你亲自向用户收口。\n"
-        "你只能输出给用户看的自然语言正文，不要输出 JSON、action_request、tool_calls、内部协议、工具调用片段或开发者说明。\n"
-        "如果当前信息足够，请说明你已经确认的事实、完成了什么、还缺什么、下一步应该怎么继续。\n"
+        "你收到的是本轮收口生命周期 observation；当前阶段已经停止继续执行工具，现在必须由你亲自做收口决策。\n"
+        "你必须只输出一个 JSON action 对象，不能输出 Markdown 代码块、正文解释、provider-native tool_calls 或第二个动作来源。\n"
+        "JSON action 的 authority 必须是 harness.loop.model_action_request，action_type 只能是 respond、ask_user 或 block。\n"
+        "如果当前信息足够，请选择 respond，并把给用户看的自然语言收口写入 final_answer。\n"
+        "如果还需要用户选择或补充信息，请选择 ask_user，并把问题写入 user_question。\n"
+        "如果事实、权限或环境不足以可靠继续，请选择 block，并把阻塞原因写入 blocking_reason。\n"
         "如果收口原因是工具预算耗尽、工具通道关闭、连续工具失败或前一次收口没有形成可发布回复，"
-        "必须把它写成你自己的用户可见判断：本轮已不能继续执行工具、已确认哪些事实、哪些仍未确认、继续需要什么。"
-        "不要把错误码、JSON schema、action 字段或系统拦截过程写给用户。\n"
-        "如果遇到搜索参数、路径、权限、读取窗口、上下文预算或大文件边界，请把它当作可恢复的运行事实："
+        "必须在用户可见字段里写成你自己的判断：本轮已不能继续执行工具、已确认哪些事实、哪些仍未确认、继续需要什么。"
+        "不要把调试字段、动作字段名、内部 ref、协议诊断或生命周期 JSON 写进用户可见字段。\n"
+        "如果遇到搜索参数、路径、权限、读取窗口、上下文预算或大文件边界，请把它当作可恢复的执行事实："
         "说明应缩小范围、把目录放在 roots、把具体文件放在 paths、按 read_file 窗口继续读取、提高上下文预算，"
         "或把工作升级为项目级任务继续处理。\n"
-        "如果你还没有完成用户目标，要明确说未完成和可继续的具体方向；不要把工具记录当作最终成果。\n\n"
-        "运行边界观察如下，只用于你理解收口原因，不要逐字泄露内部字段：\n"
-        f"{json.dumps(closeout_payload, ensure_ascii=False, sort_keys=True)}"
+        "如果你还没有完成用户目标，要在用户可见字段里明确说未完成和可继续的具体方向；不要把工具记录当作最终成果。\n\n"
+        "收口生命周期如下，只用于你理解收口原因和边界，不要逐字泄露内部字段：\n"
+        f"{json.dumps({'closeout_lifecycle': closeout_lifecycle}, ensure_ascii=False, sort_keys=True)}"
     )
     return _sanitize_model_messages(
         [
@@ -675,10 +777,10 @@ def _agent_contract_feedback_required_lifecycle(
     )
     return {
         "observation_type": "agent_contract_feedback_lifecycle",
-        "source": "system:execution_contract_feedback",
+        "source": "execution_contract_feedback",
         "signal_kind": "agent_contract_feedback_required",
         "lifecycle": "agent_contract_feedback_required",
-        "runtime_control_state": "execution_contract_feedback_required",
+        "contract_feedback_state": "execution_contract_feedback_required",
         "turn_id": str(turn_id or ""),
         "packet_ref": str(packet_ref or ""),
         "phase": str(phase or ""),
@@ -695,14 +797,15 @@ def _agent_contract_feedback_required_lifecycle(
             "previous_invalid_response_preview": _compact_text(previous_invalid_response, limit=1200),
             "protocol_error": protocol,
             "specific_feedback": feedback_items,
-            "runtime_control_signal": signal,
+            "facts": _agent_visible_action_facts(signal),
         },
         "observed_facts": _contract_feedback_observed_facts(list(observations or [])),
         "required_action_protocol": {
             "authority": "harness.loop.model_action_request",
             "allowed_action_types": list(_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES),
             "tool_call_allowed": False,
-            "json_only": True,
+            "structured_action_required": True,
+            "text_transport_accepts_single_unambiguous_json_action": True,
             "visible_user_body_allowed_only_from_agent_action": True,
         },
         "agent_feedback": feedback,
@@ -730,14 +833,14 @@ def _agent_contract_feedback_message(
     items = list(feedback_items or [])
     phase_text = _contract_feedback_phase_text(phase)
     pieces = [
-        "这是一条执行契约反馈，不是用户消息。",
-        "上一条输出没有进入会话，也不会被运行时代写成用户正文；你仍然负责判断、调度和最终表达。",
+        "上一条输出没有进入会话，也不会展示给用户。",
+        "请保留用户目标和已确认事实，重新选择下一步动作。",
         f"当前阶段：{phase_text}",
     ]
     if signal_kind:
         pieces.append(f"触发信号：{signal_kind}。")
     if items:
-        pieces.append("未通过的契约：")
+        pieces.append("需要修正的地方：")
         for index, item in enumerate(items[:4], start=1):
             situation = str(item.get("situation_feedback") or item.get("reason") or item.get("code") or "").strip()
             repair = str(item.get("repair_instruction") or "").strip()
@@ -750,15 +853,15 @@ def _agent_contract_feedback_message(
             pieces.append(line)
     else:
         fallback_reason = str(protocol_error.get("reason") or protocol_error.get("code") or reason or "agent_output_contract_not_satisfied").strip()
-        pieces.append(f"未通过的契约：{fallback_reason}。请按本轮 required_action_protocol 重新提交一个合法动作。")
+        pieces.append(f"上一条输出未满足当前动作要求：{fallback_reason}。请重新提交一个允许动作。")
     if previous_invalid_response:
         pieces.append("上一条不可发布输出已保存在 previous_invalid_response_preview，只能用于你定位错误，不能复述给用户。")
     pieces.append(
-        "恢复要求：下一次只输出一个 authority 为 harness.loop.model_action_request 的 JSON action；"
-        "action_type 只能是 respond、ask_user 或 block；不能调用工具，不能输出 provider-native tool_calls，也不能在 JSON 外写正文。"
+        "下一步要求：提交一个可唯一识别的结构化动作，authority 为 harness.loop.model_action_request；"
+        "action_type 只能是 respond、ask_user 或 block；不能调用工具，不能输出 provider-native tool_calls，也不能混入第二个动作来源。"
     )
     pieces.append(
-        "选择动作时按真实情况来：事实足够就用 respond.final_answer 写自然、可发布的收口；"
+        "按真实情况选择动作：事实足够就用 respond.final_answer 写自然、可发布的收口；"
         "需要用户决定就用 ask_user.user_question；事实、权限或证据不足就用 block.blocking_reason。"
     )
     return "\n".join(piece for piece in pieces if str(piece or "").strip()).strip()
@@ -818,7 +921,7 @@ def _contract_feedback_item_for_runtime_control_signal(control_signal: dict[str,
         "code": "tool_budget_exhausted",
         "reason": "tool_budget_exhausted",
         "situation_feedback": f"本轮已经达到单轮工具预算上限{budget_text}；{attempted_text}",
-        "repair_instruction": "停止继续请求工具，把当前边界写成 agent 自己的收口：说明已确认事实、未完成项、验证状态和继续条件。",
+        "repair_instruction": "停止继续请求工具，用你自己的判断收口：说明已确认事实、未完成项、验证状态和继续条件。",
         "expected_next_action": "事实足够时用 respond.final_answer 收口；需要用户决定是否继续时用 ask_user.user_question；证据不足时用 block.blocking_reason。",
     }
 
@@ -897,9 +1000,9 @@ def _contract_feedback_phase_text(phase: str) -> str:
     labels = {
         "tool_limit_closeout": "工具预算已耗尽后的收口阶段，不能再发起工具，只能基于已观察事实回应、询问或阻塞。",
         "consecutive_tool_failure_closeout": "连续工具失败后的收口阶段，不能重复同类失败动作，只能解释失败、询问用户或阻塞。",
-        "protocol_recovery": "协议恢复阶段，上一轮输出未满足动作合同，需要重新提交合法动作。",
-        "tool_loop": "工具执行循环阶段，模型输出必须能被运行时唯一解释为一个合法动作。",
-        "final_output_commit": "最终回复提交阶段，候选正文必须是 agent 自己写出的自然用户回复，且不能泄露内部协议。",
+        "protocol_recovery": "上一轮动作未执行，需要重新提交允许动作。",
+        "tool_loop": "工具执行循环阶段，模型输出必须是一个可唯一识别的合法动作。",
+        "final_output_commit": "最终回复提交阶段，候选正文必须是 agent 自己写出的自然用户回复，且不能泄露内部字段。",
     }
     return labels.get(normalized, normalized or "unknown")
 
@@ -926,40 +1029,40 @@ def _uses_standard_contract_feedback_template(code: str) -> bool:
 def _situation_feedback_for_contract_code(code: str, *, requested_action: str = "", requested_tool: str = "") -> str:
     normalized = str(code or "").strip()
     if normalized in {"json_action_required", "single_agent_turn_json_action_required"}:
-        return "你没有提交本阶段要求的 JSON action，运行时无法把上一条输出可靠归类为回答、询问或阻塞。"
+        return "你没有提交本阶段要求的结构化动作，上一条输出无法可靠归类为回答、询问或阻塞。"
     if normalized in {"native_tool_call_transport_not_available", "native_tool_call_not_allowed_for_context"}:
         tool_hint = f"（{requested_tool}）" if requested_tool else ""
         return f"你尝试继续调用工具{tool_hint}，但当前阶段的工具通道已经关闭；这次工具意图不会被执行。"
     if normalized in {"native_control_action_command_transport_not_allowed", "control_action_command_transport_not_allowed"}:
         action_hint = f"（{requested_action}）" if requested_action else ""
-        return f"你把控制类动作{action_hint}写进了命令文本；命令输出不是动作信号，运行时不会把它当成任务或会话控制。"
+        return f"你把控制类动作{action_hint}写进了命令文本；命令输出不是动作信号，不能当成任务或会话控制。"
     if normalized == "invalid_native_control_action":
         action_hint = f"（{requested_action}）" if requested_action else ""
-        return f"你提交了 canonical native 控制动作{action_hint}，但动作参数没有通过 model_action_request 合同校验。"
+        return f"你提交了 canonical native 控制动作{action_hint}，但动作参数没有通过 model_action_request 校验。"
     if normalized in {"multiple_native_action_sources", "multiple_native_control_actions"}:
-        return "同一轮出现了多个 native 动作决定，运行时无法判断哪一个才是你的唯一真实决策。"
+        return "同一轮出现了多个 native 动作决定，无法判断哪一个才是你的唯一真实决策。"
     if normalized in {"single_agent_turn_multiple_action_sources"}:
-        return "同一轮同时出现 JSON action 和 provider-native tool_call，运行时无法判断哪一个才是你的真实决定。"
+        return "同一轮同时出现 JSON action 和 provider-native tool_call，无法判断哪一个才是你的真实决定。"
     if normalized in {"final_answer_required_for_respond", "native_respond_final_answer_required"}:
         return "你选择了 respond，但没有提供 final_answer；这样会让用户只看到状态或记录，而不是 agent 的自然回复。"
     if normalized in {"blocking_reason_required_for_block"}:
         return "你选择了 block，但没有说明具体阻塞事实；用户和后续 agent 都无法判断卡点是权限、证据、环境还是目标不清。"
     if normalized in {"user_question_required_for_ask_user"}:
         return "你选择了 ask_user，但没有给出用户可以直接回答的问题。"
-    return "上一条输出没有满足当前动作合同，运行时不能安全地执行或发布它。"
+    return "上一条输出不能进入执行或发布。"
 
 
 def _repair_instruction_for_contract_code(code: str, *, requested_action: str = "", requested_tool: str = "") -> str:
     normalized = str(code or "").strip()
     if normalized in {"json_action_required", "single_agent_turn_json_action_required"}:
-        return "只输出一个 authority 为 harness.loop.model_action_request 的 JSON 对象，不要写 Markdown、解释文字或自然语言正文。"
+        return "提交一个 authority 为 harness.loop.model_action_request 的结构化动作；文本里只能有一个 action-like JSON 对象，包装文字只会被当作传输层噪声。"
     if normalized in {"native_tool_call_transport_not_available", "native_tool_call_not_allowed_for_context"}:
         tool_hint = f"（刚才请求的是 {requested_tool}）" if requested_tool else ""
         return f"不要重复 provider-native tool_calls{tool_hint}；把当前意图改写为 respond、ask_user 或 block。"
     if normalized in {"native_control_action_command_transport_not_allowed", "control_action_command_transport_not_allowed"}:
         return "不要用 shell、bash、cmd、echo 或 printf 表达控制动作；请提交 JSON action 或 provider-native canonical control action。"
     if normalized == "invalid_native_control_action":
-        return "保留原动作类型，补齐缺失或错层的动作参数；任务合同字段必须满足 task_contract_seed、recovery_resume 或对应控制对象的结构要求。"
+        return "保留原动作类型，补齐缺失或错层的动作参数；request_task_run 必须填写 task_contract_seed，resume_recoverable_work 必须填写 recovery_resume。"
     if normalized in {"multiple_native_action_sources", "multiple_native_control_actions"}:
         return "只保留一个 native 控制动作，或只保留一个普通工具动作集合；不要在同一轮混合多个决策。"
     if normalized in {"single_agent_turn_multiple_action_sources"}:
@@ -970,7 +1073,7 @@ def _repair_instruction_for_contract_code(code: str, *, requested_action: str = 
         return "如果选择 block，必须填写 blocking_reason，并说明具体阻塞事实、缺少的权限或缺失信息。"
     if normalized in {"user_question_required_for_ask_user"}:
         return "如果选择 ask_user，必须填写 user_question，并提出用户能直接回答的具体问题。"
-    return "根据本轮 required_action_protocol 重新提交一个允许动作，保留已确认事实，避免泄露内部协议或重复无效动作。"
+    return "根据 allowed_action_types 重新提交一个允许动作，保留已确认事实，不要把动作字段写进用户可见正文，也不要重复同一无效形状。"
 
 
 def _expected_next_action_for_contract_code(code: str, *, requested_action: str = "", requested_tool: str = "") -> str:
@@ -982,7 +1085,7 @@ def _expected_next_action_for_contract_code(code: str, *, requested_action: str 
     if normalized in {"native_control_action_command_transport_not_allowed", "control_action_command_transport_not_allowed"}:
         return "把控制动作从命令文本移出，提交同等语义的 canonical structured action。"
     if normalized == "invalid_native_control_action":
-        return "按 model_action_request 合同补齐当前控制动作的必需字段后重新提交。"
+        return "按 model_action_request 补齐当前控制动作的必需字段后重新提交。"
     if normalized in {"multiple_native_action_sources", "multiple_native_control_actions"}:
         return "删掉冲突动作，只提交一个可执行的结构化决定。"
     if normalized in {"single_agent_turn_multiple_action_sources"}:
@@ -1000,7 +1103,7 @@ def _expected_next_action_for_contract_code(code: str, *, requested_action: str 
 
 def _commit_feedback_situation(*, commit_reason: str, leak_flags: list[str]) -> str:
     if any("runtime_protocol" in flag or "internal_protocol" in flag for flag in leak_flags):
-        return "你的候选 final_answer 混入了内部协议、运行时拦截或系统处理细节；这会变成系统越过 agent 对用户说话。"
+        return "你的候选 final_answer 混入了内部字段或动作说明；这些内容不能作为用户回复。"
     if commit_reason in {"empty_final_text", "missing_answer"}:
         return "候选正文为空或没有形成可发布答案；用户会只看到运行记录，而不是你的收口表达。"
     return "候选正文没有通过会话提交门禁；它不能作为最终用户回复保存。"
@@ -1016,10 +1119,10 @@ def _commit_feedback_expected_next_action(*, commit_reason: str, leak_flags: lis
 
 def _commit_feedback_instruction(*, commit_reason: str, leak_flags: list[str]) -> str:
     if any("runtime_protocol" in flag or "internal_protocol" in flag for flag in leak_flags):
-        return "不要解释内部协议或运行时拦截，不要说“系统替你处理”；把事实、结果、风险和下一步改写成你自己的自然回复。"
+        return "不要解释内部字段；把事实、结果、风险和下一步改写成你自己的自然回复。"
     if commit_reason in {"empty_final_text", "missing_answer"}:
         return "给出真实 final_answer；如果无法可靠回答，改用 ask_user 或 block。"
-    return "不要复述被拒绝内容，按 respond、ask_user 或 block 合同生成新的 agent 输出。"
+    return "不要复述被拒绝内容，按 respond、ask_user 或 block 生成新的 agent 输出。"
 
 
 def _unique_feedback_items(items: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -1367,7 +1470,7 @@ async def run_single_agent_turn(
             protocol_error: dict[str, Any] | None = None,
             completion_state: str = "agent_authored_closeout",
         ) -> AsyncIterator[dict[str, Any]]:
-            nonlocal terminal_recorded
+            nonlocal terminal_recorded, assistant_stream_normalizer
             previous_invalid_response = ""
             for attempt in (1, 2):
                 closeout_messages = _agent_authored_closeout_messages(
@@ -1378,6 +1481,8 @@ async def run_single_agent_turn(
                     control_signal=control_signal,
                     protocol_error=protocol_error,
                     previous_invalid_response=previous_invalid_response,
+                    closeout_attempt=attempt,
+                    max_closeout_attempts=2,
                 )
                 closeout_segment_plan = _single_agent_turn_followup_segment_plan(
                     base_segment_plan=dict(compilation.packet.segment_plan or {}),
@@ -1385,7 +1490,8 @@ async def run_single_agent_turn(
                     packet_id=current_packet_ref,
                     tool_iteration=tool_iteration + attempt,
                 )
-                closeout_response = await _invoke_single_turn_model(
+                closeout_response = None
+                async for model_event in _invoke_single_turn_model_with_stream_events(
                     model_runtime=model_runtime,
                     model_messages=closeout_messages,
                     model_selection=_model_selection_for_native_tool_protocol(dict(model_selection or {})),
@@ -1407,20 +1513,27 @@ async def run_single_agent_turn(
                         },
                     },
                     native_tools=[],
-                )
+                    allow_assistant_text_delta=False,
+                    require_json_action=True,
+                ):
+                    if model_event.get("type") == _INTERNAL_MODEL_RESPONSE_EVENT:
+                        closeout_response = model_event.get("response")
+                        assistant_stream_normalizer = model_event.get("assistant_stream_normalizer")
+                        continue
+                    capture_assistant_stream_event(model_event)
+                    yield model_event
                 if isinstance(closeout_response, dict) and closeout_response.get("type") == "error":
                     break
                 content = stringify_content(getattr(closeout_response, "content", closeout_response)).strip()
                 closeout_content = _agent_authored_closeout_content_from_structured_payload(content, turn_id=turn_id)
                 answer_channel = "conversation"
                 terminal_status = "completed"
-                if closeout_content is not None:
-                    content = closeout_content.content
-                    answer_channel = closeout_content.answer_channel
-                    terminal_status = closeout_content.terminal_status
-                elif _looks_like_structured_closeout_payload(content):
+                if closeout_content is None:
                     previous_invalid_response = content[:1200]
                     continue
+                content = closeout_content.content
+                answer_channel = closeout_content.answer_channel
+                terminal_status = closeout_content.terminal_status
                 decision = canonical_output_decision_for_final_text(
                     content,
                     answer_channel=answer_channel,
@@ -1557,7 +1670,6 @@ async def run_single_agent_turn(
             attempted_actions: list[ModelActionRequest],
             phase: str,
         ) -> AsyncIterator[dict[str, Any]]:
-            nonlocal assistant_stream_normalizer, protocol_recovery_attempts
             control_signal = _tool_limit_closeout_control_signal(
                 turn_id=turn_id,
                 packet_ref=current_packet_ref,
@@ -1575,228 +1687,15 @@ async def run_single_agent_turn(
                     control_signal=control_signal,
                 )
                 yield {"type": "turn_runtime_control_signal_observed", "event": event}
-            closeout_messages = _tool_limit_closeout_messages(
-                model_messages,
-                turn_id=turn_id,
-                control_signal=control_signal,
-            )
-            closeout_segment_plan = _single_agent_turn_followup_segment_plan(
-                base_segment_plan=dict(compilation.packet.segment_plan or {}),
-                model_messages=closeout_messages,
-                packet_id=current_packet_ref,
-                tool_iteration=tool_iteration + 1,
-            )
-            closeout_response = None
-            async for model_event in _invoke_single_turn_model_with_stream_events(
-                model_runtime=model_runtime,
-                model_messages=closeout_messages,
-                model_selection=dict(model_selection or {}),
-                accounting_context={
-                    "request_id": f"modelreq:{current_packet_ref}:tool-limit-closeout",
-                    "session_id": session_id,
-                    "run_id": turn_run.turn_run_id if turn_run is not None else "",
-                    "turn_id": turn_id,
-                    "packet_ref": current_packet_ref,
-                    "source": _TOOL_LIMIT_CLOSEOUT_SOURCE,
-                    "segment_plan": closeout_segment_plan,
-                    "prompt_manifest": {
-                        **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
-                        "invocation_kind": "single_agent_turn_tool_limit_closeout",
-                        "closeout_required": True,
-                        "allowed_action_types": list(_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES),
-                        "segment_plan_ref": str(closeout_segment_plan.get("segment_plan_id") or ""),
-                    },
-                },
-                native_tools=[],
-                allow_assistant_text_delta=False,
-                require_json_action=True,
-            ):
-                if model_event.get("type") == _INTERNAL_MODEL_RESPONSE_EVENT:
-                    closeout_response = model_event.get("response")
-                    assistant_stream_normalizer = model_event.get("assistant_stream_normalizer")
-                    continue
-                capture_assistant_stream_event(model_event)
-                yield model_event
-
-            answer_source = _TOOL_LIMIT_CLOSEOUT_SOURCE
-            if isinstance(closeout_response, dict) and closeout_response.get("type") == "error":
-                yield closeout_response
-                content = ""
-                terminal_status = "blocked"
-                answer_channel = "blocked"
-                completion_state = "tool_limit_closeout_failed"
-            else:
-                closeout_parse = _single_agent_action_request_from_response(
-                    closeout_response,
-                    request_id=f"model-response:{current_packet_ref}:tool-limit-closeout",
-                    turn_id=turn_id,
-                    packet_ref=current_packet_ref,
-                    iteration=tool_iteration + 1,
-                    allowed_action_types=_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES,
-                    phase="tool_limit_closeout",
-                    require_json_action=True,
-                    public_response_required=False,
-                )
-                if closeout_parse.error:
-                    protocol_recovery_attempts += 1
-                    protocol_control_signal = _model_protocol_violation_control_signal(
-                        turn_id=turn_id,
-                        packet_ref=current_packet_ref,
-                        phase="tool_limit_closeout",
-                        protocol_error=dict(closeout_parse.error or {}),
-                        allowed_action_types=_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES,
-                        recovery_attempt=protocol_recovery_attempts,
-                        max_recovery_attempts=_MAX_SINGLE_TURN_PROTOCOL_RECOVERY_ATTEMPTS,
-                        public_response_required=False,
-                        response_preview=stringify_content(getattr(closeout_response, "content", closeout_response)),
-                    )
-                    if runtime_host is not None and turn_run is not None:
-                        event = _record_turn_runtime_control_signal(
-                            runtime_host,
-                            turn_run=turn_run,
-                            turn_id=turn_id,
-                            packet_ref=current_packet_ref,
-                            control_signal=protocol_control_signal,
-                        )
-                        yield {"type": "turn_runtime_control_signal_observed", "event": event}
-                    recovery_messages = _runtime_control_signal_recovery_messages(
-                        closeout_messages,
-                        turn_id=turn_id,
-                        control_signal=protocol_control_signal,
-                        allowed_action_types=_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES,
-                    )
-                    recovery_segment_plan = _single_agent_turn_followup_segment_plan(
-                        base_segment_plan=dict(compilation.packet.segment_plan or {}),
-                        model_messages=recovery_messages,
-                        packet_id=current_packet_ref,
-                        tool_iteration=tool_iteration + 1,
-                    )
-                    recovery_response = None
-                    async for model_event in _invoke_single_turn_model_with_stream_events(
-                        model_runtime=model_runtime,
-                        model_messages=recovery_messages,
-                        model_selection=dict(model_selection or {}),
-                        accounting_context={
-                            "request_id": f"modelreq:{current_packet_ref}:tool-limit-closeout-runtime-control-recovery",
-                            "session_id": session_id,
-                            "run_id": turn_run.turn_run_id if turn_run is not None else "",
-                            "turn_id": turn_id,
-                            "packet_ref": current_packet_ref,
-                            "source": "harness.single_agent_turn.runtime_control_signal_recovery",
-                            "segment_plan": recovery_segment_plan,
-                            "prompt_manifest": {
-                                **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
-                                "invocation_kind": "single_agent_turn_runtime_control_signal_recovery",
-                                "recovery_phase": "tool_limit_closeout",
-                                "signal_kind": "model_protocol_violation",
-                                "recovery_attempt": protocol_recovery_attempts,
-                                "closeout_required": True,
-                                "allowed_action_types": list(_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES),
-                            },
-                        },
-                        native_tools=[],
-                        allow_assistant_text_delta=False,
-                        require_json_action=True,
-                    ):
-                        if model_event.get("type") == _INTERNAL_MODEL_RESPONSE_EVENT:
-                            recovery_response = model_event.get("response")
-                            assistant_stream_normalizer = model_event.get("assistant_stream_normalizer")
-                            continue
-                        capture_assistant_stream_event(model_event)
-                        yield model_event
-                    closeout_parse = _single_agent_action_request_from_response(
-                        recovery_response,
-                        request_id=f"model-response:{current_packet_ref}:tool-limit-closeout:runtime-control-recovery",
-                        turn_id=turn_id,
-                        packet_ref=current_packet_ref,
-                        iteration=tool_iteration + 1,
-                        allowed_action_types=_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES,
-                        phase="tool_limit_closeout_recovery",
-                        require_json_action=True,
-                        public_response_required=False,
-                    )
-                action_request = closeout_parse.action_request
-                if (
-                    closeout_parse.error
-                    or closeout_parse.tool_actions
-                    or action_request is None
-                    or action_request.action_type not in set(_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES)
-                ):
-                    content = ""
-                    terminal_status = "blocked"
-                    answer_channel = "blocked"
-                    completion_state = "tool_limit_closeout_protocol_failed"
-                elif action_request.action_type == "respond":
-                    content = str(action_request.final_answer or "").strip()
-                    if contains_internal_protocol(content) or contains_inline_pseudo_tool_call(content):
-                        content = ""
-                        terminal_status = "blocked"
-                        answer_channel = "blocked"
-                        completion_state = "tool_limit_closeout_unsafe_content"
-                    else:
-                        terminal_status = "completed" if _meaningful_visible_answer(content) else "blocked"
-                        answer_channel = "conversation" if terminal_status == "completed" else "blocked"
-                        completion_state = "tool_limit_agent_responded" if terminal_status == "completed" else "tool_limit_missing_answer"
-                elif action_request.action_type == "ask_user":
-                    content = str(action_request.user_question or "").strip()
-                    if contains_internal_protocol(content) or contains_inline_pseudo_tool_call(content):
-                        content = ""
-                        terminal_status = "blocked"
-                        answer_channel = "blocked"
-                        completion_state = "tool_limit_closeout_unsafe_content"
-                    else:
-                        terminal_status = "completed" if _meaningful_visible_answer(content) else "blocked"
-                        answer_channel = "ask_user" if terminal_status == "completed" else "blocked"
-                        completion_state = "tool_limit_agent_asked_user" if terminal_status == "completed" else "tool_limit_missing_answer"
-                else:
-                    content = str(action_request.blocking_reason or "").strip()
-                    if contains_internal_protocol(content) or contains_inline_pseudo_tool_call(content):
-                        content = ""
-                        completion_state = "tool_limit_closeout_unsafe_content"
-                    else:
-                        completion_state = "tool_limit_agent_blocked"
-                    terminal_status = "blocked"
-                    answer_channel = "blocked"
-            if not str(content or "").strip():
-                async for event in emit_agent_authored_closeout(
-                    reason="tool_budget_exhausted",
-                    phase=f"tool_limit_{phase}",
-                    terminal_reason="single_turn_tool_iteration_limit",
-                    control_signal=control_signal,
-                    completion_state=completion_state,
-                ):
-                    yield event
-                return
-            protocol_final = _assistant_protocol_message_from_content(content, turn_id=turn_id)
-            commit_decision = await _commit_final_message(
-                commit_assistant_message,
-                runtime_host=runtime_host,
-                turn_run=turn_run,
-                session_id=session_id,
-                turn_id=turn_id,
-                content=content,
-                answer_channel=answer_channel,
-                answer_source=answer_source,
-                api_protocol_messages=[
-                    *api_protocol_messages,
-                    protocol_final,
-                ],
-            )
-            async for event in emit_terminal_then_final(
-                content=content,
-                answer_channel=answer_channel,
-                answer_source=answer_source,
-                terminal_status=terminal_status,
+            async for event in emit_agent_authored_closeout(
+                reason="tool_budget_exhausted",
+                phase=f"tool_limit_{phase}",
                 terminal_reason="single_turn_tool_iteration_limit",
-                final_extra={
-                    "runtime_branch": dict(runtime_branch or {}),
-                    "completion_state": completion_state,
-                    "runtime_control_signal": control_signal,
-                },
-                terminal_payload={"runtime_control_signal": control_signal, "completion_state": completion_state},
-                commit_decision=commit_decision,
+                control_signal=control_signal,
+                completion_state="tool_limit_agent_closeout",
             ):
                 yield event
+            return
 
         response = None
         async for model_event in _invoke_single_turn_model_with_stream_events(
@@ -1915,11 +1814,16 @@ async def run_single_agent_turn(
                         control_signal=protocol_control_signal,
                     )
                     yield {"type": "turn_runtime_control_signal_observed", "event": event}
-                if protocol_recovery_attempts > _MAX_SINGLE_TURN_PROTOCOL_RECOVERY_ATTEMPTS:
+                recovery_exhausted = protocol_recovery_attempts >= _MAX_SINGLE_TURN_PROTOCOL_RECOVERY_ATTEMPTS
+                if recovery_exhausted:
+                    terminal_reason = str(
+                        dict(action_parse.error or {}).get("code")
+                        or "single_agent_turn_protocol_error"
+                    )
                     async for event in emit_agent_authored_closeout(
-                        reason="protocol_recovery_exhausted",
+                        reason=terminal_reason,
                         phase="tool_loop_protocol_recovery_exhausted",
-                        terminal_reason=str(dict(action_parse.error or {}).get("code") or "single_agent_turn_protocol_error"),
+                        terminal_reason=terminal_reason,
                         control_signal=protocol_control_signal,
                         protocol_error=dict(action_parse.error or {}),
                         completion_state="protocol_recovery_exhausted",
@@ -1932,6 +1836,7 @@ async def run_single_agent_turn(
                     turn_id=turn_id,
                     control_signal=protocol_control_signal,
                     allowed_action_types=current_allowed_action_types,
+                    recovery_exhausted=recovery_exhausted,
                 )
                 current_requires_json_action = True
                 recovery_segment_plan = _single_agent_turn_followup_segment_plan(
@@ -1946,19 +1851,33 @@ async def run_single_agent_turn(
                     model_messages=model_messages,
                     model_selection=dict(model_selection or {}),
                     accounting_context={
-                        "request_id": f"modelreq:{current_packet_ref}:runtime-control-recovery:{tool_iteration + 1}:{protocol_recovery_attempts}",
+                        "request_id": (
+                            f"modelreq:{current_packet_ref}:contract-observation:{tool_iteration + 1}:{protocol_recovery_attempts}"
+                            if recovery_exhausted
+                            else f"modelreq:{current_packet_ref}:runtime-control-recovery:{tool_iteration + 1}:{protocol_recovery_attempts}"
+                        ),
                         "session_id": session_id,
                         "run_id": turn_run.turn_run_id if turn_run is not None else "",
                         "turn_id": turn_id,
                         "packet_ref": current_packet_ref,
-                        "source": "harness.single_agent_turn.runtime_control_signal_recovery",
+                        "source": (
+                            "harness.single_agent_turn.contract_observation"
+                            if recovery_exhausted
+                            else "harness.single_agent_turn.runtime_control_signal_recovery"
+                        ),
                         "segment_plan": recovery_segment_plan,
                         "prompt_manifest": {
                             **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
-                            "invocation_kind": "single_agent_turn_runtime_control_signal_recovery",
+                            "invocation_kind": (
+                                "single_agent_turn_contract_observation_decision"
+                                if recovery_exhausted
+                                else "single_agent_turn_runtime_control_signal_recovery"
+                            ),
                             "recovery_phase": "tool_loop",
                             "signal_kind": "model_protocol_violation",
                             "recovery_attempt": protocol_recovery_attempts,
+                            "recovery_exhausted": recovery_exhausted,
+                            "agent_authored_user_text_required": True,
                             "segment_plan_ref": str(recovery_segment_plan.get("segment_plan_id") or ""),
                         },
                     },
@@ -2453,9 +2372,10 @@ async def run_single_agent_turn(
                 )
                 followup_prompt_manifest = {
                     **dict(followup_prompt_manifest or {}),
-                    "tool_followup_action_transport": True,
-                    "assistant_body_transport": "disabled_for_tool_observation_followup",
-                    "non_native_response_requires_json_action": True,
+                    "tool_followup_action_guidance": True,
+                    "assistant_body_transport": "plain_response_allowed",
+                    "control_action_transport": "json_action",
+                    "non_native_control_action_requires_json_action": True,
                     "segment_plan_ref": str(followup_segment_plan.get("segment_plan_id") or ""),
                 }
             response = None
@@ -2491,7 +2411,9 @@ async def run_single_agent_turn(
                     turn_id=turn_id,
                     status="failed",
                     terminal_reason=str(response.get("code") or "single_agent_turn_failed"),
-                    payload=terminal_payload_with_stream_continuity(),
+                    payload=terminal_payload_with_stream_continuity(
+                        {"model_error": _runtime_error_payload(response)}
+                    ),
                 )
                 terminal_recorded = True
                 yield {"type": "agent_turn_terminal", "event": terminal}
@@ -2536,11 +2458,16 @@ async def run_single_agent_turn(
                         control_signal=protocol_control_signal,
                     )
                     yield {"type": "turn_runtime_control_signal_observed", "event": event}
-                if protocol_recovery_attempts > _MAX_SINGLE_TURN_PROTOCOL_RECOVERY_ATTEMPTS:
+                recovery_exhausted = protocol_recovery_attempts >= _MAX_SINGLE_TURN_PROTOCOL_RECOVERY_ATTEMPTS
+                if recovery_exhausted:
+                    terminal_reason = str(
+                        dict(action_parse.error or {}).get("code")
+                        or "single_agent_turn_protocol_error"
+                    )
                     async for event in emit_agent_authored_closeout(
-                        reason="protocol_recovery_exhausted",
+                        reason=terminal_reason,
                         phase="final_protocol_recovery_exhausted",
-                        terminal_reason=str(dict(action_parse.error or {}).get("code") or "single_agent_turn_protocol_error"),
+                        terminal_reason=terminal_reason,
                         control_signal=protocol_control_signal,
                         protocol_error=dict(action_parse.error or {}),
                         completion_state="protocol_recovery_exhausted",
@@ -2553,6 +2480,7 @@ async def run_single_agent_turn(
                     turn_id=turn_id,
                     control_signal=protocol_control_signal,
                     allowed_action_types=final_allowed_action_types,
+                    recovery_exhausted=recovery_exhausted,
                 )
                 current_allowed_action_types = final_allowed_action_types
                 current_available_tools = ()
@@ -2569,19 +2497,33 @@ async def run_single_agent_turn(
                     model_messages=model_messages,
                     model_selection=dict(model_selection or {}),
                     accounting_context={
-                        "request_id": f"modelreq:{current_packet_ref}:final-runtime-control-recovery:{protocol_recovery_attempts}",
+                        "request_id": (
+                            f"modelreq:{current_packet_ref}:final-contract-observation:{protocol_recovery_attempts}"
+                            if recovery_exhausted
+                            else f"modelreq:{current_packet_ref}:final-runtime-control-recovery:{protocol_recovery_attempts}"
+                        ),
                         "session_id": session_id,
                         "run_id": turn_run.turn_run_id if turn_run is not None else "",
                         "turn_id": turn_id,
                         "packet_ref": current_packet_ref,
-                        "source": "harness.single_agent_turn.runtime_control_signal_recovery",
+                        "source": (
+                            "harness.single_agent_turn.contract_observation"
+                            if recovery_exhausted
+                            else "harness.single_agent_turn.runtime_control_signal_recovery"
+                        ),
                         "segment_plan": recovery_segment_plan,
                         "prompt_manifest": {
                             **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
-                            "invocation_kind": "single_agent_turn_runtime_control_signal_recovery",
+                            "invocation_kind": (
+                                "single_agent_turn_contract_observation_decision"
+                                if recovery_exhausted
+                                else "single_agent_turn_runtime_control_signal_recovery"
+                            ),
                             "recovery_phase": "final",
                             "signal_kind": "model_protocol_violation",
                             "recovery_attempt": protocol_recovery_attempts,
+                            "recovery_exhausted": recovery_exhausted,
+                            "agent_authored_user_text_required": True,
                             "segment_plan_ref": str(recovery_segment_plan.get("segment_plan_id") or ""),
                         },
                     },
@@ -3754,6 +3696,16 @@ def _single_agent_admission_repair_messages(
     )
 
 
+def _plain_assistant_text_is_allowed_response(
+    assistant_text: str,
+    *,
+    allowed_action_types: tuple[str, ...],
+) -> bool:
+    if not str(assistant_text or "").strip():
+        return False
+    return "respond" in {str(item) for item in tuple(allowed_action_types or ()) if str(item)}
+
+
 def _single_agent_action_request_from_response(
     response: Any,
     *,
@@ -3873,6 +3825,7 @@ def _single_agent_action_request_from_response(
                 "origin_authority": "harness.loop.single_agent_turn",
                 "packet_ref": packet_ref,
                 "protocol_ref": protocol.protocol_id,
+                "parse_transport": _json_action_parse_transport(protocol.parse_diagnostics),
                 "phase": phase,
             },
         )
@@ -3903,14 +3856,17 @@ def _single_agent_action_request_from_response(
                     "action_issue": _protocol_action_issue(
                         category="protocol_violation",
                         code="invalid_json_action",
-                        repair_instruction="这看起来像控制/工具动作，但缺少 harness.loop.model_action_request 契约；请提交顶层 action_type 和对应动作字段，或改用普通助手正文回答用户。",
+                        repair_instruction="这看起来像控制/工具动作，但缺少 harness.loop.model_action_request 标记；请提交顶层 action_type 和对应动作字段，或改用普通助手正文回答用户。",
                     ),
                     "phase": phase,
                 },
             ),
         )
     if not native_tool_calls:
-        if assistant_text and not require_json_action:
+        if assistant_text and _plain_assistant_text_is_allowed_response(
+            assistant_text,
+            allowed_action_types=allowed_action_types,
+        ):
             return SingleAgentActionParse(
                 action_request=None,
                 native_tool_calls=[],
@@ -4094,6 +4050,21 @@ def _is_model_action_json_payload(payload: dict[str, Any]) -> bool:
     if "action_type" in payload:
         return True
     return authority.startswith("harness.loop.") and "action" in payload
+
+
+def _json_action_parse_transport(parse_diagnostics: dict[str, Any] | None) -> dict[str, Any]:
+    diagnostics = dict(parse_diagnostics or {})
+    return {
+        "text_transport": "json_action",
+        "markdown_fence": bool(
+            diagnostics.get("unwrapped_markdown_fence") is True
+            or diagnostics.get("parsed_from_markdown_fence") is True
+        ),
+        "embedded_action_object": bool(diagnostics.get("parsed_with_embedded_object_repair") is True),
+        "trailing_text_repair": bool(diagnostics.get("parsed_with_trailing_repair") is True),
+        "ignored_leading_text": str(diagnostics.get("ignored_leading_text") or ""),
+        "ignored_trailing_text": str(diagnostics.get("ignored_trailing_text") or ""),
+    }
 
 
 def _looks_like_malformed_single_agent_action_payload(payload: dict[str, Any]) -> bool:
@@ -4816,32 +4787,21 @@ def _detected_json_action_transport_rejection(
         "rejected_json_action_payload": payload,
         "rejected_action_transport": {
             "execution_state": "not_executed",
-            "required_transport": "single_raw_json_action",
-            "actual_transport": _json_action_transport_violation_label(errors),
+            "required_transport": "single_unambiguous_structured_action",
+            "actual_transport": "invalid_structured_action_protocol",
             "protocol_errors": errors,
             "resubmission_rule": (
-                "如果这仍是 agent 的决策，请把同一个动作作为单个原始 JSON 对象重新提交；"
-                "不要在 JSON 外写正文，不要使用 Markdown 代码块，也不要混入其它结构化动作来源。"
+                "如果这仍是 agent 的决策，请修正字段并作为唯一结构化动作重新提交；"
+                "不要混入其它结构化动作来源。"
             ),
         },
         "repair_contract": {
-            "required_transport": "json_action",
-            "required_shape": "single_raw_json_object_without_surrounding_text_or_markdown",
+            "required_transport": "single_unambiguous_structured_action",
+            "required_shape": "one_action_like_object_or_one_provider_native_control_signal",
             "detected_action_type": action_type,
             "previous_action_execution_state": "not_executed",
         },
     }
-
-
-def _json_action_transport_violation_label(protocol_errors: list[str]) -> str:
-    errors = {str(item) for item in list(protocol_errors or ()) if str(item)}
-    if "json_action_must_not_use_markdown_fence" in errors:
-        return "markdown_fenced_json_action"
-    if "json_action_must_not_use_surrounding_text" in errors:
-        return "json_action_with_surrounding_text"
-    if "json_action_must_not_use_trailing_text" in errors:
-        return "json_action_with_trailing_text"
-    return "invalid_json_action_transport"
 
 
 def _json_action_transport_repair_instruction(
@@ -4852,10 +4812,9 @@ def _json_action_transport_repair_instruction(
     del protocol_error_code
     action_label = f" action_type={detected_action_type} 的" if detected_action_type else ""
     return (
-        f"系统已识别到上一轮包含{action_label} JSON action，但因为 JSON action 外混入了正文、Markdown 或尾随文本，"
-        "该动作没有执行，也没有写入任务或会话状态。"
-        "如果这仍然是你的真实决策，请把同一个动作作为单个原始 JSON 对象重新提交；"
-        "不要在 JSON 前后写自然语言、解释、标题或代码块。"
+        f"上一轮包含{action_label} JSON action，但该动作没有进入执行队列，"
+        "所以没有执行，也没有写入任务或会话状态。"
+        "如果这仍然是你的真实决策，请修正字段并作为唯一结构化动作重新提交。"
     )
 
 
@@ -4919,7 +4878,7 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
                 "resume_recoverable_work 的恢复句柄字段放错层级。不要把 "
                 f"{misplaced} 放在 JSON 顶层，也不要使用 payload 包裹。"
                 "请保留 action_type=resume_recoverable_work，并把 task_run_id、continuation_id "
-                "全部放入 recovery_resume 对象内。只使用系统提供的可恢复句柄，不要从旧消息文本猜测。"
+                "全部放入 recovery_resume 对象内。只使用 recovery_resume 候选中的可恢复句柄，不要从旧消息文本猜测。"
             )
         if (
             "recovery_resume.task_run_id_required" in errors
@@ -4934,7 +4893,7 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
             missing_text = "、".join(missing) if missing else "必需字段"
             return (
                 "resume_recoverable_work 必须包含 recovery_resume 对象。请在 recovery_resume 内补齐 "
-                f"{missing_text}；task_run_id 和 continuation_id 必须来自系统提供的可恢复上下文。"
+                f"{missing_text}；task_run_id 和 continuation_id 必须来自当前可恢复上下文。"
             )
         return default
     if action_type != "request_task_run":
@@ -4947,7 +4906,7 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
     if misplaced_top_level or payload_wrapper is not None:
         misplaced = "、".join(misplaced_top_level) if misplaced_top_level else "payload"
         return (
-            "request_task_run 的任务合同字段放错层级。不要把 "
+            "request_task_run 的任务字段放错层级。不要把 "
             f"{misplaced} 放在 JSON 顶层，也不要使用 payload 包裹。"
             "请保留 action_type=request_task_run，把 working_scope、capability_intent、"
             "skill_intent、observation_contract 全部放入 task_contract_seed 内；"
@@ -4980,7 +4939,7 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
         or "task_run_goal_required_for_request_task_run" in errors
     ):
         return (
-            "request_task_run 必须在 task_contract_seed 内写清任务合同目标。"
+            "request_task_run 必须在 task_contract_seed 内写清任务目标。"
             "请补齐 user_visible_goal 和 task_run_goal：前者是用户能看懂的任务目标，"
             "后者是执行器可持续推进的内部任务目标；不要把它们放在 JSON 顶层。"
         )
@@ -4988,7 +4947,7 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
         return (
             "request_task_run 必须声明完成证据。请在 task_contract_seed 内提供 "
             "completion_criteria、required_artifacts 或 required_verifications；"
-            "只有可验收标准明确时，运行时才能启动持续任务。"
+            "只有可验收标准明确时，持续任务才能启动。"
         )
     return default
 
@@ -5311,7 +5270,7 @@ def _tool_observation_from_runtime_exception(
         tool_name=identity.tool_name,
         operation_id=identity.operation_id,
         status="error",
-        text=f"工具调用返回运行时错误：{error_text}。请基于该错误调整下一步，不要重复同一失败动作。",
+        text=f"工具调用返回执行错误：{error_text}。请基于该错误调整下一步，不要重复同一失败动作。",
         result_envelope={
             "tool_call_id": identity.tool_call_id,
             "action_request_ref": identity.action_request_ref,

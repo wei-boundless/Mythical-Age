@@ -253,11 +253,11 @@ def _recover_stale_active_graph_node_executors(
             "executor_status": "waiting_executor",
             "latest_step": "graph_node_executor_recovered_after_runtime_restart",
             "latest_step_status": "waiting_executor",
-            "latest_step_summary": "后端运行时已重启，图节点执行器已恢复为可继续状态。",
+            "latest_step_summary": "连接已恢复，图节点执行器已恢复为可继续状态。",
             "recoverable_error": {
                 "error_code": "task_executor_interrupted_by_runtime_restart",
                 "retryable": True,
-                "user_message": "后端运行时已重启，图节点可以由图运行时继续执行。",
+                "user_message": "连接已恢复，图节点可以继续执行。",
             },
             "recovery_action": "rerun_task_executor",
         }

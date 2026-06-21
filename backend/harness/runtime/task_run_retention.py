@@ -331,7 +331,7 @@ class TaskRunLifecycleRetention:
                 item_type="interrupted_boundary",
                 title="已停止",
                 status="aborted",
-                summary="运行状态长时间停留在阻塞/等待，系统已停止该旧任务并释放临时运行缓存。",
+                summary="运行状态长时间停留在阻塞/等待，已停止该旧任务并释放临时运行缓存。",
                 event_offset=event_offset,
                 refs={"task_run_ref": str(getattr(task_run, "task_run_id", "") or "")},
                 payload={"terminal_reason": terminal_reason, "model_visible": False},
@@ -574,9 +574,9 @@ def _retention_diagnostics(
         "latest_step": "task_run_retention_stopped" if terminal else "task_run_retention_stop_requested",
         "latest_step_status": "aborted" if terminal else "running",
         "latest_step_summary": (
-            "运行状态长时间停留在阻塞/等待，系统已停止该旧任务并释放临时运行缓存。"
+            "运行状态长时间停留在阻塞/等待，已停止该旧任务并释放临时运行缓存。"
             if terminal
-            else "运行状态长时间停留在阻塞/等待，系统已请求当前执行器停止。"
+            else "运行状态长时间停留在阻塞/等待，已请求当前执行器停止。"
         ),
     }
 

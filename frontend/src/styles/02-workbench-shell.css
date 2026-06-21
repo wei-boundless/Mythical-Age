@@ -683,7 +683,7 @@ button:hover {
   --workbench-blue-soft: var(--console-accent-soft);
   --workbench-green: var(--console-success);
   --workbench-texture:
-    linear-gradient(180deg, transparent, transparent);
+    var(--workspace-bg-texture);
   --workbench-surface-texture:
     linear-gradient(180deg, transparent, transparent);
   --workbench-glow: 0 0 0 rgba(0, 0, 0, 0);

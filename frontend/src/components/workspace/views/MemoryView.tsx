@@ -139,11 +139,16 @@ function percentFromRatio(value: unknown) {
   return Math.max(0, Math.min(100, Math.round(Number(value || 0) * 100)));
 }
 
-function currentContextTokenCount(tokenStats: TokenStats) {
+function compactionPressureTokenCount(tokenStats: TokenStats) {
+  const rawPressure = tokenStats.context_meter?.compaction_pressure_tokens;
+  const pressure = Number(rawPressure);
+  if (rawPressure !== undefined && rawPressure !== null && Number.isFinite(pressure)) {
+    return Math.max(0, pressure);
+  }
   const rawCurrent = tokenStats.context_meter?.current_context_tokens;
   const current = Number(rawCurrent);
   if (rawCurrent !== undefined && rawCurrent !== null && Number.isFinite(current)) {
-    return current;
+    return Math.max(0, current);
   }
   return Number(tokenStats.total_tokens || 0);
 }
@@ -162,19 +167,19 @@ function contextThresholdUsageRatio(tokenStats: TokenStats) {
   if (thresholdTokens <= 0) {
     return 0;
   }
-  return currentContextTokenCount(tokenStats) / thresholdTokens;
+  return compactionPressureTokenCount(tokenStats) / thresholdTokens;
 }
 
 function sessionContextMeterTitle(tokenStats: TokenStats | null, usagePercent: number | null) {
   if (!tokenStats) {
     return "";
   }
-  const currentTokens = currentContextTokenCount(tokenStats);
+  const pressureTokens = compactionPressureTokenCount(tokenStats);
   const thresholdTokens = compactionThresholdTokenCount(tokenStats);
   const contextWindowTokens = Number(tokenStats.context_meter?.context_window_tokens || 0);
-  const remainingTokens = Math.max(0, thresholdTokens - currentTokens);
+  const remainingTokens = Math.max(0, thresholdTokens - pressureTokens);
   return [
-    `当前上下文 ${formatTokenCount(currentTokens)} tokens`,
+    `压缩触发压力 ${formatTokenCount(pressureTokens)} tokens`,
     thresholdTokens > 0 ? `自动压缩阈值 ${formatTokenCount(thresholdTokens)} tokens` : "",
     thresholdTokens > 0 && usagePercent !== null ? `阈值占比 ${usagePercent}%` : "",
     contextWindowTokens > 0 ? `模型窗口 ${formatTokenCount(contextWindowTokens)} tokens` : "",
@@ -998,8 +1003,8 @@ export function MemoryView() {
           </article>
           <article title={tokenTitle}>
             <Gauge size={16} />
-            <span>当前上下文</span>
-            <strong>{tokenStats ? formatTokenCount(currentContextTokenCount(tokenStats)) : "暂无"}</strong>
+            <span>压缩压力</span>
+            <strong>{tokenStats ? formatTokenCount(compactionPressureTokenCount(tokenStats)) : "暂无"}</strong>
           </article>
           <article title={tokenTitle}>
             <FileText size={16} />

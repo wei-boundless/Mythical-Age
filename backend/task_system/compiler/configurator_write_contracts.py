@@ -62,7 +62,7 @@ def build_configurator_write_contract(*, graph_id: str) -> dict[str, Any]:
             "authority": "task_system.configurator_output_contract",
         },
         "authoring_rules": [
-            "优先使用 prototype_catalog 中的原型组合，不要求用户直接填写底层协议字段。",
+            "优先使用 prototype_catalog 中的原型组合，不要求用户直接填写底层字段。",
             "高风险字段只能作为 draft 写入，并必须在 prototype_selection_report 中解释来源。",
             "每次输出 graph_draft_patch 后必须请求 graph_compiler 生成 compile_report。",
         ],

@@ -63,7 +63,7 @@ def test_model_response_protocol_reports_unmounted_native_tool_transport_as_serv
     assert protocol.protocol_errors == ("native_tool_call_transport_not_available",)
 
 
-def test_model_response_protocol_rejects_surrounding_text_when_json_action_required() -> None:
+def test_model_response_protocol_accepts_surrounding_text_when_one_action_is_unambiguous() -> None:
     response = SimpleNamespace(
         content='我先说明一下。\n{"authority":"harness.loop.model_action_request","action_type":"respond","final_answer":"done"}'
     )
@@ -78,4 +78,27 @@ def test_model_response_protocol_rejects_surrounding_text_when_json_action_requi
 
     assert protocol.json_payload["action_type"] == "respond"
     assert protocol.parse_diagnostics["parsed_with_embedded_object_repair"] is True
-    assert protocol.protocol_errors == ("json_action_must_not_use_surrounding_text",)
+    assert protocol.protocol_errors == ()
+
+
+def test_model_response_protocol_accepts_fenced_action_inside_surrounding_text() -> None:
+    response = SimpleNamespace(
+        content=(
+            '我已经判断需要开启任务。\n'
+            '```json\n'
+            '{"authority":"harness.loop.model_action_request","action_type":"request_task_run","task_contract_seed":{"task_run_goal":"fix runtime"}}\n'
+            '```'
+        )
+    )
+
+    protocol = model_response_protocol_from_response(
+        response,
+        request_id="modelreq:fenced-surrounding-action",
+        turn_id="turn:fenced-surrounding-action",
+        require_json_action=True,
+    )
+
+    assert protocol.json_payload["action_type"] == "request_task_run"
+    assert protocol.parse_diagnostics["parsed_with_embedded_object_repair"] is True
+    assert protocol.parse_diagnostics["parsed_from_markdown_fence"] is True
+    assert protocol.protocol_errors == ()

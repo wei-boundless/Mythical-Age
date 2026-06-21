@@ -2,11 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .control_events import runtime_signal_from_event_payload
 from .event_query import list_runtime_events, runtime_event_count
-from .runtime_gateway import (
-    CONTROL_SIGNAL_PUBLISHED_EVENT,
-)
 from .session_output_commit_projection import project_session_output_commit_state
 from runtime.shared.stream_replay import canonical_public_projection_frame
 from runtime.output_stream.public_contract import (
@@ -726,7 +722,6 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
     anchor_message = _anchor_assistant_message(anchor_turn_id=anchor_turn_id, history_messages=history_messages)
     anchor_message_id = _history_message_id(anchor_message) if anchor_message else ""
     status = str(getattr(turn_run, "status", "") or "")
-    recovery_signal = _turn_recovery_control_signal(events=events)
     projection_anchor = _projection_anchor(
         session_id=session_id,
         run_id=turn_run_id,
@@ -763,34 +758,12 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
         "projection_anchor": projection_anchor,
         "projection_slices": projection_slices,
         "artifact_refs": [],
-        **({"runtime_control_signal": recovery_signal} if recovery_signal else {}),
         "trace_available": True,
         "debug_trace_ref": turn_run_id,
         "created_at": float(getattr(turn_run, "created_at", 0.0) or 0.0),
         "updated_at": max(_latest_now(events, turn_run), float(getattr(turn_run, "updated_at", 0.0) or 0.0)),
         "authority": "session_runtime_timeline.turn_trace_attachment",
     }
-
-
-def _turn_recovery_control_signal(*, events: list[dict[str, Any]]) -> dict[str, Any]:
-    for event in reversed(list(events or [])):
-        signal = _runtime_gateway_signal_payload(event)
-        if str(signal.get("signal_kind") or "") == "agent_closeout_recovery_required":
-            return signal
-    return {}
-
-
-def _runtime_gateway_signal_payload(event: dict[str, Any]) -> dict[str, Any]:
-    if str(event.get("event_type") or "") != CONTROL_SIGNAL_PUBLISHED_EVENT:
-        return {}
-    signal = runtime_signal_from_event_payload(_dict_record(event.get("payload")))
-    if signal is None or signal.signal_type != "control.signal.requested":
-        return {}
-    return {
-        **dict(signal.payload or {}),
-        "runtime_control_signal_ref": str(signal.signal_id or ""),
-    }
-
 
 def _dict_record(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}

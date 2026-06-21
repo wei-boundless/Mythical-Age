@@ -25,6 +25,21 @@ class _EmptyPromptAccountingLedger:
         return {}
 
 
+class _RecentPromptAccountingLedger:
+    def __init__(self, ledger: Any, *, limit: int = 32) -> None:
+        self._ledger = ledger
+        self._limit = max(1, int(limit or 32))
+
+    def list_token_usage(self, **kwargs: Any) -> list[Any]:
+        list_recent = getattr(self._ledger, "list_recent_token_usage", None)
+        if not callable(list_recent):
+            return []
+        return list(list_recent(**kwargs, limit=self._limit) or [])
+
+    def list_prompt_cache(self, **_kwargs: Any) -> list[Any]:
+        return []
+
+
 def count_tokens(text: str) -> int:
     return TOKEN_COUNTER.count_text(text, provider="local", model="session_compaction").tokens
 
@@ -68,12 +83,18 @@ def build_context_usage_snapshot(
         provider=provider,
         model=model,
     )
+    fallback_messages = _context_meter_fallback_messages(
+        runtime,
+        session_id=session_id,
+        raw_messages=raw_messages,
+        session_record=session_record,
+    )
     return meter.build_snapshot(
         session_id=session_id,
         provider=provider,
         model=model,
         reserved_output_tokens=reserved_output_tokens,
-        fallback_messages=raw_messages,
+        fallback_messages=fallback_messages,
         session_pressure_tokens=int(pressure.get("tokens") or 0),
         session_pressure_source="runtime.context_management.session_pressure",
         session_pressure_diagnostics={
@@ -93,6 +114,8 @@ def _context_observation_ledger(ledger: Any) -> Any:
     if callable(scoped_reads_are_expensive):
         try:
             if bool(scoped_reads_are_expensive()):
+                if callable(getattr(ledger, "list_recent_token_usage", None)):
+                    return _RecentPromptAccountingLedger(ledger)
                 return _EmptyPromptAccountingLedger()
         except Exception:
             return _EmptyPromptAccountingLedger()
@@ -207,6 +230,28 @@ def _build_session_pressure(
     }
 
 
+def _context_meter_fallback_messages(
+    runtime: Any,
+    *,
+    session_id: str,
+    raw_messages: list[dict[str, Any]],
+    session_record: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    record = dict(session_record or _load_session_record(runtime, session_id=session_id) or {})
+    compressed_context = str(record.get("compressed_context") or "").strip()
+    boundary_created_at = _safe_float(record.get("provider_protocol_compaction_created_at"))
+    protocol_messages, _protocol_stats = _protocol_pressure_messages(
+        _load_api_transcript(runtime, session_id=session_id),
+        boundary_created_at=boundary_created_at,
+        compressed_context_present=bool(compressed_context),
+    )
+    messages = [*_public_pressure_messages(raw_messages), *protocol_messages]
+    return sorted(
+        messages,
+        key=lambda item: (_message_created_at(item), str(item.get("role") or ""), str(item.get("tool_call_id") or "")),
+    )
+
+
 def _load_session_record(runtime: Any, *, session_id: str) -> dict[str, Any]:
     get_history = getattr(getattr(runtime, "session_manager", None), "get_history", None)
     if not callable(get_history):
@@ -240,7 +285,11 @@ def _public_pressure_messages(messages: list[dict[str, Any]] | tuple[dict[str, A
         content = str(item.get("content") or item.get("text") or "")
         if not content.strip():
             continue
-        result.append({"role": role, "content": content})
+        payload: dict[str, Any] = {"role": role, "content": content}
+        created_at = _message_created_at(item)
+        if created_at > 0:
+            payload["created_at"] = created_at
+        result.append(payload)
     return result
 
 
@@ -291,6 +340,9 @@ def _protocol_pressure_message(message: dict[str, Any]) -> tuple[dict[str, Any],
         name = str(message.get("name") or "").strip()
         if name:
             payload["name"] = name
+        created_at = _message_created_at(message)
+        if created_at > 0:
+            payload["created_at"] = created_at
         return payload, {"bounded_chars": len(content), "omitted_chars": omitted}
     if role != "assistant":
         return {}, {"bounded_chars": 0, "omitted_chars": 0}
@@ -304,6 +356,9 @@ def _protocol_pressure_message(message: dict[str, Any]) -> tuple[dict[str, Any],
     payload = {"role": "assistant"}
     bounded_chars = 0
     omitted_chars = 0
+    created_at = _message_created_at(message)
+    if created_at > 0:
+        payload["created_at"] = created_at
     if has_tool_calls:
         content, content_omitted = _bounded_protocol_text(message.get("content"), limit=4_000)
         if content:

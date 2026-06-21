@@ -214,6 +214,14 @@ export type TokenStats = {
     stale_reason?: string;
   };
   compaction_readiness?: {
+    pressure_level?: string;
+    auto_replacement_allowed?: boolean;
+    replacement_threshold_tokens?: number;
+    warning_threshold_tokens?: number;
+    ready_threshold_tokens?: number;
+    current_context_tokens?: number;
+    compaction_pressure_tokens?: number;
+    blocked_reason?: string;
     context_recovery_package_present?: boolean;
     context_recovery_package_fresh?: boolean;
     context_recovery_package_source?: string;

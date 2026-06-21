@@ -502,9 +502,47 @@ function toolTitle(toolName: string, target: string) {
 }
 
 function toolCommandLine(toolName: string, target: string, argumentsPreview: string) {
+  if (isCommandToolName(toolName)) {
+    return commandTextFromProjection(target, argumentsPreview) || toolName || "command";
+  }
   return [toolName || "tool", target ? quote(target) : "", argumentsPreview && argumentsPreview !== target ? argumentsPreview : ""]
     .filter(Boolean)
     .join(" ");
+}
+
+function commandTextFromProjection(target: string, argumentsPreview: string) {
+  const direct = text(target);
+  if (direct && !isCommandToolName(direct)) return direct;
+  return previewArgumentValue(argumentsPreview, ["command", "cmd", "script", "code"]);
+}
+
+function previewArgumentValue(preview: string, keys: string[]) {
+  const source = text(preview);
+  if (!source) return "";
+  for (const key of keys) {
+    const marker = `${key}=`;
+    const index = source.indexOf(marker);
+    if (index < 0) continue;
+    let rest = source.slice(index + marker.length).trim();
+    const nextKey = rest.search(/,\s*(?:path|file|file_path|target|start_line|line_count|end_line|range|query|pattern|cwd|command|cmd|script|code|url)=/i);
+    if (nextKey >= 0) {
+      rest = rest.slice(0, nextKey).trim();
+    }
+    return stripWrappingQuotes(rest.replace(/,\s*$/, "").trim());
+  }
+  return "";
+}
+
+function stripWrappingQuotes(value: string) {
+  const trimmed = text(value);
+  if (trimmed.length >= 2 && trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+    return trimmed.slice(1, -1).replace(/\\"/g, "\"");
+  }
+  return trimmed;
+}
+
+function isCommandToolName(value: string) {
+  return COMMAND_TOOL_NAMES.has(text(value).toLowerCase());
 }
 
 function isGenericToolName(value: string) {
@@ -520,14 +558,14 @@ function isGenericToolCommand(value: string) {
 function toolOutput(normalized: NormalizedProjectionFrame, state: string) {
   const detail = text(normalized.frame.detail);
   if (detail) return detail;
-  if (normalized.sourceEventType === "tool_call_requested") return "已提交系统调用。";
-  if (normalized.sourceEventType === "tool_permission_decided") return "系统调用已通过准入。";
-  if (state === "running" || normalized.sourceEventType === "tool_item_started") return "系统调用运行中。";
-  if (["failed", "error", "blocked"].includes(state)) return "系统调用失败。";
+  if (normalized.sourceEventType === "tool_call_requested") return "已提交工具调用。";
+  if (normalized.sourceEventType === "tool_permission_decided") return "工具调用已通过准入。";
+  if (state === "running" || normalized.sourceEventType === "tool_item_started") return "工具调用运行中。";
+  if (["failed", "error", "blocked"].includes(state)) return "工具调用失败。";
   return GENERIC_TOOL_DONE_OUTPUT;
 }
 
-const GENERIC_TOOL_DONE_OUTPUT = "系统调用已完成。";
+const GENERIC_TOOL_DONE_OUTPUT = "工具调用已完成。";
 
 function completedToolOutput(tool: Pick<ToolLifecycle, "target" | "toolName">) {
   const target = text(tool.target);
@@ -594,15 +632,22 @@ function defaultStatusState(kind: StatusProjectionEvent["kind"]) {
 
 function toolLabel(toolName: string) {
   const labels: Record<string, string> = {
+    bash: "运行命令",
+    cmd: "运行命令",
+    command: "运行命令",
     glob_paths: "匹配路径",
     list_dir: "列出目录",
     path_exists: "检查路径",
+    powershell: "运行命令",
+    python_repl: "运行命令",
     read_file: "读取文件",
     read_files: "读取文件",
     read_path: "读取文件",
     search_files: "搜索文件",
     search_text: "搜索文本",
+    shell: "运行命令",
     stat_path: "检查路径",
+    terminal: "运行命令",
     write_file: "写入文件",
     edit_file: "更新文件",
     batch_edit_file: "批量编辑文件",
@@ -611,6 +656,8 @@ function toolLabel(toolName: string) {
   };
   return labels[toolName.toLowerCase()] || toolName;
 }
+
+const COMMAND_TOOL_NAMES = new Set(["bash", "cmd", "command", "powershell", "python_repl", "shell", "terminal"]);
 
 function commitKey(frame: PublicProjectionFrame) {
   const commit = (frame.commit ?? {}) as Record<string, unknown>;

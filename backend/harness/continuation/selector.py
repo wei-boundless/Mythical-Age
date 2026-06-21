@@ -295,6 +295,7 @@ def _record_from_interrupted_turn_run(runtime_host: Any, turn_run: Any) -> Inter
         return None
     latest_signal = dict(gateway_signal or {})
     feedback = dict(diagnostics.get("latest_agent_contract_feedback") or {})
+    agent_contract_feedback = _agent_contract_feedback_continuation_payload(feedback)
     latest_progress = _first_text(
         diagnostics.get("latest_public_progress_note"),
         diagnostics.get("latest_step_summary"),
@@ -343,6 +344,7 @@ def _record_from_interrupted_turn_run(runtime_host: Any, turn_run: Any) -> Inter
             status=status,
             visible_assistant_prefix_present=bool(visible_prefix),
         ),
+        agent_contract_feedback=agent_contract_feedback,
         created_at=now,
         updated_at=float(getattr(turn_run, "updated_at", 0.0) or now),
         diagnostics={
@@ -530,6 +532,76 @@ def _model_visible_summary(
     return "\n".join(parts)
 
 
+def _agent_contract_feedback_continuation_payload(feedback: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(feedback or {})
+    if not payload:
+        return {}
+    protocol = dict(payload.get("required_action_protocol") or {})
+    failure = dict(payload.get("contract_failure") or {})
+    structured_signal = dict(payload.get("structured_signal") or {})
+    specific_feedback = [
+        _drop_empty_payload(
+            {
+                "category": str(item.get("category") or ""),
+                "code": str(item.get("code") or ""),
+                "reason": str(item.get("reason") or ""),
+                "situation_feedback": _bounded_text(item.get("situation_feedback"), limit=1200),
+                "repair_instruction": _bounded_text(item.get("repair_instruction"), limit=1200),
+                "expected_next_action": _bounded_text(item.get("expected_next_action"), limit=1200),
+            }
+        )
+        for item in list(failure.get("specific_feedback") or [])
+        if isinstance(item, dict)
+    ]
+    return _drop_empty_payload(
+        {
+            "signal_kind": str(payload.get("signal_kind") or ""),
+            "lifecycle": str(payload.get("lifecycle") or ""),
+            "contract_feedback_state": str(payload.get("contract_feedback_state") or ""),
+            "phase": str(payload.get("phase") or ""),
+            "reason": str(payload.get("reason") or ""),
+            "triggering_signal_kind": str(payload.get("triggering_signal_kind") or ""),
+            "visible_assistant_message_allowed": payload.get("visible_assistant_message_allowed"),
+            "tool_calls_allowed_after_signal": payload.get("tool_calls_allowed_after_signal"),
+            "agent_closeout_required": payload.get("agent_closeout_required"),
+            "agent_feedback": _bounded_text(payload.get("agent_feedback"), limit=3000),
+            "required_action_protocol": _drop_empty_payload(
+                {
+                    "authority": str(protocol.get("authority") or ""),
+                    "allowed_action_types": [
+                        str(item)
+                        for item in list(protocol.get("allowed_action_types") or [])
+                        if str(item or "").strip()
+                    ],
+                    "tool_call_allowed": protocol.get("tool_call_allowed"),
+                    "structured_action_required": protocol.get("structured_action_required"),
+                    "text_transport_accepts_single_unambiguous_json_action": protocol.get("text_transport_accepts_single_unambiguous_json_action"),
+                    "visible_user_body_allowed_only_from_agent_action": protocol.get("visible_user_body_allowed_only_from_agent_action"),
+                }
+            ),
+            "contract_failure": _drop_empty_payload(
+                {
+                    "kind": str(failure.get("kind") or ""),
+                    "closeout_attempts": failure.get("closeout_attempts"),
+                    "phase": str(failure.get("phase") or ""),
+                    "reason": str(failure.get("reason") or ""),
+                    "facts": dict(failure.get("facts") or {}),
+                    "specific_feedback": specific_feedback,
+                }
+            ),
+            "observed_facts": dict(payload.get("observed_facts") or {}),
+            "structured_signal": _drop_empty_payload(
+                {
+                    "code": str(structured_signal.get("code") or ""),
+                    "message": _bounded_text(structured_signal.get("message"), limit=3000),
+                    "retryable": structured_signal.get("retryable"),
+                }
+            ),
+            "authority": "harness.continuation.interrupted_turn_contract_feedback",
+        }
+    )
+
+
 def _first_text(*values: Any) -> str:
     for value in values:
         text = str(value or "").strip()
@@ -543,3 +615,18 @@ def _int_value(value: Any, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _bounded_text(value: Any, *, limit: int) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "\n[truncated]"
+
+
+def _drop_empty_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in dict(payload or {}).items()
+        if value not in ("", None, [], {})
+    }

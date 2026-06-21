@@ -6,7 +6,7 @@ TOOL_READ_FILE_GUIDANCE = """
 不知道位置时按目标选择定位工具：文件名/路径关键词用 search_files，明确通配符路径用 glob_paths，文件内容关键词用 search_text，已知目录用 list_dir。
 如果本轮 schema 暴露 read_intent，可用它标记读取目的，例如 edit_target、verify_behavior、understand_api、locate_symbol、inspect_dependency 或 recover_failure；不要臆造 schema 外的 intent 值。
 line_count 可以省略；不要为了猜默认窗口而反复调用。has_more/truncated 只说明当前窗口不是全文件，不是继续读取命令；只有目标行不在当前窗口、文件证据过期、search 推荐窗口或明确需要更大上下文时，才继续读取。
-不要把重复读取当作默认动作；已覆盖目标行且未过期的 read_file 窗口可以复用，系统也可能把 read observation artifact 的精确内容注入当前上下文。
+不要把重复读取当作默认动作；已覆盖目标行且未过期的 read_file 窗口可以复用，read observation artifact 的精确内容也可能已经注入当前输入。
 如果动态上下文给出 file_evidence_decisions 或 read_resource_state，把它当作文件证据契约：facts 是事实，reusable_evidence 是可复用窗口，candidate_read_windows 是候选入口，required_read_windows 才是明确缺口，cautions 是新鲜度或覆盖范围提醒；不要把普通 coverage.missing_ranges 或 has_more 当作必须补完全文件。
 修改、逐行引用、错误定位和验收判断前，必须具备目标区域的当前有效读窗证据。只有窗口缺失、过期、文件已变化、目标行未覆盖、artifact 未注入或 hash/证据冲突时，才读取最小必要窗口。
 写入、编辑、命令或外部动作可能让相关文件窗口过期。只有当下一步依赖当前精确文本、行号、diff 或失败位置时，才重新读取相关最小窗口；如果工具返回已确认写入成功，优先进入验证或下一步，不要把重读作为默认确认动作。
@@ -38,7 +38,7 @@ TOOL_BATCH_EDIT_FILE_GUIDANCE = """
 TOOL_WRITE_FILE_GUIDANCE = """
 使用 write_file 时，你是在写入一个完整文件。
 它适合新文件、明确要求完整重写的文件，或 edit_file 无法可靠表达的整体生成。
-修改既有文件时优先使用 edit_file；同一文件多处精确修改优先使用 batch_edit_file；除非用户或任务合同要求，不要主动创建 README、计划文档或说明文件。
+修改既有文件时优先使用 edit_file；同一文件多处精确修改优先使用 batch_edit_file；除非用户或任务目标要求，不要主动创建 README、计划文档或说明文件。
 写入前确认路径、覆盖意图、文件归属和当前任务范围，避免覆盖用户已有改动或无关产物。
 覆盖已有文件时，必须使用本轮工具 schema 暴露的覆盖字段；如果 schema 没有对应字段，不要臆造参数。
 写入内容必须完整可用，不要写半截 JSON、半截脚本、半截页面或需要模型后续补全才能运行的文件。
@@ -47,7 +47,7 @@ TOOL_WRITE_FILE_GUIDANCE = """
 
 
 TOOL_TERMINAL_POWERSHELL_GUIDANCE = """
-使用 terminal 时，你是在请求系统执行本地命令；它适合脚本、构建、测试、服务进程、运行检查和系统级验证。
+使用 terminal 时，你是在请求执行本地命令；它适合脚本、构建、测试、服务进程、运行检查和本地环境验证。
 能用专用搜索、读取、写入、浏览器或 git 工具完成的事，优先用专用工具；不要用 shell 绕过更清晰的工具边界。
 本地命令按 Windows PowerShell 兼容语义编写；不要使用 Bash 专属语法。
 每个命令都要有明确工作目录、目标和预期观察；路径含空格或非 ASCII 时要正确引用。

@@ -1517,7 +1517,7 @@ class HarnessRuntimeFacade:
             yield {
                 "type": "runtime_status",
                 "title": "显式任务合同无效",
-                "detail": "系统提供的显式任务合同缺少必要目标或验收边界，未启动任务生命周期。",
+                "detail": "显式任务合同缺少必要目标或验收边界，未启动任务生命周期。",
                 "state": "blocked",
                 "phase": "explicit_contract_task",
                 "terminal_reason": "explicit_contract_invalid",
@@ -1525,7 +1525,7 @@ class HarnessRuntimeFacade:
                 "runtime_branch": dict(runtime_branch or {}),
             }
             yield error_event(
-                content="系统提供的显式任务合同无效，任务未启动。",
+                content="显式任务合同无效，任务未启动。",
                 code="explicit_contract_invalid",
                 reason="explicit_contract_invalid",
                 extra={
@@ -3059,9 +3059,9 @@ def _explicit_contract_action_request(
         request_id=f"system-explicit-contract:{turn_id}:{uuid.uuid4().hex[:8]}",
         turn_id=turn_id,
         action_type="request_task_run",
-        public_progress_note="已接收明确任务合同，正在启动任务。",
+        public_progress_note="已接收明确任务目标，正在启动任务。",
         public_action_state={
-            "current_judgment": "系统已收到成型任务合同。",
+            "current_judgment": "任务目标、范围和验收标准已经成型。",
             "next_action": "直接建立任务生命周期。",
             "completion_status": "working",
         },

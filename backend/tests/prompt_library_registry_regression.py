@@ -358,7 +358,7 @@ def test_environment_lifecycle_prompts_keep_action_control_boundaries(tmp_path: 
         assert "先用一句" not in resource.content
         assert "轻反馈" not in resource.content
         assert "用户可见反馈意图" in resource.content
-        assert "系统投影" in resource.content
+        assert "active_work_control 的用户可见字段" in resource.content
         assert "控制动作脱节" in resource.content
         assert "这不是自动暂停或停止" in resource.content
         assert "回答后继续" in resource.content
@@ -390,7 +390,7 @@ def test_environment_lifecycle_prompts_keep_action_control_boundaries(tmp_path: 
         assert failure_class in general_recovery.content
     assert "行动建议" in general_subagent.content
     assert "能力限制" in general_verification.content
-    assert "强制暂停" in general_finalization.content
+    assert "控制观察暂停" in general_finalization.content
 
 
 def test_environment_action_selection_prompts_define_operational_minimal_action(tmp_path: Path) -> None:

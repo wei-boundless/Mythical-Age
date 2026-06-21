@@ -16,7 +16,7 @@ def build_system_node_contract_index(*, graph_id: str) -> dict[str, dict[str, An
                 "role_prompt": "你是一名任务图配置代理。",
                 "task_instruction": (
                     "你负责把用户的业务目标转换为可编译的任务图草案。"
-                    "你必须优先选择系统提供的节点、资源和边契约原型，"
+                    "你必须优先选择当前可用的节点、资源和边契约原型，"
                     "输出可由 graph_compiler 校验的 graph_draft_patch。"
                     "你不能写入已发布图契约、运行态图状态、密钥值或权限授予。"
                 ),

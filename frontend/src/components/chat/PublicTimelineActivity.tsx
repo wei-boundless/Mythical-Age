@@ -38,6 +38,7 @@ export type ActivityEntry = {
   statusLabel?: string;
   statusTone?: PublicTimelineActivityTone;
   text: string;
+  toolFamily?: ToolUiFamily;
   todoItems?: TodoPlanProjectionBlock["items"];
   activeItemId?: string;
   completionReady?: boolean;
@@ -46,6 +47,18 @@ export type ActivityEntry = {
   archiveCount?: number;
   bodyText?: string;
 };
+
+export type ToolUiFamily =
+  | "browser"
+  | "command"
+  | "data"
+  | "file"
+  | "generic"
+  | "inspect"
+  | "media"
+  | "memory"
+  | "search"
+  | "write";
 
 export type ActivityRenderUnit =
   | { kind: "entry"; entry: ActivityEntry }
@@ -344,6 +357,7 @@ function toolEntryFromBlock(block: ToolProjectionBlock, index: number): Activity
     detail = "";
   }
   const stableId = cleanText(block.id) || cleanText(block.sourceEventId) || `tool:${index}`;
+  const toolFamily = toolWindowFamily(block);
   return {
     collapsed: typeof block.collapsed === "boolean" ? block.collapsed : undefined,
     commandLine: toolWindowCommandLine(block, sections),
@@ -357,6 +371,7 @@ function toolEntryFromBlock(block: ToolProjectionBlock, index: number): Activity
     statusLabel: toolWindowStatusLabel(block),
     statusTone: toolWindowStatusTone(block),
     text,
+    toolFamily,
     toolRoundKey: toolWindowRoundKey(block),
   };
 }
@@ -469,7 +484,7 @@ function toolInvocationName(block: ToolProjectionBlock) {
   if (!rawTool || normalized === "tool") {
     return actionLabelFromText(block.title) || actionLabelFromText(block.detail) || "工具操作";
   }
-  if (["terminal", "shell", "cmd", "command", "powershell", "bash"].includes(normalized)) {
+  if (isCommandToolName(normalized)) {
     return "运行命令";
   }
   const labels: Record<string, string> = {
@@ -491,6 +506,9 @@ function toolInvocationName(block: ToolProjectionBlock) {
 }
 
 function toolInvocationTarget(block: ToolProjectionBlock) {
+  if (isShellTool(block)) {
+    return commandInvocationText(block);
+  }
   return displayTargetLabel(block.target);
 }
 
@@ -527,10 +545,14 @@ function toolWindowRoundKey(block: ToolProjectionBlock) {
 
 function toolWindowConsoleLabel(block: ToolProjectionBlock) {
   const tool = cleanText(block.toolName).toLowerCase();
-  if (["terminal", "shell", "cmd", "command", "powershell", "bash"].includes(tool)) {
+  if (isCommandToolName(tool)) {
     return "命令行";
   }
-  return "工具操作";
+  if (toolWindowFamily(block) === "write") return "修改请求";
+  if (toolWindowFamily(block) === "search") return "检索条件";
+  if (toolWindowFamily(block) === "file") return "读取请求";
+  if (toolWindowFamily(block) === "inspect") return "检查请求";
+  return "调用参数";
 }
 
 function displayTargetLabel(value: unknown) {
@@ -555,13 +577,14 @@ function isInternalToolWindowSection(label: string) {
 function toolWindowCommandLine(block: ToolProjectionBlock, sections: Array<{ label: string; text: string }>) {
   const explicit = cleanText(block.commandLine);
   const rawTool = cleanText(block.toolName || block.actionKind);
-  const target = firstSectionText(sections, "目标") || displayTargetLabel(block.target);
+  const shellTool = isShellTool(block);
+  const target = shellTool ? commandInvocationText(block) : firstSectionText(sections, "目标") || displayTargetLabel(block.target);
   const params = firstSectionText(sections, "参数") || cleanText(block.argumentsPreview);
   const explicitIsGeneric = isGenericToolText(explicit);
-  const shellTool = isShellTool(block);
   const explicitUsesRawTool = rawTool
     && (sameCompactText(explicit, rawTool) || cleanText(explicit).toLowerCase().startsWith(`${rawTool.toLowerCase()} `));
-  if (explicit && shellTool && !explicitIsGeneric) return explicit;
+  if (explicit && shellTool && !explicitIsGeneric && !explicitUsesRawTool) return explicit;
+  if (shellTool && target) return target;
   if (explicit && !explicitIsGeneric && !explicitUsesRawTool) return explicit;
   const action = toolInvocationName(block);
   const commandHead = shellTool ? (rawTool || "command") : action;
@@ -599,12 +622,75 @@ function sameCompactText(left: string, right: string) {
 
 function isShellTool(block: ToolProjectionBlock) {
   const tool = cleanText(block.toolName || block.actionKind).toLowerCase();
-  return ["terminal", "shell", "cmd", "command", "powershell", "bash"].includes(tool);
+  return isCommandToolName(tool);
+}
+
+function toolWindowFamily(block: ToolProjectionBlock): ToolUiFamily {
+  const tool = cleanText(block.toolName || block.actionKind).toLowerCase();
+  if (isCommandToolName(tool)) return "command";
+  if (["read_file", "read_files", "read_path", "read_structured_file", "attachment_extract_text"].includes(tool)) return "file";
+  if (["search_files", "search_text", "glob_paths", "web_search", "deepsearch"].includes(tool)) return "search";
+  if (["list_dir", "stat_path", "path_exists"].includes(tool)) return "inspect";
+  if (["write_file", "edit_file", "batch_edit_file", "apply_patch"].includes(tool)) return "write";
+  if (["image_generate", "generate_image", "image_edit"].includes(tool)) return "media";
+  if (["mcp_structured_data", "structured_data", "read_spreadsheet", "read_table"].includes(tool)) return "data";
+  if (["memory_read", "memory_write", "memory_write_candidate"].includes(tool)) return "memory";
+  if (["browser_control", "browser", "playwright"].includes(tool)) return "browser";
+  const inferredAction = actionLabelFromText(block.title)
+    || actionLabelFromText(block.detail)
+    || actionLabelFromText(block.output);
+  const inferredFamily = toolFamilyFromActionLabel(inferredAction);
+  if (inferredFamily) return inferredFamily;
+  return "generic";
+}
+
+function toolFamilyFromActionLabel(label: string): ToolUiFamily | "" {
+  if (["读取文件"].includes(label)) return "file";
+  if (["搜索文件", "搜索文本", "匹配路径"].includes(label)) return "search";
+  if (["列出目录", "检查路径"].includes(label)) return "inspect";
+  if (["写入文件", "编辑文件", "批量编辑文件", "应用补丁"].includes(label)) return "write";
+  if (["运行命令"].includes(label)) return "command";
+  return "";
 }
 
 function isGenericToolText(value: string) {
   const normalized = cleanText(value).toLowerCase();
   return !normalized || normalized === "tool" || normalized.startsWith("tool ") || normalized.startsWith("tool\"");
+}
+
+function commandInvocationText(block: ToolProjectionBlock) {
+  const direct = cleanText(block.target);
+  if (direct && !isCommandToolName(direct.toLowerCase())) return direct;
+  return previewArgumentValue(block.argumentsPreview, ["command", "cmd", "script", "code"]);
+}
+
+function previewArgumentValue(preview: string, keys: string[]) {
+  const source = cleanText(preview);
+  if (!source) return "";
+  for (const key of keys) {
+    const marker = `${key}=`;
+    const index = source.indexOf(marker);
+    if (index < 0) continue;
+    let rest = source.slice(index + marker.length).trim();
+    const nextKey = rest.search(/,\s*(?:path|file|file_path|target|start_line|line_count|end_line|range|query|pattern|cwd|command|cmd|script|code|url)=/i);
+    if (nextKey >= 0) {
+      rest = rest.slice(0, nextKey).trim();
+    }
+    return stripWrappingQuotes(rest.replace(/,\s*$/, "").trim());
+  }
+  return "";
+}
+
+function stripWrappingQuotes(value: string) {
+  const trimmed = cleanText(value);
+  if (trimmed.length >= 2 && trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+    return trimmed.slice(1, -1).replace(/\\"/g, "\"");
+  }
+  return trimmed;
+}
+
+function isCommandToolName(value: string) {
+  return COMMAND_TOOL_NAMES.has(cleanText(value).toLowerCase());
 }
 
 function actionLabelFromText(value: unknown) {
@@ -622,6 +708,8 @@ function actionLabelFromText(value: unknown) {
 function compactText(value: string) {
   return cleanText(value).replace(/\s+/g, "").toLowerCase();
 }
+
+const COMMAND_TOOL_NAMES = new Set(["bash", "cmd", "command", "powershell", "python_repl", "shell", "terminal"]);
 
 function cleanText(value: unknown) {
   return String(value ?? "")

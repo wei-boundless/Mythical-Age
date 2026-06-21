@@ -288,8 +288,9 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     assert dict(list(assistant_tool_message["tool_calls"])[0]).get("id") == "call-read-requirements"
     assert tool_message["tool_call_id"] == "call-read-requirements"
     assert followup_context["source"] == "harness.single_agent_turn.tool_followup"
-    assert followup_prompt_manifest["tool_followup_action_transport"] is True
-    assert followup_prompt_manifest["assistant_body_transport"] == "disabled_for_tool_observation_followup"
+    assert followup_prompt_manifest["tool_followup_action_guidance"] is True
+    assert followup_prompt_manifest["assistant_body_transport"] == "plain_response_allowed"
+    assert followup_prompt_manifest["control_action_transport"] == "json_action"
     assert followup_request.diagnostics["unplanned_message_count"] == 0
     assert followup_request.diagnostics["segment_bindings_match_planned_messages"] is True
     assert "single_agent_turn_tool_call" in followup_kinds
@@ -327,6 +328,74 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     assert "read_evidence_injections" not in evidence_payload
     assert evidence_payload["read_evidence_refs"][0]["path"] == "requirements.txt"
     assert evidence_payload["projection_policy"]["rehydration"] == "read_again_or_artifact_lookup_when_exact_text_is_needed"
+
+
+def test_single_agent_turn_accepts_plain_text_tool_followup_as_agent_closeout(tmp_path: Path) -> None:
+    model = NativeToolCallSequenceModelRuntimeStub(
+        [
+            {
+                "content": "我先读取 requirements.txt，再判断依赖状态。",
+                "tool_calls": [
+                    {
+                        "id": "call-read-requirements",
+                        "name": "read_file",
+                        "args": {"path": "requirements.txt", "line_count": 80},
+                    }
+                ],
+            },
+            {
+                "content": (
+                    "现在所有线索都串起来了。\n\n"
+                    "结论：requirements.txt 已经成功读取，依赖清单存在且可以作为后续分析依据。"
+                    "当前没有发现读取失败、权限失败或路径错误。下一步如果要继续排查，"
+                    "我会基于这份依赖文件检查具体版本约束和运行链路。"
+                ),
+                "additional_kwargs": {"reasoning_content": "The tool result is enough for a user-facing closeout."},
+            },
+        ]
+    )
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(_project_backend_dir(), {"read_file"}),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(session_id="session-single-turn-plain-tool-followup", message="看看依赖文件。")
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    done = next(event for event in events if event.get("type") == "done")
+    assistant_finals = [dict(event) for event in events if event.get("type") == "assistant_text_final"]
+    control_signals = [
+        dict(dict(event.get("event") or {}).get("payload") or {}).get("runtime_control_signal")
+        for event in events
+        if event.get("type") == "turn_runtime_control_signal_observed"
+    ]
+    followup_prompt_text = "\n".join(
+        str(message.get("content") or "")
+        for message in list(model.seen_messages[-1] or [])
+        if isinstance(message, dict)
+    )
+    assistant_messages = [
+        dict(item)
+        for item in runtime.session_manager.messages
+        if str(dict(item).get("role") or "") == "assistant"
+    ]
+
+    assert model.calls == 2
+    assert done["terminal_reason"] == "assistant_message"
+    assert done["answer_source"] == "harness.single_agent_turn"
+    assert "依赖清单存在" in str(done.get("content") or "")
+    assert assistant_finals and "依赖清单存在" in str(assistant_finals[-1].get("content") or "")
+    assert assistant_messages and "依赖清单存在" in str(assistant_messages[-1].get("content") or "")
+    assert not any(dict(signal or {}).get("signal_kind") == "model_protocol_violation" for signal in control_signals)
+    assert "直接写用户可见的最终回复" in followup_prompt_text
+    assert "不要为了最终回答把自然语言正文塞进 JSON" in followup_prompt_text
 
 
 def test_single_agent_turn_absorbs_queued_user_steer_before_executing_model_action(tmp_path: Path) -> None:
@@ -1065,10 +1134,7 @@ def test_single_agent_turn_tool_loop_hands_budget_closeout_to_agent_without_nint
             self.closeout_accounting = dict(_kwargs.get("accounting_context") or {})
             return SimpleNamespace(
                 content=json.dumps(
-                    _action_request(
-                        action_type="respond",
-                        final_answer="agent closeout final",
-                    ),
+                    _action_request(action_type="respond", final_answer="agent closeout final"),
                     ensure_ascii=False,
                 )
             )
@@ -1104,8 +1170,8 @@ def test_single_agent_turn_tool_loop_hands_budget_closeout_to_agent_without_nint
     assert model.calls == len(observations) + 1
     assert len(observations) == 8
     assert done["terminal_reason"] == "single_turn_tool_iteration_limit"
-    assert done["answer_source"] == "harness.single_agent_turn.tool_limit_closeout"
-    assert done["completion_state"] == "tool_limit_agent_responded"
+    assert done["answer_source"] == "harness.single_agent_turn.agent_closeout"
+    assert done["completion_state"] == "tool_limit_agent_closeout"
     assert done["content"] == "agent closeout final"
     assert signal_ref
     assert dict(control_signal_event["event"]["refs"])["runtime_control_signal_ref"] == signal_ref
@@ -1122,18 +1188,26 @@ def test_single_agent_turn_tool_loop_hands_budget_closeout_to_agent_without_nint
         scope=RuntimeSignalScope(turn_run_id=turn_run_id),
         signal_types={"control.signal.requested"},
     ).pending_signals == ()
-    assert model.closeout_accounting["source"] == "harness.single_agent_turn.tool_limit_closeout"
-    assert model.closeout_accounting["prompt_manifest"]["invocation_kind"] == "single_agent_turn_tool_limit_closeout"
-    assert model.closeout_accounting["prompt_manifest"]["allowed_action_types"] == ["respond", "ask_user", "block"]
+    assert model.closeout_accounting["source"] == "harness.single_agent_turn.agent_closeout"
+    assert model.closeout_accounting["prompt_manifest"]["invocation_kind"] == "single_agent_turn_agent_authored_closeout"
+    assert model.closeout_accounting["prompt_manifest"]["closeout_reason"] == "tool_budget_exhausted"
+    assert model.closeout_accounting["prompt_manifest"]["closeout_phase"] == "tool_limit_tool_loop"
     assert model.closeout_messages[-1]["role"] == "system"
     closeout_content = str(model.closeout_messages[-1].get("content") or "")
-    assert "runtime_control_signal" in closeout_content
-    assert signal_ref in closeout_content
+    assert '"closeout_lifecycle"' in closeout_content
+    assert '"lifecycle": "agent_authored_closeout"' in closeout_content
+    assert '"cause": "tool_budget_exhausted"' in closeout_content
+    assert '"phase": "tool_limit_tool_loop"' in closeout_content
+    assert '"tool_channel": "closed"' in closeout_content
+    assert '"allowed_actions": ["respond", "ask_user", "block"]' in closeout_content
+    assert '"facts"' in closeout_content
+    assert "runtime_control_signal" not in closeout_content
+    assert signal_ref not in closeout_content
     assert '"max_tool_iterations": 8' in closeout_content
-    assert '"allowed_action_types": ["respond", "ask_user", "block"]' in closeout_content
     assert '"tool_call_allowed": false' in closeout_content
-    assert '"tool_calls_allowed_after_signal": false' in closeout_content
-    assert "你现在是本轮收口负责人" in closeout_content
+    assert "你收到的是本轮收口生命周期 observation" in closeout_content
+    assert "你必须只输出一个 JSON action 对象" in closeout_content
+    assert "action_type 只能是 respond、ask_user 或 block" in closeout_content
     assert not any("single_turn_tool_budget_exhausted" in str(item.get("content") or "") for item in runtime.session_manager.messages)
 
 
@@ -1223,3 +1297,163 @@ def test_single_agent_turn_two_consecutive_tool_failures_closeout_to_agent(tmp_p
     assert assistant_messages[-1]["content"] == "这两个文件都不存在，先停止继续读文件。"
     assert model.closeout_accounting["source"] == "harness.single_agent_turn.agent_closeout"
     assert model.closeout_accounting["prompt_manifest"]["invocation_kind"] == "single_agent_turn_agent_authored_closeout"
+
+
+def test_single_agent_turn_agent_authored_closeout_does_not_stream_before_contract_validation(tmp_path: Path) -> None:
+    class StreamingCloseoutFailureModel:
+        def __init__(self) -> None:
+            self.tool_calls = 0
+            self.closeout_accounting: dict[str, object] = {}
+
+        async def astream_messages_with_tools(self, _messages, tools, **_kwargs):
+            self.tool_calls += 1
+            del tools
+            yield _NativeToolStreamChunk(
+                "我先确认文件状态。",
+                [
+                    {
+                        "id": f"call-read-{self.tool_calls}",
+                        "name": "read_file",
+                        "args": {"path": f"does-not-exist-{self.tool_calls}.txt"},
+                    }
+                ],
+            )
+
+        async def invoke_messages_with_tools(self, messages, tools, **kwargs):
+            current = _NativeToolStreamChunk()
+            async for chunk in self.astream_messages_with_tools(messages, tools, **kwargs):
+                current = current + chunk
+            return SimpleNamespace(content=current.content, tool_calls=current.tool_calls)
+
+        async def astream_messages(self, _messages, **_kwargs):
+            self.closeout_accounting = dict(_kwargs.get("accounting_context") or {})
+            payload = json.dumps(
+                _action_request(action_type="respond", final_answer="这两个文件都不存在，先停止继续读文件。"),
+                ensure_ascii=False,
+            )
+            yield SimpleNamespace(content=payload[:80])
+            yield SimpleNamespace(content=payload[80:])
+
+        async def invoke_messages(self, messages, **kwargs):
+            text = ""
+            async for chunk in self.astream_messages(messages, **kwargs):
+                text += str(getattr(chunk, "content", "") or "")
+            return SimpleNamespace(content=text)
+
+    model = StreamingCloseoutFailureModel()
+    tool_base_dir = _project_backend_dir()
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"read_file"}),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-single-turn-streaming-closeout",
+                message="连续检查两个文件。",
+                model_selection={
+                    "stream_policy": {
+                        "enabled": True,
+                        "emit_assistant_text_delta": True,
+                    }
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    streamed_text = "".join(str(event.get("content") or "") for event in events if event.get("type") == "assistant_text_delta")
+    final_text = "".join(str(event.get("content") or "") for event in events if event.get("type") == "assistant_text_final")
+    done = next(event for event in events if event.get("type") == "done")
+
+    assert "这两个文件都不存在" not in streamed_text
+    assert "先停止继续读文件" not in streamed_text
+    assert "这两个文件都不存在，先停止继续读文件。" in final_text
+    assert done["answer_source"] == "harness.single_agent_turn.agent_closeout"
+    assert done["content"] == "这两个文件都不存在，先停止继续读文件。"
+    assert model.closeout_accounting["source"] == "harness.single_agent_turn.agent_closeout"
+    assert model.closeout_accounting["prompt_manifest"]["invocation_kind"] == "single_agent_turn_agent_authored_closeout"
+
+
+def test_single_agent_turn_agent_closeout_rejects_plain_text_without_streaming_it(tmp_path: Path, monkeypatch) -> None:
+    import harness.loop.single_agent_turn as single_agent_turn_module
+
+    monkeypatch.setattr(single_agent_turn_module, "_MAX_SINGLE_TURN_TOOL_ITERATIONS", 1)
+
+    class PlainTextCloseoutModel:
+        def __init__(self) -> None:
+            self.tool_calls = 0
+            self.closeout_calls = 0
+
+        async def astream_messages_with_tools(self, _messages, tools, **_kwargs):
+            self.tool_calls += 1
+            del tools
+            yield _NativeToolStreamChunk(
+                "我先确认文件状态。",
+                [
+                    {
+                        "id": f"call-exists-{self.tool_calls}",
+                        "name": "path_exists",
+                        "args": {"path": "requirements.txt"},
+                    }
+                ],
+            )
+
+        async def invoke_messages_with_tools(self, messages, tools, **kwargs):
+            current = _NativeToolStreamChunk()
+            async for chunk in self.astream_messages_with_tools(messages, tools, **kwargs):
+                current = current + chunk
+            return SimpleNamespace(content=current.content, tool_calls=current.tool_calls)
+
+        async def astream_messages(self, _messages, **_kwargs):
+            self.closeout_calls += 1
+            yield SimpleNamespace(content="这是一段没有结构化 action 的收口正文。")
+
+        async def invoke_messages(self, messages, **kwargs):
+            text = ""
+            async for chunk in self.astream_messages(messages, **kwargs):
+                text += str(getattr(chunk, "content", "") or "")
+            return SimpleNamespace(content=text)
+
+    model = PlainTextCloseoutModel()
+    tool_base_dir = _project_backend_dir()
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"path_exists"}),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-single-turn-plain-closeout",
+                message="反复检查文件。",
+                model_selection={
+                    "stream_policy": {
+                        "enabled": True,
+                        "emit_assistant_text_delta": True,
+                    }
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    streamed_text = "".join(str(event.get("content") or "") for event in events if event.get("type") == "assistant_text_delta")
+    final_text = "".join(str(event.get("content") or "") for event in events if event.get("type") == "assistant_text_final")
+    done = next(event for event in events if event.get("type") == "done")
+    assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
+
+    assert model.closeout_calls == 2
+    assert "没有结构化 action" not in streamed_text
+    assert "没有结构化 action" not in final_text
+    assert done["terminal_reason"] == "agent_contract_feedback_required"
+    assert done["completion_state"] == "agent_contract_feedback_required"
+    assert str(done.get("content") or "") == ""
+    assert not assistant_messages

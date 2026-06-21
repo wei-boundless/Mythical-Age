@@ -8,11 +8,11 @@ const MODEL_ACTION_TYPES = new Set([
 ]);
 
 const INTERNAL_CONTRACT_OPENERS = [
-  "系统运行控制观察如下",
-  "你现在是本轮收口负责人",
-  "当你需要让系统执行动作时",
+  "你是一名正在收口的 coding agent",
+  "当你需要提交动作时",
   "请根据用户当前请求、运行边界和允许动作",
   "你只能输出一个 JSON action",
+  "你必须只输出一个 JSON action",
 ];
 
 const INTERNAL_CONTRACT_MARKERS = [
@@ -24,21 +24,10 @@ const INTERNAL_CONTRACT_MARKERS = [
   "public_action_state",
   "final_answer",
   "tool_calls",
+  "closeout_lifecycle",
   "authority 必须",
   "只输出一个合法 JSON",
-  "不能在 JSON 外输出正文",
-];
-
-const INTERNAL_RUNTIME_FALLBACK_TEXT = new Set([
-  "本轮已经达到工具预算上限，且收口裁决仍不可安全展示。已停止继续调用工具，避免把内部工具协议或动作残片当作回答。",
-  "本轮工具预算已经耗尽，但收口动作生成失败。已停止继续调用工具。",
-]);
-
-const LEGACY_DETERMINISTIC_CLOSEOUT_MARKERS = [
-  "本轮没有拿到可继续执行的有效下一步",
-  "避免重复执行或误执行",
-  "你可以直接说“继续”",
-  "从已确认事实继续",
+  "不能输出 Markdown 代码块",
 ];
 
 export function isInternalActiveWorkControlText(value: unknown) {
@@ -54,12 +43,6 @@ export function isInternalControlProtocolText(value: unknown) {
   if (!text) {
     return false;
   }
-  if (INTERNAL_RUNTIME_FALLBACK_TEXT.has(text)) {
-    return true;
-  }
-  if (looksLikeLegacyDeterministicCloseout(text)) {
-    return true;
-  }
   if (containsInternalControlProtocolObject(parseJsonLike(text))) {
     return true;
   }
@@ -67,18 +50,6 @@ export function isInternalControlProtocolText(value: unknown) {
     return true;
   }
   return looksLikeWholeInternalContractPrompt(text);
-}
-
-function looksLikeLegacyDeterministicCloseout(value: string) {
-  const text = value.replace(/\s+/g, " ").trim();
-  if (!text) {
-    return false;
-  }
-  const markerCount = LEGACY_DETERMINISTIC_CLOSEOUT_MARKERS.reduce(
-    (count, marker) => count + (text.includes(marker) ? 1 : 0),
-    0,
-  );
-  return markerCount >= 2 && /(?:未完成|遇到的问题|已完成|下一步)[：:]/.test(text);
 }
 
 function parseJsonLike(value: string): unknown {

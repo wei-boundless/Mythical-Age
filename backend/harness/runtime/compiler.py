@@ -2559,30 +2559,30 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|request_task_run|active_work_control|resume_recoverable_work|block",
         "json_action_shape_rules": [
-            "只输出一个 JSON 对象；不要使用 Markdown 代码块；不要在 JSON 前后附加自然语言正文。",
+            "提交一个可唯一识别的结构化动作；推荐使用一个顶层 JSON 对象，Markdown 代码块或简短说明只会作为传输包装被忽略。",
             "respond 必须把用户可见最终回复写在顶层 final_answer；不要写 payload.final_answer、payload.content、action.final_answer 或 action.content。",
             "ask_user 必须把用户要回答的问题写在顶层 user_question；不要使用 provider-native ask_user 工具调用。",
             "block 必须把真实阻塞原因写在顶层 blocking_reason。",
-            "tool_call 使用顶层 tool_call: {tool_name, args}；普通工具可以使用 provider-native tool_call；控制动作可以使用 JSON action 或 provider-native canonical control signal，但不要混入普通正文或其它动作来源。",
+            "tool_call 使用顶层 tool_call: {tool_name, args}；普通工具可以使用 provider-native tool_call；控制动作可以使用 JSON action 或 provider-native canonical control signal，但同一轮不要混入其它动作来源。",
         ],
         "action_selection_rules": [
             "先识别用户当前输入本身要你回应什么：提问、质疑、状态追问、纠错、继续执行、修改目标、请求交付或闲聊。任何 action 都不能绕过这个输入意图。",
             "先判断用户当前要求是否是任务承接请求：是否要求开始/启动/继续推进/执行/落地/实现/修复/构建/生成/写入/验证，并要求做到可验收结果。",
             "先判断目标是否需要多阶段完成、规划后执行、持续推进、失败恢复、真实产物、文件修改、命令或浏览器验证、跨步骤状态记录。",
             "当用户要求审查、评估、排查、review、audit、梳理架构或检查一个模块/子系统/目录/多文件链路，并需要形成可靠结论、问题清单、修复建议、报告或可验收结果时，这就是任务承接请求；如果 request_task_run 可用，必须主动选择 request_task_run，而不是在单轮里连续读取大量文件。",
-            "大型审查的范围只需要足以形成任务合同，不需要在单轮里先枚举完全部文件；一旦目标、范围边界和验收标准足够，就应提交 request_task_run，让持续任务生命周期负责后续证据读取和阶段反馈。",
+            "大型审查的范围只需要足以形成 task_contract_seed，不需要在单轮里先枚举完全部文件；一旦目标、范围和验收标准足够，就应提交 request_task_run，让持续任务生命周期负责后续证据读取和阶段反馈。",
             "只有审查范围明确很小，例如只核对一个已知文件、一个具体函数、一个报错片段或一个单点事实，且不要求持续推进、完整结论或交付物时，才可以留在普通 tool_call。",
             "如果用户当前输入是问题、质疑、追问、状态询问、纠错或询问为什么，必须先对这个输入给出公开回应；只有用户明确要求继续/执行/恢复当前任务时，才允许 active_work_control 只承接执行。",
-            "如果运行边界允许 request_task_run 且任务承接条件成立，必须选择 request_task_run；不要用 respond 给计划替代启动任务，也不要先用普通 tool_call 消耗任务。",
+            "如果 allowed_action_types 包含 request_task_run 且任务承接条件成立，必须选择 request_task_run；不要用 respond 给计划替代启动任务，也不要先用普通 tool_call 消耗任务。",
             "如果任务承接条件成立但目标、范围或验收标准不足以形成 task_contract_seed，必须选择 ask_user 补齐关键缺口。",
             "只有用户只是询问概念、要求解释、要求状态说明，或明确要求一次性读取/搜索/检查且不要求持续完成交付时，才使用 respond 或普通 tool_call。",
         ],
         "public_response_obligation": {
             "authority": "model_semantic_response",
-            "rule": "你必须回应用户当前输入本身。回应可以是直接回答、解释你的公开判断、说明需要查证哪个事实才能判断、指出当前不能回答的原因，或说明会把用户的新要求并入执行边界。内部工具、长期任务和结构化 action 只能服务这个回应，不能替代这个回应。",
+            "rule": "你必须回应用户当前输入本身。回应可以是直接回答、解释你的公开判断、说明需要查证哪个事实才能判断、指出当前不能回答的原因，或说明会把用户的新要求并入本轮处理范围。内部工具、长期任务和结构化 action 只能服务这个回应，不能替代这个回应。",
             "first_visible_response": [
                 "如果已经足以回答，使用 respond/final_answer。",
-                "如果需要查证后才能判断，使用 tool_call/tool_calls，同时在 public_progress_note 中说明要查证的公开事实和为什么它关系到用户问题；public_action_state.current_judgment 可以补充当前公开判断，但不能替代空白回应；不要写工具名、协议字段或隐藏推理。",
+                "如果需要查证后才能判断，使用 tool_call/tool_calls，同时在 public_progress_note 中说明要查证的公开事实和为什么它关系到用户问题；public_action_state.current_judgment 可以补充当前公开判断，但不能替代空白回应；不要写工具名、动作字段或隐藏推理。",
                 "如果用户是在追问为什么、哪里卡住、是否正常、为什么没回应，必须先解释当前已知状态或你需要核对的状态对象；不要直接继续旧任务。",
                 "如果用户只是明确说继续、恢复、接着执行，并且没有提出新问题，才可以用 active_work_control 或 request_task_run 承接执行。"
             ],
@@ -2600,50 +2600,50 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                     "观察只是为后续工具调用准备上下文，单独展示不会帮助用户理解进展。",
                     "结构化工具槽已经足以表达动作状态，而没有新的语义结论。"
                 ],
-                "explanation_shape": "需要解释时，只说结论、依据的可见事实、影响和下一步；不要粘贴原始工具输出，不要暴露内部事件编号、协议字段、隐藏推理或无关路径。不要求每个低层工具都单独反馈，但不允许长时间任务只剩工具列表而没有你的阶段判断。"
+                "explanation_shape": "需要解释时，只说结论、依据的可见事实、影响和下一步；不要粘贴原始工具输出，不要暴露内部事件编号、动作字段、隐藏推理或无关路径。不要求每个低层工具都单独反馈，但不允许长时间任务只剩工具列表而没有你的阶段判断。"
             },
             "non_response_examples": [
                 "只输出 tool_call、request_task_run 或 active_work_control，没有解释用户当前问题。",
                 "只说正在处理、开始处理、稍等、我会看看，但没有说明要判断什么公开事实。",
-                "把工具名、内部协议或执行步骤列表当成给用户的回答。"
+                "把工具名、动作字段或执行步骤列表当成给用户的回答。"
             ]
         },
-        "public_progress_note": "一句用户可理解的公开语义回应；用户输入触发的 tool_call、request_task_run 或 active_work_control 必须填写，用于回应用户当前输入或说明为什么需要先查证。不要写工具名、协议字段、内部事件、隐藏推理或泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
+        "public_progress_note": "一句用户可理解的公开语义回应；用户输入触发的 tool_call、request_task_run 或 active_work_control 必须填写，用于回应用户当前输入或说明为什么需要先查证。不要写工具名、动作字段、内部事件、隐藏推理或泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
         "public_action_state": {
-            "visible_status": "可选机器状态；thinking|waiting_for_tool|tool_returned|responding|blocked。只供系统状态机使用，不是用户可见正文；不要复制到 public_progress_note、current_judgment、next_action、final_answer 或 blocking_reason。",
+            "visible_status": "可选机器状态；thinking|waiting_for_tool|tool_returned|responding|blocked。不是用户可见正文；不要复制到 public_progress_note、current_judgment、next_action、final_answer 或 blocking_reason。",
             "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写本轮已经确定的事实或边界，不写隐藏推理。",
             "next_action": "可选；你下一步准备执行的动作。必须与 action_type 对齐：respond 时是整理回复；ask_user 时是向用户确认；需要持续执行时是进入执行流程；block 时是说明阻塞。tool_call 时通常留空；只有在观察返回后形成真实阶段方向，才写给用户能理解的下一步，不要把工具调用动作或机器状态改写成公开判断文本。",
             "evidence_refs": ["可选；已经返回且可被用户理解的 observation/event/artifact ref；没有返回结果时留空"],
             "open_risks": ["可选；已经观察到的公开阻塞或风险；不要写预测性风险"],
-            "completion_status": "可选机器状态；working|waiting_for_tool|verifying|ready_to_finish|blocked。只供系统状态机使用，不是用户可见正文；不要复制到公开反馈、阶段判断、下一步、阻塞说明或最终回答。"
+            "completion_status": "可选机器状态；working|waiting_for_tool|verifying|ready_to_finish|blocked。不是用户可见正文；不要复制到公开反馈、阶段判断、下一步、阻塞说明或最终回答。"
         },
         "final_answer": "",
         "user_question": "",
         "blocking_reason": "",
         "tool_call": {"tool_name": "", "args": {}},
         "request_task_run_shape_rules": [
-            "request_task_run 必须是单个结构化控制信号；可以使用 JSON action，也可以使用 provider-native canonical request_task_run；不要使用 Markdown 代码块、不要在结构化动作前后附加正文。",
-            "不要使用 payload 包裹任务合同；顶层只能放 action_type、authority、public_progress_note、public_action_state、task_contract_seed、completion_contract、permission_request、diagnostics 等动作控制字段。",
+            "request_task_run 必须是单个结构化控制信号；可以使用 JSON action，也可以使用 provider-native canonical request_task_run；如果文本里带代码块或简短说明，只提取唯一 action-like 对象执行。",
+            "不要使用 payload 包裹任务字段；顶层只能放 action_type、authority、public_progress_note、public_action_state、task_contract_seed、completion_contract、permission_request、diagnostics 等动作控制字段。",
             "working_scope、capability_intent、skill_intent、observation_contract、completion_criteria、required_artifacts、required_verifications 都必须放在 task_contract_seed 内，不允许放在 JSON 顶层。",
             "capability_intent 使用 needed_capability_groups；不要写 selected_groups。observation_contract 必须包含 evidence_policy。skill_intent 即使不选择 skill，也要给 selected_skill_ids: [] 并说明 reason。",
         ],
         "resume_recoverable_work_shape_rules": [
-            "resume_recoverable_work 必须是单个结构化控制信号；可以使用 JSON action，也可以使用 provider-native canonical resume_recoverable_work；不要使用 Markdown 代码块、不要在结构化动作前后附加正文。",
+            "resume_recoverable_work 必须是单个结构化控制信号；可以使用 JSON action，也可以使用 provider-native canonical resume_recoverable_work；如果文本里带代码块或简短说明，只提取唯一 action-like 对象执行。",
             "task_run_id 和 continuation_id 必须放在 recovery_resume 对象内；不允许放在 JSON 顶层，也不要使用 payload 包裹。",
-            "只使用系统提供的可恢复句柄；不要从聊天文本、旧 assistant closeout 或文件内容里猜测 task_run_id/continuation_id。",
+            "只使用 recovery_resume 候选中的可恢复句柄；不要从聊天文本、旧 assistant closeout 或文件内容里猜测 task_run_id/continuation_id。",
             "恢复动作只恢复同一个 task_run，不创建新任务；如果句柄缺失、失效或用户要求改目标，选择 respond、ask_user 或 block 说明原因。",
         ],
         "minimal_valid_resume_recoverable_work_example": {
             "authority": "harness.loop.model_action_request",
             "action_type": "resume_recoverable_work",
-            "public_progress_note": "已确认存在可恢复任务，我会从系统提供的断点继续原任务。",
+            "public_progress_note": "已确认存在可恢复任务，我会从已提供的断点继续原任务。",
             "public_action_state": {
-                "current_judgment": "恢复句柄和任务标识已由系统上下文提供。",
+                "current_judgment": "恢复句柄和任务标识已提供。",
                 "next_action": "恢复原任务执行。",
             },
             "recovery_resume": {
-                "task_run_id": "taskrun:系统提供的可恢复任务 id",
-                "continuation_id": "cont:系统提供的 continuation id",
+                "task_run_id": "taskrun:可恢复任务 id",
+                "continuation_id": "cont:continuation id",
             },
         },
         "minimal_valid_request_task_run_example": {
@@ -2651,7 +2651,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
             "action_type": "request_task_run",
             "public_progress_note": "这是跨多文件的审查任务，我会进入持续任务来读取证据、分阶段反馈并形成可验收结论。",
             "public_action_state": {
-                "current_judgment": "目标和范围已经足以形成持续任务合同。",
+                "current_judgment": "目标和范围已经足以启动持续任务。",
                 "next_action": "进入持续任务执行流程。",
             },
             "task_contract_seed": {
@@ -2721,7 +2721,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
             "skill_intent": {
                 "selected_skill_ids": ["可选；从候选 Skills 中选择需要激活的 skill_id，例如 skill.deep-web-research"],
                 "candidate_skill_ids": ["可选；认为可能相关但尚未激活的 skill_id"],
-                "required_capability_tags": ["可选；需要系统提供的 skill 能力标签"],
+                "required_capability_tags": ["可选；需要的 skill 能力标签"],
                 "reason": "为什么选择或请求这些 skill"
             },
             "observation_contract": {
@@ -2729,8 +2729,8 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                 "progress_granularity": "step",
                 "finalization_requires_evidence": True
             },
-            "plan_ref": "可选；用户已批准或系统已记录的计划引用。没有批准计划时不要伪造。",
-            "active_work_relationship": "可选；只有本轮动作合同开放 request_task_run 时填写。new_work 表示用户要求开启新的持续任务；不要用 request_task_run 恢复、替换或接管旧任务。",
+            "plan_ref": "可选；用户已批准或已有记录的计划引用。没有批准计划时不要伪造。",
+            "active_work_relationship": "可选；只有 allowed_action_types 包含 request_task_run 时填写。new_work 表示用户要求开启新的持续任务；不要用 request_task_run 恢复、替换或接管旧任务。",
             "plan_requirements": {
                 "requires_plan": False,
                 "reason": "为什么需要先计划；仅在高影响改动、架构重构、协议变更或用户要求计划时填写。",
@@ -2760,18 +2760,18 @@ def task_execution_action_schema() -> dict[str, Any]:
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|block",
         "json_action_shape_rules": [
-            "只输出一个 JSON 对象；不要使用 Markdown 代码块；不要在 JSON 前后附加自然语言正文。",
+            "提交一个可唯一识别的结构化动作；推荐使用一个顶层 JSON 对象，Markdown 代码块或简短说明只会作为传输包装被忽略。",
             "respond 必须把用户可见最终回复写在顶层 final_answer；不要写 payload.final_answer、payload.content、action.final_answer 或 action.content。",
             "ask_user 必须把用户要回答的问题写在顶层 user_question；不要使用 provider-native ask_user 工具调用。",
             "block 必须把真实阻塞原因写在顶层 blocking_reason。",
-            "tool_call 使用顶层 tool_calls 或 tool_call；普通工具也可以使用 provider-native tool_call，但控制动作不能走 provider-native tool_call。",
+            "tool_call 使用顶层 tool_calls 或 tool_call；普通工具可以使用 provider-native tool_call。控制动作必须是单个结构化控制信号，可用 JSON action 或 provider-native canonical control signal；同一轮不要混入其它动作来源。",
         ],
         "public_response_obligation": {
             "authority": "model_semantic_response",
-            "rule": "你必须回应用户当前输入本身。回应可以是直接回答、解释你的公开判断、说明需要查证哪个事实才能判断、指出当前不能回答的原因，或说明会把用户的新要求并入执行边界。持续任务执行时，内部工具可以不可见，但工具动作不能替代对用户输入的回应。",
+            "rule": "你必须回应用户当前输入本身。回应可以是直接回答、解释你的公开判断、说明需要查证哪个事实才能判断、指出当前不能回答的原因，或说明会把用户的新要求并入本轮处理范围。持续任务执行时，内部工具可以不可见，但工具动作不能替代对用户输入的回应。",
             "first_visible_response": [
                 "如果已经足以回答，使用 respond/final_answer。",
-                "如果需要查证后才能判断，使用 tool_call/tool_calls，同时在 public_progress_note 中说明要查证的公开事实和为什么它关系到用户问题；public_action_state.current_judgment 可以补充当前公开判断，但不能替代空白回应；不要写工具名、协议字段或隐藏推理。",
+                "如果需要查证后才能判断，使用 tool_call/tool_calls，同时在 public_progress_note 中说明要查证的公开事实和为什么它关系到用户问题；public_action_state.current_judgment 可以补充当前公开判断，但不能替代空白回应；不要写工具名、动作字段或隐藏推理。",
                 "如果用户是在追问为什么、哪里卡住、是否正常、为什么没回应，必须先解释当前已知状态或你需要核对的状态对象；不要直接继续旧任务。",
                 "如果用户只是明确说继续、恢复、接着执行，并且没有提出新问题，才可以只承接执行。"
             ],
@@ -2789,22 +2789,22 @@ def task_execution_action_schema() -> dict[str, Any]:
                     "观察只是为后续工具调用准备上下文，单独展示不会帮助用户理解进展。",
                     "结构化工具槽已经足以表达动作状态，而没有新的语义结论。"
                 ],
-                "explanation_shape": "需要解释时，只说结论、依据的可见事实、影响和下一步；不要粘贴原始工具输出，不要暴露内部事件编号、协议字段、隐藏推理或无关路径。不要求每个低层工具都单独反馈，但不允许长时间任务只剩工具列表而没有你的阶段判断。"
+                "explanation_shape": "需要解释时，只说结论、依据的可见事实、影响和下一步；不要粘贴原始工具输出，不要暴露内部事件编号、动作字段、隐藏推理或无关路径。不要求每个低层工具都单独反馈，但不允许长时间任务只剩工具列表而没有你的阶段判断。"
             },
             "non_response_examples": [
                 "只输出 tool_call 或 block，没有解释用户当前问题。",
                 "只说正在处理、开始处理、稍等、我会看看，但没有说明要判断什么公开事实。",
-                "把工具名、内部协议或执行步骤列表当成给用户的回答。"
+                "把工具名、动作字段或执行步骤列表当成给用户的回答。"
             ]
         },
-        "public_progress_note": "一句用户可理解的公开语义回应；用户输入或用户 steer 触发的 tool_call 必须填写，用于回应用户当前输入或说明为什么需要先查证。不要写工具名、协议字段、内部事件、隐藏推理或泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
+        "public_progress_note": "一句用户可理解的公开语义回应；用户输入或用户 steer 触发的 tool_call 必须填写，用于回应用户当前输入或说明为什么需要先查证。不要写工具名、动作字段、内部事件、隐藏推理或泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
         "public_action_state": {
-            "visible_status": "机器状态；thinking|waiting_for_tool|tool_returned|responding|blocked。只供系统状态机使用，不是用户可见正文；不要复制到 public_progress_note、current_judgment、next_action、final_answer 或 blocking_reason。",
+            "visible_status": "机器状态；thinking|waiting_for_tool|tool_returned|responding|blocked。不是用户可见正文；不要复制到 public_progress_note、current_judgment、next_action、final_answer 或 blocking_reason。",
             "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写本轮已经确定的事实或边界，不写隐藏推理。",
             "next_action": "可选；你下一步准备执行的动作。必须与 action_type 对齐：respond 时是整理回复；ask_user 时是向用户确认；block 时是说明阻塞。tool_call 时通常留空；只有在观察返回后形成真实阶段方向，才写给用户能理解的下一步，不要把工具调用动作或机器状态改写成公开判断文本。",
             "evidence_refs": ["已经返回且可被用户理解的 observation/event/artifact ref；没有返回结果时留空"],
             "open_risks": ["已经观察到的公开阻塞或风险；没有则留空；不要写预测性风险"],
-            "completion_status": "机器状态；working|waiting_for_tool|verifying|ready_to_finish|blocked。只供系统状态机使用，不是用户可见正文；不要复制到公开反馈、阶段判断、下一步、阻塞说明或最终回答。"
+            "completion_status": "机器状态；working|waiting_for_tool|verifying|ready_to_finish|blocked。不是用户可见正文；不要复制到公开反馈、阶段判断、下一步、阻塞说明或最终回答。"
         },
         "final_answer": "",
         "user_question": "",
@@ -2833,7 +2833,7 @@ def task_execution_action_schema() -> dict[str, Any]:
             ],
             "plan_deviation": {
                 "status": "none|within_plan|needs_user|blocked",
-                "plan_ref": "如果任务合同绑定了计划，填写对应 plan_ref",
+                "plan_ref": "如果任务目标绑定了计划，填写对应 plan_ref",
                 "reason": "如需偏离计划，说明具体原因；没有偏离时留空"
             },
         },
@@ -2899,6 +2899,9 @@ def _interrupted_turn_work_model_visible_payload(
     if str(payload.get("state") or "") != "interrupted_continuation_context":
         return {}
     visible_prefix = str(payload.get("visible_assistant_prefix") or "")
+    agent_contract_feedback = _agent_contract_feedback_model_visible_payload(
+        payload.get("agent_contract_feedback")
+    )
     visible_prefix_payload = _drop_empty_payload(
         {
             "content": visible_prefix,
@@ -2929,6 +2932,7 @@ def _interrupted_turn_work_model_visible_payload(
             "latest_step": str(payload.get("latest_step") or ""),
             "next_recommended_step": str(payload.get("next_recommended_step") or ""),
             "model_visible_summary": str(payload.get("model_visible_summary") or ""),
+            "agent_contract_feedback": agent_contract_feedback,
             "current_user_instruction": _compact_text(current_user_message, limit=4000),
             "visible_assistant_prefix": visible_prefix_payload,
             "evidence_continuity": {
@@ -2948,6 +2952,76 @@ def _interrupted_turn_work_model_visible_payload(
             "read_only_context": False,
             "boundary_code": "interrupted_single_agent_turn_continuation_context",
             "authority": "harness.runtime.interrupted_turn_work_projection",
+        }
+    )
+
+
+def _agent_contract_feedback_model_visible_payload(value: Any) -> dict[str, Any]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    if not payload:
+        return {}
+    protocol = dict(payload.get("required_action_protocol") or {})
+    failure = dict(payload.get("contract_failure") or {})
+    structured_signal = dict(payload.get("structured_signal") or {})
+    specific_feedback = [
+        _drop_empty_payload(
+            {
+                "category": str(item.get("category") or ""),
+                "code": str(item.get("code") or ""),
+                "reason": str(item.get("reason") or ""),
+                "situation_feedback": _compact_text(item.get("situation_feedback"), limit=1200),
+                "repair_instruction": _compact_text(item.get("repair_instruction"), limit=1200),
+                "expected_next_action": _compact_text(item.get("expected_next_action"), limit=1200),
+            }
+        )
+        for item in list(failure.get("specific_feedback") or [])
+        if isinstance(item, dict)
+    ]
+    return _drop_empty_payload(
+        {
+            "signal_kind": str(payload.get("signal_kind") or ""),
+            "lifecycle": str(payload.get("lifecycle") or ""),
+            "contract_feedback_state": str(payload.get("contract_feedback_state") or ""),
+            "phase": str(payload.get("phase") or ""),
+            "reason": str(payload.get("reason") or ""),
+            "triggering_signal_kind": str(payload.get("triggering_signal_kind") or ""),
+            "visible_assistant_message_allowed": payload.get("visible_assistant_message_allowed"),
+            "tool_calls_allowed_after_signal": payload.get("tool_calls_allowed_after_signal"),
+            "agent_closeout_required": payload.get("agent_closeout_required"),
+            "agent_feedback": _compact_text(payload.get("agent_feedback"), limit=3000),
+            "required_action_protocol": _drop_empty_payload(
+                {
+                    "authority": str(protocol.get("authority") or ""),
+                    "allowed_action_types": [
+                        str(item)
+                        for item in list(protocol.get("allowed_action_types") or [])
+                        if str(item or "").strip()
+                    ],
+                    "tool_call_allowed": protocol.get("tool_call_allowed"),
+                    "structured_action_required": protocol.get("structured_action_required"),
+                    "text_transport_accepts_single_unambiguous_json_action": protocol.get("text_transport_accepts_single_unambiguous_json_action"),
+                    "visible_user_body_allowed_only_from_agent_action": protocol.get("visible_user_body_allowed_only_from_agent_action"),
+                }
+            ),
+            "contract_failure": _drop_empty_payload(
+                {
+                    "kind": str(failure.get("kind") or ""),
+                    "closeout_attempts": failure.get("closeout_attempts"),
+                    "phase": str(failure.get("phase") or ""),
+                    "reason": str(failure.get("reason") or ""),
+                    "facts": dict(failure.get("facts") or {}),
+                    "specific_feedback": specific_feedback,
+                }
+            ),
+            "observed_facts": dict(payload.get("observed_facts") or {}),
+            "structured_signal": _drop_empty_payload(
+                {
+                    "code": str(structured_signal.get("code") or ""),
+                    "message": _compact_text(structured_signal.get("message"), limit=3000),
+                    "retryable": structured_signal.get("retryable"),
+                }
+            ),
+            "authority": "harness.runtime.interrupted_turn_contract_feedback_projection",
         }
     )
 
@@ -3084,7 +3158,7 @@ def _single_agent_turn_output_contract(
         "先判断目标是否需要多阶段完成、规划后执行、持续推进、失败恢复、真实产物、文件修改、命令或浏览器验证、跨步骤状态记录。",
         "如果用户要求审查、评估、排查、review、audit、梳理架构或检查模块/子系统/目录/多文件链路，并需要可靠结论、问题清单、修复建议、报告或可验收结果，应视为任务承接请求。",
         "普通 tool_call 只适合明确的小范围一次性核对；不要用连续读取大量文件来代替 request_task_run。",
-        "大型审查只需要先确认足以形成任务合同的目标、范围和验收标准，不要为了完整预扫描而继续消耗单轮工具预算。",
+        "大型审查只需要先确认足以形成 task_contract_seed 的目标、范围和验收标准，不要为了完整预扫描而继续消耗单轮工具预算。",
     ]
     if "request_task_run" in allowed_actions:
         action_selection_rules.extend(
@@ -3233,7 +3307,7 @@ def _single_agent_turn_output_contract(
                 "required_fields": ["action", "relation_to_current_work"],
                 "payload_schema": {
                     "action": "one of allowed_controls; use this exact field name for the control decision",
-                    "response": "本次控制动作的用户可见反馈意图；系统会把它与执行结果投影成控制回执，它不是一条脱离控制动作的最终正文",
+                    "response": "本次控制动作的用户可见反馈意图；它会和执行结果组成控制回执，不是一条脱离控制动作的最终正文",
                     "appended_instruction": "required when action is append_instruction_to_active_work unless the latest user message itself is the instruction",
                     "relation_to_current_work": "current_work when the latest user message clearly points at the active work",
                     "continuation_strategy": "same_run_resume, already_running, defer, or none",
@@ -5067,9 +5141,9 @@ def _model_decision_contract_payload(
         "required_transport": "assistant_message_or_tool_call_or_json_action",
         "json_action_shape": {
             "authority": "harness.loop.model_action_request",
-            "single_json_object_only": True,
-            "no_markdown_fence": True,
-            "no_text_outside_json": True,
+            "single_unambiguous_action_required": True,
+            "markdown_fence_allowed_when_single_action": True,
+            "wrapper_text_allowed_when_single_action": True,
             "respond_requires_top_level_final_answer": "action_type=respond 时，最终给用户看的自然回复必须写在顶层 final_answer；不要放入 payload.content、payload.final_answer 或 action.content。",
             "ask_user_requires_top_level_user_question": "action_type=ask_user 时，用户要回答的问题必须写在顶层 user_question；不要通过 provider-native ask_user 工具调用表达。",
             "block_requires_top_level_blocking_reason": "action_type=block 时，真实阻塞原因必须写在顶层 blocking_reason。",
@@ -5221,9 +5295,9 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
     if native_tool_available:
         protocol_refs.append("runtime_prompt.native_tool_preamble")
     lines = [
-        "当前运行边界增量：",
+        "本轮动作增量：",
         f"本轮允许动作：{allowed_text}。",
-        "稳定协议见：" + ", ".join(protocol_refs) + "；本段只声明本轮边界，不重复协议全文。",
+        "详细规则见：" + ", ".join(protocol_refs) + "；本段只列本轮新增约束。",
     ]
     return "\n".join(lines).strip() + "\n"
 
@@ -5388,7 +5462,7 @@ def _skill_candidate_instruction(assembly_payload: dict[str, Any]) -> str:
         (
             "Skill 使用规则：如果某个候选 skill 能改善持续任务，请在 request_task_run 的 "
             "task_contract_seed.skill_intent.selected_skill_ids 中填写对应 skill_id。"
-            "候选卡片不是完整技能说明；进入持续任务后，运行时会展开已选择 skill 的全文。"
+            "候选卡片不是完整技能说明；进入持续任务后会展开已选择 skill 的全文。"
             "不要把 skill_id、内部路由或工具名暴露给用户。"
         ),
     )

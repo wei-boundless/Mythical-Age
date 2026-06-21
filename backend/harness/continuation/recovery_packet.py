@@ -59,7 +59,7 @@ def _bounded_resume_instruction(value: Any) -> str:
 
 def _interruption_summary(record: ContinuationRecord) -> str:
     if record.recovery_cause == "runtime_restart":
-        return "后端运行时重启打断了上一轮执行，任务已停在可恢复边界。"
+        return "上一轮执行被连接恢复打断，任务已停在可恢复边界。"
     if record.recovery_cause:
         return f"任务停在可恢复边界：{record.recovery_cause}。"
     if record.state == "terminal_read_only":
@@ -86,9 +86,9 @@ def _model_instruction(record: ContinuationRecord, *, user_resume_instruction: s
         else ""
     )
     return (
-        "你正在恢复一个被运行时中断的本地 Agent 任务。\n"
-        f"当前恢复句柄已通过系统校验：continuation_id={record.continuation_id}，task_run_id={record.task_run_id}。\n"
-        f"{record.model_visible_summary or '系统已确认该任务存在可恢复记录。'}\n"
+        "你正在恢复一个被中断的本地 Agent 任务。\n"
+        f"当前恢复句柄已校验：continuation_id={record.continuation_id}，task_run_id={record.task_run_id}。\n"
+        f"{record.model_visible_summary or '已确认该任务存在可恢复记录。'}\n"
         f"{user_line}"
         "你只允许在这个 task_run 范围内继续，不要从用户的自然语言“继续”猜测其他任务。\n"
         "继续前先核对最新文件状态、运行状态和未完成验收项；如果句柄失效或任务不可续跑，必须说明原因并停止。"

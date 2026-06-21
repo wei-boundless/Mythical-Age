@@ -151,7 +151,7 @@ describe("ChatPanel", () => {
             state: "running",
             target: "",
             commandLine: "read_file",
-            output: "系统调用运行中。",
+            output: "工具调用运行中。",
             toolCallId: "call:read",
             toolLifecycleId: "",
             toolName: "read_file",

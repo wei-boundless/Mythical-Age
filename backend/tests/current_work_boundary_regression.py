@@ -338,7 +338,7 @@ def test_compiler_exposes_recoverable_work_as_model_decision_context_not_active_
         "resume_allowed": True,
         "resume_strategy": "same_run_resume",
         "task_status": "waiting_executor",
-        "latest_progress": "后端运行时已重启，任务停在可恢复边界。",
+        "latest_progress": "连接已恢复，任务停在可恢复边界。",
         "next_recommended_step": "恢复前核对文件状态。",
         "model_visible_summary": "任务目标：修复断线恢复。",
         "authority": "harness.continuation.record",
@@ -479,3 +479,92 @@ def test_compiler_exposes_interrupted_turn_work_as_volatile_continuation_context
         if str(segment.get("kind") or "") == "dynamic_projection"
     )
     assert dynamic_segment["cache_role"] == "volatile"
+
+
+def test_compiler_exposes_agent_contract_feedback_inside_interrupted_turn_work() -> None:
+    interrupted_turn_work = {
+        "continuation_id": "turncont:contract-feedback:33:0",
+        "session_id": "session:contract-feedback",
+        "turn_run_id": "turnrun:contract-feedback",
+        "turn_id": "turn:contract-feedback",
+        "state": "interrupted_continuation_context",
+        "resume_allowed": False,
+        "resume_strategy": "continue_next_single_agent_turn",
+        "interruption_kind": "agent_contract_feedback_required",
+        "terminal_status": "failed",
+        "terminal_reason": "agent_contract_feedback_required",
+        "latest_progress": "上一条输出没有进入会话，也不会展示给用户。",
+        "latest_step": "agent_contract_feedback_required",
+        "next_recommended_step": "根据合同反馈产出合法 action。",
+        "model_visible_summary": "上一轮普通 turn 需要合同反馈修复。",
+        "agent_contract_feedback": {
+            "signal_kind": "agent_contract_feedback_required",
+            "lifecycle": "agent_contract_feedback_required",
+            "contract_feedback_state": "execution_contract_feedback_required",
+            "phase": "tool_limit_tool_loop",
+            "reason": "tool_budget_exhausted",
+            "visible_assistant_message_allowed": False,
+            "tool_calls_allowed_after_signal": False,
+            "agent_closeout_required": True,
+            "agent_feedback": "上一条输出没有进入会话，也不会展示给用户；请提交合法 JSON action。",
+            "required_action_protocol": {
+                "authority": "harness.loop.model_action_request",
+                "allowed_action_types": ["respond", "ask_user", "block"],
+                "tool_call_allowed": False,
+                "structured_action_required": True,
+                "visible_user_body_allowed_only_from_agent_action": True,
+            },
+            "contract_failure": {
+                "kind": "agent_output_contract_not_satisfied",
+                "closeout_attempts": 2,
+                "phase": "tool_limit_tool_loop",
+                "reason": "tool_budget_exhausted",
+                "protocol_error": {"raw_model_output": "private raw model output"},
+                "specific_feedback": [
+                    {
+                        "category": "protocol_violation",
+                        "code": "json_action_required",
+                        "situation_feedback": "上一条输出无法可靠归类。",
+                        "repair_instruction": "只输出一个 JSON action。",
+                        "expected_next_action": "选择 respond、ask_user 或 block。",
+                    }
+                ],
+            },
+            "observed_facts": {"successful_tool_observation_count": 1},
+            "structured_signal": {
+                "code": "single_agent_turn_agent_contract_feedback_required",
+                "message": "请提交合法 JSON action。",
+                "retryable": True,
+            },
+        },
+        "authority": "harness.continuation.interrupted_turn_record",
+    }
+    runtime_assembly = {
+        "profile": {"mode": "conversation"},
+        "task_environment": {"environment_id": "env.general.workspace"},
+        "control_capabilities": {"may_request_task_run": True, "may_control_active_work": True},
+    }
+
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:contract-feedback",
+        turn_id="turn:contract-feedback-followup",
+        agent_invocation_id="aginvoke:contract-feedback-followup",
+        user_message="继续。",
+        history=[],
+        session_context={"interrupted_turn_work": interrupted_turn_work},
+        runtime_assembly=runtime_assembly,
+    )
+
+    dynamic_payload = _message_payload_with_title(result.packet, "Single agent turn dynamic runtime")
+    projected = dict(dynamic_payload["interrupted_turn_work"])
+    feedback = dict(projected["agent_contract_feedback"])
+    protocol = dict(feedback["required_action_protocol"])
+    failure = dict(feedback["contract_failure"])
+
+    assert projected["interruption_kind"] == "agent_contract_feedback_required"
+    assert feedback["signal_kind"] == "agent_contract_feedback_required"
+    assert protocol["authority"] == "harness.loop.model_action_request"
+    assert protocol["allowed_action_types"] == ["respond", "ask_user", "block"]
+    assert failure["specific_feedback"][0]["repair_instruction"] == "只输出一个 JSON action。"
+    assert feedback["observed_facts"]["successful_tool_observation_count"] == 1
+    assert "raw_model_output" not in json.dumps(feedback, ensure_ascii=False)

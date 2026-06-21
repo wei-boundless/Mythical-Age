@@ -312,9 +312,11 @@ def default_reply_for_action(action: str, context: ActiveWorkContext) -> str:
 
 def _public_progress_text(value: str) -> str:
     text = public_runtime_progress_summary(public_active_work_text(str(value or "").strip()))
+    if "当前任务步骤" in text and "上下文" in text and "判断下一步" in text:
+        return "正在整理上下文，准备继续处理。"
+    if "任务 上下文" in text and "等待" in text and "任务动作" in text:
+        return "正在处理这一步。"
     replacements = {
-        "系统已为当前任务步骤装配 上下文，并交给 助手 判断下一步。": "正在整理上下文，准备继续处理。",
-        "任务 上下文 已送入模型，系统正在等待 助手 返回任务动作。": "正在处理这一步。",
         "运行包已交给模型，等待 助手 返回下一步动作。": "正在处理这一步。",
         "任务执行器已被调度，正在接管 当前工作。": "正在准备继续处理。",
     }

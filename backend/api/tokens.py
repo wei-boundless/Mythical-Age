@@ -242,6 +242,7 @@ def _build_session_tokens_payload(
         "warning_threshold_tokens": int(context_meter.get("warning_threshold_tokens") or 0),
         "ready_threshold_tokens": int(context_meter.get("ready_threshold_tokens") or 0),
         "current_context_tokens": int(context_meter.get("current_context_tokens") or 0),
+        "compaction_pressure_tokens": int(context_meter.get("compaction_pressure_tokens") or 0),
         "blocked_reason": "" if bool(context_meter.get("auto_replacement_allowed", False)) else "below_replacement_threshold",
         "context_recovery_package_present": bool(context_recovery_package.get("present", False)),
         "context_recovery_package_fresh": bool(context_recovery_package.get("fresh", False)),

@@ -429,7 +429,7 @@ class HealthRegistry:
             "blocked_reasons": ("health_agent_execution_not_migrated_to_single_agent_task_lifecycle",),
             "health_agent_run": {},
             "result": {
-                "content": "健康 agent 执行入口尚未迁移到当前单 agent 任务生命周期，系统已按 fail-closed 停止执行。",
+                "content": "健康 agent 执行入口尚未迁移到当前单 agent 任务生命周期，已按 fail-closed 停止执行。",
                 "authority": "health_system.agent_result",
             },
             "preview": preview,

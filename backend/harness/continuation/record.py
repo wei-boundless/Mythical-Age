@@ -93,6 +93,7 @@ class InterruptedTurnContinuationRecord:
     event_log_ref: str = ""
     event_cursor: int = -1
     model_visible_summary: str = ""
+    agent_contract_feedback: dict[str, Any] = field(default_factory=dict)
     created_at: float = 0.0
     updated_at: float = 0.0
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -184,6 +185,7 @@ def interrupted_turn_record_from_payload(payload: dict[str, Any] | None) -> Inte
             event_log_ref=str(data.get("event_log_ref") or data.get("turn_run_id") or ""),
             event_cursor=_int_value(data.get("event_cursor"), -1),
             model_visible_summary=str(data.get("model_visible_summary") or ""),
+            agent_contract_feedback=dict(data.get("agent_contract_feedback") or {}),
             created_at=float(data.get("created_at") or 0.0),
             updated_at=float(data.get("updated_at") or 0.0),
             diagnostics=dict(data.get("diagnostics") or {}),

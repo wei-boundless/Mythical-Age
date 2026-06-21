@@ -260,7 +260,7 @@ describe("chronological projection frame reducer contract", () => {
       state: "done",
     });
     expect(tool?.commandLine).not.toBe("read_file");
-    expect(tool?.output).not.toBe("系统调用已完成。");
+    expect(tool?.output).not.toBe("工具调用已完成。");
   });
 
   it("does not let a generic completion frame overwrite a concrete tool request", () => {
@@ -308,6 +308,40 @@ describe("chronological projection frame reducer contract", () => {
       state: "done",
     });
     expect(tool?.commandLine).not.toBe("tool");
+  });
+
+  it("uses the real terminal command instead of the tool-name template", () => {
+    let transition = startBoundProjectionTurn();
+    const command = "npm test -- src/components/chat/PublicTimelineActivity.test.ts";
+
+    transition = project(transition, {
+      source_event_type: "tool_call_requested",
+      event_offset: 10,
+      op: "item_upsert",
+      slot: "current_action",
+      source_authority: "model",
+      main_visibility: "visible_live",
+      retention: "transient",
+      item_id: "call:terminal",
+      tool_call_id: "call:terminal",
+      tool_lifecycle_id: "call:terminal",
+      tool_name: "terminal",
+      title: `运行命令：${command}`,
+      target: command,
+      arguments_preview: `cwd=D:/AI/langchain-agent, command=${command}`,
+      state: "running",
+    });
+
+    const tool = latestProjection(transition.state)?.blocks.find((block) => block.kind === "tool_event");
+    expect(tool).toMatchObject({
+      kind: "tool_event",
+      toolName: "terminal",
+      title: `运行命令：${command}`,
+      target: command,
+      commandLine: command,
+      state: "running",
+    });
+    expect(tool?.commandLine).not.toBe("terminal");
   });
 
   it("keeps body and tool activity as ordered render blocks", () => {

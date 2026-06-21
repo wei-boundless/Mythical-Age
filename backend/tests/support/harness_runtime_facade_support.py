@@ -428,7 +428,7 @@ class _ProtocolRepairPromptProbeModelRuntime:
                 usage_metadata={"output_tokens": 2048},
             )
         assert "上一轮输出疑似达到模型输出上限并被截断" in model_input
-        assert "系统没有执行上一轮动作" in model_input
+        assert "上一轮动作没有进入执行队列" in model_input
         assert "改用 action_type=tool_call" in model_input
         assert "在 tool_calls 数组中调用 write_file 或 terminal" in model_input
         assert "tool_calls[0].args" in model_input

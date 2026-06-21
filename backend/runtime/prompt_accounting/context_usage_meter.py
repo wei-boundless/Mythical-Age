@@ -178,7 +178,7 @@ class ContextUsageMeter:
             pending_tokens = provider_pending_tokens
 
         session_pressure_value = max(0, int(session_pressure_tokens or 0)) if pressure_tokens_supplied else 0
-        compaction_pressure_tokens = max(0, int(current_context_tokens or 0))
+        current_context_value = max(0, int(current_context_tokens or 0))
         current_context_authority = (
             str(session_pressure_source or "runtime.context_management.session_pressure")
             if session_pressure_is_current_source
@@ -188,9 +188,14 @@ class ContextUsageMeter:
                 else "runtime.prompt_accounting.provided_model_messages"
             )
         )
-        compaction_pressure_authority = current_context_authority
+        if pressure_tokens_supplied and session_pressure_value > current_context_value:
+            compaction_pressure_tokens = session_pressure_value
+            compaction_pressure_authority = str(session_pressure_source or "runtime.context_management.session_pressure")
+        else:
+            compaction_pressure_tokens = current_context_value
+            compaction_pressure_authority = current_context_authority
         pressure_level = self._pressure_level(compaction_pressure_tokens, thresholds)
-        ratio = round(current_context_tokens / window, 6) if window > 0 else 0.0
+        ratio = round(current_context_value / window, 6) if window > 0 else 0.0
         replacement_threshold = int(thresholds.get("replacement") or input_capacity_tokens)
         compaction_pressure_ratio = round(compaction_pressure_tokens / replacement_threshold, 6) if replacement_threshold > 0 else 0.0
         compaction_remaining_tokens = max(0, replacement_threshold - int(compaction_pressure_tokens or 0))

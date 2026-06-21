@@ -300,7 +300,7 @@ def _public_activity_state(work_state: str, executor_lease_state: str) -> str:
 
 def _public_activity_label(work_state: str, *, recovery_cause: str = "") -> str:
     if work_state == "ready_to_continue" and recovery_cause == "runtime_restart":
-        return "运行时重启后待续跑"
+        return "连接恢复后待续跑"
     return {
         "active": "运行中",
         "pending_executor": "等待执行器",
@@ -316,7 +316,7 @@ def _public_activity_label(work_state: str, *, recovery_cause: str = "") -> str:
 
 def _public_activity_detail(work_state: str, *, recovery_cause: str = "") -> str:
     if work_state == "ready_to_continue" and recovery_cause == "runtime_restart":
-        return "后端运行时已重启，任务已停在可恢复边界；点击继续或发送继续后会从当前任务继续调度。"
+        return "连接已恢复，任务已停在可恢复边界；点击继续或发送继续后会从当前任务继续调度。"
     if work_state == "ready_to_continue":
         return "任务已停在可恢复边界，可以继续调度。"
     if work_state == "pending_executor":

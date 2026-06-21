@@ -5,7 +5,7 @@ const PUBLIC_RUNTIME_STATUS_LABELS: Record<string, string> = {
   waiting_approval: "等待权限确认",
   waiting_safe_boundary: "等待安全边界",
   task_executor_scheduled: "任务已进入执行流程",
-  runtime_restart_waiting_resume: "运行时重启后待续跑",
+  runtime_restart_waiting_resume: "连接恢复后待续跑",
   runtime_cell_missing_after_restart: "连接恢复后需要重新接续运行",
   background_executor_missing_after_restart: "连接恢复后需要重新接续运行",
   runtime_cell_cancelled: "输出流已取消",
@@ -16,11 +16,9 @@ const PUBLIC_RUNTIME_STATUS_LABELS: Record<string, string> = {
   stream_reconnect_attempts_exhausted: "输出流连接恢复失败",
   partial_stream_error: "输出流暂时中断",
   partial_stream_recovery: "输出流已恢复",
-  agent_contract_feedback_required: "需要 agent 重新收口",
   tool_budget_exhausted: "本轮工具预算已用完",
   single_turn_tool_iteration_limit: "本轮工具预算已用完",
   single_agent_turn_empty_response: "agent 未生成可发布回复",
-  tool_limit_closeout_protocol_failed: "agent 收口动作未满足要求",
   tool_limit_missing_answer: "agent 收口缺少可发布回复",
   backend_error: "后端处理异常",
   completed: "已完成",
@@ -71,7 +69,7 @@ export function publicRuntimeStatusText(value: unknown) {
     return label ? `${prefix}${label}` : match;
   });
   if (replaced !== text) return replaced.trim();
-  return looksLikeRuntimeReasonCode(text) ? "运行状态已更新" : text;
+  return looksLikeRuntimeReasonCode(text) ? "状态已更新" : text;
 }
 
 export function publicRuntimeProgressText(value: unknown) {

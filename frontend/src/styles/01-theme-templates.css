@@ -57,6 +57,13 @@
   --console-danger-soft: #44201f;
   --console-shadow: 0 1px 2px rgba(0, 0, 0, 0.24);
   --console-shadow-soft: 0 1px 1px rgba(0, 0, 0, 0.18);
+  /* Workspace background texture — 深色，配合 focus-dark 主题 */
+  --workspace-bg-base: #0d1620;
+  --workspace-bg-mid: #111c28;
+  --workspace-bg-warm: rgba(50, 35, 20, 0.30);
+  --workspace-bg-cool: rgba(25, 55, 85, 0.38);
+  --workspace-bg-green: rgba(25, 55, 40, 0.22);
+  --workspace-bg-paper: rgba(255, 255, 255, 0.05);
 }
 
 /* ===== warm-paper: 暖纸 — 暖色调浅色主题 ===== */
@@ -212,6 +219,13 @@
   --console-danger-soft: #402828;
   --console-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
   --console-shadow-soft: 0 1px 1px rgba(0, 0, 0, 0.2);
+  /* Workspace background texture — 深蓝，配合 midnight-ocean 主题 */
+  --workspace-bg-base: #0a1525;
+  --workspace-bg-mid: #0e1d32;
+  --workspace-bg-warm: rgba(40, 30, 20, 0.28);
+  --workspace-bg-cool: rgba(25, 55, 100, 0.40);
+  --workspace-bg-green: rgba(20, 50, 40, 0.20);
+  --workspace-bg-paper: rgba(255, 255, 255, 0.04);
 }
 
 /* ===== charcoal-ember: 炭火星 — 暖调暗色主题 ===== */
@@ -243,6 +257,13 @@
   --console-danger-soft: #3d2420;
   --console-shadow: 0 1px 2px rgba(0, 0, 0, 0.30);
   --console-shadow-soft: 0 1px 1px rgba(0, 0, 0, 0.22);
+  /* Workspace background texture — 暖深棕，配合 charcoal-ember 主题 */
+  --workspace-bg-base: #16120e;
+  --workspace-bg-mid: #1e1813;
+  --workspace-bg-warm: rgba(60, 40, 25, 0.35);
+  --workspace-bg-cool: rgba(30, 35, 40, 0.30);
+  --workspace-bg-green: rgba(35, 45, 30, 0.22);
+  --workspace-bg-paper: rgba(255, 255, 255, 0.05);
 }
 
 :root[data-workbench-density="standard"] {

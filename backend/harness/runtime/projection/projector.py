@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 from .authority import build_public_projection_frame
-from .guards import compact, public_text, record, stable_id, text
+from .guards import compact, public_body_text, public_text, record, stable_id, text
 from .items import action_kind_for_tool
 from harness.runtime.runtime_private_text import looks_like_runtime_private_artifact_text
 from runtime.output_stream.public_contract import (
@@ -32,6 +32,7 @@ from runtime.output_stream.public_contract import (
 
 
 _TRACE_ONLY_TOOL_NAMES = {"read_persisted_tool_result"}
+_COMMAND_TOOL_NAMES = {"bash", "cmd", "command", "powershell", "python_repl", "shell", "terminal"}
 _TRACE_ONLY_RUNTIME_STEP_SOURCES = {
     "model_action.assistant_content_preamble",
     "runtime.protocol_repair",
@@ -866,8 +867,7 @@ def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _assistant_public_feedback_spec(data: dict[str, Any]) -> dict[str, Any]:
-    title, detail = _assistant_public_feedback_parts(data)
-    body_text = _runtime_step_summary_body_text(title=title, detail=detail)
+    title, detail, body_text = _assistant_public_feedback_parts(data)
     return {
         "op": "body_append",
         "slot": "body",
@@ -887,22 +887,27 @@ def _assistant_public_feedback_spec(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _assistant_public_feedback_parts(data: dict[str, Any]) -> tuple[str, str]:
-    progress_note = public_text(data.get("public_progress_note"), limit=180)
-    current_judgment = public_text(data.get("current_judgment"), limit=180)
-    next_action = public_text(data.get("next_action"), limit=220)
-    agent_brief = public_text(data.get("agent_brief_output"), limit=220)
-    summary = public_text(data.get("summary"), limit=180)
-    title = _public_runtime_step_title(data, progress_note or current_judgment or summary)
+def _assistant_public_feedback_parts(data: dict[str, Any]) -> tuple[str, str, str]:
+    progress_note_preview = public_text(data.get("public_progress_note"), limit=180)
+    current_judgment_preview = public_text(data.get("current_judgment"), limit=180)
+    summary_preview = public_text(data.get("summary"), limit=180)
+    title = _public_runtime_step_title(data, progress_note_preview or current_judgment_preview or summary_preview)
+    progress_note_body = public_body_text(data.get("public_progress_note"))
+    current_judgment_body = public_body_text(data.get("current_judgment"))
+    next_action_body = public_body_text(data.get("next_action"))
+    agent_brief_body = public_body_text(data.get("agent_brief_output"))
+    summary_body = public_body_text(data.get("summary"))
+    primary_body = progress_note_body or current_judgment_body or summary_body or title
     detail = next(
         (
             value
-            for value in (current_judgment, next_action, agent_brief)
-            if value and value != title
+            for value in (current_judgment_body, next_action_body, agent_brief_body)
+            if value and _normalized_body_text(value) != _normalized_body_text(primary_body)
         ),
         "",
     )
-    return title, detail
+    body_text = _runtime_step_summary_body_text(title=primary_body, detail=detail)
+    return title, detail, body_text
 
 
 def _active_task_steer_status_spec(data: dict[str, Any]) -> dict[str, Any]:
@@ -930,7 +935,7 @@ def _turn_terminal_spec(data: dict[str, Any]) -> dict[str, Any]:
         return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
     if state not in {"failed", "error", "stopped", "aborted", "cancelled", "canceled", "blocked"}:
         return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
-    if _is_agent_closeout_recovery_terminal(data):
+    if _is_agent_contract_feedback_terminal(data):
         return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
     if _is_runtime_protocol_terminal(data):
         return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
@@ -962,17 +967,13 @@ def _turn_terminal_spec(data: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _is_agent_closeout_recovery_terminal(data: dict[str, Any]) -> bool:
+def _is_agent_contract_feedback_terminal(data: dict[str, Any]) -> bool:
     completion_state = text(data.get("completion_state"))
     terminal_reason = text(data.get("terminal_reason"))
-    signal = record(data.get("runtime_control_signal"))
     contract_feedback = record(data.get("agent_contract_feedback"))
     return (
-        completion_state == "agent_closeout_recovery_required"
-        or completion_state == "agent_contract_feedback_required"
-        or terminal_reason == "agent_closeout_recovery_required"
+        completion_state == "agent_contract_feedback_required"
         or terminal_reason == "agent_contract_feedback_required"
-        or text(signal.get("signal_kind")) == "agent_closeout_recovery_required"
         or text(contract_feedback.get("signal_kind")) == "agent_contract_feedback_required"
     )
 
@@ -988,7 +989,6 @@ _RUNTIME_PROTOCOL_TERMINAL_REASONS = frozenset(
         "single_agent_turn_model_protocol_error",
         "single_agent_turn_multiple_action_sources",
         "single_agent_turn_protocol_error",
-        "tool_limit_closeout_protocol_failed",
     }
 )
 
@@ -1236,6 +1236,8 @@ def _structured_tool_action_text(*, tool_name: str, subject: str) -> str:
         return f"读取文件：{visible_subject}" if visible_subject else "读取文件"
     if normalized_tool in {"write_file", "edit_file", "batch_edit_file", "apply_patch"}:
         return f"更新文件：{visible_subject}" if visible_subject else "更新文件"
+    if normalized_tool in _COMMAND_TOOL_NAMES:
+        return f"运行命令：{visible_subject}" if visible_subject else "运行命令"
     if visible_subject:
         return f"{tool_name}：{visible_subject}"
     return text(tool_name)
@@ -1282,16 +1284,23 @@ def _tool_display_label(tool_name: str) -> str:
     return {
         "apply_patch": "更新文件",
         "batch_edit_file": "更新文件",
+        "bash": "运行命令",
+        "cmd": "运行命令",
+        "command": "运行命令",
         "edit_file": "更新文件",
         "glob_paths": "匹配路径",
         "list_dir": "列出目录",
         "path_exists": "检查路径",
+        "powershell": "运行命令",
+        "python_repl": "运行命令",
         "read_file": "读取文件",
         "read_files": "读取文件",
         "read_path": "读取文件",
         "search_files": "搜索文件",
         "search_text": "搜索文本",
+        "shell": "运行命令",
         "stat_path": "检查路径",
+        "terminal": "运行命令",
         "write_file": "写入文件",
     }.get(normalized, "")
 

@@ -3071,25 +3071,25 @@ def _runtime_control_signal_observation(
     kind = str(signal.kind or "").strip()
     if kind == "stop":
         instruction = (
-            "系统收到停止请求。这不是最终回复。你需要停止发起新的工具调用，基于已经观察到的事实选择 respond 或 block 收口；"
+            "收到停止请求。这不是最终回复。你需要停止发起新的工具调用，基于已经观察到的事实选择 respond 或 block 收口；"
             "respond 时写清已完成事项、未完成事项、验证状态和停止原因。"
         )
         closeout_required = True
     elif kind == "pause":
         instruction = (
-            "系统收到暂停请求。这不是最终回复。你需要停止发起新的工具调用，基于当前事实选择 respond 或 block 说明暂停断点、"
+            "收到暂停请求。这不是最终回复。你需要停止发起新的工具调用，基于当前事实选择 respond 或 block 说明暂停断点、"
             "已完成事项、未完成事项和可恢复条件。"
         )
         closeout_required = True
     elif kind == "replan":
         instruction = (
-            "系统收到重规划信号。这不是最终回复。你需要先吸收新的用户补充要求，判断是否修订合同、改计划、询问用户、阻塞，"
+            "收到重规划信号。这不是最终回复。你需要先吸收新的用户补充要求，判断是否修订计划、询问用户、阻塞，"
             "或在已有事实足够时收口；不要继续执行旧计划里的下一步。"
         )
         closeout_required = False
     else:
         instruction = (
-            "系统收到运行控制信号。这不是最终回复。你需要先裁决它对当前任务目标、工具使用和收口方式的影响，再选择下一步动作。"
+            "收到运行控制信号。这不是最终回复。你需要先判断它对当前任务目标、工具使用和收口方式的影响，再选择下一步动作。"
         )
         closeout_required = False
     payload = {
@@ -6985,8 +6985,8 @@ def _step_budget_control_signal_id(*, task_run_id: str, fingerprint: str, max_st
 def _budget_exhausted_runtime_control_observation(*, task_run: Any, max_steps: int, event_offset: int | float) -> dict[str, Any]:
     now = time.time()
     instruction = (
-        "本轮任务执行步骤预算已用尽。系统没有把任务判为失败；当前 task_run 已停在 waiting_executor 可续跑边界。"
-        "你需要在下一次恢复时先吸收这条预算边界观察，说明已完成进度和下一步，不要把它误判为协议恢复失败或最终阻塞。"
+        "本轮任务执行步骤预算已用尽。当前 task_run 已停在 waiting_executor 可续跑边界。"
+        "你需要在下一次恢复时先吸收这条预算边界观察，说明已完成进度和下一步；不要把它误判为动作格式修复失败或最终阻塞。"
     )
     fingerprint = "sha256:" + _stable_hash(
         {
@@ -9458,7 +9458,7 @@ def _model_protocol_repair_instruction(
     elif parse_error:
         reason = "上一轮输出不是可解析的 JSON 对象"
     return (
-        f"{reason}；系统没有执行上一轮动作。错误：{error_text}。"
+        f"{reason}；上一轮动作没有进入执行队列。错误：{error_text}。"
         f"{TASK_ACTION_JSON_REPAIR_PROMPT}"
         "此时在 tool_calls 数组中调用 write_file 或 terminal；"
         "把交付物内容放入 tool_calls[0].args，或先写入完整可运行的紧凑版本再用后续工具增量完善。"

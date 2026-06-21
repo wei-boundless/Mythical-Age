@@ -2311,6 +2311,9 @@ export class WorkspaceRuntime {
         selectedChatModelId,
         selectedChatMode: this.resolveSelectedChatMode(selectedChatModelId, prev.modelProviderConfig),
         messages: [],
+        orchestrationSnapshot: null,
+        taskGraphLiveMonitor: null,
+        activeTurnSnapshot: null,
         tokenStats: null
       }, created.id));
       rememberSessionRef({
@@ -2388,6 +2391,7 @@ export class WorkspaceRuntime {
       messages: [],
       orchestrationSnapshot: null,
       taskGraphLiveMonitor: null,
+      activeTurnSnapshot: null,
       tokenStats: null
     }, sessionId));
     rememberSessionRef(createdRef);
@@ -6038,8 +6042,8 @@ export class WorkspaceRuntime {
       return;
     }
     if (effectiveStatus === "waiting_executor" || effectiveStatus === "waiting_approval" || effectiveStatus === "waiting_safe_boundary" || effectiveStatus === "blocked") {
-      const title = projectedTitle || (runtimeRestartWaitingResume ? "运行时重启后待续跑" : effectiveStatus === "waiting_executor" ? "等待继续" : effectiveStatus === "waiting_approval" ? "等待确认" : effectiveStatus === "waiting_safe_boundary" ? "等待安全边界" : "运行受阻");
-      const detail = projectedDetail || (runtimeRestartWaitingResume ? "后端运行时已重启，任务已停在可恢复边界；点击继续或发送继续后会从当前任务继续调度。" : effectiveStatus === "waiting_executor" ? "任务已进入等待队列。" : effectiveStatus === "waiting_approval" ? "需要确认后继续执行。" : effectiveStatus === "waiting_safe_boundary" ? "暂停或中断请求已记录，当前步骤到达安全边界后会暂停或结束。" : "当前处理受阻。");
+      const title = projectedTitle || (runtimeRestartWaitingResume ? "连接恢复后待续跑" : effectiveStatus === "waiting_executor" ? "等待继续" : effectiveStatus === "waiting_approval" ? "等待确认" : effectiveStatus === "waiting_safe_boundary" ? "等待安全边界" : "运行受阻");
+      const detail = projectedDetail || (runtimeRestartWaitingResume ? "连接已恢复，任务停在可恢复边界；点击继续或发送继续后会从当前任务继续调度。" : effectiveStatus === "waiting_executor" ? "任务已进入等待队列。" : effectiveStatus === "waiting_approval" ? "需要确认后继续执行。" : effectiveStatus === "waiting_safe_boundary" ? "暂停或中断请求已记录，当前步骤到达安全边界后会暂停或结束。" : "当前处理受阻。");
       this.store.setState((prev) => ({
         ...prev,
         sessionActivity: {
