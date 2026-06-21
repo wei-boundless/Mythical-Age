@@ -164,6 +164,87 @@ class QueuedUserInputStore:
                 return claimed
         return None
 
+    def claim_for_active_turn(
+        self,
+        session_id: str,
+        *,
+        turn_id: str,
+        task_run_id: str = "",
+        limit: int = 8,
+    ) -> list[QueuedUserInput]:
+        normalized_session_id = _clean_text(session_id, limit=240)
+        normalized_turn_id = _clean_text(turn_id, limit=300)
+        normalized_task_run_id = _clean_text(task_run_id, limit=300)
+        if not normalized_session_id or not normalized_turn_id:
+            return []
+        max_items = max(1, min(32, int(limit or 8)))
+        path = self._session_path(normalized_session_id)
+        now = time.time()
+        claimed: list[QueuedUserInput] = []
+        with _QUEUE_LOCK, json_file_lock(path):
+            items = self._items_from_payload(self._read_session_payload(normalized_session_id), normalized_session_id)
+            updated_items: list[QueuedUserInput] = []
+            for item in items:
+                if item.status != "queued" or len(claimed) >= max_items:
+                    updated_items.append(item)
+                    continue
+                expected_turn_id = _clean_text(item.expected_active_turn_id, limit=300)
+                expected_task_run_id = _clean_text(item.task_run_id, limit=300)
+                if expected_turn_id and expected_turn_id != normalized_turn_id:
+                    updated_items.append(item)
+                    continue
+                if expected_task_run_id and expected_task_run_id != normalized_task_run_id:
+                    updated_items.append(item)
+                    continue
+                active_turn_item = replace(
+                    item,
+                    input_policy="steer",
+                    expected_active_turn_id=normalized_turn_id,
+                    task_run_id=normalized_task_run_id or expected_task_run_id,
+                    status="dispatching",
+                    updated_at=now,
+                    failure_reason="",
+                )
+                claimed.append(active_turn_item)
+                updated_items.append(active_turn_item)
+            if claimed:
+                self._write_items(normalized_session_id, updated_items)
+        return claimed
+
+    def retarget_for_dispatch(
+        self,
+        session_id: str,
+        queue_item_id: str,
+        *,
+        input_policy: str,
+        expected_active_turn_id: str = "",
+        task_run_id: str = "",
+    ) -> QueuedUserInput | None:
+        normalized_session_id = _clean_text(session_id, limit=240)
+        normalized_queue_item_id = _clean_text(queue_item_id, limit=240)
+        if not normalized_session_id or not normalized_queue_item_id:
+            return None
+        normalized_policy = _clean_policy(input_policy)
+        path = self._session_path(normalized_session_id)
+        now = time.time()
+        with _QUEUE_LOCK, json_file_lock(path):
+            items = self._items_from_payload(self._read_session_payload(normalized_session_id), normalized_session_id)
+            for index, item in enumerate(items):
+                if item.queue_item_id != normalized_queue_item_id or item.status != "queued":
+                    continue
+                updated = replace(
+                    item,
+                    input_policy=normalized_policy,
+                    expected_active_turn_id=_clean_text(expected_active_turn_id, limit=300),
+                    task_run_id=_clean_text(task_run_id, limit=300),
+                    updated_at=now,
+                    failure_reason="",
+                )
+                items[index] = updated
+                self._write_items(normalized_session_id, items)
+                return updated
+        return None
+
     def mark_dispatched(self, session_id: str, queue_item_id: str, *, stream_run_id: str) -> QueuedUserInput | None:
         return self._update_item(
             session_id,

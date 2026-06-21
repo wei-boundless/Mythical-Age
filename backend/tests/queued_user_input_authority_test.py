@@ -6,12 +6,49 @@ from types import SimpleNamespace
 
 import api.chat as chat_api
 from runtime.shared.queued_user_input_dispatcher import (
+    chat_run_execution_attached,
     has_active_primary_chat_run,
-    has_active_steer_chat_run,
     queued_input_admission_target,
     validate_queued_steer,
 )
 from runtime.shared.queued_user_input_store import QueuedUserInputStore
+from runtime.shared.runtime_run_registry import RuntimeRun
+
+
+def _runtime_run(
+    stream_run_id: str,
+    *,
+    session_id: str = "session:runs",
+    status: str = "running",
+    run_cell_id: str = "runcell:attached",
+) -> RuntimeRun:
+    now = time.time()
+    return RuntimeRun(
+        stream_run_id=stream_run_id,
+        session_id=session_id,
+        event_log_id=f"chatrun:{stream_run_id.replace(':', '_')}",
+        root_request_ref=f"chatreq:{stream_run_id.replace(':', '_')}",
+        status=status,
+        created_at=now,
+        updated_at=now,
+        latest_event_offset=0,
+        reconnectable_until=now + 3600,
+        diagnostics={
+            "run_cell_id": run_cell_id,
+            "agent_cell_primary": True,
+        },
+    )
+
+
+def _supervisor_attached_to(stream_run_id: str, *, session_id: str = "session:runs", run_cell_id: str = "runcell:attached") -> SimpleNamespace:
+    expected_session_id = session_id
+
+    def active_cell_for_stream_run(candidate_stream_run_id: str, *, session_id: str) -> SimpleNamespace | None:
+        if candidate_stream_run_id != stream_run_id or session_id != expected_session_id:
+            return None
+        return SimpleNamespace(scope=SimpleNamespace(run_cell_id=run_cell_id))
+
+    return SimpleNamespace(active_cell_for_stream_run=active_cell_for_stream_run)
 
 
 def test_queued_user_input_store_persists_and_deduplicates_by_client_message_id(tmp_path) -> None:
@@ -72,6 +109,34 @@ def test_queued_user_input_store_state_transitions_are_ordered_and_terminal(tmp_
     assert canceled is not None
     assert canceled.status == "canceled"
     assert [item.status for item in store.list_session("session:state", include_terminal=False)] == []
+
+
+def test_queued_user_input_store_retargets_only_queued_dispatch_policy(tmp_path) -> None:
+    store = QueuedUserInputStore(tmp_path)
+    item = store.enqueue(session_id="session:retarget", content="补充字体要求", client_message_id="user:retarget")
+
+    retargeted = store.retarget_for_dispatch(
+        "session:retarget",
+        item.queue_item_id,
+        input_policy="steer",
+        expected_active_turn_id="turn:retarget",
+        task_run_id="taskrun:retarget",
+    )
+
+    assert retargeted is not None
+    assert retargeted.queue_item_id == item.queue_item_id
+    assert retargeted.content == "补充字体要求"
+    assert retargeted.input_policy == "steer"
+    assert retargeted.expected_active_turn_id == "turn:retarget"
+    assert retargeted.task_run_id == "taskrun:retarget"
+    claimed = store.claim_next("session:retarget", policy="steer")
+    assert claimed is not None
+    assert claimed.queue_item_id == item.queue_item_id
+    assert store.retarget_for_dispatch(
+        "session:retarget",
+        item.queue_item_id,
+        input_policy="auto",
+    ) is None
 
 
 def test_queued_user_input_store_resets_stale_dispatching_without_touching_fresh_items(tmp_path) -> None:
@@ -186,38 +251,117 @@ def test_validate_queued_steer_accepts_only_matching_live_active_turn(tmp_path) 
     assert validate_queued_steer(host, item) == (True, "")
 
 
-def test_active_chat_run_detection_separates_primary_and_steer_runs() -> None:
-    primary = SimpleNamespace(status="running", diagnostics={"active_turn_input_policy": "auto"})
-    steer = SimpleNamespace(
-        status="running",
-        diagnostics={
-            "active_turn_input_policy": "steer",
-            "expected_active_turn_id": "turn:expected",
-        },
+def test_validate_queued_steer_accepts_unbound_live_active_turn_without_task_requirement(tmp_path) -> None:
+    store = QueuedUserInputStore(tmp_path)
+    item = store.enqueue(
+        session_id="session:steer-unbound",
+        content="这是当前 active turn 的补充上下文",
+        client_message_id="user:steer-unbound",
+        input_policy="steer",
+        expected_active_turn_id="turn:expected",
     )
-    terminal = SimpleNamespace(
-        status="completed",
-        diagnostics={
-            "active_turn_input_policy": "steer",
-            "expected_active_turn_id": "turn:done",
-        },
+    host = SimpleNamespace(
+        active_turn_registry=SimpleNamespace(
+            resolve_current=lambda _session_id: SimpleNamespace(
+                turn_id="turn:expected",
+                bound_task_run_id="",
+                steerable=True,
+            )
+        )
     )
-    host = SimpleNamespace(run_registry=SimpleNamespace(list_session_runs=lambda _session_id: [primary, steer, terminal]))
+
+    assert validate_queued_steer(host, item) == (True, "")
+
+
+def test_active_chat_run_detection_requires_attached_runtime_cell() -> None:
+    attached = _runtime_run("strun:attached")
+    orphan = _runtime_run("strun:orphan")
+    terminal = _runtime_run("strun:terminal", status="completed")
+    host = SimpleNamespace(
+        agent_run_supervisor=_supervisor_attached_to("strun:attached"),
+        run_registry=SimpleNamespace(list_session_runs=lambda _session_id: [orphan, terminal, attached]),
+    )
 
     terminal_statuses = {"completed", "failed", "stopped", "canceled", "cancelled"}
+    assert chat_run_execution_attached(host, attached, terminal_statuses=terminal_statuses) is True
+    assert chat_run_execution_attached(host, orphan, terminal_statuses=terminal_statuses) is False
+    assert chat_run_execution_attached(host, terminal, terminal_statuses=terminal_statuses) is False
     assert has_active_primary_chat_run(host, session_id="session:runs", terminal_statuses=terminal_statuses) is True
-    assert has_active_steer_chat_run(
-        host,
-        session_id="session:runs",
-        terminal_statuses=terminal_statuses,
-        expected_active_turn_id="turn:expected",
-    ) is True
-    assert has_active_steer_chat_run(
-        host,
-        session_id="session:runs",
-        terminal_statuses=terminal_statuses,
-        expected_active_turn_id="turn:done",
-    ) is False
+
+
+def test_latest_chat_run_active_only_hides_orphan_runtime_run(monkeypatch) -> None:
+    session_id = "session-runs"
+    orphan = _runtime_run("strun:orphan", session_id=session_id)
+    host = SimpleNamespace(
+        agent_run_supervisor=_supervisor_attached_to("strun:other", session_id=session_id),
+        run_registry=SimpleNamespace(list_session_runs=lambda _session_id: [orphan]),
+    )
+    runtime = SimpleNamespace(harness_runtime=SimpleNamespace(single_agent_runtime_host=host))
+    monkeypatch.setattr(chat_api, "require_runtime", lambda: runtime)
+
+    response = asyncio.run(chat_api.get_latest_chat_run_for_session(session_id, active_only=True))
+
+    assert response.status_code == 204
+
+
+def test_latest_chat_run_active_only_returns_attached_execution_signal(monkeypatch) -> None:
+    session_id = "session-runs"
+    attached = _runtime_run("strun:attached", session_id=session_id)
+    host = SimpleNamespace(
+        agent_run_supervisor=_supervisor_attached_to("strun:attached", session_id=session_id),
+        run_registry=SimpleNamespace(list_session_runs=lambda _session_id: [attached]),
+    )
+    runtime = SimpleNamespace(harness_runtime=SimpleNamespace(single_agent_runtime_host=host))
+    monkeypatch.setattr(chat_api, "require_runtime", lambda: runtime)
+
+    response = asyncio.run(chat_api.get_latest_chat_run_for_session(session_id, active_only=True))
+
+    assert response["stream_run_id"] == "strun:attached"
+    assert response["chat_run_execution_attached"] is True
+    assert response["is_reconnectable"] is True
+
+
+def test_dispatch_retargets_auto_queue_item_to_live_active_turn_authority(tmp_path, monkeypatch) -> None:
+    store = QueuedUserInputStore(tmp_path)
+    item = store.enqueue(
+        session_id="session:dispatch",
+        content="主题还应该加入字体",
+        client_message_id="user:dispatch",
+        input_policy="auto",
+    )
+    monkeypatch.setattr(
+        chat_api,
+        "_create_and_schedule_run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("retargeted active-turn steer must not start a second run")),
+    )
+    session_manager = SimpleNamespace(
+        get_history=lambda _session_id: {"scope": {"workspace_view": "chat", "task_environment_id": "", "project_id": ""}},
+    )
+    host = SimpleNamespace(
+        queued_user_inputs=store,
+        active_turn_registry=SimpleNamespace(
+            resolve_current=lambda _session_id: SimpleNamespace(
+                turn_id="turn:dispatch",
+                bound_task_run_id="taskrun:dispatch",
+                steerable=True,
+            )
+        ),
+        run_registry=SimpleNamespace(list_session_runs=lambda _session_id: []),
+    )
+    runtime = SimpleNamespace(
+        session_manager=session_manager,
+        harness_runtime=SimpleNamespace(single_agent_runtime_host=host),
+    )
+
+    run = asyncio.run(chat_api._dispatch_next_queued_input(runtime, "session:dispatch", reason="test"))
+
+    assert run is None
+    stored = store.get_item("session:dispatch", item.queue_item_id)
+    assert stored is not None
+    assert stored.status == "queued"
+    assert stored.input_policy == "steer"
+    assert stored.expected_active_turn_id == "turn:dispatch"
+    assert stored.task_run_id == "taskrun:dispatch"
 
 
 def test_queued_input_api_round_trips_store_projection_without_dispatching_active_session(tmp_path, monkeypatch) -> None:
@@ -230,9 +374,10 @@ def test_queued_input_api_round_trips_store_projection_without_dispatching_activ
     host = SimpleNamespace(
         queued_user_inputs=store,
         active_turn_registry=SimpleNamespace(resolve_current=lambda _session_id: None),
+        agent_run_supervisor=_supervisor_attached_to("strun:session-api", session_id="session-api"),
         run_registry=SimpleNamespace(
             list_session_runs=lambda _session_id: [
-                SimpleNamespace(status="running", diagnostics={"active_turn_input_policy": "auto"})
+                _runtime_run("strun:session-api", session_id="session-api")
             ]
         ),
     )
@@ -286,3 +431,54 @@ def test_queued_input_api_round_trips_store_projection_without_dispatching_activ
     )
     assert canceled["authority"] == "api.chat.queued_user_inputs"
     assert canceled["item"]["status"] == "canceled"
+
+
+def test_queued_input_api_targets_live_active_turn_without_starting_second_run(tmp_path, monkeypatch) -> None:
+    store = QueuedUserInputStore(tmp_path)
+    session_manager = SimpleNamespace(
+        get_history=lambda _session_id: {"scope": {"workspace_view": "chat", "task_environment_id": "", "project_id": ""}},
+        get_project_binding=lambda _session_id: {},
+        bind_project=lambda *_args, **_kwargs: None,
+    )
+    host = SimpleNamespace(
+        queued_user_inputs=store,
+        active_turn_registry=SimpleNamespace(
+            resolve_current=lambda _session_id: SimpleNamespace(
+                turn_id="turn:session-api-live:1",
+                bound_task_run_id="",
+                steerable=True,
+            )
+        ),
+        run_registry=SimpleNamespace(
+            list_session_runs=lambda _session_id: [
+                SimpleNamespace(status="running", diagnostics={"active_turn_input_policy": "auto"})
+            ]
+        ),
+    )
+    runtime = SimpleNamespace(
+        base_dir=tmp_path,
+        session_manager=session_manager,
+        harness_runtime=SimpleNamespace(single_agent_runtime_host=host),
+    )
+    monkeypatch.setattr(chat_api, "require_runtime", lambda: runtime)
+    monkeypatch.setattr(
+        chat_api,
+        "_create_and_schedule_run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("active turn steer must not start a second run")),
+    )
+
+    response = asyncio.run(
+        chat_api.enqueue_queued_chat_input(
+            "session-api-live",
+            chat_api.QueuedChatInputRequest(
+                message="补充：设置页已有字体选项。",
+                client_message_id="user:api-live",
+            ),
+        )
+    )
+
+    assert response["item"]["status"] == "queued"
+    assert response["item"]["input_policy"] == "steer"
+    assert response["item"]["expected_active_turn_id"] == "turn:session-api-live:1"
+    assert response["item"]["task_run_id"] == ""
+    assert response["item"]["dispatch_stream_run_id"] == ""

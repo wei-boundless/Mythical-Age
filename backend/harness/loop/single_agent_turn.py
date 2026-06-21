@@ -93,6 +93,7 @@ from runtime.tool_runtime.provider_tool_call_adapter import tool_calls_for_langc
 from permissions.policy import normalize_permission_mode
 from prompt_library import SINGLE_AGENT_ADMISSION_REPAIR_PROMPT
 
+from .active_turn_steering import ActiveTurnQueuedUserSteers, claim_active_turn_queued_user_steers
 from .turn_to_task_context_handoff import build_turn_to_task_context_handoff_seed
 
 
@@ -1162,6 +1163,31 @@ async def run_single_agent_turn(
                 turn_id=turn_id,
             )
 
+        async def claim_active_turn_user_steers(phase: str) -> ActiveTurnQueuedUserSteers:
+            return await claim_active_turn_queued_user_steers(
+                runtime_host,
+                session_id=session_id,
+                turn_id=turn_id,
+                turn_run=turn_run,
+                stream_run_id=stream_run_id,
+                packet_ref=current_packet_ref,
+                phase=phase,
+                source_authority="harness.loop.single_agent_turn.active_turn_steer",
+            )
+
+        def append_active_turn_user_steer_message(batch: ActiveTurnQueuedUserSteers, *, source: str) -> None:
+            nonlocal model_messages
+            if not batch.items or not batch.model_message:
+                return
+            model_messages = _sanitize_model_messages(
+                [
+                    *[dict(item) for item in list(model_messages or []) if isinstance(item, dict)],
+                    dict(batch.model_message),
+                ],
+                turn_id=turn_id,
+                source=source,
+            )
+
         async def emit_terminal_then_final(
             *,
             content: str,
@@ -1704,6 +1730,52 @@ async def run_single_agent_turn(
         while True:
             if isinstance(response, dict) and response.get("type") == "error":
                 break
+            active_turn_steer_batch = await claim_active_turn_user_steers("before_model_action")
+            if active_turn_steer_batch.items:
+                append_active_turn_user_steer_message(
+                    active_turn_steer_batch,
+                    source="harness.loop.single_agent_turn.active_turn_steer",
+                )
+                for steer_event in active_turn_steer_batch.events:
+                    yield dict(steer_event)
+                steer_segment_plan = _single_agent_turn_followup_segment_plan(
+                    base_segment_plan=dict(compilation.packet.segment_plan or {}),
+                    model_messages=model_messages,
+                    packet_id=current_packet_ref,
+                    tool_iteration=tool_iteration + 1,
+                )
+                response = None
+                async for model_event in _invoke_single_turn_model_with_stream_events(
+                    model_runtime=model_runtime,
+                    model_messages=model_messages,
+                    model_selection=dict(model_selection or {}),
+                    accounting_context={
+                        "request_id": f"modelreq:{current_packet_ref}:active-turn-steer:{tool_iteration + 1}",
+                        "session_id": session_id,
+                        "run_id": turn_run.turn_run_id if turn_run is not None else "",
+                        "turn_id": turn_id,
+                        "packet_ref": current_packet_ref,
+                        "source": "harness.single_agent_turn.active_turn_steer",
+                        "segment_plan": steer_segment_plan,
+                        "prompt_manifest": {
+                            **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
+                            "invocation_kind": "single_agent_turn_active_turn_steer",
+                            "steer_phase": "before_model_action",
+                            "queued_user_steer_count": len(active_turn_steer_batch.items),
+                            "segment_plan_ref": str(steer_segment_plan.get("segment_plan_id") or ""),
+                        },
+                    },
+                    native_tools=_native_tools_for_packet(current_allowed_action_types, available_tools=current_available_tools),
+                    allow_assistant_text_delta=not current_requires_json_action,
+                    require_json_action=current_requires_json_action,
+                ):
+                    if model_event.get("type") == _INTERNAL_MODEL_RESPONSE_EVENT:
+                        response = model_event.get("response")
+                        assistant_stream_normalizer = model_event.get("assistant_stream_normalizer")
+                        continue
+                    capture_assistant_stream_event(model_event)
+                    yield model_event
+                continue
             require_model_feedback = _tool_followup_public_response_required(
                 tool_iteration,
                 last_tool_observation_payloads,
@@ -2244,6 +2316,24 @@ async def run_single_agent_turn(
                         refs={"turn_ref": turn_id, "turn_run_ref": turn_run.turn_run_id, "runtime_invocation_packet_ref": followup_packet_ref},
                     )
                     yield {"type": "context_compacted", "event": compacted_event.to_dict()}
+            active_turn_steer_batch = await claim_active_turn_user_steers("before_tool_followup_model")
+            if active_turn_steer_batch.items:
+                append_active_turn_user_steer_message(
+                    active_turn_steer_batch,
+                    source="harness.loop.single_agent_turn.active_turn_steer_tool_followup",
+                )
+                for steer_event in active_turn_steer_batch.events:
+                    yield dict(steer_event)
+                followup_segment_plan, followup_prompt_manifest, followup_packet_ref = _single_agent_turn_followup_prompt_context(
+                    compilation=compilation,
+                    model_messages=model_messages,
+                    tool_iteration=tool_iteration,
+                )
+                followup_prompt_manifest = {
+                    **dict(followup_prompt_manifest or {}),
+                    "active_turn_user_steer_included": True,
+                    "queued_user_steer_count": len(active_turn_steer_batch.items),
+                }
             response = None
             async for model_event in _invoke_single_turn_model_with_stream_events(
                 model_runtime=model_runtime,

@@ -6,6 +6,7 @@ import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import type { RuntimeMonitorActionPayload } from "@/lib/api";
 import { selectRunMonitorTaskLane } from "@/lib/run-monitor/selectors";
 import type { RunMonitorSignal } from "@/lib/run-monitor/types";
+import { publicRuntimeStatusLabel, publicRuntimeStatusText } from "@/lib/runtimeStatusText";
 import { useAppStore } from "@/lib/store";
 
 export type RunManagementSubpage = "queue" | "records" | "cleanup";
@@ -74,8 +75,8 @@ export function RunManagementWorkbench({ activePage }: { activePage: RunManageme
     openRuntimeLog({
       scope: "task_run",
       run_id: runId,
-      title: signal.title || "TaskRun",
-      subtitle: signal.line || runId,
+      title: publicRuntimeStatusText(signal.title) || "TaskRun",
+      subtitle: publicRuntimeStatusText(signal.line) || runId,
     });
   }
 
@@ -161,12 +162,12 @@ function RunManagementRows({
       {rows.map((signal) => (
         <div className="run-management-row" key={signal.signal_id || signal.task_run_id || signal.graph_run_id}>
           <button className="run-management-row__main" onClick={() => onOpen(signal.signal_id)} type="button">
-            <strong>{signal.title}</strong>
-            <span>{signal.line}</span>
+            <strong>{publicRuntimeStatusText(signal.title) || "运行"}</strong>
+            <span>{publicRuntimeStatusText(signal.line)}</span>
           </button>
           <div className="run-management-row__state">
             <strong>{stateLabel(signal)}</strong>
-            <span>{signal.detail}</span>
+            <span>{publicRuntimeStatusText(signal.detail)}</span>
           </div>
           <RunManagementActions loadingAction={actionLoading} onAction={onAction} onOpenLog={onOpenLog} signal={signal} />
         </div>
@@ -235,7 +236,10 @@ function subtitleForPage(page: RunManagementSubpage) {
 
 function stateLabel(signal: RunMonitorSignal) {
   if (signal.visibility?.hidden) return "已清出";
-  if (signal.activity_label) return signal.activity_label;
+  const activityLabel = publicRuntimeStatusText(signal.activity_label);
+  const statusLabel = publicRuntimeStatusLabel(signal.status || signal.state);
+  if (activityLabel) return activityLabel;
+  if (statusLabel) return statusLabel;
   if (signal.state === "active") return "运行中";
   if (signal.state === "waiting") return "等待";
   if (signal.state === "stale") return "需诊断";

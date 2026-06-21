@@ -289,6 +289,7 @@ const TURN_COMPLETED_EVENT = "turn_completed";
 const TERMINAL_STREAM_EVENTS = new Set([TURN_COMPLETED_EVENT]);
 const CHAT_STREAM_RECONNECT_INITIAL_DELAY_MS = 500;
 const CHAT_STREAM_RECONNECT_MAX_DELAY_MS = 30_000;
+const CHAT_STREAM_RECONNECT_MAX_ATTEMPTS = 6;
 const CHAT_STREAM_CONSUME_BURST_EVENT_LIMIT = 64;
 const CHAT_STREAM_CONSUME_BURST_TIME_MS = 12;
 const CHAT_LIVE_PROTOCOL = "agent-live.v1";
@@ -391,6 +392,7 @@ export function clearChatStreamCursor(sessionId: string) {
 
 export type ChatRunCreatePayload = {
   message: string;
+  client_message_id?: string;
   session_id: string;
   session_scope?: Partial<SessionScope>;
   environment_binding?: Record<string, unknown>;
@@ -696,7 +698,7 @@ async function consumeChatRunLive(
     return eventName;
   };
 
-  const replayFromHttp = async (reason: string) => {
+  const replayFromHttp = async (reason: string, options: { notifyIfPending?: boolean } = {}) => {
     const replay = await replayChatRunEvents(run.stream_run_id, lastEventOffset);
     for (const event of replay.events ?? []) {
       await consumeEnvelope(event, null);
@@ -706,7 +708,7 @@ async function consumeChatRunLive(
       terminalEvent = TURN_COMPLETED_EVENT;
       terminalStatus = "completed";
     }
-    if (!terminalEvent && reconnectAttempt > 0) {
+    if (!terminalEvent && reconnectAttempt > 0 && options.notifyIfPending !== false) {
       handlers.onEvent("stream_reconnecting", {
         stream_run_id: run.stream_run_id,
         event_log_id: run.event_log_id,
@@ -763,12 +765,42 @@ async function consumeChatRunLive(
 
     if (!terminalEvent) {
       reconnectAttempt += 1;
+      if (reconnectAttempt > CHAT_STREAM_RECONNECT_MAX_ATTEMPTS) {
+        const reason = "stream_reconnect_attempts_exhausted";
+        const exhaustedAttempt = reconnectAttempt - 1;
+        const replayStartOffset = lastEventOffset;
+        let finalReplayError = "";
+        try {
+          await replayFromHttp(reason, { notifyIfPending: false });
+        } catch (error) {
+          finalReplayError = chatStreamErrorMessage(error, "stream_replay_failed");
+        }
+        if (terminalEvent) {
+          break;
+        }
+        if (lastEventOffset > replayStartOffset) {
+          continue;
+        }
+        handlers.onEvent("stream_reconnect_failed", {
+          stream_run_id: run.stream_run_id,
+          event_log_id: run.event_log_id,
+          event_offset: lastEventOffset,
+          last_event_id: lastEventId,
+          attempt: exhaustedAttempt,
+          max_attempts: CHAT_STREAM_RECONNECT_MAX_ATTEMPTS,
+          reason,
+          transport: "websocket",
+          ...(finalReplayError ? { replay_error: finalReplayError } : {}),
+        });
+        throw nonReconnectableChatStreamError(reason);
+      }
       handlers.onEvent("stream_reconnecting", {
         stream_run_id: run.stream_run_id,
         event_log_id: run.event_log_id,
         event_offset: lastEventOffset,
         last_event_id: lastEventId,
         attempt: reconnectAttempt,
+        max_attempts: CHAT_STREAM_RECONNECT_MAX_ATTEMPTS,
         reason: reconnectReason,
         transport: "websocket",
       });

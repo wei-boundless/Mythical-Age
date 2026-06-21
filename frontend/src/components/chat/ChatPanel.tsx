@@ -5,7 +5,9 @@ import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
+import { publicRuntimeStatusText } from "@/lib/runtimeStatusText";
 import { sessionSummaryIsRunning } from "@/lib/sessionTaskPresentation";
 import { useAppStoreActions, useAppStoreSelector } from "@/lib/store";
 import { shallowEqual } from "@/lib/store/hooks";
@@ -31,6 +33,7 @@ export function ChatPanel() {
     tokenStats,
     activeTurnSnapshot,
     taskGraphLiveMonitor,
+    chatStreamConnectionStatus,
   } = useAppStoreSelector((state) => ({
     messages: state.messages,
     activeProjectionsByKey: state.activeProjectionsByKey,
@@ -48,6 +51,7 @@ export function ChatPanel() {
     tokenStats: state.tokenStats,
     activeTurnSnapshot: state.activeTurnSnapshot,
     taskGraphLiveMonitor: state.taskGraphLiveMonitor,
+    chatStreamConnectionStatus: state.chatStreamConnectionStatus,
   }), shallowEqual);
   const {
     sendMessage,
@@ -72,7 +76,11 @@ export function ChatPanel() {
     () => messagesWithActiveProjectionViews(messages, activeProjectionsByKey),
     [activeProjectionsByKey, messages],
   );
-  const suppressFooterActivity = shouldSuppressSessionActivityBar(projectedMessages, currentSessionActive);
+  const footerActivity = useMemo(
+    () => chatFooterSessionActivity(sessionActivity, chatStreamConnectionStatus),
+    [chatStreamConnectionStatus, sessionActivity],
+  );
+  const suppressFooterActivity = shouldSuppressSessionActivityBar(projectedMessages, currentSessionActive, footerActivity);
   const messageRenderKeys = useMemo(() => chatMessageRenderKeys(projectedMessages), [projectedMessages]);
   const liveAssistantMessageId = useMemo(() => liveAssistantMessageIdForMessages(projectedMessages, {
     activeTurnSnapshot,
@@ -169,9 +177,10 @@ export function ChatPanel() {
             <WorkspaceModeSwitcher ariaLabel="切换当前会话任务环境" className="chat-environment-switcher" />
           </div>
           <div className="chat-panel-status-row__activity">
-            {suppressFooterActivity ? null : <SessionActivityBar activity={sessionActivity} active={currentSessionActive} />}
+            {suppressFooterActivity ? null : <SessionActivityBar activity={footerActivity} active={currentSessionActive} />}
           </div>
           <div className="chat-panel-status-row__right">
+            <ThemeToggle />
             <SessionTokenMeter tokenStats={tokenStats} />
           </div>
         </div>
@@ -243,9 +252,16 @@ function messagesWithActiveProjectionViews(
   });
 }
 
-export function shouldSuppressSessionActivityBar(messages: Message[], active: boolean) {
+export function shouldSuppressSessionActivityBar(
+  messages: Message[],
+  active: boolean,
+  activity?: StoreState["sessionActivity"],
+) {
   const latestAssistant = [...messages].reverse().find((message) => message.role === "assistant");
   if (!latestAssistant) return false;
+  if (sessionActivityShouldStayVisible(activity)) {
+    return false;
+  }
   const visibleAssistantContent = shouldDisplayAssistantContent({
     answerCanonicalState: latestAssistant.answerCanonicalState,
     answerChannel: latestAssistant.answerChannel,
@@ -268,6 +284,59 @@ export function shouldSuppressSessionActivityBar(messages: Message[], active: bo
   return Boolean(
     latestAssistant.projectionView?.blocks.some((block) => block.kind !== "body_segment" && block.kind !== "log_entry")
   );
+}
+
+export function chatFooterSessionActivity(
+  activity: StoreState["sessionActivity"],
+  connectionStatus: StoreState["chatStreamConnectionStatus"],
+): StoreState["sessionActivity"] {
+  if (sessionActivityShouldStayVisible(activity)) {
+    return activity;
+  }
+  if (connectionStatus.state === "reconnecting") {
+    return {
+      level: "waiting",
+      title: "正在恢复连接",
+      detail: "输出流已断开，正在重连。你发送的新输入会保留在队列中。",
+      event: "stream_reconnecting",
+      receipt: {
+        level: "waiting",
+        title: "正在恢复连接",
+        body: "输出流已断开，正在重连。你发送的新输入会保留在队列中。",
+        debug: { event: "stream_reconnecting" },
+      },
+      updatedAt: connectionStatus.updatedAt,
+    };
+  }
+  if (connectionStatus.state === "failed") {
+    const detail = publicRuntimeStatusText(connectionStatus.reason) || "输出流连接没有恢复成功，可以停止本轮后重新发送。";
+    return {
+      level: "error",
+      title: "连接恢复失败",
+      detail,
+      event: "stream_reconnect_failed",
+      receipt: {
+        level: "error",
+        title: "连接恢复失败",
+        body: detail,
+        debug: { event: "stream_reconnect_failed" },
+      },
+      updatedAt: connectionStatus.updatedAt,
+    };
+  }
+  return activity;
+}
+
+function sessionActivityShouldStayVisible(activity: StoreState["sessionActivity"] | undefined) {
+  const event = String(activity?.event || "").trim();
+  if (!event) {
+    return false;
+  }
+  return activity?.level === "error"
+    || event === "user_input_queued"
+    || event === "user_input_queue_failed"
+    || event === "stream_reconnecting"
+    || event === "stream_reconnect_failed";
 }
 
 export function chatMessageRenderKeys(messages: Pick<Message, "id" | "role" | "sourceIndex">[]) {

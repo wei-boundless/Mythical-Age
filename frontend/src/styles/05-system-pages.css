@@ -3677,3 +3677,248 @@
   background: var(--console-accent-soft);
   color: var(--console-accent);
 }
+
+/* ===== Font grid ===== */
+.system-config-font-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.system-config-font-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--console-line-soft);
+  border-radius: var(--console-radius-lg);
+  background: var(--console-surface);
+  color: var(--console-text);
+  box-shadow: var(--console-shadow-soft);
+  cursor: pointer;
+  text-align: left;
+}
+
+.system-config-font-card:hover,
+.system-config-font-card--active {
+  border-color: var(--console-active-ring);
+  background: var(--console-selected);
+  box-shadow: inset 0 0 0 1px var(--console-active-ring);
+}
+
+.system-config-font-card strong {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.system-config-font-card small {
+  color: var(--console-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.system-config-font-card span {
+  display: block;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--console-surface-muted);
+  color: var(--console-muted);
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+
+.system-config-font-card > em {
+  align-self: start;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--console-surface-muted);
+  color: var(--console-muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 650;
+}
+
+.system-config-font-card--active > em {
+  background: var(--console-accent-soft);
+  color: var(--console-accent);
+}
+
+/* ===== Font size slider ===== */
+.system-config-font-size-slider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 4px;
+}
+
+.system-config-font-size-slider span {
+  color: var(--console-muted);
+  font-size: 13px;
+}
+
+.system-config-font-size-slider input[type="range"] {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--console-line-soft);
+  accent-color: var(--console-accent);
+  cursor: pointer;
+  appearance: auto;
+}
+
+.system-config-font-size-slider output {
+  min-width: 42px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--console-accent-soft);
+  color: var(--console-accent);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* ===== Color picker grid ===== */
+.system-config-color-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.system-config-color-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--console-line-soft);
+  border-radius: var(--console-radius-md);
+  background: var(--console-surface);
+}
+
+.system-config-color-picker span {
+  flex: 1;
+  min-width: 0;
+  color: var(--console-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.system-config-color-picker input[type="color"] {
+  width: 36px;
+  height: 36px;
+  padding: 2px;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+}
+
+.system-config-color-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--console-line-soft);
+  border-radius: 999px;
+  background: var(--console-surface-muted);
+  color: var(--console-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.system-config-color-reset:hover {
+  border-color: var(--console-danger);
+  color: var(--console-danger);
+  background: var(--console-danger-soft);
+}
+
+.system-config-color-picker em {
+  color: var(--console-faint);
+  font-size: 11px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+/* ===== Background image upload ===== */
+.system-config-bg-image-upload {
+  min-height: 80px;
+}
+
+.system-config-bg-image-input {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100px;
+  border: 2px dashed var(--console-line-soft);
+  border-radius: var(--console-radius-lg);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.system-config-bg-image-input:hover {
+  border-color: var(--console-accent);
+  background: var(--console-accent-soft);
+}
+
+.system-config-bg-image-input input[type="file"] {
+  display: none;
+}
+
+.system-config-bg-image-input span {
+  color: var(--console-muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.system-config-bg-image-preview {
+  display: grid;
+  gap: 10px;
+}
+
+.system-config-bg-image-preview img {
+  max-width: 100%;
+  max-height: 180px;
+  border-radius: var(--console-radius-md);
+  object-fit: cover;
+  border: 1px solid var(--console-line-soft);
+}
+
+.system-config-bg-image-remove {
+  padding: 8px 14px;
+  border: 1px solid var(--console-danger);
+  border-radius: var(--console-radius-md);
+  background: var(--console-danger-soft);
+  color: var(--console-danger);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.system-config-bg-image-remove:hover {
+  background: var(--console-danger);
+  color: #fff;
+}
+
+/* ===== Appearance reset ===== */
+.system-config-appearance-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.system-config-appearance-reset {
+  padding: 8px 16px;
+  border: 1px solid var(--console-line);
+  border-radius: var(--console-radius-md);
+  background: transparent;
+  color: var(--console-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.system-config-appearance-reset:hover {
+  border-color: var(--console-danger);
+  color: var(--console-danger);
+  background: var(--console-danger-soft);
+}

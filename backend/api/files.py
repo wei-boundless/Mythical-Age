@@ -321,6 +321,14 @@ def _read_file_payload(
 
 
 def _list_skills_payload(runtime: Any) -> list[dict[str, Any]]:
-    return [skill.__dict__ for skill in scan_skills(runtime.base_dir)]
+    return [
+        {
+            "name": skill.runtime.name,
+            "title": skill.runtime.title,
+            "description": skill.runtime.description,
+            "path": skill.runtime.path,
+        }
+        for skill in scan_skills(runtime.base_dir)
+    ]
 
 

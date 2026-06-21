@@ -44,6 +44,18 @@ describe("sessionTaskPresentation", () => {
     expect(sessionSummaryIsRunning(session(waitingTask))).toBe(false);
   });
 
+  it("renders public labels for runtime recovery reason codes", () => {
+    const waitingTask = task({
+      activity_state: "waiting",
+      activity_label: "runtime_cell_missing_after_restart",
+      is_running: false,
+      is_waiting: true,
+      status: "waiting_executor",
+    });
+
+    expect(sessionTaskStatusLabel(waitingTask)).toBe("连接恢复后需要重新接续运行");
+  });
+
   it("does not treat completed or stopped tasks as running because a stream exists elsewhere", () => {
     const completedTask = task({ activity_state: "completed", activity_label: "已完成", is_running: false });
     const stoppedTask = task({ activity_state: "stopped", activity_label: "已停止", is_running: false });

@@ -1,4 +1,15 @@
-export type WorkbenchThemeId = "clean-light" | "focus-dark";
+export type WorkbenchThemeId =
+  | "clean-light"
+  | "warm-paper"
+  | "ocean-breeze"
+  | "mineral-gray"
+  | "lavender-mist"
+  | "focus-dark"
+  | "midnight-ocean"
+  | "charcoal-ember";
+
+export type WorkbenchFontId = "system" | "modern" | "classic" | "rounded" | "code-friendly";
+
 export type WorkbenchDensity = "standard" | "compact";
 
 export type WorkbenchThemeTemplate = {
@@ -8,12 +19,22 @@ export type WorkbenchThemeTemplate = {
   mode: "light" | "dark";
   status: "built_in";
   accent: string;
+  font: WorkbenchFontId;
   preview: {
     background: string;
     surface: string;
     text: string;
     accent: string;
   };
+};
+
+export type WorkbenchFontOption = {
+  id: WorkbenchFontId;
+  label: string;
+  description: string;
+  fontDisplay: string;
+  fontMono: string;
+  sampleSize: number;
 };
 
 export type WorkbenchDensityOption = {
@@ -37,11 +58,72 @@ export const WORKBENCH_THEME_TEMPLATES: readonly WorkbenchThemeTemplate[] = [
     mode: "light",
     status: "built_in",
     accent: "#1d5fd3",
+    font: "system",
     preview: {
-      background: "#f3f6f9",
+      background: "#ffffff",
       surface: "#ffffff",
       text: "#111827",
       accent: "#1d5fd3",
+    },
+  },
+  {
+    id: "warm-paper",
+    label: "暖纸",
+    description: "暖色调浅色主题，纸张质感，适合长时间阅读。",
+    mode: "light",
+    status: "built_in",
+    accent: "#b87c4b",
+    font: "classic",
+    preview: {
+      background: "#faf7f0",
+      surface: "#ffffff",
+      text: "#2d2a24",
+      accent: "#b87c4b",
+    },
+  },
+  {
+    id: "ocean-breeze",
+    label: "海风",
+    description: "清爽冷调浅色主题，蓝色系视觉舒适。",
+    mode: "light",
+    status: "built_in",
+    accent: "#2a7faa",
+    font: "modern",
+    preview: {
+      background: "#f0f5fa",
+      surface: "#ffffff",
+      text: "#1a2a3a",
+      accent: "#2a7faa",
+    },
+  },
+  {
+    id: "mineral-gray",
+    label: "矿物灰",
+    description: "中性极简浅色主题，低视觉干扰。",
+    mode: "light",
+    status: "built_in",
+    accent: "#6b7280",
+    font: "system",
+    preview: {
+      background: "#f2f2f2",
+      surface: "#ffffff",
+      text: "#1f1f1f",
+      accent: "#6b7280",
+    },
+  },
+  {
+    id: "lavender-mist",
+    label: "薰衣草雾",
+    description: "淡紫色调浅色主题，柔和舒适。",
+    mode: "light",
+    status: "built_in",
+    accent: "#7c5cbf",
+    font: "rounded",
+    preview: {
+      background: "#f5f0fb",
+      surface: "#ffffff",
+      text: "#1e1a2e",
+      accent: "#7c5cbf",
     },
   },
   {
@@ -51,12 +133,86 @@ export const WORKBENCH_THEME_TEMPLATES: readonly WorkbenchThemeTemplate[] = [
     mode: "dark",
     status: "built_in",
     accent: "#7fb2ff",
+    font: "system",
     preview: {
       background: "#0f1720",
       surface: "#17212d",
       text: "#edf4ff",
       accent: "#7fb2ff",
     },
+  },
+  {
+    id: "midnight-ocean",
+    label: "午夜海洋",
+    description: "深蓝暗色主题，深邃沉浸。",
+    mode: "dark",
+    status: "built_in",
+    accent: "#5b9bd5",
+    font: "modern",
+    preview: {
+      background: "#0a1628",
+      surface: "#111d35",
+      text: "#dce8f5",
+      accent: "#5b9bd5",
+    },
+  },
+  {
+    id: "charcoal-ember",
+    label: "炭火星",
+    description: "暖调暗色主题，炭火般温暖的低光体验。",
+    mode: "dark",
+    status: "built_in",
+    accent: "#d4835a",
+    font: "rounded",
+    preview: {
+      background: "#1a1410",
+      surface: "#241e18",
+      text: "#e8ddd0",
+      accent: "#d4835a",
+    },
+  },
+];
+
+export const WORKBENCH_FONT_OPTIONS: readonly WorkbenchFontOption[] = [
+  {
+    id: "system",
+    label: "系统默认",
+    description: "基于系统字体的无衬线体验。",
+    fontDisplay: "\"Microsoft YaHei UI\", \"Microsoft YaHei\", \"PingFang SC\", \"Noto Sans CJK SC\", system-ui, sans-serif",
+    fontMono: "\"Cascadia Mono\", \"Consolas\", \"SFMono-Regular\", monospace",
+    sampleSize: 15,
+  },
+  {
+    id: "modern",
+    label: "现代无衬线",
+    description: "更现代的无衬线字体，清晰锐利。",
+    fontDisplay: "\"Inter\", \"Segoe UI Variable\", \"SF Pro Text\", -apple-system, system-ui, sans-serif",
+    fontMono: "\"JetBrains Mono\", \"Fira Code\", \"Cascadia Code\", \"Consolas\", monospace",
+    sampleSize: 15,
+  },
+  {
+    id: "classic",
+    label: "经典衬线",
+    description: "暖调衬线感，适合阅读密集型内容。",
+    fontDisplay: "\"Iowan Old Style\", \"Palatino Linotype\", \"Palatino\", \"Noto Serif CJK SC\", \"Source Han Serif SC\", Georgia, serif",
+    fontMono: "\"Cascadia Mono\", \"Consolas\", \"SFMono-Regular\", monospace",
+    sampleSize: 16,
+  },
+  {
+    id: "rounded",
+    label: "圆润柔和",
+    description: "圆角字形，亲和友好。",
+    fontDisplay: "\"Nunito\", \"Quicksand\", \"Microsoft YaHei UI\", \"PingFang SC\", system-ui, sans-serif",
+    fontMono: "\"Cascadia Mono\", \"Consolas\", \"SFMono-Regular\", monospace",
+    sampleSize: 15,
+  },
+  {
+    id: "code-friendly",
+    label: "代码友好",
+    description: "等宽优先，代码和正文兼顾。",
+    fontDisplay: "\"SF Mono\", \"Cascadia Code\", \"JetBrains Mono\", \"Consolas\", monospace",
+    fontMono: "\"SF Mono\", \"Cascadia Code\", \"JetBrains Mono\", \"Consolas\", monospace",
+    sampleSize: 14,
   },
 ];
 
@@ -109,6 +265,9 @@ export function applyWorkbenchAppearance(
   document.documentElement.dataset.workbenchTheme = resolvedTheme;
   document.documentElement.dataset.workbenchDensity = resolvedDensity;
   document.documentElement.style.colorScheme = workbenchThemeById(resolvedTheme).mode;
+  // Re-apply custom overrides after theme change
+  const customSettings = getStoredCustomSettings();
+  applyAppearanceOverrides(customSettings);
 }
 
 export function setStoredWorkbenchTheme(themeId: string) {
@@ -117,6 +276,108 @@ export function setStoredWorkbenchTheme(themeId: string) {
   window.localStorage.setItem(WORKBENCH_THEME_STORAGE_KEY, resolvedTheme);
   applyWorkbenchAppearance(resolvedTheme, getStoredWorkbenchDensity());
   window.dispatchEvent(new CustomEvent(WORKBENCH_THEME_CHANGE_EVENT, { detail: { themeId: resolvedTheme } }));
+}
+
+/* ===== 自定义覆盖设置 ===== */
+
+export type CustomAppearanceSettings = {
+  fontOverride: WorkbenchFontId | null;
+  fontSizeScale: number; // 0.8 ~ 1.3, 默认为 1
+  bgColor: string | null;
+  panelColor: string | null;
+  bgImage: string | null;
+};
+
+export const DEFAULT_CUSTOM_SETTINGS: CustomAppearanceSettings = {
+  fontOverride: null,
+  fontSizeScale: 1,
+  bgColor: null,
+  panelColor: null,
+  bgImage: null,
+};
+
+export const WORKBENCH_CUSTOM_SETTINGS_KEY = "workbenchCustomSettings";
+export const WORKBENCH_CUSTOM_SETTINGS_CHANGE_EVENT = "workbench-custom-settings-change";
+
+export function getStoredCustomSettings(): CustomAppearanceSettings {
+  if (typeof window === "undefined") return { ...DEFAULT_CUSTOM_SETTINGS };
+  try {
+    const raw = window.localStorage.getItem(WORKBENCH_CUSTOM_SETTINGS_KEY);
+    if (!raw) return { ...DEFAULT_CUSTOM_SETTINGS };
+    return { ...DEFAULT_CUSTOM_SETTINGS, ...JSON.parse(raw) };
+  } catch {
+    return { ...DEFAULT_CUSTOM_SETTINGS };
+  }
+}
+
+export function setStoredCustomSettings(settings: Partial<CustomAppearanceSettings>) {
+  if (typeof window === "undefined") return;
+  const current = getStoredCustomSettings();
+  const next = { ...current, ...settings };
+  window.localStorage.setItem(WORKBENCH_CUSTOM_SETTINGS_KEY, JSON.stringify(next));
+  applyAppearanceOverrides(next);
+  window.dispatchEvent(new CustomEvent(WORKBENCH_CUSTOM_SETTINGS_CHANGE_EVENT, { detail: next }));
+}
+
+export function applyAppearanceOverrides(settings: CustomAppearanceSettings) {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+
+  // Font
+  const font = WORKBENCH_FONT_OPTIONS.find((f) => f.id === settings.fontOverride);
+  if (font) {
+    root.style.setProperty("--font-display", font.fontDisplay);
+    root.style.setProperty("--font-mono", font.fontMono);
+  }
+
+  // Font size scale
+  const scale = settings.fontSizeScale;
+  const baseUi = 15;
+  const basePage = 16;
+  const baseBody = 17;
+  root.style.setProperty("--console-font-size-ui", `${Math.round(baseUi * scale)}px`);
+  root.style.setProperty("--console-font-size-page", `${Math.round(basePage * scale)}px`);
+  root.style.setProperty("--console-font-size-body", `${Math.round(baseBody * scale)}px`);
+  root.style.fontSize = `${Math.round(baseUi * scale)}px`;
+
+  // Background color override
+  if (settings.bgColor) {
+    root.style.setProperty("--console-bg", settings.bgColor);
+  }
+
+  // Panel/surface color override
+  if (settings.panelColor) {
+    root.style.setProperty("--console-surface", settings.panelColor);
+    root.style.setProperty("--console-bg-raised", settings.panelColor);
+  }
+
+  // Background image
+  if (settings.bgImage) {
+    root.style.setProperty("--workbench-bg-image", `url("${settings.bgImage}")`);
+  } else {
+    root.style.setProperty("--workbench-bg-image", "none");
+  }
+}
+
+export function clearCustomOverrides() {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  // Re-apply theme base
+  const themeId = getStoredWorkbenchTheme();
+  applyWorkbenchAppearance(themeId, getStoredWorkbenchDensity());
+  // Remove inline style overrides
+  root.style.removeProperty("--font-display");
+  root.style.removeProperty("--font-mono");
+  root.style.removeProperty("--console-font-size-ui");
+  root.style.removeProperty("--console-font-size-page");
+  root.style.removeProperty("--console-font-size-body");
+  root.style.removeProperty("font-size");
+  root.style.removeProperty("--console-bg");
+  root.style.removeProperty("--console-surface");
+  root.style.removeProperty("--console-bg-raised");
+  root.style.removeProperty("--workbench-bg-image");
+  // Reset stored custom
+  window.localStorage.removeItem(WORKBENCH_CUSTOM_SETTINGS_KEY);
 }
 
 export function setStoredWorkbenchDensity(density: string) {

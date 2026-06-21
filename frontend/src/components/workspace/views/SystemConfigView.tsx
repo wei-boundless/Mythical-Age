@@ -22,17 +22,25 @@ import {
 } from "lucide-react";
 
 import {
+  DEFAULT_CUSTOM_SETTINGS,
   DEFAULT_WORKBENCH_DENSITY,
   DEFAULT_WORKBENCH_THEME_ID,
+  WORKBENCH_CUSTOM_SETTINGS_CHANGE_EVENT,
   WORKBENCH_DENSITY_CHANGE_EVENT,
   WORKBENCH_DENSITY_OPTIONS,
+  WORKBENCH_FONT_OPTIONS,
   WORKBENCH_THEME_CHANGE_EVENT,
   WORKBENCH_THEME_TEMPLATES,
+  clearCustomOverrides,
+  getStoredCustomSettings,
   getStoredWorkbenchDensity,
   getStoredWorkbenchTheme,
+  setStoredCustomSettings,
   setStoredWorkbenchDensity,
   setStoredWorkbenchTheme,
+  type CustomAppearanceSettings,
   type WorkbenchDensity,
+  type WorkbenchFontId,
   type WorkbenchThemeId,
 } from "@/framework/workbenchThemes";
 import {
@@ -155,6 +163,7 @@ export function SystemConfigView() {
   const [activeGroupId, setActiveGroupId] = useState<SystemConfigGroupId>("appearance");
   const [activeThemeId, setActiveThemeId] = useState<WorkbenchThemeId>(DEFAULT_WORKBENCH_THEME_ID);
   const [activeDensity, setActiveDensity] = useState<WorkbenchDensity>(DEFAULT_WORKBENCH_DENSITY);
+  const [customSettings, setCustomSettings] = useState<CustomAppearanceSettings>(DEFAULT_CUSTOM_SETTINGS);
   const [draft, setDraft] = useState<Record<string, string | number | boolean>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -210,14 +219,17 @@ export function SystemConfigView() {
     function syncAppearance() {
       setActiveThemeId(getStoredWorkbenchTheme());
       setActiveDensity(getStoredWorkbenchDensity());
+      setCustomSettings(getStoredCustomSettings());
     }
     syncAppearance();
     window.addEventListener(WORKBENCH_THEME_CHANGE_EVENT, syncAppearance);
     window.addEventListener(WORKBENCH_DENSITY_CHANGE_EVENT, syncAppearance);
+    window.addEventListener(WORKBENCH_CUSTOM_SETTINGS_CHANGE_EVENT, syncAppearance);
     window.addEventListener("storage", syncAppearance);
     return () => {
       window.removeEventListener(WORKBENCH_THEME_CHANGE_EVENT, syncAppearance);
       window.removeEventListener(WORKBENCH_DENSITY_CHANGE_EVENT, syncAppearance);
+      window.removeEventListener(WORKBENCH_CUSTOM_SETTINGS_CHANGE_EVENT, syncAppearance);
       window.removeEventListener("storage", syncAppearance);
     };
   }, []);
@@ -453,13 +465,61 @@ export function SystemConfigView() {
     setError("");
   }
 
+  function handleFontChange(fontId: WorkbenchFontId) {
+    setCustomSettings((prev) => ({ ...prev, fontOverride: fontId }));
+    setStoredCustomSettings({ fontOverride: fontId });
+  }
+
+  function handleFontSizeChange(scale: number) {
+    setCustomSettings((prev) => ({ ...prev, fontSizeScale: scale }));
+    setStoredCustomSettings({ fontSizeScale: scale });
+  }
+
+  function handleBgColorChange(color: string) {
+    setCustomSettings((prev) => ({ ...prev, bgColor: color || null }));
+    setStoredCustomSettings({ bgColor: color || null });
+  }
+
+  function handlePanelColorChange(color: string) {
+    setCustomSettings((prev) => ({ ...prev, panelColor: color || null }));
+    setStoredCustomSettings({ panelColor: color || null });
+  }
+
+  function handleBgImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      setCustomSettings((prev) => ({ ...prev, bgImage: dataUrl }));
+      setStoredCustomSettings({ bgImage: dataUrl });
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleRemoveBgImage() {
+    setCustomSettings((prev) => ({ ...prev, bgImage: null }));
+    setStoredCustomSettings({ bgImage: null });
+  }
+
+  function handleResetCustom() {
+    clearCustomOverrides();
+    const fresh = getStoredCustomSettings();
+    setCustomSettings(fresh);
+    setNotice("已重置所有自定义覆盖");
+  }
+
+  const currentFont = WORKBENCH_FONT_OPTIONS.find((f) => f.id === (customSettings.fontOverride ?? "system"))!;
+  const currentScale = customSettings.fontSizeScale;
+
   function renderAppearancePanel() {
     return (
       <div className="system-config-appearance">
+        {/* ===== 主题模板 ===== */}
         <section className="system-config-field-section">
           <div className="system-config-field-section__head">
             <strong>主题模板</strong>
-            <em>模板只改变 token，不改变页面结构。</em>
+            <em>选择预置配色方案，自定义覆盖会在切换主题后继续生效。</em>
           </div>
           <div className="system-config-theme-grid">
             {WORKBENCH_THEME_TEMPLATES.map((theme) => {
@@ -496,6 +556,55 @@ export function SystemConfigView() {
           </div>
         </section>
 
+        {/* ===== 字体选择 ===== */}
+        <section className="system-config-field-section">
+          <div className="system-config-field-section__head">
+            <strong>字体选择</strong>
+            <em>选择显示字体，即时预览效果。</em>
+          </div>
+          <div className="system-config-font-grid">
+            {WORKBENCH_FONT_OPTIONS.map((font) => {
+              const active = (customSettings.fontOverride ?? "system") === font.id;
+              return (
+                <button
+                  aria-pressed={active}
+                  className={`system-config-font-card ${active ? "system-config-font-card--active" : ""}`}
+                  key={font.id}
+                  onClick={() => handleFontChange(font.id)}
+                  type="button"
+                >
+                  <strong style={{ fontFamily: font.fontDisplay }}>{font.label}</strong>
+                  <small>{font.description}</small>
+                  <span style={{ fontFamily: font.fontMono }}>等宽样例：code style</span>
+                  <em>{active ? "当前" : "应用"}</em>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* ===== 字体大小 ===== */}
+        <section className="system-config-field-section">
+          <div className="system-config-field-section__head">
+            <strong>字体大小</strong>
+            <em>调整整体缩放比例。当前：{Math.round(currentScale * 100)}%</em>
+          </div>
+          <div className="system-config-font-size-slider">
+            <span>小</span>
+            <input
+              type="range"
+              min="0.8"
+              max="1.3"
+              step="0.05"
+              value={currentScale}
+              onChange={(e) => handleFontSizeChange(parseFloat(e.target.value))}
+            />
+            <span>大</span>
+            <output>{Math.round(currentScale * 100)}%</output>
+          </div>
+        </section>
+
+        {/* ===== 布局密度 ===== */}
         <section className="system-config-field-section">
           <div className="system-config-field-section__head">
             <strong>基本界面布局</strong>
@@ -522,6 +631,92 @@ export function SystemConfigView() {
             })}
           </div>
         </section>
+
+        {/* ===== 自定义颜色 ===== */}
+        <section className="system-config-field-section">
+          <div className="system-config-field-section__head">
+            <strong>自定义颜色覆盖</strong>
+            <em>单独调整背景色和面板色，留空则使用当前主题色值。</em>
+          </div>
+          <div className="system-config-color-grid">
+            <label className="system-config-color-picker">
+              <span>背景颜色</span>
+              <input
+                type="color"
+                value={customSettings.bgColor ?? "#ffffff"}
+                onChange={(e) => handleBgColorChange(e.target.value)}
+              />
+              {customSettings.bgColor ? (
+                <button
+                  className="system-config-color-reset"
+                  onClick={() => handleBgColorChange("")}
+                  type="button"
+                  title="恢复主题默认"
+                >
+                  ✕
+                </button>
+              ) : null}
+              <em>{customSettings.bgColor ?? "使用主题默认"}</em>
+            </label>
+            <label className="system-config-color-picker">
+              <span>面板颜色</span>
+              <input
+                type="color"
+                value={customSettings.panelColor ?? "#ffffff"}
+                onChange={(e) => handlePanelColorChange(e.target.value)}
+              />
+              {customSettings.panelColor ? (
+                <button
+                  className="system-config-color-reset"
+                  onClick={() => handlePanelColorChange("")}
+                  type="button"
+                  title="恢复主题默认"
+                >
+                  ✕
+                </button>
+              ) : null}
+              <em>{customSettings.panelColor ?? "使用主题默认"}</em>
+            </label>
+          </div>
+        </section>
+
+        {/* ===== 背景图片 ===== */}
+        <section className="system-config-field-section">
+          <div className="system-config-field-section__head">
+            <strong>背景图片</strong>
+            <em>上传图片作为工作台背景，图片会自适应覆盖整个背景区域。</em>
+          </div>
+          <div className="system-config-bg-image-upload">
+            {customSettings.bgImage ? (
+              <div className="system-config-bg-image-preview">
+                <img src={customSettings.bgImage} alt="背景预览" />
+                <button onClick={handleRemoveBgImage} type="button" className="system-config-bg-image-remove">
+                  移除背景图片
+                </button>
+              </div>
+            ) : (
+              <label className="system-config-bg-image-input">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+                  onChange={handleBgImageUpload}
+                />
+                <span>点击选择图片</span>
+              </label>
+            )}
+          </div>
+        </section>
+
+        {/* ===== 重置 ===== */}
+        <div className="system-config-appearance-actions">
+          <button
+            className="system-config-appearance-reset"
+            onClick={handleResetCustom}
+            type="button"
+          >
+            重置所有自定义覆盖
+          </button>
+        </div>
       </div>
     );
   }

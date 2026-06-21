@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import threading
 import time
 from types import SimpleNamespace
@@ -1822,6 +1823,106 @@ def test_executor_observes_pending_gateway_replan_without_memory_signal_and_cons
         ),
         signal_types={"control.signal.requested"},
     ).pending_signals == ()
+
+
+def test_task_executor_absorbs_queued_active_turn_steer_before_compiling_next_packet() -> None:
+    class CaptureQueuedSteerModelRuntime:
+        def __init__(self) -> None:
+            self.prompt_text = ""
+
+        async def invoke_messages(self, messages, **_kwargs):
+            self.prompt_text = "\n\n".join(
+                str(dict(message).get("content") or "")
+                for message in list(messages or [])
+                if isinstance(message, dict)
+            )
+            match = re.search(r"steer:[A-Za-z0-9:_-]+", self.prompt_text)
+            consumed = [match.group(0)] if match else []
+            return SimpleNamespace(
+                content=json.dumps(
+                    _action_request(
+                        action_type="respond",
+                        final_answer="已吸收 queued steer。",
+                        diagnostics={
+                            "consumed_steer_refs": consumed,
+                            "contract_revision_decisions": [
+                                {
+                                    "steer_ref": consumed[0] if consumed else "",
+                                    "status": "accepted",
+                                    "reason": "queued active-turn steer absorbed before packet compilation",
+                                }
+                            ],
+                        },
+                    ),
+                    ensure_ascii=False,
+                )
+            )
+
+    model = CaptureQueuedSteerModelRuntime()
+    runtime = build_harness_runtime(model_runtime=model)
+    host = runtime.single_agent_runtime_host
+    session_id = "session-queued-active-turn-task"
+    turn_id = "turn:session-queued-active-turn-task:1"
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:queued-active-turn-task",
+        session_id=session_id,
+        status="waiting_executor",
+    )
+    seeded_task = host.state_index.get_task_run(task_run_id)
+    host.state_index.upsert_task_run(
+        replace(
+            seeded_task,
+            diagnostics={
+                **dict(seeded_task.diagnostics or {}),
+                "executor_status": "waiting_executor",
+                "recovery_action": "rerun_task_executor",
+                "recoverable_error": {
+                    "error_code": "test_resume_for_queued_active_turn_steer",
+                    "retryable": True,
+                },
+            },
+        )
+    )
+    host.active_turn_registry.start(
+        session_id=session_id,
+        turn_id=turn_id,
+        stream_run_id="strun:queued-active-turn-task",
+        state="running_task",
+    )
+    host.active_turn_registry.bind_task_run(
+        session_id=session_id,
+        turn_id=turn_id,
+        task_run_id=task_run_id,
+        state="running_task",
+    )
+    item = host.queued_user_inputs.enqueue(
+        session_id=session_id,
+        content="补充：下一步必须先验证 active_turn 队列已进入任务上下文。",
+        client_message_id="user:queued-active-turn-task",
+        input_policy="steer",
+        expected_active_turn_id=turn_id,
+        task_run_id=task_run_id,
+    )
+
+    result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=3))
+
+    stored = host.queued_user_inputs.get_item(session_id, item.queue_item_id)
+    trace = host.get_trace(task_run_id, include_payloads=True)
+    events = [dict(event) for event in list(dict(trace or {}).get("events") or [])]
+    event_types = [str(event.get("event_type") or "") for event in events]
+
+    assert result["ok"] is True
+    assert stored is not None
+    assert stored.status == "dispatched"
+    assert stored.dispatch_stream_run_id == "strun:queued-active-turn-task"
+    assert "active_task_steer_recorded" in event_types
+    assert "active_task_steer_included" in event_types
+    assert "active_task_steer_consumed" in event_types
+    assert "pending_user_steers" in model.prompt_text
+    assert "补充：下一步必须先验证 active_turn 队列已进入任务上下文。" in model.prompt_text
+    assert "active_turn_queued_user_steer" in json.dumps(events, ensure_ascii=False)
+    assert host.run_registry.list_session_runs(session_id) == []
 
 
 def test_runtime_start_recovery_marks_network_interrupted_executor_resumable() -> None:

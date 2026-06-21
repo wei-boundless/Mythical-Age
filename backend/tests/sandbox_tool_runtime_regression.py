@@ -13,10 +13,14 @@ if str(BACKEND_DIR) not in sys.path:
 from capability_system.tools.native_tool_catalog import get_tool_definition_map
 from capability_system.tools.tool_units.sandbox_command_guard import validate_sandbox_command_text
 from capability_system.tools.native_tool_runtime import ToolRuntime
+from harness.runtime.agent_scope import build_agent_run_scope
+from harness.runtime.runtime_gateway import RuntimeGateway
 from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_scope
 from orchestration.runtime_directive import RuntimeDirective
 from runtime.shared.action_request import RuntimeActionRequest
+from runtime.shared.event_log import RuntimeEventLog
 from runtime.shared.execution_record import RuntimeExecutionStore, build_idempotency_token, build_request_fingerprint
+from runtime.shared.models import TaskRun
 from runtime.tool_runtime.tool_executor import ToolRuntimeExecutor
 from runtime.tool_runtime.tool_invocation_control import registry_for
 
@@ -370,12 +374,17 @@ def test_image_generate_tool_task_is_cancelled_by_runtime_stop(tmp_path: Path, m
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"
     workspace.mkdir(parents=True)
-    runtime_host = _ControlRuntimeHost()
     task_run_id = "taskrun-image-control"
     executor_epoch = 7
+    runtime_host = _ControlRuntimeHost(
+        tmp_path / "runtime-state",
+        task_run_id=task_run_id,
+        session_id="session:image-control",
+        executor_epoch=executor_epoch,
+    )
 
     from capability_system.tools.tool_units.image_generation_tool import ImageGenerationTool
-    from harness.loop.task_run_execution_control import register_executor_epoch, request_executor_stop
+    from harness.loop.task_run_execution_control import request_executor_stop
 
     started = asyncio.Event()
     cancelled = asyncio.Event()
@@ -390,7 +399,6 @@ def test_image_generate_tool_task_is_cancelled_by_runtime_stop(tmp_path: Path, m
         return "{\"ok\": true}"
 
     monkeypatch.setattr(ImageGenerationTool, "_arun", _fake_arun)
-    register_executor_epoch(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
 
     async def _run_and_stop() -> dict:
         execution_store = RuntimeExecutionStore(workspace / ".runtime-test")
@@ -617,6 +625,31 @@ def test_python_repl_nonzero_exit_returns_structured_failure_feedback(tmp_path: 
     assert structured["tool_executed"] is True
     assert structured["command_receipt"]["exit_code"] == 9
     assert "repair_instruction" in structured
+
+
+def test_python_repl_command_file_changes_publish_file_change_signals(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    runtime_host = SimpleNamespace(event_log=RuntimeEventLog(tmp_path / "events-python"))
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="python_repl",
+        tool_args={"code": "from pathlib import Path\nPath('generated.txt').write_text('changed', encoding='utf-8')"},
+        operation_id="op.python_repl",
+        runtime_host=runtime_host,
+        sandbox_policy_extra={"session_id": "session:file-change"},
+    )
+
+    envelope = result["observation"].payload["result_envelope"]
+    records = envelope["structured_payload"]["file_changes"]["records"]
+    events = runtime_host.event_log.list_events("taskrun-python_repl")
+
+    assert result["execution_record"].status == "completed"
+    assert [str(event.event_type) for event in events] == ["file_change_recorded"]
+    assert events[0].payload["file_change_record"]["record_id"] == records[0]["record_id"]
+    assert events[0].payload["file_change_record"]["logical_path"] == "generated.txt"
 
 
 def test_image_generate_tool_allows_bounded_agent_retry_on_provider_failure(tmp_path: Path, monkeypatch) -> None:
@@ -1262,6 +1295,31 @@ def test_native_write_file_write_scopes_do_not_restrict_sandbox_root(tmp_path: P
     assert (sandbox_root / "private" / "note.md").read_text(encoding="utf-8") == "allowed"
 
 
+def test_native_write_file_publishes_file_change_signal(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    runtime_host = SimpleNamespace(event_log=RuntimeEventLog(tmp_path / "events-write"))
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="write_file",
+        tool_args={"path": "docs/note.md", "content": "changed"},
+        operation_id="op.write_file",
+        runtime_host=runtime_host,
+        sandbox_policy_extra={"session_id": "session:file-change"},
+    )
+
+    envelope = result["observation"].payload["result_envelope"]
+    record = envelope["structured_payload"]["file_change"]["record"]
+    events = runtime_host.event_log.list_events("taskrun-write_file")
+
+    assert result["execution_record"].status == "completed"
+    assert [str(event.event_type) for event in events] == ["file_change_recorded"]
+    assert events[0].payload["file_change_record"]["record_id"] == record["record_id"]
+    assert events[0].payload["file_change_record"]["logical_path"] == "docs/note.md"
+
+
 def test_native_write_file_default_mode_keeps_file_gateway_approval_as_control_boundary(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"
@@ -1473,5 +1531,51 @@ class _MissingInstanceRuntime:
         return None
 
 
+class _TaskRunStateIndexStub:
+    def __init__(self, task_run: TaskRun) -> None:
+        self.task_run = task_run
+
+    def get_task_run(self, task_run_id: str):
+        if str(task_run_id or "") == self.task_run.task_run_id:
+            return self.task_run
+        return None
+
+
 class _ControlRuntimeHost:
-    pass
+    def __init__(self, root_dir: Path, *, task_run_id: str, session_id: str, executor_epoch: int) -> None:
+        scope = build_agent_run_scope(
+            session_id=session_id,
+            invocation_kind="task_run",
+            task_run_id=task_run_id,
+            agent_run_id=f"agentrun:{task_run_id}",
+            run_cell_id=f"runcell:{task_run_id}",
+        )
+        self._active_agent_run_scope = scope
+        self.event_log = RuntimeEventLog(root_dir)
+        self.runtime_gateway = RuntimeGateway(self.event_log)
+        self.state_index = _TaskRunStateIndexStub(
+            TaskRun(
+                task_run_id=task_run_id,
+                session_id=session_id,
+                task_id=f"task:{task_run_id}",
+                execution_runtime_kind="single_agent_task",
+                status="running",
+                created_at=1.0,
+                updated_at=2.0,
+                diagnostics={"executor_epoch": executor_epoch, "agent_run_scope": scope.to_dict()},
+            )
+        )
+        self._cell_tool_invocation_registry = registry_for(self)
+        self._active_cell = SimpleNamespace(
+            scope=scope,
+            tool_invocation_registry=self._cell_tool_invocation_registry,
+        )
+        self.agent_run_supervisor = SimpleNamespace(active_cell_for_task_run=self._active_cell_for_task_run)
+
+    def _active_cell_for_task_run(self, task_run_id: str, *, session_id: str):
+        if (
+            str(task_run_id or "") == self._active_agent_run_scope.task_run_id
+            and str(session_id or "") == self._active_agent_run_scope.session_id
+        ):
+            return self._active_cell
+        return None

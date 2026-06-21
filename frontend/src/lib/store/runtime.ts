@@ -57,6 +57,7 @@ import {
   uploadChatAttachment
 } from "@/lib/api";
 import type { ChatAttachment, ChatRun, ChatStreamCursor, FileChangeRecord, ManagedFileTarget, PublicProjectionFrame, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, RuntimeMonitorSignal, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
+import { publicRuntimeProgressText } from "@/lib/runtimeStatusText";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
@@ -143,6 +144,7 @@ type PendingVisibleStreamFlush = {
 };
 
 const DEFAULT_SESSION_TITLE = "New Session";
+const VISIBLE_STREAM_FLUSH_FRAME_FALLBACK_MS = 16;
 
 export class WorkspaceRuntime {
   private initializePromise: Promise<void> | null = null;
@@ -169,6 +171,7 @@ export class WorkspaceRuntime {
   private stoppedStreamingSessionIds = new Set<string>();
   private recoveringStreamSessionIds = new Set<string>();
   private pendingVisibleStreamFlushes = new Map<string, PendingVisibleStreamFlush>();
+  private queuedVisibleUserInputsBySession = new Map<string, Map<string, Message>>();
   private pendingProjectionCommitHydrates = new Map<string, string>();
   private hydratedProjectionCommitKeys = new Set<string>();
   private firstUserTitleRequests = new Set<string>();
@@ -1653,22 +1656,19 @@ export class WorkspaceRuntime {
   }
 
   private applyQueuedUserInputVisibleState(sessionId: string, content: string, messageId: string) {
+    const queuedMessage = this.queuedUserInputMessage(content, messageId);
+    const activityTitle = "已加入当前回合";
+    const activityDetail = "agent 下一次判断前会纳入这条补充。";
+    this.rememberQueuedVisibleUserInput(sessionId, queuedMessage);
+    this.patchPendingVisibleStreamFlushWithQueuedInput(sessionId);
+    this.patchStreamingSessionCacheWithQueuedInput(sessionId);
     this.store.setState((prev) => {
       const shouldPatchVisibleMessages = prev.currentSessionId === sessionId;
       const alreadyVisible = prev.messages.some((message) => message.id === messageId);
       const nextMessages = shouldPatchVisibleMessages
         ? alreadyVisible
           ? prev.messages.map((message) => message.id === messageId ? { ...message, content } : message)
-          : [
-              ...prev.messages,
-              {
-                id: messageId,
-                role: "user" as const,
-                content,
-                toolCalls: [],
-                retrievals: [],
-              },
-            ]
+          : [...prev.messages, queuedMessage]
         : prev.messages;
       return {
         ...prev,
@@ -1676,13 +1676,13 @@ export class WorkspaceRuntime {
         sessionActivity: prev.currentSessionId === sessionId
           ? {
               level: "running",
-              title: "已加入发送队列",
-              detail: "当前回合结束后会按顺序提交这条消息。",
+              title: activityTitle,
+              detail: activityDetail,
               event: "user_input_queued",
               receipt: {
                 level: "running",
-                title: "已加入发送队列",
-                body: "当前回合结束后会按顺序提交这条消息。",
+                title: activityTitle,
+                body: activityDetail,
                 debug: { event: "user_input_queued" },
               },
               updatedAt: Date.now(),
@@ -1692,13 +1692,13 @@ export class WorkspaceRuntime {
           ...prev.sessionActivitiesById,
           [sessionId]: {
             level: "running",
-            title: "已加入发送队列",
-            detail: "当前回合结束后会按顺序提交这条消息。",
+            title: activityTitle,
+            detail: activityDetail,
             event: "user_input_queued",
             receipt: {
               level: "running",
-              title: "已加入发送队列",
-              body: "当前回合结束后会按顺序提交这条消息。",
+              title: activityTitle,
+              body: activityDetail,
               debug: { event: "user_input_queued" },
             },
             updatedAt: Date.now(),
@@ -1706,6 +1706,101 @@ export class WorkspaceRuntime {
         },
       };
     });
+  }
+
+  private queuedUserInputMessage(content: string, messageId: string): Message {
+    return {
+      id: messageId,
+      role: "user",
+      content,
+      toolCalls: [],
+      retrievals: [],
+    };
+  }
+
+  private rememberQueuedVisibleUserInput(sessionId: string, message: Message) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId || message.role !== "user") {
+      return;
+    }
+    const existing = this.queuedVisibleUserInputsBySession.get(normalizedSessionId) ?? new Map<string, Message>();
+    existing.set(message.id, message);
+    this.queuedVisibleUserInputsBySession.set(normalizedSessionId, existing);
+  }
+
+  private queuedVisibleUserMessages(sessionId: string) {
+    return Array.from(this.queuedVisibleUserInputsBySession.get(sessionId)?.values() ?? []);
+  }
+
+  private mergeQueuedVisibleUserInputs(sessionId: string, messages: Message[]) {
+    const queuedMessages = this.queuedVisibleUserMessages(sessionId);
+    if (!queuedMessages.length) {
+      return messages;
+    }
+    const existingIds = new Set(messages.map((message) => message.id));
+    const merged = messages.map((message) => {
+      const queued = this.queuedVisibleUserInputsBySession.get(sessionId)?.get(message.id);
+      return queued && message.role === "user"
+        ? { ...message, content: queued.content, attachments: queued.attachments ?? message.attachments }
+        : message;
+    });
+    for (const queued of queuedMessages) {
+      if (!existingIds.has(queued.id)) {
+        merged.push(queued);
+      }
+    }
+    return merged;
+  }
+
+  private patchPendingVisibleStreamFlushWithQueuedInput(sessionId: string) {
+    const pending = this.pendingVisibleStreamFlushes.get(sessionId);
+    if (!pending) {
+      return;
+    }
+    const queuedActivity = this.visibleQueuedUserInputActivity(sessionId);
+    pending.streamState = {
+      ...pending.streamState,
+      messages: this.mergeQueuedVisibleUserInputs(sessionId, pending.streamState.messages),
+      sessionActivity: queuedActivity ?? pending.streamState.sessionActivity,
+      sessionActivitiesById: {
+        ...pending.streamState.sessionActivitiesById,
+        ...(queuedActivity
+          ? { [sessionId]: queuedActivity }
+          : {}),
+      },
+    };
+  }
+
+  private patchStreamingSessionCacheWithQueuedInput(sessionId: string) {
+    const cache = this.streamingSessionCache.get(sessionId);
+    if (!cache) {
+      return;
+    }
+    this.streamingSessionCache.set(sessionId, {
+      ...cache,
+      messages: this.mergeQueuedVisibleUserInputs(sessionId, cache.messages),
+    });
+  }
+
+  private visibleQueuedUserInputActivity(sessionId: string): StoreState["sessionActivity"] | null {
+    if (!this.queuedVisibleUserInputsBySession.get(sessionId)?.size) {
+      return null;
+    }
+    const activityTitle = "已加入当前回合";
+    const activityDetail = "agent 下一次判断前会纳入这条补充。";
+    return {
+      level: "running",
+      title: activityTitle,
+      detail: activityDetail,
+      event: "user_input_queued",
+      receipt: {
+        level: "running",
+        title: activityTitle,
+        body: activityDetail,
+        debug: { event: "user_input_queued" },
+      },
+      updatedAt: Date.now(),
+    };
   }
 
   private removeActiveStreamSession(prev: StoreState, sessionId: string): StoreState {
@@ -1846,9 +1941,17 @@ export class WorkspaceRuntime {
     const visibleStreamState = options.rebuildProjectionViews
       ? rebuildProjectionViews(streamState)
       : streamState;
+    const visibleSessionId = String(latency?.sessionId || visibleStreamState.currentSessionId || this.store.getState().currentSessionId || "").trim();
+    const mergedMessages = visibleSessionId
+      ? this.mergeQueuedVisibleUserInputs(visibleSessionId, visibleStreamState.messages)
+      : visibleStreamState.messages;
+    const queuedActivity = visibleSessionId ? this.visibleQueuedUserInputActivity(visibleSessionId) : null;
+    const nextSessionActivity = queuedActivity && this.streamActivityCanKeepQueuedInputVisible(visibleStreamState.sessionActivity)
+      ? queuedActivity
+      : visibleStreamState.sessionActivity;
     this.store.setState((prev) => ({
       ...prev,
-      messages: visibleStreamState.messages,
+      messages: mergedMessages,
       activeProjectionsByKey: visibleStreamState.activeProjectionsByKey,
       orchestrationSnapshot: visibleStreamState.orchestrationSnapshot,
       activeTurnSnapshot: visibleStreamState.activeTurnSnapshot,
@@ -1856,15 +1959,18 @@ export class WorkspaceRuntime {
       activeStreamSessionIds,
       isStreaming: activeStreamSessionIds.length > 0,
       chatStreamConnectionStatus: visibleStreamState.chatStreamConnectionStatus,
-      sessionActivity: visibleStreamState.sessionActivity,
+      sessionActivity: nextSessionActivity,
       sessionActivitiesById: {
         ...prev.sessionActivitiesById,
         ...visibleStreamState.sessionActivitiesById,
+        ...(queuedActivity && visibleSessionId && this.streamActivityCanKeepQueuedInputVisible(visibleStreamState.sessionActivitiesById[visibleSessionId])
+          ? { [visibleSessionId]: queuedActivity }
+          : {}),
       },
     }));
     if (latency?.sessionId) {
       this.streamingSessionCache.set(latency.sessionId, {
-        messages: visibleStreamState.messages,
+        messages: mergedMessages,
         activeProjectionsByKey: visibleStreamState.activeProjectionsByKey,
         orchestrationSnapshot: visibleStreamState.orchestrationSnapshot,
         activeTurnSnapshot: visibleStreamState.activeTurnSnapshot,
@@ -1873,6 +1979,13 @@ export class WorkspaceRuntime {
     if (latency) {
       this.recordChatStreamLatency(latency.sessionId, latency.event, latency.data);
     }
+  }
+
+  private streamActivityCanKeepQueuedInputVisible(activity: StoreState["sessionActivity"] | undefined) {
+    if (!activity) {
+      return true;
+    }
+    return !String(activity.event || "").trim() || activity.event === "user_input_queued";
   }
 
   private presentVisibleStreamState(
@@ -1947,15 +2060,18 @@ export class WorkspaceRuntime {
         data: latest.data,
       });
     };
-    this.scheduleVisibleStreamMicrotask(flush);
+    this.scheduleVisibleStreamFrame(flush);
   }
 
-  private scheduleVisibleStreamMicrotask(callback: () => void) {
-    if (typeof queueMicrotask === "function") {
-      queueMicrotask(callback);
+  private scheduleVisibleStreamFrame(callback: () => void) {
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => callback());
       return;
     }
-    Promise.resolve().then(callback);
+    const scheduleTimeout = typeof window !== "undefined" && typeof window.setTimeout === "function"
+      ? window.setTimeout.bind(window)
+      : globalThis.setTimeout.bind(globalThis);
+    scheduleTimeout(callback, VISIBLE_STREAM_FLUSH_FRAME_FALLBACK_MS);
   }
 
   private flushVisibleStreamStateNow(
@@ -2596,45 +2712,66 @@ export class WorkspaceRuntime {
           return true;
         }
       }
-      let cursor = readChatStreamCursor(sessionId);
-      if (latestRun?.stream_run_id && latestRun.stream_run_id !== cursor?.streamRunId) {
-        cursor = {
-          streamRunId: latestRun.stream_run_id,
-          eventLogId: latestRun.event_log_id,
-          lastEventOffset: -1,
-          lastEventId: "",
-        };
-      }
-      let streamRunId = cursor?.streamRunId || "";
+      const cursor = readChatStreamCursor(sessionId);
+      const latestRunCursor = this.chatRunCursorFromActiveRun(latestRun);
+      let effectiveCursor = cursor?.streamRunId ? cursor : latestRunCursor;
+      let streamRunId = effectiveCursor?.streamRunId || "";
       if (!streamRunId) {
         return false;
       }
-      const cursorRun = latestRun?.stream_run_id === streamRunId
+      let cursorRun = latestRun?.stream_run_id === streamRunId
         ? latestRun
         : await getChatRun(streamRunId).catch(() => null);
       if (
         !cursorRun
         || cursorRun.session_id !== sessionId
+        || cursorRun.event_log_id !== effectiveCursor?.eventLogId
         || cursorRun.is_reconnectable === false
       ) {
         clearChatStreamCursor(sessionId);
-        return false;
+        if (!latestRunCursor || latestRunCursor.streamRunId === streamRunId) {
+          return false;
+        }
+        effectiveCursor = latestRunCursor;
+        streamRunId = latestRunCursor.streamRunId;
+        cursorRun = latestRun?.stream_run_id === streamRunId ? latestRun : null;
+        if (
+          !cursorRun
+          || cursorRun.session_id !== sessionId
+          || cursorRun.event_log_id !== effectiveCursor.eventLogId
+          || cursorRun.is_reconnectable === false
+        ) {
+          return false;
+        }
       }
-      if (this.chatRunCursorAlreadyReachedTerminal(cursorRun, cursor)) {
+      if (this.chatRunCursorAlreadyReachedTerminal(cursorRun, effectiveCursor)) {
         clearChatStreamCursor(sessionId);
         await this.refreshSessionDetails(sessionId).catch(() => undefined);
         return false;
       }
-      this.applyActiveTurnSnapshotFromChatRun(cursorRun);
       this.updateActiveChatStreamBinding(sessionId, this.chatRunBinding(cursorRun));
       if (this.visibleSessionNeedsHistoryHydration(sessionId)) {
         await this.refreshSessionDetails(sessionId).catch(() => undefined);
       }
-      this.startRecoveredChatRunStream(sessionId, streamRunId, cursor, cursorRun);
+      this.startRecoveredChatRunStream(sessionId, streamRunId, effectiveCursor, cursorRun);
       return true;
     } finally {
       this.recoveringStreamSessionIds.delete(sessionId);
     }
+  }
+
+  private chatRunCursorFromActiveRun(run: ChatRun | null | undefined): ChatStreamCursor | null {
+    const streamRunId = runtimeText(run?.stream_run_id);
+    const eventLogId = runtimeText(run?.event_log_id);
+    if (!streamRunId || !eventLogId || run?.is_reconnectable === false) {
+      return null;
+    }
+    return {
+      streamRunId,
+      eventLogId,
+      lastEventOffset: -1,
+      lastEventId: "",
+    };
   }
 
   private visibleSessionNeedsHistoryHydration(sessionId: string) {
@@ -2652,47 +2789,6 @@ export class WorkspaceRuntime {
     return Number.isFinite(latestOffset)
       && Number.isFinite(cursorOffset)
       && cursorOffset >= latestOffset;
-  }
-
-  private applyActiveTurnSnapshotFromChatRun(run: ChatRun | null | undefined) {
-    if (!run) {
-      return;
-    }
-    const hasSnapshotField = Object.prototype.hasOwnProperty.call(run, "active_turn_snapshot");
-    const activeTurnSnapshot = this.activeTurnSnapshotFromPayload(run.active_turn_snapshot)
-      ?? this.activeTurnSnapshotFromChatRunDiagnostics(run);
-    if (!hasSnapshotField && !activeTurnSnapshot) {
-      return;
-    }
-    this.store.setState((prev) => ({
-      ...prev,
-      activeTurnSnapshot,
-    }));
-  }
-
-  private activeTurnSnapshotFromChatRunDiagnostics(run: ChatRun): ActiveTurnSnapshot | null {
-    const diagnostics = run.diagnostics && typeof run.diagnostics === "object" && !Array.isArray(run.diagnostics)
-      ? run.diagnostics
-      : {};
-    const turnId = runtimeText(diagnostics.active_turn_id)
-      || runtimeText(diagnostics.public_anchor_turn_id);
-    if (!turnId) {
-      return null;
-    }
-    const taskRunId = runtimeText(diagnostics.runtime_task_run_id)
-      || runtimeText(diagnostics.task_run_id)
-      || runtimeText(diagnostics.public_anchor_task_run_id);
-    const state = this.activeTurnStateFromPayload(diagnostics.active_turn_state)
-      ?? (taskRunId ? "running_task" : "model_turn");
-    return {
-      turn_id: turnId,
-      turn_run_id: runtimeText(diagnostics.runtime_turn_run_id)
-        || runtimeText(diagnostics.turn_run_id)
-        || undefined,
-      task_run_id: taskRunId || undefined,
-      state,
-      updated_at: Date.now() / 1000,
-    };
   }
 
   private activeTurnSnapshotFromPayload(value: unknown): ActiveTurnSnapshot | null {
@@ -2725,15 +2821,11 @@ export class WorkspaceRuntime {
     const diagnostics: Record<string, unknown> = run.diagnostics && typeof run.diagnostics === "object" && !Array.isArray(run.diagnostics)
       ? run.diagnostics
       : {};
-    const activeTurn = run.active_turn_snapshot ?? null;
     const streamRunId = runtimeText(run.stream_run_id);
-    const taskRunId = runtimeText(activeTurn?.bound_task_run_id)
-      || runtimeText(activeTurn?.task_run_id)
-      || runtimeText(diagnostics.runtime_task_run_id)
+    const taskRunId = runtimeText(diagnostics.runtime_task_run_id)
       || runtimeText(diagnostics.task_run_id)
       || runtimeText(diagnostics.public_anchor_task_run_id);
-    const turnId = runtimeText(activeTurn?.turn_id)
-      || runtimeText(diagnostics.active_turn_id)
+    const turnId = runtimeText(diagnostics.active_turn_id)
       || runtimeText(diagnostics.public_anchor_turn_id);
     if (!streamRunId) {
       return null;
@@ -2869,10 +2961,14 @@ export class WorkspaceRuntime {
 
   private recoveredAssistantMessageId(streamRunId: string, run: ChatRun | null) {
     const state = this.store.getState();
-    const activeTurn = run?.active_turn_snapshot ?? null;
-    const turnId = String(activeTurn?.turn_id ?? "").trim();
-    const turnRunId = String(activeTurn?.turn_run_id ?? "").trim();
-    const taskRunId = String(activeTurn?.bound_task_run_id ?? activeTurn?.task_run_id ?? "").trim();
+    const diagnostics = run?.diagnostics ?? {};
+    const turnId = runtimeText(diagnostics.active_turn_id)
+      || runtimeText(diagnostics.public_anchor_turn_id);
+    const turnRunId = runtimeText(diagnostics.runtime_turn_run_id)
+      || runtimeText(diagnostics.turn_run_id);
+    const taskRunId = runtimeText(diagnostics.runtime_task_run_id)
+      || runtimeText(diagnostics.task_run_id)
+      || runtimeText(diagnostics.public_anchor_task_run_id);
     for (let index = state.messages.length - 1; index >= 0; index -= 1) {
       const message = state.messages[index];
       if (message.role !== "assistant") {
@@ -2903,17 +2999,12 @@ export class WorkspaceRuntime {
     if (messages.some((message) => message.role === "assistant" && message.id === assistantId)) {
       return messages;
     }
-    const activeTurn = run?.active_turn_snapshot ?? null;
     const diagnostics = run?.diagnostics ?? {};
-    const turnId = runtimeText(activeTurn?.turn_id)
-      || runtimeText(diagnostics.active_turn_id)
+    const turnId = runtimeText(diagnostics.active_turn_id)
       || runtimeText(diagnostics.public_anchor_turn_id);
-    const turnRunId = runtimeText(activeTurn?.turn_run_id)
-      || runtimeText(diagnostics.runtime_turn_run_id)
+    const turnRunId = runtimeText(diagnostics.runtime_turn_run_id)
       || runtimeText(diagnostics.turn_run_id);
-    const taskRunId = runtimeText(activeTurn?.bound_task_run_id)
-      || runtimeText(activeTurn?.task_run_id)
-      || runtimeText(diagnostics.runtime_task_run_id)
+    const taskRunId = runtimeText(diagnostics.runtime_task_run_id)
       || runtimeText(diagnostics.task_run_id)
       || runtimeText(diagnostics.public_anchor_task_run_id);
     const userIndex = turnId
@@ -3160,7 +3251,6 @@ export class WorkspaceRuntime {
         }
         this.refreshMainSessionPoolInBackground();
         this.scheduleSessionRefreshes();
-        void this.reattachChatRunForSession(sessionId);
       }
     })();
   }
@@ -3332,6 +3422,7 @@ export class WorkspaceRuntime {
       const streamResult = await streamChat(
         {
           message: trimmed,
+          client_message_id: transition.session.userId,
           session_id: sessionId,
           session_scope: this.sessionScopeForSession(sessionId),
           environment_binding: this.chatEnvironmentBindingPayload(requestState),
@@ -3495,7 +3586,6 @@ export class WorkspaceRuntime {
       }
       this.refreshMainSessionPoolInBackground();
       this.scheduleSessionRefreshes();
-      void this.reattachChatRunForSession(sessionId);
     }
   }
 
@@ -3791,11 +3881,10 @@ export class WorkspaceRuntime {
     ) {
       return null;
     }
-    const runtimeControl = monitor.runtime_control ?? {};
     return {
       taskRunId,
       status: String(monitor.status ?? taskRun.status ?? "").trim(),
-      controlState: String(monitor.control_state ?? runtimeControl.state ?? "").trim(),
+      controlState: String(monitor.control_state ?? "").trim(),
     };
   }
 
@@ -3822,6 +3911,15 @@ export class WorkspaceRuntime {
     return !snapshotState || snapshotState === "starting" || this.activeSnapshotIsTaskBound(snapshot);
   }
 
+  private activeSnapshotIsOpenForInput(snapshot: ActiveTurnSnapshot | null) {
+    const activeTurnId = String(snapshot?.turn_id ?? "").trim();
+    if (!activeTurnId) {
+      return false;
+    }
+    const snapshotState = String(snapshot?.state ?? "").trim();
+    return snapshotState !== "terminal";
+  }
+
   private shouldQueueActiveTurnInput(state: StoreState, sessionId: string) {
     if (state.currentSessionId !== sessionId) {
       return false;
@@ -3832,8 +3930,11 @@ export class WorkspaceRuntime {
     const monitor = state.taskGraphLiveMonitor;
     const snapshotIsTaskBound = this.activeSnapshotIsTaskBound(snapshot);
     const monitorInfo = this.singleAgentTaskMonitorInfo(monitor);
+    if (activeTurnId && !this.activeSnapshotIsOpenForInput(snapshot)) {
+      return false;
+    }
     if (!monitorInfo) {
-      return Boolean(activeTurnId && activeTaskRunId && snapshotIsTaskBound);
+      return this.activeSnapshotIsOpenForInput(snapshot);
     }
     if (!activeTurnId && !this.activeSnapshotCanDeferToMonitor(snapshot)) {
       return false;
@@ -4814,8 +4915,9 @@ export class WorkspaceRuntime {
   }
 
   private noteFileChangeSignalFromPayload(payload: unknown) {
-    const record = fileChangeRecordFromPayload(payload);
-    this.noteFileChangeSignalFromRecord(record);
+    for (const record of fileChangeRecordsFromPayload(payload)) {
+      this.noteFileChangeSignalFromRecord(record);
+    }
   }
 
   private noteFileChangeSignalFromRecord(record: unknown) {
@@ -5474,48 +5576,11 @@ export class WorkspaceRuntime {
   }
 
   private runtimeControlState(monitor: HarnessSessionMonitor) {
-    const direct = String((monitor as Record<string, unknown>).control_state ?? "").trim();
-    if (direct) {
-      return direct;
-    }
-    const taskRun = this.harnessMonitorTaskRun(monitor);
-    const control = (monitor as Record<string, unknown>).runtime_control
-      ?? taskRun.runtime_control
-      ?? (taskRun.diagnostics && typeof taskRun.diagnostics === "object" && !Array.isArray(taskRun.diagnostics)
-        ? (taskRun.diagnostics as Record<string, unknown>).runtime_control
-        : null);
-    if (control && typeof control === "object" && !Array.isArray(control)) {
-      return String((control as Record<string, unknown>).state ?? "").trim();
-    }
-    return "";
+    return String((monitor as Record<string, unknown>).control_state ?? "").trim();
   }
 
   private runtimeVisibleProgressText(value: unknown) {
-    const text = String(value ?? "").trim();
-    if (!text) return "";
-    if (this.runtimeLooksLikeMachineStatusLeak(text)) return "";
-    return text;
-  }
-
-  private runtimeLooksLikeMachineStatusLeak(value: string) {
-    const lowered = String(value ?? "").trim().toLowerCase();
-    if (!lowered) return false;
-    const machineStates = new Set([
-      "thinking",
-      "working",
-      "responding",
-      "verifying",
-      "waiting_for_tool",
-      "tool_returned",
-      "ready_to_finish",
-      "blocked",
-    ]);
-    if (machineStates.has(lowered)) return true;
-    if (/^(状态|status|completion[_\s-]*status|visible[_\s-]*status)\s*[:：]?\s*(thinking|working|responding|verifying|waiting_for_tool|tool_returned|ready_to_finish|blocked)$/i.test(lowered)) {
-      return true;
-    }
-    const compact = lowered.replace(/[\s。.!！?？,，;；:：_-]+/g, "");
-    return Array.from(machineStates).some((item) => item.replace(/_/g, "") === compact);
+    return publicRuntimeProgressText(value);
   }
 
   private setTaskSelection(selection: TaskSelectionState | null) {
@@ -6052,30 +6117,59 @@ function fileChangeRecordFingerprint(record: FileChangeRecord) {
   ]);
 }
 
-function fileChangeRecordFromPayload(value: unknown, depth = 0): unknown {
+function fileChangeRecordsFromPayload(
+  value: unknown,
+  depth = 0,
+  seenObjects = new WeakSet<object>(),
+  seenRecordIds = new Set<string>(),
+): unknown[] {
   if (!value || typeof value !== "object" || depth > 6) {
-    return null;
+    return [];
   }
-  if (fileChangeRecordId(value)) {
-    return value;
+  if (seenObjects.has(value)) {
+    return [];
   }
-  if (Array.isArray(value)) {
-    for (const item of value.slice(0, 20)) {
-      const found = fileChangeRecordFromPayload(item, depth + 1);
-      if (found) return found;
+  seenObjects.add(value);
+  const records: unknown[] = [];
+  const collect = (candidate: unknown) => {
+    const recordId = fileChangeRecordId(candidate);
+    if (!recordId || seenRecordIds.has(recordId)) {
+      return;
     }
-    return null;
+    seenRecordIds.add(recordId);
+    records.push(candidate);
+  };
+  if (Array.isArray(value)) {
+    for (const item of value.slice(0, 50)) {
+      records.push(...fileChangeRecordsFromPayload(item, depth + 1, seenObjects, seenRecordIds));
+    }
+    return records;
   }
   const record = value as Record<string, unknown>;
-  const direct = record.file_change_record;
-  if (fileChangeRecordId(direct)) {
-    return direct;
+  collect(record.file_change_record);
+  const fileChange = record.file_change;
+  if (fileChange && typeof fileChange === "object" && !Array.isArray(fileChange)) {
+    collect(fileChange);
+    collect((fileChange as Record<string, unknown>).record);
   }
+  const fileChanges = record.file_changes;
+  if (Array.isArray(fileChanges)) {
+    records.push(...fileChangeRecordsFromPayload(fileChanges, depth + 1, seenObjects, seenRecordIds));
+  } else if (fileChanges && typeof fileChanges === "object") {
+    records.push(...fileChangeRecordsFromPayload(
+      (fileChanges as Record<string, unknown>).records,
+      depth + 1,
+      seenObjects,
+      seenRecordIds,
+    ));
+  }
+  collect(value);
   for (const key of [
     "payload",
     "result",
     "result_envelope",
     "structured_payload",
+    "tool_result",
     "monitor",
     "observation",
     "event",
@@ -6085,10 +6179,9 @@ function fileChangeRecordFromPayload(value: unknown, depth = 0): unknown {
     "metadata",
     "data",
   ]) {
-    const found = fileChangeRecordFromPayload(record[key], depth + 1);
-    if (found) return found;
+    records.push(...fileChangeRecordsFromPayload(record[key], depth + 1, seenObjects, seenRecordIds));
   }
-  return null;
+  return records;
 }
 
 function isFileSelectionCancelled(error: unknown) {

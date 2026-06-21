@@ -557,6 +557,73 @@ def test_active_turn_steer_records_lifecycle_without_model_decision(tmp_path: Pa
         claim.close()
 
 
+def test_active_turn_auto_input_records_steer_without_model_decision(tmp_path: Path) -> None:
+    class ActiveWorkAppendModelRuntime:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def invoke_messages(self, *_args, **_kwargs):
+            self.calls += 1
+            raise AssertionError("active work input must be routed through current-work boundary before model decision")
+
+    model = ActiveWorkAppendModelRuntime()
+    runtime = build_harness_runtime(base_dir=tmp_path, model_runtime=model)
+    host = runtime.single_agent_runtime_host
+    task_run = TaskRun(
+        task_run_id="taskrun:current",
+        session_id="session:test",
+        task_id="task:current",
+        execution_runtime_kind="single_agent_task",
+        status="created",
+        created_at=1,
+        updated_at=2,
+        diagnostics={"turn_id": "turn:session:test:old"},
+    )
+    host.state_index.upsert_task_run(task_run)
+    claim = _start_live_task_run_executor(host, task_run.task_run_id)
+    host.active_turn_registry.start(session_id="session:test", turn_id="turn:session:test:old")
+    host.active_turn_registry.bind_task_run(
+        session_id="session:test",
+        turn_id="turn:session:test:old",
+        task_run_id="taskrun:current",
+        state="running_task",
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session:test",
+                message="主题还应该加入字体",
+            )
+        ):
+            events.append(event)
+        return events
+
+    try:
+        events = asyncio.run(_collect())
+        updated = host.state_index.get_task_run("taskrun:current")
+        event_types = [event.event_type for event in host.event_log.list_events("taskrun:current")]
+
+        assert model.calls == 0
+        assert any(
+            event.get("type") == "current_work_boundary_decided"
+            and dict(event.get("decision") or {}).get("action") == "current_work_control_required"
+            for event in events
+        )
+        assert any(event.get("type") == "active_task_steer_accepted" for event in events)
+        assert any(event.get("type") == "done" and event.get("terminal_reason") == "active_task_steer_recorded" for event in events)
+        assert updated is not None
+        assert updated.status == "running"
+        assert int(dict(updated.diagnostics or {}).get("pending_user_steer_count") or 0) >= 1
+        assert "active_task_steer_recorded" in event_types
+        messages = runtime.session_manager.load_session("session:test")
+        assert len(messages) == 1
+        assert messages[0]["content"] == "主题还应该加入字体"
+    finally:
+        claim.close()
+
+
 def test_current_work_boundary_receipt_revalidates_before_append(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     class StaleBoundaryModelRuntime:
         def __init__(self) -> None:

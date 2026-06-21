@@ -10,7 +10,7 @@ def queued_input_admission_target(runtime_host: Any, *, session_id: str) -> dict
     turn_id = str(getattr(active_turn, "turn_id", "") or "").strip() if active_turn is not None else ""
     task_run_id = str(getattr(active_turn, "bound_task_run_id", "") or "").strip() if active_turn is not None else ""
     steerable = bool(getattr(active_turn, "steerable", False)) if active_turn is not None else False
-    if turn_id and task_run_id and steerable:
+    if turn_id and steerable:
         return {
             "input_policy": "steer",
             "expected_active_turn_id": turn_id,
@@ -27,28 +27,34 @@ def queued_input_admission_target(runtime_host: Any, *, session_id: str) -> dict
 
 def has_active_primary_chat_run(runtime_host: Any, *, session_id: str, terminal_statuses: set[str]) -> bool:
     for run in _active_session_runs(runtime_host, session_id=session_id, terminal_statuses=terminal_statuses):
-        if not _is_steer_run(run):
+        if chat_run_execution_attached(runtime_host, run, terminal_statuses=terminal_statuses):
             return True
     return False
 
 
-def has_active_steer_chat_run(
-    runtime_host: Any,
-    *,
-    session_id: str,
-    terminal_statuses: set[str],
-    expected_active_turn_id: str = "",
-) -> bool:
-    expected = str(expected_active_turn_id or "").strip()
-    for run in _active_session_runs(runtime_host, session_id=session_id, terminal_statuses=terminal_statuses):
-        if not _is_steer_run(run):
-            continue
-        if not expected:
-            return True
-        diagnostics = dict(getattr(run, "diagnostics", {}) or {})
-        if str(diagnostics.get("expected_active_turn_id") or "").strip() == expected:
-            return True
-    return False
+def chat_run_execution_attached(runtime_host: Any, run: Any, *, terminal_statuses: set[str]) -> bool:
+    status = str(getattr(run, "status", "") or "").strip()
+    if not status or status in set(terminal_statuses or set()):
+        return False
+    stream_run_id = str(getattr(run, "stream_run_id", "") or "").strip()
+    session_id = str(getattr(run, "session_id", "") or "").strip()
+    if not stream_run_id or not session_id:
+        return False
+    supervisor = getattr(runtime_host, "agent_run_supervisor", None)
+    active_cell = getattr(supervisor, "active_cell_for_stream_run", None)
+    if not callable(active_cell):
+        return False
+    try:
+        cell = active_cell(stream_run_id, session_id=session_id)
+    except Exception:
+        return False
+    if cell is None:
+        return False
+    expected_run_cell_id = _runtime_run_cell_id(run)
+    actual_run_cell_id = str(getattr(getattr(cell, "scope", None), "run_cell_id", "") or "").strip()
+    if expected_run_cell_id and actual_run_cell_id and expected_run_cell_id != actual_run_cell_id:
+        return False
+    return True
 
 
 def validate_queued_steer(runtime_host: Any, item: QueuedUserInput) -> tuple[bool, str]:
@@ -63,8 +69,6 @@ def validate_queued_steer(runtime_host: Any, item: QueuedUserInput) -> tuple[boo
         return False, "expected_active_turn_mismatch"
     if expected_task_run_id and actual_task_run_id != expected_task_run_id:
         return False, "expected_task_run_mismatch"
-    if not actual_task_run_id:
-        return False, "active_turn_not_bound_to_task"
     if not bool(getattr(active_turn, "steerable", False)):
         return False, "active_turn_not_steerable"
     return True, ""
@@ -83,11 +87,11 @@ def _active_session_runs(runtime_host: Any, *, session_id: str, terminal_statuse
     return runs
 
 
-def _is_steer_run(run: Any) -> bool:
+def _runtime_run_cell_id(run: Any) -> str:
     diagnostics = dict(getattr(run, "diagnostics", {}) or {})
-    expected_active_turn_id = str(diagnostics.get("expected_active_turn_id") or "").strip()
-    policy = str(diagnostics.get("active_turn_input_policy") or "").strip().lower()
-    return bool(expected_active_turn_id and policy == "steer")
+    scope = diagnostics.get("agent_run_scope")
+    scope_payload = dict(scope or {}) if isinstance(scope, dict) else {}
+    return str(diagnostics.get("run_cell_id") or scope_payload.get("run_cell_id") or "").strip()
 
 
 def _resolve_active_turn(runtime_host: Any, session_id: str) -> Any | None:

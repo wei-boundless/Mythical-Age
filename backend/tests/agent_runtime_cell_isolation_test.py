@@ -950,58 +950,6 @@ def test_single_turn_chat_run_enters_primary_runtime_cell_and_blocks_same_sessio
             cell.worker_handle.join(timeout=3)
 
 
-def test_background_steer_runtime_cell_does_not_claim_primary_session_gate(tmp_path) -> None:
-    host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
-    _insert_task_run(host, "taskrun:primary")
-    run = host.run_registry.create_run(session_id="session:cell-isolation")
-    primary_started = threading.Event()
-    steer_started = threading.Event()
-    release = threading.Event()
-
-    async def execute_task(task_run_id: str, *, max_steps: int) -> dict[str, str]:
-        del task_run_id, max_steps
-        primary_started.set()
-        while not release.is_set():
-            await asyncio.sleep(0.01)
-        return {"status": "completed"}
-
-    async def steer_work() -> dict[str, str]:
-        steer_started.set()
-        while not release.is_set():
-            await asyncio.sleep(0.01)
-        return {"status": "completed"}
-
-    controller = TaskExecutorController(runtime_host=host, execute_task_run_callback=execute_task)
-    primary = controller.schedule("taskrun:primary", scheduler="test", max_steps=1)
-    primary_cell = host.agent_run_supervisor.active_cell_for_task_run("taskrun:primary", session_id="session:cell-isolation")
-    steer_cell = None
-    try:
-        assert primary["scheduled"] is True
-        assert primary_cell is not None
-        assert primary_started.wait(timeout=3)
-
-        steer = host.agent_run_supervisor.schedule_single_turn(
-            session_id="session:cell-isolation",
-            stream_run_id=run.stream_run_id,
-            work_factory=steer_work,
-            scheduler="test-steer",
-            invocation_kind="background",
-            primary=False,
-        )
-        steer_cell = host.agent_run_supervisor.active_cell_for_stream_run(run.stream_run_id, session_id="session:cell-isolation")
-
-        assert steer["scheduled"] is True
-        assert steer_cell is not None
-        assert steer_cell.scope.invocation_kind == "background"
-        assert steer_started.wait(timeout=3)
-    finally:
-        release.set()
-        if primary_cell is not None and primary_cell.worker_handle is not None:
-            primary_cell.worker_handle.join(timeout=3)
-        if steer_cell is not None and steer_cell.worker_handle is not None:
-            steer_cell.worker_handle.join(timeout=3)
-
-
 def test_runtime_run_cell_cancel_requires_session_scope(tmp_path) -> None:
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=tmp_path / "backend")
     run = host.run_registry.create_run(session_id="session:cell-isolation")

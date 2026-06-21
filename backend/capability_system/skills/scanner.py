@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import re
 import sys
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +12,6 @@ if str(BACKEND_DIR) not in sys.path:
 
 from capability_system.skills.authoring import parse_frontmatter
 from capability_system.skills.contracts import (
-    DEFAULT_SKILL_OUTPUT_RULE,
     SkillContract,
     SkillPromptContract,
     SkillRuntimeContract,
@@ -22,69 +20,6 @@ from capability_system.skills.paths import CapabilitySkillPaths
 
 SECTION_HEADING_PATTERN = re.compile(r"^#{2,3}\s+(.+?)\s*$", re.MULTILINE)
 FENCED_CODE_PATTERN = re.compile(r"```.*?```", re.DOTALL)
-
-
-@dataclass
-class SkillRecord:
-    name: str
-    title: str
-    description: str
-    path: str
-    supported_modalities: list[str] = field(default_factory=list)
-    supported_task_kinds: list[str] = field(default_factory=list)
-    supported_source_kinds: list[str] = field(default_factory=list)
-    capability_tags: list[str] = field(default_factory=list)
-    preferred_route: str = ""
-    forbidden_routes: list[str] = field(default_factory=list)
-    not_for: list[str] = field(default_factory=list)
-    routing_hints: list[str] = field(default_factory=list)
-    examples: list[str] = field(default_factory=list)
-    activation_policy: str = "model_visible"
-    context_mode: str = "inline"
-    route_authority: str = "candidate_only"
-    reference_paths: list[str] = field(default_factory=list)
-    requires_operations: list[str] = field(default_factory=list)
-    requires_capabilities: list[str] = field(default_factory=list)
-    prompt_use_when: str = ""
-    prompt_subagent_handoff_protocol: str = ""
-    prompt_return_protocol: str = ""
-    prompt_output_rule: str = ""
-    schema_version: int = 3
-    validation_errors: list[str] = field(default_factory=list)
-
-
-
-def _contract_from_record(record: SkillRecord, *, body: str = "") -> SkillContract:
-    prompt = _prompt_payload_from_record(record, body)
-    contract = SkillContract.from_runtime(
-        SkillRuntimeContract(
-            name=record.name,
-            title=record.title,
-            description=record.description,
-            path=record.path,
-            supported_modalities=record.supported_modalities,
-            supported_task_kinds=record.supported_task_kinds,
-            supported_source_kinds=record.supported_source_kinds,
-            capability_tags=record.capability_tags,
-            preferred_route=record.preferred_route,
-            forbidden_routes=record.forbidden_routes,
-            not_for=record.not_for,
-            routing_hints=record.routing_hints,
-            examples=record.examples,
-            activation_policy=record.activation_policy,
-            context_mode=record.context_mode,
-            route_authority=record.route_authority,
-            reference_paths=record.reference_paths,
-            requires_operations=record.requires_operations,
-            requires_capabilities=record.requires_capabilities,
-        ),
-        body=body,
-        use_when=prompt.get("use_when", ""),
-        subagent_handoff_protocol=prompt.get("subagent_handoff_protocol", ""),
-        return_protocol=prompt.get("return_protocol", ""),
-        output_rule=prompt.get("output_rule", ""),
-    )
-    return contract
 
 
 def _coerce_str(value: Any, default: str = "") -> str:
@@ -135,12 +70,12 @@ def _collect_reference_paths(base_dir: Path, skill_dir: Path) -> list[str]:
     return paths
 
 
-def scan_skills(base_dir: Path) -> list[SkillRecord]:
+def scan_skills(base_dir: Path) -> list[SkillContract]:
     paths = CapabilitySkillPaths.from_base_dir(base_dir)
     skills_dir = paths.skills_dir
-    records: list[SkillRecord] = []
+    contracts: list[SkillContract] = []
     if not skills_dir.exists():
-        return records
+        return contracts
 
     for skill_file in sorted(skills_dir.glob("*/SKILL.md")):
         text = skill_file.read_text(encoding="utf-8")
@@ -151,6 +86,7 @@ def scan_skills(base_dir: Path) -> list[SkillRecord]:
             prompt_meta = {}
         skill_dir = skill_file.parent
 
+        name = _coerce_str(meta.get("name"), skill_dir.name)
         title = (
             _coerce_str(metadata.get("display_name"))
             or _coerce_str(metadata.get("title"))
@@ -159,8 +95,8 @@ def scan_skills(base_dir: Path) -> list[SkillRecord]:
         )
         description = _extract_description(meta, body, skill_dir.name)
 
-        record = SkillRecord(
-            name=_coerce_str(meta.get("name"), skill_dir.name),
+        runtime = SkillRuntimeContract(
+            name=name,
             title=title,
             description=description,
             path=paths.to_relative_path(skill_file),
@@ -179,16 +115,29 @@ def scan_skills(base_dir: Path) -> list[SkillRecord]:
             reference_paths=_collect_reference_paths(base_dir, skill_dir),
             requires_operations=_coerce_list(_lookup(meta, "metadata.requires_operations")),
             requires_capabilities=_coerce_list(_lookup(meta, "metadata.requires_capabilities")),
-            prompt_use_when=_coerce_str(prompt_meta.get("use_when")),
-            prompt_subagent_handoff_protocol=_coerce_str(prompt_meta.get("subagent_handoff_protocol")),
-            prompt_return_protocol=_coerce_str(prompt_meta.get("return_protocol")),
-            prompt_output_rule=_coerce_str(prompt_meta.get("output_rule")),
         )
-        records.append(record)
-    return records
+
+        prompt_fields = {
+            "use_when": _coerce_str(prompt_meta.get("use_when")),
+            "subagent_handoff_protocol": _coerce_str(prompt_meta.get("subagent_handoff_protocol")),
+            "return_protocol": _coerce_str(prompt_meta.get("return_protocol")),
+            "output_rule": _coerce_str(prompt_meta.get("output_rule")),
+        }
+        payload = _prompt_payload_from_fields(prompt_fields, body)
+
+        contract = SkillContract.from_runtime(
+            runtime,
+            body=body,
+            use_when=payload["use_when"],
+            subagent_handoff_protocol=payload["subagent_handoff_protocol"],
+            return_protocol=payload["return_protocol"],
+            output_rule=payload["output_rule"],
+        )
+        contracts.append(contract)
+    return contracts
 
 
-def build_snapshot(skills: list[SkillRecord]) -> str:
+def build_snapshot(skills: list[SkillContract]) -> str:
     lines = [
         "<skills>",
         "  <summary>Skill registry snapshot for admin display. Runtime prompts should inject only the selected active skill.</summary>",
@@ -213,33 +162,35 @@ def build_snapshot(skills: list[SkillRecord]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _build_prompt_view(skill: SkillRecord) -> SkillPromptContract:
-    prompt = _prompt_payload_from_record(skill, "")
+def _build_prompt_view(skill: SkillContract) -> SkillPromptContract:
     return SkillPromptContract(
-        name=skill.name,
-        title=skill.title,
-        capability=skill.description,
-        use_when=prompt.get("use_when", ""),
-        subagent_handoff_protocol=prompt.get("subagent_handoff_protocol", ""),
-        return_protocol=prompt.get("return_protocol", ""),
-        output_rule=prompt.get("output_rule", "") or DEFAULT_SKILL_OUTPUT_RULE,
+        name=skill.runtime.name,
+        title=skill.runtime.title,
+        capability=skill.runtime.description,
+        use_when=skill.prompt.use_when,
+        subagent_handoff_protocol=skill.prompt.subagent_handoff_protocol,
+        return_protocol=skill.prompt.return_protocol,
+        output_rule=skill.prompt.output_rule,
     )
 
 
-def _prompt_payload_from_record(record: SkillRecord, body: str) -> dict[str, str]:
+def _prompt_payload_from_fields(fields: dict[str, str], body: str) -> dict[str, str]:
     cleaned_body = _strip_fenced_code(body)
     sections = _extract_markdown_sections(cleaned_body)
     return {
-        "use_when": record.prompt_use_when
+        "use_when": fields.get("use_when", "")
         or _first_section_text(sections, ("适用场景", "什么时候使用", "use when"))
         or _first_labeled_block(
             cleaned_body,
             ("适合被唤起的情况", "典型请求包括"),
             ("不适合被唤起的情况", "## ", "### ", "执行目标", "工作原则"),
         ),
-        "subagent_handoff_protocol": record.prompt_subagent_handoff_protocol or _first_section_text(sections, ("子 Agent 交接协议", "subagent handoff protocol")),
-        "return_protocol": record.prompt_return_protocol or _first_section_text(sections, ("回传协议", "return protocol", "输出结构", "输出要求")),
-        "output_rule": record.prompt_output_rule or _first_section_text(sections, ("回答要求", "输出要求", "output rule")),
+        "subagent_handoff_protocol": fields.get("subagent_handoff_protocol", "")
+        or _first_section_text(sections, ("子 Agent 交接协议", "subagent handoff protocol")),
+        "return_protocol": fields.get("return_protocol", "")
+        or _first_section_text(sections, ("回传协议", "return protocol", "输出结构", "输出要求")),
+        "output_rule": fields.get("output_rule", "")
+        or _first_section_text(sections, ("回答要求", "输出要求", "output rule")),
     }
 
 
@@ -288,12 +239,11 @@ def _first_labeled_block(body: str, start_labels: tuple[str, ...], stop_labels: 
     return "\n".join(collected).strip()
 
 
-def build_registry(skills: list[SkillRecord]) -> dict[str, Any]:
-    contracts = [_contract_from_record(skill) for skill in skills]
+def build_registry(skills: list[SkillContract]) -> dict[str, Any]:
     return {
         "version": 3,
         "skill_count": len(skills),
-        "skills": [contract.to_registry_record() for contract in contracts],
+        "skills": [contract.to_registry_record() for contract in skills],
     }
 
 

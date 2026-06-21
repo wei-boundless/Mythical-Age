@@ -32,12 +32,11 @@ class HarnessRuntimeRequest:
     expected_continuation_id: str = ""
     recovery_input_policy: str = "auto"
     editor_context: dict[str, Any] = field(default_factory=dict)
+    client_message_id: str = ""
 
 
 @dataclass(slots=True)
 class HarnessRuntimeResult:
     content: str
     segments: list[dict[str, Any]] = field(default_factory=list)
-
-
 

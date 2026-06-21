@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 from harness.runtime.dynamic_context.replacement_store import ReplacementStore
+from harness.runtime.agent_scope import build_agent_run_scope
 from harness.runtime.run_monitor import RuntimeMonitorService
 from runtime.cache_manager import RuntimeCacheManager
 from runtime.memory.file_evidence_scope import task_run_file_evidence_scope
@@ -14,7 +17,6 @@ from runtime.shared.models import TaskRun
 from runtime.shared.runtime_object_store import RuntimeObjectStore
 from runtime.tool_runtime.tool_invocation_control import registry_for
 from harness.runtime.runtime_gateway import RuntimeGateway
-from harness.loop.task_run_execution_control import register_executor_epoch
 from runtime_objects.tool_result_storage import ToolResultStore
 
 
@@ -36,6 +38,42 @@ class _ActiveTurnRegistry:
         return None
 
 
+class _NoopCellToolInvocationRegistry:
+    def cancel_by_caller(self, **_kwargs):
+        return 0
+
+
+class _AgentRunSupervisor:
+    def __init__(self) -> None:
+        self._active_cells: dict[tuple[str, str], Any] = {}
+        self.cancelled: list[dict[str, str]] = []
+
+    def set_active_task(self, *, task_run_id: str, session_id: str, executor_epoch: int = 0) -> None:
+        scope = build_agent_run_scope(
+            session_id=session_id,
+            invocation_kind="task_run",
+            task_run_id=task_run_id,
+            agent_run_id=f"agentrun:{task_run_id}",
+            run_cell_id=f"runcell:{task_run_id}",
+        )
+        self._active_cells[(task_run_id, session_id)] = SimpleNamespace(
+            scope=scope,
+            executor_epoch=executor_epoch,
+            tool_invocation_registry=_NoopCellToolInvocationRegistry(),
+        )
+
+    def active_cell_for_task_run(self, task_run_id: str, *, session_id: str):
+        return self._active_cells.get((str(task_run_id or ""), str(session_id or "")))
+
+    def cancel_task_run(self, task_run_id: str, *, session_id: str, reason: str = "") -> bool:
+        key = (str(task_run_id or ""), str(session_id or ""))
+        if key not in self._active_cells:
+            return False
+        self.cancelled.append({"task_run_id": key[0], "session_id": key[1], "reason": str(reason or "")})
+        self._active_cells.pop(key, None)
+        return True
+
+
 class _RuntimeHost:
     def __init__(self, root_dir: Path) -> None:
         self.root_dir = root_dir
@@ -53,6 +91,7 @@ class _RuntimeHost:
         self.file_state_store = FileStateAuthorityStore(root_dir)
         self.runtime_cache = RuntimeCacheManager.from_runtime_root(root_dir)
         self.active_turn_registry = _ActiveTurnRegistry()
+        self.agent_run_supervisor = _AgentRunSupervisor()
         self._background_tasks_by_name = {}
 
 
@@ -149,7 +188,11 @@ def test_retention_active_claim_stop_preserves_gateway_signal_identity(tmp_path:
             diagnostics={"executor_epoch": 9},
         )
     )
-    register_executor_epoch(host, task_run_id=task_run_id, executor_epoch=9)
+    host.agent_run_supervisor.set_active_task(
+        task_run_id=task_run_id,
+        session_id=f"session:{task_run_id}",
+        executor_epoch=9,
+    )
 
     sweep = RuntimeMonitorService(runtime_host=host, freshness_seconds=300)._sweep_expired_task_runs(now=120.0, limit=20)
     current = host.state_index.get_task_run(task_run_id)
@@ -189,7 +232,11 @@ def test_retention_active_claim_stop_fails_closed_without_runtime_gateway(tmp_pa
             diagnostics={"executor_epoch": 10},
         )
     )
-    register_executor_epoch(host, task_run_id=task_run_id, executor_epoch=10)
+    host.agent_run_supervisor.set_active_task(
+        task_run_id=task_run_id,
+        session_id=f"session:{task_run_id}",
+        executor_epoch=10,
+    )
     host.runtime_gateway = None
 
     sweep = RuntimeMonitorService(runtime_host=host, freshness_seconds=300)._sweep_expired_task_runs(now=120.0, limit=20)
@@ -224,7 +271,11 @@ def test_retention_active_claim_ignores_bare_stop_requested_without_gateway_iden
             },
         )
     )
-    register_executor_epoch(host, task_run_id=task_run_id, executor_epoch=11)
+    host.agent_run_supervisor.set_active_task(
+        task_run_id=task_run_id,
+        session_id=f"session:{task_run_id}",
+        executor_epoch=11,
+    )
 
     sweep = RuntimeMonitorService(runtime_host=host, freshness_seconds=300)._sweep_expired_task_runs(now=120.0, limit=20)
     current = host.state_index.get_task_run(task_run_id)

@@ -217,19 +217,35 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
             active_check=active_check,
             boundary_input=boundary_input,
         )
-    if policy != "steer":
+    if active_check and active_check.get("accepted") is False:
         return _decision(
             session_id=session_id,
             turn_id=turn_id,
-            action="new_independent_turn_allowed",
-            relation="active_work_present_without_steer_policy",
-            reason="active_work_control_requires_steer_policy",
+            action="current_work_unavailable",
+            relation="stale_or_missing_active_turn",
+            reason=str(active_check.get("denied_reason") or "active_turn_unavailable"),
+            response="当前任务状态已变化，这条补充没有接入正在运行的任务。",
             expected_turn_id=expected_turn_id,
             actual_turn_id=actual_turn_id,
             task_run_id=task_run_id,
             active_work=active_work,
             active_check=active_check,
             boundary_input=boundary_input,
+        )
+    if policy != "steer":
+        return _decision(
+            session_id=session_id,
+            turn_id=turn_id,
+            action="current_work_control_required",
+            relation="active_turn_bound_current_work",
+            reason="active_work_boundary_ready",
+            expected_turn_id=expected_turn_id,
+            actual_turn_id=actual_turn_id,
+            task_run_id=task_run_id,
+            active_work=active_work,
+            active_check=active_check,
+            boundary_input=boundary_input,
+            diagnostics={"normalized_active_turn_input_policy": "steer"},
         )
     return _decision(
         session_id=session_id,

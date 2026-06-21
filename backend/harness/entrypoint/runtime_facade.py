@@ -98,10 +98,6 @@ logger = logging.getLogger(__name__)
 _CONVERSATION_TASK_EXECUTION_STEPS = 50
 
 
-def _request_is_active_turn_steer(request: HarnessRuntimeRequest) -> bool:
-    return str(getattr(request, "active_turn_input_policy", "") or "").strip().lower() == "steer"
-
-
 class HarnessRuntimeFacade:
     """Thin API adapter for the agent runtime chain.
 
@@ -356,10 +352,63 @@ class HarnessRuntimeFacade:
             "covered_event_offset_end": latest_offset,
         }
 
-    async def astream(self, request: HarnessRuntimeRequest):
-        history_record = self.session_manager.load_session_record(request.session_id)
+    def prepare_chat_run_request_for_schedule(self, request: HarnessRuntimeRequest, *, stream_run_id: str) -> HarnessRuntimeRequest:
+        runtime_profile = dict(getattr(request, "runtime_profile", {}) or {})
+        if str(runtime_profile.get("precommitted_user_message_turn_id") or "").strip():
+            return request
         auto_compaction: dict[str, Any] = {}
         if not request.history:
+            auto_compaction = auto_compact_session_if_needed(
+                self,
+                session_id=request.session_id,
+                reason="auto_context_replacement_before_model_turn",
+            )
+        history_record = self.session_manager.load_session_record(request.session_id)
+        turn_index = len(history_record.get("messages", [])) + 1
+        turn_id = f"turn:{request.session_id}:{turn_index}"
+        message_id = str(getattr(request, "client_message_id", "") or "").strip() or f"user:{stream_run_id}"
+        attachments = _normalized_turn_attachments(getattr(request, "attachments", []) or [])
+        self._commit_user_message(
+            session_id=request.session_id,
+            content=request.message,
+            api_content=str(request.message or ""),
+            attachments=attachments,
+            turn_id=turn_id,
+            message_id=message_id,
+            client_message_id=str(getattr(request, "client_message_id", "") or "").strip(),
+            source="harness.entrypoint.chat_run_schedule",
+        )
+        return replace(
+            request,
+            runtime_profile={
+                **runtime_profile,
+                "precommitted_user_message": True,
+                "precommitted_user_message_turn_id": turn_id,
+                "precommitted_user_message_id": message_id,
+                "precommitted_user_message_source": "harness.entrypoint.chat_run_schedule",
+                "precommitted_user_message_auto_compaction": {
+                    "applied": bool(auto_compaction.get("applied")),
+                    "strategy": str(auto_compaction.get("strategy") or "none"),
+                    "skipped_reason": str(auto_compaction.get("skipped_reason") or ""),
+                },
+            },
+        )
+
+    async def astream(self, request: HarnessRuntimeRequest):
+        request_runtime_profile = dict(getattr(request, "runtime_profile", {}) or {})
+        model_user_message = str(request.message or "")
+        precommitted_turn_id = str(request_runtime_profile.get("precommitted_user_message_turn_id") or "").strip()
+        history_record = self.session_manager.load_session_record(request.session_id)
+        auto_compaction: dict[str, Any] = {}
+        if precommitted_turn_id:
+            auto_compaction = dict(request_runtime_profile.get("precommitted_user_message_auto_compaction") or {})
+            if not auto_compaction:
+                auto_compaction = {
+                    "applied": False,
+                    "strategy": "none",
+                    "skipped_reason": "precommitted_user_message",
+                }
+        elif not request.history:
             auto_compaction = auto_compact_session_if_needed(
                 self,
                 session_id=request.session_id,
@@ -368,12 +417,24 @@ class HarnessRuntimeFacade:
             if bool(auto_compaction.get("applied")):
                 history_record = self.session_manager.load_session_record(request.session_id)
         raw_history = request.history or self.session_manager.load_session_for_agent(request.session_id)
+        if precommitted_turn_id:
+            raw_history = _history_without_current_user_request(
+                list(raw_history or []),
+                turn_id=precommitted_turn_id,
+                user_message=model_user_message,
+            )
         api_transcript_loader = getattr(self.session_manager, "load_session_for_api", None)
         api_transcript = (
             api_transcript_loader(request.session_id)
             if callable(api_transcript_loader) and not request.history
             else list(raw_history or [])
         )
+        if precommitted_turn_id:
+            api_transcript = _history_without_current_user_request(
+                list(api_transcript or []),
+                turn_id=precommitted_turn_id,
+                user_message=model_user_message,
+            )
         history_assembly = assemble_runtime_history(
             history=raw_history,
             compressed_context=str(history_record.get("compressed_context") or ""),
@@ -399,10 +460,9 @@ class HarnessRuntimeFacade:
         attachments = _normalized_turn_attachments(getattr(request, "attachments", []) or [])
         if attachments:
             session_context["turn_input_attachments"] = attachments
-        model_user_message = str(request.message or "")
         semantic_request = replace(request, message=model_user_message)
         turn_index = len(history_record.get("messages", [])) + 1
-        turn_id = f"turn:{request.session_id}:{turn_index}"
+        turn_id = precommitted_turn_id or f"turn:{request.session_id}:{turn_index}"
         started_active_turn_id = ""
         request_permission_mode = _request_permission_mode(
             request,
@@ -417,6 +477,12 @@ class HarnessRuntimeFacade:
                 api_content=model_user_message,
                 attachments=attachments,
                 turn_id=turn_id,
+                message_id=str(
+                    request_runtime_profile.get("precommitted_user_message_id")
+                    or getattr(request, "client_message_id", "")
+                    or ""
+                ).strip(),
+                client_message_id=str(getattr(request, "client_message_id", "") or "").strip(),
             )
             if active_turn is None:
                 self.single_agent_runtime_host.active_turn_registry.start(
@@ -557,7 +623,7 @@ class HarnessRuntimeFacade:
                     "decision": current_work_decision.to_dict(),
                     "receipt": current_work_receipt.to_dict(),
                 }
-                if _request_is_active_turn_steer(semantic_request) and current_work_decision.action == "current_work_control_required":
+                if current_work_decision.action == "current_work_control_required":
                     direct_steer_branch = {
                         **dict(runtime_branch or {}),
                         "branch_kind": "active_turn_steer",
@@ -2511,39 +2577,103 @@ class HarnessRuntimeFacade:
         turn_id: str,
         api_content: str | None = None,
         attachments: list[dict[str, Any]] | None = None,
+        message_id: str = "",
+        client_message_id: str = "",
+        source: str = "harness.entrypoint.adapter_input",
     ):
+        normalized_message_id = str(message_id or client_message_id or "").strip()
+        normalized_client_message_id = str(client_message_id or "").strip()
         decision = build_user_message_commit_decision(
             session_id=session_id,
             content=content,
             task_id=turn_id,
-            source="harness.entrypoint.adapter_input",
+            source=source,
         )
         if decision.commit_allowed:
             payload = dict(decision.commit_candidate.payload)
-            self.session_manager.append_messages(
+            public_payload = {
+                "role": payload.get("role"),
+                "content": payload.get("content"),
+                "turn_id": turn_id,
+                "attachments": [dict(item) for item in list(attachments or []) if isinstance(item, dict)],
+                "source": source,
+            }
+            if normalized_message_id:
+                public_payload["id"] = normalized_message_id
+                public_payload["message_id"] = normalized_message_id
+            if normalized_client_message_id:
+                public_payload["client_message_id"] = normalized_client_message_id
+            if not self._session_contains_user_message(
                 session_id,
-                [
-                    {
-                        "role": payload.get("role"),
-                        "content": payload.get("content"),
-                        "turn_id": turn_id,
-                        "attachments": [dict(item) for item in list(attachments or []) if isinstance(item, dict)],
-                    }
-                ],
-            )
+                message_id=normalized_message_id,
+                client_message_id=normalized_client_message_id,
+                turn_id=turn_id,
+                content=str(payload.get("content") or ""),
+                api_transcript=False,
+            ):
+                self.session_manager.append_messages(session_id, [public_payload])
             append_api = getattr(self.session_manager, "append_api_messages", None)
             if callable(append_api):
-                append_api(
+                api_payload = {
+                    "role": payload.get("role"),
+                    "content": str(api_content if api_content is not None else payload.get("content") or ""),
+                    "turn_id": turn_id,
+                    "source": source,
+                }
+                if not self._session_contains_user_message(
                     session_id,
-                    [
-                        {
-                            "role": payload.get("role"),
-                            "content": str(api_content if api_content is not None else payload.get("content") or ""),
-                            "turn_id": turn_id,
-                        }
-                    ],
-                )
+                    message_id=normalized_message_id,
+                    client_message_id=normalized_client_message_id,
+                    turn_id=turn_id,
+                    content=str(api_payload.get("content") or ""),
+                    api_transcript=True,
+                ):
+                    append_api(session_id, [api_payload])
         return decision
+
+    def _session_contains_user_message(
+        self,
+        session_id: str,
+        *,
+        message_id: str,
+        client_message_id: str,
+        turn_id: str,
+        content: str,
+        api_transcript: bool,
+    ) -> bool:
+        loader = (
+            getattr(self.session_manager, "load_session_for_api", None)
+            if api_transcript
+            else getattr(self.session_manager, "load_session", None)
+        )
+        if not callable(loader):
+            return False
+        try:
+            messages = list(loader(session_id) or [])
+        except Exception:
+            logger.debug("failed to inspect session user message for idempotent commit", exc_info=True)
+            return False
+        target_message_id = str(message_id or "").strip()
+        target_client_message_id = str(client_message_id or "").strip()
+        target_turn_id = str(turn_id or "").strip()
+        target_content = str(content or "")
+        for item in messages:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("role") or "").strip() != "user":
+                continue
+            item_id = str(item.get("id") or item.get("message_id") or "").strip()
+            item_client_message_id = str(item.get("client_message_id") or "").strip()
+            if target_message_id and item_id == target_message_id:
+                return True
+            if target_client_message_id and item_client_message_id == target_client_message_id:
+                return True
+            item_turn_id = str(item.get("turn_id") or "").strip()
+            item_content = str(item.get("content") or "")
+            content_matches = item_content == target_content or item_content.strip() == target_content.strip()
+            if target_turn_id and item_turn_id == target_turn_id and content_matches:
+                return True
+        return False
 
     def _record_turn_environment_snapshot(self, *, session_id: str, turn_id: str, runtime_assembly: Any, task_run_id: str = "") -> None:
         update_snapshot = getattr(self.session_manager, "update_turn_environment_snapshot", None)
@@ -2972,11 +3102,12 @@ def _history_without_current_user_request(
         item_turn_id = str(item.get("turn_id") or "").strip()
         content = str(item.get("content") or "")
         current_turn_match = item_turn_id == target_turn_id
-        compacted_current_request_match = not item_turn_id and bool(target_content) and content == target_content
+        content_matches = not target_content or content == target_content or content.strip() == target_content.strip()
+        compacted_current_request_match = not item_turn_id and bool(target_content) and content_matches
         is_current_user_request = (
             role == "user"
             and (current_turn_match or compacted_current_request_match)
-            and (not target_content or content == target_content)
+            and content_matches
         )
         if is_current_user_request:
             continue

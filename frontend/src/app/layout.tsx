@@ -27,7 +27,12 @@ export default function RootLayout({
 }>) {
   return (
     <html data-workbench-density="standard" data-workbench-theme="clean-light" lang="zh-CN" suppressHydrationWarning>
-      <body>{children}</body>
+      <body>
+        <script dangerouslySetInnerHTML={{
+          __html: `(function(){try{var t=localStorage.getItem("workbenchTheme")||localStorage.getItem("workbench-theme");var s=localStorage.getItem("workbenchCustomSettings");if(t){document.documentElement.setAttribute("data-workbench-theme",t);var c=["clean-light","warm-paper","ocean-breeze","mineral-gray","lavender-mist","focus-dark","midnight-ocean","charcoal-ember"];if(!c.includes(t))document.documentElement.setAttribute("data-workbench-theme","clean-light")}if(s){try{var o=JSON.parse(s);if(o.bgImage)document.documentElement.style.setProperty("--workbench-bg-image","url(\\""+o.bgImage+"\\")")}catch(e){}}if(t==="focus-dark"||t==="midnight-ocean"||t==="charcoal-ember")document.documentElement.style.colorScheme="dark";else document.documentElement.style.colorScheme="light"}catch(e){}})()`,
+        }} />
+        {children}
+      </body>
     </html>
   );
 }

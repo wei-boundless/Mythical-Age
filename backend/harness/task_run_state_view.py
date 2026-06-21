@@ -79,6 +79,8 @@ def task_run_state_view(
         work_state = "ready_to_continue"
     elif status == "blocked":
         work_state = "waiting_user"
+    elif graph_controlled and status in {"running", "queued", "in_progress"}:
+        work_state = "active"
     elif live_executor_claim and executor_lease_state in {"scheduled", "running", "recovering"}:
         work_state = "active"
     elif resumable_breakpoint or executor_lease_state in {"lost", "none", "recovering"} and recovery_action in RECOVERY_ACTIONS:
@@ -386,15 +388,7 @@ def _has_live_executor_claim(runtime_host: Any | None, task_run: Any) -> bool:
                 return True
         except Exception:
             pass
-    registry = getattr(runtime_host, "_task_run_execution_control", None)
-    record = dict(registry or {}).get(task_run_id) if isinstance(registry, dict) else None
-    if record is None:
-        return False
-    model_task = getattr(record, "model_task", None)
-    if model_task is None:
-        return True
-    done = getattr(model_task, "done", None)
-    return not callable(done) or not bool(done())
+    return False
 
 
 def _record(value: Any) -> dict[str, Any]:

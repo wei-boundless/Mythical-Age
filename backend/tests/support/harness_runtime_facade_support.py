@@ -15,7 +15,6 @@ if str(BACKEND_DIR) not in sys.path:
 from harness.entrypoint.models import HarnessRuntimeRequest
 from api.chat import (
     _project_public_stream_event,
-    _runtime_run_refs_for_public_event,
     _runtime_run_refs_from_event,
 )
 from runtime.shared.models import AgentRunResult, TaskRun, TurnRun

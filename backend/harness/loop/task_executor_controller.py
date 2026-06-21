@@ -73,15 +73,6 @@ class TaskExecutorController:
                 worker_backend=active_cell.worker_backend.backend_name,
                 recovered_from=recovered_from,
             )
-        if _has_live_executor_control_record(runtime_host, task_run):
-            return _schedule_result(
-                ok=True,
-                scheduled=False,
-                task_run_id=task_run_id,
-                reason="already_running",
-                scheduler=scheduler,
-                recovered_from=recovered_from,
-            )
         if not _is_task_run_schedulable(task_run, runtime_host=runtime_host):
             return _schedule_result(
                 ok=False,
@@ -193,15 +184,6 @@ class TaskExecutorController:
                 worker_backend=active_cell.worker_backend.backend_name,
                 recovered_from=recovered_from,
             )
-        if _has_live_executor_control_record(runtime_host, task_run):
-            return _schedule_result(
-                ok=True,
-                scheduled=False,
-                task_run_id=task_run_id,
-                reason="already_running",
-                scheduler=scheduler,
-                recovered_from=recovered_from,
-            )
         executor_status = str(dict(getattr(task_run, "diagnostics", {}) or {}).get("executor_status") or "")
         if executor_status != "scheduled":
             return self.schedule(
@@ -246,7 +228,7 @@ class TaskExecutorController:
             if _origin_kind(task_run) == "graph_node_assigned":
                 skipped_graph_node_task_run_ids.append(task_run_id)
                 continue
-            if _has_live_task_run_executor_claim(self.runtime_host, task_run):
+            if _active_task_run_executor_cell(self.runtime_host, task_run) is not None:
                 continue
             if not _has_durable_executor_lease_marker(task_run, runtime_host=self.runtime_host):
                 continue
@@ -610,25 +592,6 @@ def _active_task_run_executor_cell(runtime_host: Any, task_run: Any) -> Any | No
         return getter(task_run_id, session_id=session_id)
     except Exception:
         return None
-
-
-def _has_live_task_run_executor_claim(runtime_host: Any, task_run: Any) -> bool:
-    return _active_task_run_executor_cell(runtime_host, task_run) is not None or _has_live_executor_control_record(runtime_host, task_run)
-
-
-def _has_live_executor_control_record(runtime_host: Any, task_run: Any) -> bool:
-    task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
-    if not task_run_id:
-        return False
-    registry = getattr(runtime_host, "_task_run_execution_control", None)
-    record = dict(registry or {}).get(task_run_id) if isinstance(registry, dict) else None
-    if record is None:
-        return False
-    model_task = getattr(record, "model_task", None)
-    if model_task is None:
-        return True
-    done = getattr(model_task, "done", None)
-    return not callable(done) or not bool(done())
 
 
 def _is_single_agent_task_run(task_run: Any) -> bool:

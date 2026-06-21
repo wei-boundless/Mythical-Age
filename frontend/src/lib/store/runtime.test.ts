@@ -1340,13 +1340,16 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await runtime.actions.sendMessage("检查当前项目。");
 
     expect(api.streamChat).toHaveBeenCalledTimes(1);
-    expect(api.streamChat.mock.calls[0]?.[0]).toMatchObject({
+    const payload = api.streamChat.mock.calls[0]?.[0];
+    const userMessage = store.getState().messages.find((message) => message.role === "user" && message.content === "检查当前项目。");
+    expect(payload).toMatchObject({
       session_id: "session:plan",
+      client_message_id: userMessage?.id,
       permission_mode: "plan",
     });
   });
 
-  it("signals file changes from chat stream tool results", async () => {
+  it("signals native file changes from chat stream tool results", async () => {
     vi.useRealTimers();
     api.listSessions.mockResolvedValue([
       {
@@ -1361,15 +1364,36 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.streamChat.mockImplementationOnce(async (_payload, handlers) => {
       handlers.onEvent("tool_result", {
         result_envelope: {
-          file_change_record: {
-            record_id: "filechange-stream",
-            session_id: "session:file-change",
-            logical_path: "src/app.ts",
+          structured_payload: {
+            file_change: {
+              status: "recorded",
+              record: {
+                record_id: "filechange-native-single",
+                session_id: "session:file-change",
+                logical_path: "src/app.ts",
+                created_at: 11,
+              },
+            },
+          },
+        },
+      });
+      handlers.onEvent("tool_result", {
+        result_envelope: {
+          structured_payload: {
+            file_changes: {
+              status: "recorded",
+              records: [{
+                record_id: "filechange-native-batch",
+                session_id: "session:file-change",
+                logical_path: "src/generated.ts",
+                created_at: 12,
+              }],
+            },
           },
         },
       });
       handlers.onEvent("done", { content: "done" });
-      return { terminalEvent: "turn_completed", terminalStatus: "completed", streamRunId: "strun:file-change", eventLogId: "chatrun:file-change", lastEventOffset: 2 };
+      return { terminalEvent: "turn_completed", terminalStatus: "completed", streamRunId: "strun:file-change", eventLogId: "chatrun:file-change", lastEventOffset: 3 };
     });
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
@@ -1379,12 +1403,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const initialRevision = store.getState().fileChangesRevision;
     await runtime.actions.sendMessage("写一个文件。");
 
-    expect(store.getState().fileChangesRevision).toBe(initialRevision + 1);
-    expect(store.getState().fileChangeRecordsBySession["session:file-change"]?.[0]).toMatchObject({
-      record_id: "filechange-stream",
-      session_id: "session:file-change",
-      logical_path: "src/app.ts",
-    });
+    expect(store.getState().fileChangesRevision).toBe(initialRevision + 2);
+    expect(store.getState().fileChangeRecordsBySession["session:file-change"]?.map((record) => record.record_id)).toEqual([
+      "filechange-native-batch",
+      "filechange-native-single",
+    ]);
   });
 
   it("hydrates file changes once and then relies on record signals", async () => {
@@ -2580,10 +2603,15 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     instances[0].listeners.runtime_monitor_file_change?.({
       data: JSON.stringify({
         source: "runtime_event_log",
+        record_id: "filechange-sse",
+        session_id: "session:sse",
+        logical_path: "signal-wrapper-only.ts",
         file_change_record: {
           record_id: "filechange-sse",
           session_id: "session:sse",
           logical_path: "src/app.ts",
+          before_sha256: "sha-before",
+          after_sha256: "sha-after",
         },
       }),
     } as MessageEvent);
@@ -2592,6 +2620,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       record_id: "filechange-sse",
       session_id: "session:sse",
       logical_path: "src/app.ts",
+      before_sha256: "sha-before",
+      after_sha256: "sha-after",
     });
   });
 
@@ -3287,7 +3317,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expectQueuedChatInputCall(0, "session:background", "暂停一下");
     expect(store.getState().sessionActivity).toMatchObject({
       event: "user_input_queued",
-      title: "已加入发送队列",
+      title: "已加入当前回合",
     });
   });
 
@@ -3367,9 +3397,59 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expectQueuedChatInputCall(0, "session:plain-stream", "补充：先查官方说明。");
     expect(store.getState().sessionActivity).toMatchObject({
       event: "user_input_queued",
-      title: "已加入发送队列",
+      title: "已加入当前回合",
     });
     expect(store.getState().messages.some((message) => message.content === "补充：先查官方说明。")).toBe(true);
+  });
+
+  it("queues input for a detached active model turn instead of starting a competing run", async () => {
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:detached-model-turn",
+      activeStreamSessionIds: [],
+      isStreaming: false,
+      activeTurnSnapshot: {
+        turn_id: "turn:session:detached-model-turn:1",
+        state: "model_turn",
+      },
+      messages: [
+        { id: "assistant:detached", role: "assistant", content: "正在处理主题设置。", toolCalls: [], retrievals: [], sourceIndex: 0 },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("只要加几个主题就行了");
+
+    expect(api.streamChat).not.toHaveBeenCalled();
+    expect(api.enqueueQueuedChatInput).toHaveBeenCalledTimes(1);
+    expectQueuedChatInputCall(0, "session:detached-model-turn", "只要加几个主题就行了");
+    expect(store.getState().messages.some((message) => message.content === "只要加几个主题就行了")).toBe(true);
+    expect(store.getState().sessionActivity).toMatchObject({
+      event: "user_input_queued",
+      title: "已加入当前回合",
+    });
+  });
+
+  it("starts a new run after a terminal active turn snapshot", async () => {
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:terminal-model-turn",
+      activeTurnSnapshot: {
+        turn_id: "turn:session:terminal-model-turn:1",
+        state: "terminal",
+      },
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("开始一个新问题");
+
+    expect(api.enqueueQueuedChatInput).not.toHaveBeenCalled();
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
+    expect(api.streamChat.mock.calls[0]?.[0]).toMatchObject({
+      message: "开始一个新问题",
+      session_id: "session:terminal-model-turn",
+      active_turn_input_policy: "auto",
+    });
   });
 
   it("keeps active stream input queued when the active task is paused", async () => {
@@ -3401,7 +3481,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expectQueuedChatInputCall(0, "session:paused", "暂停后补充。");
     expect(store.getState().sessionActivity).toMatchObject({
       event: "user_input_queued",
-      title: "已加入发送队列",
+      title: "已加入当前回合",
     });
   });
 
@@ -3628,7 +3708,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     expect(store.getState().sessionActivity).toMatchObject({
       event: "user_input_queued",
-      title: "已加入发送队列",
+      title: "已加入当前回合",
     });
     expect(store.getState().activeTurnSnapshot).toMatchObject({
       turn_id: "turn:session-queue-only:1",
@@ -3660,13 +3740,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       event_log_id: "chatrun:queued-dispatch",
       root_request_ref: "chatreq:queued-dispatch",
       status: "running",
-      active_turn_snapshot: {
-        turn_id: "turn:session-auto-active-stream:1",
-        bound_task_run_id: taskRunId,
-        task_run_id: taskRunId,
-        state: "running_task",
-      },
       diagnostics: {
+        active_turn_id: "turn:session-auto-active-stream:1",
+        runtime_task_run_id: taskRunId,
         expected_active_turn_id: "turn:session-auto-active-stream:1",
         active_turn_input_policy: "steer",
       },
@@ -3835,7 +3911,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       content: "补充一个限制条件",
     });
     expect(store.getState().sessionActivity).toMatchObject({
-      title: "已加入发送队列",
+      title: "已加入当前回合",
     });
     expect(api.enqueueQueuedChatInput).toHaveBeenCalledTimes(1);
     expectQueuedChatInputCall(0, "session-stream-queue", "补充一个限制条件");
@@ -4348,7 +4424,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     }));
   });
 
-  it("coalesces same-turn visible assistant body deltas in a microtask without paint-frame delay", async () => {
+  it("coalesces same-turn visible assistant body deltas on the next paint frame", async () => {
     let handlers: StreamEventHandlers | null = null;
     let resolveStream: (value: {
       terminalEvent: "turn_completed";
@@ -4357,7 +4433,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       eventLogId: string;
       lastEventOffset: number;
     }) => void = () => undefined;
-    const requestAnimationFrame = vi.fn();
+    const animationFrameCallbacks: FrameRequestCallback[] = [];
+    const requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+      animationFrameCallbacks.push(callback);
+      return animationFrameCallbacks.length;
+    });
     Object.assign(window, {
       requestAnimationFrame,
       cancelAnimationFrame: vi.fn(),
@@ -4408,9 +4488,13 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(requestAnimationFrame).not.toHaveBeenCalled();
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
     expect(store.getState().messages.at(-1)?.role).toBe("assistant");
     expect(store.getState().messages.at(-1)?.content).toBe("");
+    expect(latestProjectionView(store.getState())?.canonicalContent).toBeUndefined();
+    expect(store.getState().chatStreamLatencySummary).toBeNull();
+
+    animationFrameCallbacks.shift()?.(Date.now());
     expect(latestProjectionView(store.getState())?.canonicalContent).toBe("甲乙");
     expect(store.getState().chatStreamLatencySummary).toEqual(expect.objectContaining({
       sessionId: "session:visible-stream",
@@ -4423,11 +4507,20 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     }));
 
     const activeHandlers = requireStreamHandlers(handlers);
-    activeHandlers.onEvent("assistant_text_final", {
+    activeHandlers.onEvent("assistant_text_delta", {
       sequence: 3,
+      content: "丙",
+      event_offset: 3,
+      public_projection_frame: publicBodyFrame({ text: "丙" }),
+    });
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(2);
+    expect(latestProjectionView(store.getState())?.canonicalContent).toBe("甲乙");
+
+    activeHandlers.onEvent("assistant_text_final", {
+      sequence: 4,
       content: "甲乙丙",
       content_sha256: "sha256:final",
-      event_offset: 3,
+      event_offset: 4,
       public_projection_frame: publicBodyFrame({
         op: "body_finalize",
         main_visibility: "visible_final",
@@ -4436,15 +4529,106 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     expect(store.getState().messages.at(-1)?.content).toBe("");
     expect(latestProjectionView(store.getState())?.canonicalContent).toBe("甲乙丙");
+    animationFrameCallbacks.shift()?.(Date.now());
+    expect(latestProjectionView(store.getState())?.canonicalContent).toBe("甲乙丙");
 
     resolveStream({
       terminalEvent: "turn_completed",
       terminalStatus: "completed",
       streamRunId: "strun:visible-stream",
       eventLogId: "chatrun:visible-stream",
-      lastEventOffset: 3,
+      lastEventOffset: 4,
     });
     await sendPromise;
+  });
+
+  it("preserves queued user input when a delayed stream flush arrives after reconnect loss", async () => {
+    let handlers: StreamEventHandlers | null = null;
+    let resolveStream: (value: {
+      terminalEvent: "turn_completed";
+      terminalStatus: "completed";
+      streamRunId: string;
+      eventLogId: string;
+      lastEventOffset: number;
+    }) => void = () => undefined;
+    const animationFrameCallbacks: FrameRequestCallback[] = [];
+    Object.assign(window, {
+      requestAnimationFrame: vi.fn((callback: FrameRequestCallback) => {
+        animationFrameCallbacks.push(callback);
+        return animationFrameCallbacks.length;
+      }),
+      cancelAnimationFrame: vi.fn(),
+    });
+    api.streamChat.mockImplementationOnce(async (_payload, streamHandlers) => {
+      handlers = streamHandlers;
+      streamHandlers.onEvent("assistant_text_delta", {
+        sequence: 1,
+        content: "旧",
+        event_offset: 1,
+        public_projection_frame: publicBodyFrame({ text: "旧" }),
+      });
+      streamHandlers.onEvent("stream_reconnecting", {
+        stream_run_id: "strun:delayed-flush",
+        event_log_id: "chatrun:delayed-flush",
+        event_offset: 1,
+        attempt: 1,
+        reason: "stream_transport_error",
+      });
+      return new Promise((resolve) => {
+        resolveStream = resolve;
+      });
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:delayed-flush",
+      sessions: [{
+        id: "session:delayed-flush",
+        title: "Delayed flush",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    const firstSend = runtime.actions.sendMessage("开始输出");
+    await flushPromises();
+    expect(animationFrameCallbacks).toHaveLength(1);
+    expect(store.getState().chatStreamConnectionStatus.state).toBe("reconnecting");
+
+    await runtime.actions.sendMessage("掉线后的补充输入", { queuedUserMessageId: "user:queued:lost-link" });
+    expect(api.enqueueQueuedChatInput).toHaveBeenCalledTimes(1);
+    expect(store.getState().messages.some((message) => message.id === "user:queued:lost-link")).toBe(true);
+
+    animationFrameCallbacks.shift()?.(Date.now());
+    expect(store.getState().messages.filter((message) => message.id === "user:queued:lost-link")).toHaveLength(1);
+    expect(store.getState().messages.find((message) => message.id === "user:queued:lost-link")).toMatchObject({
+      role: "user",
+      content: "掉线后的补充输入",
+    });
+    expect(store.getState().sessionActivity.event).toBe("user_input_queued");
+
+    requireStreamHandlers(handlers).onEvent("assistant_text_final", {
+      sequence: 2,
+      content: "旧输出完成",
+      event_offset: 2,
+      public_projection_frame: publicBodyFrame({
+        op: "body_finalize",
+        main_visibility: "visible_final",
+        text: "旧输出完成",
+      }),
+    });
+    expect(store.getState().messages.filter((message) => message.id === "user:queued:lost-link")).toHaveLength(1);
+
+    resolveStream({
+      terminalEvent: "turn_completed",
+      terminalStatus: "completed",
+      streamRunId: "strun:delayed-flush",
+      eventLogId: "chatrun:delayed-flush",
+      lastEventOffset: 2,
+    });
+    await firstSend;
+    expect(store.getState().messages.filter((message) => message.id === "user:queued:lost-link")).toHaveLength(1);
   });
 
   it("creates a new conversation inside the active project workspace", async () => {
@@ -4918,6 +5102,87 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       session_id: "session:stop-boundary",
     });
     expect(store.getState().sessionActivity.event).not.toBe("user_input_queued");
+  });
+
+  it("releases the local stream boundary after reconnect exhaustion without immediate reattach", async () => {
+    api.streamChat.mockImplementationOnce(async (_payload, handlers) => {
+      handlers.onEvent("stream_reconnect_failed", {
+        stream_run_id: "strun:reconnect-exhausted",
+        event_log_id: "chatrun:reconnect-exhausted",
+        event_offset: 1,
+        attempt: 6,
+        max_attempts: 6,
+        reason: "stream_reconnect_attempts_exhausted",
+      });
+      throw new Error("stream_reconnect_attempts_exhausted");
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:reconnect-exhausted",
+      sessions: [{
+        id: "session:reconnect-exhausted",
+        title: "Reconnect exhausted",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("这轮会掉线");
+    await flushPromises();
+
+    expect(store.getState().activeStreamSessionIds).toEqual([]);
+    expect(store.getState().isStreaming).toBe(false);
+    expect(store.getState().chatStreamConnectionStatus).toMatchObject({
+      state: "failed",
+      reason: "stream_reconnect_attempts_exhausted",
+    });
+    expect(api.getLatestChatRunForSession).not.toHaveBeenCalled();
+  });
+
+  it("does not reattach after a normal chat stream completion", async () => {
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:normal-complete",
+      sessions: [{
+        id: "session:normal-complete",
+        title: "Normal complete",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("正常完成");
+    await flushPromises();
+
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
+    expect(api.getLatestChatRunForSession).not.toHaveBeenCalled();
+    expect(api.streamExistingChatRun).not.toHaveBeenCalled();
+  });
+
+  it("uses canonical monitor control_state instead of raw runtime_control fallback", () => {
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      runtimeControlState: (monitor: Record<string, unknown>) => string;
+    };
+
+    expect(runtime.runtimeControlState({
+      status: "waiting_executor",
+      runtime_control: { state: "paused" },
+      task_run: {
+        diagnostics: {
+          runtime_control: { state: "paused" },
+        },
+      },
+    })).toBe("");
+    expect(runtime.runtimeControlState({
+      status: "waiting_executor",
+      control_state: "paused",
+      runtime_control: { state: "running" },
+    })).toBe("paused");
   });
 
   it("stops the task bound to the current chat stream when the user stops output", async () => {
@@ -5703,7 +5968,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       event_log_id: "chatrun:resume",
       root_request_ref: "chatreq:resume",
       status: "running",
-      active_turn_snapshot: null,
       diagnostics: {
         active_turn_id: "turn:session:existing:7",
         runtime_turn_run_id: "turnrun:strun:resume",
@@ -5746,12 +6010,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamExistingChatRun.mock.calls.at(-1)?.[3]).not.toHaveProperty("replayFromStart", true);
     expect(store.getState().currentSessionId).toBe("session:existing");
     expect(store.getState().messages.some((message) => message.role === "assistant" && message.content.includes("续"))).toBe(true);
-    expect(store.getState().activeTurnSnapshot).toMatchObject({
-      turn_id: "turn:session:existing:7",
-      turn_run_id: "turnrun:strun:resume",
-      task_run_id: "taskrun:session:existing:7",
-      state: "running_task",
-    });
+    expect(store.getState().activeTurnSnapshot).toBeNull();
     expect(recoveryActivityDuringAttach).toMatchObject({
       level: "running",
       title: "恢复输出流",
@@ -5783,13 +6042,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       event_log_id: "chatrun:wait",
       root_request_ref: "chatreq:wait",
       status: "running",
-      active_turn_snapshot: {
-        turn_id: "turn:session:wait:1",
-        turn_run_id: "turnrun:wait",
-        task_run_id: "taskrun:wait",
-        state: "model_turn",
+      diagnostics: {
+        active_turn_id: "turn:session:wait:1",
+        runtime_turn_run_id: "turnrun:wait",
+        runtime_task_run_id: "taskrun:wait",
       },
-      diagnostics: {},
       latest_event_offset: 1,
       is_reconnectable: true,
       replay_url: "/api/chat/runs/strun:wait/events/replay",
@@ -5839,7 +6096,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       event_log_id: cursor.eventLogId,
       root_request_ref: "chatreq:visible-recovery",
       status: "running",
-      active_turn_snapshot: null,
       diagnostics: {},
       latest_event_offset: 1,
       is_reconnectable: true,
@@ -5880,7 +6136,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamExistingChatRun).toHaveBeenCalled();
   });
 
-  it("does not reattach the latest active chat run without a cursor", async () => {
+  it("reattaches the latest active chat run when the local cursor is missing", async () => {
     vi.useRealTimers();
     api.listSessions.mockResolvedValue([{
       id: "session:latest",
@@ -5890,23 +6146,55 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       message_count: 1,
     }]);
     api.readChatStreamCursor.mockReturnValue(null);
+    api.getLatestChatRunForSession.mockResolvedValue({
+      stream_run_id: "strun:latest",
+      session_id: "session:latest",
+      event_log_id: "chatrun:latest",
+      root_request_ref: "chatreq:latest",
+      status: "running",
+      latest_event_offset: 3,
+      is_reconnectable: true,
+      replay_url: "/api/chat/runs/strun:latest/events/replay",
+      live_ws_url: "/api/chat/sessions/session:latest/live",
+    });
     api.getSessionHistory.mockResolvedValue({
       messages: [
         { role: "user", content: "继续处理" },
       ],
     });
     const store = createStore(getDefaultState());
+    let recoveryActivityDuringAttach: unknown;
+    api.streamExistingChatRun.mockImplementation(async (_sessionId, _streamRunId, handlers) => {
+      recoveryActivityDuringAttach = store.getState().sessionActivity;
+      handlers.onEvent("assistant_text_delta", { sequence: 1, content: "续", content_utf8_start: 0, event_offset: 4 });
+      return { terminalEvent: "", terminalStatus: "running", streamRunId: "strun:latest", eventLogId: "chatrun:latest", lastEventOffset: 4 };
+    });
     const runtime = new WorkspaceRuntime(store);
 
     await runtime.initialize();
     await Promise.resolve();
 
     expect(api.streamChat).not.toHaveBeenCalled();
-    expect(api.streamExistingChatRun).not.toHaveBeenCalled();
-    expect(store.getState().activeStreamSessionIds).toEqual([]);
+    expect(api.streamExistingChatRun).toHaveBeenCalledWith(
+      "session:latest",
+      "strun:latest",
+      expect.any(Object),
+      expect.objectContaining({
+        initialCursor: {
+          streamRunId: "strun:latest",
+          eventLogId: "chatrun:latest",
+          lastEventOffset: -1,
+          lastEventId: "",
+        },
+      }),
+    );
+    expect(recoveryActivityDuringAttach).toMatchObject({
+      event: "stream_cursor_restore_started",
+      title: "恢复输出流",
+    });
   });
 
-  it("drops an invalid persisted cursor without reattaching a latest active chat run", async () => {
+  it("drops an invalid persisted cursor and reattaches the latest active chat run", async () => {
     vi.useRealTimers();
     const staleCursor = {
       streamRunId: "strun:stale",
@@ -5922,6 +6210,17 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       message_count: 1,
     }]);
     api.readChatStreamCursor.mockReturnValue(staleCursor);
+    api.getLatestChatRunForSession.mockResolvedValue({
+      stream_run_id: "strun:latest-after-stale",
+      session_id: "session:latest-after-stale",
+      event_log_id: "chatrun:latest-after-stale",
+      root_request_ref: "chatreq:latest-after-stale",
+      status: "running",
+      latest_event_offset: 1,
+      is_reconnectable: true,
+      replay_url: "/api/chat/runs/strun:latest-after-stale/events/replay",
+      live_ws_url: "/api/chat/sessions/session:latest-after-stale/live",
+    });
     api.getChatRun.mockResolvedValue({
       stream_run_id: "strun:stale",
       session_id: "session:other",
@@ -5939,14 +6238,32 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       ],
     });
     const store = createStore(getDefaultState());
+    api.streamExistingChatRun.mockResolvedValue({
+      terminalEvent: "",
+      terminalStatus: "running",
+      streamRunId: "strun:latest-after-stale",
+      eventLogId: "chatrun:latest-after-stale",
+      lastEventOffset: 1,
+    });
     const runtime = new WorkspaceRuntime(store);
 
     await runtime.initialize();
     await Promise.resolve();
 
     expect(api.clearChatStreamCursor).toHaveBeenCalledWith("session:latest-after-stale");
-    expect(api.streamExistingChatRun).not.toHaveBeenCalled();
-    expect(store.getState().activeStreamSessionIds).toEqual([]);
+    expect(api.streamExistingChatRun).toHaveBeenCalledWith(
+      "session:latest-after-stale",
+      "strun:latest-after-stale",
+      expect.any(Object),
+      expect.objectContaining({
+        initialCursor: {
+          streamRunId: "strun:latest-after-stale",
+          eventLogId: "chatrun:latest-after-stale",
+          lastEventOffset: -1,
+          lastEventId: "",
+        },
+      }),
+    );
   });
 
   it("does not reattach a terminal chat run when the persisted cursor already reached the final event", async () => {

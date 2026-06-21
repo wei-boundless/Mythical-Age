@@ -12,9 +12,11 @@ from api.chat import (
     _is_task_executor_handoff_terminal,
     _project_task_runtime_event_to_chat,
     _project_public_stream_event,
+    _public_turn_status_for_task_status,
     _public_terminal_reason,
     _run_chat_to_event_log,
     _task_terminal_context_from_task_run,
+    TASK_BRIDGE_TERMINAL_EVENT_TYPES,
     replay_chat_run_events,
 )
 from harness.entrypoint.models import HarnessRuntimeRequest
@@ -275,6 +277,63 @@ def test_chat_event_log_allows_sse_flush_between_contiguous_public_events(monkey
         (4, 5),
         (5, 6),
     ]
+
+
+def test_chat_event_log_does_not_bind_identityless_turn_from_active_registry(monkeypatch) -> None:
+    run = RuntimeRun(
+        stream_run_id="strun:test",
+        session_id="session:test",
+        event_log_id="chatrun:test",
+        root_request_ref="chatreq:test",
+        status="starting",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    registry = _MutableRegistrySpy(run)
+    replay = _OffsetReplaySpy()
+    snapshot_calls: list[str] = []
+
+    async def fake_flush(_previous_offset: int, _current: RuntimeRun) -> None:
+        return None
+
+    async def fake_astream(_request):
+        yield {
+            "type": "single_agent_turn_started",
+            "event_id": "rtevt:turn:start:missing-refs",
+            "event_offset": 0,
+        }
+        yield {"type": "done", "content": "完成", "status": "completed"}
+
+    def active_snapshot(session_id: str):
+        snapshot_calls.append(session_id)
+        return SimpleNamespace(
+            bound_task_run_id="taskrun:active-registry",
+            turn_id="turn:active-registry",
+            turn_run_id="turnrun:turn:active-registry",
+        )
+
+    monkeypatch.setattr("api.chat._allow_public_stream_flush", fake_flush)
+    host = SimpleNamespace(
+        run_registry=registry,
+        stream_replay=replay,
+        active_turn_registry=SimpleNamespace(snapshot=active_snapshot),
+    )
+    runtime = SimpleNamespace(
+        harness_runtime=SimpleNamespace(
+            single_agent_runtime_host=host,
+            astream=fake_astream,
+        )
+    )
+    request = HarnessRuntimeRequest(session_id="session:test", message="hello")
+
+    asyncio.run(_run_chat_to_event_log(runtime, run, request))
+
+    public_event_types = [call["public_event_type"] for call in replay.append_public_event_calls]
+    public_data_repr = repr([call["data"] for call in replay.append_public_event_calls])
+    assert "chat_turn_bound" not in public_event_types
+    assert "taskrun:active-registry" not in public_data_repr
+    assert "turn:active-registry" not in public_data_repr
+    assert snapshot_calls == []
 
 
 def test_chat_run_events_replay_returns_public_envelopes(monkeypatch) -> None:
@@ -1396,6 +1455,12 @@ def test_successful_turn_completed_is_hidden_trace_only() -> None:
     assert frame["main_visibility"] == "hidden"
     assert "commit" not in frame
     assert "text" not in frame
+
+
+def test_task_bridge_terminal_authority_rejects_waiting_as_chat_completion() -> None:
+    assert TASK_BRIDGE_TERMINAL_EVENT_TYPES == {"task_run_lifecycle_finished", "task_run_terminal_observed"}
+    for status in ("waiting_executor", "waiting_user", "waiting_approval"):
+        assert _public_turn_status_for_task_status(status) != "completed"
 
 
 def test_agent_closeout_recovery_turn_completed_stays_hidden_trace_only() -> None:

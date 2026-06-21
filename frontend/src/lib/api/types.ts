@@ -4070,13 +4070,7 @@ export type ChatRun = {
   status: string;
   diagnostics?: Record<string, unknown>;
   latest_event_offset: number;
-  active_turn_snapshot?: {
-    turn_id?: string;
-    turn_run_id?: string;
-    bound_task_run_id?: string;
-    task_run_id?: string;
-    state?: string;
-  } | null;
+  chat_run_execution_attached?: boolean;
   is_reconnectable?: boolean;
   terminal_event?: string;
   replay_url: string;

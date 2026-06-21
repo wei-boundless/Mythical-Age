@@ -1,7 +1,7 @@
 :root,
 :root[data-workbench-theme="clean-light"] {
   color-scheme: light;
-  --console-bg: #f3f6f9;
+  --console-bg: #ffffff;
   --console-bg-raised: #f8fafc;
   --console-surface: #ffffff;
   --console-surface-muted: #f1f5f9;
@@ -57,6 +57,192 @@
   --console-danger-soft: #44201f;
   --console-shadow: 0 1px 2px rgba(0, 0, 0, 0.24);
   --console-shadow-soft: 0 1px 1px rgba(0, 0, 0, 0.18);
+}
+
+/* ===== warm-paper: 暖纸 — 暖色调浅色主题 ===== */
+:root[data-workbench-theme="warm-paper"] {
+  color-scheme: light;
+  --console-bg: #faf7f0;
+  --console-bg-raised: #f5f2e8;
+  --console-surface: #ffffff;
+  --console-surface-muted: #f0ece2;
+  --console-surface-strong: #e6e0d4;
+  --console-hover: #f5efe4;
+  --console-selected: #efe8da;
+  --console-line: #d6cebe;
+  --console-line-soft: #e6dfd0;
+  --console-line-strong: #b8ad98;
+  --console-active-ring: #d4c4b0;
+  --console-text: #2d2a24;
+  --console-text-soft: #4d4840;
+  --console-muted: #787168;
+  --console-faint: #918a80;
+  --console-accent: #b87c4b;
+  --console-accent-hover: #a06a3d;
+  --console-accent-soft: #f5ede2;
+  --console-success: #7a8f5a;
+  --console-success-soft: #eff3e6;
+  --console-warning: #b88a3a;
+  --console-warning-soft: #fbf3e0;
+  --console-danger: #c24d3a;
+  --console-danger-soft: #fcece8;
+  --console-shadow: 0 1px 2px rgba(45, 42, 36, 0.06);
+  --console-shadow-soft: 0 1px 1px rgba(45, 42, 36, 0.04);
+}
+
+/* ===== ocean-breeze: 海风 — 清爽冷调浅色主题 ===== */
+:root[data-workbench-theme="ocean-breeze"] {
+  color-scheme: light;
+  --console-bg: #f0f5fa;
+  --console-bg-raised: #e8eff6;
+  --console-surface: #ffffff;
+  --console-surface-muted: #edf2f8;
+  --console-surface-strong: #dde6f0;
+  --console-hover: #e4edf7;
+  --console-selected: #dce8f5;
+  --console-line: #c8d6e5;
+  --console-line-soft: #dde6f0;
+  --console-line-strong: #a6b9ce;
+  --console-active-ring: #b8cde0;
+  --console-text: #1a2a3a;
+  --console-text-soft: #354a5e;
+  --console-muted: #60758a;
+  --console-faint: #7a8fa4;
+  --console-accent: #2a7faa;
+  --console-accent-hover: #1f6b92;
+  --console-accent-soft: #e6f0f8;
+  --console-success: #2f8f6f;
+  --console-success-soft: #e8f4ef;
+  --console-warning: #9a7a2a;
+  --console-warning-soft: #f8f3e0;
+  --console-danger: #c94545;
+  --console-danger-soft: #fce8e8;
+  --console-shadow: 0 1px 2px rgba(26, 42, 58, 0.06);
+  --console-shadow-soft: 0 1px 1px rgba(26, 42, 58, 0.04);
+}
+
+/* ===== mineral-gray: 矿物灰 — 中性极简浅色主题 ===== */
+:root[data-workbench-theme="mineral-gray"] {
+  color-scheme: light;
+  --console-bg: #f2f2f2;
+  --console-bg-raised: #eaeaea;
+  --console-surface: #ffffff;
+  --console-surface-muted: #eeeceb;
+  --console-surface-strong: #e0dddc;
+  --console-hover: #e8e6e4;
+  --console-selected: #e0dddb;
+  --console-line: #cdcaca;
+  --console-line-soft: #e0dddc;
+  --console-line-strong: #b0acab;
+  --console-active-ring: #c5c2c0;
+  --console-text: #1f1f1f;
+  --console-text-soft: #3d3d3d;
+  --console-muted: #6b6b6b;
+  --console-faint: #858585;
+  --console-accent: #6b7280;
+  --console-accent-hover: #555c68;
+  --console-accent-soft: #f0f0f0;
+  --console-success: #5a8a6a;
+  --console-success-soft: #eef4ef;
+  --console-warning: #8a7a40;
+  --console-warning-soft: #f8f5e6;
+  --console-danger: #ba4a4a;
+  --console-danger-soft: #fcecec;
+  --console-shadow: 0 1px 2px rgba(31, 31, 31, 0.05);
+  --console-shadow-soft: 0 1px 1px rgba(31, 31, 31, 0.035);
+}
+
+/* ===== lavender-mist: 薰衣草雾 — 紫色调浅色主题 ===== */
+:root[data-workbench-theme="lavender-mist"] {
+  color-scheme: light;
+  --console-bg: #f5f0fb;
+  --console-bg-raised: #ede6f7;
+  --console-surface: #ffffff;
+  --console-surface-muted: #f0ebf8;
+  --console-surface-strong: #e2d9f0;
+  --console-hover: #ede4f7;
+  --console-selected: #e5daf5;
+  --console-line: #d0c8e2;
+  --console-line-soft: #e2d9f0;
+  --console-line-strong: #b8adce;
+  --console-active-ring: #cdc0e0;
+  --console-text: #1e1a2e;
+  --console-text-soft: #3a3452;
+  --console-muted: #665e82;
+  --console-faint: #80789a;
+  --console-accent: #7c5cbf;
+  --console-accent-hover: #684ba8;
+  --console-accent-soft: #f0ebfa;
+  --console-success: #608060;
+  --console-success-soft: #eef5ee;
+  --console-warning: #8a7a50;
+  --console-warning-soft: #f8f4e6;
+  --console-danger: #b84a6a;
+  --console-danger-soft: #fce8ee;
+  --console-shadow: 0 1px 2px rgba(30, 26, 46, 0.06);
+  --console-shadow-soft: 0 1px 1px rgba(30, 26, 46, 0.04);
+}
+
+/* ===== midnight-ocean: 午夜海洋 — 深蓝暗色主题 ===== */
+:root[data-workbench-theme="midnight-ocean"] {
+  color-scheme: dark;
+  --console-bg: #0a1628;
+  --console-bg-raised: #0e1e35;
+  --console-surface: #111d35;
+  --console-surface-muted: #162743;
+  --console-surface-strong: #1d3050;
+  --console-hover: #1a2e4a;
+  --console-selected: #1e3558;
+  --console-line: #2a405e;
+  --console-line-soft: #1e3450;
+  --console-line-strong: #3d5878;
+  --console-active-ring: #345a85;
+  --console-text: #dce8f5;
+  --console-text-soft: #c0d0e5;
+  --console-muted: #8aa3bf;
+  --console-faint: #6a85a4;
+  --console-accent: #5b9bd5;
+  --console-accent-hover: #7db8e8;
+  --console-accent-soft: #1a2d4a;
+  --console-success: #60b090;
+  --console-success-soft: #15352e;
+  --console-warning: #d4b050;
+  --console-warning-soft: #3a3018;
+  --console-danger: #e88080;
+  --console-danger-soft: #402828;
+  --console-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --console-shadow-soft: 0 1px 1px rgba(0, 0, 0, 0.2);
+}
+
+/* ===== charcoal-ember: 炭火星 — 暖调暗色主题 ===== */
+:root[data-workbench-theme="charcoal-ember"] {
+  color-scheme: dark;
+  --console-bg: #1a1410;
+  --console-bg-raised: #201a14;
+  --console-surface: #241e18;
+  --console-surface-muted: #2d261f;
+  --console-surface-strong: #383027;
+  --console-hover: #2e271f;
+  --console-selected: #352e25;
+  --console-line: #403a32;
+  --console-line-soft: #342e27;
+  --console-line-strong: #554c42;
+  --console-active-ring: #6a5a48;
+  --console-text: #e8ddd0;
+  --console-text-soft: #d0c4b5;
+  --console-muted: #a09385;
+  --console-faint: #807568;
+  --console-accent: #d4835a;
+  --console-accent-hover: #e09a74;
+  --console-accent-soft: #2e221e;
+  --console-success: #8aaa70;
+  --console-success-soft: #1e2e1a;
+  --console-warning: #c8a050;
+  --console-warning-soft: #3a3018;
+  --console-danger: #d47a6a;
+  --console-danger-soft: #3d2420;
+  --console-shadow: 0 1px 2px rgba(0, 0, 0, 0.30);
+  --console-shadow-soft: 0 1px 1px rgba(0, 0, 0, 0.22);
 }
 
 :root[data-workbench-density="standard"] {

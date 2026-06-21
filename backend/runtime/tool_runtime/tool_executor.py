@@ -9,7 +9,9 @@ from capability_system.tools.contracts import ToolInvocationValidationDecision, 
 from runtime.environment import RuntimeEnvironment
 from runtime.memory.file_evidence_scope import normalize_file_evidence_scope, task_run_file_evidence_scope
 from runtime.memory.tool_memory_events import commit_tool_memory_events_from_envelope
+from runtime.file_change_signals import publish_file_change_record
 from runtime.tool_runtime.tool_result_envelope import (
+    ToolResultEnvelope,
     build_tool_result_envelope,
     build_tool_result_envelope_id,
     build_tool_result_idempotency_key,
@@ -44,6 +46,27 @@ from runtime.shared.policy_rejection_observation import build_policy_rejection_o
 _SANDBOX_CONTEXT_REQUIRED_SIDE_EFFECT_TOOL_NAMES = DEFAULT_SIDE_EFFECT_TOOL_NAMES | {
     "browser_control",
 }
+_FILE_CHANGE_RECORD_FIELDS = {
+    "logical_path",
+    "absolute_path",
+    "workspace_root",
+    "before_sha256",
+    "after_sha256",
+    "before_exists",
+    "after_exists",
+    "tool_call_id",
+    "tool_name",
+}
+_FILE_CHANGE_SIGNAL_SCAN_KEYS = (
+    "payload",
+    "result",
+    "result_envelope",
+    "structured_payload",
+    "tool_result",
+    "event",
+    "events",
+    "data",
+)
 _WORKSPACE_PATH_ARG_TOOL_NAMES = {
     "read_file",
     "read_structured_file",
@@ -740,6 +763,11 @@ class ToolRuntimeExecutor:
             caller_kind=invocation_context.caller_kind,
             caller_ref=invocation_context.caller_ref,
         )
+        _publish_file_change_records_from_envelope(
+            runtime_host=getattr(self.tool_runtime, "runtime_host", None),
+            envelope=envelope,
+            source="runtime.tool_runtime.tool_executor",
+        )
         registry = registry_for(getattr(self.tool_runtime, "runtime_host", None))
         if registry is not None:
             structured_error = dict(envelope.structured_payload.get("structured_error") or {})
@@ -1153,6 +1181,11 @@ class ToolRuntimeExecutor:
             caller_kind=invocation_context.caller_kind,
             caller_ref=invocation_context.caller_ref,
         )
+        _publish_file_change_records_from_envelope(
+            runtime_host=getattr(self.tool_runtime, "runtime_host", None),
+            envelope=envelope,
+            source="runtime.tool_runtime.tool_executor.core",
+        )
         registry = registry_for(getattr(self.tool_runtime, "runtime_host", None))
         if registry is not None:
             structured_error = dict(envelope.structured_payload.get("structured_error") or {})
@@ -1459,6 +1492,101 @@ def _finalize_runtime_tool_envelope(
         error=str(envelope.error or "") if envelope.status == "error" else "",
         diagnostics=dict(getattr(envelope, "diagnostics", {}) or {}),
     )
+
+
+def _publish_file_change_records_from_envelope(
+    *,
+    runtime_host: Any,
+    envelope: ToolResultEnvelope,
+    source: str,
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for record in _file_change_records_from_payload(envelope):
+        try:
+            results.append(
+                publish_file_change_record(
+                    runtime_host,
+                    record,
+                    action="tool_result",
+                    source=source,
+                )
+            )
+        except Exception as exc:
+            results.append(
+                {
+                    "published": False,
+                    "reason": "file_change_signal_publish_failed",
+                    "error": str(exc),
+                    "authority": "runtime.tool_runtime.tool_executor.file_change_signal",
+                }
+            )
+    return results
+
+
+def _file_change_records_from_payload(
+    value: Any,
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    seen_objects: set[int] = set()
+    seen_record_ids: set[str] = set()
+
+    def add(candidate: Any) -> None:
+        record = _normalized_file_change_record(candidate)
+        if not record:
+            return
+        record_id = str(record.get("record_id") or "").strip()
+        if record_id in seen_record_ids:
+            return
+        seen_record_ids.add(record_id)
+        records.append(record)
+
+    def walk(node: Any, depth: int = 0) -> None:
+        if node is None or depth > 8:
+            return
+        if isinstance(node, ToolResultEnvelope):
+            walk(node.structured_payload, depth + 1)
+            walk(node.to_dict(), depth + 1)
+            return
+        if not isinstance(node, (dict, list, tuple)):
+            return
+        object_id = id(node)
+        if object_id in seen_objects:
+            return
+        seen_objects.add(object_id)
+        if isinstance(node, (list, tuple)):
+            for item in list(node)[:100]:
+                walk(item, depth + 1)
+            return
+
+        payload = dict(node)
+        add(payload.get("file_change_record"))
+        file_change = payload.get("file_change")
+        if isinstance(file_change, dict):
+            add(file_change)
+            add(file_change.get("record"))
+        file_changes = payload.get("file_changes")
+        if isinstance(file_changes, dict):
+            walk(file_changes.get("records"), depth + 1)
+        elif isinstance(file_changes, (list, tuple)):
+            walk(file_changes, depth + 1)
+        add(payload)
+        for key in _FILE_CHANGE_SIGNAL_SCAN_KEYS:
+            walk(payload.get(key), depth + 1)
+
+    walk(value)
+    return records
+
+
+def _normalized_file_change_record(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    record = dict(value)
+    record_id = str(record.get("record_id") or "").strip()
+    if not record_id:
+        return {}
+    if not any(key in record for key in _FILE_CHANGE_RECORD_FIELDS):
+        return {}
+    return record
 
 
 def _dispatch_decision_error(decision: ToolDispatchGuardDecision) -> str:

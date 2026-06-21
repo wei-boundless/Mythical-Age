@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  chatFooterSessionActivity,
   chatMessageRenderKeys,
   chatTaskMonitorIsActive,
   liveAssistantMessageIdForMessages,
@@ -8,7 +9,7 @@ import {
   shouldSuppressSessionActivityBar,
 } from "./ChatPanel";
 import type { ChronologicalProjectionView } from "@/lib/projection/chronological";
-import type { Message, TokenStats } from "@/lib/store/types";
+import type { ChatStreamConnectionStatus, Message, SessionActivityState, TokenStats } from "@/lib/store/types";
 
 function projectionView(patch: Partial<ChronologicalProjectionView>): ChronologicalProjectionView {
   return {
@@ -55,9 +56,65 @@ function tokenStats(patch: Partial<TokenStats>): TokenStats {
   };
 }
 
+function activity(patch: Partial<SessionActivityState>): SessionActivityState {
+  return {
+    level: "idle",
+    title: "",
+    detail: "",
+    event: "",
+    updatedAt: 0,
+    ...patch,
+  };
+}
+
+function connectionStatus(patch: Partial<ChatStreamConnectionStatus>): ChatStreamConnectionStatus {
+  return {
+    state: "idle",
+    updatedAt: 0,
+    ...patch,
+  };
+}
+
 describe("ChatPanel", () => {
   it("hides footer activity during an active assistant turn before model prose arrives", () => {
     expect(shouldSuppressSessionActivityBar([message({})], true)).toBe(true);
+  });
+
+  it("keeps queued input feedback visible during an active assistant turn", () => {
+    expect(shouldSuppressSessionActivityBar([message({})], true, activity({
+      level: "running",
+      title: "已加入当前回合",
+      detail: "agent 下一次判断前会纳入这条补充。",
+      event: "user_input_queued",
+    }))).toBe(false);
+  });
+
+  it("promotes reconnecting stream status to visible footer feedback", () => {
+    const footerActivity = chatFooterSessionActivity(activity({}), connectionStatus({
+      state: "reconnecting",
+      attempt: 2,
+      reason: "stream_transport_error",
+      updatedAt: 42,
+    }));
+
+    expect(footerActivity).toMatchObject({
+      level: "waiting",
+      event: "stream_reconnecting",
+      title: "正在恢复连接",
+      updatedAt: 42,
+    });
+    expect(shouldSuppressSessionActivityBar([message({})], true, footerActivity)).toBe(false);
+  });
+
+  it("renders failed stream reconnect reasons as public status text", () => {
+    const footerActivity = chatFooterSessionActivity(activity({}), connectionStatus({
+      state: "failed",
+      reason: "stream_reconnect_attempts_exhausted",
+      updatedAt: 43,
+    }));
+
+    expect(footerActivity.detail).toBe("输出流连接恢复失败");
+    expect(footerActivity.receipt?.body).toBe("输出流连接恢复失败");
   });
 
   it("keeps footer activity available for an idle assistant message without visible feedback", () => {

@@ -5,6 +5,7 @@ import React from "react";
 
 import type { RuntimeMonitorActionPayload } from "@/lib/api";
 import type { RunMonitorSignal } from "@/lib/run-monitor/types";
+import { publicRuntimeStatusLabel, publicRuntimeStatusText } from "@/lib/runtimeStatusText";
 
 type RunTaskLaneProps = {
   signals: RunMonitorSignal[];
@@ -36,13 +37,16 @@ function signalStateLabel(signal: RunMonitorSignal) {
   const state = signalText(signal.state);
   const lifecycle = signalText(signal.lifecycle);
   const bucket = signalText(signal.bucket);
+  const activityLabel = publicRuntimeStatusText(signal.activity_label);
+  const statusLabel = publicRuntimeStatusLabel(signal.status);
   if (activityState === "stale" || state === "stale" || lifecycle === "stale" || bucket === "diagnostics") return "等待检查";
   if (activityState === "failed" || state === "failed") return "失败";
-  if (activityState === "waiting" || state === "waiting") return signal.activity_label || "等待继续";
-  if (activityState === "paused") return signal.activity_label || "已暂停";
-  if (activityState === "stopped") return signal.activity_label || "已停止";
-  if (activityState === "completed" || state === "completed") return signal.activity_label || "完成";
-  if (signal.activity_label) return signal.activity_label;
+  if (activityState === "waiting" || state === "waiting") return activityLabel || statusLabel || "等待继续";
+  if (activityState === "paused") return activityLabel || "已暂停";
+  if (activityState === "stopped") return activityLabel || statusLabel || "已停止";
+  if (activityState === "completed" || state === "completed") return activityLabel || statusLabel || "完成";
+  if (activityLabel) return activityLabel;
+  if (statusLabel) return statusLabel;
   if (signal.is_running || state === "active" || state === "running" || activityState === "running") return "运行中";
   return "同步";
 }
@@ -78,11 +82,15 @@ function signalText(value: unknown) {
 function signalSubtitle(signal: RunMonitorSignal, stateLabel: string) {
   const stateText = stateLabel.trim().toLowerCase();
   const parts = [signal.line, signal.detail]
-    .map((value) => String(value || "").trim())
+    .map(publicRuntimeStatusText)
     .filter(Boolean)
     .filter((value, index, values) => values.indexOf(value) === index)
     .filter((value) => value.toLowerCase() !== stateText);
   return parts.join(" / ");
+}
+
+function signalTitle(signal: RunMonitorSignal) {
+  return publicRuntimeStatusText(signal.title) || "运行任务";
 }
 
 function signalOpenId(signal: RunMonitorSignal) {
@@ -117,7 +125,7 @@ export function RunTaskLane({ signals, loading, actionLoading, onAction, onOpen,
               <span className="run-monitor-task__icon">{signalIcon(signal)}</span>
               <button className="run-monitor-task__body" disabled={!signalOpenId(signal)} onClick={() => onOpen(signalOpenId(signal))} type="button">
                 <span className="run-monitor-task__title-line">
-                  <strong>{signal.title}</strong>
+                  <strong>{signalTitle(signal)}</strong>
                   <span className="run-monitor-task__state-badge">{stateLabel}</span>
                 </span>
                 {subtitle ? <small>{subtitle}</small> : null}

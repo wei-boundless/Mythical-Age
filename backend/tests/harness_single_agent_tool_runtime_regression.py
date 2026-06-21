@@ -284,6 +284,8 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     second_dynamic_payload = json.loads(dynamic_content[dynamic_content.index(dynamic_marker) + len(dynamic_marker):])
     assert second_dynamic_payload["file_evidence_scope"] == scope
     assert second_dynamic_payload["file_evidence_decisions"]["files"][0]["path"] == "requirements.txt"
+
+
     assert "do_not_repeat_read_ranges" not in second_dynamic_payload["read_resource_state"]
     evidence_marker = "Task current exact read evidence\n"
     evidence_content = next(str(item.get("content") or "") for item in second_turn_messages if evidence_marker in str(item.get("content") or ""))
@@ -292,6 +294,88 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     assert "read_evidence_injections" not in evidence_payload
     assert evidence_payload["read_evidence_refs"][0]["path"] == "requirements.txt"
     assert evidence_payload["projection_policy"]["rehydration"] == "read_again_or_artifact_lookup_when_exact_text_is_needed"
+
+
+def test_single_agent_turn_absorbs_queued_user_steer_before_executing_model_action(tmp_path: Path) -> None:
+    class MidModelSteerRuntime:
+        def __init__(self) -> None:
+            self.runtime = None
+            self.calls = 0
+            self.seen_messages: list[list[dict[str, object]]] = []
+
+        async def invoke_messages_with_tools(self, messages, tools, **kwargs):
+            del tools
+            return await self.invoke_messages(messages, **kwargs)
+
+        async def invoke_messages(self, messages, **_kwargs):
+            self.calls += 1
+            self.seen_messages.append([dict(item) for item in list(messages or []) if isinstance(item, dict)])
+            if self.calls == 1:
+                self.runtime.single_agent_runtime_host.queued_user_inputs.enqueue(
+                    session_id="session-single-turn-live-steer",
+                    content="补充：先处理设置页面里的字体选项。",
+                    client_message_id="user:live-steer",
+                    input_policy="auto",
+                )
+                return SimpleNamespace(
+                    content=json.dumps(
+                        _tool_action_request(
+                            tool_name="read_file",
+                            args={"path": "requirements.txt", "line_count": 20},
+                            public_progress_note="准备读取依赖文件。",
+                        ),
+                        ensure_ascii=False,
+                    )
+                )
+            return SimpleNamespace(
+                content=json.dumps(
+                    _action_request(
+                        action_type="respond",
+                        final_answer="已按补充要求转向设置页面的字体选项。",
+                    ),
+                    ensure_ascii=False,
+                )
+            )
+
+    model = MidModelSteerRuntime()
+    tool_base_dir = _project_backend_dir()
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"read_file"}),
+    )
+    model.runtime = runtime
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-single-turn-live-steer",
+                message="先检查依赖文件。",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    event_types = [str(event.get("type") or "") for event in events]
+    second_model_input = "\n\n".join(str(item.get("content") or "") for item in model.seen_messages[-1])
+    queued = runtime.single_agent_runtime_host.queued_user_inputs.list_session("session-single-turn-live-steer")
+    stored_messages = runtime.session_manager.load_session("session-single-turn-live-steer")
+
+    assert model.calls == 2
+    assert "active_turn_steer_included" in event_types
+    assert "tool_batch_planned" not in event_types
+    assert "补充：先处理设置页面里的字体选项。" in second_model_input
+    assert "不是新的独立任务，也不是下一轮聊天" in second_model_input
+    assert queued[0].status == "dispatched"
+    assert queued[0].expected_active_turn_id.startswith("turn:session-single-turn-live-steer:")
+    assert any(
+        message.get("role") == "user"
+        and message.get("id") == "user:live-steer"
+        and message.get("active_turn_steer") is True
+        for message in stored_messages
+    )
 
 def test_single_agent_turn_stream_policy_does_not_emit_json_action_delta(tmp_path: Path) -> None:
     action = json.dumps(

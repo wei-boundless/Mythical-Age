@@ -138,4 +138,22 @@ describe("RunTaskLane", () => {
     expect(html).toContain("日志");
     expect(html).toContain("run-monitor-task__actions");
   });
+
+  it("renders restart recovery reason as public status text", () => {
+    const html = renderLane([
+      signal({
+        signal_id: "taskrun:restart",
+        title: "运行暂停已停止",
+        line: "",
+        detail: "runtime_cell_missing_after_restart",
+        status: "stopped",
+        activity_state: "stopped",
+        activity_label: "",
+        is_running: false,
+      }),
+    ]);
+
+    expect(html).toContain("连接恢复后需要重新接续运行");
+    expect(html).not.toContain("runtime_cell_missing_after_restart");
+  });
 });

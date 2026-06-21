@@ -31,10 +31,10 @@ def test_skills_registry_snapshot_matches_scanner_contract() -> None:
     scanner.refresh_snapshot(ROOT)
 
     skills = scanner.scan_skills(ROOT)
-    by_name = {skill.name: skill for skill in skills}
+    by_name = {skill.runtime.name: skill for skill in skills}
 
     assert "structured-data-analysis" in by_name
-    structured = by_name["structured-data-analysis"]
+    structured = by_name["structured-data-analysis"].runtime
     assert structured.title == "结构化数据分析"
     assert structured.preferred_route == "structured_data"
     assert "dataset_analysis" in structured.capability_tags
@@ -45,7 +45,7 @@ def test_skills_registry_snapshot_matches_scanner_contract() -> None:
     assert any(path.endswith("references/excel_reading.md") for path in structured.reference_paths)
 
     assert "pdf-analysis" in by_name
-    pdf = by_name["pdf-analysis"]
+    pdf = by_name["pdf-analysis"].runtime
     assert "document_page" in pdf.supported_task_kinds
     assert "document_read" in pdf.supported_task_kinds
     assert pdf.context_mode == "isolated"
@@ -53,22 +53,22 @@ def test_skills_registry_snapshot_matches_scanner_contract() -> None:
     assert any(path.endswith("references/pdf_reading.md") for path in pdf.reference_paths)
 
     assert "rag-skill" in by_name
-    rag = by_name["rag-skill"]
+    rag = by_name["rag-skill"].runtime
     assert rag.title == "知识库问答"
     assert rag.preferred_route == "rag"
     assert "knowledge_lookup" in rag.capability_tags
     assert "faq_explanation" in rag.supported_task_kinds
 
     assert "web-search-briefing" in by_name
-    web_briefing = by_name["web-search-briefing"]
+    web_briefing = by_name["web-search-briefing"].runtime
     assert any("深度研究" in item for item in web_briefing.not_for)
 
     assert "deep-web-research" in by_name
-    deep_research = by_name["deep-web-research"]
+    deep_research = by_name["deep-web-research"].runtime
     assert any("一两条最近新闻" in item for item in deep_research.not_for)
 
     assert "skill-creator" in by_name
-    creator = by_name["skill-creator"]
+    creator = by_name["skill-creator"].runtime
     assert creator.title == "Skill 创建顾问"
     assert creator.preferred_route == "capability_authoring"
     assert creator.requires_operations == ["op.read_file", "op.write_file", "op.edit_file"]
@@ -114,6 +114,5 @@ def test_skills_registry_snapshot_matches_scanner_contract() -> None:
     assert "<preferred_route>" not in snapshot_text
     assert "<route_authority>" not in snapshot_text
     assert 'path="' not in snapshot_text
-
 
 

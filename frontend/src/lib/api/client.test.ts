@@ -157,6 +157,158 @@ describe("streamChat over WebSocket live", () => {
     );
   });
 
+  it("fails a live stream after bounded reconnect attempts", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("fetch", mockChatFetch());
+    vi.stubGlobal("WebSocket", MockWebSocket);
+    const events: Array<{ event: string; data: Record<string, unknown> }> = [];
+
+    const pending = streamChat(
+      { message: "你好", session_id: "session:reconnect-fails" },
+      { onEvent: (event, data) => events.push({ event, data }) },
+    );
+
+    const reconnectDelays = [500, 1000, 2000, 4000, 8000, 16000];
+    for (let index = 0; index < reconnectDelays.length; index += 1) {
+      await waitForWebSocketCount(index + 1);
+      await Promise.resolve();
+      MockWebSocket.instances[index].failClose();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(reconnectDelays[index]);
+    }
+    await waitForWebSocketCount(7);
+    await Promise.resolve();
+    MockWebSocket.instances[6].failClose();
+    await Promise.resolve();
+
+    await expect(pending).rejects.toMatchObject({
+      name: "ChatStreamProtocolError",
+      message: "stream_reconnect_attempts_exhausted",
+    });
+    expect(events.at(-1)).toMatchObject({
+      event: "stream_reconnect_failed",
+      data: {
+        attempt: 6,
+        max_attempts: 6,
+        reason: "stream_reconnect_attempts_exhausted",
+      },
+    });
+  });
+
+  it("runs a final HTTP replay before declaring reconnect exhaustion", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("fetch", mockChatFetch({
+      replayEventsByCall: [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          eventEnvelope("assistant_text_delta", 1, { content: "最终输出", sequence: 1 }),
+          eventEnvelope("turn_completed", 2, { status: "completed" }, true),
+        ],
+      ],
+    }));
+    vi.stubGlobal("WebSocket", MockWebSocket);
+    const events: Array<{ event: string; data: Record<string, unknown> }> = [];
+
+    const pending = streamChat(
+      { message: "你好", session_id: "session:final-replay" },
+      { onEvent: (event, data) => events.push({ event, data }) },
+    );
+
+    const reconnectDelays = [500, 1000, 2000, 4000, 8000, 16000];
+    for (let index = 0; index < reconnectDelays.length; index += 1) {
+      await waitForWebSocketCount(index + 1);
+      MockWebSocket.instances[index].failClose();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(reconnectDelays[index]);
+    }
+    await waitForWebSocketCount(7);
+    MockWebSocket.instances[6].failClose();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+    const result = await pending;
+
+    expect(result).toEqual({
+      terminalEvent: "turn_completed",
+      terminalStatus: "completed",
+      streamRunId: "strun:test",
+      eventLogId: "chatrun:test",
+      lastEventOffset: 2,
+    });
+    expect(events.map((item) => item.event)).toContain("assistant_text_delta");
+    expect(events.map((item) => item.event)).toContain("turn_completed");
+    expect(events.map((item) => item.event)).not.toContain("stream_reconnect_failed");
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/chat/runs/strun%3Atest/events/replay?after_offset=-1"),
+      expect.any(Object),
+    );
+  });
+
+  it("treats final replay output as recovery progress before reconnect exhaustion fails", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("fetch", mockChatFetch({
+      replayEventsByCall: [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          eventEnvelope("assistant_text_delta", 1, { content: "掉线前已生成", sequence: 1 }),
+        ],
+        [
+          eventEnvelope("turn_completed", 2, { status: "completed" }, true),
+        ],
+      ],
+    }));
+    vi.stubGlobal("WebSocket", MockWebSocket);
+    const events: Array<{ event: string; data: Record<string, unknown> }> = [];
+
+    const pending = streamChat(
+      { message: "你好", session_id: "session:partial-final-replay" },
+      { onEvent: (event, data) => events.push({ event, data }) },
+    );
+
+    const reconnectDelays = [500, 1000, 2000, 4000, 8000, 16000];
+    for (let index = 0; index < reconnectDelays.length; index += 1) {
+      await waitForWebSocketCount(index + 1);
+      MockWebSocket.instances[index].failClose();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(reconnectDelays[index]);
+    }
+    await waitForWebSocketCount(7);
+    MockWebSocket.instances[6].failClose();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+
+    await waitForWebSocketCount(8);
+    MockWebSocket.instances[7].failClose();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+    const result = await pending;
+
+    expect(result).toEqual({
+      terminalEvent: "turn_completed",
+      terminalStatus: "completed",
+      streamRunId: "strun:test",
+      eventLogId: "chatrun:test",
+      lastEventOffset: 2,
+    });
+    expect(events.some((item) =>
+      item.event === "assistant_text_delta" && item.data.content === "掉线前已生成"
+    )).toBe(true);
+    expect(events.map((item) => item.event)).toContain("turn_completed");
+    expect(events.map((item) => item.event)).not.toContain("stream_reconnect_failed");
+  });
+
   it("does not replace an existing reconnect cursor when persistCursor is false", async () => {
     const storage = new Map<string, string>([[
       "chat.stream.cursor.session:steer",
@@ -246,7 +398,12 @@ async function waitForWebSocketCount(count: number) {
   throw new Error(`Expected ${count} WebSocket connection(s).`);
 }
 
-function mockChatFetch(options: { replayEvents?: Record<string, unknown>[]; run?: Record<string, unknown> } = {}) {
+function mockChatFetch(options: {
+  replayEvents?: Record<string, unknown>[];
+  replayEventsByCall?: Record<string, unknown>[][];
+  run?: Record<string, unknown>;
+} = {}) {
+  let replayCallCount = 0;
   return vi.fn(async (url: string, init?: RequestInit) => {
     const method = String(init?.method || "GET").toUpperCase();
     if (method === "POST" && String(url).endsWith("/chat/runs")) {
@@ -265,7 +422,9 @@ function mockChatFetch(options: { replayEvents?: Record<string, unknown>[]; run?
       });
     }
     if (method === "GET" && String(url).includes("/events/replay")) {
-      const events = options.replayEvents ?? [];
+      const replayEventsByCall = options.replayEventsByCall ?? [];
+      const events = replayEventsByCall[replayCallCount] ?? options.replayEvents ?? [];
+      replayCallCount += 1;
       return jsonResponse({
         stream_run_id: "strun:test",
         event_log_id: "chatrun:test",

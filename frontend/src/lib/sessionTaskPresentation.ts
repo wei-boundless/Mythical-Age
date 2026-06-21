@@ -1,4 +1,5 @@
 import type { SessionSummary, SessionTaskSummary } from "@/lib/api";
+import { publicRuntimeStatusText } from "@/lib/runtimeStatusText";
 
 export type SessionTaskActivityKind = "idle" | "running" | "waiting" | "paused" | "stale" | "completed" | "failed" | "stopped";
 
@@ -23,7 +24,7 @@ export function sessionTaskActivityKind(task: SessionTaskSummary | undefined): S
 
 export function sessionTaskStatusLabel(task: SessionTaskSummary | undefined) {
   if (!task) return "任务";
-  const label = String(task.activity_label || "").trim();
+  const label = publicRuntimeStatusText(task.activity_label);
   if (label) return label;
   const kind = sessionTaskActivityKind(task);
   if (kind === "running") return "运行中";

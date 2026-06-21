@@ -50,8 +50,8 @@ from runtime.output_stream.public_contract import (
 )
 from runtime.shared.tool_identity import ensure_tool_call_id, permission_decision_id
 from runtime.shared.queued_user_input_dispatcher import (
+    chat_run_execution_attached,
     has_active_primary_chat_run,
-    has_active_steer_chat_run,
     queued_input_admission_target,
     validate_queued_steer,
 )
@@ -86,7 +86,6 @@ TASK_BRIDGE_PUBLIC_EVENT_TYPES = {
     "session_output_commit_skipped",
 }
 TASK_BRIDGE_TERMINAL_EVENT_TYPES = {"task_run_lifecycle_finished", "task_run_terminal_observed"}
-TASK_TERMINAL_STATUSES = {"completed", "failed", "blocked", "aborted", "cancelled", "canceled", "stopped", "waiting_executor", "waiting_user", "waiting_approval"}
 TURN_CONTEXT_REQUIRED_PUBLIC_EVENTS = {
     ASSISTANT_PUBLIC_FEEDBACK_EVENT,
     ASSISTANT_STREAM_REPAIR_EVENT,
@@ -510,6 +509,7 @@ class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     message: str = Field(..., min_length=1)
+    client_message_id: str = Field(default="", max_length=240)
     session_id: str
     stream: bool = True
     explicit_subtasks: list[dict[str, Any]] = Field(default_factory=list)
@@ -668,7 +668,8 @@ async def get_latest_chat_run_for_session(
 ):
     runtime = require_runtime()
     validated_session_id = validate_session_id(session_id)
-    registry = runtime.harness_runtime.single_agent_runtime_host.run_registry
+    host = runtime.harness_runtime.single_agent_runtime_host
+    registry = host.run_registry
     now = time.time()
     candidates = [
         run
@@ -676,24 +677,16 @@ async def get_latest_chat_run_for_session(
         if run.reconnectable_until >= now
         and (not active_only or run.status not in TERMINAL_RUN_STATUSES)
     ]
+    if active_only:
+        candidates = [
+            run
+            for run in candidates
+            if chat_run_execution_attached(host, run, terminal_statuses=TERMINAL_RUN_STATUSES)
+        ]
     if not candidates:
         if active_only:
             return Response(status_code=204)
         raise HTTPException(status_code=404, detail="chat run not found")
-    if active_only:
-        active_task_run_id = _active_session_task_run_id(runtime, validated_session_id)
-        if active_task_run_id:
-            active_task_candidates = [
-                run
-                for run in candidates
-                if _runtime_run_task_run_id(run) == active_task_run_id
-            ]
-            if active_task_candidates:
-                return _run_response(runtime, active_task_candidates[0])
-            return Response(status_code=204)
-        primary_candidates = [run for run in candidates if not _is_active_turn_steer_run(run)]
-        if primary_candidates:
-            return _run_response(runtime, primary_candidates[0])
     return _run_response(runtime, candidates[0])
 
 
@@ -740,6 +733,7 @@ def _query_request_from_payload(
     return HarnessRuntimeRequest(
         session_id=session_id,
         message=payload.message,
+        client_message_id=str(payload.client_message_id or ""),
         explicit_subtasks=list(payload.explicit_subtasks or []),
         runtime_profile=dict(payload.runtime_profile or {}),
         environment_binding=dict(payload.environment_binding or {}),
@@ -1056,6 +1050,11 @@ def _create_and_schedule_run(runtime: Any, request: HarnessRuntimeRequest) -> Ru
             "queue_dispatch_reason": str(request_runtime_profile.get("queue_dispatch_reason") or ""),
         },
     )
+    request = runtime.harness_runtime.prepare_chat_run_request_for_schedule(
+        request,
+        stream_run_id=run.stream_run_id,
+    )
+    request_runtime_profile = dict(request.runtime_profile or {})
     request = replace(
         request,
         runtime_profile={
@@ -1063,14 +1062,13 @@ def _create_and_schedule_run(runtime: Any, request: HarnessRuntimeRequest) -> Ru
             "stream_run_id": run.stream_run_id,
         },
     )
-    invocation_kind = "background" if _is_steer_chat_request(request) else "single_turn"
     schedule_result = host.agent_run_supervisor.schedule_single_turn(
         session_id=request.session_id,
         stream_run_id=run.stream_run_id,
         work_factory=lambda: _run_chat_to_event_log(runtime, run, request),
         scheduler="api.chat",
-        invocation_kind=invocation_kind,
-        primary=invocation_kind == "single_turn",
+        invocation_kind="single_turn",
+        primary=True,
         on_done=lambda _scope, _handle: _schedule_queued_input_dispatch(
             runtime,
             request.session_id,
@@ -1084,12 +1082,6 @@ def _create_and_schedule_run(runtime: Any, request: HarnessRuntimeRequest) -> Ru
             schedule_result=schedule_result,
         )
     return host.run_registry.get_run(run.stream_run_id) or run
-
-
-def _is_steer_chat_request(request: HarnessRuntimeRequest) -> bool:
-    policy = str(getattr(request, "active_turn_input_policy", "") or "").strip().lower()
-    expected_turn_id = str(getattr(request, "expected_active_turn_id", "") or "").strip()
-    return bool(policy == "steer" and expected_turn_id)
 
 
 def _fail_chat_run_schedule(runtime: Any, run: RuntimeRun, *, schedule_result: dict[str, Any]) -> RuntimeRun:
@@ -1171,30 +1163,33 @@ async def _dispatch_next_queued_input(runtime: Any, session_id: str, *, reason: 
         if not queued_items:
             return None
         next_item = queued_items[0]
+        if has_active_primary_chat_run(host, session_id=normalized, terminal_statuses=TERMINAL_RUN_STATUSES):
+            return None
         if next_item.input_policy == "auto":
-            if has_active_primary_chat_run(host, session_id=normalized, terminal_statuses=TERMINAL_RUN_STATUSES):
-                return None
-            if has_active_steer_chat_run(host, session_id=normalized, terminal_statuses=TERMINAL_RUN_STATUSES):
+            admission = queued_input_admission_target(host, session_id=normalized)
+            if str(admission.get("input_policy") or "").strip().lower() == "steer":
+                retargeted = await asyncio.to_thread(
+                    store.retarget_for_dispatch,
+                    normalized,
+                    next_item.queue_item_id,
+                    input_policy="steer",
+                    expected_active_turn_id=str(admission.get("expected_active_turn_id") or ""),
+                    task_run_id=str(admission.get("task_run_id") or ""),
+                )
+                if retargeted is None:
+                    continue
                 return None
             claimed = await asyncio.to_thread(store.claim_next, normalized, policy="auto")
             if claimed is None:
                 continue
             return await _dispatch_claimed_queued_input(runtime, claimed, reason=reason)
-        if has_active_steer_chat_run(
-            host,
-            session_id=normalized,
-            terminal_statuses=TERMINAL_RUN_STATUSES,
-            expected_active_turn_id=next_item.expected_active_turn_id,
-        ):
-            return None
         steer_allowed, denied_reason = validate_queued_steer(host, next_item)
+        if steer_allowed:
+            return None
         claimed = await asyncio.to_thread(store.claim_next, normalized, policy="steer")
-        if claimed is None:
-            continue
-        if not steer_allowed:
+        if claimed is not None:
             await asyncio.to_thread(store.mark_failed, normalized, claimed.queue_item_id, reason=denied_reason or "queued_steer_not_dispatchable")
-            continue
-        return await _dispatch_claimed_queued_input(runtime, claimed, reason=reason)
+        continue
     return None
 
 
@@ -1226,6 +1221,7 @@ def _request_from_queued_input(item: QueuedUserInput, *, reason: str) -> Harness
     return HarnessRuntimeRequest(
         session_id=item.session_id,
         message=item.content,
+        client_message_id=str(item.client_message_id or ""),
         explicit_subtasks=[dict(entry) for entry in list(item.explicit_subtasks or []) if isinstance(entry, dict)],
         runtime_profile={
             "queued_input_id": item.queue_item_id,
@@ -1272,17 +1268,14 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
         async for event in runtime.harness_runtime.astream(request):
             event_type = str(event.get("type", "message") or "message")
             raw_refs = _runtime_run_refs_from_event(event)
-            runtime_refs = _runtime_run_refs_for_public_event(runtime, request.session_id, event)
             event_task_run_id = raw_refs.get("task_run_id", "")
-            runtime_turn_run_id = raw_refs.get("turn_run_id", "") or runtime_refs.get("turn_run_id", "")
-            runtime_active_turn_id = raw_refs.get("active_turn_id", "") or runtime_refs.get("active_turn_id", "")
+            runtime_turn_run_id = raw_refs.get("turn_run_id", "")
+            runtime_active_turn_id = raw_refs.get("active_turn_id", "")
             if turn_context is None:
                 created_turn_context = _public_turn_context_from_event(
                     run=run,
                     request=request,
                     event=event,
-                    fallback_turn_run_id=runtime_turn_run_id,
-                    fallback_turn_id=runtime_active_turn_id,
                     public_sequence_started_at=int(getattr(current, "latest_event_offset", -1) or -1) + 1,
                 )
                 if created_turn_context is not None:
@@ -1337,7 +1330,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                     await _allow_public_stream_flush(previous_offset, current)
                     continue
                 if _is_task_executor_handoff_terminal(public_event_type, data):
-                    bridged_task_run_id = _task_run_id_from_public_data(data) or runtime_refs.get("task_run_id", "")
+                    bridged_task_run_id = _task_run_id_from_public_data(data) or event_task_run_id
                     if turn_context is None:
                         previous_offset = _latest_public_event_offset(current)
                         current = _append_chat_public_event(
@@ -1619,16 +1612,14 @@ def _public_turn_context_from_event(
     run: RuntimeRun,
     request: HarnessRuntimeRequest,
     event: dict[str, Any],
-    fallback_turn_run_id: str = "",
-    fallback_turn_id: str = "",
     public_sequence_started_at: int = 0,
 ) -> PublicTurnOutputContext | None:
     event_type = str(event.get("type") or "").strip()
     if event_type not in {"harness_run_started", "single_agent_turn_started"}:
         return None
     refs = _runtime_run_refs_from_event(event)
-    turn_run_id = str(refs.get("turn_run_id") or fallback_turn_run_id or "").strip()
-    turn_id = str(refs.get("active_turn_id") or fallback_turn_id or _turn_id_from_turn_run_id(turn_run_id)).strip()
+    turn_run_id = str(refs.get("turn_run_id") or "").strip()
+    turn_id = str(refs.get("active_turn_id") or _turn_id_from_turn_run_id(turn_run_id)).strip()
     if not turn_run_id or not turn_id:
         return None
     stream_ref = f"chat-turn:{run.stream_run_id}:{turn_run_id}"
@@ -1787,20 +1778,6 @@ async def _bridge_task_run_to_chat_stream(
                 commit_observed = commit_observed or terminal_output_state.get("commit_observed", False)
                 if terminal:
                     return current
-            if _task_run_snapshot_is_terminal(host, normalized_task_run_id):
-                previous_offset = _latest_public_event_offset(current)
-                current = _append_task_bridge_terminal_from_snapshot(
-                    runtime,
-                    run,
-                    current,
-                    request=request,
-                    bridge_context=bridge_context,
-                    projection_lifecycle=projection_lifecycle,
-                    output_observed=output_observed,
-                    commit_observed=commit_observed,
-                )
-                await _allow_public_stream_flush(previous_offset, current)
-                return current
             if progressed:
                 continue
             try:
@@ -1934,34 +1911,6 @@ def _append_task_bridge_terminal_from_event(
         projection_lifecycle=projection_lifecycle,
         bridge_context=bridge_context,
         task_event=task_event,
-        output_observed=output_observed,
-        commit_observed=commit_observed,
-    )
-
-
-def _append_task_bridge_terminal_from_snapshot(
-    runtime: Any,
-    run: RuntimeRun,
-    current: RuntimeRun,
-    *,
-    request: HarnessRuntimeRequest,
-    bridge_context: ChatTaskBridgeContext,
-    projection_lifecycle: ProjectionLifecycleState,
-    output_observed: bool,
-    commit_observed: bool,
-) -> RuntimeRun:
-    host = runtime.harness_runtime.single_agent_runtime_host
-    task_run = _task_run_snapshot(host, bridge_context.task_run_id)
-    context = _task_terminal_context_from_task_run(task_run, fallback_task_run_id=bridge_context.task_run_id)
-    return _append_task_bridge_terminal(
-        runtime,
-        run,
-        current,
-        request=request,
-        context=context,
-        projection_lifecycle=projection_lifecycle,
-        bridge_context=bridge_context,
-        task_event=None,
         output_observed=output_observed,
         commit_observed=commit_observed,
     )
@@ -2135,23 +2084,6 @@ def _bridge_context_has_live_bound_task(runtime: Any, bridge_context: ChatTaskBr
     return task_run is not None and not is_stopped_or_terminal_task_run(task_run, runtime_host=host)
 
 
-def _task_run_snapshot_is_terminal(host: Any, task_run_id: str) -> bool:
-    task_run = _task_run_snapshot(host, task_run_id)
-    return str(task_run.get("status") or "").strip().lower() in TASK_TERMINAL_STATUSES
-
-
-def _task_run_snapshot(host: Any, task_run_id: str) -> dict[str, Any]:
-    try:
-        task_run = host.state_index.get_task_run(task_run_id)
-    except Exception:
-        return {}
-    if task_run is None:
-        return {}
-    if hasattr(task_run, "to_dict"):
-        return dict(task_run.to_dict())
-    return dict(task_run or {}) if isinstance(task_run, dict) else {}
-
-
 def _task_terminal_context_from_stream_event(stream_event: dict[str, Any], *, fallback_task_run_id: str = "") -> dict[str, Any]:
     raw_event = _record(stream_event.get("event"))
     payload = _record(raw_event.get("payload"))
@@ -2189,7 +2121,7 @@ def _task_terminal_context_from_task_run(
 
 def _public_turn_status_for_task_status(value: Any) -> str:
     status = str(value or "").strip().lower()
-    if status in {"completed", "waiting_executor", "waiting_user", "waiting_approval"}:
+    if status == "completed":
         return "completed"
     if status in {"aborted", "cancelled", "canceled", "stopped", "blocked"}:
         return "stopped"
@@ -2296,30 +2228,6 @@ def _get_run_or_404(runtime: Any, stream_run_id: str) -> RuntimeRun:
     return run
 
 
-def _is_active_turn_steer_run(run: RuntimeRun) -> bool:
-    diagnostics = dict(run.diagnostics or {})
-    expected_active_turn_id = str(diagnostics.get("expected_active_turn_id") or "").strip()
-    policy = str(diagnostics.get("active_turn_input_policy") or "").strip().lower()
-    return bool(expected_active_turn_id and policy == "steer")
-
-
-def _runtime_run_task_run_id(run: RuntimeRun) -> str:
-    diagnostics = dict(run.diagnostics or {})
-    return str(
-        diagnostics.get("runtime_task_run_id")
-        or diagnostics.get("task_run_id")
-        or diagnostics.get("public_anchor_task_run_id")
-        or ""
-    ).strip()
-
-
-def _active_session_task_run_id(runtime: Any, session_id: str) -> str:
-    active_work_context = _validated_active_work_context(runtime, session_id)
-    if active_work_context is not None:
-        return str(getattr(active_work_context, "task_run_id", "") or "").strip()
-    return ""
-
-
 def _validated_active_work_context(runtime: Any, session_id: str) -> Any | None:
     harness_runtime = getattr(runtime, "harness_runtime", None)
     resolver = getattr(harness_runtime, "_active_work_context_from_active_turn", None)
@@ -2336,18 +2244,17 @@ def _run_response(runtime: Any, run: RuntimeRun) -> dict[str, Any]:
     payload = run.to_dict()
     payload.pop("owner_process_id", None)
     payload.pop("owner_instance_id", None)
-    active_turn_snapshot = None
-    try:
-        active_turn = runtime.harness_runtime.single_agent_runtime_host.active_turn_registry.snapshot(run.session_id)
-        if active_turn is not None:
-            active_turn_snapshot = active_turn.to_dict()
-    except Exception:
-        active_turn_snapshot = None
+    execution_attached = chat_run_execution_attached(
+        runtime.harness_runtime.single_agent_runtime_host,
+        run,
+        terminal_statuses=TERMINAL_RUN_STATUSES,
+    )
     return {
         **payload,
-        "active_turn_snapshot": active_turn_snapshot,
+        "chat_run_execution_attached": execution_attached,
         "is_reconnectable": run.reconnectable_until >= time.time()
-        and run.status not in TERMINAL_RUN_STATUSES,
+        and run.status not in TERMINAL_RUN_STATUSES
+        and execution_attached,
         "replay_url": f"/api/chat/runs/{run.stream_run_id}/events/replay",
         "live_ws_url": f"/api/chat/sessions/{run.session_id}/live",
     }
@@ -3331,46 +3238,6 @@ def _stream_event_created_at(event: dict[str, Any]) -> float:
         except (TypeError, ValueError):
             continue
     return time.time()
-
-
-def _runtime_run_refs_for_public_event(runtime: Any, session_id: str, event: dict[str, Any]) -> dict[str, str]:
-    refs = _runtime_run_refs_from_event(event)
-    active_refs = _bound_active_task_refs_for_session(runtime, session_id)
-    if not active_refs:
-        return refs
-    event_task_run_id = refs.get("task_run_id", "")
-    active_task_run_id = active_refs.get("task_run_id", "")
-    if event_task_run_id and event_task_run_id != active_task_run_id:
-        return refs
-    if not event_task_run_id:
-        refs["task_run_id"] = active_task_run_id
-        refs["active_turn_id"] = active_refs.get("active_turn_id", "")
-        if active_refs.get("turn_run_id"):
-            refs["turn_run_id"] = active_refs.get("turn_run_id", "")
-        return refs
-    if not refs.get("active_turn_id"):
-        refs["active_turn_id"] = active_refs.get("active_turn_id", "")
-    if not refs.get("turn_run_id") and active_refs.get("turn_run_id"):
-        refs["turn_run_id"] = active_refs.get("turn_run_id", "")
-    return refs
-
-
-def _bound_active_task_refs_for_session(runtime: Any, session_id: str) -> dict[str, str]:
-    try:
-        active_turn = runtime.harness_runtime.single_agent_runtime_host.active_turn_registry.snapshot(session_id)
-    except Exception:
-        return {}
-    if active_turn is None:
-        return {}
-    task_run_id = str(getattr(active_turn, "bound_task_run_id", "") or "").strip()
-    active_turn_id = str(getattr(active_turn, "turn_id", "") or "").strip()
-    if not active_turn_id:
-        return {}
-    return {
-        "task_run_id": task_run_id,
-        "active_turn_id": active_turn_id,
-        "turn_run_id": str(getattr(active_turn, "turn_run_id", "") or "").strip(),
-    }
 
 
 def _runtime_run_refs_from_event(event: dict[str, Any]) -> dict[str, str]:

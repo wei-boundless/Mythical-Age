@@ -3,7 +3,6 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from harness.loop.task_run_execution_control import register_executor_epoch
 from harness.runtime.run_monitor import RuntimeMonitorActionService, RuntimeMonitorProjector, RuntimeMonitorService
 from harness.runtime.run_monitor.signals import build_runtime_monitor_envelope
 
@@ -480,7 +479,9 @@ def test_run_monitor_global_collection_uses_state_index_summaries():
     monitor = service.collect_global_runtime_monitor(limit=20)
 
     assert monitor["signals"][0]["signal_id"] == "taskrun:summary"
-    assert monitor["signals"][0]["line"] == "运行中"
+    assert monitor["signals"][0]["line"] == "等待执行器"
+    assert monitor["signals"][0]["activity_state"] == "waiting"
+    assert monitor["signals"][0]["is_running"] is False
 
 
 def test_run_monitor_waiting_state_wins_over_running_bucket_residue():
@@ -576,8 +577,12 @@ def test_runtime_monitor_actions_use_activity_control_capability(tmp_path):
         state_index=StateIndexStub([waiting, paused, running, stopped]),
         event_log=EventLogStub(),
         backend_dir=tmp_path / "backend",
+        agent_run_supervisor=SimpleNamespace(
+            active_cell_for_task_run=lambda task_run_id, *, session_id: object()
+            if task_run_id == "taskrun:running" and session_id == "session-running"
+            else None
+        ),
     )
-    register_executor_epoch(runtime_host, task_run_id="taskrun:running", executor_epoch=1)
     service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
     monitor = service.collect_global_runtime_monitor(limit=20)

@@ -170,17 +170,7 @@ class TaskRunLifecycleRetention:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
         session_id = str(getattr(task_run, "session_id", "") or "").strip()
         active_cell = _active_agent_cell(self.runtime_host, task_run_id, session_id=session_id)
-        if active_cell is not None:
-            return True
-        registry = getattr(self.runtime_host, "_task_run_execution_control", None)
-        record = dict(registry or {}).get(task_run_id) if isinstance(registry, dict) else None
-        if record is not None:
-            model_task = getattr(record, "model_task", None)
-            if model_task is None:
-                return True
-            done = getattr(model_task, "done", None)
-            return not callable(done) or not bool(done())
-        return False
+        return active_cell is not None
 
     def _request_retention_stop(self, task_run: Any, *, now: float, decision: dict[str, Any]) -> dict[str, Any]:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
@@ -419,7 +409,6 @@ class EphemeralRuntimeCacheReleaser:
             "reason": str(reason or ""),
         }
         effects["tool_invocation_control"] = self._cancel_tool_invocations(normalized, reason=reason)
-        effects["execution_control"] = self._clear_execution_control(normalized)
         effects["file_state"] = self._prune_file_state(normalized)
         effects["runtime_cache"] = self._delete_runtime_cache(normalized, reason=reason)
         effects["dynamic_context"] = self._prune_dynamic_context(normalized)
@@ -447,14 +436,6 @@ class EphemeralRuntimeCacheReleaser:
             }
         except Exception as exc:
             return {"authority": "runtime.tool_invocation_control.cancel_by_caller", "error": str(exc)}
-
-    def _clear_execution_control(self, task_run_id: str) -> dict[str, Any]:
-        registry = getattr(self.runtime_host, "_task_run_execution_control", None)
-        if not isinstance(registry, dict):
-            return {"authority": "harness.loop.task_run_execution_control", "cleared": False, "reason": "registry_missing"}
-        existed = task_run_id in registry
-        registry.pop(task_run_id, None)
-        return {"authority": "harness.loop.task_run_execution_control", "cleared": existed}
 
     def _prune_file_state(self, task_run_id: str) -> dict[str, Any]:
         store = getattr(self.runtime_host, "file_state_store", None)

@@ -81,6 +81,7 @@ from .execution_kernel import (
     build_tool_lifecycle_started_event_record,
     decide_model_action_lifecycle,
 )
+from .active_turn_steering import ActiveTurnQueuedUserSteers, claim_active_turn_queued_user_steers
 from .executor_sequence import claim_executor_sequence, next_model_action_request_id
 from .model_action_runtime import (
     call_model_invoker,
@@ -170,7 +171,7 @@ def is_task_run_executable(task_run: Any, *, runtime_host: Any | None = None) ->
 
 
 def is_task_run_executor_claimed(task_run: Any, *, runtime_host: Any | None = None) -> bool:
-    return _active_task_run_executor_cell(runtime_host, task_run) is not None or _has_live_executor_control_record(runtime_host, task_run)
+    return _active_task_run_executor_cell(runtime_host, task_run) is not None
 
 
 def _active_task_run_executor_cell(runtime_host: Any | None, task_run: Any) -> Any | None:
@@ -186,23 +187,6 @@ def _active_task_run_executor_cell(runtime_host: Any | None, task_run: Any) -> A
         return getter(task_run_id, session_id=session_id)
     except Exception:
         return None
-
-
-def _has_live_executor_control_record(runtime_host: Any | None, task_run: Any) -> bool:
-    if runtime_host is None:
-        return False
-    task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
-    if not task_run_id:
-        return False
-    registry = getattr(runtime_host, "_task_run_execution_control", None)
-    record = dict(registry or {}).get(task_run_id) if isinstance(registry, dict) else None
-    if record is None:
-        return False
-    model_task = getattr(record, "model_task", None)
-    if model_task is None:
-        return True
-    done = getattr(model_task, "done", None)
-    return not callable(done) or not bool(done())
 
 
 def _visible_task_run_control_state(task_run: Any, control: dict[str, Any], *, runtime_host: Any | None = None) -> str:
@@ -239,6 +223,71 @@ def _bind_active_turn_for_task_state(runtime_host: Any, task_run: Any, *, state:
         )
     except Exception:
         return
+
+
+def _active_turn_bound_to_task(runtime_host: Any, task_run: Any) -> Any | None:
+    if _origin_kind(task_run) == "graph_node_assigned":
+        return None
+    active_registry = getattr(runtime_host, "active_turn_registry", None)
+    resolver = getattr(active_registry, "resolve_current", None)
+    if not callable(resolver):
+        return None
+    session_id = str(getattr(task_run, "session_id", "") or "").strip()
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
+    if not session_id or not task_run_id:
+        return None
+    try:
+        active_turn = resolver(session_id)
+    except Exception:
+        return None
+    if active_turn is None:
+        return None
+    if str(getattr(active_turn, "bound_task_run_id", "") or "").strip() != task_run_id:
+        return None
+    if not bool(getattr(active_turn, "steerable", False)):
+        return None
+    return active_turn
+
+
+async def _claim_active_turn_queued_steers_for_task_step(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    step_index: int,
+) -> ActiveTurnQueuedUserSteers:
+    active_turn = _active_turn_bound_to_task(runtime_host, task_run)
+    if active_turn is None:
+        return ActiveTurnQueuedUserSteers()
+    turn_id = str(getattr(active_turn, "turn_id", "") or "").strip()
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
+    turn_run = _turn_run_for_active_turn(runtime_host, active_turn)
+    return await claim_active_turn_queued_user_steers(
+        runtime_host,
+        session_id=str(getattr(task_run, "session_id", "") or ""),
+        turn_id=turn_id,
+        turn_run=turn_run,
+        stream_run_id=str(getattr(active_turn, "stream_run_id", "") or ""),
+        packet_ref=f"task-executor-before-packet:{task_run_id}:{int(step_index or 0)}",
+        phase=f"task_executor_before_packet:{int(step_index or 0)}",
+        bound_task_run_id=task_run_id,
+        include_model_message=False,
+        mirror_bound_task=True,
+        source_authority="harness.loop.task_executor.active_turn_steer",
+    )
+
+
+def _turn_run_for_active_turn(runtime_host: Any, active_turn: Any) -> Any | None:
+    turn_run_id = str(getattr(active_turn, "turn_run_id", "") or "").strip()
+    if not turn_run_id:
+        return None
+    state_index = getattr(runtime_host, "state_index", None)
+    getter = getattr(state_index, "get_turn_run", None)
+    if not callable(getter):
+        return None
+    try:
+        return getter(turn_run_id)
+    except Exception:
+        return None
 
 
 def _is_task_run_resumable_for_user_control(task_run: Any, *, runtime_host: Any | None = None) -> bool:
@@ -828,7 +877,7 @@ async def execute_task_run(
     if control_result is not None:
         return control_result
     active_executor_cell = _active_task_run_executor_cell(runtime_host, task_run)
-    live_executor_claimed = active_executor_cell is not None or _has_live_executor_control_record(runtime_host, task_run)
+    live_executor_claimed = active_executor_cell is not None
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     executor_status = str(diagnostics.get("executor_status") or "")
     if active_executor_cell is not None:
@@ -1262,6 +1311,23 @@ async def _execute_claimed_task_run(
         current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
         if _task_run_session_deleted(runtime_host, current_task):
             return _conflict(current_task.task_run_id, "session_deleted")
+        active_turn_steer_batch = await _claim_active_turn_queued_steers_for_task_step(
+            runtime_host,
+            task_run=current_task,
+            step_index=step_index,
+        )
+        if active_turn_steer_batch.items:
+            current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
+            observation_context = _observations_for_packet(
+                runtime_host,
+                current_task.task_run_id,
+                current_fingerprint=runtime_fingerprint,
+                pending_observations=raw_observations,
+            )
+            raw_observations = list(observation_context["raw_observations"])
+            observations = list(observation_context["packet_observations"])
+            execution_state = dict(observation_context["execution_state"])
+            artifact_refs = dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs])
         start_context_handoff = load_turn_to_task_context_handoff(runtime_host, current_task)
         inherited_start_context = inherited_start_context_for_model(start_context_handoff)
         memory_context = await _runtime_memory_context_for_task_step(

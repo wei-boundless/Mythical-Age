@@ -8,6 +8,7 @@ import { StatusLine, toolRoundStatusLabel } from "./AssistantTrace";
 import { TodoPlan } from "./TodoPlan";
 import { ToolRound, ToolWindow } from "./ToolTrace";
 
+import { publicRuntimeStatusText } from "@/lib/runtimeStatusText";
 import type {
   ActivityArchiveProjectionBlock,
   ProjectionRenderBlock,
@@ -631,12 +632,5 @@ function cleanText(value: unknown) {
 }
 
 function displayText(value: unknown) {
-  return publicTimelineText(cleanText(value));
-}
-
-function publicTimelineText(value: string) {
-  return String(value ?? "")
-    .replace(/\buser_input_required\b/g, "等待你的确认")
-    .replace(/\bbackground_executor_missing_after_restart\b/g, "连接恢复后需要重新接续运行")
-    .replace(/\bwaiting_executor\b/g, "等待继续");
+  return publicRuntimeStatusText(cleanText(value));
 }

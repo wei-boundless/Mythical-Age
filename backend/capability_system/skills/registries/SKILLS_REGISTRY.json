@@ -67,10 +67,10 @@
         "name": "browser-operation",
         "title": "网页操作",
         "capability": "让主 Agent 使用受控浏览器打开网页、观察页面、点击、输入、等待、截图和抽取内容。",
-        "use_when": "",
+        "use_when": "用户要求打开网页、搜索问题、点击页面、填写表单、检查前端页面、截图验证、从网页抽取内容时使用。\n\n不适合用于纯 HTTP 抓取；如果只需要读取一个静态 URL，优先使用 `fetch_url`。",
         "subagent_handoff_protocol": "",
-        "return_protocol": "",
-        "output_rule": "直接完成用户可见任务；不要描述内部工具调用、路由策略或协议。"
+        "return_protocol": "向用户汇报时只说已完成什么、看到什么、下一步需要什么。不要暴露内部 selector 细节，除非用户在调试页面。",
+        "output_rule": "向用户汇报时只说已完成什么、看到什么、下一步需要什么。不要暴露内部 selector 细节，除非用户在调试页面。"
       },
       "validation_errors": []
     },
@@ -296,10 +296,10 @@
         "name": "pdf-analysis",
         "title": "PDF 阅读分析",
         "capability": "用于本地 PDF 的整篇阅读、章节定位和页级问答，适合回答“这份文档讲什么”“这一部分讲什么”“第几页写了什么”等深读问题。",
-        "use_when": "",
-        "subagent_handoff_protocol": "",
-        "return_protocol": "",
-        "output_rule": "直接完成用户可见任务；不要描述内部工具调用、路由策略或协议。"
+        "use_when": "- 用户点名某个 PDF、报告、白皮书、手册、论文。\n- 用户问“第几页讲了什么”“第二部分强调了什么”“这份文档核心观点是什么”。\n- 会话里已经有激活的 PDF 绑定，用户继续追问“这一页”“这一部分”“这份 PDF”。",
+        "subagent_handoff_protocol": "当主 Agent 启动你作为子 Agent 时，应明确说明：\n\n- `subagent_task_kind=pdf_reading`\n- 目标文件路径或文件句柄\n- 页码、章节、全文、摘要中的哪一种阅读粒度\n- 用户真正想要的产出形式\n- 是否允许跨页归纳，还是只允许局部阅读\n\n主 Agent 应尽量把问题写成“请阅读什么、关注什么、输出什么”，例如：\n\n\n\n主 Agent 传入的 `input_payload` 应尽量包含：\n\n- `query`：当前用户真正问的问题，不要只写“继续看”。\n- `path` 或 `active_pdf`：目标 PDF 路径或句柄。\n- `mode`：`page`、`section` 或 `document`。\n- `page` / `pages` / `section`：如果用户限定了页码或章节，要显式传入。\n- `followup_constraint_policy`：如果是续接任务，要说明是否禁止切换文档或扩大范围。\n- `expected_output_contract`：要求回传 `summary`、`answer_candidate`、`evidence_refs`、`limitations` 和 `confidence`。\n\n如果主 Agent 给你的输入里同时出现 PDF 与表格/数据集约束，你应优先检查当前任务是不是被错派。只要核心问题是“按部门/前五/全表/汇总/统计”，就应在限制中提示应改派 `structured-data-analysis`，不要把数据问题硬读成 PDF 问题。",
+        "return_protocol": "你返回给主 Agent 的结果应包括：\n\n- `summary`：对当前问题的直接回答\n- `evidence_refs`：页码、章节或文档锚点\n- `artifact_refs`：如有 OCR 产物或分析产物，提供引用\n- `limitations`：抽取噪声、页码缺失、图表难读等限制\n- `followup_questions`：只有在必须补读时才提出\n- `consumed_handles`：你实际阅读的 PDF、页码、章节或结果句柄\n- `produced_handles`：可复用的阅读结果或摘读产物句柄\n\n你应始终把页码、章节或文档锚点写清楚，让主 Agent 能直接收口。",
+        "output_rule": "- 页级问题优先保留定位感，说明是基于哪一页或哪一部分。\n- 总览问题优先给摘要，再给重要章节或结论。\n- 有明显 OCR 噪声或抽取不完整时，要提示不确定性。\n- 遇到图表、附录、脚注等边缘内容，不要把局部细节误讲成全文中心。\n- 组织结果时优先用“结论 / 页码或章节 / 关键内容 / 限制”四段式。\n- 如果用户要行动建议，要把建议和文档原意分开写，避免把建议伪装成原文结论。\n- 如果是一页只够支撑局部判断，就明确说这是局部判断，不要冒充全文结论。"
       },
       "validation_errors": []
     },
@@ -369,10 +369,10 @@
         "name": "rag-skill",
         "title": "知识库问答",
         "capability": "面向本地知识库、FAQ 和内部资料的检索问答工作流，适合做基于现有材料的事实确认、规则解释和可追溯回答。",
-        "use_when": "",
-        "subagent_handoff_protocol": "",
-        "return_protocol": "",
-        "output_rule": "直接完成用户可见任务；不要描述内部工具调用、路由策略或协议。"
+        "use_when": "- 用户明确提到知识库、本地资料、内部文档、FAQ、帮助中心、规则说明。\n- 问题本质上是在确认一个事实、解释一个规则、核对一个产品能力、说明一个常见故障原因。\n- 回答需要“根据现有材料来讲”，而不是依赖最新外部信息或临时计算。",
+        "subagent_handoff_protocol": "当主 Agent 需要你执行检索时，应把任务写成“可直接执行”的子 Agent 交接说明，而不是笼统地说“查一下”。\n\n主 Agent 应传入：\n\n- `subagent_task_kind=evidence_lookup`\n- 用户原问题\n- 期望回答范围\n- 已知知识库锚点或文档线索\n- 若有，当前绑定的资料名、主题词、路径线索或 follow-up 约束\n- `expected_output_contract`：要求回传 `summary`、`answer_candidate`、`evidence_refs`、`limitations` 和 `confidence`\n\n适合的主 Agent 指令风格：\n\n\n\n如果用户的问题其实是 PDF 页级阅读、表格统计或最新外部信息，你应明确回传“这不是知识库检索的最佳入口”，并提示主 Agent 改派对应技能。",
+        "return_protocol": "你返回给主 Agent 的结果应保持稳定结构：\n\n- `summary`：一句话结论\n- `evidence_refs`：可引用的证据线索\n- `artifact_refs`：如有，可回传产物引用\n- `limitations`：证据不足、覆盖范围有限、索引不全等限制\n- `followup_questions`：只有在必须补充上下文时才提出\n- `consumed_handles`：你实际使用的知识库、文档或检索锚点\n- `produced_handles`：如生成了可复用结果，回传结果句柄\n\n回传内容应满足：\n\n- 先结论，后证据\n- 证据不足就直接说不足，不要编造补全\n- 不暴露内部工具名、路由名、协议名\n- 如果只能给出近似判断，要明确标注不确定性\n- 如果判断出任务不属于知识库检索，应在 `limitations` 中写明推荐的能力域，例如 `requires_pdf_reading` 或 `requires_structured_data_analysis`",
+        "output_rule": "- 结论优先，不要先铺陈检索过程。\n- 尽量保留来源感，比如“根据知识库说明”或“从现有资料看”。\n- 有冲突证据时，不要强行合并，要说明冲突点。\n- 没有足够依据时，不要补齐想象内容。\n- 组织结果时优先用“结论 / 依据 / 限制 / 下一步”四段式。\n- 如果能给业务语言翻译，就把术语翻译成业务能懂的话，但不要丢掉证据锚点。\n- 如果证据分散，先合并成一个清楚判断，再列出最关键的两三条证据，不要堆片段。"
       },
       "validation_errors": []
     },
@@ -530,10 +530,10 @@
         "name": "structured-data-analysis",
         "title": "结构化数据分析",
         "capability": "用于本地 Excel、CSV、JSON 等结构化数据的可计算分析，适合筛选、排序、分组汇总、Top N、极值记录和结构检查。",
-        "use_when": "",
-        "subagent_handoff_protocol": "",
-        "return_protocol": "",
-        "output_rule": "直接完成用户可见任务；不要描述内部工具调用、路由策略或协议。"
+        "use_when": "- 用户提到 Excel、CSV、JSON、表格、数据库导出、库存表、订单表、员工表。\n- 用户问的是“前五 / 最高 / 最低 / 按地区汇总 / 哪些符合条件 / 一共有多少 / 某类记录有哪些”。\n- 会话里已经绑定了一个数据集，用户继续追问“按仓库展开一下”“把前五列出来”“再按地区看一下”。",
+        "subagent_handoff_protocol": "当主 Agent 启动你作为子 Agent 时，应明确传入：\n\n- `subagent_task_kind=table_analysis`\n- `query`：当前用户真正要求的计算或汇总问题\n- `path` 或 `active_dataset`：目标数据集路径或句柄\n- 筛选、分组、排序、Top N、字段口径等约束\n- 如果是 follow-up，传入 `active_result_handle_id`、`active_subset_handle_id`、`followup_target_refs`\n- 如果用户说“这些人 / 这前五名 / 不要扩展回全表”，必须传入 `followup_constraint_policy=result_subset_only_do_not_expand_to_full_object`\n- `expected_output_contract`：要求回传 `summary`、`answer_candidate`、`evidence_refs`、`limitations`、`confidence`\n\n适合的主 Agent 指令风格：\n\n\n\n如果主 Agent 给你的输入里同时出现 PDF、报告页码或知识库检索要求，你应先判断是否被错派。核心问题是文档页级阅读时，应提示改派 `pdf-analysis`；核心问题是资料事实确认时，应提示改派 `rag-skill`。",
+        "return_protocol": "你返回给主 Agent 的结果应包括：\n\n- `summary`：一句话说明计算结论。\n- `answer_candidate`：可直接收口的中文答案草稿。\n- `evidence_refs`：相关行、聚合结果、字段或结果句柄。\n- `limitations`：字段缺失、口径不明、数据不完整、只能基于子集等限制。\n- `consumed_handles`：实际使用的数据集、结果子集或结果句柄。\n- `produced_handles`：新生成的分析结果、聚合表或摘要句柄。",
+        "output_rule": "- 先给结果，再补充筛选条件、分组逻辑或关键数字。\n- 如果问题有歧义，要指出歧义点，例如时间范围、字段口径、排序依据。\n- 对 Top N、极值、汇总类问题，尽量让结果可比、可核对。\n- 如果数据不完整、字段不明确或绑定数据集不对，要明确说明。\n- 组织结果时优先用“结论 / 口径 / 结果表 / 注意事项”四段式。\n- 如果字段名不直观，要把计算口径翻译成业务语言再给出。\n- 如果用户只要一个答案，就别把完整表格铺满；保留最相关的几项和可核对的口径即可。"
       },
       "validation_errors": []
     },
@@ -655,10 +655,10 @@
         "name": "trace-first-debugging",
         "title": "工程化 Debug",
         "capability": "工程化 Debug 技能。用于软件故障、回归、测试失败、状态异常、接口异常、页面异常、异步链路和自动化执行异常；要求先还原应然链路，再用运行时事实定位第一处偏离，修复结构根因并复测闭环。",
-        "use_when": "",
-        "subagent_handoff_protocol": "",
-        "return_protocol": "",
-        "output_rule": "直接完成用户可见任务；不要描述内部工具调用、路由策略或协议。"
+        "use_when": "使用本技能处理：\n\n- 页面、按钮、表单、路由、弹窗、样式、布局、层级或浏览器事件异常。\n- 接口、代理、端口、请求体、响应体、鉴权、中间件、字段契约或缓存异常。\n- 服务启动、构建、热更新、环境变量、进程残留、端口占用或运行入口异常。\n- 流式输出、订阅、长连接、轮询、异步任务、重连和后台刷新异常。\n- 状态、缓存、数据库、文件、队列、持久化、序列化或迁移异常。\n- 测试失败、回归、偶发失败、断言与真实行为冲突。\n- 自动化执行链路中，任务意图、工具输入、工具结果、上下文传递和最终输出不一致。\n\n不适合使用本技能处理：\n\n- 用户只要求代码审查，而不是定位已经出现的故障。\n- 用户只要架构方案、概念解释或文档表达。\n- 用户已经给出明确根因和指定修法，只需要按要求编辑。\n- 当前没有代码、日志、页面、测试、运行入口或其他可取证对象，且用户不允许补充证据。",
+        "subagent_handoff_protocol": "如果你要把问题交给另一个执行者处理，请交代清楚：\n\n- 用户看到的原始现象。\n- 用户原本应该看到的结果。\n- 复现入口、命令、页面、接口、文件、日志或测试。\n- 已知约束，例如不能硬编码、不能跳过测试、不能保留无用旧链路。\n- 需要回传的内容：正常链路、证据表、第一处偏离、根因机制、修复建议、复测方式。\n\n接手者只能基于证据给判断。没有运行时事实时，必须说明证据不足，不得编造成熟结论。",
+        "return_protocol": "回传时必须包含：\n\n- 正常链路：从触发到结果的关键节点。\n- 证据表：每个关键节点的预期、实际、证据和结论。\n- 第一处偏离：最早失真的节点。\n- 根因机制：为什么会在这里失真；证据不足时写“未确认”并说明下一步取证。\n- 修复策略：应该修哪条真实链路，哪些旧逻辑需要清理。\n- 修改文件：只有实际改动后才列出。\n- 复测结果：命令、浏览器步骤、日志、截图或测试结果。\n- 剩余风险：还没有覆盖的路径或不确定性。",
+        "output_rule": "先给结论，再给证据。多个问题按严重程度排序。\n\n每个 Debug 结论应包含：\n\n- 什么坏了。\n- 为什么重要。\n- 第一处偏离在哪里。\n- 根因机制是什么。\n- 证据是什么。\n- 修复了什么或应该修什么。\n- 如何复测，复测结果是什么。\n\n如果还没有确定根因，直接说“根因尚未确认”，并给出下一步最有价值的取证动作。不要用猜测包装成结论。"
       },
       "validation_errors": []
     },
