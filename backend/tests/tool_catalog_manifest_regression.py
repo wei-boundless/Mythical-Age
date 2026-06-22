@@ -239,6 +239,8 @@ def test_single_agent_turn_renders_stable_tool_index_for_provider_cache() -> Non
     assert "tool_catalog_hash" not in stable_payload
     assert "available_tools" not in stable_payload
     assert tool_index_payload == expected
+    assert tool_schema_payload["tool_binding_contract"]["native_binding"] == "model_request.tools"
+    assert tool_schema_payload["tool_binding_contract"]["contract_role"] == "cacheable_tool_contract_view"
     assert tool_schema_payload["tools"][0]["name"] == "read_file"
     assert tool_schema_payload["tools"][0]["schema"] == _tools()[0]["input_schema"]
     assert packet.tool_catalog_manifest["tool_catalog_hash"] == expected["tool_catalog_hash"]
@@ -518,4 +520,3 @@ def test_provider_usage_does_not_mark_estimated_stable_prefix_under_read_as_cach
     assert dict(updated.diagnostics or {})["provider_cache_read_stable_prefix_covered"] is None
     assert dict(updated.diagnostics or {})["provider_cache_read_stable_prefix_coverage_evidence"] == "unmeasured_by_provider_usage"
     assert break_record is None
-

@@ -170,7 +170,7 @@ describe("ChatPanel", () => {
     ], true)).toBe(true);
   });
 
-  it("shows the compaction trigger window against the auto-compaction threshold", () => {
+  it("shows the sent context size against the auto-compaction threshold", () => {
     expect(sessionContextMeterPresentation(tokenStats({
       context_meter: {
         current_context_ratio: 0.03,
@@ -188,7 +188,7 @@ describe("ChatPanel", () => {
       usedPercent: 8,
       usedTokenText: "74.3K",
       thresholdTokenText: "900.0K",
-      title: "压缩触发窗口 74,252 tokens；自动压缩阈值 900,000 tokens；阈值占比 8%；模型窗口 1,000,000 tokens；距自动压缩还剩 825,748 tokens",
+      title: "送入上下文 74,252 tokens；自动压缩阈值 900,000 tokens；阈值占比 8%；模型窗口 1,000,000 tokens；距自动压缩还剩 825,748 tokens",
       levelClass: "normal",
     });
   });
@@ -336,7 +336,7 @@ describe("ChatPanel", () => {
     } as never)).toBe(true);
   });
 
-  it("uses the trigger window rather than the model-current context for the user meter", () => {
+  it("uses the sent current context for the user meter", () => {
     expect(sessionContextMeterPresentation(tokenStats({
       context_meter: {
         current_context_ratio: 0.012598,
@@ -350,10 +350,10 @@ describe("ChatPanel", () => {
         pressure_level: "normal",
       },
     }))).toEqual({
-      usedPercent: 5,
-      usedTokenText: "41.4K",
+      usedPercent: 1,
+      usedTokenText: "12.6K",
       thresholdTokenText: "850.0K",
-      title: "压缩触发窗口 41,444 tokens；自动压缩阈值 850,000 tokens；阈值占比 5%；模型窗口 1,000,000 tokens；距自动压缩还剩 808,556 tokens",
+      title: "送入上下文 12,598 tokens；自动压缩阈值 850,000 tokens；阈值占比 1%；模型窗口 1,000,000 tokens；距自动压缩还剩 837,402 tokens",
       levelClass: "normal",
     });
   });

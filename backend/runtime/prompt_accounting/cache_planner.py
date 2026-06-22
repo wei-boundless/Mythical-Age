@@ -261,8 +261,16 @@ def _prefix_diagnostics(
     volatile_tokens = sum(
         int(segment.predicted_tokens or 0)
         for segment in segment_map.segments
-        if str(segment.cache_role or "") in {"volatile", "never_cache"}
-        or str(segment.prefix_tier or "") in {"volatile", "none"}
+        if (
+            str(segment.cache_role or "") in {"volatile", "never_cache"}
+            or str(segment.prefix_tier or "") in {"volatile", "none"}
+        )
+        and not _is_stable_transport_contract_segment(segment)
+    )
+    stable_transport_contract_tokens = sum(
+        int(segment.predicted_tokens or 0)
+        for segment in segment_map.segments
+        if _is_stable_transport_contract_segment(segment)
     )
     replay_stable_tokens = sum(
         int(segment.predicted_tokens or 0)
@@ -332,6 +340,7 @@ def _prefix_diagnostics(
         "combined_stable_prefix_predicted_tokens": stable_prefix_tokens,
         "stable_cache_role_predicted_tokens": stable_role_tokens,
         "volatile_predicted_tokens": volatile_tokens,
+        "stable_transport_contract_predicted_tokens": stable_transport_contract_tokens,
         "body_after_stable_prefix_predicted_tokens": max(0, total_tokens - stable_prefix_tokens),
         "body_after_task_prefix_predicted_tokens": max(0, total_tokens - task_tokens),
         "provider_global_prefix_token_ratio": _ratio(provider_global_tokens, total_tokens),
@@ -376,6 +385,8 @@ def _ratio(numerator: int, denominator: int) -> float:
 def _top_volatile_segment_families(segment_map: PromptSegmentMap, *, limit: int = 8) -> list[dict[str, Any]]:
     totals: dict[str, dict[str, Any]] = {}
     for segment in segment_map.segments:
+        if _is_stable_transport_contract_segment(segment):
+            continue
         cache_role = str(segment.cache_role or "")
         prefix_tier = str(segment.prefix_tier or "")
         if cache_role not in {"volatile", "never_cache"} and prefix_tier not in {"volatile", "none"}:
@@ -763,6 +774,7 @@ def _plan_from_provider_payload_boundary(
         segment_map=segment_map,
         diagnostics=diagnostics,
         tier=key_tier,
+        selected_prefix=selected_prefix,
     )
     target_diagnostics = _cache_read_target_diagnostics(
         segment_map=segment_map,
@@ -853,12 +865,22 @@ def _provider_payload_prefix_token_diagnostics(
     segment_map: PromptSegmentMap,
     diagnostics: dict[str, Any],
     tier: str,
+    selected_prefix: dict[str, Any] | None = None,
 ) -> dict[str, int]:
     message_tokens = _prefix_predicted_tokens_for_tier(diagnostics, tier=tier)
-    tool_tokens = _provider_payload_tool_prefix_predicted_tokens(segment_map, tier=tier)
+    selected = dict(selected_prefix or {})
+    tool_prefix_selected = int(selected.get("tool_segment_count") or 0) > 0
+    tool_tokens = (
+        _provider_payload_tool_prefix_predicted_tokens(segment_map, tier=tier)
+        if tool_prefix_selected
+        else 0
+    )
+    stable_tool_component_tokens = _provider_payload_tool_component_predicted_tokens(segment_map, tier=tier)
     return {
         "provider_payload_message_prefix_predicted_tokens": message_tokens,
         "provider_payload_tool_prefix_predicted_tokens": tool_tokens,
+        "provider_payload_stable_tool_component_predicted_tokens": stable_tool_component_tokens,
+        "provider_payload_tool_prefix_transport_selected": int(tool_prefix_selected),
         "provider_payload_prefix_predicted_tokens": message_tokens + tool_tokens,
     }
 
@@ -868,6 +890,27 @@ def _provider_payload_tool_prefix_predicted_tokens(segment_map: PromptSegmentMap
     for segment in tuple(segment_map.segments or ()):
         metadata = dict(getattr(segment, "metadata", None) or {})
         if not _is_provider_payload_tool_prefix_segment(segment, metadata=metadata):
+            continue
+        if not is_prefix_eligible_for_tier(
+            cache_role=getattr(segment, "cache_role", ""),
+            prefix_tier=getattr(segment, "prefix_tier", ""),
+            tier=tier,
+        ):
+            continue
+        total += int(getattr(segment, "predicted_tokens", 0) or 0)
+    return total
+
+
+def _provider_payload_tool_component_predicted_tokens(segment_map: PromptSegmentMap, *, tier: str) -> int:
+    total = 0
+    for segment in tuple(segment_map.segments or ()):
+        metadata = dict(getattr(segment, "metadata", None) or {})
+        if str(getattr(segment, "kind", "") or "") != "native_tool_binding_schema":
+            continue
+        if str(metadata.get("provider_payload_transport_location") or "") != "tools" and str(getattr(segment, "role", "") or "") != "tool_schema":
+            continue
+        if _is_stable_transport_contract_segment(segment, metadata=metadata):
+            total += int(getattr(segment, "predicted_tokens", 0) or 0)
             continue
         if not is_prefix_eligible_for_tier(
             cache_role=getattr(segment, "cache_role", ""),
@@ -889,6 +932,19 @@ def _is_provider_payload_tool_prefix_segment(segment: Any, *, metadata: dict[str
     if str(getattr(segment, "role", "") or "") == "tool_schema":
         return True
     return str(getattr(segment, "source", "") or "") == "model_request.tools"
+
+
+def _is_stable_transport_contract_segment(segment: Any, *, metadata: dict[str, Any] | None = None) -> bool:
+    if str(getattr(segment, "kind", "") or "") != "native_tool_binding_schema":
+        return False
+    payload = dict(metadata if metadata is not None else getattr(segment, "metadata", None) or {})
+    if str(payload.get("provider_payload_transport_location") or "") != "tools" and str(getattr(segment, "source", "") or "") != "model_request.tools":
+        return False
+    if payload.get("stable_transport_contract") is True:
+        return True
+    if str(payload.get("transport_contract_role") or "") == "stable_transport_contract":
+        return True
+    return payload.get("provider_payload_stable_component") is True and payload.get("provider_payload_prefix_component") is False
 
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:

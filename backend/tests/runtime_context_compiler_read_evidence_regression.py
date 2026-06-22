@@ -287,13 +287,13 @@ def test_task_execution_read_evidence_uses_evidence_index_for_historical_refs(tm
         },
     )
 
-    read_payload = _payload_after_title(result.packet, "Task current exact read evidence")
     evidence_payload = _payload_after_title(result.packet, "Task execution evidence index cursor")
     evidence_file = evidence_payload["evidence_index_cursor"]["files"][0]
 
-    assert read_payload["visible_exact_in_packet"] is False
-    assert "read_evidence_refs" not in read_payload
-    assert read_payload["projection_policy"]["historical_read_evidence"] == "evidence_index_cursor"
+    assert not any(
+        str(segment.get("kind") or "") == "read_evidence_injection"
+        for segment in list(result.packet.segment_plan.get("segments") or [])
+    )
     assert evidence_file["path"] == "notes.txt"
     assert evidence_file["read_window_refs"][0]["exact_artifact_ref"] == artifact["artifact_ref"]
 
@@ -371,7 +371,7 @@ def test_single_agent_turn_compiler_inherits_session_read_evidence_as_ref_only(t
 
     evidence_payload = _payload_after_title(result.packet, "Task current exact read evidence")
     evidence_ref = evidence_payload["read_evidence_refs"][0]
-    dynamic_payload = _payload_after_title(result.packet, "Single agent turn dynamic runtime")
+    dynamic_runtime_payload = _payload_after_title(result.packet, "Single agent turn dynamic runtime")
 
     assert evidence_payload["visible_exact_in_packet"] is False
     assert "read_evidence_injections" not in evidence_payload
@@ -380,7 +380,7 @@ def test_single_agent_turn_compiler_inherits_session_read_evidence_as_ref_only(t
     assert evidence_ref["content_sha256"] == "sha256:fps"
     assert evidence_payload["projection_policy"]["rehydration"] == "read_again_or_artifact_lookup_when_exact_text_is_needed"
     assert text not in json.dumps(evidence_payload, ensure_ascii=False)
-    assert dynamic_payload["interrupted_turn_work"]["turn_run_id"] == "turnrun:previous"
+    assert dynamic_runtime_payload["interrupted_turn_work"]["turn_run_id"] == "turnrun:previous"
     read_evidence_segment = next(
         segment
         for segment in list(result.packet.segment_plan.get("segments") or [])

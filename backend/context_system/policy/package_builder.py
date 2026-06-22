@@ -6,6 +6,7 @@ from typing import Any
 from context_system.models.context_models import (
     ContextBudget,
     ContextPackage,
+    CONTEXT_TEXT_NORMALIZATION_VERSION,
     SealedContextLedgerEntry,
     SealedContextReceipt,
     hash_context_section_package,
@@ -319,6 +320,7 @@ class MemoryContextPolicy:
             receipt_id=f"context-receipt:{memory_view.view_id}:{package_sha256[:12]}",
             memory_runtime_view_ref=memory_view.view_id,
             package_sha256=package_sha256,
+            normalization_version=CONTEXT_TEXT_NORMALIZATION_VERSION,
             section_item_hashes=hash_context_sections(sections),
             included_entries=tuple(entry for entry in ledger_entries if entry.decision == "include"),
             dropped_entries=tuple(entry for entry in ledger_entries if entry.decision == "drop"),

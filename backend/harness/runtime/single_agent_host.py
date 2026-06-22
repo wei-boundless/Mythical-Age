@@ -355,12 +355,56 @@ class SingleAgentRuntimeHost:
         )
         turn_run = self._turn_run_for_stream_run(current)
         turn_run_recorded = False
+        turn_interruption_event: Any | None = None
         if turn_run is not None:
             latest = self.state_index.get_turn_run(turn_run.turn_run_id) or turn_run
+            existing_diagnostics = dict(getattr(latest, "diagnostics", {}) or {})
+            if not str(existing_diagnostics.get("interrupted_turn_recovery_entry_event_id") or "").strip():
+                turn_interruption_event = self.event_log.append(
+                    turn_run.turn_run_id,
+                    "turn_runtime_interruption_recorded",
+                    payload={
+                        "turn_id": str(getattr(latest, "turn_id", "") or ""),
+                        "stream_run_id": current.stream_run_id,
+                        "runtime_interruption": dict(diagnostics),
+                        "recovery_entry": {
+                            "state": "interrupted_continuation_context",
+                            "handoff_to_agent": True,
+                            "system_authored_terminal": False,
+                        },
+                    },
+                    refs={
+                        "turn_ref": str(getattr(latest, "turn_id", "") or ""),
+                        "turn_run_ref": turn_run.turn_run_id,
+                        "stream_run_ref": current.stream_run_id,
+                    },
+                )
+            latest_event_offset = max(
+                int(getattr(latest, "latest_event_offset", -1) or -1),
+                _event_count(self.event_log, turn_run.turn_run_id, fallback=0) - 1,
+            )
+            if turn_interruption_event is not None:
+                latest_event_offset = max(latest_event_offset, int(getattr(turn_interruption_event, "offset", -1) or -1))
+                diagnostics = {
+                    **diagnostics,
+                    "interrupted_turn_recovery_entry_event_id": str(getattr(turn_interruption_event, "event_id", "") or ""),
+                    "interrupted_turn_recovery_entry_offset": int(getattr(turn_interruption_event, "offset", -1) or -1),
+                }
+            elif str(existing_diagnostics.get("interrupted_turn_recovery_entry_event_id") or "").strip():
+                diagnostics = {
+                    **diagnostics,
+                    "interrupted_turn_recovery_entry_event_id": str(existing_diagnostics.get("interrupted_turn_recovery_entry_event_id") or ""),
+                    "interrupted_turn_recovery_entry_offset": int(existing_diagnostics.get("interrupted_turn_recovery_entry_offset", -1) or -1),
+                }
+            diagnostics = {
+                **diagnostics,
+                "interrupted_turn_continuation_pending": True,
+            }
             self.state_index.upsert_turn_run(
                 replace(
                     latest,
                     updated_at=time.time(),
+                    latest_event_offset=latest_event_offset,
                     diagnostics={
                         **dict(latest.diagnostics or {}),
                         **diagnostics,
@@ -382,6 +426,7 @@ class SingleAgentRuntimeHost:
             "turn_run_id": str(getattr(turn_run, "turn_run_id", "") or ""),
             "turn_run_closed": False,
             "turn_run_interruption_recorded": turn_run_recorded,
+            "turn_runtime_interruption_event_recorded": turn_interruption_event is not None,
             "public_terminal_event_appended": False,
             "runtime_interruption_recorded": True,
             "failure_code": failure_code,
@@ -745,7 +790,10 @@ def _orphaned_chat_run_needs_interruption_record(run: RuntimeRun) -> bool:
     diagnostics = dict(run.diagnostics or {})
     reason = str(diagnostics.get("reason") or "").strip()
     if diagnostics.get("semantic_terminal") is False and diagnostics.get("recoverable") is True:
-        return False
+        return not (
+            bool(str(diagnostics.get("interrupted_turn_recovery_entry_event_id") or "").strip())
+            and diagnostics.get("interrupted_turn_continuation_pending") is True
+        )
     return reason in _RECOVERABLE_RUNTIME_INTERRUPTION_CODES or diagnostics.get("cancelled") is True
 
 
@@ -799,9 +847,11 @@ def _runtime_interruption_diagnostics(
 
 def _turn_run_id_candidates_for_runtime_run(run: RuntimeRun) -> list[str]:
     diagnostics = dict(run.diagnostics or {})
+    agent_scope = dict(diagnostics.get("agent_run_scope") or {}) if isinstance(diagnostics.get("agent_run_scope"), dict) else {}
     candidates = [
         str(diagnostics.get("runtime_turn_run_id") or "").strip(),
         str(diagnostics.get("turn_run_id") or "").strip(),
+        str(agent_scope.get("turn_run_id") or "").strip(),
     ]
     stream_run_id = str(run.stream_run_id or "").strip()
     if stream_run_id:

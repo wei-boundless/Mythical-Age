@@ -41,6 +41,12 @@ def stable_tool_schema_catalog_payload(
     if not tools:
         return {}
     return {
+        "tool_binding_contract": {
+            "contract_role": "cacheable_tool_contract_view",
+            "native_binding": "model_request.tools",
+            "native_binding_semantics": "authoritative_structured_tool_call_schema",
+            "cache_rule": "This message is the cacheable tool contract view; the native tools payload carries the same schema fingerprint for provider tool calling and is not prompt-prefix text.",
+        },
         "tool_catalog_hash": str(tool_catalog_manifest.tool_catalog_hash or ""),
         "stable_tool_catalog_hash": str(tool_catalog_manifest.stable_tool_catalog_hash or ""),
         "tool_schema_refs": [dict(item) for item in tuple(tool_catalog_manifest.tool_schema_refs or ())],

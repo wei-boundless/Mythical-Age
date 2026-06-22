@@ -6,6 +6,7 @@ from typing import Any
 from runtime.prompt_accounting.serializer import canonical_json, normalize_messages, normalize_tools
 from prompt_composition.provider_payload_plan import build_provider_payload_plan
 
+from .lightweight_chat_model import provider_message_payloads, provider_tool_payloads
 from .provider_cache_policy import ProviderCachePolicy, ProviderCachePolicyResolver
 from .provider_payload import ProviderPayloadManifest
 
@@ -96,19 +97,26 @@ class ModelRequestBuilder:
         segment_plan: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> ModelRequestPacket:
-        normalized_messages = tuple(normalize_messages(list(messages or [])))
-        normalized_tools = tuple(normalize_tools(list(tools or [])))
+        raw_messages = list(messages or [])
+        raw_tools = list(tools or [])
+        normalized_messages = tuple(normalize_messages(raw_messages))
+        normalized_tools = tuple(normalize_tools(raw_tools))
         plan = dict(segment_plan or {})
         bindings = tuple(_bindings_from_plan(plan, normalized_messages))
         stable_prefix_hash = _stable_prefix_hash(bindings)
         tier_hashes = _prefix_tier_hashes(bindings)
         binding_diagnostics = _binding_diagnostics(bindings, normalized_messages)
         metadata_payload = dict(metadata or {})
+        cache_relevant_params = dict(metadata_payload.get("cache_relevant_params") or {})
+        provider_transport_messages = tuple(provider_message_payloads(raw_messages))
+        provider_transport_tools = tuple(
+            provider_tool_payloads(raw_tools, strict=_transport_tool_strict(cache_relevant_params))
+        )
         tool_catalog_manifest_payload = _tool_catalog_manifest_from_metadata(metadata_payload)
         canonical = canonical_json(
             {
-                "messages": list(normalized_messages),
-                "tools": list(normalized_tools),
+                "messages": list(provider_transport_messages),
+                "tools": list(provider_transport_tools),
             }
         )
         cache_policy = self.cache_policy_resolver.resolve(provider=provider, model=model, base_url=base_url)
@@ -116,10 +124,10 @@ class ModelRequestBuilder:
             request_id=str(request_id or ""),
             provider=str(provider or ""),
             model=str(model or ""),
-            messages=normalized_messages,
-            tools=normalized_tools,
+            messages=provider_transport_messages,
+            tools=provider_transport_tools,
             segment_bindings=bindings,
-            request_params=dict(metadata_payload.get("cache_relevant_params") or {}),
+            request_params=cache_relevant_params,
             tool_catalog_manifest=tool_catalog_manifest_payload,
             assembly_plan_id=str(
                 dict(metadata_payload.get("prompt_manifest") or {}).get("prompt_assembly_plan_ref")
@@ -166,6 +174,15 @@ class ModelRequestBuilder:
                 "provider_payload_plan": provider_payload_plan.to_dict(),
                 "tool_catalog_manifest_ref": str(tool_catalog_manifest_payload.get("manifest_id") or ""),
                 "tool_catalog_manifest_hash": str(tool_catalog_manifest_payload.get("tool_catalog_hash") or ""),
+                "provider_transport_payload": {
+                    "message_count": len(provider_transport_messages),
+                    "tool_count": len(provider_transport_tools),
+                    "tool_schema_sorted_by_name": True,
+                    "messages_include_provider_reasoning_content": any(
+                        bool(dict(message).get("reasoning_content"))
+                        for message in provider_transport_messages
+                    ),
+                },
                 "unplanned_message_count": max(0, len(normalized_messages) - len(bindings)),
                 **binding_diagnostics,
                 "prefix_tier_hashes": tier_hashes,
@@ -280,6 +297,15 @@ def _tool_catalog_manifest_from_metadata(metadata: dict[str, Any]) -> dict[str, 
     prompt_manifest = dict(metadata.get("prompt_manifest") or {}) if isinstance(metadata.get("prompt_manifest"), dict) else {}
     nested = prompt_manifest.get("tool_catalog_manifest")
     return dict(nested) if isinstance(nested, dict) else {}
+
+
+def _transport_tool_strict(cache_relevant_params: dict[str, Any]) -> bool | None:
+    options = cache_relevant_params.get("tool_call_options")
+    if isinstance(options, dict) and "strict" in options and options.get("strict") is not None:
+        return bool(options.get("strict"))
+    if cache_relevant_params.get("response_format"):
+        return True
+    return None
 
 
 def _cache_role(value: Any) -> str:

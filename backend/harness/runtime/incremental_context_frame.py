@@ -4,7 +4,7 @@ import hashlib
 import json
 from typing import Any
 
-from harness.runtime.prompt_segment_plan import stable_text_hash
+from harness.runtime.prompt_segment_plan import stable_model_message_hash, stable_text_hash
 
 
 _FRAME_SOURCE_REF = "single_agent_turn_incremental_context_frame"
@@ -288,7 +288,7 @@ def _base_segments_by_message_index(base_segment_plan: dict[str, Any]) -> dict[i
 
 
 def _stable_model_message_hash(message: dict[str, Any]) -> str:
-    return stable_text_hash(_canonical_json(dict(message or {})))
+    return stable_model_message_hash(dict(message or {}))
 
 
 def _canonical_json(value: Any) -> str:

@@ -25,21 +25,6 @@ class _EmptyPromptAccountingLedger:
         return {}
 
 
-class _RecentPromptAccountingLedger:
-    def __init__(self, ledger: Any, *, limit: int = 32) -> None:
-        self._ledger = ledger
-        self._limit = max(1, int(limit or 32))
-
-    def list_token_usage(self, **kwargs: Any) -> list[Any]:
-        list_recent = getattr(self._ledger, "list_recent_token_usage", None)
-        if not callable(list_recent):
-            return []
-        return list(list_recent(**kwargs, limit=self._limit) or [])
-
-    def list_prompt_cache(self, **_kwargs: Any) -> list[Any]:
-        return []
-
-
 def count_tokens(text: str) -> int:
     return TOKEN_COUNTER.count_text(text, provider="local", model="session_compaction").tokens
 
@@ -74,7 +59,7 @@ def build_context_usage_snapshot(
         default_reserved_output_tokens=reserved_output_tokens,
     )
     context_fingerprint = _messages_context_fingerprint(raw_messages)
-    previous_context_fingerprint = _latest_record_context_fingerprint(observation_ledger, session_id=session_id)
+    previous_context_fingerprint = ""
     pressure = _build_session_pressure(
         runtime,
         session_id=session_id,
@@ -83,18 +68,11 @@ def build_context_usage_snapshot(
         provider=provider,
         model=model,
     )
-    fallback_messages = _context_meter_fallback_messages(
-        runtime,
-        session_id=session_id,
-        raw_messages=raw_messages,
-        session_record=session_record,
-    )
     return meter.build_snapshot(
         session_id=session_id,
         provider=provider,
         model=model,
         reserved_output_tokens=reserved_output_tokens,
-        fallback_messages=fallback_messages,
         session_pressure_tokens=int(pressure.get("tokens") or 0),
         session_pressure_source="runtime.context_management.session_pressure",
         session_pressure_diagnostics={
@@ -114,8 +92,6 @@ def _context_observation_ledger(ledger: Any) -> Any:
     if callable(scoped_reads_are_expensive):
         try:
             if bool(scoped_reads_are_expensive()):
-                if callable(getattr(ledger, "list_recent_token_usage", None)):
-                    return _RecentPromptAccountingLedger(ledger)
                 return _EmptyPromptAccountingLedger()
         except Exception:
             return _EmptyPromptAccountingLedger()
@@ -151,31 +127,6 @@ def _messages_context_fingerprint(messages: list[dict[str, Any]] | tuple[dict[st
             payload["tool_calls"] = [dict(call) for call in list(item.get("tool_calls") or []) if isinstance(call, dict)]
         normalized.append(payload)
     return _stable_hash(normalized)
-
-
-def _latest_record_context_fingerprint(ledger: Any, *, session_id: str) -> str:
-    list_token_usage = getattr(ledger, "list_token_usage", None)
-    if not callable(list_token_usage):
-        return ""
-    records = sorted(
-        list(list_token_usage(session_id=session_id) or []),
-        key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0),
-    )
-    for record in reversed(records):
-        fingerprint = _record_context_fingerprint(record)
-        if fingerprint:
-            return fingerprint
-    return ""
-
-
-def _record_context_fingerprint(record: Any) -> str:
-    diagnostics = dict(getattr(record, "diagnostics", {}) or {})
-    direct = str(diagnostics.get("context_fingerprint") or "").strip()
-    if direct:
-        return direct
-    prompt_manifest = dict(diagnostics.get("prompt_manifest") or {})
-    context_window = dict(prompt_manifest.get("context_window") or {})
-    return str(context_window.get("active_history_fingerprint") or context_window.get("context_fingerprint") or "").strip()
 
 
 def _stable_hash(value: Any) -> str:
@@ -228,28 +179,6 @@ def _build_session_pressure(
         **protocol_stats,
         "authority": "runtime.context_management.session_pressure",
     }
-
-
-def _context_meter_fallback_messages(
-    runtime: Any,
-    *,
-    session_id: str,
-    raw_messages: list[dict[str, Any]],
-    session_record: dict[str, Any] | None,
-) -> list[dict[str, Any]]:
-    record = dict(session_record or _load_session_record(runtime, session_id=session_id) or {})
-    compressed_context = str(record.get("compressed_context") or "").strip()
-    boundary_created_at = _safe_float(record.get("provider_protocol_compaction_created_at"))
-    protocol_messages, _protocol_stats = _protocol_pressure_messages(
-        _load_api_transcript(runtime, session_id=session_id),
-        boundary_created_at=boundary_created_at,
-        compressed_context_present=bool(compressed_context),
-    )
-    messages = [*_public_pressure_messages(raw_messages), *protocol_messages]
-    return sorted(
-        messages,
-        key=lambda item: (_message_created_at(item), str(item.get("role") or ""), str(item.get("tool_call_id") or "")),
-    )
 
 
 def _load_session_record(runtime: Any, *, session_id: str) -> dict[str, Any]:
@@ -330,9 +259,9 @@ def _protocol_pressure_messages(
 def _protocol_pressure_message(message: dict[str, Any]) -> tuple[dict[str, Any], dict[str, int]]:
     role = str(message.get("role") or message.get("type") or "").strip()
     if role == "tool":
-        content, omitted = _bounded_protocol_text(message.get("content"), limit=3_000)
+        content = str(message.get("content") or "")
         if not content and not str(message.get("tool_call_id") or "").strip():
-            return {}, {"bounded_chars": 0, "omitted_chars": omitted}
+            return {}, {"bounded_chars": 0, "omitted_chars": 0}
         payload: dict[str, Any] = {"role": "tool", "content": content}
         tool_call_id = str(message.get("tool_call_id") or "").strip()
         if tool_call_id:
@@ -343,7 +272,7 @@ def _protocol_pressure_message(message: dict[str, Any]) -> tuple[dict[str, Any],
         created_at = _message_created_at(message)
         if created_at > 0:
             payload["created_at"] = created_at
-        return payload, {"bounded_chars": len(content), "omitted_chars": omitted}
+        return payload, {"bounded_chars": len(content), "omitted_chars": 0}
     if role != "assistant":
         return {}, {"bounded_chars": 0, "omitted_chars": 0}
 
@@ -360,11 +289,10 @@ def _protocol_pressure_message(message: dict[str, Any]) -> tuple[dict[str, Any],
     if created_at > 0:
         payload["created_at"] = created_at
     if has_tool_calls:
-        content, content_omitted = _bounded_protocol_text(message.get("content"), limit=4_000)
+        content = str(message.get("content") or "")
         if content:
             payload["content"] = content
             bounded_chars += len(content)
-            omitted_chars += content_omitted
     if reasoning:
         payload["reasoning_content"] = reasoning
         bounded_chars += len(reasoning)
@@ -374,16 +302,6 @@ def _protocol_pressure_message(message: dict[str, Any]) -> tuple[dict[str, Any],
     if len(payload) <= 1:
         return {}, {"bounded_chars": 0, "omitted_chars": omitted_chars}
     return payload, {"bounded_chars": bounded_chars, "omitted_chars": omitted_chars}
-
-
-def _bounded_protocol_text(value: Any, *, limit: int) -> tuple[str, int]:
-    text = str(value or "")
-    if not text:
-        return "", 0
-    limit = max(120, int(limit or 120))
-    if len(text) <= limit:
-        return text, 0
-    return text[:limit].rstrip() + "\n[provider protocol content omitted from pressure estimate]", len(text) - limit
 
 
 def _message_created_at(message: dict[str, Any]) -> float:

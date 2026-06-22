@@ -149,6 +149,8 @@ def _render_contract(spec: dict[str, Any], *, source_kind: str) -> dict[str, Any
 
 
 def _layer_for_source_kind(source_kind: str) -> str:
+    if source_kind == "runtime_baseline_refs":
+        return "runtime_protocol_stable"
     if source_kind == "dynamic_context_fragment":
         return "runtime_dynamic"
     if source_kind in {
@@ -208,6 +210,7 @@ def _authority_class_for_source_kind(source_kind: str) -> str:
         "runtime_editor_context_index": "editor_context_index",
         "runtime_editor_evidence_delta": "editor_evidence_delta",
         "runtime_memory_context": "runtime_memory_context",
+        "runtime_baseline_refs": "runtime_baseline_refs",
         "runtime_protocol": "runtime_protocol",
         "tool_catalog": "tool_catalog",
     }.get(source_kind, "runtime_prompt_slot")
@@ -236,14 +239,20 @@ def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str) -> str:
         return "file_evidence_cursor"
     if source_kind == "runtime_memory_context" or kind == "runtime_memory_context":
         return "runtime_memory_context"
+    if source_kind == "runtime_baseline_refs" or kind == "runtime_baseline_refs":
+        return "runtime_baseline_refs"
+    if kind == "dynamic_projection":
+        return "runtime_delta_tail"
     if source_kind == "runtime_incremental_context_frame" or kind == "incremental_context_frame":
         return "dynamic_context_tail"
     if source_kind == "runtime_editor_evidence_delta" or kind == "current_editor_evidence_delta":
         return "current_exact_evidence"
     if kind == "read_evidence_injection":
         return "current_exact_evidence"
-    if kind in {"session_history", "provider_protocol_history"}:
+    if kind in {"session_history", "session_history_context", "session_history_entry", "provider_protocol_history"}:
         return "history_replay"
+    if kind == "session_history_tail_context":
+        return "dynamic_context_tail"
     if kind in {"user_steering_updates", "volatile_user", "tool_observations", "semantic_compaction_request"}:
         return "user_editor_volatile"
     if str(cache_role or "") not in {"volatile", "never_cache"}:

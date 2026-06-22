@@ -166,7 +166,7 @@ def test_session_tokens_exposes_context_meter_and_billing_totals(tmp_path: Path,
     assert runtime.session_manager.load_session(session_id) == before
 
 
-def test_session_tokens_current_context_uses_latest_model_request_accounting(tmp_path: Path, monkeypatch) -> None:
+def test_session_tokens_current_context_uses_session_pressure_not_model_accounting(tmp_path: Path, monkeypatch) -> None:
     runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
     ledger = PromptAccountingLedger(tmp_path)
     runtime.harness_runtime = SimpleNamespace(
@@ -207,12 +207,14 @@ def test_session_tokens_current_context_uses_latest_model_request_accounting(tmp
 
     meter = response["context_meter"]
     diagnostics = meter["diagnostics"]
-    assert meter["authority"] == "runtime.prompt_accounting.context_usage_snapshot"
-    assert meter["estimate_mode"] == "local_predicted_anchor_invalid"
-    assert meter["current_context_tokens"] > 72_000
-    assert meter["estimated_pending_tokens"] > 0
-    assert diagnostics["current_context_authority"] == "runtime.prompt_accounting.model_request_accounting"
-    assert diagnostics["session_pressure_used_as_current_context"] is False
+    assert meter["authority"] == "runtime.context_management.session_pressure_snapshot"
+    assert meter["estimate_mode"] == "session_pressure"
+    assert meter["current_context_tokens"] == diagnostics["session_pressure_tokens"]
+    assert meter["current_context_tokens"] != 72_000
+    assert meter["estimated_pending_tokens"] == 0
+    assert diagnostics["raw_record_count"] == 0
+    assert diagnostics["current_context_authority"] == "runtime.context_management.session_pressure"
+    assert diagnostics["session_pressure_used_as_current_context"] is True
     assert diagnostics["session_pressure"]["public_history_tokens"] > 0
     assert meter["compaction_pressure_tokens"] == meter["current_context_tokens"]
 
@@ -253,9 +255,14 @@ def test_session_tokens_adds_pending_messages_after_local_prediction(tmp_path: P
     )
 
     meter = response["context_meter"]
-    assert meter["current_context_tokens"] > 40_000
-    assert meter["estimated_pending_tokens"] > 0
-    assert meter["diagnostics"]["observed_context_source"] == "local_prediction"
+    diagnostics = meter["diagnostics"]
+    assert meter["authority"] == "runtime.context_management.session_pressure_snapshot"
+    assert meter["estimate_mode"] == "session_pressure"
+    assert meter["current_context_tokens"] == diagnostics["session_pressure_tokens"]
+    assert meter["current_context_tokens"] > 0
+    assert meter["estimated_pending_tokens"] == 0
+    assert diagnostics["session_pressure"]["public_message_count"] == 5
+    assert diagnostics["session_pressure_used_as_current_context"] is True
 
 
 def test_session_tokens_adds_pending_provider_protocol_after_local_prediction(tmp_path: Path, monkeypatch) -> None:
@@ -314,10 +321,15 @@ def test_session_tokens_adds_pending_provider_protocol_after_local_prediction(tm
     )
 
     meter = response["context_meter"]
-    assert meter["current_context_tokens"] > 40_000
-    assert meter["estimated_pending_tokens"] > 0
-    assert meter["diagnostics"]["provider_estimated_pending_tokens"] > 0
-    assert meter["diagnostics"]["observed_context_source"] == "local_prediction"
+    diagnostics = meter["diagnostics"]
+    pressure = diagnostics["session_pressure"]
+    assert meter["authority"] == "runtime.context_management.session_pressure_snapshot"
+    assert meter["estimate_mode"] == "session_pressure"
+    assert meter["current_context_tokens"] == diagnostics["session_pressure_tokens"]
+    assert meter["estimated_pending_tokens"] == 0
+    assert pressure["provider_protocol_message_count"] == 2
+    assert pressure["provider_protocol_tokens"] > 0
+    assert diagnostics["session_pressure_used_as_current_context"] is True
 
 
 def test_session_tokens_cache_invalidates_when_prompt_accounting_changes(tmp_path: Path, monkeypatch) -> None:
@@ -360,8 +372,11 @@ def test_session_tokens_cache_invalidates_when_prompt_accounting_changes(tmp_pat
         )
     )
 
-    assert first["context_meter"]["current_context_tokens"] != 88_000
-    assert second["context_meter"]["current_context_tokens"] > 88_000
+    assert first["context_meter"]["authority"] == "runtime.context_management.session_pressure_snapshot"
+    assert second["context_meter"]["authority"] == "runtime.context_management.session_pressure_snapshot"
+    assert first["context_meter"]["current_context_tokens"] == second["context_meter"]["current_context_tokens"]
+    assert second["context_meter"]["current_context_tokens"] != 88_000
+    assert second["billing_totals"]["predicted_total_tokens"] == 88_000
 
 
 def test_session_tokens_skips_raw_accounting_when_scoped_reads_are_expensive(tmp_path: Path, monkeypatch) -> None:
@@ -398,7 +413,7 @@ def test_session_tokens_skips_raw_accounting_when_scoped_reads_are_expensive(tmp
     assert meter["diagnostics"]["session_pressure_used_as_current_context"] is True
 
 
-def test_session_tokens_uses_recent_usage_when_scoped_reads_are_expensive(tmp_path: Path, monkeypatch) -> None:
+def test_session_tokens_does_not_use_recent_usage_as_current_context_when_scoped_reads_are_expensive(tmp_path: Path, monkeypatch) -> None:
     runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
 
     class ExpensiveLedgerWithRecentUsage:
@@ -411,23 +426,8 @@ def test_session_tokens_uses_recent_usage_when_scoped_reads_are_expensive(tmp_pa
         def list_token_usage(self, **_kwargs):
             raise AssertionError("context meter must not use full token usage scan for expensive ledgers")
 
-        def list_recent_token_usage(self, **kwargs):
-            assert kwargs["session_id"] == session_id
-            assert 0 < int(kwargs["limit"]) <= 32
-            return [
-                ModelTokenUsageRecord(
-                    usage_id="tokuse:modelreq:recent:local_prediction",
-                    request_id="modelreq:recent",
-                    session_id=session_id,
-                    provider="deepseek",
-                    model="deepseek-v4-pro",
-                    source="local_prediction",
-                    prompt_tokens=155_000,
-                    total_tokens=155_000,
-                    created_at=9_999_999_999.0,
-                    diagnostics={"cache_metric_scope": "agent_runtime", "packet_ref": "rtpacket:recent"},
-                )
-            ]
+        def list_recent_token_usage(self, **_kwargs):
+            raise AssertionError("context meter must not use recent prompt accounting as current context")
 
     runtime.harness_runtime = SimpleNamespace(
         single_agent_runtime_host=SimpleNamespace(prompt_accounting_ledger=ExpensiveLedgerWithRecentUsage())
@@ -444,12 +444,13 @@ def test_session_tokens_uses_recent_usage_when_scoped_reads_are_expensive(tmp_pa
     )
 
     meter = response["context_meter"]
-    assert meter["estimate_mode"] == "local_predicted_no_provider_anchor"
-    assert meter["current_context_tokens"] == 155_000
-    assert meter["compaction_pressure_tokens"] == 155_000
-    assert meter["diagnostics"]["raw_record_count"] == 1
-    assert meter["diagnostics"]["current_context_authority"] == "runtime.prompt_accounting.model_request_accounting"
-    assert meter["diagnostics"]["session_pressure_used_as_current_context"] is False
+    assert meter["authority"] == "runtime.context_management.session_pressure_snapshot"
+    assert meter["estimate_mode"] == "session_pressure"
+    assert meter["current_context_tokens"] == meter["diagnostics"]["session_pressure_tokens"]
+    assert meter["compaction_pressure_tokens"] == meter["current_context_tokens"]
+    assert meter["diagnostics"]["raw_record_count"] == 0
+    assert meter["diagnostics"]["current_context_authority"] == "runtime.context_management.session_pressure"
+    assert meter["diagnostics"]["session_pressure_used_as_current_context"] is True
 
 
 def test_session_tokens_counts_only_provider_protocol_messages_as_protocol_pressure(tmp_path: Path, monkeypatch) -> None:

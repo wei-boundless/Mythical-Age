@@ -9,7 +9,7 @@ from harness.loop.model_action_protocol import ModelActionRequest
 from harness.runtime.compiler import RuntimeCompiler
 
 
-def test_single_turn_plan_mode_is_visible_in_prompt_and_output_contract(tmp_path: Path) -> None:
+def test_single_turn_plan_mode_is_visible_in_dynamic_runtime_and_output_contract(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     backend_dir.mkdir()
 
@@ -36,10 +36,13 @@ def test_single_turn_plan_mode_is_visible_in_prompt_and_output_contract(tmp_path
     ).packet
 
     stable_payload = _payload_after_title(packet, "Single agent turn stable boundary")
-    model_input = "\n".join(str(message.get("content") or "") for message in packet.model_messages)
+    dynamic_payload = _payload_after_title(packet, "Single agent turn dynamic runtime")
+    projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
 
-    assert stable_payload["planning_protocol"]["plan_mode_active"] is True
-    assert stable_payload["planning_protocol"]["implementation_allowed"] is False
+    assert "planning_protocol" not in stable_payload
+    assert "planning_protocol" not in stable_payload["output_contract"]
+    assert projection["planning"]["plan_mode_active"] is True
+    assert projection["planning"]["implementation_allowed"] is False
     assert packet.output_contract["planning_protocol"]["mode"] == "plan_only"
 
 
@@ -127,8 +130,9 @@ def test_plan_mode_admission_allows_read_only_tool() -> None:
 
 
 def _payload_after_title(packet, title: str) -> dict:
+    marker = title + "\n"
     for message in packet.model_messages:
         content = str(message.get("content") or "")
-        if content.startswith(title + "\n"):
-            return json.loads(content.split("\n", 1)[1])
+        if marker in content:
+            return json.loads(content.split(marker, 1)[1])
     raise AssertionError(f"missing message title: {title}")

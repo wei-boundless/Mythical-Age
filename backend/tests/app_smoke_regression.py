@@ -135,6 +135,56 @@ def test_chat_accepts_per_turn_model_selection() -> None:
             runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
 
+def test_chat_run_creation_defers_auto_compaction_past_api_boundary(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_astream(request):
+        captured["runtime_profile"] = dict(request.runtime_profile)
+        yield {"type": "done", "content": "ok"}
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("POST /chat/runs must not run auto compaction on the API event loop")
+
+    monkeypatch.setattr(
+        "harness.entrypoint.runtime_facade.auto_compact_session_if_needed",
+        fail_if_called,
+    )
+
+    with isolated_app_client(app) as client:
+        runtime = app_runtime.require_ready()
+        original_astream = runtime.harness_runtime.astream
+        runtime.harness_runtime.astream = fake_astream  # type: ignore[method-assign]
+        try:
+            created = client.post("/api/sessions", json={"title": "Deferred compaction"})
+            assert created.status_code == 200
+            session_id = created.json()["id"]
+
+            response = client.post(
+                "/api/chat/runs",
+                json={
+                    "message": "continue after reconnect",
+                    "session_id": session_id,
+                    "client_message_id": "user:deferred-compaction-api",
+                },
+            )
+
+            assert response.status_code == 200
+            run_payload = response.json()
+            stream_run_id = run_payload["stream_run_id"]
+            assert stream_run_id
+            replay = _replay_payload(client, run_payload["replay_url"])
+            assert "turn_completed" in _replay_event_types(replay)
+            assert captured["runtime_profile"]["precommitted_user_message_defer_auto_compaction"] is True
+            supervisor = runtime.harness_runtime.single_agent_runtime_host.agent_run_supervisor
+            for _attempt in range(100):
+                if supervisor.active_cell_for_stream_run(stream_run_id, session_id=session_id) is None:
+                    break
+                time.sleep(0.02)
+            assert supervisor.active_cell_for_stream_run(stream_run_id, session_id=session_id) is None
+        finally:
+            runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
+
+
 def test_chat_routes_gpt_image_2_to_image_generation() -> None:
     with isolated_app_client(app) as client:
         original_generate = None

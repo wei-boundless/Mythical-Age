@@ -3656,6 +3656,12 @@ export type PromptManifestSection = {
   source: string;
   model_visible: boolean;
   chars: number;
+  original_chars: number;
+  injected_chars: number;
+  content_hash: string;
+  hash_algorithm: string;
+  truncated: boolean;
+  truncation_limit: number;
   preview: string;
   order: number;
 };

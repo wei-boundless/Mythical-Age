@@ -5,6 +5,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+from runtime.prompt_accounting.serializer import canonical_json, normalize_messages
+
 
 SegmentCacheRole = Literal["cacheable_prefix", "session_stable", "volatile", "never_cache"]
 SegmentPrefixTier = Literal["provider_global", "session", "task", "volatile", "none"]
@@ -84,7 +86,7 @@ def build_prompt_segment_plan(
                 raise ValueError(f"dynamic/volatile segment requires dynamic context metadata: {kind}")
         content_hash = stable_text_hash(content)
         model_message_payload = spec.get("model_message") if isinstance(spec.get("model_message"), dict) else {"role": role, "content": content}
-        model_message_hash = stable_text_hash(_canonical_json(model_message_payload))
+        model_message_hash = stable_model_message_hash(model_message_payload)
         segment = PromptSegmentPlanSegment(
             segment_id=_segment_id(packet_id=packet_id, ordinal=index + 1, kind=kind, content_hash=content_hash),
             kind=kind,
@@ -151,6 +153,12 @@ def build_prompt_segment_plan(
 
 def stable_text_hash(text: str) -> str:
     return "sha256:" + hashlib.sha256(str(text or "").encode("utf-8", errors="ignore")).hexdigest()
+
+
+def stable_model_message_hash(message: dict[str, Any]) -> str:
+    normalized = normalize_messages([dict(message or {})])
+    payload = normalized[0] if normalized else {"role": "user", "content": ""}
+    return stable_text_hash(canonical_json(payload))
 
 
 def _segment_id(*, packet_id: str, ordinal: int, kind: str, content_hash: str) -> str:

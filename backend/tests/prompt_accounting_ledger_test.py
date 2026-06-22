@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,11 +17,17 @@ from runtime.prompt_accounting import (
     extract_provider_usage,
 )
 from runtime.model_gateway import ModelRequestBuilder
+from runtime.prompt_accounting.serializer import normalize_messages
 from harness.runtime.compiler import RuntimeCompiler
 from harness.runtime.dynamic_context.task_state_projector import TaskStateProjector
 from harness.runtime.environment_prompt_controller import build_base_prompt_mount_plan, prompt_mount_plan_for_invocation
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 from prompt_library.environment_lifecycle_prompts import ENVIRONMENT_LIFECYCLE_PROMPT_DEFAULTS_BY_ENVIRONMENT
+
+
+def _short_schema_ref(schema: dict[str, object]) -> str:
+    payload = json.dumps(schema, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:10]
 
 
 def _model_input_text(packet) -> str:
@@ -39,6 +46,161 @@ def _message_content_with_title(packet, title: str) -> str:
 def _message_payload_with_title(packet, title: str) -> dict[str, object]:
     content = _message_content_with_title(packet, title)
     return json.loads(content.split("\n", 1)[1])
+
+
+def _assert_cacheable_prefix_is_contiguous(packet) -> None:
+    seen_dynamic_tail = False
+    violations: list[tuple[int, str]] = []
+    for segment in list(packet.segment_plan.get("segments") or []):
+        stable = (
+            segment.get("cache_role") in {"cacheable_prefix", "session_stable"}
+            and segment.get("prefix_tier") not in {"volatile", "none"}
+        )
+        if seen_dynamic_tail and stable:
+            violations.append((int(segment.get("ordinal") or 0), str(segment.get("kind") or "")))
+        if not stable:
+            seen_dynamic_tail = True
+    assert violations == []
+
+
+def test_prompt_cache_recent_read_returns_latest_records_without_full_scan(tmp_path: Path) -> None:
+    ledger = PromptAccountingLedger(tmp_path)
+    for index in range(6):
+        ledger.record_prompt_cache(
+            PromptCacheRecord(
+                cache_record_id=f"pcache:{index}",
+                request_id=f"modelreq:{index}",
+                run_id="run:hot",
+                session_id="session:hot",
+                cache_key="prefix:hot",
+                prefix_hash="sha256:hot",
+                scope="provider_prefix",
+                status="eligible",
+                created_at=10.0 + float(index),
+            )
+        )
+    ledger.record_prompt_cache(
+        PromptCacheRecord(
+            cache_record_id="pcache:other",
+            request_id="modelreq:other",
+            run_id="run:other",
+            session_id="session:other",
+            cache_key="prefix:other",
+            prefix_hash="sha256:other",
+            scope="provider_prefix",
+            status="eligible",
+            created_at=99.0,
+        )
+    )
+
+    records = ledger.list_recent_prompt_cache(run_id="run:hot", session_id="session:hot", limit=3)
+
+    assert [record.cache_record_id for record in records] == ["pcache:3", "pcache:4", "pcache:5"]
+
+
+def test_provider_payload_prefix_follows_transport_order_without_inserting_native_tools() -> None:
+    schema = {"type": "object", "properties": {"path": {"type": "string"}}}
+    tool_index = {
+        "available_tools": [
+            {
+                "tool_name": "read_file",
+                "input_schema_ref": _short_schema_ref(schema),
+            }
+        ]
+    }
+    messages = [
+        {"role": "system", "content": "Global protocol"},
+        {"role": "system", "content": "Tool index\n" + json.dumps(tool_index, ensure_ascii=False, sort_keys=True)},
+        {"role": "user", "content": "Current request that must stay in the dynamic tail"},
+    ]
+    tools = [{"name": "read_file", "description": "Read file", "schema": schema}]
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:provider-transport-order",
+        invocation_kind="single_agent_turn",
+        message_specs=[
+            {
+                "role": "system",
+                "content": messages[0]["content"],
+                "kind": "global_static",
+                "source_ref": "global",
+                "cache_scope": "global",
+                "cache_role": "cacheable_prefix",
+                "prefix_tier": "provider_global",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "system",
+                "content": messages[1]["content"],
+                "kind": "tool_index_stable",
+                "source_ref": "tools",
+                "cache_scope": "session",
+                "cache_role": "session_stable",
+                "prefix_tier": "session",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "user",
+                "content": messages[2]["content"],
+                "kind": "volatile_user",
+                "source_ref": "current",
+                "cache_scope": "none",
+                "cache_role": "volatile",
+                "prefix_tier": "volatile",
+                "compression_role": "summarize",
+            },
+        ],
+    ).to_dict()
+
+    request = ModelRequestBuilder().build(
+        request_id="modelreq:provider-transport-order",
+        messages=messages,
+        tools=tools,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=segment_plan,
+    )
+    boundary = request.provider_payload_manifest.cache_boundary
+    task_prefix = boundary["tier_prefixes"]["task"]
+
+    assert task_prefix["kinds"] == ["global_static", "tool_index_stable"]
+    assert task_prefix["tool_segment_count"] == 0
+    assert boundary["tool_schema_cache_roles"] == ["never_cache"]
+
+    segment_map = CanonicalPromptSerializer().build_segment_map(
+        request_id=request.request_id,
+        messages=messages,
+        tools=tools,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=segment_plan,
+        model_request=request,
+    )
+    kinds = [segment.kind for segment in segment_map.segments]
+    assert kinds == ["global_static", "tool_index_stable", "volatile_user", "native_tool_binding_schema"]
+    native_tool_segment = segment_map.segments[-1]
+    assert native_tool_segment.cache_role == "never_cache"
+    assert native_tool_segment.prefix_tier == "none"
+    assert native_tool_segment.metadata["provider_payload_prefix_component"] is False
+    assert native_tool_segment.metadata["stable_transport_contract"] is True
+    assert native_tool_segment.metadata["transport_contract_role"] == "stable_transport_contract"
+
+    cache_record = PromptCachePlanner().plan(
+        segment_map,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        model_request=request,
+    )
+    diagnostics = dict(cache_record.diagnostics)
+    assert diagnostics["provider_payload_tool_prefix_predicted_tokens"] == 0
+    assert diagnostics["provider_payload_stable_tool_component_predicted_tokens"] == native_tool_segment.predicted_tokens
+    assert diagnostics["stable_transport_contract_predicted_tokens"] == native_tool_segment.predicted_tokens
+    assert "native_tool_binding_schema" not in {
+        str(item.get("kind") or "") for item in diagnostics["top_volatile_segment_families"]
+    }
+    assert (
+        diagnostics["provider_payload_prefix_predicted_tokens"]
+        == diagnostics["provider_payload_message_prefix_predicted_tokens"]
+    )
 
 
 def _message_content_for_source(packet, source_ref: str) -> str:
@@ -61,6 +223,12 @@ def _segment_by_kind(packet, kind: str) -> dict[str, object]:
         if segment["kind"] == kind:
             return dict(segment)
     raise AssertionError(f"segment kind not found: {kind}")
+
+
+def _assert_runtime_baseline_refs_cacheable(packet) -> None:
+    segment = _segment_by_kind(packet, "runtime_baseline_refs")
+    assert segment["cache_scope"] == "session"
+    assert segment["cache_role"] == "session_stable"
 
 
 def _stable_prompt_text(packet) -> str:
@@ -738,11 +906,12 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert cache_role_by_kind["global_static"] == "cacheable_prefix"
     assert cache_role_by_kind["environment_stable"] == "session_stable"
     assert cache_role_by_kind["task_contract_stable"] == "session_stable"
-    assert cache_role_by_kind["task_runtime_boundary_dynamic"] == "session_stable"
+    assert cache_role_by_kind["task_runtime_boundary_dynamic"] == "volatile"
     assert cache_role_by_kind["volatile_task_state"] == "volatile"
     assert prefix_tier_by_kind["global_static"] == "provider_global"
     assert prefix_tier_by_kind["environment_stable"] == "session"
-    assert prefix_tier_by_kind["task_runtime_boundary_dynamic"] == "task"
+    assert prefix_tier_by_kind["task_runtime_boundary_dynamic"] == "volatile"
+    _assert_cacheable_prefix_is_contiguous(result.packet)
     assert not any(
         segment.cache_role in {"cacheable_prefix", "session_stable"}
         and dict(segment.metadata or {}).get("cache_impact") == "volatile"
@@ -821,12 +990,16 @@ def test_task_execution_memory_payload_stays_volatile_when_memory_lifecycle_moun
     assert "durable memory marker for prefix regression" not in environment_content
     assert "durable memory marker for prefix regression" not in runtime_boundary_content
     assert "durable memory marker for prefix regression" in runtime_memory_content
+    model_visible_text = _model_input_text(with_memory.packet)
+    for internal_label in ("cache_role", "prefix_tier", "volatile_suffix", "session_stable"):
+        assert internal_label not in model_visible_text
+    _assert_cacheable_prefix_is_contiguous(with_memory.packet)
     lifecycle_runtime_segment = _segment_by_kind(with_memory.packet, "lifecycle_runtime_guidance")
     assert lifecycle_runtime_segment["cache_role"] == "volatile"
     assert lifecycle_runtime_segment["prefix_tier"] == "volatile"
     runtime_segment = _segment_by_kind(with_memory.packet, "task_runtime_boundary_dynamic")
-    assert runtime_segment["cache_role"] == "session_stable"
-    assert runtime_segment["prefix_tier"] == "task"
+    assert runtime_segment["cache_role"] == "volatile"
+    assert runtime_segment["prefix_tier"] == "volatile"
     runtime_memory_segment = _segment_by_kind(with_memory.packet, "runtime_memory_context")
     assert runtime_memory_segment["cache_role"] == "volatile"
     assert runtime_memory_segment["prefix_tier"] == "volatile"
@@ -1110,10 +1283,14 @@ def test_task_execution_replay_entries_are_append_only_task_prefix_before_curren
     assert second_kinds.index("task_state_replay_entry") < second_kinds.index("task_runtime_boundary_dynamic")
     assert second_kinds.index("task_runtime_boundary_dynamic") < second_kinds.index("lifecycle_runtime_guidance")
     assert second_kinds.index("lifecycle_runtime_guidance") < second_kinds.index("volatile_task_state")
+    _assert_cacheable_prefix_is_contiguous(second.packet)
     for segment in second.packet.segment_plan["segments"]:
-        if segment["kind"] in {"task_state_replay_entry", "task_runtime_boundary_dynamic"}:
+        if segment["kind"] == "task_state_replay_entry":
             assert segment["cache_role"] == "session_stable"
             assert segment["prefix_tier"] == "task"
+        if segment["kind"] == "task_runtime_boundary_dynamic":
+            assert segment["cache_role"] == "volatile"
+            assert segment["prefix_tier"] == "volatile"
         if segment["kind"] == "lifecycle_runtime_guidance":
             assert segment["cache_role"] == "volatile"
             assert segment["prefix_tier"] == "volatile"
@@ -1138,8 +1315,9 @@ def test_task_execution_replay_entries_are_append_only_task_prefix_before_curren
     assert first_request.session_prefix_hash == second_request.session_prefix_hash
     assert first_request.task_prefix_hash != second_request.task_prefix_hash
     assert first_request.stable_prefix_hash != second_request.stable_prefix_hash
-    assert "task_state_replay_entry" in second_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]["kinds"]
-    assert "task_runtime_boundary_dynamic" in second_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]["kinds"]
+    task_prefix_kinds = second_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]["kinds"]
+    assert "task_state_replay_entry" in task_prefix_kinds
+    assert "task_runtime_boundary_dynamic" not in task_prefix_kinds
     assert first_request.diagnostics["segment_bindings_match_planned_messages"] is True
     assert second_request.diagnostics["segment_bindings_match_planned_messages"] is True
 
@@ -1629,6 +1807,7 @@ def test_prompt_accounting_marks_deepseek_reasoning_content_without_storing_raw_
     assert normalized_assistant["reasoning_content_estimated_tokens"] > 0
     assert str(normalized_assistant["reasoning_content_hash"]).startswith("sha256:")
     assert "hidden DeepSeek native reasoning" not in normalized_json
+    assert normalize_messages([normalized_assistant])[0] == normalized_assistant
 
     segment_map = CanonicalPromptSerializer().build_segment_map(
         request_id="modelreq:deepseek-reasoning-accounting",
@@ -1638,9 +1817,25 @@ def test_prompt_accounting_marks_deepseek_reasoning_content_without_storing_raw_
         model_request=request,
     )
     assistant_segment = segment_map.segments[1]
+    without_reasoning = [
+        messages[0],
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"id": "call:1", "name": "get_weather", "args": {}}],
+        },
+        messages[2],
+    ]
+    baseline_segment = CanonicalPromptSerializer().build_segment_map(
+        request_id="modelreq:deepseek-reasoning-accounting-baseline",
+        messages=without_reasoning,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+    ).segments[1]
 
-    assert assistant_segment.metadata["reasoning_content_predicted_tokens"] == normalized_assistant["reasoning_content_estimated_tokens"]
-    assert assistant_segment.predicted_tokens >= normalized_assistant["reasoning_content_estimated_tokens"]
+    assert assistant_segment.metadata["reasoning_content_predicted_tokens"] > 0
+    assert assistant_segment.content_hash != baseline_segment.content_hash
+    assert assistant_segment.predicted_tokens > baseline_segment.predicted_tokens
 
 
 def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
@@ -1864,7 +2059,9 @@ def test_single_turn_prompt_cache_keeps_current_request_out_of_stable_prefix() -
     first_cache = _cache_record_for_packet(first.packet, request_id="modelreq:cache-current-request:1")
     second_cache = _cache_record_for_packet(second.packet, request_id="modelreq:cache-current-request:2")
 
-    assert _segment_by_source(first.packet, "single_agent_turn_runtime_delta")["cache_scope"] == "task"
+    _assert_runtime_baseline_refs_cacheable(first.packet)
+    assert _segment_by_source(first.packet, "single_agent_turn_runtime_delta")["cache_scope"] == "none"
+    assert _segment_by_source(first.packet, "single_agent_turn_runtime_delta")["cache_role"] == "volatile"
     assert _segment_by_source(first.packet, "single_agent_turn_current_request")["cache_scope"] == "none"
     assert "开始执行 110 计划书" not in _stable_prompt_text(first.packet)
     assert "启动同一个优化计划" not in _stable_prompt_text(second.packet)
@@ -1908,27 +2105,25 @@ def test_active_work_prompt_cache_keeps_current_work_state_volatile() -> None:
         runtime_assembly=runtime_assembly,
     )
 
-    first_volatile_runtime = _payload_after_title(
-        _message_content_with_title(first.packet, "Single agent turn volatile runtime state"),
-        "Single agent turn volatile runtime state",
+    first_dynamic_runtime = _payload_after_title(
+        _message_content_with_title(first.packet, "Single agent turn dynamic runtime"),
+        "Single agent turn dynamic runtime",
     )
     first_cache = _cache_record_for_packet(first.packet, request_id="modelreq:cache-active-work:1")
     second_cache = _cache_record_for_packet(second.packet, request_id="modelreq:cache-active-work:2")
 
-    assert first_volatile_runtime["active_work_context"]["latest_progress"] == "已完成第一段 prompt 审查。"
-    assert _segment_by_source(first.packet, "single_agent_turn_runtime_delta")["cache_scope"] == "task"
+    assert first_dynamic_runtime["active_work_context"]["latest_progress"] == "已完成第一段 prompt 审查。"
+    _assert_runtime_baseline_refs_cacheable(first.packet)
+    assert _segment_by_source(first.packet, "single_agent_turn_runtime_delta")["cache_scope"] == "none"
+    assert _segment_by_source(first.packet, "single_agent_turn_runtime_delta")["cache_role"] == "volatile"
     assert "已完成第一段 prompt 审查" not in _stable_prompt_text(first.packet)
     assert "已完成第二段 cache 审查" not in _stable_prompt_text(second.packet)
     assert first_cache.prefix_hash == second_cache.prefix_hash
-    first_dynamic = _payload_after_title(
-        _message_content_with_title(first.packet, "Single agent turn dynamic runtime"),
-        "Single agent turn dynamic runtime",
-    )
-    semantic_actions = first_dynamic["runtime_context"]["agent_visible_runtime_projection"]["model_decision_contract"]["semantic_actions"]
+    semantic_actions = first_dynamic_runtime["runtime_context"]["agent_visible_runtime_projection"]["model_decision_contract"]["semantic_actions"]
     assert "active_work_control" in semantic_actions
 
 
-def test_plan_mode_prompt_cache_changes_with_permission_boundary() -> None:
+def test_plan_mode_prompt_cache_keeps_permission_boundary_in_dynamic_tail() -> None:
     base_assembly = {
         "profile": {
             "profile_ref": "main_interactive_agent",
@@ -1968,11 +2163,13 @@ def test_plan_mode_prompt_cache_changes_with_permission_boundary() -> None:
         "Single agent turn dynamic runtime",
     )["runtime_context"]["agent_visible_runtime_projection"]
 
-    assert default_cache.prefix_hash != plan_cache.prefix_hash
+    _assert_runtime_baseline_refs_cacheable(plan_packet.packet)
+    assert default_cache.prefix_hash == plan_cache.prefix_hash
     assert plan_projection["planning"]["plan_mode_active"] is True
     assert plan_projection["execution_boundary"]["permission_mode"] == "plan"
     assert "permission_mode" in plan_input
-    assert _segment_by_source(plan_packet.packet, "single_agent_turn_runtime_delta")["cache_scope"] == "task"
+    assert _segment_by_source(plan_packet.packet, "single_agent_turn_runtime_delta")["cache_scope"] == "none"
+    assert _segment_by_source(plan_packet.packet, "single_agent_turn_runtime_delta")["cache_role"] == "volatile"
 
 
 def test_task_execution_prompt_matrix_has_no_task_entry_conflict_and_keeps_state_volatile() -> None:
@@ -2043,7 +2240,8 @@ def test_task_execution_prompt_matrix_has_no_task_entry_conflict_and_keeps_state
         item["tool_name"] == "agent_todo" and item["category"] == "requires_task_run"
         for item in projection["service_surface"].get("unmounted_services", [])
     )
-    assert _segment_by_kind(result.packet, "task_runtime_boundary_dynamic")["cache_scope"] == "task"
+    assert _segment_by_kind(result.packet, "task_runtime_boundary_dynamic")["cache_scope"] == "none"
+    assert _segment_by_kind(result.packet, "task_runtime_boundary_dynamic")["cache_role"] == "volatile"
     assert _segment_by_kind(result.packet, "volatile_task_state")["cache_scope"] == "none"
     assert _segment_by_kind(result.packet, "user_steering_updates")["cache_scope"] == "none"
     assert _segment_by_kind(result.packet, "task_contract_stable")["cache_scope"] == "task"
@@ -2115,7 +2313,9 @@ def test_observation_followup_prompt_matrix_keeps_tool_observations_volatile() -
     assert projection["model_decision_contract"]["prompt_authority"] == "developer_prompt_contract"
     assert projection["service_surface"]["authority"] == "harness.runtime.service_surface"
     assert projection["execution_boundary"]["safety_authority"] == "runtime.tooling.supervisor"
-    assert _segment_by_source(first.packet, "agent_visible_runtime_projection")["cache_scope"] == "task"
+    _assert_runtime_baseline_refs_cacheable(first.packet)
+    assert _segment_by_source(first.packet, "agent_visible_runtime_projection")["cache_scope"] == "none"
+    assert _segment_by_source(first.packet, "agent_visible_runtime_projection")["cache_role"] == "volatile"
     assert _segment_by_source(first.packet, "observation_followup_current_request")["cache_scope"] == "none"
     assert current_request_payload["observations"]["latest_observations"][0]["observation_id"] == "obs:followup:read"
     assert "第一轮读取结果" not in stable_text

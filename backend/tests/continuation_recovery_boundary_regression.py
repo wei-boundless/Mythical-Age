@@ -322,6 +322,41 @@ def test_selector_builds_continuation_context_from_runtime_interruption() -> Non
     assert selection.interrupted_turn.diagnostics["semantic_terminal"] is False
 
 
+def test_selector_keeps_pending_runtime_interruption_available_after_newer_turn() -> None:
+    interrupted = _runtime_interrupted_turn()
+    interrupted = TurnRun(
+        **{
+            **interrupted.to_dict(),
+            "updated_at": 160.0,
+            "diagnostics": {
+                **dict(interrupted.diagnostics or {}),
+                "interrupted_turn_continuation_pending": True,
+                "interrupted_turn_recovery_entry_event_id": "rtevt:interrupted:entry",
+            },
+        }
+    )
+    newer_completed = TurnRun(
+        turn_run_id="turnrun:session-continuation:newer-completed",
+        session_id="session-continuation",
+        turn_id="turn:session-continuation:newer-completed",
+        execution_runtime_kind="single_agent_turn",
+        status="completed",
+        latest_event_offset=7,
+        updated_at=300.0,
+        terminal_reason="assistant_message",
+        diagnostics={"turn_id": "turn:session-continuation:newer-completed"},
+    )
+
+    selection = select_session_continuation(
+        _Host([], turn_runs=[interrupted, newer_completed]),
+        session_id="session-continuation",
+    )
+
+    assert selection.interrupted_turn is not None
+    assert selection.interrupted_turn.turn_run_id == interrupted.turn_run_id
+    assert selection.interrupted_turn.interruption_kind == "runtime_execution_interrupted"
+
+
 def test_selector_uses_gateway_signal_for_generic_interrupted_turn(tmp_path) -> None:
     turn = _generic_interrupted_turn_with_diagnostic_signal()
     event_log = RuntimeEventLog(tmp_path)

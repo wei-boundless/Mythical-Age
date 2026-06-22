@@ -214,7 +214,6 @@ def _projection_limits(*, allocation_tokens: dict[str, int], long_term_token_cap
         low=4000,
         high=24000,
     )
-    provider_protocol_message_limit = _clamp_int(recent_history_message_limit // 12, low=6, high=16)
     observation_summary_chars = _clamp_int(tool_result_preview_chars // 3, low=600, high=4000)
     return {
         "recent_history_message_limit": recent_history_message_limit,
@@ -226,10 +225,6 @@ def _projection_limits(*, allocation_tokens: dict[str, int], long_term_token_cap
         "active_failure_limit": _clamp_int(latest_observation_limit // 2, low=8, high=40),
         "observation_summary_chars": observation_summary_chars,
         "tool_result_preview_chars": tool_result_preview_chars,
-        "provider_protocol_message_limit": provider_protocol_message_limit,
-        "provider_protocol_char_budget": _clamp_int(provider_protocol_message_limit * 1800, low=6000, high=24000),
-        "provider_protocol_message_chars": _clamp_int(history_message_chars, low=800, high=2400),
-        "provider_protocol_tool_result_preview_chars": _clamp_int(tool_result_preview_chars, low=800, high=3000),
         "recent_work_step_limit": recent_work_step_limit,
         "work_step_summary_chars": _clamp_int((volatile_tokens * CHARS_PER_TOKEN_ESTIMATE) // max(8, recent_work_step_limit), low=500, high=4000),
         "work_progress_chars": _clamp_int((volatile_tokens * CHARS_PER_TOKEN_ESTIMATE) // 100, low=500, high=4000),

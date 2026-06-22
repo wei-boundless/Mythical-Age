@@ -39,6 +39,9 @@ RECOVERY_PACKAGE_SECTIONS: tuple[tuple[str, str], ...] = (
     ("recovery_notes", "恢复提示"),
 )
 
+LOW_AUTHORITY_SOURCE_HASH_CHARS = 16
+COMPACT_RECEIPT_ID_HASH_CHARS = 12
+
 
 @dataclass(slots=True)
 class CompactResult:
@@ -392,7 +395,9 @@ class ContextCompactor:
         )
         if not compression.applied:
             return None
-        digest = hashlib.sha256(str(message.content or "").encode("utf-8", errors="ignore")).hexdigest()[:16]
+        digest = hashlib.sha256(str(message.content or "").encode("utf-8", errors="ignore")).hexdigest()[
+            :LOW_AUTHORITY_SOURCE_HASH_CHARS
+        ]
         return Message(
             role=message.role,
             content=(
@@ -1262,7 +1267,10 @@ class ContextCompactor:
             ensure_ascii=False,
             sort_keys=True,
         )
-        receipt_id = f"compact-receipt:{request_id}:{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:12]}"
+        receipt_id = (
+            f"compact-receipt:{request_id}:"
+            f"{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:COMPACT_RECEIPT_ID_HASH_CHARS]}"
+        )
         return CompactBoundaryReceipt(
             receipt_id=receipt_id,
             request_id=request_id,

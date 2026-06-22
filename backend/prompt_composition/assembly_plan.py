@@ -83,13 +83,7 @@ def build_prompt_assembly_plan(
         slot = _slot_from_source(source, provider_profile=provider_profile_payload)
         planned.append(slot)
 
-    ordered_sources = sorted(
-        planned,
-        key=lambda slot: (
-            PREFIX_TIER_ORDER.get(slot.prefix_tier, 999),
-            int(slot.source_order or 0),
-        ),
-    )
+    ordered_sources = sorted(planned, key=lambda slot: int(slot.source_order or 0))
     slots: list[PromptAssemblySlot] = []
     for order, slot in enumerate(ordered_sources, start=1):
         metadata = {
@@ -165,7 +159,7 @@ def build_prompt_assembly_plan(
             **diagnostics,
             "source_bundle_ref": source_bundle.bundle_id,
             "provider_profile": provider_profile_payload,
-            "assembly_order_policy": "prefix_tier_partition_preserve_source_order",
+            "assembly_order_policy": "model_visible_source_order_prefix_locked",
             "authority": "prompt_composition.assembly_plan.builder",
         },
     )
@@ -257,6 +251,10 @@ def _layer_for_source(source: PromptSource, *, cache_role: str, prefix_tier: str
         return "task_stable_scope"
     if kind in {"task_runtime_boundary_dynamic", "task_start_inherited_context"} or source_kind == "runtime_dynamic_boundary":
         return "runtime_cursor_prefix"
+    if kind == "runtime_baseline_refs" or source_kind == "runtime_baseline_refs":
+        return "session_stable_protocol" if prefix_tier == "session" else "task_stable_scope"
+    if kind == "dynamic_projection":
+        return "runtime_delta_tail" if prefix_tier in {"volatile", "none"} else "task_stable_scope"
     if kind in {"task_state_replay_entry", "single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"} or source_kind == "runtime_task_state_replay":
         return "append_only_runtime_evidence"
     if kind == "task_plan_context" or source_kind == "runtime_task_plan_context":
@@ -297,6 +295,10 @@ def _dynamic_tier_for_source(source: PromptSource, *, cache_role: str, prefix_ti
         return "runtime_cursor_prefix"
     if layer == "dynamic_context_tail" or kind == "lifecycle_runtime_guidance":
         return "dynamic_context_tail"
+    if kind == "runtime_baseline_refs" or source_kind == "runtime_baseline_refs":
+        return "stable_prefix" if cache_role in STABLE_CACHE_ROLES and prefix_tier not in {"volatile", "none"} else "runtime_baseline_refs"
+    if kind == "dynamic_projection":
+        return "runtime_delta_tail"
     if kind == "task_plan_context" or source_kind == "runtime_task_plan_context":
         return "task_plan_context"
     if kind == "evidence_index_cursor" or source_kind == "runtime_evidence_index_cursor":
@@ -313,8 +315,10 @@ def _dynamic_tier_for_source(source: PromptSource, *, cache_role: str, prefix_ti
         return "file_evidence_cursor"
     if kind in {"single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"}:
         return "append_only_runtime_evidence"
-    if kind in {"session_history", "provider_protocol_history"}:
+    if kind in {"session_history", "session_history_context", "session_history_entry", "provider_protocol_history"}:
         return "history_replay"
+    if kind == "session_history_tail_context":
+        return "dynamic_context_tail"
     if kind in {"user_steering_updates", "volatile_user", "semantic_compaction_request"}:
         return "user_editor_volatile"
     if kind == "runtime_memory_context" or source_kind == "runtime_memory_context":

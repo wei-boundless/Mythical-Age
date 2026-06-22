@@ -9,9 +9,16 @@ PressureLevel = Literal["normal", "warning", "microcompact", "full_compact"]
 ContextLedgerSource = Literal["memory_candidate", "retrieval_evidence"]
 ContextLedgerDecision = Literal["include", "drop"]
 
+CONTEXT_TEXT_NORMALIZATION_VERSION = "context_text_normalization.v1"
+
+
+def normalize_context_text(text: str) -> str:
+    normalized = str(text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    return normalized
+
 
 def hash_context_text(text: str) -> str:
-    normalized = str(text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    normalized = normalize_context_text(text)
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
@@ -24,7 +31,7 @@ def hash_context_sections(sections: dict[str, list[str]]) -> dict[str, tuple[str
 
 def hash_context_section_package(sections: dict[str, list[str]]) -> str:
     normalized = {
-        str(name): [str(item or "").replace("\r\n", "\n").replace("\r", "\n").strip() for item in list(items or [])]
+        str(name): [normalize_context_text(item) for item in list(items or [])]
         for name, items in dict(sections or {}).items()
     }
     payload = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -82,6 +89,7 @@ class SealedContextReceipt:
     receipt_id: str
     memory_runtime_view_ref: str
     package_sha256: str
+    normalization_version: str = CONTEXT_TEXT_NORMALIZATION_VERSION
     section_item_hashes: dict[str, tuple[str, ...]] = field(default_factory=dict)
     included_entries: tuple[SealedContextLedgerEntry, ...] = ()
     dropped_entries: tuple[SealedContextLedgerEntry, ...] = ()
@@ -97,6 +105,8 @@ class SealedContextReceipt:
             raise ValueError("SealedContextReceipt requires receipt_id")
         if not self.memory_runtime_view_ref:
             raise ValueError("SealedContextReceipt requires memory_runtime_view_ref")
+        if self.normalization_version != CONTEXT_TEXT_NORMALIZATION_VERSION:
+            raise ValueError("SealedContextReceipt normalization_version is not supported")
         object.__setattr__(
             self,
             "section_item_hashes",
@@ -138,6 +148,7 @@ class SealedContextReceipt:
             "receipt_id": self.receipt_id,
             "memory_runtime_view_ref": self.memory_runtime_view_ref,
             "package_sha256": self.package_sha256,
+            "normalization_version": self.normalization_version,
             "section_item_hashes": {name: list(items) for name, items in self.section_item_hashes.items()},
             "included_entries": [entry.to_dict() for entry in self.included_entries],
             "dropped_entries": [entry.to_dict() for entry in self.dropped_entries],

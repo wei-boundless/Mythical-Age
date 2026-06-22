@@ -243,6 +243,7 @@ function shouldShowOutputRow({
     "文件读取完成。",
     "文件更新完成。",
     "搜索完成。",
+    "状态已更新",
   ].includes(output)) {
     return false;
   }

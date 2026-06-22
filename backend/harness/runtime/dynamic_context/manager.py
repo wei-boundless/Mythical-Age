@@ -209,16 +209,22 @@ class DynamicContextManager:
             envelope_projection={},
             include_task_run_context=False,
         )
+        file_evidence_decisions = dict(task_state.get("file_evidence_decisions") or {})
+        read_resource_state = dict(task_state.get("read_resource_state") or {})
+        evidence_confidence = dict(task_state.get("evidence_confidence") or {})
         evidence_cursor = build_evidence_index_cursor(
             file_state=[dict(item) for item in list(task_state.get("file_state") or ()) if isinstance(item, dict)],
             file_state_source=str(task_state.get("file_state_source") or "runtime.memory.file_state_store"),
-            file_evidence_decisions=dict(task_state.get("file_evidence_decisions") or {}),
-            read_resource_state=dict(task_state.get("read_resource_state") or {}),
-            evidence_confidence=dict(task_state.get("evidence_confidence") or {}),
+            file_evidence_decisions=file_evidence_decisions,
+            read_resource_state=read_resource_state,
+            evidence_confidence=evidence_confidence,
         )
         return drop_empty(
             {
                 "file_evidence_scope": dict(request.file_evidence_scope or {}),
+                "file_evidence_decisions": file_evidence_decisions,
+                "read_resource_state": read_resource_state,
+                "evidence_confidence": evidence_confidence,
                 **evidence_cursor,
             }
         )

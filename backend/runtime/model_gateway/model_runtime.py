@@ -1101,17 +1101,11 @@ class ModelRuntime:
                         },
                     )
                 )
-            scoped_reads_expensive = _prompt_accounting_scoped_reads_are_expensive(ledger)
-            previous_stability_reports = (
-                []
-                if scoped_reads_expensive
-                else ledger.list_prompt_stability(
-                    **_previous_stability_report_filter(
-                        run_id=run_id,
-                        task_run_id=task_run_id,
-                        session_id=session_id,
-                    )
-                )
+            previous_stability_reports = _previous_prompt_stability_reports(
+                ledger,
+                run_id=run_id,
+                task_run_id=task_run_id,
+                session_id=session_id,
             )
             previous_stability_report = _previous_stability_report(
                 previous_stability_reports,
@@ -1127,15 +1121,11 @@ class ModelRuntime:
                 created_at=created_at,
             )
             ledger.record_prompt_stability(stability_report)
-            previous_baselines = (
-                []
-                if scoped_reads_expensive
-                else _previous_prompt_cache_baselines(
-                    ledger,
-                    run_id=run_id,
-                    task_run_id=task_run_id,
-                    session_id=session_id,
-                )
+            previous_baselines = _previous_prompt_cache_baselines(
+                ledger,
+                run_id=run_id,
+                task_run_id=task_run_id,
+                session_id=session_id,
             )
             baseline_record = self._prompt_cache_baseline_tracker.build_active_record(
                 segment_map=segment_map,
@@ -1182,7 +1172,8 @@ class ModelRuntime:
             finished_at = time.time()
             started_at = float(accounting.get("started_at") or finished_at)
             duration_seconds = max(0.0, finished_at - started_at)
-            previous_cache_records = ledger.list_prompt_cache(
+            previous_cache_records = _previous_prompt_cache_records(
+                ledger,
                 run_id=str(accounting.get("run_id") or accounting.get("task_run_id") or ""),
                 task_run_id=str(accounting.get("task_run_id") or ""),
                 session_id=str(accounting.get("session_id") or ""),
@@ -1803,11 +1794,18 @@ def _previous_stability_report_filter(*, run_id: str, task_run_id: str, session_
 
 def _previous_prompt_cache_baselines(ledger: Any, *, run_id: str, task_run_id: str, session_id: str) -> list[Any]:
     filters = _previous_stability_report_filter(run_id=run_id, task_run_id=task_run_id, session_id=session_id)
-    records = list(ledger.list_prompt_cache_baselines(**filters))
-    if session_id and filters.get("task_run_id"):
-        records.extend(ledger.list_prompt_cache_baselines(session_id=session_id))
-    if session_id and filters.get("run_id"):
-        records.extend(ledger.list_prompt_cache_baselines(session_id=session_id))
+    list_recent = getattr(ledger, "list_recent_prompt_cache_baselines", None)
+    use_recent = _prompt_accounting_scoped_reads_are_expensive(ledger) and callable(list_recent)
+    if use_recent:
+        records = list(list_recent(**filters, limit=128))
+        if session_id and (filters.get("task_run_id") or filters.get("run_id")):
+            records.extend(list_recent(session_id=session_id, limit=128))
+    else:
+        records = list(ledger.list_prompt_cache_baselines(**filters))
+        if session_id and filters.get("task_run_id"):
+            records.extend(ledger.list_prompt_cache_baselines(session_id=session_id))
+        if session_id and filters.get("run_id"):
+            records.extend(ledger.list_prompt_cache_baselines(session_id=session_id))
     deduped: dict[str, Any] = {}
     for record in records:
         key = str(getattr(record, "baseline_id", "") or f"{getattr(record, 'request_id', '')}:{getattr(record, 'created_at', '')}")
@@ -1815,6 +1813,64 @@ def _previous_prompt_cache_baselines(ledger: Any, *, run_id: str, task_run_id: s
         if previous is None or float(getattr(record, "created_at", 0.0) or 0.0) >= float(getattr(previous, "created_at", 0.0) or 0.0):
             deduped[key] = record
     return sorted(deduped.values(), key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0))
+
+
+def _previous_prompt_stability_reports(ledger: Any, *, run_id: str, task_run_id: str, session_id: str) -> list[Any]:
+    filters = _previous_stability_report_filter(run_id=run_id, task_run_id=task_run_id, session_id=session_id)
+    list_recent = getattr(ledger, "list_recent_prompt_stability", None)
+    use_recent = _prompt_accounting_scoped_reads_are_expensive(ledger) and callable(list_recent)
+    if use_recent:
+        records = list(list_recent(**filters, limit=128))
+        if session_id and (filters.get("task_run_id") or filters.get("run_id")):
+            records.extend(list_recent(session_id=session_id, limit=128))
+    else:
+        records = list(ledger.list_prompt_stability(**filters))
+        if session_id and filters.get("task_run_id"):
+            records.extend(ledger.list_prompt_stability(session_id=session_id))
+        if session_id and filters.get("run_id"):
+            records.extend(ledger.list_prompt_stability(session_id=session_id))
+    deduped: dict[str, Any] = {}
+    for record in records:
+        key = str(getattr(record, "report_id", "") or f"{getattr(record, 'request_id', '')}:{getattr(record, 'created_at', '')}")
+        previous = deduped.get(key)
+        if previous is None or float(getattr(record, "created_at", 0.0) or 0.0) >= float(getattr(previous, "created_at", 0.0) or 0.0):
+            deduped[key] = record
+    return sorted(deduped.values(), key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0))
+
+
+def _previous_prompt_cache_records(ledger: Any, *, run_id: str, task_run_id: str, session_id: str) -> list[Any]:
+    list_recent = getattr(ledger, "list_recent_prompt_cache", None)
+    if callable(list_recent):
+        try:
+            return list(
+                list_recent(
+                    run_id=run_id,
+                    task_run_id=task_run_id,
+                    session_id=session_id,
+                    limit=128,
+                )
+                or []
+            )
+        except Exception:
+            logger.debug("Failed to read recent prompt cache records.", exc_info=True)
+            return []
+    if _prompt_accounting_scoped_reads_are_expensive(ledger):
+        return []
+    list_prompt_cache = getattr(ledger, "list_prompt_cache", None)
+    if not callable(list_prompt_cache):
+        return []
+    try:
+        return list(
+            list_prompt_cache(
+                run_id=run_id,
+                task_run_id=task_run_id,
+                session_id=session_id,
+            )
+            or []
+        )
+    except Exception:
+        logger.debug("Failed to read prompt cache records.", exc_info=True)
+        return []
 
 
 def _prompt_accounting_scoped_reads_are_expensive(ledger: Any) -> bool:
@@ -1953,26 +2009,22 @@ def _utility_accounting_context(
     messages: list[dict[str, Any]],
     purpose: str,
     stable_message_count: int = 1,
+    message_cache_plan: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
 ) -> dict[str, Any]:
     stable_count = max(1, int(stable_message_count or 1))
     prompt_refs = _utility_prompt_refs_for_purpose(purpose)
     primary_prompt_ref = prompt_refs[0] if prompt_refs else ""
+    cache_plan = [dict(item) for item in list(message_cache_plan or []) if isinstance(item, dict)]
     segment_plan = build_prompt_segment_plan(
         packet_id=f"utility:{purpose}:{uuid.uuid4().hex[:8]}",
         invocation_kind="utility_model_call",
-        message_specs=[
-            {
-                "role": str(message.get("role") or "user"),
-                "content": str(message.get("content") or ""),
-                "kind": "utility_static" if index == 0 else ("utility_stable" if index < stable_count else "utility_volatile"),
-                "source_ref": primary_prompt_ref if index == 0 and primary_prompt_ref else purpose,
-                "cache_scope": "global" if index == 0 else ("session" if index < stable_count else "none"),
-                "cache_role": "cacheable_prefix" if index == 0 else ("session_stable" if index < stable_count else "volatile"),
-                "prefix_tier": "provider_global" if index == 0 else ("session" if index < stable_count else "volatile"),
-                "compression_role": "preserve" if index < stable_count else "summarize",
-            }
-            for index, message in enumerate(list(messages or []))
-        ],
+        message_specs=_utility_message_specs(
+            messages=list(messages or []),
+            purpose=purpose,
+            primary_prompt_ref=primary_prompt_ref,
+            stable_count=stable_count,
+            message_cache_plan=cache_plan,
+        ),
     ).to_dict()
     return {
         "source": source,
@@ -2005,12 +2057,14 @@ def utility_accounting_context(
     run_id: str = "",
     task_run_id: str = "",
     stable_message_count: int = 1,
+    message_cache_plan: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
 ) -> dict[str, Any]:
     context = _utility_accounting_context(
         source=source,
         messages=messages,
         purpose=purpose,
         stable_message_count=stable_message_count,
+        message_cache_plan=message_cache_plan,
     )
     if cache_metric_scope:
         context["cache_metric_scope"] = str(cache_metric_scope)
@@ -2022,6 +2076,69 @@ def utility_accounting_context(
     if task_run_id:
         context["task_run_id"] = str(task_run_id)
     return context
+
+
+def _utility_message_specs(
+    *,
+    messages: list[dict[str, Any]],
+    purpose: str,
+    primary_prompt_ref: str,
+    stable_count: int,
+    message_cache_plan: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    specs: list[dict[str, Any]] = []
+    for index, message in enumerate(list(messages or [])):
+        plan = dict(message_cache_plan[index]) if index < len(message_cache_plan) else {}
+        default = _default_utility_message_spec(
+            index=index,
+            message=message,
+            purpose=purpose,
+            primary_prompt_ref=primary_prompt_ref,
+            stable_count=stable_count,
+        )
+        specs.append(
+            {
+                **default,
+                **{
+                    key: value
+                    for key, value in plan.items()
+                    if key
+                    in {
+                        "kind",
+                        "source_ref",
+                        "cache_scope",
+                        "cache_role",
+                        "prefix_tier",
+                        "compression_role",
+                        "metadata",
+                    }
+                },
+                "role": str(message.get("role") or default["role"] or "user"),
+                "content": str(message.get("content") or ""),
+            }
+        )
+    return specs
+
+
+def _default_utility_message_spec(
+    *,
+    index: int,
+    message: dict[str, Any],
+    purpose: str,
+    primary_prompt_ref: str,
+    stable_count: int,
+) -> dict[str, Any]:
+    stable = index < stable_count
+    return {
+        "role": str(message.get("role") or "user"),
+        "content": str(message.get("content") or ""),
+        "kind": "utility_static" if index == 0 else ("utility_stable" if stable else "utility_volatile"),
+        "source_ref": primary_prompt_ref if index == 0 and primary_prompt_ref else purpose,
+        "cache_scope": "global" if index == 0 else ("session" if stable else "none"),
+        "cache_role": "cacheable_prefix" if index == 0 else ("session_stable" if stable else "volatile"),
+        "prefix_tier": "provider_global" if index == 0 else ("session" if stable else "volatile"),
+        "compression_role": "preserve" if stable else "summarize",
+    }
 
 
 def _normalize_accounting_context_for_prompt_plan(

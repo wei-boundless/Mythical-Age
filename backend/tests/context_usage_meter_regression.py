@@ -8,8 +8,10 @@ from runtime.prompt_accounting import ContextUsageMeter, ModelTokenUsageRecord, 
 class _Ledger:
     def __init__(self, records: list[ModelTokenUsageRecord]) -> None:
         self._records = records
+        self.list_token_usage_calls = 0
 
     def list_token_usage(self, **_kwargs):
+        self.list_token_usage_calls += 1
         return list(self._records)
 
 
@@ -28,8 +30,9 @@ def _runtime_record(*, prompt_tokens: int) -> ModelTokenUsageRecord:
     )
 
 
-def test_compaction_pressure_uses_session_pressure_when_model_accounting_is_lower() -> None:
-    meter = ContextUsageMeter(_Ledger([_runtime_record(prompt_tokens=20_000)]))
+def test_session_pressure_is_current_context_authority_when_supplied() -> None:
+    ledger = _Ledger([_runtime_record(prompt_tokens=20_000)])
+    meter = ContextUsageMeter(ledger)
 
     snapshot = meter.build_snapshot(
         session_id="session:pressure",
@@ -40,15 +43,20 @@ def test_compaction_pressure_uses_session_pressure_when_model_accounting_is_lowe
         session_pressure_source="runtime.context_management.session_pressure",
     )
 
-    assert snapshot.current_context_tokens == 20_000
+    assert ledger.list_token_usage_calls == 0
+    assert snapshot.authority == "runtime.context_management.session_pressure_snapshot"
+    assert snapshot.estimate_mode == "session_pressure"
+    assert snapshot.current_context_tokens == 120_000
     assert snapshot.compaction_pressure_tokens == 120_000
-    assert snapshot.diagnostics["session_pressure_used_as_current_context"] is False
-    assert snapshot.diagnostics["current_context_authority"] == "runtime.prompt_accounting.model_request_accounting"
+    assert snapshot.diagnostics["raw_record_count"] == 0
+    assert snapshot.diagnostics["session_pressure_used_as_current_context"] is True
+    assert snapshot.diagnostics["current_context_authority"] == "runtime.context_management.session_pressure"
     assert snapshot.diagnostics["compaction_pressure_authority"] == "runtime.context_management.session_pressure"
 
 
-def test_compaction_pressure_keeps_model_accounting_when_it_is_higher() -> None:
-    meter = ContextUsageMeter(_Ledger([_runtime_record(prompt_tokens=120_000)]))
+def test_session_pressure_does_not_scan_or_compare_older_model_accounting() -> None:
+    ledger = _Ledger([_runtime_record(prompt_tokens=120_000)])
+    meter = ContextUsageMeter(ledger)
 
     snapshot = meter.build_snapshot(
         session_id="session:pressure",
@@ -59,9 +67,12 @@ def test_compaction_pressure_keeps_model_accounting_when_it_is_higher() -> None:
         session_pressure_source="runtime.context_management.session_pressure",
     )
 
-    assert snapshot.current_context_tokens == 120_000
-    assert snapshot.compaction_pressure_tokens == 120_000
-    assert snapshot.diagnostics["compaction_pressure_authority"] == "runtime.prompt_accounting.model_request_accounting"
+    assert ledger.list_token_usage_calls == 0
+    assert snapshot.authority == "runtime.context_management.session_pressure_snapshot"
+    assert snapshot.estimate_mode == "session_pressure"
+    assert snapshot.current_context_tokens == 20_000
+    assert snapshot.compaction_pressure_tokens == 20_000
+    assert snapshot.diagnostics["compaction_pressure_authority"] == "runtime.context_management.session_pressure"
 
 
 def test_prompt_accounting_ledger_can_read_recent_token_usage_without_full_scan(tmp_path: Path) -> None:

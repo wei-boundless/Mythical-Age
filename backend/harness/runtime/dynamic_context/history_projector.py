@@ -51,11 +51,26 @@ def _normalize_message(item: dict[str, Any]) -> dict[str, Any]:
         "role": role,
         "content": content,
     }
+    for key in ("id", "message_id", "turn_id"):
+        value = str(item.get(key) or "").strip()
+        if value:
+            payload[key] = value
+    for key in ("created_at", "updated_at", "timestamp"):
+        value = _positive_float(item.get(key))
+        if value > 0:
+            payload[key] = value
     if item.get("tool_call_id"):
         payload["tool_call_id"] = str(item.get("tool_call_id") or "")
     if item.get("tool_calls"):
         payload["tool_calls"] = item.get("tool_calls")
     return drop_empty(payload)
+
+
+def _positive_float(value: Any) -> float:
+    try:
+        return max(0.0, float(value or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _session_context_projection(session_context: dict[str, Any] | None, *, context_recovery_package_chars: int) -> dict[str, Any]:

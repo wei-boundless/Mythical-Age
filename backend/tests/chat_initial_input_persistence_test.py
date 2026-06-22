@@ -58,6 +58,38 @@ def test_chat_run_schedule_precommits_initial_user_message_before_execution(tmp_
     }
 
 
+def test_chat_run_schedule_defers_auto_compaction_to_worker(tmp_path, monkeypatch) -> None:
+    session_manager = SessionManager(tmp_path)
+    session_id = "session:initial-input-defer-compaction"
+    session_manager.create_session(session_id=session_id)
+    session_manager.append_messages(session_id, [{"role": "assistant", "content": "已有历史"}])
+    facade = _facade_with_session_manager(session_manager)
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("chat run creation must not run auto compaction on the API event loop")
+
+    monkeypatch.setattr(
+        "harness.entrypoint.runtime_facade.auto_compact_session_if_needed",
+        fail_if_called,
+    )
+
+    prepared = facade.prepare_chat_run_request_for_schedule(
+        HarnessRuntimeRequest(
+            session_id=session_id,
+            message="继续",
+            client_message_id="user:client:defer-compaction",
+        ),
+        stream_run_id="strun:defer-compaction",
+    )
+
+    assert prepared.runtime_profile["precommitted_user_message_defer_auto_compaction"] is True
+    assert prepared.runtime_profile["precommitted_user_message_auto_compaction"] == {
+        "applied": False,
+        "strategy": "deferred_to_agent_worker",
+        "skipped_reason": "deferred_to_agent_worker",
+    }
+
+
 def test_runtime_user_commit_is_idempotent_for_precommitted_initial_input(tmp_path) -> None:
     session_manager = SessionManager(tmp_path)
     session_id = "session:initial-input-idempotent"

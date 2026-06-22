@@ -4247,3 +4247,127 @@ textarea:focus-visible {
   line-height: 1.35;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-danger) 18%, transparent);
 }
+
+/* Left rail controls share the same quiet workbench surface. */
+.agent-workbench {
+  --left-rail-control-bg: color-mix(in srgb, var(--console-accent) 14%, var(--console-surface));
+  --left-rail-control-hover-bg: color-mix(in srgb, var(--console-accent) 21%, var(--console-surface));
+  --left-rail-control-ring: color-mix(in srgb, var(--console-accent) 26%, var(--console-line-soft));
+  --left-rail-control-hover-ring: color-mix(in srgb, var(--console-accent) 42%, var(--console-line));
+}
+
+.agent-workbench .workbench-session-toolbar {
+  padding: 10px 8px 7px;
+  background: transparent;
+}
+
+.agent-workbench .workbench-session-toolbar button {
+  min-height: 32px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--left-rail-control-bg);
+  color: var(--console-accent);
+  font-size: 13px;
+  font-weight: 720;
+  box-shadow: inset 0 0 0 1px var(--left-rail-control-ring);
+}
+
+.agent-workbench .workbench-session-toolbar button span,
+.agent-workbench .workbench-session-toolbar button svg {
+  color: inherit;
+}
+
+.agent-workbench .workbench-session-toolbar button:hover:not(:disabled) {
+  background: var(--left-rail-control-hover-bg);
+  color: var(--console-accent-hover);
+  box-shadow: inset 0 0 0 1px var(--left-rail-control-hover-ring);
+}
+
+.agent-workbench .workbench-file-tree--secondary {
+  margin: 4px 7px 8px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.agent-workbench .workbench-file-tree--secondary.is-collapsed {
+  max-height: 46px;
+}
+
+.agent-workbench .workbench-file-tree__head {
+  min-height: auto;
+  padding: 0;
+  border-bottom: 0;
+  background: transparent;
+}
+
+.agent-workbench .workbench-file-tree__toggle {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 46px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 13px;
+  background: var(--left-rail-control-bg);
+  color: var(--console-text);
+  text-align: left;
+  box-shadow: inset 0 0 0 1px var(--left-rail-control-ring);
+}
+
+.agent-workbench .workbench-file-tree__toggle > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.agent-workbench .workbench-file-tree__toggle strong {
+  overflow: hidden;
+  color: var(--console-text);
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-workbench .workbench-file-tree__toggle span {
+  overflow: hidden;
+  color: var(--console-muted);
+  font-size: 12.5px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-workbench .workbench-file-tree__toggle svg {
+  color: var(--console-accent);
+}
+
+.agent-workbench .workbench-file-tree__toggle:hover,
+.agent-workbench .workbench-file-tree--secondary:not(.is-collapsed) .workbench-file-tree__toggle {
+  background: var(--left-rail-control-hover-bg);
+  box-shadow: inset 0 0 0 1px var(--left-rail-control-hover-ring);
+}
+
+.agent-workbench .workbench-project-file-list {
+  margin-top: 5px;
+  padding: 5px;
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--console-surface) 78%, transparent);
+  box-shadow: inset 0 0 0 1px var(--console-line-soft);
+}
+
+.agent-workbench .workbench-project-tree,
+.agent-workbench .workbench-project-tree ul {
+  gap: 2px;
+}
+
+.agent-workbench .workbench-project-tree-row {
+  min-height: 30px;
+  border-radius: 11px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}

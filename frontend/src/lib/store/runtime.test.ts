@@ -4297,7 +4297,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     await runtime.actions.pauseActiveTaskRun();
 
-    expect(streamSignal?.aborted).toBe(true);
+    const pausedStreamSignal = streamSignal as AbortSignal | null;
+    expect(pausedStreamSignal?.aborted).toBe(true);
     expect(store.getState().activeStreamSessionIds).toEqual([]);
     expect(store.getState().chatStreamConnectionStatus).toMatchObject({
       state: "paused",

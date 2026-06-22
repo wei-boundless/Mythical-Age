@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from prompt_composition import (
     build_model_message_spec,
     build_prompt_assembly_plan,
@@ -30,18 +32,6 @@ def test_prompt_assembly_plan_is_the_topology_authority() -> None:
         packet_id="packet:assembly-authority",
         message_specs=[
             _spec(
-                kind="task_contract_stable",
-                content="Task contract\n{\"goal\":\"fix cache\"}",
-                cache_scope="task",
-                cache_role="session_stable",
-            ),
-            _spec(
-                kind="volatile_task_state",
-                content="Current state\n{\"step\":\"diagnose\"}",
-                cache_scope="none",
-                cache_role="volatile",
-            ),
-            _spec(
                 kind="global_static",
                 content="Global protocol",
                 cache_scope="global",
@@ -52,6 +42,18 @@ def test_prompt_assembly_plan_is_the_topology_authority() -> None:
                 content="You are a coding agent.",
                 cache_scope="session",
                 cache_role="session_stable",
+            ),
+            _spec(
+                kind="task_contract_stable",
+                content="Task contract\n{\"goal\":\"fix cache\"}",
+                cache_scope="task",
+                cache_role="session_stable",
+            ),
+            _spec(
+                kind="volatile_task_state",
+                content="Current state\n{\"step\":\"diagnose\"}",
+                cache_scope="none",
+                cache_role="volatile",
             ),
         ],
     )
@@ -72,9 +74,10 @@ def test_prompt_assembly_plan_is_the_topology_authority() -> None:
         "task_contract_stable",
         "volatile_task_state",
     ]
+    assert assembly_plan.diagnostics["assembly_order_policy"] == "model_visible_source_order_prefix_locked"
 
 
-def test_tool_schema_catalog_is_task_stable_before_volatile_suffix() -> None:
+def test_prompt_assembly_rejects_stable_segment_after_volatile_source_order() -> None:
     source_bundle = build_prompt_source_bundle(
         invocation_kind="task_execution",
         packet_id="packet:tool-schema-catalog",
@@ -100,16 +103,8 @@ def test_tool_schema_catalog_is_task_stable_before_volatile_suffix() -> None:
         ],
     )
 
-    assembly_plan = build_prompt_assembly_plan(source_bundle=source_bundle)
-    tool_slot = next(slot for slot in assembly_plan.slots if slot.slot_kind == "tool_schema_catalog")
-
-    assert tool_slot.cache_role == "session_stable"
-    assert tool_slot.prefix_tier == "task"
-    assert [slot.slot_kind for slot in assembly_plan.slots] == [
-        "global_static",
-        "tool_schema_catalog",
-        "volatile_task_state",
-    ]
+    with pytest.raises(ValueError, match="stable_slot_after_volatile_boundary"):
+        build_prompt_assembly_plan(source_bundle=source_bundle)
 
 
 def test_volatile_runtime_tail_preserves_source_order() -> None:
@@ -175,7 +170,7 @@ def test_volatile_runtime_tail_preserves_source_order() -> None:
         "lifecycle_runtime_guidance",
         "task_start_inherited_context",
     ]
-    assert assembly_plan.diagnostics["assembly_order_policy"] == "prefix_tier_partition_preserve_source_order"
+    assert assembly_plan.diagnostics["assembly_order_policy"] == "model_visible_source_order_prefix_locked"
 
 
 def test_task_execution_cursor_does_not_duplicate_user_steers_or_runtime_controls() -> None:

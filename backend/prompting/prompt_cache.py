@@ -6,6 +6,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 
+DIAGNOSTIC_CACHE_KEY_HASH_ALGORITHM = "sha1"
+DIAGNOSTIC_CACHE_KEY_DIGEST_CHARS = 20
+DIAGNOSTIC_CONTENT_HASH_ALGORITHM = "sha1"
+DIAGNOSTIC_CONTENT_HASH_DIGEST_CHARS = 20
+
+
 @dataclass(frozen=True, slots=True)
 class PromptCacheDiagnostic:
     scope: str
@@ -70,7 +76,7 @@ def prompt_cache_key(*, scope: str, inputs: dict[str, Any]) -> str:
     payload = json.dumps(_json_stable(inputs), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     import hashlib
 
-    digest = hashlib.sha1(payload.encode("utf-8", errors="ignore")).hexdigest()[:20]
+    digest = hashlib.sha1(payload.encode("utf-8", errors="ignore")).hexdigest()[:DIAGNOSTIC_CACHE_KEY_DIGEST_CHARS]
     safe_scope = str(scope or "prompt").strip().replace(" ", "_")
     return f"{safe_scope}:{digest}"
 
@@ -78,7 +84,7 @@ def prompt_cache_key(*, scope: str, inputs: dict[str, Any]) -> str:
 def stable_text_hash(text: str) -> str:
     import hashlib
 
-    return hashlib.sha1(str(text or "").encode("utf-8", errors="ignore")).hexdigest()[:20]
+    return hashlib.sha1(str(text or "").encode("utf-8", errors="ignore")).hexdigest()[:DIAGNOSTIC_CONTENT_HASH_DIGEST_CHARS]
 
 
 def static_prompt_cache_inputs(

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from config import get_settings
 from context_system.models.context_models import hash_context_section_package
-from prompting.long_term_context import build_long_term_context_bundle
+from prompting.long_term_context import _strip_leading_markdown_title, build_long_term_context_bundle
 from prompting.manifest import PromptManifest, build_prompt_manifest, prompt_section
 from prompting.prompt_cache import (
     STATIC_PROMPT_CACHE,
@@ -34,6 +34,11 @@ def _truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "\n...[truncated]"
+
+
+def _truncate_with_status(text: str, limit: int) -> tuple[str, bool]:
+    original = str(text or "")
+    return _truncate(original, limit), len(original) > int(limit or 0)
 
 
 def _render_context_package_block(
@@ -323,6 +328,7 @@ def build_system_prompt_with_manifest(
         rag_mode,
         long_term_context_bundle=long_term_context,
     )
+    settings = get_settings()
     session_prompt = build_session_memoized_prompt(
         context_package=context_package,
         session_memory=session_memory,
@@ -337,6 +343,10 @@ def build_system_prompt_with_manifest(
     order = 0
 
     for heading, content in long_term_context.static_sections:
+        final_content, truncated = _truncate_with_status(
+            _strip_leading_markdown_title(content),
+            settings.component_char_limit,
+        )
         order += 1
         sections.append(
             prompt_section(
@@ -344,9 +354,12 @@ def build_system_prompt_with_manifest(
                 title=heading,
                 layer="static",
                 source=_static_context_source(heading),
-                content=content,
+                content=final_content,
                 order=order,
                 cache=static_cache.to_dict(),
+                original_content=_strip_leading_markdown_title(content),
+                truncated=truncated,
+                truncation_limit=settings.component_char_limit,
             )
         )
 
@@ -383,6 +396,10 @@ def build_system_prompt_with_manifest(
         else (session_memory or "").strip()
     )
     if rendered_session_memory:
+        final_session_memory, truncated = _truncate_with_status(
+            rendered_session_memory,
+            settings.component_char_limit,
+        )
         order += 1
         sections.append(
             prompt_section(
@@ -390,13 +407,16 @@ def build_system_prompt_with_manifest(
                 title="当前情境",
                 layer="session",
                 source="MemorySystem.MemoryRuntimeView -> ContextPolicy.ContextPackagePreview",
-                content=rendered_session_memory,
+                content=final_session_memory,
                 order=order,
                 cache=uncached_prompt_diagnostic(
                     scope="session",
                     reason="context_package_contains_runtime_session_state",
-                    content=rendered_session_memory,
+                    content=final_session_memory,
                 ).to_dict(),
+                original_content=rendered_session_memory,
+                truncated=truncated,
+                truncation_limit=settings.component_char_limit,
             )
         )
 
@@ -417,6 +437,10 @@ def build_system_prompt_with_manifest(
         durable_memory_block = long_term_context.memory_block
     durable_memory_block = durable_memory_block.strip()
     if durable_memory_block:
+        final_durable_memory, truncated = _truncate_with_status(
+            durable_memory_block,
+            settings.component_char_limit,
+        )
         order += 1
         sections.append(
             prompt_section(
@@ -424,13 +448,16 @@ def build_system_prompt_with_manifest(
                 title="当前最相关的已记住事实",
                 layer="turn",
                 source="ContextPolicy.ContextPackagePreview.relevant_durable_context",
-                content=durable_memory_block,
+                content=final_durable_memory,
                 order=order,
                 cache=uncached_prompt_diagnostic(
                     scope="turn",
                     reason="turn_relevant_memory_depends_on_current_request",
-                    content=durable_memory_block,
+                    content=final_durable_memory,
                 ).to_dict(),
+                original_content=durable_memory_block,
+                truncated=truncated,
+                truncation_limit=settings.component_char_limit,
             )
         )
 

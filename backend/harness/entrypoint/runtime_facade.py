@@ -243,8 +243,9 @@ class HarnessRuntimeFacade:
         return dict(payload) if isinstance(payload, dict) and payload else {}
 
     def _context_recovery_package_allowed_for_record(self, history_record: dict[str, Any]) -> bool:
-        return bool(str(dict(history_record or {}).get("compressed_context") or "").strip()) or (
-            float(dict(history_record or {}).get("provider_protocol_compaction_created_at") or 0.0) > 0
+        record = dict(history_record or {})
+        return bool(str(record.get("compressed_context") or "").strip()) or (
+            _safe_compaction_boundary_timestamp(record.get("provider_protocol_compaction_created_at")) > 0
         )
 
     def _runtime_history_and_session_context_for_record(
@@ -287,7 +288,9 @@ class HarnessRuntimeFacade:
             session_context["context_recovery_package"] = context_recovery_package
         else:
             session_context.pop("context_recovery_package", None)
-        provider_protocol_compaction_created_at = float(history_record.get("provider_protocol_compaction_created_at") or 0.0)
+        provider_protocol_compaction_created_at = _safe_compaction_boundary_timestamp(
+            history_record.get("provider_protocol_compaction_created_at")
+        )
         if provider_protocol_compaction_created_at > 0:
             session_context["provider_protocol_compaction_created_at"] = provider_protocol_compaction_created_at
         else:
@@ -375,13 +378,6 @@ class HarnessRuntimeFacade:
         runtime_profile = dict(getattr(request, "runtime_profile", {}) or {})
         if str(runtime_profile.get("precommitted_user_message_turn_id") or "").strip():
             return request
-        auto_compaction: dict[str, Any] = {}
-        if not request.history:
-            auto_compaction = auto_compact_session_if_needed(
-                self,
-                session_id=request.session_id,
-                reason="auto_context_replacement_before_model_turn",
-            )
         history_record = self.session_manager.load_session_record(request.session_id)
         turn_index = len(history_record.get("messages", [])) + 1
         turn_id = f"turn:{request.session_id}:{turn_index}"
@@ -405,10 +401,11 @@ class HarnessRuntimeFacade:
                 "precommitted_user_message_turn_id": turn_id,
                 "precommitted_user_message_id": message_id,
                 "precommitted_user_message_source": "harness.entrypoint.chat_run_schedule",
+                "precommitted_user_message_defer_auto_compaction": not bool(request.history),
                 "precommitted_user_message_auto_compaction": {
-                    "applied": bool(auto_compaction.get("applied")),
-                    "strategy": str(auto_compaction.get("strategy") or "none"),
-                    "skipped_reason": str(auto_compaction.get("skipped_reason") or ""),
+                    "applied": False,
+                    "strategy": "deferred_to_agent_worker" if not request.history else "none",
+                    "skipped_reason": "deferred_to_agent_worker" if not request.history else "explicit_history",
                 },
             },
         )
@@ -420,7 +417,17 @@ class HarnessRuntimeFacade:
         history_record = self.session_manager.load_session_record(request.session_id)
         auto_compaction: dict[str, Any] = {}
         if precommitted_turn_id:
-            auto_compaction = dict(request_runtime_profile.get("precommitted_user_message_auto_compaction") or {})
+            defer_auto_compaction = bool(request_runtime_profile.get("precommitted_user_message_defer_auto_compaction"))
+            if defer_auto_compaction and not request.history:
+                auto_compaction = auto_compact_session_if_needed(
+                    self,
+                    session_id=request.session_id,
+                    reason="auto_context_replacement_before_model_turn",
+                )
+                if bool(auto_compaction.get("applied")):
+                    history_record = self.session_manager.load_session_record(request.session_id)
+            else:
+                auto_compaction = dict(request_runtime_profile.get("precommitted_user_message_auto_compaction") or {})
             if not auto_compaction:
                 auto_compaction = {
                     "applied": False,
@@ -470,7 +477,9 @@ class HarnessRuntimeFacade:
         )
         if context_recovery_package:
             session_context["context_recovery_package"] = context_recovery_package
-        provider_protocol_compaction_created_at = float(history_record.get("provider_protocol_compaction_created_at") or 0.0)
+        provider_protocol_compaction_created_at = _safe_compaction_boundary_timestamp(
+            history_record.get("provider_protocol_compaction_created_at")
+        )
         if provider_protocol_compaction_created_at > 0:
             session_context["provider_protocol_compaction_created_at"] = provider_protocol_compaction_created_at
         conversation_state = dict(history_record.get("conversation_state") or {})
@@ -3330,6 +3339,13 @@ def _public_status_text(value: Any, *, limit: int = 900) -> str:
 
 def _drop_empty_entrypoint_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
+
+
+def _safe_compaction_boundary_timestamp(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _runtime_is_blocked(assembly_payload: dict[str, Any]) -> bool:

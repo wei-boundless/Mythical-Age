@@ -13,7 +13,7 @@ import { useAppStoreActions, useAppStoreSelector } from "@/lib/store";
 import { shallowEqual } from "@/lib/store/hooks";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
 import type { HarnessTaskRunLiveMonitor } from "@/lib/api";
-import type { ActiveTurnSnapshot, Message, StoreActions, StoreState, TokenStats } from "@/lib/store/types";
+import type { ActiveTurnSnapshot, Message, StoreState, TokenStats } from "@/lib/store/types";
 
 export function ChatPanel() {
   const {
@@ -59,7 +59,6 @@ export function ChatPanel() {
     resendEditedMessage,
     setPermissionMode,
     setChatThinkingMode,
-    openRuntimeLog,
     setSelectedChatModel,
   } = useAppStoreActions();
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -155,15 +154,10 @@ export function ChatPanel() {
               answerSelectedSource={message.answerSelectedSource}
               answerSource={message.answerSource}
               closeoutSummary={message.closeoutSummary}
-              onOpenRuntimeLog={runtimeLogOpenHandler(message, openRuntimeLog)}
               projectionView={message.projectionView}
               retrievals={message.retrievals}
               role={message.role}
-              runtimeLogRef={message.runtimeLogRef}
-              sourceTaskRunId={message.sourceTaskRunId}
-              sourceTurnRunId={message.sourceTurnRunId}
               streamingContent={message.id === liveAssistantMessageId}
-              toolEventCount={message.toolEventCount}
               toolCalls={message.toolCalls}
             />
           ))}
@@ -202,39 +196,6 @@ export function ChatPanel() {
       </div>
     </section>
   );
-}
-
-function runtimeLogOpenHandler(
-  message: Message,
-  openRuntimeLog: StoreActions["openRuntimeLog"],
-) {
-  const taskRunId = String(message.sourceTaskRunId || "").trim();
-  if (taskRunId) {
-    return () => openRuntimeLog({
-      scope: "task_run",
-      run_id: taskRunId,
-      title: "执行日志",
-      subtitle: runtimeLogSubtitle(message),
-    });
-  }
-  const turnRunId = String(message.sourceTurnRunId || "").trim();
-  if (turnRunId) {
-    return () => openRuntimeLog({
-      scope: "turn_run",
-      run_id: turnRunId,
-      title: "执行日志",
-      subtitle: runtimeLogSubtitle(message),
-    });
-  }
-  return undefined;
-}
-
-function runtimeLogSubtitle(message: Message) {
-  const count = Number(message.toolEventCount ?? 0);
-  if (Number.isFinite(count) && count > 0) {
-    return `${count} 次工具调用`;
-  }
-  return String(message.runtimeLogRef || "完整运行轨迹").trim();
 }
 
 function messagesWithActiveProjectionViews(
@@ -522,7 +483,7 @@ function SessionTokenMeter({ tokenStats }: { tokenStats: TokenStats | null }) {
   }
   return (
     <div
-      aria-label={`压缩触发窗口 ${presentation.usedTokenText} / ${presentation.thresholdTokenText}`}
+      aria-label={`送入上下文 ${presentation.usedTokenText} / ${presentation.thresholdTokenText}`}
       className={`chat-token-meter chat-token-meter--${presentation.levelClass}`}
       style={{ "--chat-token-meter-used": `${presentation.usedPercent}%` } as CSSProperties}
       title={presentation.title}
@@ -554,7 +515,7 @@ export function sessionContextMeterPresentation(tokenStats: TokenStats | null) {
       levelClass: "pending",
     };
   }
-  const displayTokens = compactionTriggerWindowTokens(tokenStats);
+  const displayTokens = modelRequestContextTokens(tokenStats);
   const contextWindowTokens = currentContextWindowTokens(tokenStats);
   const thresholdTokens = compactionThresholdTokens(tokenStats);
   const thresholdRatio = currentContextThresholdRatio(displayTokens, thresholdTokens);
@@ -565,7 +526,7 @@ export function sessionContextMeterPresentation(tokenStats: TokenStats | null) {
   const usedTokenText = formatTokenCount(displayTokens);
   const thresholdTokenText = thresholdTokens > 0 ? formatTokenCount(thresholdTokens) : "--";
   const title = [
-    `压缩触发窗口 ${formatExactTokenCount(displayTokens)} tokens`,
+    `送入上下文 ${formatExactTokenCount(displayTokens)} tokens`,
     thresholdTokens > 0 ? `自动压缩阈值 ${formatExactTokenCount(thresholdTokens)} tokens` : "",
     thresholdTokens > 0 ? `阈值占比 ${thresholdPercentText}` : "",
     contextWindowTokens > 0 ? `模型窗口 ${formatExactTokenCount(contextWindowTokens)} tokens` : "",
@@ -584,8 +545,8 @@ function percentFromRatio(value: unknown) {
   return Math.max(0, Math.min(100, Math.round(Number(value || 0) * 100)));
 }
 
-function compactionTriggerWindowTokens(tokenStats: TokenStats) {
-  const value = Number(tokenStats.context_meter?.compaction_pressure_tokens ?? tokenStats.context_meter?.current_context_tokens ?? 0);
+function modelRequestContextTokens(tokenStats: TokenStats) {
+  const value = Number(tokenStats.context_meter?.current_context_tokens ?? 0);
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 

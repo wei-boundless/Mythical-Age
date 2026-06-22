@@ -7,7 +7,7 @@ from typing import Any
 
 from .event_log import RuntimeEventLog
 from .events import RuntimeEvent
-from .runtime_run_registry import RuntimeRun
+from .runtime_run_registry import RuntimeRun, is_terminal_runtime_run_status
 from runtime.output_stream.public_contract import is_terminal_public_event
 
 
@@ -173,6 +173,9 @@ class RuntimeStreamReplayService:
         for envelope in envelopes:
             latest_offset = max(latest_offset, int(envelope.get("event_offset") or latest_offset))
             terminal = terminal or bool(envelope.get("terminal") is True)
+        run_latest_offset = int(getattr(run, "latest_event_offset", -1) or -1)
+        if is_terminal_runtime_run_status(getattr(run, "status", "")) and latest_offset >= run_latest_offset:
+            terminal = True
         return {
             "stream_run_id": run.stream_run_id,
             "event_log_id": run.event_log_id,

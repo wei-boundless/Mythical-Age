@@ -48,7 +48,7 @@ from harness.runtime.incremental_context_frame import (
     is_incremental_context_frame_message,
     prefix_lock_violation_for_index,
 )
-from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
+from harness.runtime.prompt_segment_plan import build_prompt_segment_plan, stable_model_message_hash, stable_text_hash
 from harness.runtime.provider_tool_schema import provider_tool_bindings_for_available_tools
 from harness.runtime.public_progress import public_runtime_progress_summary
 from harness.runtime.sandbox_artifacts import (
@@ -1370,6 +1370,16 @@ async def run_single_agent_turn(
         protocol_recovery_attempts = 0
         tool_observation_payloads: list[dict[str, Any]] = []
         tool_context_ledger_entries: list[dict[str, Any]] = []
+        model_messages_segment_plan = dict(compilation.packet.segment_plan or {})
+
+        def memory_maintenance_main_context_for_commit() -> dict[str, Any]:
+            return _memory_maintenance_main_context_payload(
+                packet_context=dict(compilation.packet.diagnostics.get("runtime_packet_context") or {}),
+                model_messages=[dict(item) for item in list(model_messages or []) if isinstance(item, dict)],
+                segment_plan=dict(model_messages_segment_plan or {}),
+                source_packet_ref=current_packet_ref,
+                model_selection=dict(model_selection or {}),
+            )
 
         def capture_assistant_stream_event(event: dict[str, Any]) -> None:
             nonlocal assistant_visible_stream_continuity
@@ -1572,6 +1582,7 @@ async def run_single_agent_turn(
                             *api_protocol_messages,
                             _assistant_protocol_message_from_content(content, turn_id=turn_id),
                         ],
+                        main_context=memory_maintenance_main_context_for_commit(),
                     )
                     async for event in emit_terminal_then_final(
                         content=content,
@@ -2152,6 +2163,7 @@ async def run_single_agent_turn(
                             "tool_invocation_ref": observation.invocation_id,
                         },
                     )
+                    _update_turn_run_event_offset(runtime_host, turn_run=turn_run, event=event)
                     yield {"type": "turn_tool_observation_recorded", "event": event.to_dict()}
                 tool_call = dict(row["tool_call"] or {})
                 assistant_tool_calls.append(tool_call)
@@ -2166,7 +2178,12 @@ async def run_single_agent_turn(
                 consecutive_failure_rounds += 1
             else:
                 consecutive_failure_rounds = 0
-            previous_accumulated_context_count = len(_ordered_tool_followup_accumulated_context_messages(model_messages))
+            previous_accumulated_context_count = len(
+                _ordered_tool_followup_accumulated_context_messages(
+                    model_messages,
+                    segment_plan=model_messages_segment_plan,
+                )
+            )
             if assistant_tool_calls:
                 tool_context_assistant_message_index = previous_accumulated_context_count
                 assistant_protocol_message = _with_turn_id(_assistant_tool_call_message(response, assistant_tool_calls), turn_id)
@@ -2186,6 +2203,7 @@ async def run_single_agent_turn(
                 _append_tool_transcript_to_accumulated_context(
                     model_messages,
                     new_tool_transcript_messages,
+                    segment_plan=model_messages_segment_plan,
                 ),
                 turn_id=turn_id,
                 source="harness.loop.single_agent_turn.tool_followup",
@@ -2231,6 +2249,7 @@ async def run_single_agent_turn(
                 model_messages=model_messages,
                 tool_iteration=tool_iteration,
             )
+            model_messages_segment_plan = dict(followup_segment_plan or {})
             mid_turn_snapshot = _mid_turn_context_snapshot(
                 session_id=session_id,
                 run_id=turn_run.turn_run_id if turn_run is not None else "",
@@ -2329,6 +2348,7 @@ async def run_single_agent_turn(
                 )
                 round_tool_context_indexed_messages = []
                 followup_segment_plan = dict(followup_compilation.packet.segment_plan or {})
+                model_messages_segment_plan = dict(followup_segment_plan or {})
                 followup_prompt_manifest = {
                     **dict(followup_compilation.packet.diagnostics.get("prompt_manifest") or {}),
                     "invocation_kind": "single_agent_turn_tool_followup",
@@ -2384,15 +2404,21 @@ async def run_single_agent_turn(
                     model_messages=model_messages,
                     tool_iteration=tool_iteration,
                 )
+                model_messages_segment_plan = dict(followup_segment_plan or {})
                 followup_prompt_manifest = {
                     **dict(followup_prompt_manifest or {}),
                     "active_turn_user_steer_included": True,
                     "queued_user_steer_count": len(active_turn_steer_batch.items),
                 }
-            followup_context_messages = _ordered_tool_followup_accumulated_context_messages(
-                [dict(item) for item in list(model_messages or []) if isinstance(item, dict)]
+            followup_accumulated_messages, followup_dynamic_tail_messages = _tool_followup_context_layers(
+                [dict(item) for item in list(model_messages or []) if isinstance(item, dict)],
+                segment_plan=model_messages_segment_plan,
             )
-            followup_invocation_messages = [dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)]
+            followup_context_messages = [dict(item) for item in list(followup_accumulated_messages or []) if isinstance(item, dict)]
+            followup_invocation_messages = [
+                *[dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)],
+                *[dict(item) for item in list(followup_dynamic_tail_messages or []) if isinstance(item, dict)],
+            ]
             if _tool_followup_requires_action_transport(current_allowed_action_types):
                 followup_context_messages = [
                     *[dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)],
@@ -2417,7 +2443,10 @@ async def run_single_agent_turn(
                     ),
                 ]
                 followup_invocation_messages = _tool_followup_action_contract_messages(
-                    followup_context_messages,
+                    [
+                        *[dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)],
+                        *[dict(item) for item in list(followup_dynamic_tail_messages or []) if isinstance(item, dict)],
+                    ],
                     turn_id=turn_id,
                     allowed_action_types=current_allowed_action_types,
                     tool_iteration=tool_iteration,
@@ -2436,6 +2465,7 @@ async def run_single_agent_turn(
                 packet_id=str(followup_packet_ref or current_packet_ref),
                 tool_iteration=tool_iteration,
             )
+            model_messages_segment_plan = dict(followup_segment_plan or {})
             followup_prompt_manifest = {
                 **dict(followup_prompt_manifest or {}),
                 "segment_plan_ref": str(followup_segment_plan.get("segment_plan_id") or ""),
@@ -2458,7 +2488,7 @@ async def run_single_agent_turn(
                     "prompt_manifest": followup_prompt_manifest,
                 },
                 native_tools=_native_tools_for_packet(current_allowed_action_types, available_tools=current_available_tools),
-                allow_assistant_text_delta=False,
+                allow_assistant_text_delta=True,
                 require_json_action=True,
             ):
                 if model_event.get("type") == _INTERNAL_MODEL_RESPONSE_EVENT:
@@ -2773,6 +2803,7 @@ async def run_single_agent_turn(
                         tool_result_content="Runtime accepted respond action.",
                         final_content=content,
                     ),
+                    main_context=memory_maintenance_main_context_for_commit(),
                 )
                 if final_commit_not_committed(commit_decision):
                     async for event in emit_final_commit_blocked_closeout(
@@ -2871,6 +2902,7 @@ async def run_single_agent_turn(
                         tool_result_content="Runtime accepted block action.",
                         final_content=content,
                     ),
+                    main_context=memory_maintenance_main_context_for_commit(),
                 )
                 if final_commit_not_committed(commit_decision):
                     async for event in emit_final_commit_blocked_closeout(
@@ -2926,6 +2958,7 @@ async def run_single_agent_turn(
                         tool_result_content="Runtime accepted ask_user action.",
                         final_content=content,
                     ),
+                    main_context=memory_maintenance_main_context_for_commit(),
                 )
                 if final_commit_not_committed(commit_decision):
                     async for event in emit_final_commit_blocked_closeout(
@@ -3099,6 +3132,7 @@ async def run_single_agent_turn(
             ]
             if api_protocol_messages
             else None,
+            main_context=memory_maintenance_main_context_for_commit(),
         )
         if final_commit_not_committed(commit_decision):
             async for event in emit_final_commit_blocked_closeout(
@@ -6257,13 +6291,9 @@ def _single_agent_turn_followup_message_specs(
     model_messages: list[dict[str, Any]],
     tool_iteration: int,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-    base_segments: dict[int, dict[str, Any]] = {}
-    for segment in list(base_segment_plan.get("segments") or []):
-        if not isinstance(segment, dict):
-            continue
-        index = _segment_model_message_index(segment)
-        if index >= 0:
-            base_segments[index] = dict(segment)
+    prefix_locked_base_plan = _tool_followup_prefix_locked_base_segment_plan(dict(base_segment_plan or {}))
+    base_segments = _segment_plan_segments_by_message_index(prefix_locked_base_plan)
+    dynamic_tail_segments_by_hash = _replaceable_dynamic_tail_segments_by_hash(dict(base_segment_plan or {}))
     normalized_messages = normalize_messages(
         _sanitize_model_messages(
             model_messages,
@@ -6272,13 +6302,18 @@ def _single_agent_turn_followup_message_specs(
         )
     )
     prefix_lock_report = build_prefix_lock_report(
-        base_segment_plan=dict(base_segment_plan or {}),
+        base_segment_plan=prefix_locked_base_plan,
         model_messages=list(normalized_messages or []),
     )
     current_tool_round_indexes = _current_tool_round_message_indexes(normalized_messages)
     specs: list[dict[str, Any]] = []
     for index, message in enumerate(normalized_messages):
         base = dict(base_segments.get(index) or {})
+        if not base:
+            base = _pop_matching_replaceable_dynamic_tail_segment(
+                dynamic_tail_segments_by_hash,
+                message=message,
+            )
         if base:
             prefix_lock_violation = prefix_lock_violation_for_index(prefix_lock_report, index)
             specs.append(
@@ -6308,26 +6343,185 @@ def _is_tool_followup_action_contract_message(message: dict[str, Any]) -> bool:
     return "你是正在根据刚才工具观察决定下一步的 coding agent。" in content
 
 
-def _ordered_tool_followup_accumulated_context_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+_TOOL_FOLLOWUP_REPLACEABLE_DYNAMIC_TAIL_KINDS = {
+    "active_skills",
+    "attachment_context_index",
+    "bound_task_runtime_context",
+    "current_editor_evidence_delta",
+    "dynamic_projection",
+    "editor_context_index",
+    "evidence_index_cursor",
+    "graph_node_completion_prefix",
+    "graph_node_runtime_context",
+    "lifecycle_runtime_guidance",
+    "runtime_control_signal_tail",
+    "runtime_memory_context",
+    "semantic_compaction_request",
+    "session_history_tail_context",
+    "skill_candidates",
+    "task_plan_context",
+    "task_runtime_boundary_dynamic",
+    "tool_observations",
+    "user_steering_updates",
+    "volatile_runtime_state",
+    "volatile_task_state",
+    "volatile_user",
+}
+
+
+_FOLLOWUP_BASE_ACCUMULATED_CONTEXT_KINDS = {
+    "incremental_context_frame",
+    "provider_protocol_history",
+    "read_evidence_injection",
+    "session_history",
+    "session_history_context",
+    "session_history_entry",
+    "single_agent_turn_followup_message",
+    "single_agent_turn_tool_call",
+    "single_agent_turn_tool_observation",
+}
+
+
+def _ordered_tool_followup_accumulated_context_messages(
+    messages: list[dict[str, Any]],
+    *,
+    segment_plan: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    accumulated, _dynamic_tail = _tool_followup_context_layers(messages, segment_plan=segment_plan)
+    return accumulated
+
+
+def _tool_followup_context_layers(
+    messages: list[dict[str, Any]],
+    *,
+    segment_plan: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    base_segments = _segment_plan_segments_by_message_index(dict(segment_plan or {}))
     accumulated: list[dict[str, Any]] = []
-    for message in [dict(item) for item in list(messages or []) if isinstance(item, dict)]:
+    dynamic_tail: list[dict[str, Any]] = []
+    for index, message in enumerate([dict(item) for item in list(messages or []) if isinstance(item, dict)]):
         if _is_tool_followup_action_contract_message(message):
             continue
+        if _is_tool_followup_accumulated_message_by_shape(message):
+            accumulated.append(message)
+            continue
+        segment = dict(base_segments.get(index) or {})
+        if _is_tool_followup_replaceable_dynamic_tail_segment(segment):
+            dynamic_tail.append(message)
+            continue
         accumulated.append(message)
-    return accumulated
+    return accumulated, dynamic_tail
 
 
 def _append_tool_transcript_to_accumulated_context(
     messages: list[dict[str, Any]],
     new_tool_transcript_messages: list[dict[str, Any]],
+    *,
+    segment_plan: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    accumulated = _ordered_tool_followup_accumulated_context_messages(messages)
+    accumulated, dynamic_tail = _tool_followup_context_layers(messages, segment_plan=segment_plan)
     new_messages = [
         dict(item)
         for item in list(new_tool_transcript_messages or [])
         if isinstance(item, dict) and item
     ]
-    return [*accumulated, *new_messages]
+    return [*accumulated, *new_messages, *dynamic_tail]
+
+
+def _segment_plan_segments_by_message_index(segment_plan: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    result: dict[int, dict[str, Any]] = {}
+    for segment in list(dict(segment_plan or {}).get("segments") or []):
+        if not isinstance(segment, dict):
+            continue
+        index = _segment_model_message_index(segment)
+        if index >= 0:
+            result[index] = dict(segment)
+    return result
+
+
+def _tool_followup_prefix_locked_base_segment_plan(base_segment_plan: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(base_segment_plan or {})
+    payload["segments"] = [
+        dict(segment)
+        for segment in list(payload.get("segments") or [])
+        if isinstance(segment, dict) and not _is_tool_followup_replaceable_dynamic_tail_segment(dict(segment))
+    ]
+    return payload
+
+
+def _replaceable_dynamic_tail_segments_by_hash(segment_plan: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    result: dict[str, list[dict[str, Any]]] = {}
+    for segment in list(dict(segment_plan or {}).get("segments") or []):
+        if not isinstance(segment, dict):
+            continue
+        payload = dict(segment)
+        if not _is_tool_followup_replaceable_dynamic_tail_segment(payload):
+            continue
+        for key in _segment_hash_keys(payload):
+            result.setdefault(key, []).append(payload)
+    return result
+
+
+def _pop_matching_replaceable_dynamic_tail_segment(
+    segments_by_hash: dict[str, list[dict[str, Any]]],
+    *,
+    message: dict[str, Any],
+) -> dict[str, Any]:
+    for key in _message_hash_keys(message):
+        candidates = segments_by_hash.get(key)
+        if not candidates:
+            continue
+        return dict(candidates.pop(0))
+    return {}
+
+
+def _segment_hash_keys(segment: dict[str, Any]) -> tuple[str, ...]:
+    keys = [
+        str(segment.get("model_message_hash") or "").strip(),
+        str(segment.get("content_hash") or "").strip(),
+    ]
+    return tuple(dict.fromkeys(key for key in keys if key))
+
+
+def _message_hash_keys(message: dict[str, Any]) -> tuple[str, ...]:
+    payload = dict(message or {})
+    return (
+        stable_model_message_hash(payload),
+        stable_text_hash(str(payload.get("content") or "")),
+    )
+
+
+def _is_tool_followup_replaceable_dynamic_tail_segment(segment: dict[str, Any]) -> bool:
+    if not segment:
+        return False
+    kind = str(segment.get("kind") or "").strip()
+    if kind in _TOOL_FOLLOWUP_REPLACEABLE_DYNAMIC_TAIL_KINDS:
+        return True
+    metadata = dict(segment.get("metadata") or {}) if isinstance(segment.get("metadata"), dict) else {}
+    dynamic_tier = str(metadata.get("prompt_assembly_dynamic_tier") or metadata.get("dynamic_tier") or "").strip()
+    if dynamic_tier in {
+        "active_skills",
+        "current_runtime_cursor",
+        "dynamic_context_tail",
+        "runtime_cursor",
+        "runtime_delta_tail",
+        "runtime_memory_context",
+        "user_editor_volatile",
+    }:
+        return True
+    return False
+
+
+def _is_tool_followup_accumulated_message_by_shape(message: dict[str, Any]) -> bool:
+    payload = dict(message or {})
+    role = str(payload.get("role") or "")
+    if is_incremental_context_frame_message(payload):
+        return True
+    if role == "tool":
+        return True
+    if role == "assistant" and payload.get("tool_calls"):
+        return True
+    return False
 
 
 def _indexed_tool_transcript_messages(
@@ -6458,18 +6652,6 @@ def _single_agent_turn_followup_message_spec(
     }
 
 
-_FOLLOWUP_BASE_TASK_STABLE_KINDS = {
-    "skill_candidates",
-    "lifecycle_runtime_guidance",
-    "read_evidence_injection",
-    "session_history",
-    "dynamic_projection",
-    "volatile_runtime_state",
-    "runtime_memory_context",
-    "volatile_user",
-}
-
-
 def _rebased_followup_base_cache_policy(
     *,
     kind: str,
@@ -6518,27 +6700,15 @@ def _rebased_followup_base_cache_policy(
                 "cache_policy_rebased": "historical_tool_transcript_promoted_from_base_plan",
             },
         }
-    if kind in _FOLLOWUP_BASE_TASK_STABLE_KINDS:
+    if kind in _FOLLOWUP_BASE_ACCUMULATED_CONTEXT_KINDS:
         return {
             "cache_scope": "task",
             "cache_role": "session_stable",
             "prefix_tier": "task",
             "metadata": {
-                "cache_impact": "task_prefix_stable_snapshot",
-                "stability_rule": "message hash is preserved by prefix lock; later changes must append a new volatile delta",
-                "cache_policy_rebased": "stable_snapshot_promoted_from_base_plan",
-            },
-        }
-    if not is_current_tool_round:
-        return {
-            "cache_scope": "task",
-            "cache_role": "session_stable",
-            "prefix_tier": "task",
-            "metadata": {
-                "authority_class": "historical_followup_context_snapshot",
                 "cache_impact": "append_only_task_prefix",
-                "stability_rule": "preserved follow-up history is accumulated context; only newly rebuilt per-invocation control belongs in the dynamic tail",
-                "cache_policy_rebased": "preserved_base_message_promoted_to_accumulated_context",
+                "stability_rule": "preserved accumulated context is append-only; replaceable runtime tail remains volatile",
+                "cache_policy_rebased": "preserved_accumulated_context_promoted_from_base_plan",
             },
         }
     return {}
@@ -6857,6 +7027,114 @@ def _drop_empty_dict(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
 
 
+def _memory_maintenance_main_context_payload(
+    *,
+    packet_context: dict[str, Any],
+    model_messages: list[dict[str, Any]],
+    segment_plan: dict[str, Any],
+    source_packet_ref: str,
+    model_selection: dict[str, Any],
+) -> dict[str, Any]:
+    packet = dict(packet_context or {})
+    session_context = dict(packet.get("session_context") or {}) if isinstance(packet.get("session_context"), dict) else {}
+    environment_payload = dict(packet.get("environment_payload") or {}) if isinstance(packet.get("environment_payload"), dict) else {}
+    active_work_context = dict(packet.get("active_work_context") or {}) if isinstance(packet.get("active_work_context"), dict) else {}
+    shared_prefix = _memory_maintenance_shared_model_prefix_payload(
+        model_messages=model_messages,
+        segment_plan=segment_plan,
+        source_packet_ref=source_packet_ref,
+    )
+    return _drop_empty_dict(
+        {
+            "active_goal": str(session_context.get("active_goal") or session_context.get("current_goal") or ""),
+            "task_environment": environment_payload,
+            "project_id": str(environment_payload.get("project_id") or packet.get("project_id") or ""),
+            "active_work_context": active_work_context,
+            "agent_profile_ref": str(packet.get("agent_profile_ref") or ""),
+            "task_environment_ref": str(packet.get("task_environment_ref") or ""),
+            "model_selection": dict(model_selection or {}),
+            "shared_model_prefix": shared_prefix,
+            "context_sharing_policy": {
+                "authority": "harness.loop.single_agent_turn.memory_maintenance_context_handoff",
+                "physical_order": "shared_static_prefix -> maintenance_task_guidance -> append_only_coverage -> current_delta_tail",
+                "dynamic_tail_shared": False,
+                "tool_authority_shared": False,
+            },
+        }
+    )
+
+
+def _memory_maintenance_shared_model_prefix_payload(
+    *,
+    model_messages: list[dict[str, Any]],
+    segment_plan: dict[str, Any],
+    source_packet_ref: str,
+) -> dict[str, Any]:
+    segments_by_index = _segment_plan_segments_by_message_index(dict(segment_plan or {}))
+    messages: list[dict[str, Any]] = []
+    message_cache_plan: list[dict[str, Any]] = []
+    message_hashes: list[str] = []
+    for index, raw_message in enumerate([dict(item) for item in list(model_messages or []) if isinstance(item, dict)]):
+        segment = dict(segments_by_index.get(index) or {})
+        if not _memory_maintenance_shared_prefix_segment_cacheable(segment):
+            break
+        message = _memory_maintenance_shared_prefix_message(raw_message)
+        if not message:
+            break
+        messages.append(message)
+        message_cache_plan.append(_memory_maintenance_shared_prefix_cache_plan(segment))
+        message_hashes.append(stable_model_message_hash(message))
+    if not messages:
+        return {}
+    return {
+        "authority": "harness.loop.single_agent_turn.shared_model_prefix",
+        "source_packet_ref": str(source_packet_ref or ""),
+        "message_count": len(messages),
+        "messages": messages,
+        "message_cache_plan": message_cache_plan,
+        "message_hashes": message_hashes,
+        "stable_prefix_hash": str(dict(segment_plan or {}).get("stable_prefix_hash") or ""),
+        "provider_global_prefix_hash": str(dict(segment_plan or {}).get("provider_global_prefix_hash") or ""),
+        "session_prefix_hash": str(dict(segment_plan or {}).get("session_prefix_hash") or ""),
+        "task_prefix_hash": str(dict(segment_plan or {}).get("task_prefix_hash") or ""),
+    }
+
+
+def _memory_maintenance_shared_prefix_segment_cacheable(segment: dict[str, Any]) -> bool:
+    cache_role = str(dict(segment or {}).get("cache_role") or "")
+    prefix_tier = str(dict(segment or {}).get("prefix_tier") or "")
+    return cache_role in {"cacheable_prefix", "session_stable"} and prefix_tier not in {"volatile", "none"}
+
+
+def _memory_maintenance_shared_prefix_message(message: dict[str, Any]) -> dict[str, Any]:
+    role = str(message.get("role") or "").strip()
+    content = str(message.get("content") or "")
+    if not role or not content:
+        return {}
+    payload: dict[str, Any] = {"role": role, "content": content}
+    for key in ("name", "tool_call_id", "tool_calls", "reasoning_content", "prefix", "additional_kwargs"):
+        value = message.get(key)
+        if value not in (None, "", [], {}):
+            payload[key] = value
+    return payload
+
+
+def _memory_maintenance_shared_prefix_cache_plan(segment: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": str(segment.get("kind") or "shared_main_agent_prefix"),
+        "source_ref": str(segment.get("source_ref") or ""),
+        "cache_scope": str(segment.get("cache_scope") or "task"),
+        "cache_role": str(segment.get("cache_role") or "session_stable"),
+        "prefix_tier": str(segment.get("prefix_tier") or "task"),
+        "compression_role": str(segment.get("compression_role") or "preserve"),
+        "metadata": {
+            **(dict(segment.get("metadata") or {}) if isinstance(segment.get("metadata"), dict) else {}),
+            "shared_with": "memory_maintenance_agent",
+            "cache_impact": "shared_main_agent_provider_prefix",
+        },
+    }
+
+
 def _segment_model_message_index(segment: dict[str, Any]) -> int:
     try:
         return int(segment.get("model_message_index"))
@@ -6875,6 +7153,7 @@ async def _commit_final_message(
     answer_channel: str,
     answer_source: str,
     api_protocol_messages: list[dict[str, Any]] | None = None,
+    main_context: dict[str, Any] | None = None,
 ) -> FinalMessageCommit:
     sanitized_protocol_messages = _sanitize_model_messages(
         [dict(item) for item in list(api_protocol_messages or []) if isinstance(item, dict)],
@@ -6906,7 +7185,10 @@ async def _commit_final_message(
             "turn_run_ref": turn_run.turn_run_id if turn_run is not None else "",
             **_agent_scope_refs(agent_scope),
         },
-        commit_payload_overrides={"api_protocol_messages": sanitized_protocol_messages},
+        commit_payload_overrides={
+            "api_protocol_messages": sanitized_protocol_messages,
+            **({"main_context": dict(main_context or {})} if main_context else {}),
+        },
     )
     result = await OutputCommitAuthority(runtime_host).commit_async(
         request,

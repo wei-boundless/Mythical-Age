@@ -12,6 +12,11 @@ from json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, read_jso
 
 
 RuntimeRunStatus = Literal["starting", "running", "waiting", "completed", "failed", "stopped", "orphaned"]
+TERMINAL_RUNTIME_RUN_STATUSES: set[str] = {"completed", "failed", "stopped", "orphaned"}
+
+
+def is_terminal_runtime_run_status(status: Any) -> bool:
+    return str(status or "").strip().lower() in TERMINAL_RUNTIME_RUN_STATUSES
 
 
 @dataclass(frozen=True, slots=True)

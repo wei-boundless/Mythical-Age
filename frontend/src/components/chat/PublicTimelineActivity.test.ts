@@ -44,6 +44,38 @@ describe("PublicTimelineActivity", () => {
     expect(html).not.toContain("系统返回");
   });
 
+  it("does not render public status placeholders as tool output", () => {
+    const detail = "[1] backend/harness/agent_control/controller.py [2] backend/harness/runtime/control_events.py";
+    const html = renderActivity([
+      {
+        kind: "tool_event",
+        id: "tool:search",
+        title: "搜索文件 control",
+        detail,
+        state: "done",
+        toolCallId: "call:search",
+        toolLifecycleId: "toolinv:search",
+        toolName: "search_files",
+        actionKind: "",
+        target: "control",
+        argumentsPreview: "query=control",
+        commandLine: "search_files control query=control",
+        output: "状态已更新",
+        sourceItemId: "",
+        sourceEventType: "tool_item_completed",
+        sourceEventId: "event:tool:search",
+        firstOffset: 1,
+        lastOffset: 2,
+      },
+    ]);
+
+    expect(html).toContain("data-tool-family=\"search\"");
+    expect(html).toContain("backend/harness/agent_control/controller.py");
+    expect(html).toContain("详情");
+    expect(html).not.toContain("返回结果");
+    expect(html).not.toContain("状态已更新");
+  });
+
   it("renders runtime recovery reason codes as public status text", () => {
     const html = renderActivity([
       {

@@ -45,7 +45,6 @@ from harness.current_work_receipt import current_work_operation_availability_fro
 from harness.recovery_receipt import recovery_operation_availability_from_receipt
 from project_layout import ProjectLayout
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
-from runtime_objects.tool_result_storage import DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
 from .artifact_scope import runtime_artifact_scope_from_environment
@@ -86,18 +85,6 @@ _GRAPH_MEMORY_RECORD_TEXT_LIMIT = 1200
 _GRAPH_LOOP_FRAME_LIMIT = 2
 _GRAPH_LOOP_ITERATION_LIMIT = 6
 _GRAPH_LOOP_NODE_RESULT_LIMIT = 6
-
-_PROVIDER_PROTOCOL_DEFAULT_MESSAGE_LIMIT = 12
-_PROVIDER_PROTOCOL_DEFAULT_CHAR_BUDGET = 24_000
-_PROVIDER_PROTOCOL_DEFAULT_MESSAGE_CHARS = 2_400
-_PROVIDER_PROTOCOL_REHYDRATION_NOTE = (
-    "Provider protocol replay evidence only. This preserves tool-call continuity; it is not a request to repeat the tool. "
-    "Preview only. Do not rely on omitted content for exact claims, citations, line-level edits, "
-    "or final factual judgments. For non-code omitted output, call read_persisted_tool_result first when exact content matters. "
-    "For read_file content, rely on exact text only when it is visible in the current packet; "
-    "historical file evidence is represented by refs, hashes, and line ranges, so read the current target window when exact text matters."
-)
-
 
 @dataclass(frozen=True, slots=True)
 class RuntimeCompilationResult:
@@ -515,13 +502,12 @@ class RuntimeCompiler:
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
         stable_payload = {
             "control_capabilities": dict(effective_control_capabilities),
-            "planning_protocol": planning_protocol,
             "task_environment": _environment_model_visible_payload(
                 environment_payload,
                 prompt_mount_plan=prompt_mount_plan.to_dict(),
             ),
             "capability_directory": _capability_directory_model_visible_payload(assembly_payload),
-            "output_contract": output_contract,
+            "output_contract": _stable_prompt_output_contract_payload(output_contract),
             **_project_instruction_model_payload(project_instruction_bundle),
         }
         tool_index_payload = (
@@ -559,7 +545,8 @@ class RuntimeCompiler:
                 projection_policy=projection_policy,
             )
         )
-        dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or {})
+        runtime_baseline_refs_payload = _runtime_baseline_refs_model_visible_payload(dynamic_context)
+        dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or dynamic_context.dynamic_runtime_delta or {})
         runtime_memory_context_payload = _memory_context_model_visible_payload(
             memory_context or session_context_payload.get("memory_context")
         )
@@ -596,11 +583,27 @@ class RuntimeCompiler:
             volatile_runtime_payload["runtime_observations"] = runtime_observations_payload
         if turn_input_facts:
             volatile_runtime_payload["turn_input_facts"] = _turn_input_facts_model_visible_payload(turn_input_facts)
+        if volatile_runtime_payload:
+            dynamic_payload = _drop_empty_payload({**dynamic_payload, **volatile_runtime_payload})
+            volatile_runtime_payload = {}
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
         attachment_context_payload, current_request_payload = _extract_attachment_context_payload(current_request_payload)
         task_plan_context_payload, current_request_payload = _extract_task_plan_context_payload(current_request_payload)
         editor_context_payload, current_request_payload = _extract_editor_context_payload(current_request_payload)
+        provider_protocol_specs = _provider_protocol_message_specs(
+            session_context,
+            source_ref="single_agent_turn_api_transcript",
+            projection_policy=projection_policy,
+            storage_root=dynamic_context_storage_root(self.base_dir, assembly_payload) or self.base_dir,
+            storage_run_id=session_id,
+        )
+        session_history_specs = _session_history_message_specs(
+            session_history_payload,
+            title="Single agent turn session history",
+            source_ref="single_agent_turn_session_history",
+            metadata=_dynamic_context_segment_metadata(dynamic_context, source="session_history") if session_history_payload else {},
+        )
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="single_agent_turn",
@@ -709,6 +712,24 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
+                _runtime_payload_spec(
+                    role="system",
+                    title="Single agent turn runtime baseline refs",
+                    payload=runtime_baseline_refs_payload,
+                    kind="runtime_baseline_refs",
+                    source_ref=_runtime_baseline_refs_source_ref(runtime_baseline_refs_payload),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="ref_only",
+                    metadata={
+                        "authority_class": "runtime_baseline_refs",
+                        "content_source": "harness.runtime.dynamic_context.runtime_baseline_refs",
+                        "cache_impact": "session_prefix_runtime_baseline_refs",
+                        "stability_rule": "Only immutable runtime profile/environment refs are cacheable; runtime cursor deltas stay in dynamic_projection tail.",
+                    },
+                )
+                if runtime_baseline_refs_payload
+                else None,
                 *_attachment_context_message_specs(
                     attachment_context_payload,
                     title_prefix="Single agent turn",
@@ -727,38 +748,33 @@ class RuntimeCompiler:
                     source_ref_prefix="single_agent_turn",
                     dynamic_context=dynamic_context,
                 ),
+                *session_history_specs,
+                *provider_protocol_specs,
+                *_session_history_tail_context_message_specs(
+                    session_history_payload,
+                    title="Single agent turn session history",
+                    source_ref="single_agent_turn_session_history",
+                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="session_history") if session_history_payload else {},
+                ),
                 _runtime_payload_spec(
                     role="system",
                     title="Task current exact read evidence",
                     payload=read_evidence_prompt_payload,
                     kind="read_evidence_injection",
                     source_ref=_read_evidence_prompt_source_ref(read_evidence_prompt_payload, fallback=packet_id),
-                    cache_scope="task",
-                    cache_role="session_stable",
+                    cache_scope="none",
+                    cache_role="volatile",
                     compression_role="preserve",
                     metadata={
                         "authority_class": "read_evidence_injection",
                         "projection_strategy": "current_exact_read_once_historical_refs",
                         "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
-                        "cache_impact": "task_prefix_read_evidence_snapshot",
-                        "stability_rule": "exact read evidence already sent in this turn is a stable snapshot; later reads append new observations",
+                        "volatility_reason": "current packet exact file read evidence is visible once; historical file evidence is represented by refs",
+                        "cache_impact": "volatile_suffix_only",
                     },
                 )
                 if read_evidence_prompt_payload
                 else None,
-                *_session_history_message_specs(
-                    session_history_payload,
-                    title="Single agent turn session history",
-                    source_ref="single_agent_turn_session_history",
-                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="session_history") if session_history_payload else {},
-                ),
-                *_provider_protocol_message_specs(
-                    session_context,
-                    source_ref="single_agent_turn_api_transcript",
-                    projection_policy=projection_policy,
-                    storage_root=dynamic_context_storage_root(self.base_dir, assembly_payload) or self.base_dir,
-                    storage_run_id=session_id,
-                ),
                 _runtime_payload_spec(
                     role="system",
                     title="Single agent turn dynamic runtime",
@@ -766,10 +782,15 @@ class RuntimeCompiler:
                     preamble=runtime_instruction,
                     kind="dynamic_projection",
                     source_ref="single_agent_turn_runtime_delta",
-                    cache_scope="task",
-                    cache_role="session_stable",
+                    cache_scope="none",
+                    cache_role="volatile",
                     compression_role="summarize",
-                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
+                    metadata={
+                        **_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
+                        "authority_class": "runtime_delta_tail",
+                        "content_source": "harness.runtime.dynamic_context.runtime_delta_projection",
+                        "cache_impact": "volatile_suffix_only",
+                    },
                 ),
                 _message_spec(
                     role="system",
@@ -873,12 +894,6 @@ class RuntimeCompiler:
             "file_state",
             "file_evidence_decisions",
             "read_resource_state",
-        )
-        single_turn_volatile_refs = (
-            "runtime_envelope",
-            "turn_id",
-            "history",
-            "user_message",
             "active_work_context",
             "recent_work_outcome",
             "current_work_boundary_receipt",
@@ -887,6 +902,12 @@ class RuntimeCompiler:
             "recovery_boundary_receipt",
             "runtime_observations",
             "turn_input_facts",
+        )
+        single_turn_volatile_refs = (
+            "runtime_envelope",
+            "turn_id",
+            "history",
+            "user_message",
             "task_plan_context",
             "editor_context_index",
             "current_editor_evidence_delta",
@@ -1276,7 +1297,8 @@ class RuntimeCompiler:
                 projection_policy=projection_policy,
             )
         )
-        dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or {})
+        runtime_baseline_refs_payload = _runtime_baseline_refs_model_visible_payload(dynamic_context)
+        dynamic_payload = dict(dynamic_context.dynamic_runtime_delta or dynamic_context.dynamic_runtime_projection or {})
         inherited_start_context_payload = dict(dynamic_context.inherited_start_context_projection or {})
         attachment_context_payload, inherited_start_context_payload = _extract_attachment_context_payload(inherited_start_context_payload)
         runtime_memory_context_payload = _memory_context_model_visible_payload(memory_context)
@@ -1364,92 +1386,6 @@ class RuntimeCompiler:
                     kind="action_schema_static",
                     source_ref=action_schema_manifest.source_ref,
                     cache_scope="session",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _runtime_payload_spec(
-                    role="system",
-                    title="Task execution tool schema catalog",
-                    payload=tool_schema_catalog_payload,
-                    kind="tool_schema_catalog",
-                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                    metadata={
-                        "authority_class": "provider_tool_schema_catalog",
-                        "content_source": "harness.runtime.compiler.stable_tool_schema_catalog",
-                    },
-                )
-                if tool_schema_catalog_payload
-                else None,
-                _runtime_payload_spec(
-                    role="system",
-                    title="Task execution tool index",
-                    payload=tool_index_payload,
-                    kind="tool_index_stable",
-                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _runtime_payload_spec(
-                    role="system",
-                    title="Task execution task contract",
-                    payload=task_contract_payload,
-                    kind="task_contract_stable",
-                    source_ref=task_contract_manifest.source_ref,
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _message_spec(
-                    role="system",
-                    content=render_prompt_contract_instruction(task_prompt_assembly),
-                    kind="task_prompt_contract",
-                    source_ref=",".join(task_prompt_assembly.manifest.get("stable_contract_refs") or ()),
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _runtime_payload_spec(
-                    role="system",
-                    title="Task execution bound task context",
-                    payload=bound_task_context_payload,
-                    kind="bound_task_context_stable",
-                    source_ref=bound_task_context.source_ref,
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                    metadata={
-                        "authority_class": "bound_task_context",
-                        "semantic_layer": "L7_bound_task_context",
-                        "cache_impact": "task_prefix_stable",
-                        "projection_strategy": "task_bound_context_manifest",
-                        "content_source": "harness.runtime.bound_task_context",
-                    },
-                )
-                if bound_task_context_payload
-                else None,
-                _runtime_payload_spec(
-                    role="system",
-                    title="Task execution graph shared context",
-                    payload=graph_task_shared_payload,
-                    kind="graph_task_shared_stable",
-                    source_ref=str(graph_task_shared_payload.get("graph_shared_context", {}).get("shared_context_hash") or ""),
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                )
-                if graph_task_shared_payload
-                else None,
-                _runtime_payload_spec(
-                    role="system",
-                    title="Task execution artifact write scope",
-                    payload=artifact_execution_scope_payload,
-                    kind="artifact_scope_stable",
-                    source_ref=artifact_scope_manifest.source_ref,
-                    cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
@@ -1554,22 +1490,92 @@ class RuntimeCompiler:
                         "projection_strategy": "stable_file_evidence_policy",
                     },
                 ),
-                _message_spec(
+                _runtime_payload_spec(
                     role="system",
-                    content=active_skill_instruction,
-                    kind="active_skills",
-                    source_ref=",".join(active_skill_meta.get("source_refs") or ()),
+                    title="Task execution tool schema catalog",
+                    payload=tool_schema_catalog_payload,
+                    kind="tool_schema_catalog",
+                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
                     cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "active_skill_runtime",
-                        "cache_impact": "task_prefix_active_skill_snapshot",
-                        "stability_rule": "active skill instruction is locked once sent for this task invocation; later changes append new tail context",
+                        "authority_class": "provider_tool_schema_catalog",
+                        "content_source": "harness.runtime.compiler.stable_tool_schema_catalog",
                     },
                 )
-                if active_skill_instruction.strip()
+                if tool_schema_catalog_payload
                 else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task execution tool index",
+                    payload=tool_index_payload,
+                    kind="tool_index_stable",
+                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task execution task contract",
+                    payload=task_contract_payload,
+                    kind="task_contract_stable",
+                    source_ref=task_contract_manifest.source_ref,
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=render_prompt_contract_instruction(task_prompt_assembly),
+                    kind="task_prompt_contract",
+                    source_ref=",".join(task_prompt_assembly.manifest.get("stable_contract_refs") or ()),
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task execution bound task context",
+                    payload=bound_task_context_payload,
+                    kind="bound_task_context_stable",
+                    source_ref=bound_task_context.source_ref,
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "bound_task_context",
+                        "semantic_layer": "L7_bound_task_context",
+                        "cache_impact": "task_prefix_stable",
+                        "projection_strategy": "task_bound_context_manifest",
+                        "content_source": "harness.runtime.bound_task_context",
+                    },
+                )
+                if bound_task_context_payload
+                else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task execution graph shared context",
+                    payload=graph_task_shared_payload,
+                    kind="graph_task_shared_stable",
+                    source_ref=str(graph_task_shared_payload.get("graph_shared_context", {}).get("shared_context_hash") or ""),
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                )
+                if graph_task_shared_payload
+                else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task execution artifact write scope",
+                    payload=artifact_execution_scope_payload,
+                    kind="artifact_scope_stable",
+                    source_ref=artifact_scope_manifest.source_ref,
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
                 *_attachment_context_message_specs(
                     attachment_context_payload,
                     title_prefix="Task execution",
@@ -1633,25 +1639,6 @@ class RuntimeCompiler:
                 else None,
                 _runtime_payload_spec(
                     role="system",
-                    title="Task current exact read evidence",
-                    payload=read_evidence_prompt_payload,
-                    kind="read_evidence_injection",
-                    source_ref=_read_evidence_prompt_source_ref(read_evidence_prompt_payload, fallback=packet_id),
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                    metadata={
-                        "authority_class": "read_evidence_injection",
-                        "projection_strategy": "current_exact_read_once_historical_refs",
-                        "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
-                        "cache_impact": "task_prefix_read_evidence_snapshot",
-                        "stability_rule": "exact read evidence already selected for this invocation is a stable snapshot; newer reads append later observations",
-                    },
-                )
-                if read_evidence_prompt_payload
-                else None,
-                _runtime_payload_spec(
-                    role="system",
                     title="Task execution graph node runtime context",
                     payload=graph_node_runtime_context_payload,
                     kind="graph_node_runtime_context",
@@ -1673,17 +1660,52 @@ class RuntimeCompiler:
                     preamble=runtime_instruction,
                     kind="task_runtime_boundary_dynamic",
                     source_ref="agent_visible_runtime_projection",
-                    cache_scope="task",
-                    cache_role="session_stable",
+                    cache_scope="none",
+                    cache_role="volatile",
                     compression_role="preserve",
                     metadata={
                         "authority_class": "runtime_boundary",
-                        "cache_impact": "task_prefix_runtime_boundary_snapshot",
+                        "cache_impact": "volatile_suffix_only",
                         "projection_strategy": "agent_visible_runtime_boundary",
                         "content_source": "runtime.dynamic_context.runtime_delta_projection",
-                        "stability_rule": "runtime boundary is a selected model-visible snapshot; actual per-invocation deltas remain in volatile_task_state and incremental_context_frame",
+                        "volatility_reason": "runtime dynamic projection may include active state and must not mutate the cacheable task prefix",
                     },
                 ),
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task current exact read evidence",
+                    payload=read_evidence_prompt_payload,
+                    kind="read_evidence_injection",
+                    source_ref=_read_evidence_prompt_source_ref(read_evidence_prompt_payload, fallback=packet_id),
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "read_evidence_injection",
+                        "projection_strategy": "current_exact_read_once_historical_refs",
+                        "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
+                        "volatility_reason": "current packet exact file read evidence is visible once; historical file evidence is represented by refs",
+                        "cache_impact": "volatile_suffix_only",
+                    },
+                )
+                if read_evidence_prompt_payload
+                else None,
+                _message_spec(
+                    role="system",
+                    content=active_skill_instruction,
+                    kind="active_skills",
+                    source_ref=",".join(active_skill_meta.get("source_refs") or ()),
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "active_skill_runtime",
+                        "volatility_reason": "active skill bodies are activated runtime content and must remain outside the cacheable task prefix",
+                        "cache_impact": "volatile_suffix_only",
+                    },
+                )
+                if active_skill_instruction.strip()
+                else None,
                 _message_spec(
                     role="system",
                     content=runtime_lifecycle_instruction,
@@ -2088,7 +2110,8 @@ class RuntimeCompiler:
                 projection_policy=projection_policy,
             )
         )
-        dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or {})
+        runtime_baseline_refs_payload = _runtime_baseline_refs_model_visible_payload(dynamic_context)
+        dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or dynamic_context.dynamic_runtime_delta or {})
         runtime_memory_context_payload = _memory_context_model_visible_payload(
             dict(session_context or {}).get("memory_context")
         )
@@ -2097,6 +2120,19 @@ class RuntimeCompiler:
         attachment_context_payload, current_request_payload = _extract_attachment_context_payload(current_request_payload)
         task_plan_context_payload, current_request_payload = _extract_task_plan_context_payload(current_request_payload)
         editor_context_payload, current_request_payload = _extract_editor_context_payload(current_request_payload)
+        provider_protocol_specs = _provider_protocol_message_specs(
+            session_context,
+            source_ref="observation_followup_api_transcript",
+            projection_policy=projection_policy,
+            storage_root=dynamic_context_storage_root(self.base_dir, assembly_payload) or self.base_dir,
+            storage_run_id=session_id,
+        )
+        session_history_specs = _session_history_message_specs(
+            session_history_payload,
+            title="Observation followup session history",
+            source_ref="observation_followup_session_history",
+            metadata=_dynamic_context_segment_metadata(dynamic_context, source="session_history") if session_history_payload else {},
+        )
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="tool_observation_followup",
@@ -2205,56 +2241,23 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
-                _message_spec(
-                    role="system",
-                    content=skill_candidate_instruction,
-                    kind="skill_candidates",
-                    source_ref="runtime_skill_candidates",
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                    metadata={
-                        "authority_class": "active_skill_runtime",
-                        "cache_impact": "task_prefix_stable_within_turn",
-                        "stability_rule": "selected skill candidates are stable for the current turn; if rebuilt differently prefix lock must downgrade the segment",
-                    },
-                ),
-                _message_spec(
-                    role="system",
-                    content=runtime_lifecycle_instruction,
-                    kind="lifecycle_runtime_guidance",
-                    source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                    metadata={
-                        "authority_class": "runtime_lifecycle_guidance",
-                        "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
-                        "lifecycle_trigger_reasons": dict(prompt_mount_plan.runtime_lifecycle_trigger_reasons),
-                        "cache_impact": "task_prefix_stable_within_turn",
-                        "stability_rule": "runtime lifecycle guidance is locked once sent for this turn; later changes must append a new tail segment",
-                    },
-                )
-                if runtime_lifecycle_instruction.strip()
-                else None,
                 _runtime_payload_spec(
                     role="system",
-                    title="Task current exact read evidence",
-                    payload=read_evidence_prompt_payload,
-                    kind="read_evidence_injection",
-                    source_ref=_read_evidence_prompt_source_ref(read_evidence_prompt_payload, fallback=packet_id),
-                    cache_scope="task",
+                    title="Observation followup runtime baseline refs",
+                    payload=runtime_baseline_refs_payload,
+                    kind="runtime_baseline_refs",
+                    source_ref=_runtime_baseline_refs_source_ref(runtime_baseline_refs_payload),
+                    cache_scope="session",
                     cache_role="session_stable",
-                    compression_role="preserve",
+                    compression_role="ref_only",
                     metadata={
-                        "authority_class": "read_evidence_injection",
-                        "projection_strategy": "current_exact_read_once_historical_refs",
-                        "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
-                        "cache_impact": "task_prefix_read_evidence_snapshot",
-                        "stability_rule": "exact read evidence already sent in this turn is a stable snapshot; later reads append new observations",
+                        "authority_class": "runtime_baseline_refs",
+                        "content_source": "harness.runtime.dynamic_context.runtime_baseline_refs",
+                        "cache_impact": "session_prefix_runtime_baseline_refs",
+                        "stability_rule": "Only immutable runtime profile/environment refs are cacheable; runtime cursor deltas stay in dynamic_projection tail.",
                     },
                 )
-                if read_evidence_prompt_payload
+                if runtime_baseline_refs_payload
                 else None,
                 *_attachment_context_message_specs(
                     attachment_context_payload,
@@ -2274,18 +2277,13 @@ class RuntimeCompiler:
                     source_ref_prefix="observation_followup",
                     dynamic_context=dynamic_context,
                 ),
-                *_session_history_message_specs(
+                *session_history_specs,
+                *provider_protocol_specs,
+                *_session_history_tail_context_message_specs(
                     session_history_payload,
                     title="Observation followup session history",
                     source_ref="observation_followup_session_history",
                     metadata=_dynamic_context_segment_metadata(dynamic_context, source="session_history") if session_history_payload else {},
-                ),
-                *_provider_protocol_message_specs(
-                    session_context,
-                    source_ref="observation_followup_api_transcript",
-                    projection_policy=projection_policy,
-                    storage_root=dynamic_context_storage_root(self.base_dir, assembly_payload) or self.base_dir,
-                    storage_run_id=session_id,
                 ),
                 _runtime_payload_spec(
                     role="system",
@@ -2294,25 +2292,83 @@ class RuntimeCompiler:
                     preamble=runtime_instruction,
                     kind="dynamic_projection",
                     source_ref="agent_visible_runtime_projection",
-                    cache_scope="task",
-                    cache_role="session_stable",
+                    cache_scope="none",
+                    cache_role="volatile",
                     compression_role="summarize",
-                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
+                    metadata={
+                        **_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
+                        "authority_class": "runtime_delta_tail",
+                        "content_source": "harness.runtime.dynamic_context.runtime_delta_projection",
+                        "cache_impact": "volatile_suffix_only",
+                    },
                 ),
+                _message_spec(
+                    role="system",
+                    content=skill_candidate_instruction,
+                    kind="skill_candidates",
+                    source_ref="runtime_skill_candidates",
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "active_skill_runtime",
+                        "volatility_reason": "skill candidates are selected for the current runtime followup and must remain outside the cacheable session prefix",
+                        "cache_impact": "volatile_suffix_only",
+                    },
+                )
+                if skill_candidate_instruction.strip()
+                else None,
+                _message_spec(
+                    role="system",
+                    content=runtime_lifecycle_instruction,
+                    kind="lifecycle_runtime_guidance",
+                    source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "runtime_lifecycle_guidance",
+                        "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
+                        "lifecycle_trigger_reasons": dict(prompt_mount_plan.runtime_lifecycle_trigger_reasons),
+                        "volatility_reason": "runtime lifecycle guidance is selected from observation followup state and must remain outside the cacheable prefix",
+                        "cache_impact": "volatile_suffix_only",
+                    },
+                )
+                if runtime_lifecycle_instruction.strip()
+                else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task current exact read evidence",
+                    payload=read_evidence_prompt_payload,
+                    kind="read_evidence_injection",
+                    source_ref=_read_evidence_prompt_source_ref(read_evidence_prompt_payload, fallback=packet_id),
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "read_evidence_injection",
+                        "projection_strategy": "current_exact_read_once_historical_refs",
+                        "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
+                        "volatility_reason": "current packet exact file read evidence is visible once; historical file evidence is represented by refs",
+                        "cache_impact": "volatile_suffix_only",
+                    },
+                )
+                if read_evidence_prompt_payload
+                else None,
                 _runtime_payload_spec(
                     role="system",
                     title="Observation followup runtime memory context",
                     payload=runtime_memory_context_payload,
                     kind="runtime_memory_context",
                     source_ref=_runtime_memory_context_source_ref(runtime_memory_context_payload),
-                    cache_scope="task",
-                    cache_role="session_stable",
+                    cache_scope="none",
+                    cache_role="volatile",
                     compression_role="summarize",
                     metadata={
                         "authority_class": "runtime_memory_context",
                         "content_source": "memory_system.runtime_memory_context",
-                        "cache_impact": "task_prefix_memory_snapshot",
-                        "stability_rule": "selected memory context is a stable snapshot for this turn; later changes append a new tail segment",
+                        "volatility_reason": "selected memory context can change on each follow-up and belongs in the dynamic tail",
+                        "cache_impact": "volatile_suffix_only",
                     },
                 )
                 if runtime_memory_context_payload
@@ -3201,6 +3257,12 @@ def _runtime_observations_model_visible_payload(value: Any) -> dict[str, Any]:
     }
 
 
+def _stable_prompt_output_contract_payload(output_contract: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(output_contract or {})
+    payload.pop("planning_protocol", None)
+    return _drop_empty_payload(payload)
+
+
 def _single_agent_turn_output_contract(
     *,
     allowed_actions: tuple[str, ...],
@@ -3666,29 +3728,203 @@ def _session_history_message_specs(
     *,
     title: str,
     source_ref: str,
+    include_active_history: bool = True,
     metadata: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     clean_payload = _drop_empty_payload(dict(payload or {}))
     if not clean_payload:
         return []
+    common_metadata = {
+        **dict(metadata or {}),
+        "authority_class": "natural_history",
+        "cache_impact": "append_only_task_prefix",
+        "stability_rule": (
+            "session history is emitted as append-only entries; existing entries must not be "
+            "rewritten when later turns add new history"
+        ),
+    }
+    specs: list[dict[str, Any]] = []
+    active_history = (
+        [
+            _drop_empty_payload(dict(item))
+            for item in list(clean_payload.get("active_history") or [])
+            if isinstance(item, dict)
+        ]
+        if include_active_history
+        else []
+    )
+    active_history = [item for item in active_history if item]
+    context_payload = _session_history_stable_context_payload(clean_payload)
+    if context_payload:
+        specs.append(
+            _runtime_payload_spec(
+                role="system",
+                title=f"{title} context",
+                payload=context_payload,
+                kind="session_history_context",
+                source_ref=f"{source_ref}:context",
+                cache_scope="task",
+                cache_role="session_stable",
+                compression_role="summarize",
+                metadata={
+                    **common_metadata,
+                    "session_history_component": "context",
+                },
+            )
+        )
+    for index, entry in enumerate(active_history, start=1):
+        entry_ref = _session_history_entry_ref(entry, fallback_index=index)
+        specs.append(
+            _runtime_payload_spec(
+                role="system",
+                title=f"{title} entry {index}",
+                payload={"session_history_entry": entry},
+                kind="session_history_entry",
+                source_ref=f"{source_ref}:entry:{entry_ref}",
+                cache_scope="task",
+                cache_role="session_stable",
+                compression_role="summarize",
+                metadata={
+                    **common_metadata,
+                    "session_history_component": "active_history",
+                    "session_history_entry_index": index,
+                    "session_history_entry_ref": entry_ref,
+                    "append_only_context_package": "historical_context",
+                    "append_only_context_stream": "session_history",
+                    "append_only_created_at": _message_created_at(entry),
+                    "append_only_stream_index": index,
+                },
+            )
+        )
+    if specs:
+        return specs
+    legacy_payload = _session_history_legacy_stable_payload(clean_payload)
+    if not legacy_payload:
+        return []
     return [
         _runtime_payload_spec(
             role="system",
             title=title,
-            payload=clean_payload,
+            payload=legacy_payload,
             kind="session_history",
             source_ref=source_ref,
             cache_scope="task",
             cache_role="session_stable",
             compression_role="summarize",
+            metadata=common_metadata,
+        )
+    ]
+
+
+def _session_history_tail_context_message_specs(
+    payload: dict[str, Any] | None,
+    *,
+    title: str,
+    source_ref: str,
+    metadata: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    clean_payload = _drop_empty_payload(dict(payload or {}))
+    if not clean_payload:
+        return []
+    tail_payload = _session_history_tail_context_payload(clean_payload)
+    if not tail_payload:
+        return []
+    return [
+        _runtime_payload_spec(
+            role="system",
+            title=f"{title} dynamic tail context",
+            payload=tail_payload,
+            kind="session_history_tail_context",
+            source_ref=f"{source_ref}:tail_context",
+            cache_scope="none",
+            cache_role="volatile",
+            compression_role="summarize",
             metadata={
                 **dict(metadata or {}),
-                "authority_class": "natural_history",
-                "cache_impact": "task_prefix_history_snapshot",
-                "stability_rule": "history already selected for this turn is preserved by hash; new user input is appended separately",
+                "authority_class": "natural_history_tail_context",
+                "cache_impact": "volatile_suffix_only",
+                "volatility_reason": (
+                    "session emphasis and recent work outcome may be refreshed independently of "
+                    "append-only history, so they must not sit before the locked historical prefix"
+                ),
+                "stability_rule": "volatile session tail context stays after append-only history and provider protocol replay",
+                "session_history_component": "tail_context",
             },
         )
     ]
+
+
+def _session_history_stable_context_payload(clean_payload: dict[str, Any]) -> dict[str, Any]:
+    session_context = dict(clean_payload.get("session_context") or {}) if isinstance(clean_payload.get("session_context"), dict) else {}
+    recovery_package = dict(session_context.get("context_recovery_package") or {}) if isinstance(session_context.get("context_recovery_package"), dict) else {}
+    if not recovery_package:
+        return {}
+    return {
+        "session_context": {
+            "context_recovery_package": recovery_package,
+        }
+    }
+
+
+def _session_history_tail_context_payload(clean_payload: dict[str, Any]) -> dict[str, Any]:
+    session_context = dict(clean_payload.get("session_context") or {}) if isinstance(clean_payload.get("session_context"), dict) else {}
+    recent_work_outcome = (
+        dict(session_context.get("recent_work_outcome") or {})
+        if isinstance(session_context.get("recent_work_outcome"), dict)
+        else {}
+    )
+    pinned_facts = [
+        _drop_empty_payload(dict(item))
+        for item in list(clean_payload.get("pinned_facts") or [])
+        if isinstance(item, dict)
+    ]
+    pinned_facts = [item for item in pinned_facts if item]
+    return _drop_empty_payload(
+        {
+            "pinned_facts": pinned_facts,
+            "recent_work_outcome": recent_work_outcome,
+            "authority": "harness.runtime.dynamic_context.history_projection.tail_context"
+            if pinned_facts or recent_work_outcome
+            else "",
+        }
+    )
+
+
+def _session_history_legacy_stable_payload(clean_payload: dict[str, Any]) -> dict[str, Any]:
+    return _drop_empty_payload(
+        {
+            key: value
+            for key, value in clean_payload.items()
+            if key
+            not in {
+                "active_history",
+                "active_tool_trajectory",
+                "authority",
+                "current_user_message_ref",
+                "pinned_facts",
+                "session_context",
+            }
+        }
+    )
+
+
+def _session_history_entry_ref(entry: dict[str, Any], *, fallback_index: int) -> str:
+    explicit = str(
+        entry.get("message_id")
+        or entry.get("turn_id")
+        or entry.get("tool_call_id")
+        or entry.get("id")
+        or ""
+    ).strip()
+    if explicit:
+        return explicit
+    digest = hashlib.sha256(
+        json.dumps(_json_stable(entry), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8",
+            errors="ignore",
+        )
+    ).hexdigest()[:12]
+    return f"history:{digest or fallback_index}"
 
 
 def _task_state_replay_message_specs(entries: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
@@ -3765,13 +4001,18 @@ def _provider_protocol_message_specs(
     protocol_transcript = _provider_protocol_hot_messages(raw_transcript)
     if not protocol_transcript:
         return []
-    transcript, protocol_projection = _project_provider_protocol_replay(
-        protocol_transcript,
-        projection_policy=projection_policy,
-        storage_root=storage_root,
-        storage_run_id=storage_run_id,
-    )
-    protocol_truncated_count = max(0, len(protocol_transcript) - len(transcript))
+    transcript = [dict(item) for item in protocol_transcript]
+    protocol_created_ats = _provider_protocol_created_ats(transcript, boundary_filtered_candidates)
+    protocol_projection = {
+        "authority": "harness.runtime.compiler.provider_protocol_projection",
+        "projection_strategy": "full_append_only_protocol_replay",
+        "input_message_count": len(protocol_transcript),
+        "replayed_message_count": len(transcript),
+        "omitted_message_count": 0,
+        "input_chars": _provider_protocol_messages_chars(protocol_transcript),
+        "output_chars": _provider_protocol_messages_chars(transcript),
+    }
+    protocol_truncated_count = 0
     protocol_projection = {
         **dict(protocol_projection or {}),
         "raw_transcript_message_count": len(raw_transcript),
@@ -3783,15 +4024,16 @@ def _provider_protocol_message_specs(
     }
     result: list[dict[str, Any]] = []
     for index, message in enumerate([item for item in transcript if item is not None], start=1):
+        append_only_created_at = protocol_created_ats[index - 1] if index - 1 < len(protocol_created_ats) else 0.0
         result.append(
             {
                 "role": str(message.get("role") or "user"),
                 "content": str(message.get("content") or ""),
                 "kind": "provider_protocol_history",
                 "source_ref": f"{source_ref}:{index}",
-                "cache_scope": "none",
-                "cache_role": "never_cache",
-                "prefix_tier": "none",
+                "cache_scope": "task",
+                "cache_role": "session_stable",
+                "prefix_tier": "task",
                 "compression_role": "preserve",
                 "metadata": {
                     "protocol_history_index": index,
@@ -3803,6 +4045,13 @@ def _provider_protocol_message_specs(
                     "tool_calls_present": bool(message.get("tool_calls")),
                     "exact_content_required_before_final": _provider_protocol_requires_rehydration(message),
                     "content_source": "runtime.provider_protocol_replay",
+                    "authority_class": "append_only_provider_protocol_history",
+                    "cache_impact": "append_only_task_prefix",
+                    "stability_rule": "provider protocol transcript is historical context; new protocol messages append after old ones and only compaction boundary may replace prior content",
+                    "append_only_context_package": "historical_context",
+                    "append_only_context_stream": "provider_protocol",
+                    "append_only_created_at": append_only_created_at,
+                    "append_only_stream_index": index,
                 },
                 "model_message": message,
             }
@@ -3828,6 +4077,42 @@ def _provider_protocol_hot_messages(transcript: list[dict[str, Any]]) -> list[di
     return [message for message in list(transcript or []) if _is_provider_protocol_hot_message(message)]
 
 
+def _provider_protocol_created_ats(
+    transcript: list[dict[str, Any]],
+    raw_candidates: list[dict[str, Any]],
+) -> list[float]:
+    created_ats: list[float] = []
+    cursor = 0
+    candidates = [dict(item) for item in list(raw_candidates or []) if isinstance(item, dict)]
+    for message in list(transcript or []):
+        created_at = 0.0
+        for index in range(cursor, len(candidates)):
+            candidate = candidates[index]
+            if _same_provider_protocol_message(message, candidate):
+                created_at = _message_created_at(candidate)
+                cursor = index + 1
+                break
+        created_ats.append(created_at)
+    return created_ats
+
+
+def _same_provider_protocol_message(message: dict[str, Any], candidate: dict[str, Any]) -> bool:
+    role = str(message.get("role") or "").strip()
+    if role != str(candidate.get("role") or candidate.get("type") or "").strip():
+        return False
+    if role == "tool":
+        return str(message.get("tool_call_id") or "").strip() == str(candidate.get("tool_call_id") or "").strip()
+    message_tool_ids = _assistant_tool_call_ids(message)
+    candidate_tool_ids = _assistant_tool_call_ids(candidate)
+    if message_tool_ids or candidate_tool_ids:
+        return bool(message_tool_ids) and message_tool_ids == candidate_tool_ids
+    reasoning = str(message.get("reasoning_content") or "").strip()
+    if reasoning:
+        return reasoning == str(candidate.get("reasoning_content") or "").strip()
+    content = str(message.get("content") or "").strip()
+    return bool(content) and content == str(candidate.get("content") or candidate.get("text") or "").strip()
+
+
 def _is_provider_protocol_hot_message(message: dict[str, Any]) -> bool:
     role = str(message.get("role") or "").strip()
     if role == "tool":
@@ -3839,203 +4124,11 @@ def _is_provider_protocol_hot_message(message: dict[str, Any]) -> bool:
     return False
 
 
-def _select_provider_protocol_replay(
-    transcript: list[dict[str, Any]],
-    *,
-    max_messages: int = _PROVIDER_PROTOCOL_DEFAULT_MESSAGE_LIMIT,
-) -> list[dict[str, Any]]:
-    if len(transcript) <= max_messages:
-        return list(transcript)
-    start = max(0, len(transcript) - max_messages)
-    start = _provider_protocol_start_with_tool_pairs(transcript, start)
-    return list(transcript[start:])
-
-
-def _project_provider_protocol_replay(
-    transcript: list[dict[str, Any]],
-    *,
-    projection_policy: dict[str, Any] | None,
-    storage_root: Path | None,
-    storage_run_id: str,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    policy = dict(projection_policy or {})
-    message_limit = _provider_protocol_message_limit(policy)
-    char_budget = _provider_protocol_char_budget(policy, message_limit=message_limit)
-    selected = _select_provider_protocol_replay(transcript, max_messages=message_limit)
-    projected, projection = _project_provider_protocol_messages(
-        selected,
-        projection_policy=policy,
-        storage_root=storage_root,
-        storage_run_id=storage_run_id,
-    )
-    budgeted = _select_provider_protocol_replay_by_char_budget(projected, max_chars=char_budget)
-    projection.update(
-        {
-            "authority": "harness.runtime.compiler.provider_protocol_projection",
-            "input_message_count": len(transcript),
-            "selected_message_limit": message_limit,
-            "char_budget": char_budget,
-            "selected_message_count": len(selected),
-            "replayed_message_count": len(budgeted),
-            "omitted_message_count": max(0, len(transcript) - len(budgeted)),
-            "input_chars": _provider_protocol_messages_chars(transcript),
-            "output_chars": _provider_protocol_messages_chars(budgeted),
-        }
-    )
-    return budgeted, _drop_empty_payload(projection)
-
-
-def _project_provider_protocol_messages(
-    transcript: list[dict[str, Any]],
-    *,
-    projection_policy: dict[str, Any],
-    storage_root: Path | None,
-    storage_run_id: str,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    tool_preview_chars = _provider_protocol_tool_preview_chars(projection_policy)
-    message_chars = _provider_protocol_message_chars_limit(projection_policy)
-    store = ToolResultStore(
-        storage_root or Path.cwd(),
-        run_id=storage_run_id or "session",
-        namespace="runtime_context",
-    )
-    projected: list[dict[str, Any]] = []
-    projected_tool_outputs = 0
-    persisted_replacements = 0
-    compacted_messages = 0
-    storage_errors = 0
-    tool_name_by_call_id = _provider_protocol_tool_call_names(transcript)
-    for message in transcript:
-        item = dict(message)
-        role = str(item.get("role") or "")
-        content = str(item.get("content") or "")
-        if role == "tool" and content:
-            tool_name = _provider_protocol_tool_name(item, content=content) or tool_name_by_call_id.get(
-                str(item.get("tool_call_id") or "").strip(),
-                "",
-            )
-            if tool_name == "read_file":
-                if len(content) > tool_preview_chars:
-                    item["content"] = _provider_protocol_read_file_preview(content, preview_chars=tool_preview_chars)
-                    projected_tool_outputs += 1
-                    compacted_messages += 1
-                projected.append(item)
-                continue
-            try:
-                budgeted, replacements = store.apply_budget(
-                    {"content": content},
-                    field_limit_bytes=tool_preview_chars,
-                    preview_size_bytes=tool_preview_chars,
-                    payload_budget_bytes=max(tool_preview_chars * 2, tool_preview_chars + 1000),
-                )
-            except Exception:
-                item["content"] = _provider_protocol_storage_unavailable_preview(
-                    content,
-                    preview_chars=tool_preview_chars,
-                )
-                storage_errors += 1
-                compacted_messages += 1
-            else:
-                if replacements:
-                    replacement_content = str(budgeted.get("content") or "")
-                    item["content"] = _with_provider_protocol_rehydration_note(replacement_content)
-                    projected_tool_outputs += 1
-                    persisted_replacements += len(replacements)
-                    compacted_messages += 1
-        elif content and len(content) > message_chars:
-            item["content"] = _provider_protocol_bounded_message_preview(content, limit=message_chars)
-            compacted_messages += 1
-        projected.append(item)
-    return projected, _drop_empty_payload(
-        {
-            "tool_preview_chars": tool_preview_chars,
-            "message_chars": message_chars,
-            "projected_tool_output_count": projected_tool_outputs,
-            "persisted_tool_replacement_count": persisted_replacements,
-            "compacted_message_count": compacted_messages,
-            "storage_error_count": storage_errors,
-        }
-    )
-
-
-def _select_provider_protocol_replay_by_char_budget(
-    transcript: list[dict[str, Any]],
-    *,
-    max_chars: int,
-) -> list[dict[str, Any]]:
-    if not transcript or _provider_protocol_messages_chars(transcript) <= max_chars:
-        return list(transcript)
-    total = 0
-    start = len(transcript)
-    for index in range(len(transcript) - 1, -1, -1):
-        size = _provider_protocol_message_chars(transcript[index])
-        if start < len(transcript) and total + size > max_chars:
-            break
-        start = index
-        total += size
-    if start >= len(transcript):
-        start = max(0, len(transcript) - 1)
-    start = _provider_protocol_start_with_tool_pairs(transcript, start)
-    return list(transcript[start:])
-
-
-def _provider_protocol_start_with_tool_pairs(transcript: list[dict[str, Any]], start: int) -> int:
-    selected = transcript[start:]
-    required_tool_call_ids = {
-        str(message.get("tool_call_id") or "").strip()
-        for message in selected
-        if str(message.get("role") or "") == "tool" and str(message.get("tool_call_id") or "").strip()
-    }
-    if required_tool_call_ids:
-        for index in range(start - 1, -1, -1):
-            call_ids = _assistant_tool_call_ids(transcript[index])
-            matched = call_ids.intersection(required_tool_call_ids)
-            if matched:
-                start = index
-                required_tool_call_ids.difference_update(matched)
-                if not required_tool_call_ids:
-                    break
-    return start
-
-
 def _assistant_tool_call_ids(message: dict[str, Any]) -> set[str]:
     if str(message.get("role") or "") != "assistant":
         return set()
     tool_calls = list(message.get("tool_calls") or []) if isinstance(message.get("tool_calls"), list) else []
     return {str(call.get("id") or "").strip() for call in tool_calls if isinstance(call, dict) and str(call.get("id") or "").strip()}
-
-
-def _provider_protocol_message_limit(policy: dict[str, Any]) -> int:
-    explicit = policy.get("provider_protocol_message_limit")
-    if explicit not in (None, ""):
-        return _int_in_range(explicit, default=_PROVIDER_PROTOCOL_DEFAULT_MESSAGE_LIMIT, low=4, high=32)
-    recent_limit = _safe_int(policy.get("recent_history_message_limit"))
-    inferred = recent_limit // 12 if recent_limit else _PROVIDER_PROTOCOL_DEFAULT_MESSAGE_LIMIT
-    return _int_in_range(inferred, default=_PROVIDER_PROTOCOL_DEFAULT_MESSAGE_LIMIT, low=6, high=16)
-
-
-def _provider_protocol_char_budget(policy: dict[str, Any], *, message_limit: int) -> int:
-    explicit = policy.get("provider_protocol_char_budget")
-    if explicit not in (None, ""):
-        return _int_in_range(explicit, default=_PROVIDER_PROTOCOL_DEFAULT_CHAR_BUDGET, low=4_000, high=48_000)
-    inferred = max(4_000, int(message_limit or _PROVIDER_PROTOCOL_DEFAULT_MESSAGE_LIMIT) * 1_800)
-    return _int_in_range(inferred, default=_PROVIDER_PROTOCOL_DEFAULT_CHAR_BUDGET, low=6_000, high=24_000)
-
-
-def _provider_protocol_tool_preview_chars(policy: dict[str, Any]) -> int:
-    explicit = policy.get("provider_protocol_tool_result_preview_chars")
-    if explicit not in (None, ""):
-        return _int_in_range(explicit, default=DEFAULT_PREVIEW_SIZE_BYTES, low=600, high=6_000)
-    base = _safe_int(policy.get("tool_result_preview_chars")) or DEFAULT_PREVIEW_SIZE_BYTES
-    return _int_in_range(min(base, 3_000), default=DEFAULT_PREVIEW_SIZE_BYTES, low=800, high=3_000)
-
-
-def _provider_protocol_message_chars_limit(policy: dict[str, Any]) -> int:
-    explicit = policy.get("provider_protocol_message_chars")
-    if explicit not in (None, ""):
-        return _int_in_range(explicit, default=_PROVIDER_PROTOCOL_DEFAULT_MESSAGE_CHARS, low=600, high=8_000)
-    base = _safe_int(policy.get("history_message_chars")) or _PROVIDER_PROTOCOL_DEFAULT_MESSAGE_CHARS
-    return _int_in_range(min(base, _PROVIDER_PROTOCOL_DEFAULT_MESSAGE_CHARS), default=_PROVIDER_PROTOCOL_DEFAULT_MESSAGE_CHARS, low=800, high=4_000)
 
 
 def _provider_protocol_messages_chars(messages: list[dict[str, Any]]) -> int:
@@ -4046,90 +4139,11 @@ def _provider_protocol_message_chars(message: dict[str, Any]) -> int:
     return len(json.dumps(_json_stable(message), ensure_ascii=False, sort_keys=True, separators=(",", ":")))
 
 
-def _with_provider_protocol_rehydration_note(content: str) -> str:
-    text = str(content or "").strip()
-    if not text or _PROVIDER_PROTOCOL_REHYDRATION_NOTE in text:
-        return text
-    return f"{text}\n{_PROVIDER_PROTOCOL_REHYDRATION_NOTE}"
-
-
-def _provider_protocol_tool_name(message: dict[str, Any], *, content: str = "") -> str:
-    for key in ("name", "tool_name", "function_name"):
-        value = str(message.get(key) or "").strip()
-        if value:
-            return value.removeprefix("tool:").strip()
-    parsed = _json_object(content)
-    for key in ("tool_name", "name"):
-        value = str(parsed.get(key) or "").strip()
-        if value:
-            return value.removeprefix("tool:").strip()
-    envelope = dict(parsed.get("result_envelope") or {})
-    value = str(envelope.get("tool_name") or "").strip()
-    return value.removeprefix("tool:").strip()
-
-
-def _provider_protocol_tool_call_names(transcript: list[dict[str, Any]]) -> dict[str, str]:
-    names: dict[str, str] = {}
-    for message in list(transcript or []):
-        if str(message.get("role") or "") != "assistant":
-            continue
-        for call in list(message.get("tool_calls") or []) if isinstance(message.get("tool_calls"), list) else []:
-            if not isinstance(call, dict):
-                continue
-            call_id = str(call.get("id") or "").strip()
-            name = str(call.get("name") or call.get("function_name") or "").removeprefix("tool:").strip()
-            if call_id and name:
-                names[call_id] = name
-    return names
-
-
-def _provider_protocol_read_file_preview(content: str, *, preview_chars: int) -> str:
-    preview = _provider_protocol_bounded_message_preview(content, limit=preview_chars)
-    return (
-        preview.rstrip()
-        + "\nProvider protocol replay preview only for read_file. Exact code evidence must come from "
-        "visible read_file content, injected read observation artifacts, or a current read_file call."
-    )
-
-
-def _json_object(value: Any) -> dict[str, Any]:
-    text = str(value or "").strip()
-    if not text or not text.startswith("{"):
-        return {}
-    try:
-        parsed = json.loads(text)
-    except (TypeError, ValueError):
-        return {}
-    return dict(parsed) if isinstance(parsed, dict) else {}
-
-
 def _provider_protocol_requires_rehydration(message: dict[str, Any]) -> bool:
     content = str(message.get("content") or "")
     if str(message.get("role") or "") != "tool":
         return False
-    return "<persisted-output>" in content or "Provider protocol replay preview only for read_file" in content
-
-
-def _provider_protocol_storage_unavailable_preview(content: str, *, preview_chars: int) -> str:
-    preview = _compact_text(content, limit=max(120, int(preview_chars or DEFAULT_PREVIEW_SIZE_BYTES)))
-    return (
-        f"{preview}\n"
-        "[Provider protocol replay omitted the rest of this tool output; persisted storage was unavailable.]"
-    )
-
-
-def _provider_protocol_bounded_message_preview(content: str, *, limit: int) -> str:
-    preview = _compact_text(content, limit=max(120, int(limit or _PROVIDER_PROTOCOL_DEFAULT_MESSAGE_CHARS)))
-    omitted = max(0, len(str(content or "")) - len(preview))
-    return f"{preview}\n[Provider protocol replay omitted {omitted} char(s) from this older message.]"
-
-
-def _int_in_range(value: Any, *, default: int, low: int, high: int) -> int:
-    try:
-        parsed = int(value if value not in (None, "") else default)
-    except (TypeError, ValueError):
-        parsed = default
-    return max(int(low), min(int(high), parsed))
+    return "<persisted-output>" in content
 
 
 def _model_messages_and_segment_plan(
@@ -4151,6 +4165,7 @@ def _model_messages_and_segment_plan(
         spec["content"] = str(model_message.get("content") or spec.get("content") or "")
         spec["model_message"] = model_message
         source_specs.append(spec)
+    source_specs = _fixed_context_package_message_specs(source_specs)
     source_bundle = build_prompt_source_bundle(
         packet_id=packet_id,
         invocation_kind=invocation_kind,
@@ -4184,6 +4199,110 @@ def _model_messages_and_segment_plan(
         enforce_dynamic_context_reports=enforce_dynamic_context_reports,
     )
     return model_messages, segment_plan, tuple(clean_specs), source_manifest, slot_plan, load_plan
+
+
+_APPEND_ONLY_CONTEXT_KINDS = {
+    "incremental_context_frame",
+    "provider_protocol_history",
+    "session_history_entry",
+    "single_agent_turn_tool_call",
+    "single_agent_turn_tool_observation",
+    "task_state_replay_entry",
+    "tool_observations",
+}
+
+
+def _fixed_context_package_message_specs(specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    stable_base: list[tuple[int, dict[str, Any]]] = []
+    append_only_context: list[tuple[int, dict[str, Any]]] = []
+    volatile_tail: list[tuple[int, dict[str, Any]]] = []
+    for index, raw_spec in enumerate(list(specs or []), start=1):
+        spec = dict(raw_spec or {})
+        package = _fixed_context_package_for_spec(spec)
+        metadata = {
+            **dict(spec.get("metadata") or {}),
+            "fixed_context_package": package,
+            "fixed_context_original_order": index,
+        }
+        spec["metadata"] = metadata
+        if package == "append_only_context":
+            append_only_context.append((index, spec))
+        elif package == "volatile_tail":
+            volatile_tail.append((index, spec))
+        else:
+            stable_base.append((index, spec))
+    append_only_context = sorted(append_only_context, key=_append_only_context_order_key)
+    ordered = [
+        *[spec for _, spec in stable_base],
+        *[spec for _, spec in append_only_context],
+        *[spec for _, spec in volatile_tail],
+    ]
+    return ordered
+
+
+def _fixed_context_package_for_spec(spec: dict[str, Any]) -> str:
+    if not _is_cache_stable_spec(spec):
+        return "volatile_tail"
+    if str(spec.get("kind") or "") in _APPEND_ONLY_CONTEXT_KINDS:
+        return "append_only_context"
+    return "stable_base"
+
+
+def _is_cache_stable_spec(spec: dict[str, Any]) -> bool:
+    cache_role = str(spec.get("cache_role") or "").strip()
+    if cache_role not in {"cacheable_prefix", "session_stable"}:
+        return False
+    prefix_tier = _spec_prefix_tier(spec)
+    return prefix_tier not in {"volatile", "none"}
+
+
+def _spec_prefix_tier(spec: dict[str, Any]) -> str:
+    explicit = str(spec.get("prefix_tier") or "").strip()
+    if explicit:
+        return explicit
+    cache_role = str(spec.get("cache_role") or "").strip()
+    cache_scope = str(spec.get("cache_scope") or "").strip()
+    if cache_role == "cacheable_prefix":
+        return "provider_global"
+    if cache_role == "session_stable":
+        if cache_scope == "task":
+            return "task"
+        if cache_scope == "global":
+            return "provider_global"
+        return "session"
+    if cache_role == "volatile":
+        return "volatile"
+    return "none"
+
+
+def _append_only_context_order_key(item: tuple[int, dict[str, Any]]) -> tuple[float, float, int, int, int]:
+    original_order, spec = item
+    metadata = dict(spec.get("metadata") or {})
+    created_at = _safe_float(
+        metadata.get("append_only_created_at")
+        or dict(spec.get("model_message") or {}).get("created_at")
+        or spec.get("created_at")
+    )
+    if created_at > 0:
+        return (0.0, created_at, _append_only_stream_rank(spec), _safe_int(metadata.get("append_only_stream_index")), original_order)
+    return (1.0, 0.0, 0, 0, original_order)
+
+
+def _append_only_stream_rank(spec: dict[str, Any]) -> int:
+    metadata = dict(spec.get("metadata") or {})
+    stream = str(metadata.get("append_only_context_stream") or "").strip()
+    if stream == "session_history":
+        return 10
+    if stream == "provider_protocol":
+        return 20
+    kind = str(spec.get("kind") or "")
+    if kind == "single_agent_turn_tool_call":
+        return 30
+    if kind == "single_agent_turn_tool_observation":
+        return 40
+    if kind == "incremental_context_frame":
+        return 50
+    return 90
 
 
 def _model_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
@@ -5521,6 +5640,39 @@ def _runtime_memory_context_source_ref(payload: dict[str, Any] | None) -> str:
     return "runtime_memory_context"
 
 
+_RUNTIME_BASELINE_REF_KEYS = (
+    "runtime_baseline_hash",
+    "agent_profile_ref",
+    "task_environment_ref",
+)
+
+
+def _runtime_baseline_refs_model_visible_payload(dynamic_context: DynamicContextProjection) -> dict[str, Any]:
+    refs = dict(getattr(dynamic_context, "stable_runtime_baseline_refs", {}) or {})
+    baseline_refs = {
+        key: refs.get(key)
+        for key in _RUNTIME_BASELINE_REF_KEYS
+        if refs.get(key) not in ("", None, [], {})
+    }
+    if not baseline_refs:
+        return {}
+    return {
+        "runtime_baseline_refs": {
+            **baseline_refs,
+            "contract": "stable runtime profile/environment refs only; per-invocation runtime cursor is in dynamic_projection",
+            "authority": "harness.runtime.dynamic_context.runtime_baseline_refs",
+        }
+    }
+
+
+def _runtime_baseline_refs_source_ref(payload: dict[str, Any] | None) -> str:
+    refs = dict(dict(payload or {}).get("runtime_baseline_refs") or {})
+    value = str(refs.get("runtime_baseline_hash") or "").strip()
+    if value:
+        return "runtime_baseline_refs:" + _short_hash(value)
+    return "runtime_baseline_refs"
+
+
 def _read_evidence_prompt_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
     data = dict(payload or {})
     if not data:
@@ -6357,6 +6509,11 @@ def _safe_float(value: Any) -> float:
         return max(0.0, float(value or 0.0))
     except (TypeError, ValueError):
         return 0.0
+
+
+def _message_created_at(message: dict[str, Any]) -> float:
+    payload = dict(message or {})
+    return _safe_float(payload.get("created_at") or payload.get("updated_at") or payload.get("timestamp"))
 
 
 def _artifact_root(environment_payload: dict[str, Any]) -> str:

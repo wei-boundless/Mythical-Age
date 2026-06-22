@@ -250,7 +250,11 @@ def provider_tool_payloads(tools: list[Any], *, strict: Any = None) -> list[dict
         if strict is not None:
             function_payload["strict"] = bool(strict)
         payloads.append({"type": "function", "function": function_payload})
-    return payloads
+    return sorted(payloads, key=lambda item: str(dict(item.get("function") or {}).get("name") or ""))
+
+
+def provider_message_payloads(messages: list[Any]) -> list[dict[str, Any]]:
+    return [_message_to_provider_payload(message) for message in list(messages or [])]
 
 
 def _message_from_completion_response(

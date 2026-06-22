@@ -55,7 +55,7 @@ from runtime.shared.queued_user_input_dispatcher import (
     validate_queued_steer,
 )
 from runtime.shared.queued_user_input_store import QueuedUserInput
-from runtime.shared.runtime_run_registry import RuntimeRun
+from runtime.shared.runtime_run_registry import RuntimeRun, TERMINAL_RUNTIME_RUN_STATUSES
 from runtime.shared.stream_replay import sanitize_public_stream_event_data_for_replay
 from sessions import SessionProjectBindingConflict, validate_session_id
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
@@ -66,7 +66,7 @@ from project_layout import ProjectLayout
 router = APIRouter()
 logger = logging.getLogger(__name__)
 TERMINAL_STREAM_EVENTS = {TURN_COMPLETED_EVENT}
-TERMINAL_RUN_STATUSES = {"completed", "failed", "stopped", "orphaned"}
+TERMINAL_RUN_STATUSES = TERMINAL_RUNTIME_RUN_STATUSES
 TASK_EXECUTOR_HANDOFF_REASONS = {"task_executor_scheduled"}
 TASK_BRIDGE_PUBLIC_EVENT_TYPES = {
     ASSISTANT_PUBLIC_FEEDBACK_EVENT,

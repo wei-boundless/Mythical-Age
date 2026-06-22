@@ -2496,8 +2496,8 @@ body {
   color: var(--console-text);
   font-size: 13px;
   letter-spacing: 0;
-  text-rendering: geometricPrecision;
-  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: subpixel-antialiased;
 }
 
 button,
@@ -3496,6 +3496,8 @@ body {
   background: var(--console-surface);
   font-family: var(--console-font);
   letter-spacing: 0;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: subpixel-antialiased;
 }
 
 .system-page-content {
@@ -3778,7 +3780,6 @@ body {
   box-shadow: var(--console-shadow);
 }
 
-.agent-workbench .chat-message-shell__runtime-log-entry,
 .agent-workbench .chat-message-attachment,
 .agent-workbench .chat-attachment-chip {
   border-radius: var(--console-radius-md);

@@ -6,7 +6,6 @@ import React, { memo, useEffect, useMemo, useState } from "react";
 import { AssistantMessage } from "@/components/chat/AssistantMessage";
 import { PublicTimelineActivity, publicTimelineHasDisplayableActivity } from "@/components/chat/PublicTimelineActivity";
 import { RetrievalCard } from "@/components/chat/RetrievalCard";
-import { RuntimeLogEntry } from "@/components/chat/RuntimeLogEntry";
 import { UserMessage } from "@/components/chat/UserMessage";
 import { orderedProjectionMessageBlocksFromView } from "@/components/chat/projectionMessageBlocks";
 import { isInternalControlProtocolText } from "@/lib/internalControlText";
@@ -30,10 +29,6 @@ type ChatMessageProps = {
   attachments?: ChatAttachment[];
   projectionView?: ChronologicalProjectionView;
   closeoutSummary?: string;
-  runtimeLogRef?: string;
-  sourceTaskRunId?: string;
-  sourceTurnRunId?: string;
-  toolEventCount?: number;
   answerChannel?: string;
   answerCanonicalState?: string;
   answerPersistPolicy?: string;
@@ -47,7 +42,6 @@ type ChatMessageProps = {
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
   canEdit?: boolean;
-  onOpenRuntimeLog?: () => void;
   onResendEdit?: (messageId: string, value: string) => Promise<void>;
 };
 
@@ -59,8 +53,6 @@ function ChatMessageComponent({
   attachments = [],
   projectionView,
   closeoutSummary,
-  runtimeLogRef,
-  toolEventCount,
   answerChannel,
   answerCanonicalState,
   answerPersistPolicy,
@@ -69,7 +61,6 @@ function ChatMessageComponent({
   streamingContent = false,
   retrievals,
   canEdit = false,
-  onOpenRuntimeLog,
   onResendEdit
 }: ChatMessageProps) {
   const isUser = role === "user";
@@ -116,8 +107,6 @@ function ChatMessageComponent({
       : projectionBodyText || assistantContentText;
   const messageDisplayContent = baseDisplayContent;
   const visibleMessageDisplayContent = messageDisplayContent;
-  const projectionLogRef = projectionView?.logRef || runtimeLogRef;
-  const projectionToolEventCount = projectionView?.toolEventCount ?? toolEventCount;
   const shouldRenderContent =
     isUser
     || Boolean(image?.src)
@@ -304,13 +293,6 @@ function ChatMessageComponent({
                   />
                 )
             ))}
-      {!isUser && taskClosed && projectionCanRenderInAssistantMessage ? (
-        <RuntimeLogEntry
-          onOpen={onOpenRuntimeLog}
-          runtimeLogRef={projectionLogRef}
-          toolEventCount={projectionToolEventCount}
-        />
-      ) : null}
       {showThinkingPlaceholder ? (
         <div className="chat-message-shell__thinking-placeholder" aria-live="polite">
           <span>正在思考</span>
@@ -331,10 +313,6 @@ function areChatMessagePropsEqual(previous: ChatMessageProps, next: ChatMessageP
     && previous.attachments === next.attachments
     && previous.projectionView === next.projectionView
     && previous.closeoutSummary === next.closeoutSummary
-    && previous.runtimeLogRef === next.runtimeLogRef
-    && previous.sourceTaskRunId === next.sourceTaskRunId
-    && previous.sourceTurnRunId === next.sourceTurnRunId
-    && previous.toolEventCount === next.toolEventCount
     && previous.answerChannel === next.answerChannel
     && previous.answerCanonicalState === next.answerCanonicalState
     && previous.answerPersistPolicy === next.answerPersistPolicy

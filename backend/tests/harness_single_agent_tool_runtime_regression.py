@@ -120,6 +120,68 @@ def test_tool_followup_prefix_lock_marks_changed_old_message_volatile() -> None:
     assert metadata["prefix_lock_violation"]["reason"] == "content_hash_changed"
 
 
+def test_tool_followup_prefix_lock_uses_provider_message_hash_with_reasoning_content() -> None:
+    from harness.loop.single_agent_turn import _single_agent_turn_followup_segment_plan
+    from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
+
+    assistant_message = {
+        "role": "assistant",
+        "content": "",
+        "reasoning_content": "reasoning is part of the provider message prefix",
+        "tool_calls": [{"id": "call-read", "name": "read_file", "args": {"path": "README.md"}}],
+    }
+    base_segment_plan = build_prompt_segment_plan(
+        packet_id="packet:prefix-lock-reasoning",
+        invocation_kind="single_agent_turn",
+        message_specs=[
+            {
+                "role": "assistant",
+                "content": "",
+                "kind": "provider_protocol_history",
+                "source_ref": "api_transcript:assistant",
+                "cache_scope": "task",
+                "cache_role": "session_stable",
+                "prefix_tier": "task",
+                "model_message": assistant_message,
+            }
+        ],
+    ).to_dict()
+
+    segment_plan = _single_agent_turn_followup_segment_plan(
+        base_segment_plan=base_segment_plan,
+        model_messages=[
+            {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": "reasoning is part of the provider message prefix",
+                "tool_calls": [{"id": "call-read", "name": "read_file", "args": {"path": "README.md"}}],
+            }
+        ],
+        packet_id="packet:prefix-lock-reasoning",
+        tool_iteration=1,
+    )
+
+    assert segment_plan["prefix_lock"]["status"] == "preserved"
+    segment = dict(list(segment_plan["segments"])[0])
+    assert segment["cache_role"] == "session_stable"
+    assert segment["prefix_tier"] == "task"
+
+    missing_reasoning_plan = _single_agent_turn_followup_segment_plan(
+        base_segment_plan=base_segment_plan,
+        model_messages=[
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{"id": "call-read", "name": "read_file", "args": {"path": "README.md"}}],
+            }
+        ],
+        packet_id="packet:prefix-lock-reasoning",
+        tool_iteration=1,
+    )
+
+    assert missing_reasoning_plan["prefix_lock"]["status"] == "violated"
+
+
 def test_tool_followup_rebases_old_volatile_tool_transcript_into_task_prefix() -> None:
     from harness.loop.single_agent_turn import _single_agent_turn_followup_segment_plan
     from harness.runtime.prompt_segment_plan import stable_text_hash
@@ -290,16 +352,21 @@ def test_tool_followup_segment_plan_preserves_physical_message_order() -> None:
         "single_agent_turn_tool_call",
         "single_agent_turn_tool_observation",
     ]
+    assert segments[1]["cache_role"] == "volatile"
+    assert segments[1]["prefix_tier"] == "volatile"
+    assert segments[2]["cache_role"] == "volatile"
+    assert segments[2]["prefix_tier"] == "volatile"
     assert segments[3]["cache_role"] == "session_stable"
     assert segments[4]["cache_role"] == "session_stable"
-    assert segments[1]["cache_role"] == "session_stable"
-    assert segments[2]["cache_role"] == "session_stable"
     assert segments[5]["cache_role"] == "session_stable"
     assert segments[6]["cache_role"] == "session_stable"
 
 
-def test_tool_followup_promotes_preserved_dynamic_snapshot_before_new_context() -> None:
-    from harness.loop.single_agent_turn import _single_agent_turn_followup_segment_plan
+def test_tool_followup_keeps_replaceable_dynamic_tail_out_of_accumulated_context() -> None:
+    from harness.loop.single_agent_turn import (
+        _append_tool_transcript_to_accumulated_context,
+        _single_agent_turn_followup_segment_plan,
+    )
     from harness.runtime.prompt_segment_plan import stable_text_hash
 
     base_segment_plan = {
@@ -326,9 +393,11 @@ def test_tool_followup_promotes_preserved_dynamic_snapshot_before_new_context() 
             },
         ]
     }
-    model_messages = [
+    base_messages = [
         {"role": "system", "content": "stable"},
         {"role": "system", "content": "dynamic tail"},
+    ]
+    new_tool_messages = [
         {
             "role": "assistant",
             "content": "",
@@ -336,6 +405,13 @@ def test_tool_followup_promotes_preserved_dynamic_snapshot_before_new_context() 
         },
         {"role": "tool", "tool_call_id": "call-after-tail", "name": "read_file", "content": "observation"},
     ]
+    model_messages = _append_tool_transcript_to_accumulated_context(
+        base_messages,
+        new_tool_messages,
+        segment_plan=base_segment_plan,
+    )
+
+    assert [message["content"] for message in model_messages] == ["stable", "", "observation", "dynamic tail"]
 
     segment_plan = _single_agent_turn_followup_segment_plan(
         base_segment_plan=base_segment_plan,
@@ -347,12 +423,125 @@ def test_tool_followup_promotes_preserved_dynamic_snapshot_before_new_context() 
 
     assert [segment["kind"] for segment in segments] == [
         "global_static",
+        "single_agent_turn_tool_call",
+        "single_agent_turn_tool_observation",
         "runtime_control_signal_tail",
+    ]
+    assert segments[0]["cache_role"] == "cacheable_prefix"
+    assert segments[1]["cache_role"] == "session_stable"
+    assert segments[2]["cache_role"] == "session_stable"
+    assert segments[3]["cache_role"] == "volatile"
+    assert segments[3]["prefix_tier"] == "volatile"
+
+
+def test_tool_followup_keeps_existing_incremental_frame_before_new_tool_transcript_with_stale_plan() -> None:
+    from harness.loop.single_agent_turn import (
+        _append_tool_transcript_to_accumulated_context,
+        _single_agent_turn_followup_segment_plan,
+    )
+    from harness.runtime.prompt_segment_plan import stable_text_hash
+
+    old_frame = {
+        "role": "system",
+        "source_ref": "single_agent_turn_incremental_context_frame",
+        "content": "你正在继续同一个工具执行回合。\n{\"frame_type\": \"incremental_context_frame\"}",
+    }
+    stale_segment_plan = {
+        "segments": [
+            {
+                "model_message_index": 0,
+                "model_message_role": "system",
+                "kind": "global_static",
+                "source_ref": "stable:test",
+                "cache_scope": "global",
+                "cache_role": "cacheable_prefix",
+                "prefix_tier": "provider_global",
+                "content_hash": stable_text_hash("stable"),
+            },
+            {
+                "model_message_index": 1,
+                "model_message_role": "assistant",
+                "kind": "single_agent_turn_tool_call",
+                "source_ref": "tool:test:old-call",
+                "cache_scope": "task",
+                "cache_role": "session_stable",
+                "prefix_tier": "task",
+                "content_hash": stable_text_hash(""),
+            },
+            {
+                "model_message_index": 2,
+                "model_message_role": "tool",
+                "kind": "single_agent_turn_tool_observation",
+                "source_ref": "tool:test:old",
+                "cache_scope": "task",
+                "cache_role": "session_stable",
+                "prefix_tier": "task",
+                "content_hash": stable_text_hash("old observation"),
+            },
+            {
+                "model_message_index": 3,
+                "model_message_role": "system",
+                "kind": "dynamic_projection",
+                "source_ref": "dynamic:test:stale-index",
+                "cache_scope": "none",
+                "cache_role": "volatile",
+                "prefix_tier": "volatile",
+                "content_hash": stable_text_hash("old dynamic tail"),
+            },
+        ]
+    }
+    base_messages = [
+        {"role": "system", "content": "stable"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"id": "call-old", "function": {"name": "read_file", "arguments": "{}"}}],
+        },
+        {"role": "tool", "tool_call_id": "call-old", "name": "read_file", "content": "old observation"},
+        old_frame,
+    ]
+    new_tool_messages = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"id": "call-new", "function": {"name": "read_file", "arguments": "{}"}}],
+        },
+        {"role": "tool", "tool_call_id": "call-new", "name": "read_file", "content": "new observation"},
+    ]
+
+    model_messages = _append_tool_transcript_to_accumulated_context(
+        base_messages,
+        new_tool_messages,
+        segment_plan=stale_segment_plan,
+    )
+
+    assert [message.get("source_ref") or message.get("content") for message in model_messages] == [
+        "stable",
+        "",
+        "old observation",
+        "single_agent_turn_incremental_context_frame",
+        "",
+        "new observation",
+    ]
+
+    segment_plan = _single_agent_turn_followup_segment_plan(
+        base_segment_plan=stale_segment_plan,
+        model_messages=model_messages,
+        packet_id="packet:stale-plan-incremental-frame",
+        tool_iteration=2,
+    )
+    segments = [dict(item) for item in list(segment_plan["segments"])]
+
+    assert [segment["kind"] for segment in segments] == [
+        "global_static",
+        "single_agent_turn_tool_call",
+        "single_agent_turn_tool_observation",
+        "incremental_context_frame",
         "single_agent_turn_tool_call",
         "single_agent_turn_tool_observation",
     ]
-    assert all(segment["cache_role"] in {"cacheable_prefix", "session_stable"} for segment in segments)
-    assert all(segment["prefix_tier"] not in {"volatile", "none"} for segment in segments)
+    assert segments[3]["cache_role"] == "session_stable"
+    assert segments[3]["prefix_tier"] == "task"
 
 
 def test_tool_followup_incremental_context_frame_marks_current_tool_round(tmp_path: Path) -> None:
@@ -479,6 +668,8 @@ def test_tool_followup_preserves_previous_transcript_prefix_between_rounds(tmp_p
 
     first_followup = [dict(item) for item in list(model.seen_messages[1] or []) if isinstance(item, dict)]
     second_followup = [dict(item) for item in list(model.seen_messages[2] or []) if isinstance(item, dict)]
+    first_segment_plan = dict(model.seen_accounting_contexts[1].get("segment_plan") or {})
+    second_segment_plan = dict(model.seen_accounting_contexts[2].get("segment_plan") or {})
     first_incremental_indexes = [
         index
         for index, message in enumerate(first_followup)
@@ -494,11 +685,12 @@ def test_tool_followup_preserves_previous_transcript_prefix_between_rounds(tmp_p
         str(second_followup[second_latest_incremental_index].get("content") or "").rsplit("\n", 1)[-1]
     )
 
-    first_accumulated_context = first_followup[:-1]
     assert "你是正在根据刚才工具观察决定下一步的 coding agent。" in str(first_followup[-1].get("content") or "")
-    assert second_followup[: len(first_accumulated_context)] == first_accumulated_context
+    assert _stable_segment_signature(first_segment_plan) == _stable_segment_signature(second_segment_plan)[
+        : len(_stable_segment_signature(first_segment_plan))
+    ]
     assert second_incremental_indexes[: len(first_incremental_indexes)] == first_incremental_indexes
-    assert second_latest_incremental_index == len(first_accumulated_context) + 2
+    assert second_latest_incremental_index > first_incremental_indexes[-1]
     assert str(second_followup[second_latest_incremental_index - 2].get("role") or "") == "assistant"
     assert second_followup[second_latest_incremental_index - 2].get("tool_calls")
     assert str(second_followup[second_latest_incremental_index - 1].get("role") or "") == "tool"
@@ -506,6 +698,16 @@ def test_tool_followup_preserves_previous_transcript_prefix_between_rounds(tmp_p
     assert len(second_latest_incremental_payload["tool_context_delta"]["new_entries"]) == 1
     assert second_latest_incremental_payload["unchanged_refs"]
     assert "你是正在根据刚才工具观察决定下一步的 coding agent。" in str(second_followup[-1].get("content") or "")
+
+
+def _stable_segment_signature(segment_plan: dict[str, object]) -> list[tuple[str, str]]:
+    segments = [dict(item) for item in list(segment_plan.get("segments") or []) if isinstance(item, dict)]
+    return [
+        (str(segment.get("kind") or ""), str(segment.get("content_hash") or ""))
+        for segment in segments
+        if str(segment.get("cache_role") or "") in {"cacheable_prefix", "session_stable"}
+        and str(segment.get("prefix_tier") or "") not in {"volatile", "none"}
+    ]
 
 
 def test_single_agent_turn_projection_separates_assistant_text_from_control_actions(tmp_path: Path) -> None:
@@ -822,6 +1024,56 @@ def test_single_agent_turn_accepts_plain_text_tool_followup_as_agent_closeout(tm
     assert "不要为了最终回答把自然语言正文塞进 JSON" in followup_prompt_text
 
 
+def test_single_agent_turn_tool_observation_advances_turn_run_cursor_before_followup(tmp_path: Path) -> None:
+    model = NativeToolCallSequenceModelRuntimeStub(
+        [
+            {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call-read-requirements",
+                        "name": "read_file",
+                        "args": {"path": "requirements.txt", "line_count": 20},
+                    }
+                ],
+            },
+            {"content": "不应该等到这里才更新工具观察游标。"},
+        ]
+    )
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(_project_backend_dir(), {"read_file"}),
+    )
+    cursor_updates: list[int] = []
+    original_upsert_turn_run = runtime.single_agent_runtime_host.state_index.upsert_turn_run
+
+    def _spy_upsert_turn_run(turn_run):
+        cursor_updates.append(int(getattr(turn_run, "latest_event_offset", -1) or -1))
+        return original_upsert_turn_run(turn_run)
+
+    runtime.single_agent_runtime_host.state_index.upsert_turn_run = _spy_upsert_turn_run
+
+    async def _collect_until_observation() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(session_id="session-single-turn-observation-cursor", message="看看依赖文件。")
+        ):
+            events.append(event)
+            if event.get("type") == "turn_tool_observation_recorded":
+                break
+        return events
+
+    events = asyncio.run(_collect_until_observation())
+    observation_event = dict(next(event for event in events if event.get("type") == "turn_tool_observation_recorded").get("event") or {})
+    turn_run_id = str(observation_event.get("run_id") or "")
+    turn_run = runtime.single_agent_runtime_host.state_index.get_turn_run(turn_run_id)
+
+    assert turn_run is not None
+    assert observation_event["offset"] in cursor_updates
+    assert turn_run.latest_event_offset >= observation_event["offset"]
+
+
 def test_single_agent_turn_absorbs_queued_user_steer_before_executing_model_action(tmp_path: Path) -> None:
     class MidModelSteerRuntime:
         def __init__(self) -> None:
@@ -1111,6 +1363,64 @@ def test_single_agent_turn_tool_followup_action_json_is_not_body_streamed(tmp_pa
     assert "task_contract_seed" not in streamed_text
     assert "observation_contract" not in streamed_text
     assert done["content"] == "已经读取 requirements.txt。"
+
+
+def test_single_agent_turn_tool_followup_plain_text_streams_before_commit(tmp_path: Path) -> None:
+    model = _StreamingNativeToolSequenceModel(
+        [
+            [
+                _NativeToolStreamChunk(
+                    "",
+                    [
+                        {
+                            "id": "call-read-requirements",
+                            "name": "read_file",
+                            "args": {"path": "requirements.txt"},
+                        }
+                    ],
+                )
+            ],
+            [
+                _NativeToolStreamChunk("现在根据工具结果给出结论："),
+                _NativeToolStreamChunk("依赖清单存在，可以继续分析。"),
+            ],
+        ]
+    )
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(_project_backend_dir(), {"read_file"}),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-tool-followup-plain-text-streamed",
+                message="看看依赖文件。",
+                model_selection={
+                    "stream_policy": {
+                        "enabled": True,
+                        "emit_assistant_text_delta": True,
+                        "max_flush_interval_ms": 0,
+                    }
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    streamed_text = "".join(
+        str(event.get("content") or "")
+        for event in events
+        if event.get("type") == "assistant_text_delta"
+    )
+    done = dict(next(event for event in events if event.get("type") == "done"))
+
+    assert "依赖清单存在" in streamed_text
+    assert "tool_call" not in streamed_text
+    assert "依赖清单存在" in str(done.get("content") or "")
 
 
 def test_single_agent_turn_recovers_partial_provider_stream_from_visible_prefix(tmp_path: Path) -> None:

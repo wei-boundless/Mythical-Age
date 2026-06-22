@@ -261,7 +261,23 @@ def _latest_interrupted_turn_record(runtime_host: Any, *, session_id: str) -> In
         key=lambda item: (float(getattr(item, "updated_at", 0.0) or 0.0), float(getattr(item, "created_at", 0.0) or 0.0)),
         reverse=True,
     )
+    for candidate in candidates:
+        if not _interrupted_turn_continuation_pending(candidate):
+            continue
+        record = _record_from_interrupted_turn_run(runtime_host, candidate)
+        if record is not None:
+            return record
     return _record_from_interrupted_turn_run(runtime_host, candidates[0])
+
+
+def _interrupted_turn_continuation_pending(turn_run: Any) -> bool:
+    diagnostics = dict(getattr(turn_run, "diagnostics", {}) or {})
+    if diagnostics.get("interrupted_turn_continuation_pending") is True:
+        return True
+    recovery_entry_event = str(diagnostics.get("interrupted_turn_recovery_entry_event_id") or "").strip()
+    if recovery_entry_event and diagnostics.get("semantic_terminal") is False and diagnostics.get("recoverable") is True:
+        return True
+    return False
 
 
 def _record_from_interrupted_turn_run(runtime_host: Any, turn_run: Any) -> InterruptedTurnContinuationRecord | None:

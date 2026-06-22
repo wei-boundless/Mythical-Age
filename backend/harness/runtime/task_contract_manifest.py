@@ -124,6 +124,8 @@ def project_task_contract_for_prompt(
             "contract_id": str(payload.get("contract_id") or "").strip(),
             "contract_source": str(payload.get("contract_source") or "").strip(),
             "task_environment_id": str(payload.get("task_environment_id") or "").strip(),
+            "plan_ref": _task_contract_plan_ref(payload),
+            "implementation_lock": dict(payload.get("implementation_lock") or {}) if isinstance(payload.get("implementation_lock"), dict) else {},
             **layered,
             "authority": "harness.runtime.task_contract.model_visible",
         }
@@ -160,7 +162,7 @@ def _goal_contract_model_visible(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _plan_contract_model_visible(payload: dict[str, Any]) -> dict[str, Any]:
     raw = dict(payload.get("plan_contract") or {})
-    plan_ref = str(raw.get("plan_id") or payload.get("plan_ref") or payload.get("approved_plan_ref") or payload.get("external_plan_ref") or "").strip()
+    plan_ref = _task_contract_plan_ref(payload)
     return _drop_empty_payload(
         {
             "plan_id": plan_ref,
@@ -176,6 +178,19 @@ def _plan_contract_model_visible(payload: dict[str, Any]) -> dict[str, Any]:
             "authority": "harness.runtime.task_contract.plan_contract.model_visible",
         }
     )
+
+
+def _task_contract_plan_ref(payload: dict[str, Any]) -> str:
+    raw = dict(payload.get("plan_contract") or {})
+    implementation_lock = dict(payload.get("implementation_lock") or {})
+    return str(
+        raw.get("plan_id")
+        or payload.get("plan_ref")
+        or payload.get("approved_plan_ref")
+        or payload.get("external_plan_ref")
+        or implementation_lock.get("plan_ref")
+        or ""
+    ).strip()
 
 
 def _lifecycle_contract_model_visible(payload: dict[str, Any]) -> dict[str, Any]:

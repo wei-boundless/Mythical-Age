@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from api.deps import require_runtime
-from runtime.shared.runtime_run_registry import RuntimeRun
+from runtime.shared.runtime_run_registry import RuntimeRun, is_terminal_runtime_run_status
 from runtime.shared.stream_replay import AGENT_LIVE_PROTOCOL, parse_stream_event_id
 from sessions import InvalidSessionId, validate_session_id
 
@@ -172,6 +172,9 @@ async def _send_catchup(websocket: WebSocket, replay: Any, registry: Any, run: R
         terminal = terminal or bool(envelope.get("terminal") is True)
         if terminal:
             break
+    run_latest_offset = int(getattr(current, "latest_event_offset", -1) or -1)
+    if is_terminal_runtime_run_status(getattr(current, "status", "")) and latest_offset >= run_latest_offset:
+        terminal = True
     return latest_offset, terminal
 
 

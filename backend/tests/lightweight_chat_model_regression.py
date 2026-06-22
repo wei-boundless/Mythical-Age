@@ -86,6 +86,59 @@ def test_lightweight_chat_model_serializes_tools_and_parses_response() -> None:
     assert response.usage_metadata["prompt_tokens"] == 5
 
 
+def test_lightweight_chat_model_sends_reasoning_content_in_request_body() -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode("utf-8"))
+        captured["body"] = body
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-test",
+                "model": "deepseek-v4-flash",
+                "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "ok"}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 1, "total_tokens": 6},
+            },
+        )
+
+    async def run() -> object:
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        model = LightweightChatModel(
+            provider="deepseek",
+            model="deepseek-v4-flash",
+            api_key="test-key",
+            base_url="https://api.deepseek.com",
+            timeout_seconds=1.0,
+            max_output_tokens=128,
+            output_token_parameter="max_tokens",
+            http_async_client=client,
+            owns_client=True,
+        )
+        try:
+            return await model.ainvoke(
+                [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "reasoning_content": "must be replayed for DeepSeek",
+                        "tool_calls": [{"id": "call_read", "name": "read_file", "args": {"path": "README.md"}}],
+                    },
+                    {"role": "tool", "tool_call_id": "call_read", "content": "done"},
+                    {"role": "user", "content": "continue"},
+                ]
+            )
+        finally:
+            await model.close()
+
+    asyncio.run(run())
+    body = captured["body"]
+
+    assert "must be replayed for DeepSeek" in json.dumps(body, ensure_ascii=False)
+    assert body["messages"][0]["reasoning_content"] == "must be replayed for DeepSeek"
+    assert body["messages"][0]["tool_calls"][0]["function"]["name"] == "read_file"
+
+
 def test_lightweight_chat_model_stream_aggregates_tool_call_chunks_and_usage() -> None:
     stream_payload = "\n\n".join(
         [

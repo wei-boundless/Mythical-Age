@@ -1086,42 +1086,6 @@
   vertical-align: bottom;
 }
 
-.agent-workbench .chat-message-shell__runtime-log-entry {
-  grid-column: 1;
-  display: inline-flex;
-  width: max-content;
-  max-width: 100%;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  border: 1px solid var(--console-line);
-  border-radius: var(--console-radius-sm);
-  background: var(--console-surface-muted);
-  color: var(--console-text-soft);
-  padding: 6px 12px;
-  font-size: var(--console-font-size-ui);
-  font-weight: 520;
-  line-height: 1.4;
-  letter-spacing: 0;
-}
-
-.agent-workbench .chat-message-shell__runtime-log-entry strong {
-  color: var(--console-muted);
-  font-size: 12px;
-  font-weight: 520;
-}
-
-.agent-workbench .chat-message-shell__runtime-log-entry--button {
-  cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
-}
-
-.agent-workbench .chat-message-shell__runtime-log-entry--button:hover {
-  border-color: var(--console-active-ring);
-  background: var(--console-accent-soft);
-  color: var(--console-accent);
-}
-
 @keyframes chat-thinking-dots {
   0% {
     width: 0;

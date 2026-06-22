@@ -17,6 +17,7 @@ from .stability_models import PromptStabilityReport
 class PromptAccountingLedger:
     """Durable prompt/token/cache fact ledger for runtime consumers."""
 
+    RECENT_RECORD_LIMIT = 1024
     SUMMARY_INDEX_VERSION = 1
     SUMMARY_SCAN_MAX_BYTES = 64 * 1024 * 1024
     RETAINED_TOKEN_STATS_VERSION = 1
@@ -58,6 +59,10 @@ class PromptAccountingLedger:
             tuple[tuple[int, int], list[dict[str, Any]]],
         ] = {}
         self._retained_token_stats_cache: tuple[tuple[int, int], dict[str, Any]] | None = None
+        self._recent_token_usage: list[ModelTokenUsageRecord] = []
+        self._recent_prompt_cache: list[PromptCacheRecord] = []
+        self._recent_prompt_cache_baselines: list[PromptCacheBaselineRecord] = []
+        self._recent_prompt_stability: list[PromptStabilityReport] = []
 
     def record_segment_map(self, segment_map: PromptSegmentMap) -> None:
         self._append_jsonl("segment_maps.jsonl", segment_map.to_dict())
@@ -69,20 +74,31 @@ class PromptAccountingLedger:
 
     def record_token_usage(self, record: ModelTokenUsageRecord) -> None:
         self._append_jsonl("token_usage.jsonl", record.to_dict())
+        self._remember_recent(self._recent_token_usage, record)
         self._upsert_usage_summary(record)
 
     def record_prompt_cache(self, record: PromptCacheRecord) -> None:
         self._append_jsonl("prompt_cache.jsonl", record.to_dict())
+        self._remember_recent(self._recent_prompt_cache, record)
         self._upsert_cache_summary(record)
 
     def record_prompt_cache_baseline(self, record: PromptCacheBaselineRecord) -> None:
         self._append_jsonl("prompt_cache_baselines.jsonl", record.to_dict())
+        self._remember_recent(self._recent_prompt_cache_baselines, record)
 
     def record_prompt_cache_break(self, record: PromptCacheBreakRecord) -> None:
         self._append_jsonl("prompt_cache_breaks.jsonl", record.to_dict())
 
     def record_prompt_stability(self, report: PromptStabilityReport) -> None:
         self._append_jsonl("prompt_stability.jsonl", report.to_dict())
+        self._remember_recent(self._recent_prompt_stability, report)
+
+    def _remember_recent(self, records: list[Any], record: Any) -> None:
+        with self._lock:
+            records.append(record)
+            overflow = len(records) - self.RECENT_RECORD_LIMIT
+            if overflow > 0:
+                del records[:overflow]
 
     def list_segments(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[PromptSegment]:
         rows = self._read_jsonl("segments.jsonl", run_id=run_id, task_run_id=task_run_id, session_id=session_id)
@@ -134,43 +150,16 @@ class PromptAccountingLedger:
         session_id: str = "",
         limit: int = 512,
     ) -> list[ModelTokenUsageRecord]:
-        records: dict[str, ModelTokenUsageRecord] = {}
-        normalized_run_id = str(run_id or "")
-        normalized_task_run_id = str(task_run_id or "")
-        normalized_session_id = str(session_id or "")
-        groups = _line_prefilter(
-            run_id=normalized_run_id,
-            task_run_id=normalized_task_run_id,
-            session_id=normalized_session_id,
-        )
-        target = max(1, int(limit or 512))
         with self._lock:
-            paths = list(reversed(self._jsonl_paths("token_usage.jsonl")))
-        for path in paths:
-            for line in _iter_jsonl_lines_reverse(path):
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                if groups and not _line_matches_prefilter(stripped, groups):
-                    continue
-                try:
-                    row = json.loads(stripped)
-                except JSONDecodeError:
-                    continue
-                if normalized_run_id and str(row.get("run_id") or row.get("task_run_id") or "") != normalized_run_id:
-                    continue
-                if normalized_task_run_id and str(row.get("task_run_id") or "") != normalized_task_run_id:
-                    continue
-                if normalized_session_id and str(row.get("session_id") or "") != normalized_session_id:
-                    continue
-                record = ModelTokenUsageRecord.from_dict(row)
-                key = record.usage_id or f"{record.request_id}:{record.source}:{record.created_at}"
-                if key in records:
-                    continue
-                records[key] = record
-                if len(records) >= target:
-                    return sorted(records.values(), key=lambda item: item.created_at)
-        return sorted(records.values(), key=lambda item: item.created_at)
+            records = list(self._recent_token_usage)
+        return _recent_records(
+            records,
+            run_id=run_id,
+            task_run_id=task_run_id,
+            session_id=session_id,
+            limit=limit,
+            key_fn=lambda record: record.usage_id or f"{record.request_id}:{record.source}:{record.created_at}",
+        )
 
     def list_prompt_cache(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[PromptCacheRecord]:
         records: dict[str, PromptCacheRecord] = {}
@@ -187,6 +176,25 @@ class PromptAccountingLedger:
             if previous is None or record.created_at >= previous.created_at:
                 records[key] = record
         return sorted(records.values(), key=lambda item: item.created_at)
+
+    def list_recent_prompt_cache(
+        self,
+        *,
+        run_id: str = "",
+        task_run_id: str = "",
+        session_id: str = "",
+        limit: int = 128,
+    ) -> list[PromptCacheRecord]:
+        with self._lock:
+            records = list(self._recent_prompt_cache)
+        return _recent_records(
+            records,
+            run_id=run_id,
+            task_run_id=task_run_id,
+            session_id=session_id,
+            limit=limit,
+            key_fn=lambda record: record.cache_record_id or f"{record.request_id}:{record.created_at}",
+        )
 
     def list_prompt_cache_baselines(
         self,
@@ -212,6 +220,30 @@ class PromptAccountingLedger:
             if previous is None or record.created_at >= previous.created_at:
                 records[key] = record
         return sorted(records.values(), key=lambda item: item.created_at)
+
+    def list_recent_prompt_cache_baselines(
+        self,
+        *,
+        run_id: str = "",
+        task_run_id: str = "",
+        session_id: str = "",
+        status: str = "",
+        limit: int = 128,
+    ) -> list[PromptCacheBaselineRecord]:
+        with self._lock:
+            records = list(self._recent_prompt_cache_baselines)
+        filtered = _recent_records(
+            records,
+            run_id=run_id,
+            task_run_id=task_run_id,
+            session_id=session_id,
+            limit=self.RECENT_RECORD_LIMIT,
+            key_fn=lambda record: record.baseline_id or f"{record.request_id}:{record.status}:{record.created_at}",
+        )
+        normalized_status = str(status or "")
+        if normalized_status:
+            filtered = [record for record in filtered if str(getattr(record, "status", "") or "") == normalized_status]
+        return filtered[-max(1, int(limit or 128)) :]
 
     def reset_prompt_cache_baseline(
         self,
@@ -281,6 +313,25 @@ class PromptAccountingLedger:
             if previous is None or report.created_at >= previous.created_at:
                 records[key] = report
         return sorted(records.values(), key=lambda item: item.created_at)
+
+    def list_recent_prompt_stability(
+        self,
+        *,
+        run_id: str = "",
+        task_run_id: str = "",
+        session_id: str = "",
+        limit: int = 128,
+    ) -> list[PromptStabilityReport]:
+        with self._lock:
+            records = list(self._recent_prompt_stability)
+        return _recent_records(
+            records,
+            run_id=run_id,
+            task_run_id=task_run_id,
+            session_id=session_id,
+            limit=limit,
+            key_fn=lambda record: record.report_id or f"{record.request_id}:{record.created_at}",
+        )
 
     def summarize_task(self, task_run_id: str) -> dict[str, Any]:
         indexed = self._summary_for_key(task_run_id)
@@ -2125,28 +2176,54 @@ def _jsonl_line_count(path: Path) -> int:
         return 0
 
 
-def _iter_jsonl_lines_reverse(path: Path, *, block_size: int = 1024 * 1024):
-    try:
-        with path.open("rb") as handle:
-            handle.seek(0, 2)
-            position = handle.tell()
-            buffer = b""
-            while position > 0:
-                read_size = min(max(4096, int(block_size or 4096)), position)
-                position -= read_size
-                handle.seek(position)
-                chunk = handle.read(read_size)
-                if not chunk:
-                    break
-                parts = (chunk + buffer).split(b"\n")
-                buffer = parts[0]
-                for line in reversed(parts[1:]):
-                    if line:
-                        yield line.decode("utf-8", errors="ignore").rstrip("\r")
-            if buffer:
-                yield buffer.decode("utf-8", errors="ignore").rstrip("\r")
-    except OSError:
-        return
+def _recent_records(
+    records: list[Any],
+    *,
+    run_id: str = "",
+    task_run_id: str = "",
+    session_id: str = "",
+    limit: int = 128,
+    key_fn: Any,
+) -> list[Any]:
+    normalized_run_id = str(run_id or "")
+    normalized_task_run_id = str(task_run_id or "")
+    normalized_session_id = str(session_id or "")
+    target = max(1, int(limit or 128))
+    deduped: dict[str, Any] = {}
+    for record in reversed(list(records or [])):
+        if normalized_run_id and str(getattr(record, "run_id", "") or getattr(record, "task_run_id", "") or "") != normalized_run_id:
+            continue
+        if normalized_task_run_id and str(getattr(record, "task_run_id", "") or "") != normalized_task_run_id:
+            continue
+        if normalized_session_id and str(getattr(record, "session_id", "") or "") != normalized_session_id:
+            continue
+        key = str(key_fn(record) or f"{getattr(record, 'request_id', '')}:{getattr(record, 'created_at', '')}")
+        if key in deduped:
+            continue
+        deduped[key] = record
+        if len(deduped) >= target:
+            break
+    return sorted(deduped.values(), key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0))
+
+
+def _line_prefilter(*, run_id: str, task_run_id: str, session_id: str) -> tuple[tuple[str, ...], ...]:
+    groups: list[tuple[str, ...]] = []
+    if session_id:
+        groups.append(_json_field_markers("session_id", session_id))
+    if task_run_id:
+        groups.append(_json_field_markers("task_run_id", task_run_id) + _json_field_markers("run_id", task_run_id))
+    elif run_id:
+        groups.append(_json_field_markers("run_id", run_id) + _json_field_markers("task_run_id", run_id))
+    return tuple(groups)
+
+
+def _json_field_markers(field: str, value: str) -> tuple[str, str]:
+    encoded = json.dumps(str(value), ensure_ascii=False)
+    return (f'"{field}": {encoded}', f'"{field}":{encoded}')
+
+
+def _line_matches_prefilter(line: str, groups: tuple[tuple[str, ...], ...]) -> bool:
+    return all(any(marker in line for marker in group) for group in groups)
 
 
 def _segment_from_dict(payload: dict[str, Any]) -> PromptSegment:
@@ -2170,26 +2247,6 @@ def _segment_from_dict(payload: dict[str, Any]) -> PromptSegment:
         metadata=dict(payload.get("metadata") or {}),
         authority=str(payload.get("authority") or "runtime.prompt_accounting.prompt_segment"),
     )
-
-
-def _line_prefilter(*, run_id: str, task_run_id: str, session_id: str) -> tuple[tuple[str, ...], ...]:
-    groups: list[tuple[str, ...]] = []
-    if session_id:
-        groups.append(_json_field_markers("session_id", session_id))
-    if task_run_id:
-        groups.append(_json_field_markers("task_run_id", task_run_id) + _json_field_markers("run_id", task_run_id))
-    elif run_id:
-        groups.append(_json_field_markers("run_id", run_id) + _json_field_markers("task_run_id", run_id))
-    return tuple(groups)
-
-
-def _json_field_markers(field: str, value: str) -> tuple[str, str]:
-    encoded = json.dumps(str(value), ensure_ascii=False)
-    return (f'"{field}": {encoded}', f'"{field}":{encoded}')
-
-
-def _line_matches_prefilter(line: str, groups: tuple[tuple[str, ...], ...]) -> bool:
-    return all(any(marker in line for marker in group) for group in groups)
 
 
 def _retention_group_id(row: dict[str, Any], *, primary_fields: tuple[str, ...]) -> str:

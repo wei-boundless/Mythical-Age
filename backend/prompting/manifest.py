@@ -6,6 +6,9 @@ from typing import Any
 
 
 PREVIEW_LIMIT = 360
+PROMPT_ID_HASH_ALGORITHM = "sha256"
+PROMPT_ID_DIGEST_CHARS = 20
+PROMPT_SECTION_HASH_ALGORITHM = "sha256"
 
 
 @dataclass(slots=True)
@@ -16,6 +19,12 @@ class PromptSection:
     source: str
     model_visible: bool
     chars: int
+    original_chars: int
+    injected_chars: int
+    content_hash: str
+    hash_algorithm: str
+    truncated: bool
+    truncation_limit: int
     preview: str
     order: int
     cache: dict[str, Any] = field(default_factory=dict)
@@ -41,9 +50,13 @@ class PromptManifest:
 
 
 def make_prompt_id(*, session_id: str = "", turn_id: str = "", prompt_text: str = "") -> str:
-    digest = hashlib.sha1(prompt_text.encode("utf-8", errors="ignore")).hexdigest()[:12]
+    digest = hashlib.sha256(prompt_text.encode("utf-8", errors="ignore")).hexdigest()[:PROMPT_ID_DIGEST_CHARS]
     prefix = ":".join(part for part in [session_id, turn_id] if part)
     return f"{prefix}:{digest}" if prefix else digest
+
+
+def prompt_section_content_hash(text: str) -> str:
+    return hashlib.sha256(str(text or "").encode("utf-8", errors="ignore")).hexdigest()
 
 
 def prompt_section(
@@ -56,8 +69,12 @@ def prompt_section(
     order: int,
     model_visible: bool = True,
     cache: dict[str, Any] | None = None,
+    original_content: str | None = None,
+    truncated: bool = False,
+    truncation_limit: int = 0,
 ) -> PromptSection:
     text = str(content or "").strip()
+    original_text = str(content if original_content is None else original_content or "").strip()
     return PromptSection(
         id=section_id,
         title=title,
@@ -65,6 +82,12 @@ def prompt_section(
         source=source,
         model_visible=model_visible,
         chars=len(text),
+        original_chars=len(original_text),
+        injected_chars=len(text),
+        content_hash=prompt_section_content_hash(text),
+        hash_algorithm=PROMPT_SECTION_HASH_ALGORITHM,
+        truncated=bool(truncated),
+        truncation_limit=max(0, int(truncation_limit or 0)),
         preview=_preview(text),
         order=order,
         cache=dict(cache or {}),
@@ -107,6 +130,12 @@ def compact_prompt_manifest(manifest: PromptManifest | dict[str, Any] | None) ->
                 "source": str(raw.get("source") or ""),
                 "model_visible": bool(raw.get("model_visible", True)),
                 "chars": int(raw.get("chars") or 0),
+                "original_chars": int(raw.get("original_chars") or raw.get("chars") or 0),
+                "injected_chars": int(raw.get("injected_chars") or raw.get("chars") or 0),
+                "content_hash": str(raw.get("content_hash") or ""),
+                "hash_algorithm": str(raw.get("hash_algorithm") or PROMPT_SECTION_HASH_ALGORITHM),
+                "truncated": bool(raw.get("truncated") is True),
+                "truncation_limit": int(raw.get("truncation_limit") or 0),
                 "preview": _preview(str(raw.get("preview") or "")),
                 "order": int(raw.get("order") or 0),
                 "cache": dict(raw.get("cache") or {}) if isinstance(raw.get("cache"), dict) else {},

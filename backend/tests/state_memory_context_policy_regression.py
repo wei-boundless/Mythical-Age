@@ -9,7 +9,7 @@ from memory_system.contracts import MemoryContextCandidate
 from memory_system.runtime_context_provider import RuntimeMemoryContextProvider
 from memory_system.runtime_view import MemoryRuntimeView
 from context_system.policy import build_context_package_result
-from context_system.models.context_models import hash_context_section_package
+from context_system.models.context_models import CONTEXT_TEXT_NORMALIZATION_VERSION, hash_context_section_package
 from memory_system.storage.models import MemoryNote
 from memory_system.storage.process_state import ContextSlots, ProcessState
 from prompting.builder import _render_context_package_block
@@ -91,6 +91,8 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
     assert package.sealed_receipt == result.sealed_receipt
     assert result.sealed_receipt.memory_runtime_view_ref == result.diagnostics["memory_runtime_view_ref"]
     assert result.sealed_receipt.package_sha256 == hash_context_section_package(package.model_visible_sections)
+    assert result.sealed_receipt.normalization_version == CONTEXT_TEXT_NORMALIZATION_VERSION
+    assert result.sealed_receipt.to_dict()["normalization_version"] == CONTEXT_TEXT_NORMALIZATION_VERSION
     assert set(result.sealed_receipt.included_candidate_ids) == {decision.candidate_id for decision in result.decisions}
 
 

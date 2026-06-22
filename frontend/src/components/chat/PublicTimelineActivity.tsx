@@ -347,7 +347,7 @@ function toolEntryFromBlock(block: ToolProjectionBlock, index: number): Activity
   if (!text) {
     return null;
   }
-  let detail = firstDifferentText(text, block.detail);
+  let detail = firstDifferentToolText(text, block.detail);
   const sections = [
     block.target ? { label: "目标", text: displayTargetLabel(block.target) } : null,
     block.argumentsPreview ? { label: "参数", text: block.argumentsPreview } : null,
@@ -465,6 +465,15 @@ function firstDifferentText(summary: string, ...values: unknown[]) {
   const normalizedSummary = compactText(summary);
   for (const value of values) {
     const text = displayText(value);
+    if (text && compactText(text) !== normalizedSummary) return text;
+  }
+  return "";
+}
+
+function firstDifferentToolText(summary: string, ...values: unknown[]) {
+  const normalizedSummary = compactText(summary);
+  for (const value of values) {
+    const text = displayToolText(value);
     if (text && compactText(text) !== normalizedSummary) return text;
   }
   return "";
@@ -597,13 +606,13 @@ function toolWindowOutputText(
   block: ToolProjectionBlock,
   sections: Array<{ label: string; text: string }>,
 ) {
-  const explicit = displayText(block.output);
+  const explicit = displayToolOutputText(block.output);
   if (explicit) return explicit;
   const observation = firstSectionText(sections, "观察")
     || firstSectionText(sections, "错误")
     || firstSectionText(sections, "详情");
   if (observation) return observation;
-  return displayText(block.detail);
+  return displayToolOutputText(block.detail);
 }
 
 function firstSectionText(sections: Array<{ label: string; text: string }>, label: string) {
@@ -721,4 +730,17 @@ function cleanText(value: unknown) {
 
 function displayText(value: unknown) {
   return publicRuntimeStatusText(cleanText(value));
+}
+
+function displayToolText(value: unknown) {
+  const raw = cleanText(value);
+  if (!raw) return "";
+  const publicStatus = publicRuntimeStatusText(raw);
+  if (publicStatus && publicStatus !== "状态已更新") return publicStatus;
+  return raw;
+}
+
+function displayToolOutputText(value: unknown) {
+  const text = displayToolText(value);
+  return text === "状态已更新" ? "" : text;
 }

@@ -105,7 +105,13 @@ class ContextUsageMeter:
         context_fingerprint: str = "",
         previous_context_fingerprint: str = "",
     ) -> ContextUsageSnapshot:
-        records = self._list_token_usage(session_id=session_id, run_id=run_id, task_run_id=task_run_id)
+        pressure_tokens_supplied = session_pressure_tokens is not None
+        session_pressure_is_current_source = pressure_tokens_supplied and pending_messages is None
+        records = (
+            []
+            if session_pressure_is_current_source
+            else self._list_token_usage(session_id=session_id, run_id=run_id, task_run_id=task_run_id)
+        )
         candidate_records = self._context_meter_candidate_records(records)
         candidate_scope = "agent_runtime" if len(candidate_records) != len(records) else "all_session_usage"
         provider_records = [record for record in candidate_records if record.source == "provider_usage"]
@@ -162,13 +168,7 @@ class ContextUsageMeter:
             observed_context_tokens = self._estimate_messages(fallback_messages or pending_messages or (), provider=resolved_provider, model=resolved_model)
             estimate_mode = "empty" if observed_context_tokens <= 0 else "local_predicted_no_provider_anchor"
 
-        pressure_tokens_supplied = session_pressure_tokens is not None
         accounting_observation_available = observed_context_source in {"provider_usage", "local_prediction"}
-        session_pressure_is_current_source = (
-            pressure_tokens_supplied
-            and not accounting_observation_available
-            and pending_messages is None
-        )
         if session_pressure_is_current_source:
             current_context_tokens = max(0, int(session_pressure_tokens or 0))
             estimate_mode = "session_pressure"

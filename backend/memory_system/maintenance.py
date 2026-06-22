@@ -192,6 +192,174 @@ def _stable_hash(value: Any) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def _stable_json_block(title: str, payload: dict[str, Any]) -> str:
+    return f"{str(title or '').strip()}\n" + json.dumps(
+        _json_stable_for_memory(payload),
+        ensure_ascii=False,
+        sort_keys=True,
+        indent=2,
+    )
+
+
+def _json_stable_for_memory(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_stable_for_memory(value[key]) for key in sorted(value)}
+    if isinstance(value, (list, tuple)):
+        return [_json_stable_for_memory(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return repr(value)
+
+
+def _drop_empty_memory_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return {str(key): value for key, value in dict(payload or {}).items() if value not in ("", None, [], {})}
+
+
+def _memory_maintenance_task_guidance(system_prompt: str) -> str:
+    return (
+        "现在进入记忆维护子任务。\n"
+        "如果前文包含主 agent 的稳定配置、工具目录、执行契约或上下文，它们只用于理解环境、复用缓存和追溯事实；"
+        "它们不授予你工具权限，也不要求你继续执行主任务。\n"
+        "你当前唯一任务是整理记忆候选，并严格遵守下面的记忆管理员职责：\n\n"
+        + str(system_prompt or "").strip()
+    ).strip()
+
+
+def _memory_message_coverage_ref(entry: dict[str, Any], *, fallback_index: int) -> str:
+    explicit = str(
+        entry.get("message_id")
+        or entry.get("turn_id")
+        or entry.get("tool_call_id")
+        or entry.get("call_id")
+        or ""
+    ).strip()
+    if explicit:
+        return explicit
+    return f"coverage:{_stable_hash(entry)[:12] or fallback_index}"
+
+
+def _append_planned_message(
+    messages: list[dict[str, Any]],
+    cache_plan: list[dict[str, Any]],
+    *,
+    role: str,
+    content: str,
+    kind: str,
+    source_ref: str,
+    cache_scope: str,
+    cache_role: str,
+    prefix_tier: str,
+    compression_role: str,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    messages.append({"role": str(role or "user"), "content": str(content or "")})
+    cache_plan.append(
+        {
+            "kind": str(kind or "memory_maintenance_unplanned"),
+            "source_ref": str(source_ref or ""),
+            "cache_scope": str(cache_scope or "none"),
+            "cache_role": str(cache_role or "volatile"),
+            "prefix_tier": str(prefix_tier or "volatile"),
+            "compression_role": str(compression_role or "summarize"),
+            "metadata": dict(metadata or {}),
+        }
+    )
+
+
+def _planned_stable_prefix_message_count(cache_plan: list[dict[str, Any]]) -> int:
+    count = 0
+    for item in list(cache_plan or []):
+        cache_role = str(dict(item or {}).get("cache_role") or "")
+        prefix_tier = str(dict(item or {}).get("prefix_tier") or "")
+        if cache_role not in {"cacheable_prefix", "session_stable"} or prefix_tier in {"volatile", "none"}:
+            break
+        count += 1
+    return max(1, count)
+
+
+def _shared_main_agent_prefix_messages_and_plan(
+    main_context: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    context = dict(main_context or {})
+    payload = context.get("shared_model_prefix")
+    if not isinstance(payload, dict):
+        payload = context.get("shared_main_agent_prefix")
+    if not isinstance(payload, dict):
+        return [], []
+    raw_messages = [dict(item) for item in list(payload.get("messages") or []) if isinstance(item, dict)]
+    raw_plan = [dict(item) for item in list(payload.get("message_cache_plan") or payload.get("message_specs") or []) if isinstance(item, dict)]
+    messages: list[dict[str, Any]] = []
+    cache_plan: list[dict[str, Any]] = []
+    for index, raw_message in enumerate(raw_messages):
+        planned = dict(raw_plan[index]) if index < len(raw_plan) else {}
+        cache_role = str(planned.get("cache_role") or "")
+        prefix_tier = str(planned.get("prefix_tier") or "")
+        if cache_role not in {"cacheable_prefix", "session_stable"} or prefix_tier in {"volatile", "none"}:
+            break
+        message = _shared_prefix_model_message(raw_message)
+        if not message:
+            break
+        messages.append(message)
+        cache_plan.append(
+            {
+                "kind": str(planned.get("kind") or "memory_maintenance_shared_main_agent_prefix"),
+                "source_ref": str(planned.get("source_ref") or f"main_agent_shared_prefix:{index + 1}"),
+                "cache_scope": str(planned.get("cache_scope") or "task"),
+                "cache_role": cache_role,
+                "prefix_tier": prefix_tier,
+                "compression_role": str(planned.get("compression_role") or "preserve"),
+                "metadata": {
+                    **(dict(planned.get("metadata") or {}) if isinstance(planned.get("metadata"), dict) else {}),
+                    "shared_with": "memory_maintenance_agent",
+                    "shared_prefix_source": str(payload.get("source_packet_ref") or ""),
+                    "cache_impact": "shared_main_agent_provider_prefix",
+                },
+            }
+        )
+    return messages, cache_plan
+
+
+def _shared_prefix_model_message(message: dict[str, Any]) -> dict[str, Any]:
+    role = str(message.get("role") or "").strip()
+    content = str(message.get("content") or "")
+    if not role or not content:
+        return {}
+    payload = {"role": role, "content": content}
+    for key in ("name", "tool_call_id", "tool_calls", "reasoning_content", "prefix", "additional_kwargs"):
+        value = message.get(key)
+        if value not in (None, "", [], {}):
+            payload[key] = value
+    return payload
+
+
+def _memory_maintenance_current_delta_payload(request: "MemoryMaintenanceRequest") -> dict[str, Any]:
+    return _drop_empty_memory_payload(
+        {
+            "request_identity": _drop_empty_memory_payload(
+                {
+                    "run_id": request.run_id,
+                    "session_id": request.session_id,
+                    "turn_id": request.turn_id,
+                    "agent_id": request.agent_id,
+                    "message_count": request.message_count,
+                    "last_memory_message_index": request.last_memory_message_index,
+                    "last_message_id": request.last_message_id,
+                    "message_fingerprint": request.message_fingerprint,
+                    "last_message_fingerprint": request.last_message_fingerprint,
+                }
+            ),
+            "source_message_refs": list(request.source_message_refs or []),
+            "message_slice": list(request.message_slice or []),
+            "previous_session_memory": request.previous_session_memory,
+            "task_summary_refs": list(request.task_summary_refs or []),
+            "bundle_summary_refs": list(request.bundle_summary_refs or []),
+            "manifest_headers": list(request.manifest_headers or []),
+            "decision_context": dict(request.decision_context or {}),
+            "durable_lane_enabled": bool(request.durable_lane_enabled),
+        }
+    )
+
+
 def _main_context_has_compact_pressure(main_context: dict[str, Any]) -> bool:
     pressure = str(main_context.get("context_pressure") or main_context.get("budget_pressure") or "").strip().lower()
     if pressure in {"warning", "high", "critical", "compact", "full_compact"}:
@@ -591,11 +759,7 @@ class MemoryMaintenanceAgent:
     async def maintain(self, request: MemoryMaintenanceRequest) -> MemoryMaintenanceProposal:
         if self._message_invoker is None:
             raise RuntimeError("memory maintenance model invoker is not configured")
-        messages = [
-            {"role": "system", "content": self.system_prompt()},
-            {"role": "system", "content": self.output_schema_prompt()},
-            {"role": "user", "content": self._user_payload(request)},
-        ]
+        messages, message_cache_plan = self._request_messages_and_cache_plan(request)
         response = await _call_message_invoker(
             self._message_invoker,
             messages,
@@ -606,7 +770,8 @@ class MemoryMaintenanceAgent:
                 cache_metric_scope="memory_maintenance",
                 session_id=request.session_id,
                 run_id=request.run_id,
-                stable_message_count=2,
+                stable_message_count=_planned_stable_prefix_message_count(message_cache_plan),
+                message_cache_plan=message_cache_plan,
             ),
         )
         payload = self._extract_json(self._response_text(response))
@@ -618,8 +783,95 @@ class MemoryMaintenanceAgent:
     def output_schema_prompt(self) -> str:
         return "请严格输出符合以下结构的 JSON：\n" + json.dumps(self._output_schema_hint(), ensure_ascii=False, indent=2)
 
-    def _user_payload(self, request: MemoryMaintenanceRequest) -> str:
-        return json.dumps({"request": request.model_dump()}, ensure_ascii=False, indent=2)
+    def _request_messages_and_cache_plan(
+        self,
+        request: MemoryMaintenanceRequest,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        messages: list[dict[str, Any]] = []
+        cache_plan: list[dict[str, Any]] = []
+        shared_messages, shared_plan = _shared_main_agent_prefix_messages_and_plan(request.main_context)
+        messages.extend(shared_messages)
+        cache_plan.extend(shared_plan)
+        task_guidance_prefix_tier = "task" if shared_messages else "provider_global"
+        task_guidance_cache_scope = "task" if shared_messages else "global"
+        task_guidance_cache_role = "session_stable" if shared_messages else "cacheable_prefix"
+        _append_planned_message(
+            messages,
+            cache_plan,
+            role="system",
+            content=_memory_maintenance_task_guidance(self.system_prompt()),
+            kind="memory_maintenance_task_guidance",
+            source_ref=MEMORY_MANAGER_PROMPT_REF,
+            cache_scope=task_guidance_cache_scope,
+            cache_role=task_guidance_cache_role,
+            prefix_tier=task_guidance_prefix_tier,
+            compression_role="preserve",
+            metadata={
+                "authority_class": "memory_maintenance_task_contract",
+                "cache_impact": "stable_after_shared_main_agent_prefix",
+                "shared_main_agent_prefix_message_count": len(shared_messages),
+            },
+        )
+        _append_planned_message(
+            messages,
+            cache_plan,
+            role="system",
+            content=self.output_schema_prompt(),
+            kind="memory_maintenance_output_schema",
+            source_ref="memory_maintenance.output_schema",
+            cache_scope="task" if shared_messages else "session",
+            cache_role="session_stable",
+            prefix_tier="task" if shared_messages else "session",
+            compression_role="preserve",
+            metadata={
+                "authority_class": "memory_maintenance_output_contract",
+                "cache_impact": "stable_output_contract",
+            },
+        )
+        for index, entry in enumerate(list(request.message_coverage or []), start=1):
+            if not isinstance(entry, dict):
+                continue
+            entry_payload = _drop_empty_memory_payload(dict(entry))
+            if not entry_payload:
+                continue
+            entry_ref = _memory_message_coverage_ref(entry_payload, fallback_index=index)
+            _append_planned_message(
+                messages,
+                cache_plan,
+                role="system",
+                content=_stable_json_block("Memory maintenance append-only message coverage entry", {"message_coverage_entry": entry_payload}),
+                kind="memory_maintenance_message_coverage_entry",
+                source_ref=f"memory_maintenance:message_coverage:{entry_ref}",
+                cache_scope="task",
+                cache_role="session_stable",
+                prefix_tier="task",
+                compression_role="ref_only",
+                metadata={
+                    "authority_class": "memory_maintenance_append_only_coverage",
+                    "cache_impact": "append_only_task_prefix",
+                    "message_coverage_index": index,
+                    "message_coverage_ref": entry_ref,
+                    "stability_rule": "existing coverage entries are immutable; later messages append new coverage entries after them",
+                },
+            )
+        _append_planned_message(
+            messages,
+            cache_plan,
+            role="user",
+            content=_stable_json_block("Memory maintenance current delta", _memory_maintenance_current_delta_payload(request)),
+            kind="memory_maintenance_current_delta",
+            source_ref=f"memory_maintenance:current_delta:{request.run_id}",
+            cache_scope="none",
+            cache_role="volatile",
+            prefix_tier="volatile",
+            compression_role="summarize",
+            metadata={
+                "authority_class": "memory_maintenance_current_delta",
+                "cache_impact": "volatile_suffix_only",
+                "volatility_reason": "current run id, previous session memory, manifest headers, and latest message slice can change each maintenance run",
+            },
+        )
+        return messages, cache_plan
 
     def _output_schema_hint(self) -> dict[str, Any]:
         return {

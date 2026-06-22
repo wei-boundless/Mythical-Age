@@ -14,6 +14,8 @@ from .models import PromptSegment, PromptSegmentMap
 from .provider_payload_boundary import (
     provider_payload_boundary_diagnostics,
     provider_payload_cache_boundary,
+    provider_payload_selected_tier,
+    provider_payload_segments,
     provider_payload_tier_prefix,
 )
 
@@ -117,6 +119,20 @@ class PromptCacheBaselineTracker:
         )
         hashes = _baseline_hashes(segment_map=segment_map, model_request=model_request)
         changed_tiers = _changed_tiers(previous, hashes)
+        provider_prefix_seal = _provider_prefix_seal(model_request)
+        provider_prefix_continuity = _provider_prefix_continuity(
+            previous=previous,
+            current_seal=provider_prefix_seal,
+        )
+        latest_provider_baseline = _latest_active_provider_baseline(
+            previous_records,
+            provider=provider,
+            model=model,
+        )
+        latest_provider_prefix_continuity = _provider_prefix_continuity(
+            previous=latest_provider_baseline,
+            current_seal=provider_prefix_seal,
+        )
         baseline_id = _baseline_id(
             request_id=segment_map.request_id,
             status="active",
@@ -155,8 +171,12 @@ class PromptCacheBaselineTracker:
                     model_request=model_request,
                     boundary=provider_payload_cache_boundary(model_request),
                 ),
+                "provider_prefix_seal": provider_prefix_seal,
+                "provider_prefix_continuity": provider_prefix_continuity,
+                "provider_prefix_continuity_latest": latest_provider_prefix_continuity,
                 "reset_seen": previous is None and generation > 0,
                 "has_previous_active_baseline": previous is not None,
+                "has_previous_provider_baseline": latest_provider_baseline is not None,
             },
         )
 
@@ -396,7 +416,130 @@ def _changed_tiers(previous: PromptCacheBaselineRecord | None, hashes: dict[str,
         "stable_tool_catalog": previous.stable_tool_catalog_hash,
         "cache_sensitive_params": previous.cache_sensitive_params_hash,
     }
-    return tuple(tier for tier, previous_hash in checks.items() if str(previous_hash or "") != str(hashes.get(tier) or ""))
+    return tuple(
+        tier
+        for tier, previous_hash in checks.items()
+        if str(previous_hash or "") != str(hashes.get(tier) or "")
+    )
+
+
+def _provider_prefix_seal(model_request: Any | None) -> dict[str, Any]:
+    boundary = provider_payload_cache_boundary(model_request)
+    selected_tier = provider_payload_selected_tier(boundary)
+    prefix_segments: list[dict[str, Any]] = []
+    if selected_tier == "none":
+        return {
+            "status": "empty",
+            "selected_tier": selected_tier,
+            "segment_count": 0,
+            "segments": [],
+        }
+    for raw_segment in sorted(
+        provider_payload_segments(model_request),
+        key=lambda item: int(dict(item).get("ordinal") or 0),
+    ):
+        segment = dict(raw_segment or {})
+        cache_role = str(segment.get("cache_role") or "")
+        prefix_tier = str(segment.get("prefix_tier") or "")
+        if not is_prefix_eligible_for_tier(
+            cache_role=cache_role,
+            prefix_tier=prefix_tier,
+            tier=selected_tier,
+        ):
+            break
+        prefix_segments.append(
+            {
+                "ordinal": int(segment.get("ordinal") or 0),
+                "kind": str(segment.get("kind") or ""),
+                "transport_location": str(segment.get("transport_location") or ""),
+                "content_hash": str(segment.get("content_hash") or ""),
+                "cache_role": cache_role,
+                "prefix_tier": prefix_tier,
+                "byte_length": int(segment.get("byte_length") or 0),
+            }
+        )
+    return {
+        "status": "sealed" if prefix_segments else "empty",
+        "selected_tier": selected_tier,
+        "segment_count": len(prefix_segments),
+        "byte_length": sum(int(item.get("byte_length") or 0) for item in prefix_segments),
+        "content_hash": stable_text_hash(
+            "|".join(str(item.get("content_hash") or "") for item in prefix_segments)
+        )
+        if prefix_segments
+        else "",
+        "segments": prefix_segments,
+    }
+
+
+def _provider_prefix_continuity(
+    *,
+    previous: PromptCacheBaselineRecord | None,
+    current_seal: dict[str, Any],
+) -> dict[str, Any]:
+    current_segments = [
+        dict(item)
+        for item in list(dict(current_seal or {}).get("segments") or [])
+        if isinstance(item, dict)
+    ]
+    previous_seal = dict(dict(getattr(previous, "diagnostics", {}) or {}).get("provider_prefix_seal") or {}) if previous is not None else {}
+    previous_segments = [
+        dict(item)
+        for item in list(previous_seal.get("segments") or [])
+        if isinstance(item, dict)
+    ]
+    common = 0
+    for left, right in zip(previous_segments, current_segments):
+        if _provider_prefix_segment_identity(left) != _provider_prefix_segment_identity(right):
+            break
+        common += 1
+    first_mismatch: dict[str, Any] = {}
+    if common < min(len(previous_segments), len(current_segments)):
+        first_mismatch = {
+            "index": common + 1,
+            "previous": _provider_prefix_segment_summary(previous_segments[common]),
+            "current": _provider_prefix_segment_summary(current_segments[common]),
+        }
+    elif len(previous_segments) > len(current_segments):
+        first_mismatch = {
+            "index": common + 1,
+            "previous": _provider_prefix_segment_summary(previous_segments[common]),
+            "current": {},
+        }
+    return {
+        "status": (
+            "no_previous"
+            if previous is None
+            else "previous_prefix_preserved"
+            if common == len(previous_segments)
+            else "previous_prefix_broken"
+        ),
+        "previous_baseline_ref": str(getattr(previous, "baseline_id", "") or ""),
+        "previous_segment_count": len(previous_segments),
+        "current_segment_count": len(current_segments),
+        "common_segment_count": common,
+        "previous_prefix_preserved": bool(previous is not None and common == len(previous_segments)),
+        "first_mismatch": first_mismatch,
+    }
+
+
+def _provider_prefix_segment_identity(segment: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(segment.get("transport_location") or ""),
+        str(segment.get("kind") or ""),
+        str(segment.get("content_hash") or ""),
+    )
+
+
+def _provider_prefix_segment_summary(segment: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ordinal": int(segment.get("ordinal") or 0),
+        "kind": str(segment.get("kind") or ""),
+        "transport_location": str(segment.get("transport_location") or ""),
+        "content_hash": str(segment.get("content_hash") or ""),
+        "cache_role": str(segment.get("cache_role") or ""),
+        "prefix_tier": str(segment.get("prefix_tier") or ""),
+    }
 
 
 def _record_matches(
@@ -417,6 +560,24 @@ def _matches_or_wildcard(record_value: str, current_value: str) -> bool:
     normalized = str(record_value or "")
     current = str(current_value or "")
     return not normalized or not current or normalized == current
+
+
+def _latest_active_provider_baseline(
+    records: list[PromptCacheBaselineRecord] | tuple[PromptCacheBaselineRecord, ...],
+    *,
+    provider: str,
+    model: str,
+) -> PromptCacheBaselineRecord | None:
+    relevant = [
+        record
+        for record in list(records or [])
+        if record.status == "active"
+        and _matches_or_wildcard(record.provider, provider)
+        and _matches_or_wildcard(record.model, model)
+    ]
+    if not relevant:
+        return None
+    return sorted(relevant, key=lambda item: float(item.created_at or 0.0))[-1]
 
 
 def _invocation_kind(segment_map: PromptSegmentMap) -> str:
