@@ -684,13 +684,16 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert "task_contract_seed" not in action_schema_payload["schema"]
     assert "completion_contract" not in action_schema_payload["schema"]
     assert "permission_request" not in action_schema_payload["schema"]
-    assert "runtime_profile" not in task_contract_payload["task_contract"]
-    assert "created_from_packet_ref" not in task_contract_payload["task_contract"]
-    assert "source_contract_ref" not in task_contract_payload["task_contract"]
-    assert "origin" not in task_contract_payload["task_contract"]
-    assert "graph_slot" not in task_contract_payload["task_contract"]
-    assert task_contract_payload["task_contract"]["task_run_goal"] == "审查并修复监控系统"
-    assert task_contract_payload["task_contract"]["completion_criteria"] == ["完成真实验证"]
+    task_contract = task_contract_payload["task_contract"]
+    assert "runtime_profile" not in task_contract
+    assert "created_from_packet_ref" not in task_contract
+    assert "source_contract_ref" not in task_contract
+    assert "origin" not in task_contract
+    assert "graph_slot" not in task_contract
+    assert "task_run_goal" not in task_contract
+    assert "completion_criteria" not in task_contract
+    assert task_contract["goal_contract"]["task_run_goal"] == "审查并修复监控系统"
+    assert task_contract["acceptance_contract"]["completion_criteria"] == ["完成真实验证"]
     assert tool_index_payload["tool_catalog_hash"].startswith("sha256:")
     assert "input_schema" not in tool_index_payload["available_tools"][0]
     assert tool_index_payload["available_tools"][0]["input_schema_ref"].startswith("sha256:")
@@ -735,11 +738,11 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert cache_role_by_kind["global_static"] == "cacheable_prefix"
     assert cache_role_by_kind["environment_stable"] == "session_stable"
     assert cache_role_by_kind["task_contract_stable"] == "session_stable"
-    assert cache_role_by_kind["task_runtime_boundary_dynamic"] == "volatile"
+    assert cache_role_by_kind["task_runtime_boundary_dynamic"] == "session_stable"
     assert cache_role_by_kind["volatile_task_state"] == "volatile"
     assert prefix_tier_by_kind["global_static"] == "provider_global"
     assert prefix_tier_by_kind["environment_stable"] == "session"
-    assert prefix_tier_by_kind["task_runtime_boundary_dynamic"] == "volatile"
+    assert prefix_tier_by_kind["task_runtime_boundary_dynamic"] == "task"
     assert not any(
         segment.cache_role in {"cacheable_prefix", "session_stable"}
         and dict(segment.metadata or {}).get("cache_impact") == "volatile"
@@ -822,8 +825,11 @@ def test_task_execution_memory_payload_stays_volatile_when_memory_lifecycle_moun
     assert lifecycle_runtime_segment["cache_role"] == "volatile"
     assert lifecycle_runtime_segment["prefix_tier"] == "volatile"
     runtime_segment = _segment_by_kind(with_memory.packet, "task_runtime_boundary_dynamic")
-    assert runtime_segment["cache_role"] == "volatile"
-    assert runtime_segment["prefix_tier"] == "volatile"
+    assert runtime_segment["cache_role"] == "session_stable"
+    assert runtime_segment["prefix_tier"] == "task"
+    runtime_memory_segment = _segment_by_kind(with_memory.packet, "runtime_memory_context")
+    assert runtime_memory_segment["cache_role"] == "volatile"
+    assert runtime_memory_segment["prefix_tier"] == "volatile"
     without_request = ModelRequestBuilder().build(
         request_id="modelreq:without-memory-lifecycle",
         messages=without_memory.packet.model_messages,
@@ -1034,7 +1040,7 @@ def test_lifecycle_selector_uses_operation_availability_for_active_work_control_
     assert "user_steer_contract_revision" in plan.runtime_lifecycle_prompt_keys
 
 
-def test_task_execution_replay_entries_are_volatile_before_current_state() -> None:
+def test_task_execution_replay_entries_are_append_only_task_prefix_before_current_state() -> None:
     base_kwargs = {
         "session_id": "session:append-only",
         "task_run": {
@@ -1101,11 +1107,17 @@ def test_task_execution_replay_entries_are_volatile_before_current_state() -> No
 
     second_kinds = [segment["kind"] for segment in second.packet.segment_plan["segments"]]
     assert "lifecycle_runtime_guidance" in second_kinds
-    assert second_kinds.index("task_runtime_boundary_dynamic") < second_kinds.index("task_state_replay_entry")
-    assert second_kinds.index("task_state_replay_entry") < second_kinds.index("volatile_task_state")
-    assert second_kinds.index("volatile_task_state") < second_kinds.index("lifecycle_runtime_guidance")
+    assert second_kinds.index("task_state_replay_entry") < second_kinds.index("task_runtime_boundary_dynamic")
+    assert second_kinds.index("task_runtime_boundary_dynamic") < second_kinds.index("lifecycle_runtime_guidance")
+    assert second_kinds.index("lifecycle_runtime_guidance") < second_kinds.index("volatile_task_state")
     for segment in second.packet.segment_plan["segments"]:
-        if segment["kind"] in {"task_state_replay_entry", "task_runtime_boundary_dynamic", "volatile_task_state"}:
+        if segment["kind"] in {"task_state_replay_entry", "task_runtime_boundary_dynamic"}:
+            assert segment["cache_role"] == "session_stable"
+            assert segment["prefix_tier"] == "task"
+        if segment["kind"] == "lifecycle_runtime_guidance":
+            assert segment["cache_role"] == "volatile"
+            assert segment["prefix_tier"] == "volatile"
+        if segment["kind"] == "volatile_task_state":
             assert segment["cache_role"] == "volatile"
 
     first_request = ModelRequestBuilder().build(
@@ -1124,15 +1136,15 @@ def test_task_execution_replay_entries_are_volatile_before_current_state() -> No
     )
     assert first_request.provider_global_prefix_hash == second_request.provider_global_prefix_hash
     assert first_request.session_prefix_hash == second_request.session_prefix_hash
-    assert first_request.task_prefix_hash == second_request.task_prefix_hash
-    assert first_request.stable_prefix_hash == second_request.stable_prefix_hash
-    assert "task_state_replay_entry" not in second_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]["kinds"]
-    assert "task_runtime_boundary_dynamic" not in second_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]["kinds"]
+    assert first_request.task_prefix_hash != second_request.task_prefix_hash
+    assert first_request.stable_prefix_hash != second_request.stable_prefix_hash
+    assert "task_state_replay_entry" in second_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]["kinds"]
+    assert "task_runtime_boundary_dynamic" in second_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]["kinds"]
     assert first_request.diagnostics["segment_bindings_match_planned_messages"] is True
     assert second_request.diagnostics["segment_bindings_match_planned_messages"] is True
 
 
-def test_task_start_inherited_context_is_volatile_and_keeps_stable_prefix() -> None:
+def test_task_start_inherited_context_is_task_prefix_snapshot() -> None:
     base_kwargs = {
         "session_id": "session:task-start-handoff",
         "task_run": {
@@ -1199,11 +1211,11 @@ def test_task_start_inherited_context_is_volatile_and_keeps_stable_prefix() -> N
         segment_plan=second.packet.segment_plan,
     )
 
-    assert segment["cache_role"] == "volatile"
-    assert segment["prefix_tier"] == "volatile"
+    assert segment["cache_role"] == "session_stable"
+    assert segment["prefix_tier"] == "task"
     assert payload["memory_context"]["memory_runtime_view_ref"] == "memview:first"
     assert payload["observations"][0]["summary"] == "first read"
-    assert first_request.stable_prefix_hash == second_request.stable_prefix_hash
+    assert first_request.stable_prefix_hash != second_request.stable_prefix_hash
 
 
 def test_task_execution_replay_prefix_keeps_observations_beyond_current_state_cursor() -> None:
@@ -1670,10 +1682,11 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
     assert projection["authority"] == "harness.runtime.agent_visible_runtime_projection"
     assert projection["model_decision_contract"]["authority"] == "harness.runtime.model_decision_contract"
     assert projection["model_decision_contract"]["prompt_authority"] == "developer_prompt_contract"
-    assert projection["model_decision_contract"]["task_entry_rule"]["must_choose_request_task_run_when_task_entry_conditions_hold"] is True
+    assert projection["model_decision_contract"]["task_entry_rule"]["upgrade_to_task_when_turn_boundary_insufficient"] is True
     task_entry_rule = projection["model_decision_contract"]["task_entry_rule"]
-    assert any("审查、评估、排查" in str(item) and "多文件链路" in str(item) for item in task_entry_rule["task_entry_conditions"])
-    assert "不要用连续读取大量文件来代替 request_task_run" in task_entry_rule["single_turn_tool_call_boundary"]
+    assert "复杂、跨文件或需要审查不自动等于 Task" in task_entry_rule["turn_first_policy"]
+    assert any("当前 turn 无法稳定承载" in str(item) for item in task_entry_rule["task_upgrade_conditions"])
+    assert "普通 tool_call 是有效路径" in task_entry_rule["single_turn_tool_call_boundary"]
     assert projection["service_surface"]["authority"] == "harness.runtime.service_surface"
     assert projection["execution_boundary"]["authority"] == "harness.runtime.execution_boundary"
     assert projection["execution_boundary"]["safety_authority"] == "runtime.tooling.supervisor"
@@ -1802,12 +1815,12 @@ def test_real_task_prompt_assembly_keeps_prompt_service_and_safety_boundaries_se
 
     assert decision_contract["prompt_authority"] == "developer_prompt_contract"
     assert "request_task_run" in decision_contract["semantic_actions"]
-    assert decision_contract["task_entry_rule"]["must_choose_request_task_run_when_task_entry_conditions_hold"] is True
+    assert decision_contract["task_entry_rule"]["upgrade_to_task_when_turn_boundary_insufficient"] is True
     assert any(
-        "审查、评估、排查" in str(item) and "多文件链路" in str(item)
-        for item in decision_contract["task_entry_rule"]["task_entry_conditions"]
+        "暂停/恢复/停止/replan" in str(item)
+        for item in decision_contract["task_entry_rule"]["task_upgrade_conditions"]
     )
-    assert "不要用连续读取大量文件来代替 request_task_run" in decision_contract["task_entry_rule"]["single_turn_tool_call_boundary"]
+    assert "在状态控制、验收或恢复需求越过 turn 边界前升级 Task" in decision_contract["task_entry_rule"]["single_turn_tool_call_boundary"]
     assert service_surface["unmounted_services"][0]["category"] == "requires_task_run"
     assert service_surface["unmounted_services"][0]["required_action"] == "request_task_run"
     assert execution_boundary["safety_authority"] == "runtime.tooling.supervisor"
@@ -1851,7 +1864,7 @@ def test_single_turn_prompt_cache_keeps_current_request_out_of_stable_prefix() -
     first_cache = _cache_record_for_packet(first.packet, request_id="modelreq:cache-current-request:1")
     second_cache = _cache_record_for_packet(second.packet, request_id="modelreq:cache-current-request:2")
 
-    assert _segment_by_source(first.packet, "single_agent_turn_runtime_delta")["cache_scope"] == "none"
+    assert _segment_by_source(first.packet, "single_agent_turn_runtime_delta")["cache_scope"] == "task"
     assert _segment_by_source(first.packet, "single_agent_turn_current_request")["cache_scope"] == "none"
     assert "开始执行 110 计划书" not in _stable_prompt_text(first.packet)
     assert "启动同一个优化计划" not in _stable_prompt_text(second.packet)
@@ -1895,18 +1908,22 @@ def test_active_work_prompt_cache_keeps_current_work_state_volatile() -> None:
         runtime_assembly=runtime_assembly,
     )
 
-    first_dynamic = _payload_after_title(
-        _message_content_with_title(first.packet, "Single agent turn dynamic runtime"),
-        "Single agent turn dynamic runtime",
+    first_volatile_runtime = _payload_after_title(
+        _message_content_with_title(first.packet, "Single agent turn volatile runtime state"),
+        "Single agent turn volatile runtime state",
     )
     first_cache = _cache_record_for_packet(first.packet, request_id="modelreq:cache-active-work:1")
     second_cache = _cache_record_for_packet(second.packet, request_id="modelreq:cache-active-work:2")
 
-    assert first_dynamic["active_work_context"]["latest_progress"] == "已完成第一段 prompt 审查。"
-    assert _segment_by_source(first.packet, "single_agent_turn_runtime_delta")["cache_scope"] == "none"
+    assert first_volatile_runtime["active_work_context"]["latest_progress"] == "已完成第一段 prompt 审查。"
+    assert _segment_by_source(first.packet, "single_agent_turn_runtime_delta")["cache_scope"] == "task"
     assert "已完成第一段 prompt 审查" not in _stable_prompt_text(first.packet)
     assert "已完成第二段 cache 审查" not in _stable_prompt_text(second.packet)
     assert first_cache.prefix_hash == second_cache.prefix_hash
+    first_dynamic = _payload_after_title(
+        _message_content_with_title(first.packet, "Single agent turn dynamic runtime"),
+        "Single agent turn dynamic runtime",
+    )
     semantic_actions = first_dynamic["runtime_context"]["agent_visible_runtime_projection"]["model_decision_contract"]["semantic_actions"]
     assert "active_work_control" in semantic_actions
 
@@ -1955,7 +1972,7 @@ def test_plan_mode_prompt_cache_changes_with_permission_boundary() -> None:
     assert plan_projection["planning"]["plan_mode_active"] is True
     assert plan_projection["execution_boundary"]["permission_mode"] == "plan"
     assert "permission_mode" in plan_input
-    assert _segment_by_source(plan_packet.packet, "single_agent_turn_runtime_delta")["cache_scope"] == "none"
+    assert _segment_by_source(plan_packet.packet, "single_agent_turn_runtime_delta")["cache_scope"] == "task"
 
 
 def test_task_execution_prompt_matrix_has_no_task_entry_conflict_and_keeps_state_volatile() -> None:
@@ -2026,12 +2043,12 @@ def test_task_execution_prompt_matrix_has_no_task_entry_conflict_and_keeps_state
         item["tool_name"] == "agent_todo" and item["category"] == "requires_task_run"
         for item in projection["service_surface"].get("unmounted_services", [])
     )
-    assert _segment_by_kind(result.packet, "task_runtime_boundary_dynamic")["cache_scope"] == "none"
+    assert _segment_by_kind(result.packet, "task_runtime_boundary_dynamic")["cache_scope"] == "task"
     assert _segment_by_kind(result.packet, "volatile_task_state")["cache_scope"] == "none"
     assert _segment_by_kind(result.packet, "user_steering_updates")["cache_scope"] == "none"
     assert _segment_by_kind(result.packet, "task_contract_stable")["cache_scope"] == "task"
     assert "把 prompt cache 也纳入检查" not in stable_text
-    assert "已完成 admission 分类" not in stable_text
+    assert "已完成 admission 分类" in stable_text
 
 
 def test_observation_followup_prompt_matrix_keeps_tool_observations_volatile() -> None:
@@ -2098,7 +2115,7 @@ def test_observation_followup_prompt_matrix_keeps_tool_observations_volatile() -
     assert projection["model_decision_contract"]["prompt_authority"] == "developer_prompt_contract"
     assert projection["service_surface"]["authority"] == "harness.runtime.service_surface"
     assert projection["execution_boundary"]["safety_authority"] == "runtime.tooling.supervisor"
-    assert _segment_by_source(first.packet, "agent_visible_runtime_projection")["cache_scope"] == "none"
+    assert _segment_by_source(first.packet, "agent_visible_runtime_projection")["cache_scope"] == "task"
     assert _segment_by_source(first.packet, "observation_followup_current_request")["cache_scope"] == "none"
     assert current_request_payload["observations"]["latest_observations"][0]["observation_id"] == "obs:followup:read"
     assert "第一轮读取结果" not in stable_text

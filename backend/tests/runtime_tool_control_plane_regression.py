@@ -731,6 +731,72 @@ def test_runtime_tool_control_plane_publishes_task_run_tool_lifecycle_signals(tm
     assert len(_runtime_gateway_signals(event_log, "taskrun:gateway-read")) == 3
 
 
+def test_runtime_tool_control_plane_lifecycle_signals_keep_real_terminal_command(tmp_path: Path) -> None:
+    gate = _AllowingGate()
+    executor = _RecordingToolExecutor()
+    event_log = RuntimeEventLog(tmp_path)
+    command = "python -m pytest backend/tests/public_projection_contract_test.py -q"
+    runtime_host = SimpleNamespace(
+        execution_store=None,
+        backend_dir=BACKEND_DIR,
+        runtime_gateway=RuntimeGateway(event_log),
+        tool_authorization_index=SimpleNamespace(
+            definitions_by_name={"terminal": SimpleNamespace(operation_id="op.shell", is_read_only=False)}
+        ),
+    )
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"tool_name": "terminal", "operation_id": "op.shell"}]),
+        invocation_kind="task_execution",
+        tool_definitions_by_name={"terminal": SimpleNamespace(operation_id="op.shell", is_read_only=False)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:task:gateway-terminal",
+        caller_kind="task_run",
+        caller_ref="taskrun:gateway-terminal",
+        session_id="session:gateway-terminal",
+        turn_id="turn:gateway-terminal:1",
+        task_run_id="taskrun:gateway-terminal",
+        agent_run_id="agrun:gateway-terminal",
+        run_cell_id="runcell:gateway-terminal",
+        action_request_ref="action:gateway-terminal",
+        packet_ref="packet:gateway-terminal",
+        tool_name="terminal",
+        tool_call_id="call:gateway-terminal",
+        tool_args={"command": command, "cwd": str(BACKEND_DIR.parent)},
+        operation_id="op.shell",
+        action_permit=_permit(
+            action_request_ref="action:gateway-terminal",
+            invocation_kind="task_execution",
+            tool_name="terminal",
+            operation_id="op.shell",
+            read_only=False,
+            session_id="session:gateway-terminal",
+            turn_id="turn:gateway-terminal:1",
+            task_run_id="taskrun:gateway-terminal",
+        ),
+        requested_constraints={"runtime_host": runtime_host},
+    )
+
+    observation = asyncio.run(RuntimeToolControlPlane(tool_runtime_executor=executor, operation_gate=gate).invoke(request, tool_plan=plan))
+    signals = _runtime_gateway_signals(event_log, "taskrun:gateway-terminal")
+
+    assert observation.status == "ok"
+    assert observation.result_envelope["tool_name"] == "terminal"
+    assert observation.result_envelope["tool_args"]["command"] == command
+    assert [signal["signal_type"] for signal in signals] == [
+        "tool.permission.decided",
+        "tool.execution.started",
+        "tool.execution.completed",
+    ]
+    for signal in signals:
+        payload = dict(signal["payload"])
+        assert payload["tool_name"] == "terminal"
+        assert payload["target"] == command
+        assert f"command={command}" in payload["arguments_preview"]
+    assert signals[1]["payload"]["lifecycle_phase"] == "execution_started"
+    assert signals[2]["payload"]["lifecycle_phase"] == "execution_completed"
+
+
 def test_runtime_tool_control_plane_rejects_inflight_duplicate_invocation(tmp_path: Path) -> None:
     gate = _AllowingGate()
     executor = _RecordingToolExecutor()
@@ -2530,12 +2596,13 @@ class _RecordingToolExecutor:
         self.last_run = dict(kwargs)
         action_request = kwargs["action_request"]
         tool_call = dict(dict(action_request.payload).get("tool_call") or {})
+        tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or kwargs.get("tool_name") or "read_file")
         return {
             "observation": {
                 "payload": {
                     "result": "ok",
                     "result_envelope": {
-                        "tool_name": "read_file",
+                        "tool_name": tool_name,
                         "tool_args": dict(tool_call.get("args") or {}),
                         "status": "ok",
                         "text": "ok",
@@ -2564,6 +2631,7 @@ class _RecordingToolExecutor:
             execution_store=kwargs.get("execution_store"),
             sandbox_policy=kwargs.get("sandbox_policy"),
             file_management_policy=kwargs.get("file_management_policy"),
+            tool_name=str(getattr(request, "tool_name", "") or ""),
             tool_invocation_context=_invocation_context_from_request(request),
         )
 

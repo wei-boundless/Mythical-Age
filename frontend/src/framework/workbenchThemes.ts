@@ -285,6 +285,7 @@ export type CustomAppearanceSettings = {
   fontSizeScale: number; // 0.8 ~ 1.3, 默认为 1
   bgColor: string | null;
   panelColor: string | null;
+  accentSoftColor: string | null;
   bgImage: string | null;
 };
 
@@ -293,6 +294,7 @@ export const DEFAULT_CUSTOM_SETTINGS: CustomAppearanceSettings = {
   fontSizeScale: 1,
   bgColor: null,
   panelColor: null,
+  accentSoftColor: null,
   bgImage: null,
 };
 
@@ -328,6 +330,13 @@ export function applyAppearanceOverrides(settings: CustomAppearanceSettings) {
   if (font) {
     root.style.setProperty("--font-display", font.fontDisplay);
     root.style.setProperty("--font-mono", font.fontMono);
+    // Also set all font aliases directly to bypass any :root chain issues
+    root.style.setProperty("--console-font", font.fontDisplay);
+    root.style.setProperty("--console-mono", font.fontMono);
+    root.style.setProperty("--workbench-font", font.fontDisplay);
+    root.style.setProperty("--workbench-font-mono", font.fontMono);
+    root.style.setProperty("--font-sans", font.fontDisplay);
+    root.style.setProperty("--font-brand-latin", font.fontDisplay);
   }
 
   // Font size scale
@@ -349,6 +358,11 @@ export function applyAppearanceOverrides(settings: CustomAppearanceSettings) {
   if (settings.panelColor) {
     root.style.setProperty("--console-surface", settings.panelColor);
     root.style.setProperty("--console-bg-raised", settings.panelColor);
+  }
+
+  // Accent soft color override (highlight/emphasis background)
+  if (settings.accentSoftColor) {
+    root.style.setProperty("--console-accent-soft", settings.accentSoftColor);
   }
 
   // Background image
@@ -375,6 +389,7 @@ export function clearCustomOverrides() {
   root.style.removeProperty("--console-bg");
   root.style.removeProperty("--console-surface");
   root.style.removeProperty("--console-bg-raised");
+  root.style.removeProperty("--console-accent-soft");
   root.style.removeProperty("--workbench-bg-image");
   // Reset stored custom
   window.localStorage.removeItem(WORKBENCH_CUSTOM_SETTINGS_KEY);

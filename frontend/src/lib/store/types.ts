@@ -103,7 +103,7 @@ export type AssistantTextSegmentState = {
 
 export type SessionActivityLevel = "idle" | "running" | "waiting" | "success" | "warning" | "error" | "stopped";
 export type RuntimeMonitorStreamStatus = "connecting" | "connected" | "disconnected" | "closed";
-export type ChatStreamConnectionState = "idle" | "streaming" | "reconnecting" | "reconnected" | "failed" | "stopped";
+export type ChatStreamConnectionState = "idle" | "streaming" | "reconnecting" | "reconnected" | "failed" | "stopped" | "paused";
 
 export type ChatStreamConnectionStatus = {
   state: ChatStreamConnectionState;

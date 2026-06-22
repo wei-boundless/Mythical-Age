@@ -959,12 +959,15 @@ def _tool_lifecycle_start_lock_lost_observation(
 
 
 def _tool_lifecycle_base_payload(request: ToolInvocationRequest, *, tool_plan: Any) -> dict[str, Any]:
+    tool_args = dict(request.tool_args or {})
     return {
         "event_family": "tool_lifecycle",
         "tool_invocation_id": str(request.invocation_id or ""),
         "tool_call_id": str(request.tool_call_id or ""),
         "tool_name": str(request.tool_name or ""),
         "operation_id": _request_operation_id(request),
+        "target": _tool_lifecycle_public_target(str(request.tool_name or ""), tool_args),
+        "arguments_preview": _tool_lifecycle_arguments_preview(tool_args),
         "action_request_ref": str(request.action_request_ref or ""),
         "packet_ref": str(request.packet_ref or ""),
         "admission_ref": str(request.admission_ref or ""),
@@ -978,6 +981,74 @@ def _tool_lifecycle_base_payload(request: ToolInvocationRequest, *, tool_plan: A
         "turn_id": str(request.turn_id or ""),
         "permission_mode": str(request.permission_mode or ""),
         "authority": "runtime.tool_runtime.tool_control_plane",
+    }
+
+
+def _tool_lifecycle_public_target(tool_name: str, args: dict[str, Any]) -> str:
+    keys = ("path", "file", "file_path", "target", "target_path", "url", "query", "pattern")
+    if _is_command_tool(tool_name):
+        keys = ("command", "cmd", "script", "code", *keys)
+    for key in keys:
+        value = _public_preview_value(args.get(key), limit=180)
+        if value:
+            return value
+    return ""
+
+
+def _tool_lifecycle_arguments_preview(args: dict[str, Any]) -> str:
+    if not args:
+        return ""
+    priority = (
+        "path",
+        "file",
+        "file_path",
+        "target",
+        "target_path",
+        "start_line",
+        "line_count",
+        "end_line",
+        "range",
+        "query",
+        "pattern",
+        "cwd",
+        "command",
+        "cmd",
+        "script",
+        "code",
+        "url",
+    )
+    skipped = {"content", "replacement", "new_content", "old_content", "patch", "diff"}
+    ordered = [key for key in priority if key in args]
+    ordered.extend(key for key in sorted(args) if key not in ordered and key not in skipped)
+    parts: list[str] = []
+    for key in ordered:
+        value = args.get(key)
+        if isinstance(value, (dict, list, tuple)):
+            continue
+        text = _public_preview_value(f"{key}={value}", limit=120 if key in {"command", "cmd", "script", "code"} else 80)
+        if text:
+            parts.append(text)
+        if len(parts) >= 6:
+            break
+    return ", ".join(parts)[:240]
+
+
+def _public_preview_value(value: Any, *, limit: int) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return ""
+    return text[: max(1, int(limit or 1))]
+
+
+def _is_command_tool(tool_name: str) -> bool:
+    return str(tool_name or "").strip().lower() in {
+        "bash",
+        "cmd",
+        "command",
+        "powershell",
+        "python_repl",
+        "shell",
+        "terminal",
     }
 
 
@@ -1148,7 +1219,15 @@ def _observation(
             caller_ref=request.caller_ref,
             diagnostics=dict(diagnostics or {}),
         ).to_dict()
-    elif isinstance(envelope.get("execution_receipt"), dict):
+    else:
+        envelope.setdefault("tool_name", request.tool_name)
+        envelope.setdefault("tool_call_id", request.tool_call_id)
+        envelope.setdefault("action_request_id", request.action_request_ref)
+        envelope.setdefault("caller_kind", request.caller_kind)
+        envelope.setdefault("caller_ref", request.caller_ref)
+        if not isinstance(envelope.get("tool_args"), dict) or not envelope.get("tool_args"):
+            envelope["tool_args"] = dict(request.tool_args or {})
+    if isinstance(envelope.get("execution_receipt"), dict):
         envelope["execution_receipt"] = {**dict(envelope.get("execution_receipt") or {}), **receipt}
     else:
         envelope["execution_receipt"] = receipt

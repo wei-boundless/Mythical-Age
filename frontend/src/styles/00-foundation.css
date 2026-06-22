@@ -1,6 +1,12 @@
 :root {
   --font-display: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Source Han Sans SC", "Noto Sans SC", system-ui, sans-serif;
   --font-mono: "Cascadia Mono", "Consolas", "SFMono-Regular", monospace;
+  --console-font: var(--font-display);
+  --console-mono: var(--font-mono);
+  --workbench-font: var(--font-display);
+  --workbench-font-mono: var(--font-mono);
+  --font-sans: var(--font-display);
+  --font-brand-latin: var(--font-display);
   --console-bg: #ffffff;
   --console-bg-raised: #f8fafc;
   --console-surface: #ffffff;
@@ -71,6 +77,14 @@
   --color-accent: var(--console-accent);
   --color-danger: var(--console-danger);
   --color-ink: var(--console-text);
+  --console-bg-soft: var(--console-bg-raised);
+  --console-surface-soft: var(--console-surface-muted);
+  --console-blue: var(--console-accent);
+  --console-blue-soft: var(--console-accent-soft);
+  --console-green: var(--console-success);
+  --console-green-soft: var(--console-success-soft);
+  --console-warn: var(--console-warning);
+  --console-warn-soft: var(--console-warning-soft);
   --radius-panel: var(--console-radius-lg);
   --radius-block: var(--console-radius-lg);
   --radius-card: var(--console-radius-lg);

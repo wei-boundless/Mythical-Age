@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from harness.runtime.compiler import RuntimeCompiler
+from runtime.memory.file_evidence_scope import session_file_evidence_scope
+from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.prompt_accounting import CanonicalPromptSerializer, PromptCachePlanner
 
 
@@ -66,12 +69,71 @@ def test_task_execution_emits_evidence_index_cursor_outside_volatile_task_state(
     assert cache_record.diagnostics["volatile_task_state_predicted_tokens"] > 0
 
 
+def test_single_agent_turn_moves_session_file_state_out_of_dynamic_runtime(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime_state"
+    session_id = "session:single-turn-evidence-index"
+    scope = session_file_evidence_scope(session_id)
+    FileStateAuthorityStore(runtime_root).apply_events_scope(
+        scope,
+        [
+            {
+                "event_type": "read",
+                "path": "src/app.py",
+                "start_line": 1,
+                "end_line": 20,
+                "total_lines": 80,
+                "has_more": True,
+                "content_sha256": "sha256:single-turn-app",
+            }
+        ],
+        observation_ref="obs:single-turn-read",
+        tool_call_id="call:single-turn-read",
+    )
+
+    result = RuntimeCompiler(base_dir=tmp_path).compile_single_agent_turn_packet(
+        session_id=session_id,
+        turn_id="turn:single-turn-evidence-index",
+        agent_invocation_id="aginvoke:single-turn-evidence-index",
+        user_message="继续。",
+        history=[],
+        runtime_assembly={
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {
+                "environment_id": "env.general.workspace",
+                "storage_space": {"runtime_state_root": str(runtime_root)},
+            },
+        },
+    )
+
+    kinds = [segment["kind"] for segment in result.packet.segment_plan["segments"]]
+    evidence_payload = _payload_with_title(result.packet, "Single agent turn evidence index cursor")
+    dynamic_payload = _optional_payload_with_title(result.packet, "Single agent turn dynamic runtime")
+    serialized_dynamic = json.dumps(dynamic_payload, ensure_ascii=False)
+    evidence_file = evidence_payload["evidence_index_cursor"]["files"][0]
+
+    if "dynamic_projection" in kinds:
+        assert kinds.index("evidence_index_cursor") < kinds.index("dynamic_projection")
+    assert evidence_file["path"] == "src/app.py"
+    assert evidence_file["read_window_refs"][0]["observation_ref"] == "obs:single-turn-read"
+    assert "file_state" not in serialized_dynamic
+    assert "file_evidence_decisions" not in serialized_dynamic
+    assert "read_resource_state" not in serialized_dynamic
+
+
 def _payload_with_title(packet, title: str) -> dict[str, object]:
     for message in packet.model_messages:
         content = str(dict(message).get("content") or "")
         if content.startswith(title + "\n"):
             return json.loads(content.split("\n", 1)[1])
     raise AssertionError(f"missing model message title: {title}")
+
+
+def _optional_payload_with_title(packet, title: str) -> dict[str, object]:
+    for message in packet.model_messages:
+        content = str(dict(message).get("content") or "")
+        if content.startswith(title + "\n"):
+            return json.loads(content.split("\n", 1)[1])
+    return {}
 
 
 def _cache_record_for_packet(packet):

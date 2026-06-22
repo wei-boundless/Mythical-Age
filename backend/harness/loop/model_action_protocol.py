@@ -141,7 +141,7 @@ def model_action_request_from_payload(
     if action_type == "request_task_run" and isinstance(task_contract_seed, dict):
         normalized_seed, seed_errors, seed_gaps, canonical_selected_skill_ids = _normalize_task_contract_seed(task_contract_seed)
         if raw_selected_skill_ids:
-            seed_errors.append("selected_skill_ids_must_be_inside_skill_intent")
+            seed_errors.append("selected_skill_ids_not_allowed_for_request_task_run")
         seed_errors.extend(
             _request_task_run_contract_boundary_errors(
                 raw=raw,
@@ -364,6 +364,8 @@ def _public_progress_note(value: Any) -> str:
 
 _CANONICAL_HANDOFF_REQUIRED_OBJECTS = (
     "working_scope",
+)
+_REQUEST_TASK_RUN_SYSTEM_SETTING_FIELDS = (
     "capability_intent",
     "skill_intent",
     "observation_contract",
@@ -376,21 +378,35 @@ _REQUEST_TASK_RUN_SEED_COMPLETION_FIELDS = (
     "required_verifications",
     "verification_requirements",
 )
+_REQUEST_TASK_RUN_SEED_LAYER_FIELDS = (
+    "goal_contract",
+    "plan_contract",
+    "lifecycle_contract",
+    "environment_contract",
+    "feedback_contract",
+    "acceptance_contract",
+)
 _REQUEST_TASK_RUN_TOP_LEVEL_CONTRACT_FIELDS = (
     *_REQUEST_TASK_RUN_SEED_TEXT_FIELDS,
     *_REQUEST_TASK_RUN_SEED_COMPLETION_FIELDS,
     *_CANONICAL_HANDOFF_REQUIRED_OBJECTS,
+    *_REQUEST_TASK_RUN_SEED_LAYER_FIELDS,
 )
 
 
 def _normalize_task_contract_seed(seed: dict[str, Any]) -> tuple[dict[str, Any], list[str], list[str], tuple[str, ...]]:
-    payload = dict(seed or {})
+    payload, layer_errors = _seed_with_layered_contract_aliases(dict(seed or {}))
     errors: list[str] = []
+    errors.extend(layer_errors)
     gaps: list[str] = []
     for legacy_key in ("resource_contract", "resource_requirements", "selected_skill_ids"):
         if _has_non_empty_value(payload.get(legacy_key)):
             errors.append(f"legacy_task_contract_field_not_allowed:{legacy_key}")
         payload.pop(legacy_key, None)
+    for key in _REQUEST_TASK_RUN_SYSTEM_SETTING_FIELDS:
+        if _has_non_empty_value(payload.get(key)):
+            errors.append(f"system_execution_field_not_allowed_in_task_contract:{key}")
+        payload.pop(key, None)
     for key in _CANONICAL_HANDOFF_REQUIRED_OBJECTS:
         if key not in payload:
             errors.append(f"{key}_required_for_request_task_run")
@@ -399,18 +415,150 @@ def _normalize_task_contract_seed(seed: dict[str, Any]) -> tuple[dict[str, Any],
             errors.append(f"{key}_must_be_object")
             payload[key] = {}
     working_scope = _normalize_working_scope(dict(payload.get("working_scope") or {}))
-    capability_intent = _normalize_capability_intent(dict(payload.get("capability_intent") or {}))
-    skill_intent = _normalize_skill_intent(dict(payload.get("skill_intent") or {}))
-    observation_contract = _normalize_observation_contract(dict(payload.get("observation_contract") or {}))
-    if not _has_capability_intent(capability_intent):
-        errors.append("capability_intent_required_for_request_task_run")
-    if not observation_contract.get("evidence_policy"):
-        errors.append("observation_contract.evidence_policy_required")
     payload["working_scope"] = working_scope
-    payload["capability_intent"] = capability_intent
-    payload["skill_intent"] = skill_intent
-    payload["observation_contract"] = observation_contract
-    return payload, errors, gaps, tuple(skill_intent.get("selected_skill_ids") or ())
+    payload["goal_contract"] = _normalized_goal_contract(payload)
+    payload["plan_contract"] = _normalized_plan_contract(payload)
+    payload["lifecycle_contract"] = _normalized_lifecycle_contract(payload)
+    payload["environment_contract"] = _normalized_environment_contract(payload)
+    payload["feedback_contract"] = _normalized_feedback_contract(payload)
+    payload["acceptance_contract"] = _normalized_acceptance_contract(payload)
+    return payload, errors, gaps, ()
+
+
+def _seed_with_layered_contract_aliases(seed: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    payload = dict(seed or {})
+    errors: list[str] = []
+    layers: dict[str, dict[str, Any]] = {}
+    for key in _REQUEST_TASK_RUN_SEED_LAYER_FIELDS:
+        value = payload.get(key)
+        if value is None:
+            layers[key] = {}
+            continue
+        if not isinstance(value, dict):
+            errors.append(f"{key}_must_be_object")
+            payload[key] = {}
+            layers[key] = {}
+            continue
+        layers[key] = dict(value)
+
+    goal = layers["goal_contract"]
+    if "user_visible_goal" not in payload and _has_non_empty_value(goal.get("user_visible_goal")):
+        payload["user_visible_goal"] = goal.get("user_visible_goal")
+    if "task_run_goal" not in payload:
+        task_goal = goal.get("task_run_goal") or goal.get("agent_goal")
+        if _has_non_empty_value(task_goal):
+            payload["task_run_goal"] = task_goal
+
+    environment = layers["environment_contract"]
+    for key in ("working_scope", "permission_requirements"):
+        if key not in payload and isinstance(environment.get(key), dict):
+            payload[key] = dict(environment.get(key) or {})
+    for key in ("capability_intent", "skill_intent"):
+        if _has_non_empty_value(environment.get(key)):
+            errors.append(f"system_execution_field_not_allowed_in_task_contract:environment_contract.{key}")
+
+    feedback = layers["feedback_contract"]
+    for key in ("observation_policy", "observation_contract"):
+        if _has_non_empty_value(feedback.get(key)):
+            errors.append(f"system_execution_field_not_allowed_in_task_contract:feedback_contract.{key}")
+
+    acceptance = layers["acceptance_contract"]
+    for key in _REQUEST_TASK_RUN_SEED_COMPLETION_FIELDS:
+        if key not in payload and _has_non_empty_value(acceptance.get(key)):
+            payload[key] = acceptance.get(key)
+
+    plan = layers["plan_contract"]
+    if "plan_ref" not in payload and _has_non_empty_value(plan.get("plan_id")):
+        payload["plan_ref"] = plan.get("plan_id")
+    return payload, errors
+
+
+def _normalized_goal_contract(seed: dict[str, Any]) -> dict[str, Any]:
+    raw = dict(seed.get("goal_contract") or {})
+    payload = {
+        "user_visible_goal": str(seed.get("user_visible_goal") or raw.get("user_visible_goal") or "").strip(),
+        "task_run_goal": str(seed.get("task_run_goal") or raw.get("task_run_goal") or raw.get("agent_goal") or "").strip(),
+        "non_goals": list(_string_tuple(raw.get("non_goals") or seed.get("non_goals"))),
+        "success_definition": _public_progress_note(raw.get("success_definition") or seed.get("success_definition")),
+        "completion_evidence": list(_string_tuple(raw.get("completion_evidence") or seed.get("completion_evidence"))),
+        "authority": "harness.loop.model_action_protocol.goal_contract",
+    }
+    return {key: value for key, value in payload.items() if value not in ("", [], {}, None)}
+
+
+def _normalized_plan_contract(seed: dict[str, Any]) -> dict[str, Any]:
+    raw = dict(seed.get("plan_contract") or {})
+    payload = {
+        "plan_id": str(raw.get("plan_id") or seed.get("plan_ref") or seed.get("external_plan_ref") or "").strip(),
+        "plan_version": str(raw.get("plan_version") or "").strip(),
+        "plan_status": str(raw.get("plan_status") or raw.get("approval_state") or "agent_managed").strip(),
+        "strategy_summary": _public_progress_note(raw.get("strategy_summary")),
+        "major_steps": list(_string_tuple(raw.get("major_steps") or raw.get("steps"))),
+        "allowed_plan_operations": list(_string_tuple(raw.get("allowed_plan_operations") or raw.get("allowed_operations"))),
+        "replan_policy": dict(raw.get("replan_policy") or {}) if isinstance(raw.get("replan_policy"), dict) else {},
+        "authority": "harness.loop.model_action_protocol.plan_contract",
+    }
+    return {key: value for key, value in payload.items() if value not in ("", [], {}, None)}
+
+
+def _normalized_lifecycle_contract(seed: dict[str, Any]) -> dict[str, Any]:
+    raw = dict(seed.get("lifecycle_contract") or {})
+    payload = {
+        "pause_policy": dict(raw.get("pause_policy") or {}) if isinstance(raw.get("pause_policy"), dict) else {},
+        "resume_policy": dict(raw.get("resume_policy") or {}) if isinstance(raw.get("resume_policy"), dict) else {},
+        "stop_policy": dict(raw.get("stop_policy") or {}) if isinstance(raw.get("stop_policy"), dict) else {},
+        "replan_policy": dict(raw.get("replan_policy") or {}) if isinstance(raw.get("replan_policy"), dict) else {},
+        "tool_limit_closeout_policy": dict(raw.get("tool_limit_closeout_policy") or {}) if isinstance(raw.get("tool_limit_closeout_policy"), dict) else {},
+        "failure_recovery_policy": dict(raw.get("failure_recovery_policy") or seed.get("recovery_policy") or {}) if isinstance(raw.get("failure_recovery_policy") or seed.get("recovery_policy"), dict) else {},
+        "terminal_policy": dict(raw.get("terminal_policy") or {}) if isinstance(raw.get("terminal_policy"), dict) else {},
+        "authority": "harness.loop.model_action_protocol.lifecycle_contract",
+    }
+    return {key: value for key, value in payload.items() if value not in ("", [], {}, None)}
+
+
+def _normalized_environment_contract(seed: dict[str, Any]) -> dict[str, Any]:
+    raw = dict(seed.get("environment_contract") or {})
+    payload = {
+        "working_scope": dict(seed.get("working_scope") or raw.get("working_scope") or {}),
+        "permission_requirements": dict(seed.get("permission_requirements") or raw.get("permission_requirements") or {}),
+        "resource_requirements": dict(raw.get("resource_requirements") or {}),
+        "safety_boundaries": list(_string_tuple(raw.get("safety_boundaries") or seed.get("safety_boundaries"))),
+        "authority": "harness.loop.model_action_protocol.environment_contract",
+    }
+    return {key: value for key, value in payload.items() if value not in ("", [], {}, None)}
+
+
+def _normalized_feedback_contract(seed: dict[str, Any]) -> dict[str, Any]:
+    raw = dict(seed.get("feedback_contract") or {})
+    payload = {
+        "feedback_sources": list(
+            _string_tuple(
+                raw.get("feedback_sources")
+                or ("tool_observation", "runtime_observation", "user_steer", "lifecycle_signal", "budget_signal", "verification_signal", "recovery_signal")
+            )
+        ),
+        "dynamic_context_slots": list(_string_tuple(raw.get("dynamic_context_slots") or ("dynamic_runtime_context", "task_plan_context", "tail_user_steer"))),
+        "steer_policy": dict(raw.get("steer_policy") or {}) if isinstance(raw.get("steer_policy"), dict) else {},
+        "verification_feedback_policy": dict(raw.get("verification_feedback_policy") or {}) if isinstance(raw.get("verification_feedback_policy"), dict) else {},
+        "budget_feedback_policy": dict(raw.get("budget_feedback_policy") or {}) if isinstance(raw.get("budget_feedback_policy"), dict) else {},
+        "feedback_identity_binding": str(raw.get("feedback_identity_binding") or "active_turn_or_task_run_required").strip(),
+        "authority": "harness.loop.model_action_protocol.feedback_contract",
+    }
+    return {key: value for key, value in payload.items() if value not in ("", [], {}, None)}
+
+
+def _normalized_acceptance_contract(seed: dict[str, Any]) -> dict[str, Any]:
+    raw = dict(seed.get("acceptance_contract") or {})
+    payload = {
+        "completion_criteria": list(_string_tuple(seed.get("completion_criteria") or raw.get("completion_criteria"))),
+        "required_artifacts": _dict_list(seed.get("required_artifacts") or seed.get("artifact_requirements") or raw.get("required_artifacts") or raw.get("artifact_requirements")),
+        "required_verifications": _dict_list(seed.get("required_verifications") or seed.get("verification_requirements") or raw.get("required_verifications") or raw.get("verification_requirements")),
+        "verification_gate": dict(raw.get("verification_gate") or {}) if isinstance(raw.get("verification_gate"), dict) else {},
+        "final_answer_requirements": list(_string_tuple(raw.get("final_answer_requirements"))),
+        "evidence_refs_required": bool(raw.get("evidence_refs_required") is not False),
+        "authority": "harness.loop.model_action_protocol.acceptance_contract",
+    }
+    return {key: value for key, value in payload.items() if value not in ("", [], {}, None)}
 
 
 def _request_task_run_contract_boundary_errors(
@@ -423,11 +571,18 @@ def _request_task_run_contract_boundary_errors(
     for field in _REQUEST_TASK_RUN_TOP_LEVEL_CONTRACT_FIELDS:
         if _has_non_empty_value(raw.get(field)):
             errors.append(f"field_must_be_inside_task_contract_seed:{field}")
+    for field in _REQUEST_TASK_RUN_SYSTEM_SETTING_FIELDS:
+        if _has_non_empty_value(raw.get(field)):
+            errors.append(f"system_execution_field_not_allowed_in_task_contract:{field}")
     if isinstance(raw.get("payload"), dict):
         errors.append("payload_wrapper_not_allowed_for_request_task_run")
     for field in _REQUEST_TASK_RUN_SEED_TEXT_FIELDS:
         if not str(task_contract_seed.get(field) or "").strip():
             errors.append(f"{field}_required_for_request_task_run")
+    working_scope = task_contract_seed.get("working_scope")
+    target_objects = dict(working_scope or {}).get("target_objects") if isinstance(working_scope, dict) else ()
+    if not isinstance(working_scope, dict) or not list(_dict_or_string_items(target_objects)):
+        errors.append("working_scope.target_objects_required_for_request_task_run")
     if not _has_request_task_run_completion_evidence(
         task_contract_seed=task_contract_seed,
         completion_contract=completion_contract,
@@ -466,55 +621,6 @@ def _normalize_working_scope(value: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _normalize_capability_intent(value: dict[str, Any]) -> dict[str, Any]:
-    result = {
-        "needed_capability_groups": list(_string_tuple(value.get("needed_capability_groups") or value.get("capability_groups"))),
-        "preferred_tool_namespaces": list(_string_tuple(value.get("preferred_tool_namespaces") or value.get("tool_namespaces"))),
-        "requires_deferred_tool_loading": bool(value.get("requires_deferred_tool_loading") is True),
-        "reason": _public_progress_note(value.get("reason")),
-    }
-    return result
-
-
-def _normalize_skill_intent(value: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "selected_skill_ids": list(_normalize_skill_ids(value.get("selected_skill_ids"))),
-        "candidate_skill_ids": list(_normalize_skill_ids(value.get("candidate_skill_ids"))),
-        "required_capability_tags": list(_string_tuple(value.get("required_capability_tags"))),
-        "reason": _public_progress_note(value.get("reason")),
-    }
-
-
-def _normalize_observation_contract(value: dict[str, Any]) -> dict[str, Any]:
-    evidence_policy = str(value.get("evidence_policy") or "").strip()
-    progress_granularity = str(value.get("progress_granularity") or "step").strip() or "step"
-    return {
-        "evidence_policy": evidence_policy,
-        "progress_granularity": progress_granularity,
-        "finalization_requires_evidence": bool(value.get("finalization_requires_evidence") is not False),
-    }
-
-
-def _has_capability_intent(value: dict[str, Any]) -> bool:
-    return bool(
-        value.get("needed_capability_groups")
-        or value.get("preferred_tool_namespaces")
-        or str(value.get("reason") or "").strip()
-    )
-
-
-def _normalize_skill_ids(value: Any) -> tuple[str, ...]:
-    result: list[str] = []
-    seen: set[str] = set()
-    for item in _string_tuple(value):
-        normalized = item if item.startswith("skill.") else f"skill.{item}"
-        if normalized in seen:
-            continue
-        seen.add(normalized)
-        result.append(normalized)
-    return tuple(result)
-
-
 def _dict_or_string_items(value: Any) -> tuple[Any, ...]:
     raw_values = value if isinstance(value, (list, tuple)) else ([value] if value else [])
     result: list[Any] = []
@@ -528,6 +634,11 @@ def _dict_or_string_items(value: Any) -> tuple[Any, ...]:
         if text:
             result.append(text)
     return tuple(result)
+
+
+def _dict_list(value: Any) -> list[dict[str, Any]]:
+    raw_values = value if isinstance(value, (list, tuple)) else ([value] if value else [])
+    return [dict(item) for item in raw_values if isinstance(item, dict)]
 
 
 _PUBLIC_ACTION_COMPLETION_STATUSES = {"working", "waiting_for_tool", "verifying", "ready_to_finish", "blocked"}

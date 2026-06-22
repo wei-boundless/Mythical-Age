@@ -41,6 +41,13 @@ from harness.runtime import (
 )
 from harness.runtime.environment_storage import ensure_environment_storage_dirs
 from harness.runtime.file_management_policy import compile_tool_file_management_policy
+from harness.runtime.incremental_context_frame import (
+    build_prefix_lock_report,
+    build_tool_followup_incremental_context_frame_message,
+    incremental_context_frame_segment_spec,
+    is_incremental_context_frame_message,
+    prefix_lock_violation_for_index,
+)
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 from harness.runtime.provider_tool_schema import provider_tool_bindings_for_available_tools
 from harness.runtime.public_progress import public_runtime_progress_summary
@@ -62,7 +69,7 @@ from runtime.model_gateway.assistant_stream_frame import (
 from runtime.model_gateway.assistant_stream_normalizer import AssistantStreamNormalizer
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
-from runtime.model_gateway.model_runtime import stringify_content
+from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_content
 from runtime.model_gateway.stream_iteration import iterate_stream_with_due_ticks
 from runtime.output_boundary import (
     CanonicalFinalTextDecision,
@@ -518,6 +525,16 @@ def _model_protocol_violation_control_signal(
         )
     if not tool_calls_allowed:
         instruction += "当前阶段工具通道关闭；请在 allowed_agent_actions 内选择 respond、ask_user、block 或其他已开放控制动作。"
+    requested_action_type = _protocol_error_requested_action_type(protocol_error)
+    structured_signal = {
+        "code": code,
+        "message": instruction,
+        "reason": reason,
+        "origin": "single_agent_turn_model_protocol_boundary",
+        "retryable": not recovery_exhausted,
+    }
+    if requested_action_type == "request_task_run":
+        structured_signal["repair_example"] = _request_task_run_minimal_repair_action()
     return {
         "observation_type": "runtime_control_signal",
         "source": "system:runtime_control_signal",
@@ -540,13 +557,7 @@ def _model_protocol_violation_control_signal(
         "rejected_json_action_payload": rejected_payload_dict,
         "previous_response_preview": _compact_text(response_preview, limit=1200),
         "repair_instruction": instruction,
-        "structured_signal": {
-            "code": code,
-            "message": instruction,
-            "reason": reason,
-            "origin": "single_agent_turn_model_protocol_boundary",
-            "retryable": not recovery_exhausted,
-        },
+        "structured_signal": structured_signal,
         "authority": "harness.loop.single_agent_turn.runtime_control_signal",
     }
 
@@ -680,8 +691,8 @@ def _tool_followup_action_contract_messages(
         "如果已经足够回答用户，直接写用户可见的最终回复；这会作为你的 respond 收口。\n"
         "如果需要用户补充，提交 action_type=ask_user，并填写 user_question。\n"
         "如果当前事实或权限不足，提交 action_type=block，并填写 blocking_reason。\n"
-        "如果需要启动持续任务，提交 action_type=request_task_run，并把 user_visible_goal、task_run_goal、"
-        "working_scope、capability_intent、skill_intent、observation_contract 和完成证据全部放入 task_contract_seed。\n"
+        "如果你决定启动持续任务，提交 action_type=request_task_run；调度只以这个结构化动作生效。\n"
+        "task_contract_seed 只需要写清 user_visible_goal、task_run_goal、working_scope.target_objects 和完成证据。"
         "如果仍需普通工具且工具通道可用，可以发起 provider-native tool_call 或 JSON tool_call；"
         "工具前置说明可以作为公开进展，但 task_contract_seed 必须留在动作对象内。\n"
         "只有控制动作和工具动作需要动作对象；不要为了最终回答把自然语言正文塞进 JSON。"
@@ -1358,6 +1369,7 @@ async def run_single_agent_turn(
         current_requires_json_action = single_agent_requires_json_action
         protocol_recovery_attempts = 0
         tool_observation_payloads: list[dict[str, Any]] = []
+        tool_context_ledger_entries: list[dict[str, Any]] = []
 
         def capture_assistant_stream_event(event: dict[str, Any]) -> None:
             nonlocal assistant_visible_stream_continuity
@@ -2102,6 +2114,8 @@ async def run_single_agent_turn(
             tool_protocol_messages: list[dict[str, Any]] = []
             assistant_tool_calls: list[dict[str, Any]] = []
             round_observation_payloads: list[dict[str, Any]] = []
+            round_tool_context_entries: list[dict[str, Any]] = []
+            round_tool_context_indexed_messages: list[tuple[int, dict[str, Any]]] = []
             for row in invocation_rows:
                 observation = row["observation"]
                 if not isinstance(observation, ToolObservation):
@@ -2152,20 +2166,38 @@ async def run_single_agent_turn(
                 consecutive_failure_rounds += 1
             else:
                 consecutive_failure_rounds = 0
+            previous_accumulated_context_count = len(_ordered_tool_followup_accumulated_context_messages(model_messages))
             if assistant_tool_calls:
+                tool_context_assistant_message_index = previous_accumulated_context_count
                 assistant_protocol_message = _with_turn_id(_assistant_tool_call_message(response, assistant_tool_calls), turn_id)
                 api_protocol_messages.extend([assistant_protocol_message, *tool_protocol_messages])
             else:
+                tool_context_assistant_message_index = -1
                 assistant_protocol_message = {}
+            new_tool_transcript_messages = [
+                *([assistant_protocol_message] if assistant_protocol_message else []),
+                *tool_protocol_messages,
+            ]
+            round_tool_context_indexed_messages = _indexed_tool_transcript_messages(
+                start_index=previous_accumulated_context_count,
+                messages=new_tool_transcript_messages,
+            )
             model_messages = _sanitize_model_messages(
-                [
-                    *model_messages,
-                    assistant_protocol_message,
-                    *tool_protocol_messages,
-                ],
+                _append_tool_transcript_to_accumulated_context(
+                    model_messages,
+                    new_tool_transcript_messages,
+                ),
                 turn_id=turn_id,
                 source="harness.loop.single_agent_turn.tool_followup",
             )
+            if assistant_tool_calls:
+                round_tool_context_entries = _append_tool_context_ledger_entries(
+                    tool_context_ledger_entries,
+                    tool_iteration=tool_iteration,
+                    assistant_model_message_index=tool_context_assistant_message_index,
+                    tool_calls=assistant_tool_calls,
+                    observations=round_observation_payloads,
+                )
             if consecutive_failure_rounds >= _CONSECUTIVE_TOOL_FAILURE_CLOSEOUT_THRESHOLD:
                 control_signal = _consecutive_tool_failure_closeout_control_signal(
                     turn_id=turn_id,
@@ -2295,6 +2327,7 @@ async def run_single_agent_turn(
                     turn_id=turn_id,
                     source="harness.loop.single_agent_turn.mid_turn_context_recovery_followup",
                 )
+                round_tool_context_indexed_messages = []
                 followup_segment_plan = dict(followup_compilation.packet.segment_plan or {})
                 followup_prompt_manifest = {
                     **dict(followup_compilation.packet.diagnostics.get("prompt_manifest") or {}),
@@ -2356,32 +2389,63 @@ async def run_single_agent_turn(
                     "active_turn_user_steer_included": True,
                     "queued_user_steer_count": len(active_turn_steer_batch.items),
                 }
+            followup_context_messages = _ordered_tool_followup_accumulated_context_messages(
+                [dict(item) for item in list(model_messages or []) if isinstance(item, dict)]
+            )
+            followup_invocation_messages = [dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)]
             if _tool_followup_requires_action_transport(current_allowed_action_types):
-                model_messages = _tool_followup_action_contract_messages(
-                    model_messages,
+                followup_context_messages = [
+                    *[dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)],
+                    build_tool_followup_incremental_context_frame_message(
+                        base_segment_plan=dict(followup_segment_plan or {}),
+                        model_messages=[],
+                        tool_iteration=tool_iteration,
+                        prefix_lock_report=dict(followup_segment_plan.get("prefix_lock") or {}),
+                        current_tool_round_indexed_messages=(
+                            round_tool_context_indexed_messages
+                            or _current_tool_round_indexed_messages(followup_context_messages)
+                        ),
+                        unchanged_refs=_unchanged_tool_refs_from_tool_context_ledger(
+                            tool_context_ledger_entries,
+                            current_entries=round_tool_context_entries,
+                        ),
+                        tool_context_delta=_tool_context_delta_from_ledger(
+                            tool_context_ledger_entries,
+                            current_entries=round_tool_context_entries,
+                            tool_iteration=tool_iteration,
+                        ),
+                    ),
+                ]
+                followup_invocation_messages = _tool_followup_action_contract_messages(
+                    followup_context_messages,
                     turn_id=turn_id,
                     allowed_action_types=current_allowed_action_types,
                     tool_iteration=tool_iteration,
                 )
                 current_requires_json_action = True
-                followup_segment_plan = _single_agent_turn_followup_segment_plan(
-                    base_segment_plan=dict(followup_segment_plan or {}),
-                    model_messages=model_messages,
-                    packet_id=str(followup_packet_ref or current_packet_ref),
-                    tool_iteration=tool_iteration,
-                )
                 followup_prompt_manifest = {
                     **dict(followup_prompt_manifest or {}),
                     "tool_followup_action_guidance": True,
                     "assistant_body_transport": "plain_response_allowed",
                     "control_action_transport": "json_action",
                     "non_native_control_action_requires_json_action": True,
-                    "segment_plan_ref": str(followup_segment_plan.get("segment_plan_id") or ""),
                 }
+            followup_segment_plan = _single_agent_turn_followup_segment_plan(
+                base_segment_plan=dict(followup_segment_plan or {}),
+                model_messages=followup_invocation_messages,
+                packet_id=str(followup_packet_ref or current_packet_ref),
+                tool_iteration=tool_iteration,
+            )
+            followup_prompt_manifest = {
+                **dict(followup_prompt_manifest or {}),
+                "segment_plan_ref": str(followup_segment_plan.get("segment_plan_id") or ""),
+                "append_only_followup_order": True,
+                "physical_message_order": "preserve_transcript_append_dynamic_tail",
+            }
             response = None
             async for model_event in _invoke_single_turn_model_with_stream_events(
                 model_runtime=model_runtime,
-                model_messages=model_messages,
+                model_messages=followup_invocation_messages,
                 model_selection=dict(model_selection or {}),
                 accounting_context={
                     "request_id": f"modelreq:{followup_packet_ref}:tool-followup:{tool_iteration}",
@@ -2403,6 +2467,11 @@ async def run_single_agent_turn(
                     continue
                 capture_assistant_stream_event(model_event)
                 yield model_event
+            model_messages = _sanitize_model_messages(
+                followup_context_messages,
+                turn_id=turn_id,
+                source="harness.loop.single_agent_turn.tool_followup_accumulated_context",
+            )
         if isinstance(response, dict) and response.get("type") == "error":
             if runtime_host is not None and turn_run is not None:
                 terminal = _record_turn_terminal(
@@ -3094,11 +3163,7 @@ async def _invoke_single_turn_model(
             )
         except Exception as exc:
             logger.exception("single agent turn model tool invocation failed")
-            return error_event(
-                content="运行中断",
-                code="single_agent_turn_model_failed",
-                reason=str(exc),
-            )
+            return _single_agent_model_failure_event(exc)
     if callable(plain_invoker):
         try:
             return await call_model_invoker(
@@ -3109,16 +3174,69 @@ async def _invoke_single_turn_model(
             )
         except Exception as exc:
             logger.exception("single agent turn model invocation failed")
-            return error_event(
-                content="运行中断",
-                code="single_agent_turn_model_failed",
-                reason=str(exc),
-            )
+            return _single_agent_model_failure_event(exc)
     return error_event(
         content="运行中断",
         code="model_runtime_unavailable",
         reason="model_runtime_unavailable",
+        extra={
+            "failure_code": "model_runtime_unavailable",
+            "error_summary": "模型运行时不可用。",
+            "answer_persist_policy": "do_not_persist",
+            "answer_finalization_policy": "no_agent_answer_model_runtime_failed",
+        },
     )
+
+
+def _single_agent_model_failure_event(exc: Exception) -> dict[str, Any]:
+    payload = _single_agent_model_failure_payload(exc)
+    code = str(payload.pop("code") or "single_agent_turn_model_failed")
+    reason = str(payload.get("reason") or payload.get("failure_code") or code)
+    return error_event(
+        content="运行中断",
+        code=code,
+        reason=reason,
+        extra=payload,
+    )
+
+
+def _single_agent_model_failure_payload(exc: Exception) -> dict[str, Any]:
+    if isinstance(exc, ModelRuntimeError):
+        code = str(exc.code or "single_agent_turn_model_failed").strip() or "single_agent_turn_model_failed"
+        summary = sanitize_visible_assistant_content(str(exc.user_message or "")).strip()
+        if not summary:
+            summary = _public_model_failure_summary(code)
+        return {
+            "code": code,
+            "reason": code,
+            "failure_code": code,
+            "model_error_code": code,
+            "error_summary": summary,
+            "provider": str(exc.provider or ""),
+            "model": str(exc.model or ""),
+            "retryable": bool(exc.retryable),
+            "answer_persist_policy": "do_not_persist",
+            "answer_finalization_policy": "no_agent_answer_model_runtime_failed",
+        }
+    return {
+        "code": "single_agent_turn_model_failed",
+        "reason": "single_agent_turn_model_failed",
+        "failure_code": "single_agent_turn_model_failed",
+        "error_summary": "模型调用失败，请稍后重试。",
+        "retryable": False,
+        "answer_persist_policy": "do_not_persist",
+        "answer_finalization_policy": "no_agent_answer_model_runtime_failed",
+    }
+
+
+def _public_model_failure_summary(code: str) -> str:
+    return {
+        "insufficient_balance": "模型服务余额不足，请检查模型提供商账户余额或更换可用模型。",
+        "rate_limit": "模型请求触发限流，请稍后重试。",
+        "timeout": "模型请求超时，请稍后重试。",
+        "provider_unavailable": "模型服务暂时不可用，请稍后重试。",
+        "configuration": "模型配置有误，请检查提供商和密钥设置。",
+    }.get(str(code or "").strip(), "模型调用失败，请稍后重试。")
 
 
 def _model_selection_with_json_object_contract(model_selection: dict[str, Any]) -> dict[str, Any]:
@@ -3494,11 +3612,7 @@ async def _invoke_single_turn_model_with_stream_events(
         yield {
             "type": _INTERNAL_MODEL_RESPONSE_EVENT,
             "assistant_stream_normalizer": assistant_normalizer,
-            "response": error_event(
-                content="运行中断",
-                code="single_agent_turn_model_failed",
-                reason=str(exc),
-            ),
+            "response": _single_agent_model_failure_event(exc),
         }
         return
     response = aggregated_response if aggregated_response is not None else raw_content
@@ -4073,16 +4187,13 @@ def _looks_like_malformed_single_agent_action_payload(payload: dict[str, Any]) -
     action_contract_keys = {
         "active_work_control",
         "blocking_reason",
-        "capability_intent",
         "completion_contract",
         "final_answer",
-        "observation_contract",
         "permission_request",
         "public_action_state",
         "public_progress_note",
         "recovery_resume",
         "selected_skill_ids",
-        "skill_intent",
         "task_contract_seed",
         "tool_call",
         "tool_calls",
@@ -4500,14 +4611,11 @@ def _native_request_task_contract_seed(args: dict[str, Any]) -> dict[str, Any]:
             continue
         if field == "working_scope":
             seed[field] = _native_working_scope(value)
-        elif field == "capability_intent":
-            seed[field] = _native_capability_intent(value)
-        elif field == "skill_intent":
-            seed[field] = _native_skill_intent(value)
-        elif field == "observation_contract":
-            seed[field] = _native_observation_contract(value)
         else:
             seed[field] = value
+    for field in _REQUEST_TASK_RUN_SYSTEM_SETTING_FIELDS:
+        if _has_non_empty_native_arg(args.get(field)):
+            seed[field] = args.get(field)
     return seed
 
 
@@ -4518,46 +4626,6 @@ def _native_working_scope(value: Any) -> Any:
         return {"target_objects": list(value)}
     text = str(value or "").strip()
     return {"target_objects": [text]} if text else value
-
-
-def _native_capability_intent(value: Any) -> Any:
-    if isinstance(value, dict):
-        return dict(value)
-    if isinstance(value, (list, tuple)):
-        return {"needed_capability_groups": [str(item).strip() for item in value if str(item or "").strip()]}
-    text = str(value or "").strip()
-    if not text:
-        return value
-    if _looks_like_capability_group_token(text):
-        return {"needed_capability_groups": [text]}
-    return {"reason": text}
-
-
-def _native_skill_intent(value: Any) -> Any:
-    if isinstance(value, dict):
-        return dict(value)
-    if isinstance(value, (list, tuple)):
-        return {"selected_skill_ids": [str(item).strip() for item in value if str(item or "").strip()]}
-    text = str(value or "").strip()
-    if not text:
-        return value
-    if text.startswith("skill.") or "." in text and " " not in text:
-        return {"selected_skill_ids": [text]}
-    return {"selected_skill_ids": [], "reason": text}
-
-
-def _native_observation_contract(value: Any) -> Any:
-    if isinstance(value, dict):
-        return dict(value)
-    text = str(value or "").strip()
-    return {"evidence_policy": text} if text else value
-
-
-def _looks_like_capability_group_token(value: str) -> bool:
-    text = str(value or "").strip()
-    if not text or any(ch.isspace() for ch in text):
-        return False
-    return all(ch.isalnum() or ch in {"_", "-", ".", ":"} for ch in text)
 
 
 def _has_non_empty_native_arg(value: Any) -> bool:
@@ -4839,6 +4907,8 @@ def _protocol_action_issue(
 
 _REQUEST_TASK_RUN_NESTED_CONTRACT_FIELDS = (
     "working_scope",
+)
+_REQUEST_TASK_RUN_SYSTEM_SETTING_FIELDS = (
     "capability_intent",
     "skill_intent",
     "observation_contract",
@@ -4854,6 +4924,61 @@ _REQUEST_TASK_RUN_TASK_CONTRACT_FIELDS = (
     *_REQUEST_TASK_RUN_NESTED_CONTRACT_FIELDS,
 )
 _RECOVERY_RESUME_NESTED_FIELDS = ("task_run_id", "continuation_id")
+
+
+def _request_task_run_minimal_repair_action() -> dict[str, Any]:
+    return {
+        "authority": "harness.loop.model_action_request",
+        "action_type": "request_task_run",
+        "public_progress_note": "说明为什么当前工作需要进入持续任务生命周期。",
+        "public_action_state": {
+            "current_judgment": "说明当前 turn 无法稳定承载的边界。",
+            "next_action": "进入持续任务执行流程。",
+        },
+        "task_contract_seed": {
+            "user_visible_goal": "用户能看懂的任务目标。",
+            "task_run_goal": "执行生命周期要持续推进的具体任务目标。",
+            "working_scope": {
+                "target_objects": ["要处理的文件、模块、目录、对象或问题域"],
+                "source_refs": ["用户消息或已观察证据"],
+                "excluded_scope": [],
+                "known_constraints": ["用户明确约束、质量要求或排除项"],
+            },
+            "completion_criteria": ["可验收完成标准"],
+        },
+    }
+
+
+def _request_task_run_repair_template_text() -> str:
+    return json.dumps(_request_task_run_minimal_repair_action(), ensure_ascii=False, indent=2)
+
+
+def _protocol_error_requested_action_type(protocol_error: dict[str, Any]) -> str:
+    diagnostics = dict(protocol_error.get("diagnostics") or {})
+    action_issue = dict(diagnostics.get("action_issue") or {})
+    for source in (
+        action_issue,
+        dict(diagnostics.get("detected_json_action") or {}),
+        dict(diagnostics.get("rejected_json_action_payload") or {}),
+    ):
+        action_type = str(source.get("requested_action_type") or source.get("action_type") or "").strip()
+        if action_type:
+            return action_type
+    native_errors = [dict(item) for item in list(diagnostics.get("native_action_errors") or []) if isinstance(item, dict)]
+    for item in native_errors:
+        action_issue = dict(item.get("action_issue") or {})
+        action_type = str(action_issue.get("requested_action_type") or "").strip()
+        if action_type:
+            return action_type
+    return ""
+
+
+def _with_request_task_run_repair_template(prefix: str) -> str:
+    return (
+        f"{str(prefix or '').strip()} "
+        "最小合法骨架如下；用你的当前任务目标、范围和证据替换占位文本，但保留这些键和层级：\n"
+        f"{_request_task_run_repair_template_text()}"
+    ).strip()
 
 
 def _protocol_error_specific_repair_instruction(protocol_error: dict[str, Any]) -> str:
@@ -4905,34 +5030,34 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
     payload_wrapper = payload.get("payload") if isinstance(payload.get("payload"), dict) else None
     if misplaced_top_level or payload_wrapper is not None:
         misplaced = "、".join(misplaced_top_level) if misplaced_top_level else "payload"
-        return (
+        return _with_request_task_run_repair_template(
             "request_task_run 的任务字段放错层级。不要把 "
             f"{misplaced} 放在 JSON 顶层，也不要使用 payload 包裹。"
-            "请保留 action_type=request_task_run，把 working_scope、capability_intent、"
-            "skill_intent、observation_contract 全部放入 task_contract_seed 内；"
-            "capability_intent 使用 needed_capability_groups，不使用 selected_groups；"
-            "observation_contract 必须包含 evidence_policy。"
+            "请保留 action_type=request_task_run，把任务目标、working_scope 和完成证据放入 task_contract_seed 内。"
+        )
+    if any(str(item).startswith("system_execution_field_not_allowed_in_task_contract") for item in errors):
+        return _with_request_task_run_repair_template(
+            "request_task_run 的任务合同只接收任务目标、working_scope 和完成证据；请删除不属于任务合同的执行配置字段。"
         )
     required_errors = {
         f"{field}_required_for_request_task_run" for field in _REQUEST_TASK_RUN_NESTED_CONTRACT_FIELDS
     }
-    if errors.intersection(required_errors) or "observation_contract.evidence_policy_required" in errors:
+    if errors.intersection(required_errors) or "working_scope.target_objects_required_for_request_task_run" in errors:
         missing = [
             field
             for field in _REQUEST_TASK_RUN_NESTED_CONTRACT_FIELDS
             if field not in task_seed_obj or not isinstance(task_seed_obj.get(field), dict)
         ]
+        if not missing and "working_scope.target_objects_required_for_request_task_run" in errors:
+            missing.append("working_scope.target_objects")
         missing_text = "、".join(missing) if missing else "必需字段"
-        return (
+        return _with_request_task_run_repair_template(
             "request_task_run 必须提交完整 task_contract_seed。请在 task_contract_seed 内补齐 "
-            f"{missing_text}；capability_intent 至少包含 needed_capability_groups 或 reason，"
-            "skill_intent 即使不选择 skill 也要给 selected_skill_ids: [] 和 reason，"
-            "observation_contract 必须包含 evidence_policy。"
+            f"{missing_text}。"
         )
     if "task_contract_seed_required_for_request_task_run" in errors:
-        return (
-            "request_task_run 必须包含 task_contract_seed，且任务目标、范围、能力意图、"
-            "skill 意图、观察证据要求和完成标准都必须放在 task_contract_seed 内。"
+        return _with_request_task_run_repair_template(
+            "request_task_run 必须包含 task_contract_seed，且任务目标、范围和完成标准都必须放在 task_contract_seed 内。"
         )
     if (
         "user_visible_goal_required_for_request_task_run" in errors
@@ -5093,7 +5218,7 @@ def _native_tool_public_note(args: dict[str, Any]) -> str:
 
 
 def _native_tool_public_target(args: dict[str, Any]) -> str:
-    for key in ("path", "file_path", "target_path", "query", "pattern", "url"):
+    for key in ("path", "file_path", "target_path", "query", "pattern", "url", "command", "cmd", "script", "code"):
         value = str(args.get(key) or "").strip()
         if value:
             return value[:120]
@@ -6105,6 +6230,33 @@ def _single_agent_turn_followup_segment_plan(
     packet_id: str,
     tool_iteration: int,
 ) -> dict[str, Any]:
+    _normalized_messages, specs, prefix_lock_report = _single_agent_turn_followup_message_specs(
+        base_segment_plan=base_segment_plan,
+        model_messages=model_messages,
+        tool_iteration=tool_iteration,
+    )
+    segment_plan = build_prompt_segment_plan(
+        packet_id=f"{packet_id}:tool-followup:{max(1, int(tool_iteration or 1))}",
+        invocation_kind="single_agent_turn_tool_followup",
+        message_specs=specs,
+    ).to_dict()
+    segment_plan["prefix_lock"] = prefix_lock_report
+    if str(prefix_lock_report.get("status") or "") != "preserved":
+        logger.warning(
+            "single agent follow-up prefix lock violation: packet_id=%s tool_iteration=%s violation_count=%s",
+            packet_id,
+            tool_iteration,
+            prefix_lock_report.get("violation_count"),
+        )
+    return segment_plan
+
+
+def _single_agent_turn_followup_message_specs(
+    *,
+    base_segment_plan: dict[str, Any],
+    model_messages: list[dict[str, Any]],
+    tool_iteration: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     base_segments: dict[int, dict[str, Any]] = {}
     for segment in list(base_segment_plan.get("segments") or []):
         if not isinstance(segment, dict):
@@ -6119,62 +6271,590 @@ def _single_agent_turn_followup_segment_plan(
             source="harness.loop.single_agent_turn.followup_segment_plan",
         )
     )
+    prefix_lock_report = build_prefix_lock_report(
+        base_segment_plan=dict(base_segment_plan or {}),
+        model_messages=list(normalized_messages or []),
+    )
+    current_tool_round_indexes = _current_tool_round_message_indexes(normalized_messages)
     specs: list[dict[str, Any]] = []
     for index, message in enumerate(normalized_messages):
         base = dict(base_segments.get(index) or {})
         if base:
+            prefix_lock_violation = prefix_lock_violation_for_index(prefix_lock_report, index)
             specs.append(
-                {
-                    "role": str(message.get("role") or "user"),
-                    "content": str(message.get("content") or ""),
-                    "kind": str(base.get("kind") or "single_agent_turn_base"),
-                    "source_ref": str(base.get("source_ref") or "single_agent_turn_base"),
-                    "cache_scope": str(base.get("cache_scope") or "none"),
-                    "cache_role": str(base.get("cache_role") or "volatile"),
-                    "prefix_tier": str(base.get("prefix_tier") or "volatile"),
-                    "compression_role": str(base.get("compression_role") or "summarize"),
-                    "metadata": dict(base.get("metadata") or {}),
-                    "model_message": dict(message),
-                }
+                _single_agent_turn_followup_base_message_spec(
+                    base,
+                    message=message,
+                    prefix_lock_violation=prefix_lock_violation,
+                    is_current_tool_round=index in current_tool_round_indexes,
+                )
             )
             continue
-        specs.append(_single_agent_turn_followup_message_spec(message, tool_iteration=tool_iteration))
-    return build_prompt_segment_plan(
-        packet_id=f"{packet_id}:tool-followup:{max(1, int(tool_iteration or 1))}",
-        invocation_kind="single_agent_turn_tool_followup",
-        message_specs=specs,
-    ).to_dict()
+        specs.append(
+            _single_agent_turn_followup_message_spec(
+                message,
+                tool_iteration=tool_iteration,
+                is_current_tool_round=index in current_tool_round_indexes,
+            )
+    )
+    return list(normalized_messages or []), specs, prefix_lock_report
 
 
-def _single_agent_turn_followup_message_spec(message: dict[str, Any], *, tool_iteration: int) -> dict[str, Any]:
+def _is_tool_followup_action_contract_message(message: dict[str, Any]) -> bool:
+    payload = dict(message or {})
+    if str(payload.get("source_ref") or "") == "single_agent_turn_tool_followup_action_contract":
+        return True
+    content = str(payload.get("content") or "")
+    return "你是正在根据刚才工具观察决定下一步的 coding agent。" in content
+
+
+def _ordered_tool_followup_accumulated_context_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    accumulated: list[dict[str, Any]] = []
+    for message in [dict(item) for item in list(messages or []) if isinstance(item, dict)]:
+        if _is_tool_followup_action_contract_message(message):
+            continue
+        accumulated.append(message)
+    return accumulated
+
+
+def _append_tool_transcript_to_accumulated_context(
+    messages: list[dict[str, Any]],
+    new_tool_transcript_messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    accumulated = _ordered_tool_followup_accumulated_context_messages(messages)
+    new_messages = [
+        dict(item)
+        for item in list(new_tool_transcript_messages or [])
+        if isinstance(item, dict) and item
+    ]
+    return [*accumulated, *new_messages]
+
+
+def _indexed_tool_transcript_messages(
+    *,
+    start_index: int,
+    messages: list[dict[str, Any]],
+) -> list[tuple[int, dict[str, Any]]]:
+    base = max(0, int(start_index or 0))
+    return [
+        (base + offset, dict(message))
+        for offset, message in enumerate(
+            [dict(item) for item in list(messages or []) if isinstance(item, dict) and item]
+        )
+    ]
+
+
+def _single_agent_turn_followup_base_message_spec(
+    base: dict[str, Any],
+    *,
+    message: dict[str, Any],
+    prefix_lock_violation: dict[str, Any] | None = None,
+    is_current_tool_round: bool = False,
+) -> dict[str, Any]:
+    metadata = dict(base.get("metadata") or {})
+    kind = str(base.get("kind") or "single_agent_turn_base")
+    cache_scope = str(base.get("cache_scope") or "none")
+    cache_role = str(base.get("cache_role") or "volatile")
+    prefix_tier = str(base.get("prefix_tier") or "volatile")
+    if prefix_lock_violation:
+        cache_scope = "none"
+        cache_role = "volatile"
+        prefix_tier = "volatile"
+        metadata = {
+            **metadata,
+            "prefix_lock_status": "violated",
+            "prefix_lock_violation": dict(prefix_lock_violation),
+            "volatility_reason": "previously planned message changed at the same model_message_index",
+            "cache_impact": "cache_break_diagnostic",
+        }
+    else:
+        already_prefix_stable = cache_role in {"cacheable_prefix", "session_stable"} and prefix_tier not in {"volatile", "none"}
+        rebased = (
+            {}
+            if already_prefix_stable
+            else _rebased_followup_base_cache_policy(
+                kind=kind,
+                message=message,
+                is_current_tool_round=is_current_tool_round,
+            )
+        )
+        if rebased:
+            cache_scope = rebased["cache_scope"]
+            cache_role = rebased["cache_role"]
+            prefix_tier = rebased["prefix_tier"]
+            metadata = {**metadata, **dict(rebased.get("metadata") or {})}
+    return {
+        "role": str(message.get("role") or "user"),
+        "content": str(message.get("content") or ""),
+        "kind": kind,
+        "source_ref": _rebased_followup_source_ref(
+            kind=kind,
+            message=message,
+            fallback=str(base.get("source_ref") or "single_agent_turn_base"),
+        ),
+        "cache_scope": cache_scope,
+        "cache_role": cache_role,
+        "prefix_tier": prefix_tier,
+        "compression_role": str(base.get("compression_role") or "summarize"),
+        "metadata": metadata,
+        "model_message": dict(message),
+    }
+
+
+def _single_agent_turn_followup_message_spec(
+    message: dict[str, Any],
+    *,
+    tool_iteration: int,
+    is_current_tool_round: bool = True,
+) -> dict[str, Any]:
+    if is_incremental_context_frame_message(message):
+        return incremental_context_frame_segment_spec(message, tool_iteration=tool_iteration)
     role = str(message.get("role") or "user")
     if role == "assistant" and message.get("tool_calls"):
         kind = "single_agent_turn_tool_call"
-        source_ref = f"single_agent_turn.tool_call:{tool_iteration}"
+        source_ref = _followup_tool_message_source_ref(message, prefix="single_agent_turn.tool_call")
         compression_role = "preserve"
+        append_only_stable = True
     elif role == "tool":
         kind = "single_agent_turn_tool_observation"
-        source_ref = f"single_agent_turn.tool_observation:{tool_iteration}"
+        source_ref = _followup_tool_message_source_ref(message, prefix="single_agent_turn.tool_observation")
         compression_role = "summarize"
+        append_only_stable = True
     else:
         kind = "single_agent_turn_followup_message"
         source_ref = f"single_agent_turn.followup:{tool_iteration}"
         compression_role = "summarize"
+        append_only_stable = not _is_tool_followup_action_contract_message(message)
+    cache_scope = "task" if append_only_stable else "none"
+    cache_role = "session_stable" if append_only_stable else "volatile"
+    prefix_tier = "task" if append_only_stable else "volatile"
+    metadata = {"followup_iteration": max(1, int(tool_iteration or 1))}
+    if append_only_stable:
+        metadata.update(
+            {
+                "authority_class": "append_only_tool_transcript",
+                "cache_impact": "append_only_task_prefix",
+                "stability_rule": "follow-up context is appended before the dynamic tail and is immutable after assembly",
+            }
+        )
+    else:
+        metadata.update(
+            {
+                "volatility_reason": "current tool follow-up control or current tool round changes after each observation",
+                "cache_impact": "volatile_suffix_only",
+            }
+        )
     return {
         "role": role,
         "content": str(message.get("content") or ""),
         "kind": kind,
         "source_ref": source_ref,
-        "cache_scope": "none",
-        "cache_role": "volatile",
-        "prefix_tier": "volatile",
+        "cache_scope": cache_scope,
+        "cache_role": cache_role,
+        "prefix_tier": prefix_tier,
         "compression_role": compression_role,
-        "metadata": {
-            "followup_iteration": max(1, int(tool_iteration or 1)),
-            "volatility_reason": "single agent turn tool follow-up messages change after each tool observation",
-        },
+        "metadata": metadata,
         "model_message": dict(message),
     }
+
+
+_FOLLOWUP_BASE_TASK_STABLE_KINDS = {
+    "skill_candidates",
+    "lifecycle_runtime_guidance",
+    "read_evidence_injection",
+    "session_history",
+    "dynamic_projection",
+    "volatile_runtime_state",
+    "runtime_memory_context",
+    "volatile_user",
+}
+
+
+def _rebased_followup_base_cache_policy(
+    *,
+    kind: str,
+    message: dict[str, Any],
+    is_current_tool_round: bool,
+) -> dict[str, Any]:
+    role = str(message.get("role") or "")
+    if _is_tool_followup_action_contract_message(message):
+        return {
+            "cache_scope": "none",
+            "cache_role": "volatile",
+            "prefix_tier": "volatile",
+            "metadata": {
+                "authority_class": "tool_followup_action_contract",
+                "cache_impact": "volatile_suffix_only",
+                "stability_rule": "the current action contract is rebuilt for this model invocation and stays at the dynamic tail",
+                "cache_policy_rebased": "current_action_contract_tail",
+            },
+        }
+    if kind == "incremental_context_frame" or is_incremental_context_frame_message(message):
+        return {
+            "cache_scope": "task",
+            "cache_role": "session_stable",
+            "prefix_tier": "task",
+            "metadata": {
+                "authority_class": "append_only_incremental_context",
+                "cache_impact": "append_only_task_prefix",
+                "stability_rule": "historical incremental context frames are immutable append-only context",
+                "cache_policy_rebased": "historical_incremental_context_promoted_from_base_plan",
+            },
+        }
+    is_tool_transcript = (
+        kind in {"single_agent_turn_tool_call", "single_agent_turn_tool_observation"}
+        or role == "tool"
+        or (role == "assistant" and bool(message.get("tool_calls")))
+    )
+    if is_tool_transcript:
+        return {
+            "cache_scope": "task",
+            "cache_role": "session_stable",
+            "prefix_tier": "task",
+            "metadata": {
+                "authority_class": "append_only_tool_transcript",
+                "cache_impact": "append_only_task_prefix",
+                "stability_rule": "tool transcript is appended before the dynamic tail and is immutable after assembly",
+                "cache_policy_rebased": "historical_tool_transcript_promoted_from_base_plan",
+            },
+        }
+    if kind in _FOLLOWUP_BASE_TASK_STABLE_KINDS:
+        return {
+            "cache_scope": "task",
+            "cache_role": "session_stable",
+            "prefix_tier": "task",
+            "metadata": {
+                "cache_impact": "task_prefix_stable_snapshot",
+                "stability_rule": "message hash is preserved by prefix lock; later changes must append a new volatile delta",
+                "cache_policy_rebased": "stable_snapshot_promoted_from_base_plan",
+            },
+        }
+    if not is_current_tool_round:
+        return {
+            "cache_scope": "task",
+            "cache_role": "session_stable",
+            "prefix_tier": "task",
+            "metadata": {
+                "authority_class": "historical_followup_context_snapshot",
+                "cache_impact": "append_only_task_prefix",
+                "stability_rule": "preserved follow-up history is accumulated context; only newly rebuilt per-invocation control belongs in the dynamic tail",
+                "cache_policy_rebased": "preserved_base_message_promoted_to_accumulated_context",
+            },
+        }
+    return {}
+
+
+def _rebased_followup_source_ref(*, kind: str, message: dict[str, Any], fallback: str) -> str:
+    if kind == "single_agent_turn_tool_call" or (
+        str(message.get("role") or "") == "assistant" and message.get("tool_calls")
+    ):
+        return _followup_tool_message_source_ref(message, prefix="single_agent_turn.tool_call")
+    if kind == "single_agent_turn_tool_observation" or str(message.get("role") or "") == "tool":
+        return _followup_tool_message_source_ref(message, prefix="single_agent_turn.tool_observation")
+    return str(fallback or "single_agent_turn_base")
+
+
+def _followup_tool_message_source_ref(message: dict[str, Any], *, prefix: str) -> str:
+    payload = dict(message or {})
+    role = str(payload.get("role") or "")
+    if role == "tool":
+        tool_call_id = str(payload.get("tool_call_id") or "").strip()
+        name = str(payload.get("name") or "").strip()
+        if tool_call_id:
+            return ":".join(item for item in (prefix, name, tool_call_id) if item)
+    if role == "assistant":
+        call_refs: list[str] = []
+        for call in list(payload.get("tool_calls") or []):
+            if not isinstance(call, dict):
+                continue
+            call_id = str(call.get("id") or "").strip()
+            function = call.get("function") if isinstance(call.get("function"), dict) else {}
+            name = str(call.get("name") or dict(function).get("name") or "").strip()
+            call_refs.append(":".join(item for item in (name, call_id) if item))
+        clean_refs = [item for item in call_refs if item]
+        if clean_refs:
+            return f"{prefix}:{','.join(clean_refs)}"
+    digest = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    return f"{prefix}:hash:{digest}"
+
+
+def _current_tool_round_message_indexes(messages: list[dict[str, Any]]) -> set[int]:
+    groups: list[list[int]] = []
+    active: list[int] | None = None
+    for index, message in enumerate(list(messages or [])):
+        if not isinstance(message, dict):
+            active = None
+            continue
+        role = str(message.get("role") or "")
+        if role == "assistant" and message.get("tool_calls"):
+            active = [index]
+            groups.append(active)
+            continue
+        if role == "tool" and active is not None:
+            active.append(index)
+            continue
+        active = None
+    return set(groups[-1]) if groups else set()
+
+
+def _current_tool_round_indexed_messages(messages: list[dict[str, Any]]) -> list[tuple[int, dict[str, Any]]]:
+    indexes = _current_tool_round_message_indexes(messages)
+    return [
+        (index, dict(messages[index]))
+        for index in sorted(indexes)
+        if 0 <= index < len(messages) and isinstance(messages[index], dict)
+    ]
+
+
+def _append_tool_context_ledger_entries(
+    ledger_entries: list[dict[str, Any]],
+    *,
+    tool_iteration: int,
+    assistant_model_message_index: int,
+    tool_calls: list[dict[str, Any]],
+    observations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    current_entries: list[dict[str, Any]] = []
+    latest_by_signature = {
+        str(entry.get("signature") or ""): dict(entry)
+        for entry in list(ledger_entries or [])
+        if isinstance(entry, dict) and str(entry.get("signature") or "")
+    }
+    for offset, (tool_call, observation) in enumerate(
+        zip([dict(item) for item in list(tool_calls or []) if isinstance(item, dict)], [dict(item) for item in list(observations or []) if isinstance(item, dict)])
+    ):
+        entry = _tool_context_ledger_entry(
+            tool_call=tool_call,
+            observation=observation,
+            tool_iteration=tool_iteration,
+            ledger_index=len(ledger_entries) + 1,
+            assistant_model_message_index=assistant_model_message_index,
+            tool_model_message_index=assistant_model_message_index + 1 + offset if assistant_model_message_index >= 0 else -1,
+            previous_entry=latest_by_signature.get(_tool_context_signature(tool_call)),
+        )
+        ledger_entries.append(entry)
+        latest_by_signature[str(entry.get("signature") or "")] = entry
+        current_entries.append(entry)
+    return current_entries
+
+
+def _tool_context_ledger_entry(
+    *,
+    tool_call: dict[str, Any],
+    observation: dict[str, Any],
+    tool_iteration: int,
+    ledger_index: int,
+    assistant_model_message_index: int,
+    tool_model_message_index: int,
+    previous_entry: dict[str, Any] | None,
+) -> dict[str, Any]:
+    name = _tool_context_tool_name(tool_call, observation)
+    args_payload = _tool_context_args_payload(tool_call)
+    args_hash = _stable_payload_hash(args_payload)
+    result_payload = _tool_context_result_payload(observation)
+    result_hash = _stable_payload_hash(result_payload)
+    signature = _tool_context_signature(tool_call)
+    previous = dict(previous_entry or {})
+    duplicate_of = ""
+    changed_from = ""
+    change = "new"
+    if previous:
+        if str(previous.get("result_hash") or "") == result_hash:
+            duplicate_of = str(previous.get("ref") or "")
+            change = "duplicate_same_result"
+        else:
+            changed_from = str(previous.get("ref") or "")
+            change = "result_changed"
+    return _drop_empty_dict(
+        {
+            "ledger_index": int(ledger_index),
+            "tool_iteration": max(1, int(tool_iteration or 1)),
+            "ref": _tool_context_observation_ref(observation, fallback=f"toolctx:{ledger_index}"),
+            "tool_call_id": str(tool_call.get("id") or observation.get("tool_call_id") or ""),
+            "tool_name": name,
+            "signature": signature,
+            "args_hash": args_hash,
+            "result_hash": result_hash,
+            "status": str(observation.get("status") or ""),
+            "assistant_model_message_index": assistant_model_message_index,
+            "tool_model_message_index": tool_model_message_index,
+            "path": _tool_context_path(tool_call, observation),
+            "result_ref": str(observation.get("result_ref") or ""),
+            "artifact_refs": _bounded_text_list(observation.get("artifact_refs"), limit=4),
+            "observed_paths": _bounded_text_list(observation.get("observed_paths"), limit=4),
+            "matched_paths": _bounded_text_list(observation.get("matched_paths"), limit=4),
+            "written_paths": _bounded_text_list(observation.get("written_paths"), limit=4),
+            "exact_content_visible": True,
+            "change": change,
+            "duplicate_of": duplicate_of,
+            "changed_from": changed_from,
+        }
+    )
+
+
+def _tool_context_delta_from_ledger(
+    ledger_entries: list[dict[str, Any]],
+    *,
+    current_entries: list[dict[str, Any]],
+    tool_iteration: int,
+) -> dict[str, Any]:
+    current = [dict(item) for item in list(current_entries or []) if isinstance(item, dict)]
+    duplicates = [item for item in current if str(item.get("duplicate_of") or "")]
+    changed = [item for item in current if str(item.get("changed_from") or "")]
+    return _drop_empty_dict(
+        {
+            "status": "present" if current else "none",
+            "tool_followup_iteration": max(1, int(tool_iteration or 1)),
+            "ledger_entry_count": len([item for item in list(ledger_entries or []) if isinstance(item, dict)]),
+            "new_entries": [_tool_context_frame_ref(item, meaning="本轮新增工具上下文索引") for item in current],
+            "duplicate_refs": [
+                _tool_context_frame_ref(item, meaning="本轮重新观察到同一工具签名且结果未变")
+                for item in duplicates
+            ],
+            "changed_refs": [
+                _tool_context_frame_ref(item, meaning="本轮同一工具签名的结果发生变化，旧 ref 仅作历史参考")
+                for item in changed
+            ],
+            "rule": "exact content is in transcript; this is only an index",
+        }
+    )
+
+
+def _unchanged_tool_refs_from_tool_context_ledger(
+    ledger_entries: list[dict[str, Any]],
+    *,
+    current_entries: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    current_refs = {str(item.get("ref") or "") for item in list(current_entries or []) if isinstance(item, dict)}
+    refs = [
+        _tool_context_frame_ref(dict(entry), meaning="already visible in preserved append-only transcript")
+        for entry in list(ledger_entries or [])
+        if isinstance(entry, dict) and str(entry.get("ref") or "") and str(entry.get("ref") or "") not in current_refs
+    ]
+    return refs[-8:]
+
+
+def _tool_context_frame_ref(entry: dict[str, Any], *, meaning: str) -> dict[str, Any]:
+    return _drop_empty_dict(
+        {
+            "ledger_index": entry.get("ledger_index"),
+            "ref": str(entry.get("ref") or ""),
+            "tool_call_id": str(entry.get("tool_call_id") or ""),
+            "tool_name": str(entry.get("tool_name") or ""),
+            "args_hash": str(entry.get("args_hash") or ""),
+            "result_hash": str(entry.get("result_hash") or ""),
+            "status": str(entry.get("status") or ""),
+            "path": str(entry.get("path") or ""),
+            "duplicate_of": str(entry.get("duplicate_of") or ""),
+            "changed_from": str(entry.get("changed_from") or ""),
+            "change": str(entry.get("change") or ""),
+            "assistant_model_message_index": entry.get("assistant_model_message_index"),
+            "tool_model_message_index": entry.get("tool_model_message_index"),
+            "exact_content_visible": bool(entry.get("exact_content_visible")),
+            "relation": meaning,
+        }
+    )
+
+
+def _tool_context_signature(tool_call: dict[str, Any]) -> str:
+    return _stable_payload_hash(
+        {
+            "tool_name": _tool_context_tool_name(tool_call, {}),
+            "args": _tool_context_args_payload(tool_call),
+        }
+    )
+
+
+def _tool_context_tool_name(tool_call: dict[str, Any], observation: dict[str, Any]) -> str:
+    function = tool_call.get("function") if isinstance(tool_call.get("function"), dict) else {}
+    return str(
+        tool_call.get("name")
+        or tool_call.get("tool_name")
+        or dict(function).get("name")
+        or observation.get("tool_name")
+        or observation.get("name")
+        or ""
+    ).strip()
+
+
+def _tool_context_args_payload(tool_call: dict[str, Any]) -> Any:
+    if isinstance(tool_call.get("args"), dict):
+        return _json_stable_value(tool_call.get("args"))
+    if "args" in tool_call:
+        return _json_or_text(tool_call.get("args"))
+    function = tool_call.get("function") if isinstance(tool_call.get("function"), dict) else {}
+    if "arguments" in function:
+        return _json_or_text(function.get("arguments"))
+    return {}
+
+
+def _tool_context_result_payload(observation: dict[str, Any]) -> dict[str, Any]:
+    return _drop_empty_dict(
+        {
+            "status": observation.get("status"),
+            "text": observation.get("text") or observation.get("content") or observation.get("summary"),
+            "result_ref": observation.get("result_ref"),
+            "artifact_refs": observation.get("artifact_refs"),
+            "observed_paths": observation.get("observed_paths"),
+            "matched_paths": observation.get("matched_paths"),
+            "written_paths": observation.get("written_paths"),
+            "error": observation.get("error") or observation.get("structured_error"),
+        }
+    )
+
+
+def _tool_context_observation_ref(observation: dict[str, Any], *, fallback: str) -> str:
+    return str(observation.get("observation_id") or observation.get("observation_ref") or fallback).strip()
+
+
+def _tool_context_path(tool_call: dict[str, Any], observation: dict[str, Any]) -> str:
+    args = _tool_context_args_payload(tool_call)
+    if isinstance(args, dict) and str(args.get("path") or "").strip():
+        return str(args.get("path") or "").strip()
+    for key in ("path", "target"):
+        if str(observation.get(key) or "").strip():
+            return str(observation.get(key) or "").strip()
+    return ""
+
+
+def _json_or_text(value: Any) -> Any:
+    if isinstance(value, (dict, list, tuple)):
+        return _json_stable_value(value)
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return _json_stable_value(json.loads(text))
+    except Exception:
+        return text
+
+
+def _stable_payload_hash(payload: Any) -> str:
+    return "sha256:" + hashlib.sha256(
+        json.dumps(_json_stable_value(payload), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode(
+            "utf-8", errors="ignore"
+        )
+    ).hexdigest()
+
+
+def _json_stable_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_stable_value(value[key]) for key in sorted(value)}
+    if isinstance(value, (list, tuple)):
+        return [_json_stable_value(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return repr(value)
+
+
+def _bounded_text_list(value: Any, *, limit: int) -> list[str]:
+    return [str(item) for item in list(value or [])[: max(0, int(limit or 0))] if str(item or "")]
+
+
+def _drop_empty_dict(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
 
 
 def _segment_model_message_index(segment: dict[str, Any]) -> int:

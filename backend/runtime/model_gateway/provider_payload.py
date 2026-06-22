@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 from prompt_cache_policy import (
@@ -213,7 +213,10 @@ def build_provider_payload_manifest(
                 metadata={"key_only": True, "param_keys": sorted(str(key) for key in params)},
             )
         )
-    ordered_segments = tuple(sorted(segments, key=lambda item: item.ordinal))
+    ordered_segments = _ordered_provider_payload_segments(
+        request_id=str(request_id or ""),
+        segments=segments,
+    )
     seed = {
         "request_id": str(request_id or ""),
         "provider": str(provider or ""),
@@ -291,12 +294,14 @@ def _tool_schema_cache_profile(
             "matched_tool_index_is_not_stable",
             stable_tool_index_segment_id=tool_index.segment_id,
         )
+    stable_scope = str(tool_index.cache_scope or "session")
+    stable_tier = str(tool_index.prefix_tier or "session")
     return {
         "kind": "native_tool_binding_schema",
         "source_ref": "model_request.tools",
-        "cache_scope": "none",
-        "cache_role": "never_cache",
-        "prefix_tier": "none",
+        "cache_scope": stable_scope if stable_scope in {"session", "task"} else "session",
+        "cache_role": "session_stable",
+        "prefix_tier": stable_tier if stable_tier in {"session", "task"} else "session",
         "metadata": {
             "native_tool_binding_decision": (
                 "validated_against_tool_catalog_manifest"
@@ -304,10 +309,13 @@ def _tool_schema_cache_profile(
                 else "validated_against_stable_tool_index"
             ),
             "cache_note": (
-                "native_tool_binding_schema_is_not_provider_prefix_cacheable; stable schema is carried by tool_schema_catalog message"
+                "native_tool_binding_schema_is_provider_prefix_cacheable_when_validated_against_tool_catalog_manifest"
                 if manifest_payload
-                else "native_tool_binding_schema_is_not_provider_prefix_cacheable"
+                else "native_tool_binding_schema_is_provider_prefix_cacheable_when_validated_against_stable_tool_index"
             ),
+            "stability_rule": "native tools are stable only while their schema fingerprint matches the stable tool catalog",
+            "provider_payload_transport_location": "tools",
+            "provider_payload_prefix_component": True,
             "tool_catalog_manifest_ref": manifest_ref,
             "tool_catalog_manifest_hash": str(manifest_payload.get("tool_catalog_hash") or ""),
             "stable_tool_index_segment_id": tool_index.segment_id,
@@ -329,6 +337,8 @@ def _native_tool_binding_schema_never_cache(reason: str, **metadata: Any) -> dic
             "native_tool_binding_decision": "not_promoted",
             "native_tool_binding_reason": str(reason or "unknown"),
             "cache_note": "native_tool_binding_schema_is_recorded_but_not_provider_prefix_cacheable",
+            "provider_payload_transport_location": "tools",
+            "provider_payload_prefix_component": False,
             **dict(metadata),
         },
     }
@@ -513,6 +523,76 @@ def _selected_tier_prefix(tier_prefixes: dict[str, dict[str, Any]]) -> tuple[str
         if payload.get("provider_payload_prefix_hash"):
             return tier, payload
     return "none", {}
+
+
+def _ordered_provider_payload_segments(
+    *,
+    request_id: str,
+    segments: list[ProviderPayloadSegment],
+) -> tuple[ProviderPayloadSegment, ...]:
+    raw = list(segments or [])
+    stable_tool_segments = [
+        segment
+        for segment in raw
+        if segment.transport_location == "tools"
+        and is_cache_eligible_prefix(cache_role=segment.cache_role, prefix_tier=segment.prefix_tier)
+    ]
+    if not stable_tool_segments:
+        return tuple(sorted(raw, key=lambda item: item.ordinal))
+    stable_tool_ids = {id(segment) for segment in stable_tool_segments}
+    message_segments = [segment for segment in raw if segment.transport_location == "messages"]
+    remaining_segments = [
+        segment
+        for segment in raw
+        if segment.transport_location != "messages" and id(segment) not in stable_tool_ids
+    ]
+    insertion_index = _stable_tool_schema_insertion_index(message_segments)
+    ordered = [
+        *message_segments[:insertion_index],
+        *stable_tool_segments,
+        *message_segments[insertion_index:],
+        *remaining_segments,
+    ]
+    return tuple(
+        _with_provider_payload_ordinal(
+            request_id=request_id,
+            segment=segment,
+            ordinal=index + 1,
+        )
+        for index, segment in enumerate(ordered)
+    )
+
+
+def _stable_tool_schema_insertion_index(message_segments: list[ProviderPayloadSegment]) -> int:
+    tool_schema_index = -1
+    first_unstable_index = len(message_segments)
+    for index, segment in enumerate(message_segments):
+        if not is_cache_eligible_prefix(cache_role=segment.cache_role, prefix_tier=segment.prefix_tier):
+            first_unstable_index = index
+            break
+        if segment.kind == "tool_schema_catalog":
+            tool_schema_index = index
+        if segment.kind == "tool_index_stable":
+            return index + 1
+    if tool_schema_index >= 0:
+        return tool_schema_index + 1
+    return first_unstable_index
+
+
+def _with_provider_payload_ordinal(
+    *,
+    request_id: str,
+    segment: ProviderPayloadSegment,
+    ordinal: int,
+) -> ProviderPayloadSegment:
+    if int(segment.ordinal or 0) == int(ordinal or 0):
+        return segment
+    digest = str(segment.content_hash or "").split(":", 1)[-1][:12]
+    return replace(
+        segment,
+        ordinal=int(ordinal or 0),
+        segment_id=f"ppseg:{request_id}:{int(ordinal or 0)}:{segment.kind}:{digest}",
+    )
 
 
 def _segments_hash(segments: list[ProviderPayloadSegment]) -> str:

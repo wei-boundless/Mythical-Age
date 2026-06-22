@@ -3870,6 +3870,102 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
+  it("reattaches the current stream after a detached active-turn steer without hiding the user feedback", async () => {
+    const taskRunId = "taskrun:turn:session-detached-steer:1:abc";
+    let handlers: StreamEventHandlers | null = null;
+    api.enqueueQueuedChatInput.mockImplementationOnce(async (sessionId, payload) => ({
+      session_id: sessionId,
+      item: {
+        queue_item_id: "qinp:detached-steer",
+        session_id: sessionId,
+        client_message_id: payload.client_message_id ?? "",
+        content: payload.message,
+        input_policy: "steer",
+        status: "queued",
+        expected_active_turn_id: "turn:session-detached-steer:1",
+        task_run_id: taskRunId,
+        created_at: 1,
+        updated_at: 1,
+        dispatch_stream_run_id: "",
+      },
+      items: [],
+      authority: "api.chat.queued_user_inputs",
+    }));
+    api.getLatestChatRunForSession.mockResolvedValueOnce({
+      stream_run_id: "strun:detached-steer",
+      session_id: "session-detached-steer",
+      event_log_id: "chatrun:detached-steer",
+      root_request_ref: "chatreq:detached-steer",
+      status: "running",
+      diagnostics: {
+        active_turn_id: "turn:session-detached-steer:1",
+        runtime_task_run_id: taskRunId,
+      },
+      latest_event_offset: 0,
+      is_reconnectable: true,
+      replay_url: "/api/chat/runs/strun:detached-steer/events/replay",
+      live_ws_url: "/api/chat/sessions/session-detached-steer/live",
+    });
+    api.streamExistingChatRun.mockImplementationOnce(async (_sessionId, _streamRunId, streamHandlers) => {
+      handlers = streamHandlers;
+      return new Promise(() => undefined);
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session-detached-steer",
+      activeStreamSessionIds: [],
+      isStreaming: false,
+      activeTurnSnapshot: {
+        turn_id: "turn:session-detached-steer:1",
+        task_run_id: taskRunId,
+        state: "running_task",
+      },
+      taskGraphLiveMonitor: (itemForMonitor({
+        task_run_id: taskRunId,
+        session_id: "session-detached-steer",
+        status: "running",
+        execution_runtime_kind: "single_agent_task",
+        latest_interaction_turn_id: "turn:session-detached-steer:1",
+        task_run: {
+          task_run_id: taskRunId,
+          status: "running",
+          execution_runtime_kind: "single_agent_task",
+        },
+      }) as unknown) as StoreState["taskGraphLiveMonitor"],
+      messages: [
+        { id: "user:1", role: "user", content: "开始任务", toolCalls: [], retrievals: [], sourceIndex: 0 },
+        { id: "assistant:1", role: "assistant", content: "我会开始处理。", toolCalls: [], retrievals: [], sourceIndex: 1 },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("补充：优先保持当前链路。");
+    await flushPromises(4);
+
+    expect(api.streamChat).not.toHaveBeenCalled();
+    expect(api.enqueueQueuedChatInput).toHaveBeenCalledTimes(1);
+    expectQueuedChatInputCall(0, "session-detached-steer", "补充：优先保持当前链路。");
+    expect(api.getLatestChatRunForSession).toHaveBeenCalledWith("session-detached-steer", undefined);
+    expect(api.streamExistingChatRun).toHaveBeenCalledWith(
+      "session-detached-steer",
+      "strun:detached-steer",
+      expect.any(Object),
+      expect.objectContaining({
+        initialCursor: expect.objectContaining({
+          streamRunId: "strun:detached-steer",
+          eventLogId: "chatrun:detached-steer",
+        }),
+      }),
+    );
+    expect(handlers).not.toBeNull();
+    expect(store.getState().activeStreamSessionIds).toContain("session-detached-steer");
+    expect(store.getState().messages.filter((message) => message.content === "补充：优先保持当前链路。")).toHaveLength(1);
+    expect(store.getState().sessionActivity).toMatchObject({
+      event: "user_input_queued",
+      title: "已加入当前回合",
+    });
+  });
+
   it("reattaches a backend-dispatched queued input instead of opening a frontend steer run", async () => {
     const taskRunId = "taskrun:turn:session-auto-active-stream:1:abc";
     api.enqueueQueuedChatInput.mockImplementationOnce(async (sessionId, payload) => ({
@@ -3954,7 +4050,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamExistingChatRun.mock.calls.at(-1)?.[3]).not.toHaveProperty("replayFromStart", true);
     expect(store.getState().messages.filter((message) => message.content === "补充一")).toHaveLength(1);
     expect(store.getState().sessionActivity).toMatchObject({
-      event: expect.stringMatching(/user_input_queued|stream_cursor_restore_started|done/),
+      event: "user_input_queued",
     });
   });
 
@@ -4131,6 +4227,102 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.resumeOrchestrationHarnessTaskRun).toHaveBeenCalledWith(taskRunId, 12, "turn:session-control:1");
     expect(api.stopOrchestrationHarnessTaskRun).toHaveBeenCalledWith(taskRunId, "user_stop_from_chat", "turn:session-control:1");
     expect(store.getState().sessionActivity.title).toBe("已暂停");
+  });
+
+  it("treats pause as a hard local stream boundary and ignores late assistant output", async () => {
+    const sessionId = "session-control-pause-boundary";
+    const taskRunId = "taskrun:turn:session-control-pause-boundary:1:abc";
+    const turnId = "turn:session-control-pause-boundary:1";
+    let handlers: StreamEventHandlers | null = null;
+    let streamSignal: AbortSignal | null = null;
+    api.streamChat.mockImplementationOnce(async (_payload, streamHandlers, options) => {
+      handlers = streamHandlers;
+      streamSignal = options?.signal ?? null;
+      streamHandlers.onEvent("assistant_text_delta", {
+        sequence: 1,
+        content: "暂停前",
+        event_offset: 1,
+        runtime_task_run_id: taskRunId,
+        active_turn_id: turnId,
+        public_projection_frame: publicBodyFrame({
+          text: "暂停前",
+          event_offset: 1,
+          anchor: {
+            session_id: sessionId,
+            turn_id: turnId,
+            task_run_id: taskRunId,
+            stream_run_id: "strun:pause-boundary",
+          },
+        }),
+      });
+      await new Promise<void>(() => undefined);
+      return { terminalEvent: "turn_completed", terminalStatus: "completed" };
+    });
+    api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue({
+      active_task_run_id: taskRunId,
+      monitor: {
+        task_run_id: taskRunId,
+        session_id: sessionId,
+        status: "waiting_executor",
+        execution_runtime_kind: "single_agent_task",
+        terminal_reason: "waiting_executor",
+        runtime_control: { state: "paused" },
+        control_state: "paused",
+        latest_step: {},
+        loop_state: {},
+        has_graph_run: false,
+        task_run: { task_run_id: taskRunId },
+      },
+      task_runs: [],
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: sessionId,
+      sessions: [{
+        id: sessionId,
+        title: "Pause boundary",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    void runtime.actions.sendMessage("开始一个会被暂停的任务").catch(() => undefined);
+    await flushPromises();
+    store.setState((prev) => ({
+      ...prev,
+      activeTurnSnapshot: { turn_id: turnId, task_run_id: taskRunId },
+    }));
+
+    await runtime.actions.pauseActiveTaskRun();
+
+    expect(streamSignal?.aborted).toBe(true);
+    expect(store.getState().activeStreamSessionIds).toEqual([]);
+    expect(store.getState().chatStreamConnectionStatus).toMatchObject({
+      state: "paused",
+      reason: "user_paused",
+    });
+    requireStreamHandlers(handlers).onEvent("assistant_text_delta", {
+      sequence: 2,
+      content: "迟到重复输出",
+      event_offset: 2,
+      runtime_task_run_id: taskRunId,
+      active_turn_id: turnId,
+      public_projection_frame: publicBodyFrame({
+        text: "迟到重复输出",
+        event_offset: 2,
+        anchor: {
+          session_id: sessionId,
+          turn_id: turnId,
+          task_run_id: taskRunId,
+          stream_run_id: "strun:pause-boundary",
+        },
+      }),
+    });
+
+    expect(JSON.stringify(store.getState().messages)).not.toContain("迟到重复输出");
+    expect(api.pauseOrchestrationHarnessTaskRun).toHaveBeenCalledWith(taskRunId, "user_pause_from_chat", turnId);
   });
 
   it("surfaces active task control failures without throwing from chat actions", async () => {
@@ -4834,6 +5026,59 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.truncateSessionMessages).toHaveBeenCalledWith("session:edit", 0, undefined);
     expect(api.streamChat).toHaveBeenCalledTimes(1);
     expect(api.streamChat.mock.calls[0]?.[0]?.message).toBe("新问题");
+  });
+
+  it("normalizes fractional source indexes before truncating an edited message", async () => {
+    vi.useRealTimers();
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:edit-fractional-index",
+      sessions: [{
+        id: "session:edit-fractional-index",
+        title: "Edit",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 2,
+      }],
+      messages: [
+        { id: "user:1", role: "user", content: "旧问题", toolCalls: [], retrievals: [], sourceIndex: 0 },
+        { id: "assistant:recovered", role: "assistant", content: "恢复中的回答", toolCalls: [], retrievals: [], sourceIndex: 0.5 },
+        { id: "user:2", role: "user", content: "要重写的问题", toolCalls: [], retrievals: [], sourceIndex: 1.5 },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.resendEditedMessage("user:2", "改写后的问题");
+
+    expect(api.truncateSessionMessages).toHaveBeenCalledWith("session:edit-fractional-index", 1, undefined);
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
+    expect(api.streamChat.mock.calls[0]?.[0]?.message).toBe("改写后的问题");
+  });
+
+  it("allocates integer source indexes after recovered fractional assistant shells", async () => {
+    vi.useRealTimers();
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:fractional-next-index",
+      sessions: [{
+        id: "session:fractional-next-index",
+        title: "Fractional",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 1,
+      }],
+      messages: [
+        { id: "user:1", role: "user", content: "旧问题", toolCalls: [], retrievals: [], sourceIndex: 0 },
+        { id: "assistant:recovered", role: "assistant", content: "恢复中的回答", toolCalls: [], retrievals: [], sourceIndex: 0.5 },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("新问题");
+
+    const newUser = store.getState().messages.find((message) => message.role === "user" && message.content === "新问题");
+    expect(newUser?.sourceIndex).toBe(1);
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
   });
 
   it("does not resend an older user message because the edit affordance is only for the latest user message", async () => {

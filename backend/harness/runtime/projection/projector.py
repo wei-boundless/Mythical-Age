@@ -935,8 +935,6 @@ def _turn_terminal_spec(data: dict[str, Any]) -> dict[str, Any]:
         return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
     if state not in {"failed", "error", "stopped", "aborted", "cancelled", "canceled", "blocked"}:
         return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
-    if _is_agent_contract_feedback_terminal(data):
-        return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
     if _is_runtime_protocol_terminal(data):
         return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
     terminal_kind = "terminal_event" if state in {"stopped", "aborted", "cancelled", "canceled"} else "recovery_event"
@@ -964,17 +962,6 @@ def _turn_terminal_spec(data: dict[str, Any]) -> dict[str, Any]:
             state,
         ),
         retention="final",
-    )
-
-
-def _is_agent_contract_feedback_terminal(data: dict[str, Any]) -> bool:
-    completion_state = text(data.get("completion_state"))
-    terminal_reason = text(data.get("terminal_reason"))
-    contract_feedback = record(data.get("agent_contract_feedback"))
-    return (
-        completion_state == "agent_contract_feedback_required"
-        or terminal_reason == "agent_contract_feedback_required"
-        or text(contract_feedback.get("signal_kind")) == "agent_contract_feedback_required"
     )
 
 

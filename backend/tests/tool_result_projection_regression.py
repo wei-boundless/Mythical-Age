@@ -30,10 +30,12 @@ def test_tool_result_projector_keeps_large_read_file_output_exact_and_keeps_arti
     assert projection["artifact_refs"] == [{"path": "artifacts/report.txt"}]
     assert "content_replacements" not in projection
     assert "replacement_ref" not in projection
-    assert projection["preview"] == large_text
+    assert projection["preview"] != large_text
+    assert projection["preview"].startswith("line")
+    assert len(projection["preview"]) < len(large_text)
 
     assert "rehydration_plan" not in projection
-    assert record["projection"]["preview"] == large_text
+    assert record["projection"]["preview"] == projection["preview"]
 
 
 def test_tool_result_projector_persists_large_non_read_output(tmp_path: Path) -> None:
@@ -216,7 +218,10 @@ def test_tool_result_projector_does_not_content_replace_oversized_read_file_wind
     capabilities = {item["capability"]: item for item in plan["capabilities"]}
 
     assert "content_replacements" not in projection
-    assert projection["preview"] == large_window
+    assert large_window not in json.dumps(projection, ensure_ascii=False)
+    assert projection["preview"].startswith("read_file exact text is carried")
+    assert "path=src/large.py" in projection["preview"]
+    assert "range=1-179" in projection["preview"]
     assert policy["source_kind"] == "code_evidence"
     assert policy["visible_content_authority"] == "exact_visible_line_window"
     assert policy["fresh_read_conditions"] == ["target_line_outside_visible_range"]

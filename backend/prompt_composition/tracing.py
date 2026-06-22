@@ -15,6 +15,7 @@ DYNAMIC_SEGMENT_KINDS = {
     "runtime_memory_context",
     "graph_node_completion_prefix",
     "graph_node_runtime_context",
+    "incremental_context_frame",
     "provider_protocol_history",
     "semantic_compaction_request",
     "session_history",
@@ -49,6 +50,7 @@ RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
     "editor_context_index": "runtime_editor_context_index",
     "current_editor_evidence_delta": "runtime_editor_evidence_delta",
     "runtime_memory_context": "runtime_memory_context",
+    "incremental_context_frame": "runtime_incremental_context_frame",
     "read_evidence_injection": "runtime_read_evidence",
     "bound_task_runtime_context": "runtime_bound_task_context",
     "task_runtime_boundary_dynamic": "runtime_dynamic_boundary",
@@ -181,6 +183,8 @@ def _binding_reason(*, status: str, kind: str, source_ref: str) -> str:
         return "segment is current editor selection or preview exact evidence visible for this invocation"
     if status == "runtime_memory_context":
         return "segment is selected runtime memory context; it belongs in the volatile tail, not inside runtime boundary"
+    if status == "runtime_incremental_context_frame":
+        return "segment tells the agent which prior context is preserved, which tool observations are new, and which state changed"
     if status == "runtime_bound_task_context":
         return "segment is bound runtime context refs and recovery handles"
     if status == "runtime_dynamic_boundary":

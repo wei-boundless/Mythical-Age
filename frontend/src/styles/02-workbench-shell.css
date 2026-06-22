@@ -98,7 +98,7 @@ html *::after {
   overflow-x: auto;
   border-radius: var(--radius-inner);
   background: rgba(7, 12, 16, 0.92);
-  color: #f8f6ee;
+  color: var(--console-surface);
   padding: 1rem;
 }
 
@@ -477,23 +477,23 @@ html *::after {
 }
 
 .operation-unit-card--attention {
-  border-color: color-mix(in srgb, #ffd58a 40%, var(--color-border));
+  border-color: color-mix(in srgb, var(--console-warning) 40%, var(--color-border));
 }
 
 .operation-unit-card--blocked {
-  border-color: color-mix(in srgb, #ff8c7d 48%, var(--color-border));
+  border-color: color-mix(in srgb, var(--console-danger) 48%, var(--color-border));
 }
 
 .operation-risk--medium {
-  color: #ffd58a;
+  color: var(--console-warning);
 }
 
 .operation-risk--high {
-  color: #ffb08a;
+  color: var(--console-warning);
 }
 
 .operation-risk--critical {
-  color: #ff8c7d;
+  color: var(--console-danger);
 }
 
 .operation-detail {
@@ -556,7 +556,7 @@ html *::after {
 }
 
 .operation-risk--low {
-  color: #9fe7bc;
+  color: var(--console-success);
 }
 
 .operation-tool-control {
@@ -606,29 +606,23 @@ html *::after {
   --color-danger: var(--console-danger);
   --color-success: var(--console-success);
   --color-warning: var(--console-warning);
-  --workspace-bg-base: #d7e3e8;
-  --workspace-bg-mid: #c9d8de;
-  --workspace-bg-warm: rgba(232, 216, 196, 0.34);
-  --workspace-bg-cool: rgba(170, 202, 214, 0.42);
-  --workspace-bg-green: rgba(190, 218, 207, 0.26);
-  --workspace-bg-paper: rgba(255, 255, 255, 0.22);
-  --workspace-panel-bg: rgba(249, 251, 250, 0.56);
-  --workspace-panel-bg-strong: rgba(255, 255, 255, 0.72);
-  --workspace-panel-bg-soft: rgba(255, 255, 255, 0.48);
-  --workspace-panel-border: rgba(183, 194, 197, 0.56);
-  --workspace-panel-shadow: 0 18px 54px rgba(67, 83, 90, 0.12);
-  --workspace-control-bg: rgba(255, 255, 255, 0.64);
-  --workspace-control-hover: rgba(255, 255, 255, 0.86);
-  --workspace-tone-ink: #263238;
+  --workspace-panel-bg: color-mix(in srgb, var(--console-surface) 56%, transparent);
+  --workspace-panel-bg-strong: color-mix(in srgb, var(--console-surface) 72%, transparent);
+  --workspace-panel-bg-soft: color-mix(in srgb, var(--console-surface) 48%, transparent);
+  --workspace-panel-border: color-mix(in srgb, var(--console-line) 56%, transparent);
+  --workspace-panel-shadow: 0 18px 54px color-mix(in srgb, var(--console-text) 12%, transparent);
+  --workspace-control-bg: color-mix(in srgb, var(--console-surface) 64%, transparent);
+  --workspace-control-hover: color-mix(in srgb, var(--console-surface) 86%, transparent);
+  --workspace-tone-ink: var(--console-text);
   --workspace-bg-texture:
     radial-gradient(ellipse at 18% 12%, var(--workspace-bg-paper), transparent 36%),
     radial-gradient(ellipse at 82% 18%, var(--workspace-bg-cool), transparent 38%),
     radial-gradient(ellipse at 72% 86%, var(--workspace-bg-warm), transparent 44%),
     radial-gradient(ellipse at 16% 78%, var(--workspace-bg-green), transparent 42%),
-    linear-gradient(115deg, transparent 0 34%, rgba(255, 255, 255, 0.16) 45%, transparent 58%),
-    repeating-linear-gradient(112deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 22px);
+    linear-gradient(115deg, transparent 0 34%, color-mix(in srgb, var(--console-surface) 16%, transparent) 45%, transparent 58%),
+    repeating-linear-gradient(112deg, color-mix(in srgb, var(--console-surface) 8%, transparent) 0 1px, transparent 1px 22px);
   --glow-accent-primary: 0 1px 2px rgba(16, 24, 40, 0.04), 0 18px 48px rgba(16, 24, 40, 0.08);
-  --panel-veil: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0));
+  --panel-veil: linear-gradient(180deg, color-mix(in srgb, var(--console-surface) 72%, transparent), transparent);
   --panel-aura: linear-gradient(180deg, transparent, transparent);
   --radius-panel: 8px;
   --radius-block: 8px;
@@ -1042,7 +1036,7 @@ button:hover {
   min-height: 1.8rem;
   border-radius: 6px;
   background: var(--workbench-blue);
-  color: #fff;
+  color: var(--workbench-text);
   font-size: 0.68rem;
   padding: 0 0.55rem;
 }
@@ -1098,7 +1092,7 @@ button:hover {
 
 .workbench-session-row:hover,
 .workbench-session-row--active {
-  background: color-mix(in srgb, var(--workbench-blue-soft) 72%, #fff);
+  background: color-mix(in srgb, var(--workbench-blue-soft) 72%, var(--console-surface));
   box-shadow: inset 0 0 0 1px var(--console-active-ring);
 }
 
@@ -1227,7 +1221,7 @@ button:hover {
 
 .workbench-toolbar-actions button:hover:not(:disabled),
 .workbench-toolbar-actions button.is-active {
-  border-color: #c7d3ea;
+  border-color: var(--console-blue);
   background: var(--workbench-blue-soft);
   color: var(--workbench-blue);
 }
@@ -1266,26 +1260,6 @@ button:hover {
 }
 
 .system-page-shell {
-  --console-bg: #ffffff;
-  --console-bg-soft: #f4f7fd;
-  --console-surface: #ffffff;
-  --console-surface-soft: #f5f8fe;
-  --console-surface-strong: #eef2f7;
-  --console-line: #cbd3df;
-  --console-line-soft: #dde4ee;
-  --console-line-strong: #aeb8c7;
-  --console-text: #0f172a;
-  --console-text-soft: #334155;
-  --console-muted: #64748b;
-  --console-faint: #8492a6;
-  --console-blue: #1d5fd3;
-  --console-blue-soft: #e8f0ff;
-  --console-green: #0f7a55;
-  --console-green-soft: #e5f6ee;
-  --console-warn: #a16207;
-  --console-warn-soft: #fff6dd;
-  --console-danger: #b42318;
-  --console-danger-soft: #fff0ee;
   --color-bg: var(--console-bg);
   --color-bg-alt: var(--console-bg-soft);
   --color-text: var(--console-text);
@@ -1312,7 +1286,7 @@ button:hover {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--console-bg);
+  background: var(--console-surface-soft);
   color: var(--console-text);
   font-size: 13px;
   text-rendering: optimizeLegibility;
@@ -1645,7 +1619,7 @@ button:hover {
 }
 
 .center-workspace-file__title small {
-  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-family: var(--console-mono);
 }
 
 .center-workspace-file__title strong {
@@ -1768,7 +1742,7 @@ button:hover {
   outline: none;
   background: transparent;
   color: var(--workbench-text);
-  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-family: var(--console-mono);
   font-size: 0.8rem;
   line-height: 1.68;
   overflow-wrap: anywhere;
@@ -1805,7 +1779,7 @@ button:hover {
   height: 100%;
   min-height: 0;
   border-top: 0;
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(255, 255, 255, 0.84));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--console-surface) 98%, transparent), color-mix(in srgb, var(--console-surface) 84%, transparent));
   padding: 12px;
 }
 
@@ -2053,7 +2027,7 @@ button:hover {
   max-width: min(760px, 100%);
   border: 1px solid color-mix(in srgb, var(--development-danger) 20%, var(--workbench-line));
   border-radius: 8px;
-  background: color-mix(in srgb, var(--workbench-surface) 94%, #fff);
+  background: color-mix(in srgb, var(--workbench-surface) 94%, var(--console-surface));
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
   color: var(--development-danger);
   font-size: 0.74rem;
@@ -2127,7 +2101,7 @@ button:hover {
 
 .development-git-trigger--dirty strong {
   background: var(--development-accent);
-  color: #fff;
+  color: var(--workbench-text);
 }
 
 .development-git-popover {
@@ -2141,7 +2115,7 @@ button:hover {
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--workbench-line) 78%, transparent);
   border-radius: 18px;
-  background: color-mix(in srgb, var(--workbench-surface) 96%, #fff);
+  background: color-mix(in srgb, var(--workbench-surface) 96%, var(--console-surface));
   box-shadow: 0 18px 42px rgba(15, 23, 42, 0.13);
 }
 
@@ -2251,11 +2225,11 @@ button:hover {
 }
 
 .development-environment-menu__added {
-  color: #148a48;
+  color: var(--workbench-green);
 }
 
 .development-environment-menu__deleted {
-  color: #c23b39;
+  color: var(--workbench-muted);
 }
 
 .development-environment-menu__divider {
@@ -2290,7 +2264,7 @@ button:hover {
 .agent-workbench .chat-send-button:hover:not(:disabled) {
   border-color: var(--workbench-blue);
   background: var(--workbench-blue);
-  color: #fff;
+  color: var(--workbench-text);
   transform: none;
 }
 
@@ -2298,14 +2272,14 @@ button:hover {
 .agent-workbench .message-edit-form__button {
   border-color: var(--workbench-line);
   border-radius: 6px;
-  background: #fff;
+  background: var(--workbench-surface);
   color: var(--workbench-muted);
 }
 
 .agent-workbench .message-edit-form__button--primary {
   border-color: var(--workbench-blue);
   background: var(--workbench-blue);
-  color: #fff;
+  color: var(--workbench-text);
 }
 
 .agent-workbench .task-system-boundary,
@@ -2337,6 +2311,10 @@ button:hover {
   font-family: var(--workbench-font);
 }
 
+.system-page-shell button,
+.system-page-shell input,
+.system-page-shell select,
+.system-page-shell textarea,
 .agent-workbench button,
 .agent-workbench input,
 .agent-workbench select,
@@ -2374,7 +2352,7 @@ button:hover {
 }
 
 .chat-thread__empty {
-  color: #9b9b95;
+  color: var(--console-muted);
   font-size: 0.88rem;
   font-weight: 500;
 }
@@ -2464,7 +2442,7 @@ button:hover {
   overflow: hidden;
   border: 0;
   background: transparent;
-  color: #a1a19b;
+  color: var(--console-muted);
   font-size: 0.72rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2493,23 +2471,23 @@ button:hover {
 
 .session-activity-bar--running .session-activity-bar__icon,
 .session-activity-bar--waiting .session-activity-bar__icon {
-  color: #2563eb;
+  color: var(--console-accent);
 }
 
 .session-activity-bar--success .session-activity-bar__icon {
-  color: #15803d;
+  color: var(--console-success);
 }
 
 .session-activity-bar--warning .session-activity-bar__icon {
-  color: #b7791f;
+  color: var(--console-warning);
 }
 
 .session-activity-bar--error .session-activity-bar__icon {
-  color: #8a6a16;
+  color: var(--console-warning);
 }
 
 .session-activity-bar--stopped .session-activity-bar__icon {
-  color: #71717a;
+  color: var(--console-muted);
 }
 
 .chat-input-panel--inline {
@@ -2519,7 +2497,7 @@ button:hover {
   border-radius: 8px;
   background: var(--workspace-panel-bg-strong);
   padding: 0.48rem;
-  box-shadow: 0 14px 38px rgba(67, 83, 90, 0.1);
+  box-shadow: 0 14px 38px color-mix(in srgb, var(--console-text) 10%, transparent);
   backdrop-filter: none;
 }
 
@@ -2554,8 +2532,7 @@ button:hover {
 .status-pill {
   border: 1px solid var(--color-border);
   border-radius: 999px;
-  background: #fff;
-  color: var(--color-text-soft);
+  background: var(--console-surface);
 }
 
 .action-button,
@@ -2565,9 +2542,9 @@ button:hover {
 
 .action-button--primary,
 .boundary-button--primary {
-  background: #171717;
-  border-color: #171717;
-  color: #fff;
+  background: var(--workbench-text);
+  border-color: var(--workbench-text);
+  color: var(--workbench-surface);
 }
 
 .boundary-console,
@@ -2577,7 +2554,7 @@ button:hover {
 .task-graph-composer-inspector-card {
   border-color: var(--color-border);
   border-radius: 8px;
-  background-color: #fff;
+  background-color: var(--workbench-surface);
   box-shadow: none;
 }
 

@@ -139,6 +139,7 @@ def _canonical_task_contract_seed(
     capability_reason: str = "测试任务需要系统提供对应能力服务。",
     evidence_policy: str = "observation_required",
 ) -> dict[str, object]:
+    del capability_groups, tool_namespaces, selected_skill_ids, candidate_skill_ids, capability_reason, evidence_policy
     payload = dict(seed or {})
     if "working_scope" not in payload:
         payload["working_scope"] = {
@@ -156,26 +157,6 @@ def _canonical_task_contract_seed(
             "source_refs": [],
             "excluded_scope": [],
             "known_constraints": list(known_constraints or []),
-        }
-    if "capability_intent" not in payload:
-        payload["capability_intent"] = {
-            "needed_capability_groups": list(capability_groups or ["file_work"]),
-            "preferred_tool_namespaces": list(tool_namespaces or []),
-            "requires_deferred_tool_loading": True,
-            "reason": capability_reason,
-        }
-    if "skill_intent" not in payload:
-        payload["skill_intent"] = {
-            "selected_skill_ids": list(selected_skill_ids or []),
-            "candidate_skill_ids": list(candidate_skill_ids or []),
-            "required_capability_tags": [],
-            "reason": "",
-        }
-    if "observation_contract" not in payload:
-        payload["observation_contract"] = {
-            "evidence_policy": evidence_policy,
-            "progress_granularity": "step",
-            "finalization_requires_evidence": True,
         }
     return payload
 

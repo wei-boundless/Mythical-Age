@@ -112,7 +112,7 @@ def test_tool_schema_catalog_is_task_stable_before_volatile_suffix() -> None:
     ]
 
 
-def test_runtime_baseline_precedes_append_only_replay_and_cursors_follow_it() -> None:
+def test_volatile_runtime_tail_preserves_source_order() -> None:
     source_bundle = build_prompt_source_bundle(
         invocation_kind="task_execution",
         packet_id="packet:append-only-topology",
@@ -166,69 +166,16 @@ def test_runtime_baseline_precedes_append_only_replay_and_cursors_follow_it() ->
     materialized = materialize_prompt_packet(assembly_plan=assembly_plan)
     kinds = [spec["kind"] for spec in materialized.message_specs]
 
-    assert kinds.index("task_start_inherited_context") < kinds.index("task_state_replay_entry")
-    assert kinds.index("task_runtime_boundary_dynamic") < kinds.index("task_state_replay_entry")
-    assert kinds.index("task_state_replay_entry") < kinds.index("bound_task_runtime_context")
-    assert kinds.index("bound_task_runtime_context") < kinds.index("volatile_task_state")
-    assert kinds.index("volatile_task_state") < kinds.index("lifecycle_runtime_guidance")
-    assert kinds.index("volatile_task_state") < kinds.index("runtime_memory_context")
-
-
-def test_model_request_uses_provider_payload_plan_for_tool_schema_boundary() -> None:
-    source_bundle = build_prompt_source_bundle(
-        invocation_kind="task_execution",
-        packet_id="packet:provider-boundary",
-        message_specs=[
-            _spec(
-                kind="global_static",
-                content="Global protocol",
-                cache_scope="global",
-                cache_role="cacheable_prefix",
-            ),
-            _spec(
-                kind="tool_schema_catalog",
-                content="Tool schema catalog\n{\"tools\":[{\"name\":\"read_file\"}]}",
-                cache_scope="task",
-                cache_role="session_stable",
-            ),
-            _spec(
-                kind="volatile_task_state",
-                content="Current state\n{\"step\":\"run\"}",
-                cache_scope="none",
-                cache_role="volatile",
-            ),
-        ],
-    )
-    assembly_plan = build_prompt_assembly_plan(source_bundle=source_bundle)
-    materialized = materialize_prompt_packet(assembly_plan=assembly_plan)
-    segment_plan = build_prompt_segment_plan(
-        packet_id=materialized.packet_id,
-        invocation_kind=materialized.invocation_kind,
-        message_specs=materialized.message_specs,
-    )
-
-    request = ModelRequestBuilder().build(
-        request_id="request:provider-boundary",
-        provider="deepseek",
-        model="deepseek-v4-pro",
-        messages=list(materialized.model_messages),
-        tools=[
-            {
-                "name": "read_file",
-                "description": "Read a file",
-                "schema": {"type": "object", "properties": {"path": {"type": "string"}}},
-            }
-        ],
-        segment_plan=segment_plan.to_dict(),
-    )
-
-    provider_plan = request.diagnostics["provider_payload_plan"]
-    boundary_status = provider_plan["diagnostics"]["tool_schema_boundary_status"]
-
-    assert provider_plan["assembly_plan_id"] == assembly_plan.plan_id
-    assert boundary_status["stable_tool_schema_catalog_segment_count"] == 1
-    assert boundary_status["native_tool_schema_segment_count"] == 1
-    assert request.provider_payload_manifest is not None
+    assert kinds == [
+        "volatile_task_state",
+        "runtime_memory_context",
+        "bound_task_runtime_context",
+        "task_state_replay_entry",
+        "task_runtime_boundary_dynamic",
+        "lifecycle_runtime_guidance",
+        "task_start_inherited_context",
+    ]
+    assert assembly_plan.diagnostics["assembly_order_policy"] == "prefix_tier_partition_preserve_source_order"
 
 
 def test_task_execution_cursor_does_not_duplicate_user_steers_or_runtime_controls() -> None:

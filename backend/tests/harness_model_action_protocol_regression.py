@@ -55,12 +55,6 @@ def test_json_request_task_run_normalizes_string_completion_criteria_without_cha
                 },
                 "completion_criteria": "后端核心模块审查完成；前端核心模块审查完成；生成书面报告。",
                 "required_artifacts": {"artifact_kind": "markdown_document", "user_visible_name": "审查报告"},
-                "capability_intent": {
-                    "needed_capability_groups": ["file_work"],
-                    "reason": "需要读取项目文件并形成审查证据。",
-                },
-                "skill_intent": {"selected_skill_ids": [], "candidate_skill_ids": []},
-                "observation_contract": {"evidence_policy": "observation_required"},
             },
         ),
         packet_ref="packet:test",
@@ -70,7 +64,10 @@ def test_json_request_task_run_normalizes_string_completion_criteria_without_cha
     assert contract is not None
     assert contract.completion_criteria == ("后端核心模块审查完成", "前端核心模块审查完成", "生成书面报告。")
     assert contract.required_artifacts == ({"artifact_kind": "markdown_document", "user_visible_name": "审查报告"},)
-    assert contract.capability_intent["needed_capability_groups"] == ["file_work"]
+    assert contract.goal_contract["user_visible_goal"] == "审查项目。"
+    assert contract.environment_contract["working_scope"]["target_objects"] == ["后端核心模块", "前端核心模块"]
+    assert contract.feedback_contract["feedback_identity_binding"] == "active_turn_or_task_run_required"
+    assert contract.acceptance_contract["completion_criteria"] == ["后端核心模块审查完成", "前端核心模块审查完成", "生成书面报告。"]
 
 
 def test_json_request_task_run_normalizes_numbered_completion_criteria_without_character_splitting() -> None:
@@ -87,12 +84,6 @@ def test_json_request_task_run_normalizes_numbered_completion_criteria_without_c
                     "known_constraints": ["只依据真实投影和工具观察判断"],
                 },
                 "completion_criteria": "1. todo 投影显示有效任务 2. 工具活动不展示低层噪声",
-                "capability_intent": {
-                    "needed_capability_groups": ["runtime_inspection"],
-                    "reason": "需要检查运行时投影事实。",
-                },
-                "skill_intent": {"selected_skill_ids": [], "candidate_skill_ids": []},
-                "observation_contract": {"evidence_policy": "observation_required"},
             },
         ),
         packet_ref="rtpacket:json-task-string-criteria",
@@ -101,7 +92,46 @@ def test_json_request_task_run_normalizes_numbered_completion_criteria_without_c
     assert errors == []
     assert contract is not None
     assert contract.completion_criteria == ("todo 投影显示有效任务", "工具活动不展示低层噪声")
-    assert contract.capability_intent["needed_capability_groups"] == ["runtime_inspection"]
+    assert contract.plan_contract["plan_status"] == "agent_managed"
+    assert contract.acceptance_contract["evidence_refs_required"] is True
+
+
+def test_request_task_run_accepts_layered_task_contract_seed() -> None:
+    contract, errors = contract_from_action_request(
+        ModelActionRequest(
+            request_id="model-action:layered-task-contract",
+            turn_id="turn:layered-task-contract",
+            action_type="request_task_run",
+            task_contract_seed={
+                "goal_contract": {
+                    "user_visible_goal": "升级任务机制。",
+                    "task_run_goal": "落实任务机制主链路升级。",
+                    "success_definition": "Task 具备计划、反馈和验收边界。",
+                },
+                "plan_contract": {
+                    "plan_id": "plan:task-mechanism",
+                    "plan_status": "agent_managed",
+                    "major_steps": ["收紧触发", "分层合同", "验证反馈"],
+                },
+                "environment_contract": {"working_scope": {"target_objects": ["backend/harness/runtime"]}},
+                "feedback_contract": {"feedback_sources": ["tool_observation", "user_steer"]},
+                "acceptance_contract": {
+                    "completion_criteria": ["行为测试通过"],
+                    "required_verifications": [{"verification_kind": "pytest", "description": "运行回归测试"}],
+                },
+            },
+        ),
+        packet_ref="rtpacket:layered-task-contract",
+    )
+
+    assert errors == []
+    assert contract is not None
+    assert contract.user_visible_goal == "升级任务机制。"
+    assert contract.task_run_goal == "落实任务机制主链路升级。"
+    assert contract.plan_contract["plan_id"] == "plan:task-mechanism"
+    assert contract.environment_contract["working_scope"]["target_objects"] == ["backend/harness/runtime"]
+    assert contract.feedback_contract["feedback_sources"][:2] == ["tool_observation", "user_steer"]
+    assert contract.acceptance_contract["required_verifications"][0]["verification_kind"] == "pytest"
 
 
 def test_request_task_run_parser_rejects_incomplete_task_contract_before_lifecycle() -> None:
@@ -113,9 +143,6 @@ def test_request_task_run_parser_rejects_incomplete_task_contract_before_lifecyc
             "action_type": "request_task_run",
             "task_contract_seed": {
                 "working_scope": {"target_objects": ["backend"]},
-                "capability_intent": {"needed_capability_groups": ["file_work"]},
-                "skill_intent": {"selected_skill_ids": [], "candidate_skill_ids": []},
-                "observation_contract": {"evidence_policy": "observation_required"},
             },
         },
         turn_id="turn:test:incomplete-task-contract",
@@ -129,14 +156,16 @@ def test_request_task_run_parser_rejects_incomplete_task_contract_before_lifecyc
     assert "completion_evidence_required_for_request_task_run" in errors
 
 
-def test_single_agent_action_schema_treats_large_review_as_task_entry_condition() -> None:
+def test_single_agent_action_schema_keeps_turn_first_task_upgrade_boundary() -> None:
     from harness.runtime.compiler import model_action_request_schema
 
     schema = model_action_request_schema("turn:test:large-review")
     rules = [str(item) for item in list(schema.get("action_selection_rules") or [])]
 
-    assert any("审查、评估、排查" in rule and "多文件链路" in rule for rule in rules)
-    assert any("必须主动选择 request_task_run" in rule and "连续读取大量文件" in rule for rule in rules)
+    assert any("复杂、跨文件或需要审查不自动等于 Task" in rule for rule in rules)
+    assert any("当前 turn 的自然边界不足以承载" in rule and "request_task_run" in rule for rule in rules)
+    assert any("普通 tool_call 是合法路径" in rule for rule in rules)
+    assert not any("必须主动选择 request_task_run" in rule for rule in rules)
 
 
 def test_single_agent_model_feedback_identity_is_unique_per_tool_iteration() -> None:
@@ -240,7 +269,7 @@ def test_single_agent_tool_batch_timeout_overrides_inner_cancel_observation(monk
     assert "inner swallowed cancellation" not in observations[0].text
 
 
-def test_request_task_run_rejects_obsolete_handoff_without_capability_intent() -> None:
+def test_request_task_run_requires_scope_but_defaults_runtime_execution_settings() -> None:
     contract, errors = contract_from_action_request(
         ModelActionRequest(
             request_id="model-action:legacy-task",
@@ -257,8 +286,34 @@ def test_request_task_run_rejects_obsolete_handoff_without_capability_intent() -
 
     assert contract is None
     assert "working_scope_required_for_request_task_run" in errors
-    assert "capability_intent_required_for_request_task_run" in errors
-    assert "observation_contract.evidence_policy_required" in errors
+    assert "capability_intent_required_for_request_task_run" not in errors
+    assert "skill_intent_required_for_request_task_run" not in errors
+    assert "observation_contract.evidence_policy_required" not in errors
+
+
+def test_request_task_run_accepts_minimal_contract_without_execution_settings() -> None:
+    contract, errors = contract_from_action_request(
+        ModelActionRequest(
+            request_id="model-action:minimal-task",
+            turn_id="turn:minimal-task",
+            action_type="request_task_run",
+            task_contract_seed={
+                "user_visible_goal": "修复任务启动问题。",
+                "task_run_goal": "定位并修复 request_task_run 合同和提示问题。",
+                "working_scope": {"target_objects": ["backend/harness/loop", "backend/harness/runtime"]},
+                "completion_criteria": ["最小任务合同可启动", "相关回归测试通过"],
+            },
+        ),
+        packet_ref="rtpacket:minimal-task",
+    )
+
+    assert errors == []
+    assert contract is not None
+    assert contract.working_scope["target_objects"] == ["backend/harness/loop", "backend/harness/runtime"]
+    payload = contract.to_dict()
+    assert "capability_intent" not in payload
+    assert "skill_intent" not in payload
+    assert "observation_contract" not in payload
 
 
 def test_native_request_task_run_accepts_canonical_control_signal() -> None:
@@ -278,9 +333,6 @@ def test_native_request_task_run_accepts_canonical_control_signal() -> None:
                         "task_run_goal": "修复运行监控和日志分离。",
                         "working_scope": {"target_objects": ["runtime monitor"]},
                         "completion_criteria": ["监控只读 canonical projection"],
-                        "capability_intent": "file_work",
-                        "skill_intent": {"selected_skill_ids": [], "candidate_skill_ids": []},
-                        "observation_contract": "observation_required",
                         "public_progress_note": "我会进入持续任务来修复运行监控链路。",
                     },
                 }
@@ -299,13 +351,14 @@ def test_native_request_task_run_accepts_canonical_control_signal() -> None:
     assert parsed.action_request.action_type == "request_task_run"
     assert parsed.action_request.public_progress_note == "我会进入持续任务来修复运行监控链路。"
     assert parsed.action_request.task_contract_seed["task_run_goal"] == "修复运行监控和日志分离。"
-    assert parsed.action_request.task_contract_seed["capability_intent"]["needed_capability_groups"] == ["file_work"]
-    assert parsed.action_request.task_contract_seed["observation_contract"]["evidence_policy"] == "observation_required"
+    assert "capability_intent" not in parsed.action_request.task_contract_seed
+    assert "skill_intent" not in parsed.action_request.task_contract_seed
+    assert "observation_contract" not in parsed.action_request.task_contract_seed
     assert parsed.action_request.diagnostics["origin_kind"] == "single_agent_turn_native_request_task_run"
     assert parsed.control_action is parsed.action_request
 
 
-def test_incomplete_native_request_task_run_reports_contract_errors_not_transport_error() -> None:
+def test_native_request_task_run_rejects_execution_setting_fields() -> None:
     from types import SimpleNamespace
 
     from harness.loop.single_agent_turn import _single_agent_action_request_from_response
@@ -322,6 +375,7 @@ def test_incomplete_native_request_task_run_reports_contract_errors_not_transpor
                         "task_run_goal": "修复运行监控和日志分离。",
                         "working_scope": {"target_objects": ["runtime monitor"]},
                         "completion_criteria": ["监控只读 canonical projection"],
+                        "capability_intent": "file_work",
                     },
                 }
             ],
@@ -339,19 +393,9 @@ def test_incomplete_native_request_task_run_reports_contract_errors_not_transpor
     assert parsed.error["code"] == "single_agent_turn_invalid_native_action"
     diagnostics = parsed.error["diagnostics"]
     native_errors = diagnostics["native_action_errors"]
-    assert native_errors[0]["code"] == "invalid_native_control_action"
     validation_errors = set(native_errors[0]["model_action_diagnostics"]["validation_errors"])
-    assert "capability_intent_required_for_request_task_run" in validation_errors
-    assert "skill_intent_required_for_request_task_run" in validation_errors
-    assert "observation_contract.evidence_policy_required" in validation_errors
-    assert native_errors[0]["native_tool_call"]["id"] == "call:task-gap"
-    assert native_errors[0]["normalized_action_payload"]["task_contract_seed"]["task_run_goal"] == "修复运行监控和日志分离。"
-    assert native_errors[0]["repair_contract"]["required_signal"] == "canonical_structured_control_action"
-    assert native_errors[0]["repair_contract"]["action_type"] == "request_task_run"
-    assert native_errors[0]["action_issue"]["category"] == "protocol_violation"
-    assert native_errors[0]["action_issue"]["code"] == "invalid_native_control_action"
-    assert native_errors[0]["action_issue"]["requested_action_type"] == "request_task_run"
-    assert native_errors[0]["repairable"] is True
+    assert "system_execution_field_not_allowed_in_task_contract:capability_intent" in validation_errors
+    assert "执行配置字段" in native_errors[0]["action_issue"]["repair_instruction"]
 
 
 def test_legacy_native_task_run_request_alias_is_rejected_not_canonicalized() -> None:
@@ -490,9 +534,6 @@ def test_single_agent_parser_executes_surrounding_text_request_task_run_action()
             "task_run_goal": "修复控制契约恢复链路。",
             "working_scope": {"target_objects": ["backend/harness/loop/single_agent_turn.py"]},
             "completion_criteria": ["恢复提示保留被拒绝 action", "TaskRun 可在重提后启动"],
-            "capability_intent": {"needed_capability_groups": ["file_work"], "reason": "需要改代码和测试。"},
-            "skill_intent": {"selected_skill_ids": [], "candidate_skill_ids": []},
-            "observation_contract": {"evidence_policy": "observation_required"},
         },
     }
     parsed = _single_agent_action_request_from_response(
@@ -679,9 +720,7 @@ def test_request_task_run_misnested_contract_fields_get_specific_runtime_repair_
             "current_judgment": "这是跨多文件审查，需要持续任务。",
             "next_action": "进入持续任务执行流程。",
         },
-        "capability_intent": {"selected_groups": ["file_work"], "reason": "需要读取大量文件。"},
-        "skill_intent": {"selected_skill_ids": [], "reason": "不需要额外 skill。"},
-        "observation_contract": {"evidence_policy": "observation_required"},
+        "working_scope": {"target_objects": ["backend/prompt_library"]},
         "task_contract_seed": {
             "user_visible_goal": "完整审查 prompts 体系。",
             "task_run_goal": "读取 prompts 体系全部相关文件并输出报告。",
@@ -708,7 +747,7 @@ def test_request_task_run_misnested_contract_fields_get_specific_runtime_repair_
     assert "放错层级" in action_issue["repair_instruction"]
     assert "task_contract_seed 内" in action_issue["repair_instruction"]
     assert "不要使用 payload" in action_issue["repair_instruction"]
-    assert "needed_capability_groups" in action_issue["repair_instruction"]
+    assert "最小合法骨架" in action_issue["repair_instruction"]
 
     signal = _model_protocol_violation_control_signal(
         turn_id="turn:test:misnested-task-contract",
@@ -724,6 +763,12 @@ def test_request_task_run_misnested_contract_fields_get_specific_runtime_repair_
     assert "具体修复" in signal["repair_instruction"]
     assert "放错层级" in signal["repair_instruction"]
     assert signal["structured_signal"]["message"] == signal["repair_instruction"]
+    repair_example = dict(signal["structured_signal"]["repair_example"])
+    repair_seed = dict(repair_example["task_contract_seed"])
+    assert repair_example["action_type"] == "request_task_run"
+    assert "capability_intent" not in repair_seed
+    assert "skill_intent" not in repair_seed
+    assert "observation_contract" not in repair_seed
 
 
 def test_agent_contract_feedback_lifecycle_uses_specific_command_transport_control_repair_instruction() -> None:

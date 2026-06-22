@@ -1559,6 +1559,31 @@ class ModelRuntime:
                 retryable=True,
                 user_message="模型请求超时，请稍后重试。",
             )
+        if any(
+            token in lowered
+            for token in (
+                "insufficient balance",
+                "insufficient quota",
+                "insufficient_quota",
+                "quota exceeded",
+                "exceeded your current quota",
+                "payment required",
+                "billing hard limit",
+                "out of credits",
+                "no credits",
+                "credit balance",
+                "402",
+                "余额不足",
+            )
+        ):
+            return ModelRuntimeError(
+                code="insufficient_balance",
+                provider=spec.provider,
+                model=spec.model,
+                detail=detail,
+                retryable=False,
+                user_message="模型服务余额不足，请检查模型提供商账户余额或更换可用模型。",
+            )
         if any(token in lowered for token in ("rate limit", "too many requests", "429")):
             return ModelRuntimeError(
                 code="rate_limit",

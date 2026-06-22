@@ -54,7 +54,7 @@ def main() -> int:
         print(f"LIVE TASK PROBE FAILED: {exc}", file=sys.stderr)
         return 1
     print(json.dumps(_summary(report), ensure_ascii=False, indent=2))
-    return 0 if report.get("measurement_ok") else 2
+    return 0 if report.get("measurement_ok") and report.get("cache_contract_ok") else 2
 
 
 async def _run(args: argparse.Namespace) -> dict[str, Any]:
@@ -120,8 +120,14 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
     cache_breaks = [item.to_dict() for item in ledger.list_prompt_cache_breaks(task_run_id=task_run_id)]
     trace = host.get_trace(task_run_id, include_payloads=True, include_model_messages=False)
 
+    must_hit_cache_audit = _must_hit_cache_audit(
+        provider_usage=provider_usage,
+        cache_records=cache_records,
+        segment_maps=segment_maps,
+    )
     report = {
         "measurement_ok": bool(provider_usage) and bool(segment_maps),
+        "cache_contract_ok": bool(must_hit_cache_audit.get("ok")),
         "authority": "backend.scripts.live_prompt_cache_task_probe",
         "run_id": run_id,
         "report_dir": str(report_dir),
@@ -135,6 +141,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         "packet_summary": _packet_summary(segment_maps),
         "provider_usage": _usage_projection(provider_usage),
         "cache_records": _cache_record_projection(cache_records),
+        "must_hit_cache_audit": must_hit_cache_audit,
         "cache_breaks": cache_breaks,
         "stability_reports": _stability_projection(stability_reports),
         "trace_event_types": _trace_event_counts(trace),
@@ -145,6 +152,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
     _write_json(report_dir / "provider_usage.json", provider_usage)
     _write_json(report_dir / "prompt_cache.json", cache_records)
     _write_json(report_dir / "segment_maps.json", segment_maps)
+    _write_json(report_dir / "must_hit_cache_audit.json", must_hit_cache_audit)
     _write_json(report_dir / "prompt_stability.json", stability_reports)
     _write_json(report_dir / "prompt_cache_breaks.json", cache_breaks)
     _write_json(report_dir / "report.json", report)
@@ -280,12 +288,272 @@ def _trace_event_counts(trace: dict[str, Any] | None) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+def _must_hit_cache_audit(
+    *,
+    provider_usage: list[dict[str, Any]],
+    cache_records: list[dict[str, Any]],
+    segment_maps: list[dict[str, Any]],
+) -> dict[str, Any]:
+    usage_by_request = {
+        str(dict(row).get("request_id") or ""): dict(row)
+        for row in list(provider_usage or [])
+        if str(dict(row).get("request_id") or "")
+    }
+    cache_by_request = {
+        str(dict(row).get("request_id") or ""): dict(row)
+        for row in list(cache_records or [])
+        if str(dict(row).get("request_id") or "")
+    }
+    segment_by_request = {
+        str(_row_request_id(row) or ""): _as_dict(row)
+        for row in list(segment_maps or [])
+        if str(_row_request_id(row) or "")
+    }
+    ordered_request_ids: list[str] = []
+    for row in list(provider_usage or []):
+        request_id = str(dict(row).get("request_id") or "")
+        if request_id and request_id in segment_by_request and request_id not in ordered_request_ids:
+            ordered_request_ids.append(request_id)
+    pairs: list[dict[str, Any]] = []
+    total_must_hit_violation_count = 0
+    total_must_hit_violation_tokens = 0
+    total_order_violation_count = 0
+    for index in range(1, len(ordered_request_ids)):
+        previous_request_id = ordered_request_ids[index - 1]
+        current_request_id = ordered_request_ids[index]
+        pair = _audit_request_pair(
+            previous_request_id=previous_request_id,
+            current_request_id=current_request_id,
+            previous_map=segment_by_request.get(previous_request_id) or {},
+            current_map=segment_by_request.get(current_request_id) or {},
+            current_cache=cache_by_request.get(current_request_id) or {},
+            current_usage=usage_by_request.get(current_request_id) or {},
+        )
+        total_must_hit_violation_count += int(pair.get("must_hit_violation_count") or 0)
+        total_must_hit_violation_tokens += int(pair.get("must_hit_violation_tokens") or 0)
+        total_order_violation_count += int(pair.get("order_violation_count") or 0)
+        pairs.append(pair)
+    ok = bool(pairs) and total_must_hit_violation_count == 0 and total_order_violation_count == 0
+    return {
+        "ok": ok,
+        "authority": "backend.scripts.live_prompt_cache_task_probe.must_hit_cache_audit",
+        "rule": "static + append-only accumulated_context + dynamic_tail; unchanged cacheable prefix segments must remain byte/order stable and be covered by provider cache reads",
+        "provider_call_count": len(ordered_request_ids),
+        "compared_pair_count": len(pairs),
+        "must_hit_violation_count": total_must_hit_violation_count,
+        "must_hit_violation_tokens": total_must_hit_violation_tokens,
+        "order_violation_count": total_order_violation_count,
+        "pairs": pairs,
+    }
+
+
+def _audit_request_pair(
+    *,
+    previous_request_id: str,
+    current_request_id: str,
+    previous_map: dict[str, Any],
+    current_map: dict[str, Any],
+    current_cache: dict[str, Any],
+    current_usage: dict[str, Any],
+) -> dict[str, Any]:
+    previous_segments = [_as_dict(item) for item in list(dict(previous_map).get("segments") or [])]
+    current_segments = [_as_dict(item) for item in list(dict(current_map).get("segments") or [])]
+    previous_by_ordinal = {_segment_ordinal(item): item for item in previous_segments if _segment_ordinal(item) >= 0}
+    current_stable_by_identity: dict[tuple[str, str], list[int]] = {}
+    for segment in current_segments:
+        if not _is_cacheable_prefix_segment(segment):
+            continue
+        current_stable_by_identity.setdefault(_segment_identity(segment), []).append(_segment_ordinal(segment))
+    coverage_by_ordinal = _coverage_by_ordinal(current_cache)
+    must_hit_segments: list[dict[str, Any]] = []
+    must_hit_violations: list[dict[str, Any]] = []
+    allowed_new_stable_segments: list[dict[str, Any]] = []
+    stable_slot_changes: list[dict[str, Any]] = []
+    stable_reorders: list[dict[str, Any]] = []
+    dynamic_tail_segments: list[dict[str, Any]] = []
+    for segment in current_segments:
+        ordinal = _segment_ordinal(segment)
+        if not _is_cacheable_prefix_segment(segment):
+            dynamic_tail_segments.append(_segment_projection(segment))
+            continue
+        previous_segment = previous_by_ordinal.get(ordinal)
+        if previous_segment and _segment_identity(previous_segment) == _segment_identity(segment):
+            covered = _coverage_is_hit(coverage_by_ordinal.get(ordinal) or {})
+            projected = {
+                **_segment_projection(segment),
+                "covered_by_provider_cache": covered,
+            }
+            must_hit_segments.append(projected)
+            if not covered:
+                must_hit_violations.append(
+                    {
+                        **projected,
+                        "violation": "unchanged_stable_segment_not_covered",
+                    }
+                )
+            continue
+        if previous_segment and _is_cacheable_prefix_segment(previous_segment):
+            stable_slot_changes.append(
+                {
+                    "violation": "stable_ordinal_changed",
+                    "ordinal": ordinal,
+                    "previous": _segment_projection(previous_segment),
+                    "current": _segment_projection(segment),
+                }
+            )
+        allowed_new_stable_segments.append(_segment_projection(segment))
+    for previous_segment in previous_segments:
+        if not _is_cacheable_prefix_segment(previous_segment):
+            continue
+        previous_ordinal = _segment_ordinal(previous_segment)
+        current_ordinals = current_stable_by_identity.get(_segment_identity(previous_segment), [])
+        if current_ordinals and previous_ordinal not in current_ordinals:
+            stable_reorders.append(
+                {
+                    "violation": "previous_stable_segment_reordered",
+                    "previous_ordinal": previous_ordinal,
+                    "current_ordinals": current_ordinals[:8],
+                    "segment": _segment_projection(previous_segment),
+                }
+            )
+    order_violations = [
+        *_cacheable_after_dynamic_tail_violations(current_segments),
+        *stable_slot_changes,
+        *stable_reorders,
+    ]
+    diagnostics = dict(current_cache.get("diagnostics") or {})
+    prompt_tokens = int(current_usage.get("prompt_tokens") or diagnostics.get("provider_prompt_tokens") or 0)
+    cached_tokens = max(
+        int(current_usage.get("cached_tokens") or 0),
+        int(current_usage.get("cache_read_tokens") or 0),
+        int(current_cache.get("cached_tokens") or 0),
+        int(current_cache.get("cache_read_tokens") or 0),
+        int(diagnostics.get("provider_cached_tokens") or 0),
+    )
+    return {
+        "previous_request_id": previous_request_id,
+        "current_request_id": current_request_id,
+        "provider_prompt_tokens": prompt_tokens,
+        "provider_cached_tokens": cached_tokens,
+        "provider_cache_hit_rate": round(cached_tokens / prompt_tokens, 4) if prompt_tokens else 0.0,
+        "provider_first_uncovered_stable_segment": dict(diagnostics.get("provider_cache_read_first_uncovered_stable_segment") or {}),
+        "must_hit_segment_count": len(must_hit_segments),
+        "must_hit_violation_count": len(must_hit_violations),
+        "must_hit_violation_tokens": sum(int(item.get("predicted_tokens") or 0) for item in must_hit_violations),
+        "allowed_new_stable_segment_count": len(allowed_new_stable_segments),
+        "allowed_new_stable_tokens": sum(int(item.get("predicted_tokens") or 0) for item in allowed_new_stable_segments),
+        "dynamic_tail_segment_count": len(dynamic_tail_segments),
+        "dynamic_tail_tokens": sum(int(item.get("predicted_tokens") or 0) for item in dynamic_tail_segments),
+        "order_violation_count": len(order_violations),
+        "first_must_hit_violation": must_hit_violations[0] if must_hit_violations else {},
+        "must_hit_violations": must_hit_violations[:40],
+        "order_violations": order_violations[:40],
+        "allowed_new_stable_segments": allowed_new_stable_segments[:40],
+        "dynamic_tail_segments": dynamic_tail_segments[:40],
+    }
+
+
+def _cacheable_after_dynamic_tail_violations(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    violations: list[dict[str, Any]] = []
+    first_dynamic: dict[str, Any] | None = None
+    for segment in segments:
+        if not _is_cacheable_prefix_segment(segment):
+            first_dynamic = first_dynamic or segment
+            continue
+        if first_dynamic is not None:
+            violations.append(
+                {
+                    "violation": "cacheable_segment_after_dynamic_tail_started",
+                    "first_dynamic": _segment_projection(first_dynamic),
+                    "current": _segment_projection(segment),
+                }
+            )
+    return violations
+
+
+def _coverage_by_ordinal(cache_record: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    diagnostics = dict(cache_record.get("diagnostics") or {})
+    result: dict[int, dict[str, Any]] = {}
+    for key in (
+        "provider_cache_read_stable_segment_coverage",
+        "provider_cache_read_required_segment_coverage",
+    ):
+        for item in list(diagnostics.get(key) or []):
+            payload = _as_dict(item)
+            ordinal = _segment_ordinal(payload)
+            if ordinal >= 0:
+                result[ordinal] = payload
+    return result
+
+
+def _coverage_is_hit(coverage: dict[str, Any]) -> bool:
+    return any(
+        bool(coverage.get(key))
+        for key in (
+            "covered_by_provider_scaled_boundary_estimate",
+            "covered_by_provider_scaled_boundary",
+            "covered_by_raw_predicted_boundary",
+        )
+    )
+
+
+def _is_cacheable_prefix_segment(segment: dict[str, Any]) -> bool:
+    cache_role = str(segment.get("cache_role") or "")
+    prefix_tier = str(segment.get("prefix_tier") or "")
+    return cache_role in {"cacheable_prefix", "session_stable"} and prefix_tier not in {"", "none", "volatile"}
+
+
+def _segment_identity(segment: dict[str, Any]) -> tuple[str, str]:
+    return (str(segment.get("kind") or ""), str(segment.get("content_hash") or ""))
+
+
+def _segment_projection(segment: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ordinal": _segment_ordinal(segment),
+        "kind": str(segment.get("kind") or ""),
+        "predicted_tokens": int(segment.get("predicted_tokens") or 0),
+        "cache_role": str(segment.get("cache_role") or ""),
+        "prefix_tier": str(segment.get("prefix_tier") or ""),
+        "source": str(segment.get("source") or ""),
+        "content_hash": str(segment.get("content_hash") or ""),
+    }
+
+
+def _segment_ordinal(segment: dict[str, Any]) -> int:
+    try:
+        return int(dict(segment or {}).get("ordinal"))
+    except (TypeError, ValueError):
+        return -1
+
+
+def _row_request_id(row: Any) -> str:
+    payload = _as_dict(row)
+    request_id = str(payload.get("request_id") or "")
+    if request_id:
+        return request_id
+    metadata = dict(payload.get("metadata") or {})
+    return str(metadata.get("model_request_ref") or "")
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    if hasattr(value, "to_dict"):
+        try:
+            return dict(value.to_dict())
+        except Exception:
+            return {}
+    if isinstance(value, dict):
+        return dict(value)
+    return {}
+
+
 def _summary(report: dict[str, Any]) -> dict[str, Any]:
     summary = dict(report.get("summary") or {})
     wait = dict(report.get("wait_report") or {})
     packet = dict(report.get("packet_summary") or {})
+    audit = dict(report.get("must_hit_cache_audit") or {})
     return {
         "measurement_ok": bool(report.get("measurement_ok")),
+        "cache_contract_ok": bool(report.get("cache_contract_ok")),
         "task_run_id": str(report.get("task_run_id") or ""),
         "task_status": str(report.get("task_status") or ""),
         "terminal_reason": str(report.get("task_terminal_reason") or ""),
@@ -297,6 +565,9 @@ def _summary(report: dict[str, Any]) -> dict[str, Any]:
         "provider_global_prefix_all_equal": bool(packet.get("provider_global_prefix_all_equal")),
         "session_prefix_all_equal": bool(packet.get("session_prefix_all_equal")),
         "task_prefix_all_equal": bool(packet.get("task_prefix_all_equal")),
+        "must_hit_violation_count": int(audit.get("must_hit_violation_count") or 0),
+        "must_hit_violation_tokens": int(audit.get("must_hit_violation_tokens") or 0),
+        "order_violation_count": int(audit.get("order_violation_count") or 0),
         "stop_requested": bool(wait.get("stop_requested")),
         "report_dir": str(report.get("report_dir") or ""),
     }

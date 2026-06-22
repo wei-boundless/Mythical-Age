@@ -105,7 +105,7 @@ read_persisted_tool_result 不用于恢复 read_file 代码证据；代码证据
 
 TOOL_LOCAL_SEARCH_GUIDANCE = """
 使用本地搜索工具时，你是在为当前判断取得工作区事实；工具只返回候选路径、命中文本或匹配结果，不能替你决定任务目标。
-如果已经知道准确路径，或者 task_contract.working_scope.target_objects/source_refs/workspace_refs/bound context 已经给出文件样路径，直接用 read_file、path_exists、stat_path 或 list_dir，不要先搜索。
+如果已经知道准确路径，或者 task_contract.environment_contract.working_scope.target_objects/source_refs/workspace_refs/bound context 已经给出文件样路径，直接用 read_file、path_exists、stat_path 或 list_dir，不要先搜索。
 如果目标是文件名或路径关键词，例如 mario、计划书、task_understanding.py，使用 search_files。
 如果目标包含明确通配符，例如 *.html、**/*.py、backend/**/*.ts，使用 glob_paths。
 如果目标是文件内容、函数名、报错文本、标题或引用片段，使用 search_text；已知具体文件时把文件放进 paths，目录范围放进 roots，文件类型范围放进 glob。

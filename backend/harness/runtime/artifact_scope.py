@@ -66,6 +66,29 @@ def canonicalize_task_contract_artifacts(
                 normalizations.append(item_normalization)
         if changed or collection in result:
             result[collection] = normalized_items
+    acceptance = dict(original.get("acceptance_contract") or {})
+    if acceptance:
+        normalized_acceptance = dict(acceptance)
+        for collection in ("required_artifacts", "required_verifications"):
+            normalized_items: list[Any] = []
+            changed = False
+            for index, raw_item in enumerate(list(acceptance.get(collection) or [])):
+                if not isinstance(raw_item, dict):
+                    normalized_items.append(raw_item)
+                    continue
+                item, item_normalization = _canonicalize_artifact_item(
+                    dict(raw_item),
+                    artifact_root=root,
+                    collection=f"acceptance_contract.{collection}",
+                    index=index,
+                )
+                normalized_items.append(item)
+                changed = changed or item != raw_item
+                if item_normalization:
+                    normalizations.append(item_normalization)
+            if changed or collection in normalized_acceptance:
+                normalized_acceptance[collection] = normalized_items
+        result["acceptance_contract"] = normalized_acceptance
     return CanonicalArtifactContract(contract=result, normalizations=tuple(normalizations))
 
 

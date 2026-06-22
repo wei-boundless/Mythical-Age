@@ -504,8 +504,29 @@ def _encoded_size(value: Any) -> int:
 def _preview_text_for_tool(normalized: dict[str, Any], *, limit: int) -> str:
     text = str(normalized.get("text") or "")
     if _is_read_file_result(normalized):
-        return text
+        content_range = dict(normalized.get("content_range") or {})
+        if content_range:
+            return _read_file_ref_preview(content_range)
+        return compact_text(text, limit=limit)
     return compact_text(text, limit=limit)
+
+
+def _read_file_ref_preview(content_range: dict[str, Any]) -> str:
+    path = str(content_range.get("path") or "").strip()
+    start_line = _int_or_none(content_range.get("start_line"))
+    end_line = _int_or_none(content_range.get("end_line"))
+    content_hash = str(content_range.get("content_sha256") or content_range.get("text_sha256") or "").strip()
+    exact_ref = str(content_range.get("exact_artifact_ref") or content_range.get("reusable_result_ref") or "").strip()
+    parts = ["read_file exact text is carried by the original tool transcript or read_evidence_injection"]
+    if path:
+        parts.append(f"path={path}")
+    if start_line is not None or end_line is not None:
+        parts.append(f"range={start_line or '?'}-{end_line or '?'}")
+    if content_hash:
+        parts.append(f"content_hash={content_hash}")
+    if exact_ref:
+        parts.append(f"exact_ref={exact_ref}")
+    return "; ".join(parts)
 
 
 def _compact_code_preview(value: Any, *, limit: int) -> str:

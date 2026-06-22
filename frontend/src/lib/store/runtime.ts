@@ -1757,6 +1757,8 @@ export class WorkspaceRuntime {
           },
           run,
         );
+      } else if (this.queuedInputShouldReattachActiveStream(response.item, sessionId)) {
+        void this.reattachChatRunForSession(sessionId).catch(() => undefined);
       }
     } catch (error) {
       this.store.setState((prev) => ({
@@ -2111,7 +2113,26 @@ export class WorkspaceRuntime {
     if (!activity) {
       return true;
     }
-    return !String(activity.event || "").trim() || activity.event === "user_input_queued";
+    const event = String(activity.event || "").trim();
+    return !event
+      || event === "user_input_queued"
+      || event === "stream_cursor_restore_started"
+      || event === "stream_reconnecting"
+      || event === "stream_reconnect_failed";
+  }
+
+  private queuedInputShouldReattachActiveStream(item: { input_policy?: string; expected_active_turn_id?: string; task_run_id?: string } | undefined, sessionId: string) {
+    const state = this.store.getState();
+    if (state.activeStreamSessionIds.includes(sessionId)) {
+      return false;
+    }
+    if (state.currentSessionId !== sessionId) {
+      return false;
+    }
+    const inputPolicy = String(item?.input_policy || "").trim().toLowerCase();
+    const expectedTurnId = String(item?.expected_active_turn_id || "").trim();
+    const taskRunId = String(item?.task_run_id || "").trim();
+    return inputPolicy === "steer" || Boolean(expectedTurnId || taskRunId);
   }
 
   private presentVisibleStreamState(
@@ -3739,12 +3760,42 @@ export class WorkspaceRuntime {
     reason = "user_stopped",
     options: { abortStream?: boolean; taskRunId?: string; turnId?: string } = {},
   ) {
+    return this.releaseControlledChatStreamBoundary(sessionId, reason, {
+      ...options,
+      connectionState: "stopped",
+    });
+  }
+
+  private releasePausedChatStreamBoundary(
+    sessionId: string | null | undefined,
+    options: { abortStream?: boolean; taskRunId?: string; turnId?: string } = {},
+  ) {
+    return this.releaseControlledChatStreamBoundary(sessionId, "user_paused", {
+      ...options,
+      connectionState: "paused",
+    });
+  }
+
+  private releaseControlledChatStreamBoundary(
+    sessionId: string | null | undefined,
+    reason: string,
+    options: {
+      abortStream?: boolean;
+      taskRunId?: string;
+      turnId?: string;
+      connectionState: "stopped" | "paused";
+    },
+  ) {
     const normalizedSessionId = String(sessionId || "").trim();
     if (!normalizedSessionId || !this.store.getState().activeStreamSessionIds.includes(normalizedSessionId)) {
       return false;
     }
     this.nextChatStreamEpoch(normalizedSessionId);
-    this.stoppedStreamingSessionIds.add(normalizedSessionId);
+    if (options.connectionState === "stopped") {
+      this.stoppedStreamingSessionIds.add(normalizedSessionId);
+    } else {
+      this.removedStreamingSessionIds.add(normalizedSessionId);
+    }
     this.clearPendingVisibleStreamFlush(normalizedSessionId);
     if (options.abortStream !== false) {
       this.streamAbortControllers.get(normalizedSessionId)?.abort();
@@ -3762,7 +3813,7 @@ export class WorkspaceRuntime {
         stoppedTurnId,
       ),
       chatStreamConnectionStatus: {
-        state: "stopped",
+        state: options.connectionState,
         reason,
         updatedAt: Date.now(),
       },
@@ -3793,15 +3844,20 @@ export class WorkspaceRuntime {
     if (!taskRunId) {
       return;
     }
+    const expectedTurnId = this.activeExpectedTurnIdForTaskRun(taskRunId);
+    this.releasePausedChatStreamBoundary(this.store.getState().currentSessionId, {
+      taskRunId,
+      turnId: expectedTurnId,
+    });
     this.setActiveTaskControlActivity({
       taskRunId,
       level: "running",
       title: "正在暂停",
-      detail: "暂停请求已发送，等待当前步骤停在可继续边界。",
+      detail: "暂停请求已发送，当前输出流已断开。",
       event: "active_task_pause_requested",
     });
     try {
-      await pauseOrchestrationHarnessTaskRun(taskRunId, "user_pause_from_chat", this.activeExpectedTurnIdForTaskRun(taskRunId));
+      await pauseOrchestrationHarnessTaskRun(taskRunId, "user_pause_from_chat", expectedTurnId);
       await this.refreshActiveSessionMonitor();
     } catch (error) {
       this.setActiveTaskControlError("pause", taskRunId, error);
@@ -4111,7 +4167,8 @@ export class WorkspaceRuntime {
       return;
     }
     const visibleMessageIndex = state.messages.findIndex((message) => message.id === messageId);
-    await truncateSessionMessages(sessionId, targetMessage.sourceIndex, this.sessionScopeForSession(sessionId));
+    const truncateIndex = this.truncateMessageIndexForResend(targetMessage);
+    await truncateSessionMessages(sessionId, truncateIndex, this.sessionScopeForSession(sessionId));
     this.store.setState((prev) => ({
       ...prev,
       messages: visibleMessageIndex > -1 ? prev.messages.slice(0, visibleMessageIndex) : prev.messages,
@@ -4123,7 +4180,22 @@ export class WorkspaceRuntime {
   }
 
   private nextMessageSourceIndex(messages: StoreState["messages"]) {
-    return messages.reduce((max, message) => Math.max(max, message.sourceIndex ?? -1), -1) + 1;
+    const maxSourceIndex = messages.reduce((max, message) => {
+      const sourceIndex = Number(message.sourceIndex ?? -1);
+      if (!Number.isFinite(sourceIndex)) {
+        return max;
+      }
+      return Math.max(max, Math.floor(sourceIndex));
+    }, -1);
+    return maxSourceIndex + 1;
+  }
+
+  private truncateMessageIndexForResend(message: StoreState["messages"][number]) {
+    const sourceIndex = Number(message.sourceIndex ?? -1);
+    if (!Number.isFinite(sourceIndex) || sourceIndex < 0) {
+      return 0;
+    }
+    return Math.floor(sourceIndex);
   }
 
   private async setPermissionMode(mode: PermissionMode) {

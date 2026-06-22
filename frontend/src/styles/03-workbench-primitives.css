@@ -1,9 +1,9 @@
-/* Workbench primitive controls. */
+﻿/* Workbench primitive controls. */
 
 .memory-governance-editor__panel {
   display: grid;
   gap: 0.52rem;
-  border: 1px solid var(--console-line, color-mix(in srgb, var(--color-accent-primary) 22%, transparent));
+  border: 1px solid var(--console-line);
   border-radius: 8px;
   background: var(--console-surface, rgba(255, 255, 255, 0.026));
   box-shadow: var(--console-shadow, none);
@@ -11,26 +11,26 @@
 }
 
 .memory-governance-editor__panel span {
-  color: var(--console-muted, var(--color-accent-primary));
+  color: var(--console-muted);
   font-family: var(--console-mono, var(--font-mono)), monospace;
   font-size: 11px;
 }
 
 .memory-governance-editor__panel strong {
-  color: var(--console-text, var(--color-text));
+  color: var(--console-text);
   font-size: 13px;
   font-weight: 680;
 }
 
 .memory-governance-editor__panel p {
   margin: 0;
-  color: var(--console-muted, var(--color-text-soft));
+  color: var(--console-muted);
   font-size: 12px;
   line-height: 1.5;
 }
 
 .memory-governance-editor__panel .memory-governance-hint {
-  color: var(--console-text, var(--color-text));
+  color: var(--console-text);
 }
 
 .memory-governance-editor__panel input,
@@ -40,7 +40,7 @@
   border: 1px solid var(--console-line, rgba(255, 255, 255, 0.075));
   border-radius: 7px;
   background: var(--console-bg-raised, rgba(255, 255, 255, 0.045));
-  color: var(--console-text, var(--color-text));
+  color: var(--console-text);
   font: inherit;
   font-size: 12px;
   padding: 7px 8px;
@@ -49,10 +49,10 @@
 .operation-semantic-text,
 .capability-semantic-copy {
   margin: 0;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 14%, rgba(255, 255, 255, 0.075));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 14%, transparent);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.032);
-  color: var(--color-text);
+  background: color-mix(in srgb, var(--console-surface) 3.2%, transparent);
+  color: var(--console-text);
   font-size: 0.82rem;
   line-height: 1.62;
   padding: 0.72rem;
@@ -97,8 +97,8 @@
 }
 
 .chat-input-panel__textarea {
-  border: 1px solid var(--color-border);
-  background: #fff;
+  border: 1px solid var(--console-line);
+  background: var(--console-surface);
   box-shadow: none;
 }
 
@@ -132,11 +132,11 @@
   min-width: 9.5rem;
   align-items: center;
   gap: 0.42rem;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--console-line);
   border-radius: 7px;
-  background: #fff;
+  background: var(--console-surface);
   padding: 0.28rem 0.44rem;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
 }
 
 .chat-model-select svg {
@@ -149,14 +149,14 @@
   flex: 1 1 auto;
   border: 0;
   background: transparent;
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.74rem;
   font-weight: 650;
   outline: none;
 }
 
 .chat-model-select:focus-within {
-  border-color: var(--color-border-strong);
+  border-color: var(--console-line-strong);
   box-shadow: 0 0 0 3px rgba(23, 23, 23, 0.06);
 }
 
@@ -180,10 +180,10 @@
   min-height: 2.3rem;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(100, 116, 139, 0.24);
+  border: 1px solid var(--console-line);
   border-radius: 999px;
-  background: rgba(248, 250, 252, 0.96);
-  color: #475569;
+  background: var(--console-bg-raised);
+  color: var(--console-muted);
   padding: 0;
   font-size: 0.78rem;
   font-weight: 700;
@@ -191,9 +191,9 @@
 }
 
 .chat-stop-button:hover {
-  border-color: rgba(100, 116, 139, 0.36);
-  background: rgba(241, 245, 249, 0.98);
-  color: #334155;
+  border-color: color-mix(in srgb, var(--console-muted) 36%, transparent);
+  background: color-mix(in srgb, var(--console-bg-raised) 98%, transparent);
+  color: var(--console-text);
 }
 
 .chat-send-button {
@@ -202,17 +202,17 @@
   height: 2.3rem;
   align-items: center;
   justify-content: center;
-  border: 1px solid #d7d7d2;
+  border: 1px solid var(--console-line);
   border-radius: 999px;
-  background: #fff;
-  color: #171717;
+  background: var(--console-surface);
+  color: var(--console-text);
   transition: border-color 160ms ease, background 160ms ease, color 160ms ease, transform 160ms ease;
 }
 
 .chat-send-button:hover:not(:disabled) {
-  border-color: #171717;
-  background: #171717;
-  color: #fff;
+  border-color: var(--console-text);
+  background: var(--console-text);
+  color: var(--console-surface);
   transform: translateY(-1px);
 }
 
@@ -221,15 +221,15 @@
 }
 
 .chat-send-button--stop {
-  border-color: rgba(100, 116, 139, 0.24);
-  background: rgba(248, 250, 252, 0.96);
-  color: #475569;
+  border-color: var(--console-line);
+  background: var(--console-bg-raised);
+  color: var(--console-muted);
 }
 
 .chat-send-button--stop:hover:not(:disabled) {
-  border-color: rgba(100, 116, 139, 0.36);
-  background: rgba(241, 245, 249, 0.98);
-  color: #334155;
+  border-color: var(--console-line-strong);
+  background: var(--console-bg);
+  color: var(--console-text);
 }
 
 .task-graph-layer-nav--workspaces {
@@ -264,10 +264,10 @@
 .task-graph-action-rail__status,
 .task-graph-smart-inspector .task-graph-composer-inspector-card,
 .task-graph-smart-advanced {
-  border: 1px solid rgba(15, 23, 42, 0.1);
+  border: 1px solid color-mix(in srgb, var(--console-text) 10%, transparent);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
+  background: color-mix(in srgb, var(--console-surface) 92%, transparent);
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--console-text) 6%, transparent);
 }
 
 .task-graph-action-rail__status {
@@ -287,13 +287,13 @@
 .task-graph-validation-group header span,
 .task-graph-validation-issue small,
 .task-graph-validation-issue span {
-  color: #64748b;
+  color: var(--console-muted);
   font-size: 12px;
   line-height: 1.45;
 }
 
 .task-graph-action-rail__status strong {
-  color: #0f172a;
+  color: var(--console-text);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -316,7 +316,7 @@
 .task-graph-validation-group header strong,
 .task-graph-validation-issue strong,
 .task-graph-validation-empty strong {
-  color: #0f172a;
+  color: var(--console-text);
 }
 
 .task-graph-action-grid button,
@@ -327,10 +327,10 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
+  border: 1px solid var(--console-line);
   border-radius: 7px;
-  background: #ffffff;
-  color: #0f172a;
+  background: var(--console-surface);
+  color: var(--console-text);
   cursor: pointer;
   font: inherit;
   transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
@@ -365,10 +365,10 @@
 .task-graph-select-command select {
   min-width: 0;
   width: 100%;
-  border: 1px solid rgba(15, 23, 42, 0.12);
+  border: 1px solid var(--console-line);
   border-radius: 7px;
-  background: #ffffff;
-  color: #0f172a;
+  background: var(--console-surface);
+  color: var(--console-text);
   font: inherit;
   font-size: 12px;
   min-height: 34px;
@@ -392,9 +392,9 @@
 .task-graph-smart-actions button:hover:not(:disabled),
 .task-graph-validation-head button:hover:not(:disabled),
 .task-graph-validation-issue__actions button:hover:not(:disabled) {
-  border-color: rgba(3, 105, 161, 0.45);
-  background: #f0f9ff;
-  box-shadow: 0 8px 20px rgba(3, 105, 161, 0.1);
+  border-color: var(--console-accent-soft);
+  background: var(--console-bg-raised);
+  box-shadow: 0 8px 20px var(--console-glow);
 }
 
 .task-graph-action-grid button:disabled,
@@ -423,9 +423,9 @@
   grid-template-rows: auto auto minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
-  border: 1px solid rgba(15, 23, 42, 0.1);
+  border: 1px solid var(--console-line);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--console-surface);
 }
 
 .task-graph-canvas-panel__head {
@@ -444,12 +444,12 @@
 }
 
 .task-graph-canvas-panel__head span {
-  color: #64748b;
+  color: var(--console-muted);
   font-size: 12px;
 }
 
 .task-graph-canvas-panel__head strong {
-  color: #0f172a;
+  color: var(--console-text);
   overflow-wrap: anywhere;
 }
 
@@ -458,9 +458,9 @@
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  border-bottom: 1px solid rgba(3, 105, 161, 0.16);
-  background: #f0f9ff;
-  color: #075985;
+  border-bottom: 1px solid var(--console-accent-soft);
+  background: var(--console-bg-raised);
+  color: var(--console-accent);
   font-size: 12px;
 }
 
@@ -505,7 +505,7 @@
 
 .task-graph-smart-advanced summary {
   cursor: pointer;
-  color: #0f172a;
+  color: var(--console-text);
   font-size: 13px;
   font-weight: 700;
 }
@@ -520,9 +520,9 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  border: 1px solid rgba(15, 23, 42, 0.1);
+  border: 1px solid var(--console-line);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--console-surface);
   padding: 14px;
 }
 
@@ -533,7 +533,7 @@
 }
 
 .task-graph-validation-head span {
-  color: #0369a1;
+  color: var(--console-accent);
   font-size: 12px;
   font-weight: 700;
 }
@@ -549,17 +549,17 @@
   gap: 4px;
   border: 1px solid rgba(15, 23, 42, 0.1);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--console-surface);
   padding: 12px;
 }
 
 .task-graph-validation-metrics span {
-  color: #64748b;
+  color: var(--console-muted);
   font-size: 12px;
 }
 
 .task-graph-validation-metrics strong {
-  color: #0f172a;
+  color: var(--console-text);
   font-size: 18px;
 }
 
@@ -584,8 +584,8 @@
   align-items: center;
   gap: 8px;
   border-radius: 7px;
-  background: #fff7ed;
-  color: #9a3412;
+  background: var(--console-surface);
+  color: var(--console-text-soft);
   padding: 9px 10px;
 }
 
@@ -597,14 +597,14 @@
 }
 
 .task-graph-validation-issues {
-  border: 1px solid rgba(15, 23, 42, 0.1);
+  border: 1px solid var(--console-line);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--console-surface);
   padding: 12px;
 }
 
 .task-graph-validation-group {
-  border-top: 1px solid rgba(15, 23, 42, 0.08);
+  border-top: 1px solid var(--console-line);
   padding-top: 10px;
 }
 
@@ -618,12 +618,12 @@
 
 .task-graph-validation-issue--error {
   border-color: rgba(220, 38, 38, 0.34);
-  background: #fef2f2;
+  background: var(--console-danger-soft);
 }
 
 .task-graph-validation-issue--warning {
-  border-color: rgba(217, 119, 6, 0.28);
-  background: #fffbeb;
+  border-color: var(--console-line-strong);
+  background: var(--console-surface);
 }
 
 .task-graph-validation-issue > div:first-child {
@@ -688,19 +688,19 @@
   flex-shrink: 0;
   align-items: center;
   gap: 0.36rem;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--console-line);
   border-radius: 7px;
-  background: #fff;
+  background: var(--console-surface);
   padding: 0.36rem 0.64rem;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.78rem;
   transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
 }
 
 .message-edit-button:hover,
 .message-copy-button:hover {
-  border-color: var(--color-border-strong);
-  background: #fdfdfc;
+  border-color: var(--console-line-strong);
+  background: var(--console-bg);
   transform: translateY(-1px);
 }
 
@@ -713,16 +713,16 @@
   min-height: 7rem;
   width: min(34rem, 100%);
   resize: vertical;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--console-line);
   border-radius: 7px;
-  background: #fff;
+  background: var(--console-surface);
   padding: 0.8rem 0.9rem;
-  color: var(--color-text);
+  color: var(--console-text);
   outline: none;
 }
 
 .message-edit-form__textarea:focus {
-  border-color: var(--color-border-strong);
+  border-color: var(--console-line-strong);
   box-shadow: 0 0 0 3px rgba(23, 23, 23, 0.06);
 }
 
@@ -734,7 +734,7 @@
 }
 
 .message-edit-form__error {
-  color: #b42318;
+  color: var(--console-text-soft);
   font-size: 0.78rem;
   line-height: 1.45;
 }
@@ -743,18 +743,18 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--console-line);
   border-radius: 7px;
-  background: #fff;
+  background: var(--console-surface);
   padding: 0.42rem 0.72rem;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.8rem;
 }
 
 .message-edit-form__button--primary {
-  border-color: #171717;
-  background: #171717;
-  color: #fff;
+  border-color: var(--console-text);
+  background: var(--console-text);
+  color: var(--console-surface);
 }
 
 .message-edit-form__button:disabled {
@@ -767,63 +767,18 @@
    This layer deliberately flattens the old atmospheric UI into a sharp
    light-console system for the main agent workspace and system pages. */
 .agent-workbench {
-  --console-bg: #ffffff;
-  --console-bg-soft: #f8fafc;
-  --console-surface: #ffffff;
-  --console-surface-soft: #fafbfc;
-  --console-surface-strong: #f2f5f9;
-  --console-line: #d6dee8;
-  --console-line-soft: #e5eaf2;
-  --console-line-strong: #b8c3d2;
-  --console-text: #0f172a;
-  --console-text-soft: #334155;
-  --console-muted: #64748b;
-  --console-faint: #8492a6;
-  --console-blue: #1d5fd3;
-  --console-blue-soft: #e8f0ff;
-  --console-green: #0f7a55;
-  --console-green-soft: #e5f6ee;
-  --console-warn: #a16207;
-  --console-warn-soft: #fff6dd;
-  --console-danger: #b42318;
-  --console-danger-soft: #fff0ee;
-  --console-shadow: none;
-  --workbench-bg: var(--console-bg);
-  --workbench-surface: var(--console-surface);
-  --workbench-surface-soft: var(--console-surface-soft);
-  --workbench-hover: #edf3fb;
-  --workbench-line: var(--console-line);
-  --workbench-line-strong: var(--console-line-strong);
-  --workbench-text: var(--console-text);
-  --workbench-muted: var(--console-muted);
-  --workbench-soft: var(--console-faint);
-  --workbench-blue: var(--console-blue);
-  --workbench-blue-soft: var(--console-blue-soft);
-  --workbench-green: var(--console-green);
-  --workbench-texture: none;
+  --workbench-hover: var(--console-hover);
   --workbench-surface-texture: none;
   --workbench-glow: none;
-  --workbench-input: #ffffff;
-  --color-bg: var(--console-bg);
-  --color-bg-alt: var(--console-bg-soft);
-  --color-text: var(--console-text);
-  --color-text-soft: var(--console-muted);
-  --color-text-muted: var(--console-faint);
-  --color-border: var(--console-line);
-  --color-border-strong: var(--console-line-strong);
-  --color-panel: var(--console-surface);
-  --color-panel-soft: var(--console-surface-soft);
-  --color-panel-strong: var(--console-surface);
-  --color-accent-primary: var(--console-blue);
-  --color-accent-primary-soft: var(--console-blue-soft);
-  --color-accent: var(--console-blue);
-  --color-danger: var(--console-danger);
   --radius-panel: 8px;
   --radius-block: 8px;
   --radius-card: 8px;
   --radius-inner: 7px;
   --radius-control: 7px;
-  background: var(--console-bg);
+  background:
+    var(--workbench-bg-image),
+    var(--workbench-texture),
+    var(--workbench-bg);
   color: var(--console-text);
   font-size: 13px;
   font-weight: 450;
@@ -866,7 +821,7 @@
 .agent-workbench .message-edit-form__textarea {
   border-color: var(--console-line);
   border-radius: 7px;
-  background: #fff;
+  background: var(--console-surface);
   color: var(--console-text);
 }
 
@@ -879,7 +834,7 @@
 }
 
 .agent-workbench .workbench-toolbar-actions button:hover:not(:disabled) {
-  border-color: #b8c7e4;
+  border-color: var(--console-line-strong);
   background: var(--console-blue-soft);
   color: var(--console-blue);
   box-shadow: none;
@@ -888,9 +843,9 @@
 .agent-workbench .workbench-session-toolbar button,
 .agent-workbench .chat-send-button,
 .agent-workbench .message-edit-form__button--primary {
-  border-color: var(--console-blue);
-  background: var(--console-blue);
-  color: #fff;
+  border-color: var(--console-accent);
+  background: var(--console-accent);
+  color: var(--console-surface);
   box-shadow: none;
 }
 
@@ -945,11 +900,7 @@
 .agent-workbench .chat-input-panel--inline {
   border: 1px solid var(--console-line);
   border-radius: 8px;
-  background: #fff;
-  box-shadow: none;
-}
-
-.agent-workbench .chat-panel-shell {
+  background: var(--console-surface);
   background: var(--console-bg);
 }
 
@@ -984,7 +935,7 @@
 .agent-workbench .workspace-view {
   gap: 12px;
   padding: 12px;
-  scrollbar-color: #aeb8c7 transparent;
+  scrollbar-color: var(--console-muted) transparent;
 }
 
 .agent-workbench .workspace-view__eyebrow,
@@ -1058,7 +1009,7 @@
 .agent-workbench .capability-endpoint-row {
   border: 1px solid var(--console-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--console-surface);
   box-shadow: none;
   backdrop-filter: none;
 }
@@ -1086,7 +1037,7 @@
 .agent-workbench .capability-system-console .operation-unit-card--active,
 .agent-workbench .mcp-tool-row--active,
 .agent-workbench .capability-endpoint-row--active {
-  border-color: #9db6ea;
+  border-color: var(--console-blue);
   background: var(--console-blue-soft);
   color: var(--console-text);
   box-shadow: none;
@@ -1098,7 +1049,7 @@
 .agent-workbench .action-button {
   border: 1px solid var(--console-line);
   border-radius: 6px;
-  background: #fff;
+  background: var(--console-surface);
   color: var(--console-text);
   box-shadow: none;
   font-weight: 650;
@@ -1106,7 +1057,7 @@
 
 .agent-workbench .boundary-button:hover:not(:disabled),
 .agent-workbench .action-button:hover {
-  border-color: #9db6ea;
+  border-color: var(--console-blue);
   background: var(--console-blue-soft);
   color: var(--console-blue);
   transform: none;
@@ -1116,24 +1067,24 @@
 .agent-workbench .action-button--primary {
   border-color: var(--console-blue);
   background: var(--console-blue);
-  color: #fff;
+  color: var(--console-surface);
 }
 
 .agent-workbench .action-button--danger {
-  border-color: #e8a19a;
+  border-color: var(--console-danger);
   background: var(--console-danger-soft);
   color: var(--console-danger);
 }
 
 .agent-workbench .boundary-notice,
 .agent-workbench .workspace-alert {
-  border-color: #f1cf74;
+  border-color: var(--console-warning);
   background: var(--console-warn-soft);
   color: var(--console-text);
 }
 
 .agent-workbench .boundary-notice--error {
-  border-color: #e8a19a;
+  border-color: var(--console-danger);
   background: var(--console-danger-soft);
   color: var(--console-danger);
 }
@@ -1171,7 +1122,7 @@
 .agent-workbench .capability-system-console .capability-mcp-call textarea {
   border: 1px solid var(--console-line);
   border-radius: 7px;
-  background: #fff;
+  background: var(--console-surface);
   color: var(--console-text);
   box-shadow: none;
 }
@@ -1199,7 +1150,7 @@
 .agent-workbench code,
 .agent-workbench pre {
   border-radius: 7px;
-  background: #eef2f7;
+  background: var(--console-bg-raised);
   color: var(--console-text);
 }
 
@@ -1209,10 +1160,7 @@
 .agent-workbench .task-graph-composer-mode-strip article,
 .agent-workbench .task-graph-composer-mode-strip button {
   border-color: var(--console-line);
-  background: #fff;
-  color: var(--console-text);
-  box-shadow: none;
-  backdrop-filter: none;
+  background: var(--console-surface);
 }
 
 .agent-workbench .task-graph-editor-select__option:hover,
@@ -1220,7 +1168,7 @@
 .agent-workbench .task-graph-composer-mode-strip article.active,
 .agent-workbench .task-graph-composer-mode-strip button.active,
 .agent-workbench .task-graph-composer-mode-strip button:hover {
-  border-color: #9db6ea;
+  border-color: var(--console-blue);
   background: var(--console-blue-soft);
   color: var(--console-blue);
 }
@@ -1694,9 +1642,9 @@
 .system-page-content .task-system-object-table {
   display: grid;
   min-width: 0;
-  border: 1px solid #d8e0eb;
+  border: 1px solid var(--console-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--console-surface);
   overflow: hidden;
 }
 
@@ -1710,9 +1658,9 @@
 }
 
 .system-page-content .task-system-object-table__head {
-  border-bottom: 1px solid #d8e0eb;
-  background: #f8fafc;
-  color: #64748b;
+  border-bottom: 1px solid var(--console-line);
+  background: var(--console-bg-raised);
+  color: var(--console-muted);
   font-size: 0.64rem;
   font-weight: 900;
   padding: 0.44rem 0.62rem;
@@ -1720,9 +1668,9 @@
 
 .system-page-content .task-system-object-row {
   border: 0;
-  border-bottom: 1px solid #e3e9f1;
-  background: #fff;
-  color: #334155;
+  border-bottom: 1px solid var(--console-line);
+  background: var(--console-surface);
+  color: var(--console-text);
   cursor: pointer;
   padding: 0.54rem 0.62rem;
   text-align: left;
@@ -1734,12 +1682,12 @@
 
 .system-page-content .task-system-object-row:hover,
 .system-page-content .task-system-object-row--active {
-  background: #e8f0ff;
-  color: #0f172a;
+  background: var(--console-hover);
+  color: var(--console-text);
 }
 
 .system-page-content .task-system-object-row__scope {
-  color: #1d5fd3;
+  color: var(--console-accent);
   font-size: 0.66rem;
   font-weight: 900;
 }
@@ -1760,15 +1708,15 @@
 
 .system-page-content .task-system-object-row__meta,
 .system-page-content .task-system-object-row small {
-  color: #64748b;
+  color: var(--console-muted);
   font-size: 0.68rem;
 }
 
 .system-page-content .task-system-object-row em {
   justify-self: start;
-  border: 1px solid #cbd3df;
+  border: 1px solid var(--console-line);
   border-radius: 999px;
-  color: #64748b;
+  color: var(--console-muted);
   font-size: 0.62rem;
   font-style: normal;
   font-weight: 820;
@@ -1777,8 +1725,8 @@
 }
 
 .system-page-content .task-system-object-row--active em {
-  border-color: #9db6ea;
-  color: #1d5fd3;
+  border-color: var(--console-blue);
+  color: var(--console-accent);
 }
 
 .system-page-content .task-graph-editor-page {
@@ -1786,10 +1734,10 @@
   grid-template-rows: minmax(0, 1fr);
   height: 100%;
   min-height: 0;
-  border: 1px solid #cbd3df;
+  border: 1px solid var(--console-line);
   border-radius: 10px;
-  background: #fff;
-  color: #0f172a;
+  background: var(--console-surface);
+  color: var(--console-text);
   overflow: hidden;
 }
 
@@ -1799,14 +1747,14 @@
 
 .system-page-content .task-graph-editor-page .task-graph-studio-shell {
   border-top: 0;
-  background: #fff;
+  background: var(--console-surface);
 }
 
 .system-page-content .task-graph-editor-page .task-graph-studio-topbar {
   grid-template-columns: minmax(260px, 1fr) auto;
   gap: 0.52rem;
-  border-color: #d8e0eb;
-  background: #fff;
+  border-color: var(--console-line);
+  background: var(--console-surface);
   padding: 0.42rem 0.58rem;
 }
 
@@ -1821,8 +1769,8 @@
 }
 
 .system-page-content .task-graph-editor-page .task-graph-layer-nav {
-  border-color: #d8e0eb;
-  background: #f8fafc;
+  border-color: var(--console-line);
+  background: var(--console-bg-raised);
   gap: 0.32rem;
   padding: 0.34rem;
 }
@@ -1867,11 +1815,11 @@
 
 .confirm-dialog {
   width: min(28rem, 100%);
-  border: 1px solid #d8e0eb;
+  border: 1px solid var(--console-line);
   border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
-  color: #0f172a;
+  background: var(--console-surface);
+  box-shadow: 0 24px 70px var(--console-glow);
+  color: var(--console-text);
 }
 
 .confirm-dialog header {
@@ -1890,7 +1838,7 @@
 
 .confirm-dialog p {
   margin: 0.35rem 0 0;
-  color: #475569;
+  color: var(--console-text-soft);
   font-size: 0.9rem;
   line-height: 1.55;
   white-space: pre-line;
@@ -1902,21 +1850,21 @@
   width: 2rem;
   height: 2rem;
   border-radius: 8px;
-  background: #fff7ed;
-  color: #c2410c;
+  background: var(--console-warning-soft);
+  color: var(--console-warning);
 }
 
 .confirm-dialog--danger .confirm-dialog__icon {
-  background: #fef2f2;
-  color: #dc2626;
+  background: var(--console-danger-soft);
+  color: var(--console-danger);
 }
 
 .confirm-dialog header > button,
 .confirm-dialog footer button {
-  border: 1px solid #d8e0eb;
+  border: 1px solid var(--console-line);
   border-radius: 7px;
-  background: #fff;
-  color: #0f172a;
+  background: var(--console-surface);
+  color: var(--console-text);
   cursor: pointer;
 }
 
@@ -1931,7 +1879,7 @@
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--console-line);
   padding: 0.75rem 1rem;
 }
 
@@ -1941,19 +1889,19 @@
 }
 
 .confirm-dialog footer .confirm-dialog__primary {
-  border-color: #dc2626;
-  background: #dc2626;
-  color: #fff;
+  border-color: var(--console-danger);
+  background: var(--console-danger);
+  color: var(--console-surface);
 }
 
 .confirm-dialog--warning footer .confirm-dialog__primary {
-  border-color: #ca8a04;
-  background: #ca8a04;
+  border-color: var(--console-warning);
+  background: var(--console-warning);
 }
 
 .confirm-dialog--neutral footer .confirm-dialog__primary {
-  border-color: #2563eb;
-  background: #2563eb;
+  border-color: var(--console-accent);
+  background: var(--console-accent);
 }
 
 .system-page-content .task-graph-editor-page .task-graph-layer-card__state {
@@ -2011,15 +1959,15 @@
 
 .system-page-content .task-graph-editor-page .task-graph-topology-actions button,
 .system-page-content .task-graph-editor-page .task-graph-topology-task-list button {
-  border-color: #d8e0eb;
+  border-color: var(--console-line);
   border-radius: 6px;
-  background: #fff;
-  color: #334155;
+  background: var(--console-surface);
+  color: var(--console-text);
 }
 
 .system-page-content .task-graph-editor-page .task-graph-topology-resource-summary p {
   border: 0;
-  border-bottom: 1px solid #d8e0eb;
+  border-bottom: 1px solid var(--console-line);
   border-radius: var(--console-radius-md);
   background: transparent;
   padding: 0.36rem 0;
@@ -2027,7 +1975,7 @@
 
 .system-page-content .task-graph-editor-page .task-graph-note {
   border-left: 0;
-  border-top: 1px solid #d8e0eb;
+  border-top: 1px solid var(--console-line);
   background: transparent;
   padding: 0.45rem 0;
 }
@@ -2042,7 +1990,7 @@
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 0.55rem;
   padding: 0.58rem;
-  background: #f5f7fb;
+  background: var(--console-bg-raised);
 }
 
 .system-page-content .task-system-database-header {
@@ -2051,9 +1999,9 @@
   align-items: center;
   gap: 0.8rem;
   min-height: 3.2rem;
-  border: 1px solid #d8e0eb;
+  border: 1px solid var(--console-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--console-surface);
   padding: 0.58rem 0.72rem;
 }
 
@@ -2064,7 +2012,7 @@
 }
 
 .system-page-content .task-system-database-header span {
-  color: #64748b;
+  color: var(--console-muted);
   font-size: 0.64rem;
   font-weight: 900;
   letter-spacing: 0;
@@ -2072,7 +2020,7 @@
 
 .system-page-content .task-system-database-header h2 {
   margin: 0;
-  color: #0f172a;
+  color: var(--console-text);
   font-size: 1rem;
   line-height: 1.2;
 }
@@ -2080,7 +2028,7 @@
 .system-page-content .task-system-database-header p {
   margin: 0;
   overflow: hidden;
-  color: #64748b;
+  color: var(--console-muted);
   font-size: 0.72rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2104,9 +2052,9 @@
 .system-page-content .task-system-database-workspace {
   min-width: 0;
   min-height: 0;
-  border: 1px solid #d8e0eb;
+  border: 1px solid var(--console-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--console-surface);
   overflow: auto;
 }
 
@@ -2126,7 +2074,7 @@
   gap: 0.5rem;
   grid-template-columns: 1fr;
   border: 0;
-  border-bottom: 1px solid #d8e0eb;
+  border-bottom: 1px solid var(--console-line);
   border-radius: var(--console-radius-md);
   background: transparent;
   padding: 0 0 0.58rem;
@@ -2153,7 +2101,7 @@
 }
 
 .system-page-content .task-system-project-selector span {
-  color: #1d5fd3;
+  color: var(--console-accent);
   font-size: 0.64rem;
   font-weight: 900;
   letter-spacing: 0;
@@ -2161,7 +2109,7 @@
 
 .system-page-content .task-system-project-selector strong {
   overflow: hidden;
-  color: #0f172a;
+  color: var(--console-text);
   font-size: 0.86rem;
   line-height: 1.25;
   text-overflow: ellipsis;
@@ -2170,7 +2118,7 @@
 
 .system-page-content .task-system-project-selector small {
   overflow-wrap: anywhere;
-  color: #64748b;
+  color: var(--console-muted);
   font-family: var(--font-mono), monospace;
   font-size: 0.68rem;
   line-height: 1.35;
@@ -2193,10 +2141,10 @@
   min-height: 3.25rem;
   min-width: 0;
   width: 100%;
-  border: 1px solid #c7d3e4;
+  border: 1px solid var(--console-line);
   border-radius: 7px;
-  background: #fff;
-  color: #0f172a;
+  background: var(--console-surface);
+  color: var(--console-text);
   cursor: pointer;
   padding: 0.48rem 0.58rem;
   text-align: left;
@@ -2205,14 +2153,14 @@
 
 .system-page-content .task-system-environment-trigger:hover,
 .system-page-content .task-system-environment-trigger[aria-expanded="true"] {
-  border-color: #8fb0e7;
-  background: #f8fbff;
-  box-shadow: 0 0 0 3px rgba(29, 95, 211, 0.08);
+  border-color: var(--console-line-strong);
+  background: var(--console-hover);
+  box-shadow: 0 0 0 3px var(--console-glow);
 }
 
 .system-page-content .task-system-environment-trigger:focus-visible {
-  border-color: #1d5fd3;
-  box-shadow: 0 0 0 3px rgba(29, 95, 211, 0.14);
+  border-color: var(--console-accent);
+  box-shadow: 0 0 0 3px var(--console-glow);
   outline: none;
 }
 
@@ -2225,13 +2173,13 @@
 }
 
 .system-page-content .task-system-environment-trigger strong {
-  color: #0f172a;
+  color: var(--console-text);
   font-size: 0.8rem;
   line-height: 1.25;
 }
 
 .system-page-content .task-system-environment-trigger small {
-  color: #64748b;
+  color: var(--console-muted);
   font-family: var(--font-mono), monospace;
   font-size: 0.66rem;
   line-height: 1.25;
@@ -2240,7 +2188,7 @@
 .system-page-content .task-system-environment-trigger svg {
   grid-column: 2;
   grid-row: 1 / span 3;
-  color: #64748b;
+  color: var(--console-muted);
 }
 
 .system-page-content .task-system-environment-menu {
@@ -2253,9 +2201,9 @@
   z-index: 40;
   max-height: min(24rem, 68vh);
   overflow: auto;
-  border: 1px solid #b9c7db;
+  border: 1px solid var(--console-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--console-surface);
   box-shadow: 0 18px 44px rgba(15, 23, 42, 0.16);
   padding: 0.48rem;
 }
@@ -2274,7 +2222,7 @@
 
 .system-page-content .task-system-environment-menu__group > header strong,
 .system-page-content .task-system-environment-menu__group > header span {
-  color: #475569;
+  color: var(--console-muted);
   font-size: 0.64rem;
   font-weight: 850;
 }
@@ -2288,8 +2236,8 @@
   width: 100%;
   border: 1px solid transparent;
   border-radius: 7px;
-  background: #fff;
-  color: #0f172a;
+  background: var(--console-surface);
+  color: var(--console-text);
   cursor: pointer;
   padding: 0.46rem 0.48rem;
   text-align: left;
@@ -2298,8 +2246,8 @@
 
 .system-page-content .task-system-environment-option:hover,
 .system-page-content .task-system-environment-option--active {
-  border-color: #c9d8ef;
-  background: #eef5ff;
+  border-color: var(--console-line-strong);
+  background: var(--console-hover);
 }
 
 .system-page-content .task-system-environment-option strong,
@@ -2317,7 +2265,7 @@
 }
 
 .system-page-content .task-system-environment-option small {
-  color: #64748b;
+  color: var(--console-muted);
   font-family: var(--font-mono), monospace;
   font-size: 0.64rem;
   line-height: 1.25;
@@ -2326,16 +2274,16 @@
 .system-page-content .task-system-environment-option svg {
   grid-column: 3;
   grid-row: 1 / span 2;
-  color: #1d5fd3;
+  color: var(--console-accent);
 }
 
 .system-page-content .task-system-project-selector .task-system-source-badge,
 .system-page-content .task-system-source-badge {
   justify-self: start;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--console-line);
   border-radius: 999px;
-  background: #f8fafc;
-  color: #475569;
+  background: var(--console-bg-raised);
+  color: var(--console-muted);
   font-size: 0.58rem;
   font-weight: 900;
   line-height: 1;
@@ -2350,36 +2298,36 @@
 
 .system-page-content .task-system-project-selector .task-system-source-badge--workspace,
 .system-page-content .task-system-source-badge--workspace {
-  border-color: #99d6bf;
-  background: #ecfdf5;
-  color: #047857;
+  border-color: var(--console-success);
+  background: var(--console-bg-raised);
+  color: var(--console-success);
 }
 
 .system-page-content .task-system-project-selector .task-system-source-badge--builtin_template,
 .system-page-content .task-system-source-badge--builtin_template {
-  border-color: #b8ccee;
-  background: #eff6ff;
-  color: #1d5fd3;
+  border-color: var(--console-accent-soft);
+  background: var(--console-bg-raised);
+  color: var(--console-accent);
 }
 
 .system-page-content .task-system-project-selector .task-system-source-badge--system_internal,
 .system-page-content .task-system-source-badge--system_internal {
-  border-color: #f5bf7a;
-  background: #fff7ed;
-  color: #b45309;
+  border-color: var(--console-line-strong);
+  background: var(--console-bg-raised);
+  color: var(--console-muted);
 }
 
 .system-page-content .task-system-project-selector .task-system-source-badge--other,
 .system-page-content .task-system-source-badge--other {
-  border-color: #cbd5e1;
-  background: #f8fafc;
-  color: #475569;
+  border-color: var(--console-line);
+  background: var(--console-bg-raised);
+  color: var(--console-muted);
 }
 
 .system-page-content .task-system-environment-menu__empty {
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--console-line);
   border-radius: 7px;
-  color: #64748b;
+  color: var(--console-muted);
   font-size: 0.72rem;
   padding: 0.72rem;
   text-align: center;
@@ -2402,13 +2350,13 @@
 }
 
 .system-page-content .task-system-layer-group > header strong {
-  color: #0f172a;
+  color: var(--console-text);
   font-size: 0.72rem;
   font-weight: 800;
 }
 
 .system-page-content .task-system-layer-group > header span {
-  color: #64748b;
+  color: var(--console-muted);
   font-size: 0.64rem;
   line-height: 1.35;
 }
@@ -2452,7 +2400,7 @@
 .system-page-content .task-management-stage .boundary-card,
 .system-page-content .task-management-stage .boundary-main {
   border-radius: 7px;
-  background: #fff;
+  background: var(--console-surface);
 }
 
 .system-page-content .task-graph-editor-page {
@@ -2461,7 +2409,7 @@
 
 .system-page-content .task-graph-editor-page .task-graph-studio-shell {
   grid-template-rows: auto minmax(0, 1fr) auto;
-  color: #0f172a;
+  color: var(--console-text);
 }
 
 .system-page-content .task-graph-editor-page .task-graph-studio-topbar {
@@ -2492,8 +2440,8 @@
 .system-page-content .task-graph-editor-page .task-graph-topology-layer-filter {
   display: flex;
   gap: 0.26rem;
-  border-bottom: 1px solid #d8e0eb;
-  background: #fff;
+  border-bottom: 1px solid var(--console-line);
+  background: var(--console-surface);
   padding: 0.28rem 0.42rem;
 }
 
@@ -2535,29 +2483,8 @@
 
 /* Console workbench visual system: light, dense, precise. */
 :root {
-  --console-font: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
-  --console-mono: "Cascadia Code", "Cascadia Mono", "Consolas", "SFMono-Regular", monospace;
-  --console-bg: #ffffff;
-  --console-bg-raised: #f7f9fc;
-  --console-surface: #ffffff;
-  --console-surface-muted: #f5f7fa;
-  --console-hover: #edf3fb;
-  --console-selected: #eaf2ff;
-  --console-line: #dfe4ed;
-  --console-line-soft: #eef1f6;
-  --console-line-strong: #c5cdd9;
-  --console-text: #15181d;
-  --console-text-soft: #3f4651;
-  --console-muted: #697381;
-  --console-faint: #98a1ad;
-  --console-accent: #1f5fbf;
-  --console-accent-hover: #184f9f;
-  --console-accent-soft: #eaf2ff;
-  --console-success: #16735c;
-  --console-warning: #986300;
-  --console-danger: #b42318;
-  --console-focus: 0 0 0 3px rgba(31, 95, 191, 0.14);
-  --console-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --console-font: var(--font-display);
+  --console-mono: var(--font-mono);
 }
 
 html,
@@ -2567,7 +2494,6 @@ body {
 
 body {
   color: var(--console-text);
-  font-family: var(--console-font);
   font-size: 13px;
   letter-spacing: 0;
   text-rendering: geometricPrecision;
@@ -2616,30 +2542,9 @@ select:focus-visible {
   --workbench-blue: var(--console-accent);
   --workbench-blue-soft: var(--console-accent-soft);
   --workbench-green: var(--console-success);
-  --workbench-texture: none;
   --workbench-surface-texture: none;
   --workbench-glow: none;
   --workbench-input: var(--console-surface);
-  --console-bg: #f6f7f9;
-  --console-bg-soft: #fafbfc;
-  --console-surface: #ffffff;
-  --console-surface-soft: #f4f6f8;
-  --console-surface-strong: #eef1f5;
-  --console-line: #d9dee7;
-  --console-line-soft: #e8ebf0;
-  --console-line-strong: #b8c1ce;
-  --console-text: #15181d;
-  --console-text-soft: #3f4651;
-  --console-muted: #697381;
-  --console-faint: #98a1ad;
-  --console-blue: #1f5fbf;
-  --console-blue-soft: #eaf2ff;
-  --console-green: #16735c;
-  --console-green-soft: #e7f6ef;
-  --console-warn: #986300;
-  --console-warn-soft: #fff6df;
-  --console-danger: #b42318;
-  --console-danger-soft: #fff1ef;
   font-family: var(--console-font);
   font-size: 13px;
 }
@@ -2653,7 +2558,7 @@ select:focus-visible {
 .system-page-rail {
   gap: 10px;
   border-right: 1px solid var(--console-line);
-  background: var(--console-bg-raised);
+  background: var(--console-surface-soft);
   padding: 10px 6px;
 }
 
@@ -2663,7 +2568,7 @@ select:focus-visible {
   height: 34px;
   border-color: transparent;
   border-radius: 7px;
-  background: transparent;
+  background: var(--console-surface);
   color: var(--console-muted);
 }
 
@@ -2687,7 +2592,7 @@ select:focus-visible {
 }
 
 .system-page-content {
-  background: var(--console-bg);
+  background: var(--console-surface);
   padding: 10px;
 }
 
@@ -2917,7 +2822,7 @@ select:focus-visible {
 .system-page-shell .mcp-tool-row--active,
 .system-page-shell .capability-endpoint-row--active,
 .system-page-shell .capability-system-console .mcp-server-row--active {
-  border-color: #a9bee2;
+  border-color: var(--console-accent);
   background: var(--console-selected);
   color: var(--console-text);
 }
@@ -2951,12 +2856,12 @@ select:focus-visible {
 .confirm-dialog footer .confirm-dialog__primary {
   border-color: var(--console-accent);
   background: var(--console-accent);
-  color: #fff;
+  color: var(--console-surface);
 }
 
 .system-page-shell .action-button--danger,
 .boundary-button--danger {
-  border-color: #e2aaa5;
+  border-color: var(--console-danger);
   background: var(--console-danger-soft);
   color: var(--console-danger);
 }
@@ -2991,7 +2896,7 @@ select:focus-visible {
 .system-page-shell .capability-system-console .mcp-call-result {
   border: 1px solid var(--console-line);
   border-radius: 7px;
-  background: #f1f3f6;
+  background: var(--console-bg-raised);
   color: var(--console-text);
 }
 
@@ -3132,7 +3037,7 @@ select:focus-visible {
 }
 
 .system-page-shell:not(.system-page-shell--removed-system) .workspace-alert--danger {
-  border-color: #e2aaa5;
+  border-color: var(--console-danger);
   background: var(--console-danger-soft);
   color: var(--console-danger);
 }
@@ -3229,7 +3134,7 @@ select:focus-visible {
 .system-page-shell:not(.system-page-shell--removed-system) .task-system-object-row--active,
 .system-page-shell:not(.system-page-shell--removed-system) .task-graph-layer-card:hover,
 .system-page-shell:not(.system-page-shell--removed-system) .task-graph-layer-card--active {
-  border-color: #a9bee2;
+  border-color: var(--console-accent);
   background: var(--console-selected);
   color: var(--console-accent);
   transform: none;
@@ -3342,14 +3247,14 @@ select:focus-visible {
 .system-page-shell:not(.system-page-shell--removed-system) .boundary-button--primary {
   border-color: var(--console-accent);
   background: var(--console-accent);
-  color: #fff;
+  color: var(--console-surface);
 }
 
 .system-page-shell:not(.system-page-shell--removed-system) .action-button--primary:hover:not(:disabled),
 .system-page-shell:not(.system-page-shell--removed-system) .boundary-button--primary:hover:not(:disabled) {
   border-color: var(--console-accent-hover);
   background: var(--console-accent-hover);
-  color: #fff;
+  color: var(--console-surface);
 }
 
 .system-page-shell:not(.system-page-shell--removed-system) .memory-status-filter .memory-status-filter__active,
@@ -3369,7 +3274,7 @@ select:focus-visible {
 .system-page-shell:not(.system-page-shell--removed-system) .capability-system-console .mcp-call-result {
   border: 1px solid var(--console-line);
   border-radius: 7px;
-  background: #f1f3f6;
+  background: var(--console-bg-raised);
   color: var(--console-text);
   font-family: var(--console-mono);
 }
@@ -3576,28 +3481,7 @@ select:focus-visible {
 /* Crisp agent console layer: reduce glass blur and sharpen reading contrast. */
 .system-page-shell,
 .agent-workbench {
-  --console-font: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Source Han Sans SC", "Noto Sans SC", system-ui, sans-serif;
-  --console-bg: #f3f6f9;
-  --console-bg-raised: #f8fafc;
-  --console-surface: #ffffff;
-  --console-surface-muted: #f1f5f9;
-  --console-hover: #eef5ff;
-  --console-selected: #eaf3ff;
-  --console-line: #d6e0ea;
-  --console-line-soft: #e8eef5;
-  --console-line-strong: #adbfce;
-  --console-text: #111827;
-  --console-text-soft: #344054;
-  --console-muted: #5d6978;
-  --console-faint: #7b8794;
-  --console-accent: #1d5fd3;
-  --console-accent-hover: #164fb4;
-  --console-accent-soft: #eaf3ff;
-  --console-success: #13765b;
-  --console-warning: #8a5a00;
-  --console-danger: #b42318;
-  --console-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-  --console-shadow-soft: 0 1px 1px rgba(15, 23, 42, 0.035);
+  --console-font: var(--font-display);
   --console-radius-sm: 9px;
   --console-radius-md: 11px;
   --console-radius-lg: 14px;
@@ -3605,23 +3489,23 @@ select:focus-visible {
 
 html,
 body {
-  background: #f3f6f9;
+  background: var(--console-bg);
 }
 
 .system-page-shell {
-  background: #ffffff;
+  background: var(--console-surface);
   font-family: var(--console-font);
   letter-spacing: 0;
 }
 
 .system-page-content {
-  background: #ffffff;
+  background: var(--console-bg);
   padding: 0;
 }
 
 .system-page-rail {
   border-right: 0;
-  background: #ffffff;
+  background: var(--console-surface);
   box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -3635,13 +3519,13 @@ body {
 
 .system-page-rail__button:hover,
 .system-page-rail__button--active {
-  background: #eaf3ff;
-  box-shadow: inset 0 0 0 1px #c8dcf8;
+  background: var(--console-hover);
+  box-shadow: inset 0 0 0 1px var(--console-active-ring);
 }
 
 .agent-workbench {
-  background: #ffffff;
-  color: #111827;
+  background: var(--console-bg);
+  color: var(--console-text);
   font-family: var(--console-font);
   font-size: 14px;
   letter-spacing: 0;
@@ -3671,7 +3555,7 @@ body {
 .workbench-right-panel,
 .workbench-center {
   border-color: transparent;
-  background: #ffffff;
+  background: var(--console-bg);
   box-shadow: none;
 }
 
@@ -3684,18 +3568,18 @@ body {
 }
 
 .workbench-resize-handle {
-  background: #ffffff;
+  background: var(--console-bg);
 }
 
 .workbench-resize-handle::after {
   inset: 14px 3px;
   border-radius: 999px;
-  background: #eef3f8;
+  background: var(--console-hover);
   opacity: 0;
 }
 
 .workbench-resize-handle:hover::after {
-  background: #adc4dc;
+  background: var(--console-line-strong);
   opacity: 0.86;
 }
 
@@ -3840,8 +3724,8 @@ body {
 
 .agent-workbench .chat-token-meter--near_threshold,
 .agent-workbench .chat-token-meter--over_threshold {
-  border-color: #edd39b;
-  background: #fff8e5;
+  border-color: var(--console-warning);
+  background: var(--console-warning-soft);
 }
 
 .agent-workbench .chat-message-shell__content,
@@ -3849,7 +3733,7 @@ body {
 .agent-workbench .chat-message-shell__content.markdown p,
 .agent-workbench .chat-message-shell__content.markdown li,
 .agent-workbench .chat-message-shell__content.markdown blockquote {
-  color: #111827;
+  color: var(--console-text);
 }
 
 .agent-workbench .chat-message-shell__content,
@@ -3881,31 +3765,31 @@ body {
 }
 
 .agent-workbench .chat-message-shell--user .chat-message-shell__content {
-  border-color: #d3dde8;
+  border-color: var(--console-line);
   border-radius: var(--console-radius-lg);
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.045);
+  background: var(--console-surface);
+  box-shadow: var(--console-shadow-soft);
   font-size: 16px;
 }
 
 .agent-workbench .message-edit-button {
   right: 4px;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  background: var(--console-surface);
+  box-shadow: var(--console-shadow);
 }
 
 .agent-workbench .chat-message-shell__runtime-log-entry,
 .agent-workbench .chat-message-attachment,
 .agent-workbench .chat-attachment-chip {
   border-radius: var(--console-radius-md);
-  border-color: #d6e0ea;
-  background: #ffffff;
+  border-color: var(--console-line);
+  background: var(--console-surface);
   box-shadow: none;
 }
 
 .agent-workbench .chat-panel-footer {
   background:
-    linear-gradient(180deg, rgba(247, 249, 251, 0), #f7f9fb 24%, #f7f9fb 100%);
+    linear-gradient(180deg, var(--console-bg-transparent, transparent), var(--console-bg) 24%, var(--console-bg) 100%);
 }
 
 .agent-workbench .chat-panel-status-row {
@@ -3919,29 +3803,29 @@ body {
 }
 
 .agent-workbench .chat-input-panel--inline {
-  border-color: #bac9d8;
+  border-color: var(--console-line-strong);
   border-radius: var(--console-radius-lg);
-  background: #ffffff;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.055);
+  background: var(--console-surface);
+  box-shadow: var(--console-shadow);
 }
 
 .agent-workbench .chat-input-panel--inline:focus-within {
-  border-color: #6fa0e8;
-  box-shadow: 0 0 0 2px rgba(29, 95, 211, 0.11), 0 2px 8px rgba(15, 23, 42, 0.06);
+  border-color: var(--console-accent);
+  box-shadow: 0 0 0 2px var(--console-accent-soft), var(--console-shadow);
 }
 
 .agent-workbench .chat-input-panel__textarea {
-  color: #111827;
+  color: var(--console-text);
   font-size: 15px;
 }
 
 .agent-workbench .chat-input-panel__textarea::placeholder {
-  color: #8a96a6;
+  color: var(--console-faint);
 }
 
 .agent-workbench .chat-input-panel__footer,
 .agent-workbench .chat-attachment-strip {
-  border-top-color: #e3eaf2;
+  border-top-color: var(--console-line-soft);
 }
 
 .agent-workbench .chat-model-select,
@@ -3949,8 +3833,8 @@ body {
 .agent-workbench .workbench-toolbar-actions button,
 .agent-workbench .workbench-project-scope-row__actions button,
 .agent-workbench .workbench-project-remove-confirm button {
-  border-color: #d6e0ea;
-  background: #ffffff;
+  border-color: var(--console-line);
+  background: var(--console-surface);
   box-shadow: none;
 }
 
@@ -3959,21 +3843,21 @@ body {
 .agent-workbench .workbench-toolbar-actions button:hover:not(:disabled),
 .agent-workbench .workbench-project-scope-row__actions button:hover:not(:disabled),
 .agent-workbench .workbench-file-tree__toggle:hover {
-  border-color: #b8cbe0;
-  background: #f2f7ff;
-  color: #164fb4;
+  border-color: var(--console-line-strong);
+  background: var(--console-hover);
+  color: var(--console-accent);
   box-shadow: none;
 }
 
 .agent-workbench .chat-send-button {
-  border-color: #111827;
-  background: #111827;
+  border-color: var(--console-text);
+  background: var(--console-text);
   box-shadow: none;
 }
 
 .agent-workbench .chat-send-button:hover:not(:disabled) {
-  border-color: #1d5fd3;
-  background: #1d5fd3;
+  border-color: var(--console-accent);
+  background: var(--console-accent);
 }
 
 .agent-workbench .public-run-activity {
@@ -3989,9 +3873,9 @@ body {
 
 .agent-workbench .public-run-activity__line::before,
 .agent-workbench .public-run-activity__todo-block::before {
-  border-color: #8eb6ea;
-  background: #ffffff;
-  box-shadow: 0 0 0 2px #edf4ff;
+  border-color: var(--console-accent);
+  background: var(--console-surface);
+  box-shadow: 0 0 0 2px var(--console-accent-soft);
 }
 
 .agent-workbench .public-run-activity__line p,
@@ -4050,7 +3934,7 @@ body {
 
 .agent-workbench .public-run-activity__tool-round summary:hover,
 .agent-workbench .public-run-activity__tool-window summary:hover {
-  color: #0f172a;
+  color: var(--console-text);
 }
 
 .agent-workbench .public-run-activity__tool-round summary::-webkit-details-marker,
@@ -4067,7 +3951,7 @@ body {
   height: 22px;
   border-radius: 999px;
   background: transparent;
-  color: #2563eb;
+  color: var(--console-accent);
   opacity: 0.9;
 }
 
@@ -4078,32 +3962,32 @@ body {
 
 .agent-workbench .public-run-activity__tool-window[data-tool-family="write"] .public-run-activity__tool-window-icon,
 .agent-workbench .public-run-activity__tool-round[data-tool-family="write"] .public-run-activity__tool-round-icon {
-  color: #9a6500;
+  color: var(--console-warning);
 }
 
 .agent-workbench .public-run-activity__tool-window[data-tool-family="search"] .public-run-activity__tool-window-icon,
 .agent-workbench .public-run-activity__tool-round[data-tool-family="search"] .public-run-activity__tool-round-icon {
-  color: #0f7a4d;
+  color: var(--console-success);
 }
 
 .agent-workbench .public-run-activity__tool-window[data-tool-family="command"] .public-run-activity__tool-window-icon,
 .agent-workbench .public-run-activity__tool-round[data-tool-family="command"] .public-run-activity__tool-round-icon {
-  color: #1f2937;
+  color: var(--console-text);
 }
 
 .agent-workbench .public-run-activity__tool-window[data-tool-family="file"] .public-run-activity__tool-window-icon,
 .agent-workbench .public-run-activity__tool-round[data-tool-family="file"] .public-run-activity__tool-round-icon {
-  color: #2563eb;
+  color: var(--console-accent);
 }
 
 .agent-workbench .public-run-activity__tool-window[data-tool-family="inspect"] .public-run-activity__tool-window-icon,
 .agent-workbench .public-run-activity__tool-round[data-tool-family="inspect"] .public-run-activity__tool-round-icon {
-  color: #0f766e;
+  color: var(--console-success);
 }
 
 .agent-workbench .public-run-activity__tool-window[data-tool-family="media"] .public-run-activity__tool-window-icon,
 .agent-workbench .public-run-activity__tool-round[data-tool-family="media"] .public-run-activity__tool-round-icon {
-  color: #6d45b8;
+  color: var(--console-accent);
 }
 
 .agent-workbench .public-run-activity__tool-window-copy,
@@ -4137,7 +4021,7 @@ body {
   min-width: 0;
   max-width: min(56vw, 620px);
   overflow: hidden;
-  color: #31445b;
+  color: var(--console-muted);
   font-family: var(--console-mono, "Cascadia Code", monospace);
   font-size: 12px;
   font-weight: 620;
@@ -4166,7 +4050,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #64748b;
+  color: var(--console-muted);
   transition: transform 140ms ease;
 }
 
@@ -4186,7 +4070,7 @@ body {
   border-radius: 999px;
   padding: 0;
   background: transparent;
-  color: #64748b;
+  color: var(--console-muted);
   font-size: 11.5px;
   font-weight: 720;
   white-space: nowrap;
@@ -4196,62 +4080,62 @@ body {
   width: 9px;
   height: 9px;
   flex: 0 0 auto;
-  border: 1.5px solid #cbd5e1;
+  border: 1.5px solid var(--console-line);
   border-radius: 999px;
-  background: #ffffff;
-  box-shadow: 0 0 0 3px rgba(248, 250, 252, 0.95);
+  background: var(--console-surface);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--console-surface) 95%, transparent);
 }
 
 .agent-workbench .public-run-activity__tool-window-status--done,
 .agent-workbench .public-run-activity__tool-round--done .public-run-activity__tool-window-status {
-  color: #0f7a4c;
+  color: var(--console-success);
 }
 
 .agent-workbench .public-run-activity__tool-window-status--done .public-run-activity__tool-status-dot,
 .agent-workbench .public-run-activity__tool-round--done .public-run-activity__tool-status-dot {
-  border-color: #16a34a;
-  background: #22c55e;
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
+  border-color: var(--console-success);
+  background: var(--console-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--console-success) 25%, transparent);
 }
 
 .agent-workbench .public-run-activity__tool-window-status--running,
 .agent-workbench .public-run-activity__tool-round--running .public-run-activity__tool-window-status {
-  color: #475569;
+  color: var(--console-muted);
 }
 
 .agent-workbench .public-run-activity__tool-window-status--running .public-run-activity__tool-status-dot,
 .agent-workbench .public-run-activity__tool-round--running .public-run-activity__tool-status-dot {
-  border-color: #94a3b8;
-  background: #ffffff;
+  border-color: var(--console-line-strong);
+  background: var(--console-surface);
 }
 
 .agent-workbench .public-run-activity__tool-window-status--waiting,
 .agent-workbench .public-run-activity__tool-round--waiting .public-run-activity__tool-window-status {
-  color: #835400;
+  color: var(--console-warning);
 }
 
 .agent-workbench .public-run-activity__tool-window-status--waiting .public-run-activity__tool-status-dot,
 .agent-workbench .public-run-activity__tool-round--waiting .public-run-activity__tool-status-dot {
-  border-color: #d97706;
-  background: #f59e0b;
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
+  border-color: var(--console-warning);
+  background: var(--console-warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--console-warning) 25%, transparent);
 }
 
 .agent-workbench .public-run-activity__tool-window-status--soft_error,
 .agent-workbench .public-run-activity__tool-round--soft_error .public-run-activity__tool-window-status {
-  color: #b42318;
+  color: var(--console-muted);
 }
 
 .agent-workbench .public-run-activity__tool-window-status--soft_error .public-run-activity__tool-status-dot,
 .agent-workbench .public-run-activity__tool-round--soft_error .public-run-activity__tool-status-dot {
-  border-color: #dc2626;
-  background: #ef4444;
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+  border-color: var(--console-muted);
+  background: var(--console-muted);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--console-muted) 25%, transparent);
 }
 
 .agent-workbench .public-run-activity__tool-round--soft_error .public-run-activity__tool-round-icon,
 .agent-workbench .public-run-activity__tool-window--soft_error .public-run-activity__tool-window-icon {
-  color: #b42318;
+  color: #8a613b;
 }
 
 .agent-workbench .public-run-activity__tool-round-count {
@@ -4267,7 +4151,7 @@ body {
   margin: 4px 0 14px 42px;
   border-radius: 18px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(247, 250, 253, 0.52));
+    linear-gradient(180deg, color-mix(in srgb, var(--console-surface) 72%, transparent), color-mix(in srgb, var(--console-surface) 52%, transparent));
   padding: 16px 18px 18px;
 }
 
@@ -4277,7 +4161,7 @@ body {
   width: auto;
   margin: 2px 0 14px 38px;
   border-radius: 18px;
-  background: rgba(248, 250, 252, 0.48);
+  background: color-mix(in srgb, var(--console-surface) 48%, transparent);
   padding: 12px 14px;
 }
 
@@ -4286,7 +4170,7 @@ body {
   width: min(100% - 32px, 940px);
   margin: 2px 0 13px 32px;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.5);
+  background: color-mix(in srgb, var(--console-surface) 50%, transparent);
   padding: 14px 16px 16px;
 }
 
@@ -4309,7 +4193,7 @@ body {
 }
 
 .agent-workbench .public-run-activity__tool-meta-item dt {
-  color: #6b7788;
+  color: var(--console-muted);
   font-size: 12px;
   font-weight: 720;
   line-height: 1.55;
@@ -4318,7 +4202,7 @@ body {
 .agent-workbench .public-run-activity__tool-meta-item dd {
   min-width: 0;
   margin: 0;
-  color: #182235;
+  color: var(--console-text);
   font-family: var(--console-mono, "Cascadia Code", monospace);
   font-size: 12.5px;
   line-height: 1.55;
@@ -4357,7 +4241,7 @@ body {
 
 .agent-workbench .public-run-activity__tool-console-label {
   padding: 0;
-  color: #6b7788;
+  color: var(--console-muted);
   font-size: 12px;
   font-weight: 760;
   line-height: 1.7;
@@ -4380,7 +4264,7 @@ body {
 }
 
 .agent-workbench .public-run-activity__tool-console-output {
-  color: #526071;
+  color: var(--console-muted);
 }
 
 @container (max-width: 560px) {
@@ -4403,12 +4287,12 @@ body {
 .runtime-log-panel,
 .file-changes-panel,
 .run-monitor-panel {
-  background: #ffffff;
-  color: #111827;
+  background: var(--console-surface);
+  color: var(--console-text);
 }
 
 .runtime-log-panel {
-  border-top-color: #d6e0ea;
+  border-top-color: var(--console-line);
 }
 
 .runtime-log-panel__events,
@@ -4417,25 +4301,25 @@ body {
 .file-changes-panel__head button,
 .file-change-row__actions button {
   border-radius: var(--console-radius-md);
-  border-color: #d6e0ea;
-  background: #ffffff;
+  border-color: var(--console-line);
+  background: var(--console-surface);
 }
 
 .run-monitor-task,
 .file-change-row {
-  border-bottom-color: #e5ebf2;
+  border-bottom-color: var(--console-line);
 }
 
 .run-monitor-task:hover,
 .file-change-row:hover {
-  background: #f2f7ff;
+  background: var(--console-hover);
 }
 
 .workbench-empty-state,
 .boundary-empty {
   border-radius: var(--console-radius-lg);
-  border-color: #d6e0ea;
-  background: #ffffff;
+  border-color: var(--console-line);
+  background: var(--console-surface);
   box-shadow: none;
 }
 
@@ -4459,16 +4343,16 @@ body {
   justify-content: center;
   border: 0;
   border-radius: 11px;
-  background: #ffffff;
-  color: #475569;
+  background: var(--console-surface);
+  color: var(--console-muted);
   padding: 0;
-  box-shadow: inset 0 0 0 1px rgba(203, 213, 225, 0.78);
+  box-shadow: inset 0 0 0 1px var(--console-line);
 }
 
 .agent-workbench .workbench-panel-head__action:hover:not(:disabled) {
-  background: #eef6ff;
-  color: #1857bd;
-  box-shadow: inset 0 0 0 1px rgba(93, 142, 210, 0.42);
+  background: var(--console-hover);
+  color: var(--console-accent);
+  box-shadow: inset 0 0 0 1px var(--console-line-strong);
 }
 
 .agent-workbench .workbench-panel-head strong,
@@ -4554,7 +4438,7 @@ body {
 }
 
 .agent-workbench .workbench-session-row small {
-  color: #536173;
+  color: var(--console-muted);
   font-size: 12px;
   line-height: 1.28;
 }
@@ -4573,8 +4457,8 @@ body {
 .agent-workbench .workbench-project-tree-row--active,
 .agent-workbench .workbench-session-row:hover,
 .agent-workbench .workbench-session-row--active {
-  border-color: #d7e7fb;
-  background: #eef6ff;
+  border-color: var(--console-line);
+  background: var(--console-hover);
   box-shadow: inset 0 0 0 1px rgba(29, 95, 211, 0.045);
 }
 
@@ -4582,7 +4466,7 @@ body {
   margin: 7px 7px 8px;
   border-color: transparent;
   border-radius: 13px;
-  background: #f8fbff;
+  background: var(--console-bg-raised);
 }
 
 .agent-workbench .workbench-file-tree--secondary.is-collapsed {
@@ -4615,7 +4499,7 @@ body {
 .agent-workbench .file-changes-panel__notice,
 .agent-workbench .file-change-row small,
 .agent-workbench .file-changes-empty span {
-  color: #526071;
+  color: var(--console-muted);
   font-size: 13px;
   line-height: 1.4;
 }
@@ -4624,9 +4508,9 @@ body {
 .agent-workbench .file-changes-panel__head button,
 .agent-workbench .file-change-row__actions button,
 .agent-workbench .run-monitor-task__action {
-  border-color: #dbe5ef;
+  border-color: var(--console-line);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--console-surface);
 }
 
 .agent-workbench .run-monitor-panel__head button,
@@ -4660,8 +4544,8 @@ body {
 
 .agent-workbench .run-monitor-task:hover,
 .agent-workbench .file-change-row:hover {
-  border-color: #d7e6f8;
-  background: #f2f8ff;
+  border-color: var(--console-line);
+  background: var(--console-hover);
 }
 
 .agent-workbench .run-monitor-task__body strong,
@@ -4669,7 +4553,7 @@ body {
 .agent-workbench .run-monitor-empty strong,
 .agent-workbench .file-change-row__body strong,
 .agent-workbench .file-changes-empty strong {
-  color: #111827;
+  color: var(--console-text);
   font-size: 13px;
   font-weight: 700;
   line-height: 1.3;
@@ -4689,7 +4573,7 @@ body {
 }
 
 .agent-workbench .file-changes-panel {
-  border-top-color: #eef3f8;
+  border-top-color: var(--console-line);
   padding: 15px 11px 14px;
 }
 
@@ -5137,8 +5021,8 @@ body {
 /* Desktop right inspector: keep monitor readable while file changes remain the main list. */
 .agent-workbench .workbench-right-panel {
   position: relative;
-  border-left-color: #eef3f8;
-  background: #ffffff;
+  border-left-color: var(--console-line);
+  background: var(--console-surface);
 }
 
 .agent-workbench .workbench-right-panel__collapse {
@@ -5152,9 +5036,9 @@ body {
   place-items: center;
   border: 0;
   border-radius: 11px;
-  background: #ffffff;
+  background: var(--console-surface);
   color: var(--console-muted);
-  box-shadow: inset 0 0 0 1px rgba(203, 213, 225, 0.72);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-line) 72%, transparent);
 }
 
 .agent-workbench .workbench-right-panel__collapse:hover:not(:disabled) {
@@ -5168,7 +5052,7 @@ body {
   flex-direction: column;
   gap: 8px;
   padding: 9px 9px 10px;
-  background: #ffffff;
+  background: var(--console-surface);
 }
 
 .agent-workbench .run-monitor-panel,
@@ -5291,14 +5175,14 @@ body {
   padding: 9px;
   border: 1px solid transparent;
   border-radius: 14px;
-  background: color-mix(in srgb, var(--console-surface) 82%, #f8fbff);
-  box-shadow: inset 0 0 0 1px rgba(214, 224, 235, 0.58);
+  background: color-mix(in srgb, var(--console-surface) 82%, var(--console-bg-raised));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-line) 58%, transparent);
 }
 
 .agent-workbench .run-monitor-task:hover {
-  border-color: rgba(109, 154, 211, 0.24);
-  background: #f4f8ff;
-  box-shadow: inset 0 0 0 1px rgba(109, 154, 211, 0.28);
+  border-color: color-mix(in srgb, var(--console-accent) 24%, transparent);
+  background: var(--console-hover);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-accent) 28%, transparent);
 }
 
 .agent-workbench .run-monitor-task__icon {
@@ -5357,7 +5241,7 @@ body {
 }
 
 .agent-workbench .run-monitor-task__body strong {
-  color: #111827;
+  color: var(--console-text);
   font-size: 13.5px;
   font-weight: 760;
   line-height: 1.22;
@@ -5365,7 +5249,7 @@ body {
 
 .agent-workbench .run-monitor-task__body small,
 .agent-workbench .run-monitor-task__meta small {
-  color: #526071;
+  color: var(--console-muted);
   font-size: 12.5px;
   line-height: 1.25;
 }
@@ -5374,9 +5258,9 @@ body {
   max-width: 72px;
   min-height: 22px;
   border-radius: 999px;
-  background: rgba(235, 243, 255, 0.95);
-  box-shadow: inset 0 0 0 1px rgba(152, 183, 225, 0.3);
-  color: #245ea8;
+  background: color-mix(in srgb, var(--console-accent-soft) 95%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-accent-soft) 30%, transparent);
+  color: var(--console-accent);
   font-size: 12px;
   font-weight: 750;
   line-height: 22px;
@@ -5427,8 +5311,8 @@ body {
   min-height: 30px;
   border: 0;
   border-radius: 11px;
-  background: #ffffff;
-  box-shadow: inset 0 0 0 1px rgba(203, 213, 225, 0.7);
+  background: var(--console-surface);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-line) 70%, transparent);
   color: var(--console-muted);
   font-size: 12.5px;
   font-weight: 720;
@@ -5520,14 +5404,14 @@ body {
   height: 30px;
   border: 0;
   border-radius: 11px;
-  background: #ffffff;
-  box-shadow: inset 0 0 0 1px rgba(203, 213, 225, 0.7);
+  background: var(--console-surface);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-line) 70%, transparent);
 }
 
 .agent-workbench .file-change-history-list {
   margin: 0 5px 5px 20px;
   padding: 4px 0 4px 10px;
-  border-left-color: #dce7f4;
+  border-left-color: var(--console-line);
   max-height: min(220px, 25vh);
 }
 
@@ -5539,7 +5423,7 @@ body {
 .agent-workbench .file-change-history-tools button {
   min-height: 29px;
   border: 0;
-  box-shadow: inset 0 0 0 1px rgba(203, 213, 225, 0.7);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-line) 70%, transparent);
 }
 
 .agent-workbench .file-change-history-row {
@@ -5549,8 +5433,8 @@ body {
 .agent-workbench .file-changes-empty,
 .agent-workbench .file-change-section__empty {
   border: 0;
-  background: #ffffff;
-  box-shadow: inset 0 0 0 1px rgba(203, 213, 225, 0.52);
+  background: var(--console-surface);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-line) 52%, transparent);
 }
 
 .agent-workbench .file-changes-empty--compact {
@@ -5561,7 +5445,7 @@ body {
 .agent-workbench .file-change-section--other {
   margin-top: 2px;
   padding-top: 8px;
-  border-top: 1px solid rgba(226, 232, 240, 0.78);
+  border-top: 1px solid color-mix(in srgb, var(--console-line) 78%, transparent);
 }
 
 .agent-workbench .file-change-task-list {
@@ -5576,8 +5460,8 @@ body {
   min-width: 0;
   padding: 6px;
   border-radius: 14px;
-  background: #f8fafc;
-  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.78);
+  background: var(--console-bg-raised);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-line) 78%, transparent);
 }
 
 .agent-workbench .file-change-task-bucket__head {
@@ -5782,15 +5666,15 @@ body {
 }
 
 .center-workspace-diff__line--removed {
-  border-left-color: #ef4444;
-  background: #fff1f2;
-  color: #991b1b;
+  border-left-color: var(--console-danger);
+  background: var(--console-danger-soft);
+  color: var(--console-danger);
 }
 
 .center-workspace-diff__line--added {
-  border-left-color: #22c55e;
-  background: #ecfdf5;
-  color: #166534;
+  border-left-color: var(--console-success);
+  background: var(--console-success-soft);
+  color: var(--console-success);
 }
 
 .center-workspace-diff__line--empty {
@@ -5819,12 +5703,12 @@ body {
 
 .center-workspace-diff__line--removed .center-workspace-diff__line-number,
 .center-workspace-diff__line--removed .center-workspace-diff__line-prefix {
-  color: #dc2626;
+  color: var(--console-danger);
 }
 
 .center-workspace-diff__line--added .center-workspace-diff__line-number,
 .center-workspace-diff__line--added .center-workspace-diff__line-prefix {
-  color: #16a34a;
+  color: var(--console-success);
 }
 
 .center-workspace-diff__line-text {
@@ -6067,7 +5951,7 @@ body {
   border-radius: var(--console-radius-md);
   background: var(--console-surface);
   color: var(--console-muted);
-  box-shadow: inset 0 0 0 1px rgba(214, 224, 234, 0.9);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-line) 90%, transparent);
   padding: 2px 3px 2px 9px;
 }
 
@@ -6523,8 +6407,8 @@ body {
   min-height: 0;
   margin: 0;
   overflow: auto;
-  background: #f8fafc;
-  color: #111827;
+  background: var(--console-bg-raised);
+  color: var(--console-text);
   font-family: var(--console-mono);
   font-size: 12px;
   line-height: 1.58;
@@ -6849,8 +6733,8 @@ body {
   gap: 7px;
   margin: 0;
   border-radius: var(--console-radius-md);
-  background: #fff5f5;
-  color: #b42318;
+  background: var(--console-danger-soft);
+  color: var(--console-danger);
   font-size: 12.5px;
   font-weight: 650;
   line-height: 1.45;
@@ -6959,9 +6843,9 @@ body {
   height: 28px;
   place-items: center;
   border-radius: 10px;
-  background: #f1f6fd;
+  background: var(--console-accent-soft);
   color: var(--console-accent);
-  box-shadow: inset 0 0 0 1px rgba(199, 218, 242, 0.64);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-line) 64%, transparent);
 }
 
 .agent-workbench .workbench-right-changes .file-changes-empty__copy {
@@ -6972,14 +6856,14 @@ body {
 }
 
 .agent-workbench .workbench-right-changes .file-changes-empty__copy strong {
-  color: #111827;
+  color: var(--console-text);
   font-size: 13.5px;
   font-weight: 760;
   line-height: 1.25;
 }
 
 .agent-workbench .workbench-right-changes .file-changes-empty__copy span {
-  color: #526071;
+  color: var(--console-muted);
   font-size: 12.5px;
   font-weight: 560;
   line-height: 1.45;

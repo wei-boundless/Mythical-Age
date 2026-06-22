@@ -20,6 +20,11 @@ def _contract() -> dict[str, object]:
         "task_run_goal": "Validate task contract manifest",
         "completion_criteria": ["manifest attached"],
         "required_artifacts": [{"artifact_kind": "markdown_document", "path": "report.md"}],
+        "plan_contract": {
+            "plan_id": "plan:task-contract-manifest",
+            "plan_status": "agent_managed",
+            "major_steps": ["Attach manifest", "Verify acceptance"],
+        },
     }
 
 
@@ -99,6 +104,10 @@ def test_task_execution_packet_attaches_task_contract_manifest_without_prompt_dr
     assert prompt_manifest["task_contract_manifest"] == packet.task_contract_manifest
     assert packet.diagnostics["task_contract_manifest"] == packet.task_contract_manifest
     assert packet.task_contract_manifest["source_ref"] == "contract:task-contract-manifest"
+    assert contract_payload["task_contract"]["goal_contract"]["task_run_goal"] == "Validate task contract manifest"
+    assert contract_payload["task_contract"]["plan_contract"]["plan_id"] == "plan:task-contract-manifest"
+    assert contract_payload["task_contract"]["acceptance_contract"]["completion_criteria"] == ["manifest attached"]
+    assert contract_payload["task_contract"]["acceptance_contract"]["required_artifacts"][0]["artifact_kind"] == "markdown_document"
 
 
 def test_single_agent_turn_does_not_attach_task_contract_manifest() -> None:

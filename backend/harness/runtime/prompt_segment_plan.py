@@ -259,7 +259,7 @@ def _validate_prefix_tier_content(*, kind: str, prefix_tier: SegmentPrefixTier, 
     if payload is None:
         return
     runtime_fields = sorted(_runtime_instance_value_fields(payload))
-    if runtime_fields:
+    if runtime_fields and prefix_tier != "task":
         raise ValueError(
             "stable prefix segment contains runtime instance fields: "
             f"kind={kind} prefix_tier={prefix_tier} fields={','.join(runtime_fields)}"

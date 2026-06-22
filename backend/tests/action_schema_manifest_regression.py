@@ -59,20 +59,27 @@ def test_single_turn_request_task_run_schema_shows_nested_contract_shape() -> No
 
     shape_rules = [str(item) for item in list(schema.get("request_task_run_shape_rules") or [])]
     example = dict(schema.get("minimal_valid_request_task_run_example") or {})
+    required_skeleton = dict(schema.get("request_task_run_required_skeleton") or {})
+    minimal_action = dict(required_skeleton.get("minimal_action") or {})
+    minimal_seed = dict(minimal_action.get("task_contract_seed") or {})
     seed = dict(example.get("task_contract_seed") or {})
 
     assert any("不要使用 payload" in rule for rule in shape_rules)
-    assert any("必须放在 task_contract_seed 内" in rule for rule in shape_rules)
+    assert any("request_task_run_required_skeleton" in rule for rule in shape_rules)
     assert any("provider-native canonical request_task_run" in rule for rule in shape_rules)
-    assert any("不要写 selected_groups" in rule for rule in shape_rules)
+    assert any("最小必填" in rule for rule in shape_rules)
+    assert not any("系统执行设置" in rule for rule in shape_rules)
+    assert not any("capability_intent" in rule or "skill_intent" in rule or "observation_contract" in rule for rule in shape_rules)
+    assert "minimal_action" in required_skeleton
+    assert "capability_intent" not in minimal_seed
+    assert "skill_intent" not in minimal_seed
+    assert "observation_contract" not in minimal_seed
     assert "capability_intent" not in example
     assert "skill_intent" not in example
     assert "observation_contract" not in example
-    assert "capability_intent" in seed
-    assert "skill_intent" in seed
-    assert "observation_contract" in seed
-    assert dict(seed["capability_intent"])["needed_capability_groups"] == ["file_work"]
-    assert dict(seed["observation_contract"])["evidence_policy"] == "observation_required"
+    assert "capability_intent" not in seed
+    assert "skill_intent" not in seed
+    assert "observation_contract" not in seed
 
 
 def test_single_turn_active_work_control_contract_exposes_canonical_control_fields() -> None:

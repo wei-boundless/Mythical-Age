@@ -8,7 +8,7 @@ from typing import Any
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs
 
 from .execution_state_projector import ExecutionStateProjector
-from .evidence_index_cursor import split_evidence_index_cursor
+from .evidence_index_cursor import build_evidence_index_cursor, split_evidence_index_cursor
 from .history_projector import HistoryProjector
 from .models import (
     DynamicContextInput,
@@ -209,13 +209,17 @@ class DynamicContextManager:
             envelope_projection={},
             include_task_run_context=False,
         )
+        evidence_cursor = build_evidence_index_cursor(
+            file_state=[dict(item) for item in list(task_state.get("file_state") or ()) if isinstance(item, dict)],
+            file_state_source=str(task_state.get("file_state_source") or "runtime.memory.file_state_store"),
+            file_evidence_decisions=dict(task_state.get("file_evidence_decisions") or {}),
+            read_resource_state=dict(task_state.get("read_resource_state") or {}),
+            evidence_confidence=dict(task_state.get("evidence_confidence") or {}),
+        )
         return drop_empty(
             {
                 "file_evidence_scope": dict(request.file_evidence_scope or {}),
-                "file_state": task_state.get("file_state"),
-                "file_evidence_decisions": task_state.get("file_evidence_decisions"),
-                "read_resource_state": task_state.get("read_resource_state"),
-                "file_state_source": task_state.get("file_state_source") or "runtime.memory.file_state_store",
+                **evidence_cursor,
             }
         )
 
@@ -238,7 +242,11 @@ class DynamicContextManager:
             envelope_projection=envelope_projection,
             include_task_run_context=bool(dict(request.projection_policy or {}).get("include_task_run_context", True)),
         )
-        task_plan_context = build_task_plan_context(task_state, task_run_id=request.task_run_id)
+        task_plan_context = build_task_plan_context(
+            task_state,
+            task_run_id=request.task_run_id,
+            task_contract=request.task_contract,
+        )
         replay_entries, task_state_cursor = self.task_state_projector.split_for_prompt_cache(
             task_state,
             replay_entry_limit=_task_state_replay_entry_limit(request.projection_policy),
@@ -431,16 +439,16 @@ class DynamicContextManager:
         task_plan_context = dict(volatile_state.get("task_plan_context") or {}) if isinstance(volatile_state.get("task_plan_context"), dict) else {}
         if task_plan_context:
             baseline = dict(task_plan_context.get("task_plan_baseline") or {})
-            cursor = dict(task_plan_context.get("task_plan_cursor") or {})
+            cursor = dict(task_plan_context.get("todo_cursor") or {})
             delta = dict(task_plan_context.get("task_plan_delta") or {})
             reports.append(
                 VolatileSectionReport(
                     section_id=f"dynamic_context:{request.invocation_kind}:task_plan_context",
                     source="task_plan_context",
-                    volatility_reason="task plan status can change during execution; baseline content, cursor, and delta are isolated from tool result replay",
+                    volatility_reason="task plan status can change during execution; PlanContract baseline, TodoCursor, and delta are isolated from tool result replay",
                     input_chars=estimate_chars({"execution_state": request.execution_state, "observations": request.observations}),
                     output_chars=estimate_chars(task_plan_context),
-                    projection_strategy="task_plan_baseline_cursor_delta_projection",
+                    projection_strategy="plan_contract_plus_todo_cursor_projection",
                     cache_impact="task_plan_dynamic_layer",
                     refs=tuple(
                         ref
@@ -453,14 +461,26 @@ class DynamicContextManager:
                     ),
                 )
             )
-        evidence_index_cursor = dict(volatile_state.get("evidence_index_cursor") or {}) if isinstance(volatile_state.get("evidence_index_cursor"), dict) else {}
+        evidence_index_cursor = (
+            dict(volatile_state.get("evidence_index_cursor") or {})
+            if isinstance(volatile_state.get("evidence_index_cursor"), dict)
+            else dict(dynamic_payload.get("evidence_index_cursor") or {})
+            if isinstance(dynamic_payload.get("evidence_index_cursor"), dict)
+            else {}
+        )
         if evidence_index_cursor:
             reports.append(
                 VolatileSectionReport(
                     section_id=f"dynamic_context:{request.invocation_kind}:evidence_index_cursor",
                     source="evidence_index_cursor",
                     volatility_reason="file and tool evidence freshness changes with reads and writes; exact content stays in current exact evidence or rehydration refs",
-                    input_chars=estimate_chars({"execution_state": request.execution_state, "observations": request.observations}),
+                    input_chars=estimate_chars(
+                        {
+                            "execution_state": request.execution_state,
+                            "observations": request.observations,
+                            "file_state": request.file_state,
+                        }
+                    ),
                     output_chars=estimate_chars(evidence_index_cursor),
                     projection_strategy="ref_hash_range_freshness_evidence_index",
                     cache_impact="evidence_index_dynamic_layer",

@@ -29,9 +29,6 @@ class TaskRunContract:
     required_verifications: tuple[dict[str, Any], ...] = ()
     completion_criteria: tuple[str, ...] = ()
     working_scope: dict[str, Any] = field(default_factory=dict)
-    capability_intent: dict[str, Any] = field(default_factory=dict)
-    skill_intent: dict[str, Any] = field(default_factory=dict)
-    observation_contract: dict[str, Any] = field(default_factory=dict)
     resource_requirements: dict[str, Any] = field(default_factory=dict)
     permission_requirements: dict[str, Any] = field(default_factory=dict)
     acceptance_policy: dict[str, Any] = field(default_factory=dict)
@@ -44,6 +41,12 @@ class TaskRunContract:
     prompt_contract: dict[str, Any] = field(default_factory=dict)
     graph_slot: dict[str, Any] = field(default_factory=dict)
     origin: dict[str, Any] = field(default_factory=dict)
+    goal_contract: dict[str, Any] = field(default_factory=dict)
+    plan_contract: dict[str, Any] = field(default_factory=dict)
+    lifecycle_contract: dict[str, Any] = field(default_factory=dict)
+    environment_contract: dict[str, Any] = field(default_factory=dict)
+    feedback_contract: dict[str, Any] = field(default_factory=dict)
+    acceptance_contract: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.loop.task_run_contract"
 
     def __post_init__(self) -> None:
@@ -55,12 +58,30 @@ class TaskRunContract:
             raise ValueError("TaskRunContract requires user_visible_goal")
         if not self.task_run_goal:
             raise ValueError("TaskRunContract requires task_run_goal")
+        if not self.goal_contract:
+            object.__setattr__(self, "goal_contract", _goal_contract_from_parts(self))
+        if not self.plan_contract:
+            object.__setattr__(self, "plan_contract", _plan_contract_from_parts(self))
+        if not self.lifecycle_contract:
+            object.__setattr__(self, "lifecycle_contract", _lifecycle_contract_from_parts(self))
+        if not self.environment_contract:
+            object.__setattr__(self, "environment_contract", _environment_contract_from_parts(self))
+        if not self.feedback_contract:
+            object.__setattr__(self, "feedback_contract", _feedback_contract_from_parts(self))
+        if not self.acceptance_contract:
+            object.__setattr__(self, "acceptance_contract", _acceptance_contract_from_parts(self))
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["required_artifacts"] = [dict(item) for item in self.required_artifacts]
         payload["required_verifications"] = [dict(item) for item in self.required_verifications]
         payload["completion_criteria"] = list(self.completion_criteria)
+        payload["goal_contract"] = dict(self.goal_contract or {})
+        payload["plan_contract"] = dict(self.plan_contract or {})
+        payload["lifecycle_contract"] = dict(self.lifecycle_contract or {})
+        payload["environment_contract"] = dict(self.environment_contract or {})
+        payload["feedback_contract"] = dict(self.feedback_contract or {})
+        payload["acceptance_contract"] = dict(self.acceptance_contract or {})
         return payload
 
 
@@ -89,37 +110,67 @@ def contract_from_action_request(
     packet_ref: str,
     task_environment_id: str = "",
 ) -> tuple[TaskRunContract | None, list[str]]:
-    seed = dict(action_request.task_contract_seed or {})
+    seed = _seed_with_layered_contract_aliases(dict(action_request.task_contract_seed or {}))
     errors: list[str] = []
-    user_visible_goal = _first_text(seed.get("user_visible_goal"))
-    task_run_goal = _first_text(seed.get("task_run_goal"))
+    goal_contract_seed = dict(seed.get("goal_contract") or {})
+    user_visible_goal = _first_text(seed.get("user_visible_goal"), goal_contract_seed.get("user_visible_goal"))
+    task_run_goal = _first_text(seed.get("task_run_goal"), goal_contract_seed.get("task_run_goal"), goal_contract_seed.get("agent_goal"))
     if not user_visible_goal:
         errors.append("task_goal_required")
     if not task_run_goal:
         errors.append("task_run_goal_required")
+    acceptance_contract_seed = dict(seed.get("acceptance_contract") or {})
     criteria = _string_tuple(
         seed.get("completion_criteria")
+        or acceptance_contract_seed.get("completion_criteria")
         or dict(action_request.completion_contract or {}).get("completion_criteria")
     )
     required_artifacts = _dict_tuple(
         seed.get("required_artifacts")
         or seed.get("artifact_requirements")
+        or acceptance_contract_seed.get("required_artifacts")
+        or acceptance_contract_seed.get("artifact_requirements")
         or dict(action_request.completion_contract or {}).get("artifact_requirements")
     )
     required_verifications = _dict_tuple(
         seed.get("required_verifications")
         or seed.get("verification_requirements")
+        or acceptance_contract_seed.get("required_verifications")
+        or acceptance_contract_seed.get("verification_requirements")
         or dict(action_request.completion_contract or {}).get("required_verifications")
     )
     if not criteria and not required_artifacts and not required_verifications:
         errors.append("completion_evidence_required")
-    working_scope, capability_intent, skill_intent, observation_contract, canonical_errors = _canonical_handoff_fields(seed)
+    working_scope, canonical_errors = _canonical_handoff_fields(seed)
     errors.extend(canonical_errors)
     if errors:
         return None, errors
     runtime_profile = _runtime_profile_with_execution_permit_allowed_operations(
         dict(seed.get("runtime_profile") or {}),
         allowed_operations=_explicit_allowed_operations_from_contract_seed(seed),
+    )
+    permission_requirements = dict(
+        seed.get("permission_requirements") or action_request.permission_request or {}
+    )
+    source_contract_ref = str(seed.get("source_contract_ref") or seed.get("contract_ref") or "").strip()
+    external_plan_ref = str(seed.get("external_plan_ref") or seed.get("plan_ref") or "").strip()
+    task_environment_ref = str(task_environment_id or "").strip()
+    acceptance_policy = dict(seed.get("acceptance_policy") or {})
+    recovery_policy = dict(seed.get("recovery_policy") or {})
+    subcontracts = _task_contract_layers(
+        seed=seed,
+        user_visible_goal=user_visible_goal,
+        task_run_goal=task_run_goal,
+        completion_criteria=criteria,
+        required_artifacts=required_artifacts,
+        required_verifications=required_verifications,
+        working_scope=working_scope,
+        permission_requirements=permission_requirements,
+        acceptance_policy=acceptance_policy,
+        recovery_policy=recovery_policy,
+        external_plan_ref=external_plan_ref,
+        source_contract_ref=source_contract_ref,
+        task_environment_id=task_environment_ref,
     )
     contract = TaskRunContract(
         contract_id=f"task-contract:{uuid.uuid4().hex[:12]}",
@@ -130,47 +181,344 @@ def contract_from_action_request(
         required_verifications=required_verifications,
         completion_criteria=criteria,
         working_scope=working_scope,
-        capability_intent=capability_intent,
-        skill_intent=skill_intent,
-        observation_contract=observation_contract,
         resource_requirements={},
-        permission_requirements=dict(
-            seed.get("permission_requirements") or action_request.permission_request or {}
-        ),
-        acceptance_policy=dict(seed.get("acceptance_policy") or {}),
-        recovery_policy=dict(seed.get("recovery_policy") or {}),
+        permission_requirements=permission_requirements,
+        acceptance_policy=acceptance_policy,
+        recovery_policy=recovery_policy,
         created_from_packet_ref=packet_ref,
-        source_contract_ref=str(seed.get("source_contract_ref") or seed.get("contract_ref") or "").strip(),
-        external_plan_ref=str(seed.get("external_plan_ref") or seed.get("plan_ref") or "").strip(),
-        task_environment_id=str(task_environment_id or "").strip(),
+        source_contract_ref=source_contract_ref,
+        external_plan_ref=external_plan_ref,
+        task_environment_id=task_environment_ref,
         runtime_profile=runtime_profile,
         prompt_contract=dict(seed.get("prompt_contract") or {}),
         graph_slot=dict(seed.get("graph_slot") or {}),
+        goal_contract=subcontracts["goal_contract"],
+        plan_contract=subcontracts["plan_contract"],
+        lifecycle_contract=subcontracts["lifecycle_contract"],
+        environment_contract=subcontracts["environment_contract"],
+        feedback_contract=subcontracts["feedback_contract"],
+        acceptance_contract=subcontracts["acceptance_contract"],
     )
     return contract, []
 
 
-def _canonical_handoff_fields(seed: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], list[str]]:
+def _seed_with_layered_contract_aliases(seed: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(seed or {})
+    goal = dict(payload.get("goal_contract") or {}) if isinstance(payload.get("goal_contract"), dict) else {}
+    if "user_visible_goal" not in payload and _has_value(goal.get("user_visible_goal")):
+        payload["user_visible_goal"] = goal.get("user_visible_goal")
+    if "task_run_goal" not in payload and _has_value(goal.get("task_run_goal") or goal.get("agent_goal")):
+        payload["task_run_goal"] = goal.get("task_run_goal") or goal.get("agent_goal")
+
+    environment = dict(payload.get("environment_contract") or {}) if isinstance(payload.get("environment_contract"), dict) else {}
+    for key in ("working_scope", "permission_requirements"):
+        if key not in payload and isinstance(environment.get(key), dict):
+            payload[key] = dict(environment.get(key) or {})
+
+    acceptance = dict(payload.get("acceptance_contract") or {}) if isinstance(payload.get("acceptance_contract"), dict) else {}
+    for key in ("completion_criteria", "required_artifacts", "artifact_requirements", "required_verifications", "verification_requirements"):
+        if key not in payload and _has_value(acceptance.get(key)):
+            payload[key] = acceptance.get(key)
+
+    plan = dict(payload.get("plan_contract") or {}) if isinstance(payload.get("plan_contract"), dict) else {}
+    if "plan_ref" not in payload and _has_value(plan.get("plan_id")):
+        payload["plan_ref"] = plan.get("plan_id")
+    return payload
+
+
+def _task_contract_layers(
+    *,
+    seed: dict[str, Any],
+    user_visible_goal: str,
+    task_run_goal: str,
+    completion_criteria: tuple[str, ...],
+    required_artifacts: tuple[dict[str, Any], ...],
+    required_verifications: tuple[dict[str, Any], ...],
+    working_scope: dict[str, Any],
+    permission_requirements: dict[str, Any],
+    acceptance_policy: dict[str, Any],
+    recovery_policy: dict[str, Any],
+    external_plan_ref: str,
+    source_contract_ref: str,
+    task_environment_id: str,
+) -> dict[str, dict[str, Any]]:
+    goal_contract = _goal_contract_from_seed(
+        seed,
+        user_visible_goal=user_visible_goal,
+        task_run_goal=task_run_goal,
+        completion_criteria=completion_criteria,
+        required_artifacts=required_artifacts,
+        required_verifications=required_verifications,
+    )
+    acceptance_contract = _acceptance_contract_from_seed(
+        seed,
+        completion_criteria=completion_criteria,
+        required_artifacts=required_artifacts,
+        required_verifications=required_verifications,
+        acceptance_policy=acceptance_policy,
+    )
+    plan_contract = _plan_contract_from_seed(
+        seed,
+        completion_criteria=completion_criteria,
+        external_plan_ref=external_plan_ref,
+        source_contract_ref=source_contract_ref,
+    )
+    lifecycle_contract = _lifecycle_contract_from_seed(seed, recovery_policy=recovery_policy)
+    environment_contract = _environment_contract_from_seed(
+        seed,
+        working_scope=working_scope,
+        permission_requirements=permission_requirements,
+        task_environment_id=task_environment_id,
+    )
+    feedback_contract = _feedback_contract_from_seed(
+        seed,
+        acceptance_contract=acceptance_contract,
+    )
+    return {
+        "goal_contract": goal_contract,
+        "plan_contract": plan_contract,
+        "lifecycle_contract": lifecycle_contract,
+        "environment_contract": environment_contract,
+        "feedback_contract": feedback_contract,
+        "acceptance_contract": acceptance_contract,
+    }
+
+
+def _goal_contract_from_parts(contract: TaskRunContract) -> dict[str, Any]:
+    return _goal_contract_from_seed(
+        {},
+        user_visible_goal=contract.user_visible_goal,
+        task_run_goal=contract.task_run_goal,
+        completion_criteria=contract.completion_criteria,
+        required_artifacts=contract.required_artifacts,
+        required_verifications=contract.required_verifications,
+    )
+
+
+def _plan_contract_from_parts(contract: TaskRunContract) -> dict[str, Any]:
+    return _plan_contract_from_seed(
+        {},
+        completion_criteria=contract.completion_criteria,
+        external_plan_ref=contract.external_plan_ref,
+        source_contract_ref=contract.source_contract_ref,
+    )
+
+
+def _lifecycle_contract_from_parts(contract: TaskRunContract) -> dict[str, Any]:
+    return _lifecycle_contract_from_seed({}, recovery_policy=contract.recovery_policy)
+
+
+def _environment_contract_from_parts(contract: TaskRunContract) -> dict[str, Any]:
+    return _environment_contract_from_seed(
+        {},
+        working_scope=contract.working_scope,
+        permission_requirements=contract.permission_requirements,
+        task_environment_id=contract.task_environment_id,
+    )
+
+
+def _feedback_contract_from_parts(contract: TaskRunContract) -> dict[str, Any]:
+    return _feedback_contract_from_seed(
+        {},
+        acceptance_contract=_acceptance_contract_from_parts(contract),
+    )
+
+
+def _acceptance_contract_from_parts(contract: TaskRunContract) -> dict[str, Any]:
+    return _acceptance_contract_from_seed(
+        {},
+        completion_criteria=contract.completion_criteria,
+        required_artifacts=contract.required_artifacts,
+        required_verifications=contract.required_verifications,
+        acceptance_policy=contract.acceptance_policy,
+    )
+
+
+def _goal_contract_from_seed(
+    seed: dict[str, Any],
+    *,
+    user_visible_goal: str,
+    task_run_goal: str,
+    completion_criteria: tuple[str, ...],
+    required_artifacts: tuple[dict[str, Any], ...],
+    required_verifications: tuple[dict[str, Any], ...],
+) -> dict[str, Any]:
+    raw = dict(seed.get("goal_contract") or {}) if isinstance(seed.get("goal_contract"), dict) else {}
+    return _drop_empty_payload(
+        {
+            "user_visible_goal": user_visible_goal,
+            "task_run_goal": task_run_goal,
+            "agent_goal": task_run_goal,
+            "non_goals": list(_string_tuple(raw.get("non_goals") or seed.get("non_goals"))),
+            "success_definition": _first_text(raw.get("success_definition"), seed.get("success_definition")),
+            "completion_evidence": list(_string_tuple(raw.get("completion_evidence") or seed.get("completion_evidence")))
+            or _completion_evidence_descriptors(
+                completion_criteria=completion_criteria,
+                required_artifacts=required_artifacts,
+                required_verifications=required_verifications,
+            ),
+            "authority": "harness.loop.task_run_contract.goal_contract",
+        }
+    )
+
+
+def _plan_contract_from_seed(
+    seed: dict[str, Any],
+    *,
+    completion_criteria: tuple[str, ...],
+    external_plan_ref: str,
+    source_contract_ref: str,
+) -> dict[str, Any]:
+    raw = dict(seed.get("plan_contract") or {}) if isinstance(seed.get("plan_contract"), dict) else {}
+    plan_id = _first_text(raw.get("plan_id"), external_plan_ref, seed.get("plan_ref"), source_contract_ref, "plan:agent-managed")
+    major_steps = list(_string_tuple(raw.get("major_steps") or raw.get("steps"))) or [
+        str(item) for item in completion_criteria[:8] if str(item).strip()
+    ]
+    return _drop_empty_payload(
+        {
+            "plan_id": plan_id,
+            "plan_version": _first_text(raw.get("plan_version"), "initial"),
+            "plan_status": _first_text(raw.get("plan_status"), raw.get("approval_state"), "agent_managed"),
+            "strategy_summary": _first_text(
+                raw.get("strategy_summary"),
+                "Agent maintains the strategy, updates todo as an execution cursor, and replans when evidence changes.",
+            ),
+            "major_steps": major_steps,
+            "decision_points": list(_string_tuple(raw.get("decision_points"))),
+            "allowed_plan_operations": list(_string_tuple(raw.get("allowed_plan_operations") or raw.get("allowed_operations")))
+            or ["create", "update", "replan", "explain_deviation"],
+            "replan_policy": dict(raw.get("replan_policy") or {"requires_reason": True, "version_must_change_or_reason_required": True}),
+            "authority": "harness.loop.task_run_contract.plan_contract",
+        }
+    )
+
+
+def _lifecycle_contract_from_seed(seed: dict[str, Any], *, recovery_policy: dict[str, Any]) -> dict[str, Any]:
+    raw = dict(seed.get("lifecycle_contract") or {}) if isinstance(seed.get("lifecycle_contract"), dict) else {}
+    return _drop_empty_payload(
+        {
+            "allowed_states": list(_string_tuple(raw.get("allowed_states")))
+            or ["created", "admitted", "running", "waiting_executor", "waiting_approval", "completed", "failed", "blocked", "aborted"],
+            "pause_policy": dict(raw.get("pause_policy") or {"allowed": True, "requires_reason": True}),
+            "resume_policy": dict(raw.get("resume_policy") or {"allowed": True, "requires_same_task_identity": True}),
+            "stop_policy": dict(raw.get("stop_policy") or {"allowed": True, "terminal_reason_required": True}),
+            "replan_policy": dict(raw.get("replan_policy") or {"allowed": True, "main_agent_owns_replan": True}),
+            "tool_limit_closeout_policy": dict(raw.get("tool_limit_closeout_policy") or {"agent_closeout_required": True, "include_evidence_and_recovery_point": True}),
+            "failure_recovery_policy": dict(raw.get("failure_recovery_policy") or recovery_policy or {"recoverable_errors_require_explicit_recovery_action": True}),
+            "terminal_policy": dict(raw.get("terminal_policy") or {"completion_requires_acceptance_contract": True}),
+            "authority": "harness.loop.task_run_contract.lifecycle_contract",
+        }
+    )
+
+
+def _environment_contract_from_seed(
+    seed: dict[str, Any],
+    *,
+    working_scope: dict[str, Any],
+    permission_requirements: dict[str, Any],
+    task_environment_id: str,
+) -> dict[str, Any]:
+    raw = dict(seed.get("environment_contract") or {}) if isinstance(seed.get("environment_contract"), dict) else {}
+    return _drop_empty_payload(
+        {
+            "workspace_refs": list(_string_tuple(dict(working_scope or {}).get("workspace_refs"))),
+            "target_objects": list(_object_ref_list(dict(working_scope or {}).get("target_objects"))),
+            "source_refs": list(_string_tuple(dict(working_scope or {}).get("source_refs"))),
+            "excluded_scope": list(_string_tuple(dict(working_scope or {}).get("excluded_scope"))),
+            "known_constraints": list(_string_tuple(dict(working_scope or {}).get("known_constraints"))),
+            "working_scope": dict(working_scope or {}),
+            "permission_requirements": permission_requirements,
+            "resource_requirements": dict(raw.get("resource_requirements") or {}),
+            "task_environment_id": task_environment_id,
+            "safety_boundaries": list(_string_tuple(raw.get("safety_boundaries") or seed.get("safety_boundaries"))),
+            "authority": "harness.loop.task_run_contract.environment_contract",
+        }
+    )
+
+
+def _feedback_contract_from_seed(
+    seed: dict[str, Any],
+    *,
+    acceptance_contract: dict[str, Any],
+) -> dict[str, Any]:
+    raw = dict(seed.get("feedback_contract") or {}) if isinstance(seed.get("feedback_contract"), dict) else {}
+    return _drop_empty_payload(
+        {
+            "feedback_sources": list(_string_tuple(raw.get("feedback_sources")))
+            or ["tool_observation", "runtime_observation", "user_steer", "lifecycle_signal", "budget_signal", "verification_signal", "recovery_signal"],
+            "dynamic_context_slots": list(_string_tuple(raw.get("dynamic_context_slots")))
+            or ["stable_lifecycle_guidance", "dynamic_runtime_context", "task_plan_context", "tail_user_steer"],
+            "steer_policy": dict(raw.get("steer_policy") or {"identity_binding": "active_turn_or_task_run_required", "binding_failure": "fail_closed"}),
+            "verification_feedback_policy": dict(raw.get("verification_feedback_policy") or {"feeds_acceptance_contract": True}),
+            "budget_feedback_policy": dict(raw.get("budget_feedback_policy") or {"tool_or_context_limit_triggers_closeout_recover": True}),
+            "feedback_priority": list(_string_tuple(raw.get("feedback_priority")))
+            or ["user_steer", "safety_boundary", "verification_signal", "recovery_signal", "tool_observation", "runtime_observation"],
+            "feedback_identity_binding": _first_text(raw.get("feedback_identity_binding"), "active_turn_or_task_run_required"),
+            "acceptance_feedback_ref": "acceptance_contract" if acceptance_contract else "",
+            "authority": "harness.loop.task_run_contract.feedback_contract",
+        }
+    )
+
+
+def _acceptance_contract_from_seed(
+    seed: dict[str, Any],
+    *,
+    completion_criteria: tuple[str, ...],
+    required_artifacts: tuple[dict[str, Any], ...],
+    required_verifications: tuple[dict[str, Any], ...],
+    acceptance_policy: dict[str, Any],
+) -> dict[str, Any]:
+    raw = dict(seed.get("acceptance_contract") or {}) if isinstance(seed.get("acceptance_contract"), dict) else {}
+    return _drop_empty_payload(
+        {
+            "completion_criteria": list(completion_criteria),
+            "required_artifacts": [dict(item) for item in required_artifacts],
+            "required_verifications": [dict(item) for item in required_verifications],
+            "verification_gate": dict(raw.get("verification_gate") or acceptance_policy.get("verification_gate") or {}),
+            "final_answer_requirements": list(_string_tuple(raw.get("final_answer_requirements"))),
+            "evidence_refs_required": bool(raw.get("evidence_refs_required") is not False),
+            "acceptance_policy": acceptance_policy,
+            "authority": "harness.loop.task_run_contract.acceptance_contract",
+        }
+    )
+
+
+def _completion_evidence_descriptors(
+    *,
+    completion_criteria: tuple[str, ...],
+    required_artifacts: tuple[dict[str, Any], ...],
+    required_verifications: tuple[dict[str, Any], ...],
+) -> list[str]:
+    descriptors: list[str] = []
+    if completion_criteria:
+        descriptors.append("completion_criteria")
+    if required_artifacts:
+        descriptors.append("required_artifacts")
+    if required_verifications:
+        descriptors.append("required_verifications")
+    return descriptors
+
+
+def _drop_empty_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
+
+
+def _canonical_handoff_fields(seed: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     errors: list[str] = []
-    for legacy_key in ("resource_contract", "resource_requirements", "selected_skill_ids"):
+    for legacy_key in (
+        "resource_contract",
+        "resource_requirements",
+        "selected_skill_ids",
+        "capability_intent",
+        "skill_intent",
+        "observation_contract",
+    ):
         if _has_value(seed.get(legacy_key)):
             errors.append(f"legacy_task_contract_field_not_allowed:{legacy_key}")
     raw_working_scope = seed.get("working_scope")
-    raw_capability_intent = seed.get("capability_intent")
-    raw_skill_intent = seed.get("skill_intent")
-    raw_observation_contract = seed.get("observation_contract")
     if not isinstance(raw_working_scope, dict):
         errors.append("working_scope_required_for_request_task_run")
         raw_working_scope = {}
-    if not isinstance(raw_capability_intent, dict):
-        errors.append("capability_intent_required_for_request_task_run")
-        raw_capability_intent = {}
-    if not isinstance(raw_skill_intent, dict):
-        errors.append("skill_intent_required_for_request_task_run")
-        raw_skill_intent = {}
-    if not isinstance(raw_observation_contract, dict):
-        errors.append("observation_contract_required_for_request_task_run")
-        raw_observation_contract = {}
     working_scope = {
         "target_objects": list(_object_ref_list(raw_working_scope.get("target_objects"))),
         "workspace_refs": list(_string_tuple(raw_working_scope.get("workspace_refs"))),
@@ -178,48 +526,9 @@ def _canonical_handoff_fields(seed: dict[str, Any]) -> tuple[dict[str, Any], dic
         "excluded_scope": list(_string_tuple(raw_working_scope.get("excluded_scope"))),
         "known_constraints": list(_string_tuple(raw_working_scope.get("known_constraints"))),
     }
-    capability_intent = {
-        "needed_capability_groups": list(_string_tuple(raw_capability_intent.get("needed_capability_groups") or raw_capability_intent.get("capability_groups"))),
-        "preferred_tool_namespaces": list(_string_tuple(raw_capability_intent.get("preferred_tool_namespaces") or raw_capability_intent.get("tool_namespaces"))),
-        "requires_deferred_tool_loading": bool(raw_capability_intent.get("requires_deferred_tool_loading") is True),
-        "reason": _first_text(raw_capability_intent.get("reason")),
-    }
-    if not (
-        capability_intent["needed_capability_groups"]
-        or capability_intent["preferred_tool_namespaces"]
-        or capability_intent["reason"]
-    ):
-        errors.append("capability_intent_required_for_request_task_run")
-    skill_intent = {
-        "selected_skill_ids": list(_normalize_skill_ids(raw_skill_intent.get("selected_skill_ids"))),
-        "candidate_skill_ids": list(_normalize_skill_ids(raw_skill_intent.get("candidate_skill_ids"))),
-        "required_capability_tags": list(_string_tuple(raw_skill_intent.get("required_capability_tags"))),
-        "reason": _first_text(raw_skill_intent.get("reason")),
-    }
-    observation_contract = {
-        "evidence_policy": str(raw_observation_contract.get("evidence_policy") or "").strip(),
-        "progress_granularity": str(raw_observation_contract.get("progress_granularity") or "step").strip() or "step",
-        "finalization_requires_evidence": bool(raw_observation_contract.get("finalization_requires_evidence") is not False),
-    }
-    if not observation_contract["evidence_policy"]:
-        errors.append("observation_contract.evidence_policy_required")
-    return working_scope, capability_intent, skill_intent, observation_contract, errors
-
-
-def _selected_skill_ids_from_contract(contract: TaskRunContract) -> tuple[str, ...]:
-    return _normalize_skill_ids(dict(contract.skill_intent or {}).get("selected_skill_ids"))
-
-
-def _normalize_skill_ids(value: Any) -> tuple[str, ...]:
-    result: list[str] = []
-    seen: set[str] = set()
-    for item in _string_tuple(value):
-        normalized = item if item.startswith("skill.") else f"skill.{item}"
-        if normalized in seen:
-            continue
-        seen.add(normalized)
-        result.append(normalized)
-    return tuple(result)
+    if not working_scope["target_objects"]:
+        errors.append("working_scope.target_objects_required_for_request_task_run")
+    return working_scope, errors
 
 
 def _object_ref_list(value: Any) -> tuple[Any, ...]:
@@ -351,9 +660,9 @@ def start_task_lifecycle(
                 contract,
             ),
             "skill_activation": {
-                "selected_skill_ids": list(_selected_skill_ids_from_contract(contract)),
-                "selection_source": "model_action",
-                "selection_reason": str(dict(contract.skill_intent or {}).get("reason") or "").strip(),
+                "selected_skill_ids": [],
+                "selection_source": "runtime",
+                "selection_reason": "",
                 "expanded_skill_refs": [],
                 "rejected_skill_ids": [],
                 "authority": "harness.loop.task_run_runtime_contract.skill_activation",
@@ -931,21 +1240,26 @@ def _runtime_contract_from_task_run_contract(contract: TaskRunContract) -> dict[
     allowed_operations = _explicit_allowed_operations_from_contract(contract)
     runtime_contract = {
         "runtime_profile": runtime_profile,
-        "working_scope": dict(contract.working_scope or {}),
-        "capability_intent": dict(contract.capability_intent or {}),
-        "skill_intent": dict(contract.skill_intent or {}),
-        "observation_contract": dict(contract.observation_contract or {}),
+        "task_contract": {
+            "goal_contract": dict(contract.goal_contract or {}),
+            "plan_contract": dict(contract.plan_contract or {}),
+            "lifecycle_contract": dict(contract.lifecycle_contract or {}),
+            "environment_contract": dict(contract.environment_contract or {}),
+            "feedback_contract": dict(contract.feedback_contract or {}),
+            "acceptance_contract": dict(contract.acceptance_contract or {}),
+            "authority": "harness.loop.task_run_runtime_contract.task_contract",
+        },
+        "working_scope": dict(contract.environment_contract.get("working_scope") or contract.working_scope or {}),
         "authority": "harness.loop.task_run_runtime_contract",
     }
     if allowed_operations is not None:
         runtime_contract["allowed_operations"] = list(allowed_operations)
     if contract.task_environment_id:
         runtime_contract["task_environment_id"] = contract.task_environment_id
-    selected_skill_ids = _selected_skill_ids_from_contract(contract)
     runtime_contract["skill_activation"] = {
-        "selected_skill_ids": list(selected_skill_ids),
-        "selection_source": "model_action",
-        "selection_reason": str(dict(contract.skill_intent or {}).get("reason") or "").strip(),
+        "selected_skill_ids": [],
+        "selection_source": "runtime",
+        "selection_reason": "",
         "expanded_skill_refs": [],
         "rejected_skill_ids": [],
         "authority": "harness.loop.task_run_runtime_contract.skill_activation",
@@ -963,13 +1277,9 @@ def _runtime_contract_from_task_run_contract(contract: TaskRunContract) -> dict[
             "runtime_profile": runtime_profile,
             "execution_strategy": {"kind": "single_agent_task_run"},
             "prompt_contract": dict(contract.prompt_contract or {}),
-            "output_contract": {
-                "required_artifacts": [dict(item) for item in contract.required_artifacts],
-                "required_verifications": [dict(item) for item in contract.required_verifications],
-                "completion_criteria": list(contract.completion_criteria),
-            },
-            "acceptance_policy": dict(contract.acceptance_policy or {}),
-            "recovery_policy": dict(contract.recovery_policy or {}),
+            "output_contract": dict(contract.acceptance_contract or {}),
+            "acceptance_policy": dict(contract.acceptance_contract.get("acceptance_policy") or contract.acceptance_policy or {}),
+            "recovery_policy": dict(contract.lifecycle_contract.get("failure_recovery_policy") or contract.recovery_policy or {}),
             "authority": "task_system.engagement_contract_projection",
         }
     return runtime_contract

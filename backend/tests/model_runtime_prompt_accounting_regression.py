@@ -74,3 +74,46 @@ def test_prompt_accounting_skips_history_scans_when_ledger_reads_are_expensive()
     assert len(ledger.prompt_cache) == 1
     assert len(ledger.prompt_stability) == 1
     assert len(ledger.prompt_cache_baselines) == 1
+
+
+def test_model_runtime_maps_provider_402_balance_error_as_non_retryable() -> None:
+    runtime = ModelRuntime(
+        SimpleNamespace(static=SimpleNamespace(llm_timeout_seconds=1, llm_max_retries=0, llm_max_output_tokens=1024)),
+    )
+    spec = ModelSpec(
+        provider="deepseek",
+        model="deepseek-chat",
+        api_key=None,
+        base_url="https://api.deepseek.com",
+    )
+
+    error = runtime._map_error(
+        RuntimeError('Provider request failed with HTTP 402: {"error":{"message":"Insufficient Balance"}}'),
+        spec,
+    )
+
+    assert error.code == "insufficient_balance"
+    assert error.provider == "deepseek"
+    assert error.model == "deepseek-chat"
+    assert error.retryable is False
+    assert "余额不足" in error.user_message
+
+
+def test_model_runtime_maps_insufficient_quota_before_rate_limit() -> None:
+    runtime = ModelRuntime(
+        SimpleNamespace(static=SimpleNamespace(llm_timeout_seconds=1, llm_max_retries=0, llm_max_output_tokens=1024)),
+    )
+    spec = ModelSpec(
+        provider="openai",
+        model="gpt-test",
+        api_key=None,
+        base_url="https://api.openai.com/v1",
+    )
+
+    error = runtime._map_error(
+        RuntimeError("Error code: 429 - insufficient_quota: You exceeded your current quota."),
+        spec,
+    )
+
+    assert error.code == "insufficient_balance"
+    assert error.retryable is False

@@ -57,6 +57,10 @@ from .artifact_scope_manifest import ArtifactScopeManifest, build_artifact_scope
 from .bound_task_context import build_bound_task_context
 from .environment_storage import ensure_environment_storage_dirs
 from .environment_prompt_controller import GENERAL_ENVIRONMENT_ID, prompt_mount_plan_for_invocation, prompt_mount_plan_from_payload
+from .incremental_context_frame import (
+    TASK_EXECUTION_INCREMENTAL_CONTEXT_FRAME_SOURCE_REF,
+    build_task_execution_incremental_context_frame_payload,
+)
 from .packet_assembler import (
     build_dynamic_context_projection_policy as _dynamic_context_projection_policy,
     build_session_file_evidence_projection as _build_session_file_evidence_projection,
@@ -538,6 +542,7 @@ class RuntimeCompiler:
             "agent_visible_runtime_projection": agent_visible_runtime_projection,
         }
         read_evidence_payload = packet_context.read_evidence_payload
+        read_evidence_prompt_payload = _read_evidence_prompt_payload(read_evidence_payload)
         dynamic_context = self.dynamic_context_manager.project(
             DynamicContextInput(
                 invocation_kind="single_agent_turn",
@@ -558,38 +563,39 @@ class RuntimeCompiler:
         runtime_memory_context_payload = _memory_context_model_visible_payload(
             memory_context or session_context_payload.get("memory_context")
         )
+        volatile_runtime_payload: dict[str, Any] = {}
         if active_work_context:
-            dynamic_payload["active_work_context"] = _active_work_model_visible_payload(
+            volatile_runtime_payload["active_work_context"] = _active_work_model_visible_payload(
                 active_work_context,
                 controls_enabled=active_work_controls_enabled,
             )
         if current_work_boundary_receipt:
-            dynamic_payload["current_work_boundary_receipt"] = _current_work_boundary_receipt_model_visible_payload(
+            volatile_runtime_payload["current_work_boundary_receipt"] = _current_work_boundary_receipt_model_visible_payload(
                 current_work_boundary_receipt
             )
         recoverable_work_payload = _continuation_record_model_visible_payload(
             session_context_payload.get("recoverable_work")
         )
         if recoverable_work_payload:
-            dynamic_payload["recoverable_work"] = recoverable_work_payload
+            volatile_runtime_payload["recoverable_work"] = recoverable_work_payload
         interrupted_turn_payload = _interrupted_turn_work_model_visible_payload(
             session_context_payload.get("interrupted_turn_work"),
             current_user_message=user_message,
         )
         if interrupted_turn_payload:
-            dynamic_payload["interrupted_turn_work"] = interrupted_turn_payload
+            volatile_runtime_payload["interrupted_turn_work"] = interrupted_turn_payload
         recovery_boundary_receipt_payload = _recovery_boundary_receipt_model_visible_payload(
             session_context_payload.get("recovery_boundary_receipt")
         )
         if recovery_boundary_receipt_payload:
-            dynamic_payload["recovery_boundary_receipt"] = recovery_boundary_receipt_payload
+            volatile_runtime_payload["recovery_boundary_receipt"] = recovery_boundary_receipt_payload
         runtime_observations_payload = _runtime_observations_model_visible_payload(
             session_context_payload.get("runtime_observations")
         )
         if runtime_observations_payload:
-            dynamic_payload["runtime_observations"] = runtime_observations_payload
+            volatile_runtime_payload["runtime_observations"] = runtime_observations_payload
         if turn_input_facts:
-            dynamic_payload["turn_input_facts"] = _turn_input_facts_model_visible_payload(turn_input_facts)
+            volatile_runtime_payload["turn_input_facts"] = _turn_input_facts_model_visible_payload(turn_input_facts)
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
         attachment_context_payload, current_request_payload = _extract_attachment_context_payload(current_request_payload)
@@ -703,6 +709,68 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
+                *_attachment_context_message_specs(
+                    attachment_context_payload,
+                    title_prefix="Single agent turn",
+                    source_ref_prefix="single_agent_turn",
+                    dynamic_context=dynamic_context,
+                ),
+                *_task_plan_context_message_specs(
+                    task_plan_context_payload,
+                    title_prefix="Single agent turn",
+                    source_ref_prefix="single_agent_turn",
+                    dynamic_context=dynamic_context,
+                ),
+                *_editor_context_message_specs(
+                    editor_context_payload,
+                    title_prefix="Single agent turn",
+                    source_ref_prefix="single_agent_turn",
+                    dynamic_context=dynamic_context,
+                ),
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task current exact read evidence",
+                    payload=read_evidence_prompt_payload,
+                    kind="read_evidence_injection",
+                    source_ref=_read_evidence_prompt_source_ref(read_evidence_prompt_payload, fallback=packet_id),
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "read_evidence_injection",
+                        "projection_strategy": "current_exact_read_once_historical_refs",
+                        "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
+                        "cache_impact": "task_prefix_read_evidence_snapshot",
+                        "stability_rule": "exact read evidence already sent in this turn is a stable snapshot; later reads append new observations",
+                    },
+                )
+                if read_evidence_prompt_payload
+                else None,
+                *_session_history_message_specs(
+                    session_history_payload,
+                    title="Single agent turn session history",
+                    source_ref="single_agent_turn_session_history",
+                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="session_history") if session_history_payload else {},
+                ),
+                *_provider_protocol_message_specs(
+                    session_context,
+                    source_ref="single_agent_turn_api_transcript",
+                    projection_policy=projection_policy,
+                    storage_root=dynamic_context_storage_root(self.base_dir, assembly_payload) or self.base_dir,
+                    storage_run_id=session_id,
+                ),
+                _runtime_payload_spec(
+                    role="system",
+                    title="Single agent turn dynamic runtime",
+                    payload=dynamic_payload,
+                    preamble=runtime_instruction,
+                    kind="dynamic_projection",
+                    source_ref="single_agent_turn_runtime_delta",
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="summarize",
+                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
+                ),
                 _message_spec(
                     role="system",
                     content=skill_candidate_instruction,
@@ -713,7 +781,7 @@ class RuntimeCompiler:
                     compression_role="preserve",
                     metadata={
                         "authority_class": "active_skill_runtime",
-                        "volatility_reason": "skill candidates are selected for the current runtime request and must remain outside the cacheable session prefix",
+                        "volatility_reason": "skill candidates are selected for the current request and can change between turns",
                         "cache_impact": "volatile_suffix_only",
                     },
                 )
@@ -737,68 +805,24 @@ class RuntimeCompiler:
                 )
                 if runtime_lifecycle_instruction.strip()
                 else None,
-                *_attachment_context_message_specs(
-                    attachment_context_payload,
-                    title_prefix="Single agent turn",
-                    source_ref_prefix="single_agent_turn",
-                    dynamic_context=dynamic_context,
-                ),
-                *_task_plan_context_message_specs(
-                    task_plan_context_payload,
-                    title_prefix="Single agent turn",
-                    source_ref_prefix="single_agent_turn",
-                    dynamic_context=dynamic_context,
-                ),
-                *_editor_context_message_specs(
-                    editor_context_payload,
-                    title_prefix="Single agent turn",
-                    source_ref_prefix="single_agent_turn",
-                    dynamic_context=dynamic_context,
-                ),
                 _runtime_payload_spec(
                     role="system",
-                    title="Task current exact read evidence",
-                    payload=read_evidence_payload,
-                    kind="read_evidence_injection",
-                    source_ref=str(read_evidence_payload.get("packet_id") or packet_id),
-                    cache_scope="none",
-                    cache_role="volatile",
-                    compression_role="preserve",
-                    metadata={
-                        "authority_class": "read_evidence_injection",
-                        "projection_strategy": "current_exact_read_once_historical_refs",
-                        "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
-                        "volatility_reason": "current packet exact file read evidence is visible once; historical file evidence is represented by refs",
-                        "cache_impact": "volatile_suffix_only",
-                    },
-                )
-                if read_evidence_payload
-                else None,
-                *_session_history_message_specs(
-                    session_history_payload,
-                    title="Single agent turn session history",
-                    source_ref="single_agent_turn_session_history",
-                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="session_history") if session_history_payload else {},
-                ),
-                *_provider_protocol_message_specs(
-                    session_context,
-                    source_ref="single_agent_turn_api_transcript",
-                    projection_policy=projection_policy,
-                    storage_root=dynamic_context_storage_root(self.base_dir, assembly_payload) or self.base_dir,
-                    storage_run_id=session_id,
-                ),
-                _runtime_payload_spec(
-                    role="system",
-                    title="Single agent turn dynamic runtime",
-                    payload=dynamic_payload,
-                    preamble=runtime_instruction,
-                    kind="dynamic_projection",
-                    source_ref="single_agent_turn_runtime_delta",
+                    title="Single agent turn volatile runtime state",
+                    payload=volatile_runtime_payload,
+                    kind="volatile_runtime_state",
+                    source_ref="single_agent_turn_volatile_runtime_state",
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="summarize",
-                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
-                ),
+                    metadata={
+                        "authority_class": "single_turn_runtime_state",
+                        "volatility_reason": "active work, recovery, runtime observations, and turn facts can change on every user turn",
+                        "cache_impact": "volatile_suffix_only",
+                        "content_source": "harness.runtime.compiler.single_turn_volatile_runtime_state",
+                    },
+                )
+                if volatile_runtime_payload
+                else None,
                 _runtime_payload_spec(
                     role="system",
                     title="Single agent turn runtime memory context",
@@ -811,8 +835,8 @@ class RuntimeCompiler:
                     metadata={
                         "authority_class": "runtime_memory_context",
                         "content_source": "memory_system.runtime_memory_context",
-                        "volatility_reason": "selected memory context can change every invocation; keep it in the volatile tail",
-                        "cache_impact": "volatile_suffix_tail",
+                        "volatility_reason": "selected memory context can change on each invocation and belongs in the dynamic tail",
+                        "cache_impact": "volatile_suffix_only",
                     },
                 )
                 if runtime_memory_context_payload
@@ -845,13 +869,6 @@ class RuntimeCompiler:
         single_turn_dynamic_refs = (
             "agent_visible_runtime_projection",
             "operation_authorization",
-            "active_work_context",
-            "recent_work_outcome",
-            "current_work_boundary_receipt",
-            "recoverable_work",
-            "interrupted_turn_work",
-            "recovery_boundary_receipt",
-            "runtime_observations",
             "file_evidence_scope",
             "file_state",
             "file_evidence_decisions",
@@ -862,11 +879,20 @@ class RuntimeCompiler:
             "turn_id",
             "history",
             "user_message",
+            "active_work_context",
             "recent_work_outcome",
+            "current_work_boundary_receipt",
+            "recoverable_work",
+            "interrupted_turn_work",
+            "recovery_boundary_receipt",
+            "runtime_observations",
+            "turn_input_facts",
             "task_plan_context",
             "editor_context_index",
             "current_editor_evidence_delta",
             "lifecycle_runtime_guidance",
+            "runtime_memory_context",
+            "skill_candidates",
         )
         prompt_manifest = build_runtime_prompt_manifest(
             invocation_kind="single_agent_turn",
@@ -1239,6 +1265,7 @@ class RuntimeCompiler:
                 session_id=session_id,
                 task_run_id=task_run_id,
                 task_run=dict(task_run or {}),
+                task_contract=dict(contract or {}),
                 observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
                 execution_state=dict(execution_state or {}),
                 work_rollout=dict(work_rollout or {}),
@@ -1299,7 +1326,24 @@ class RuntimeCompiler:
             current_observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
         )
         read_evidence_payload = packet_context.read_evidence_payload
+        read_evidence_prompt_payload = _read_evidence_prompt_payload(read_evidence_payload)
         user_steering_payload = _user_steering_updates_payload(execution_state)
+        incremental_context_frame_payload = build_task_execution_incremental_context_frame_payload(
+            task_run_id=task_run_id,
+            invocation_index=invocation_index,
+            dynamic_context_report=dynamic_context.to_report_dict(),
+            task_state_replay_entries=dynamic_context.task_state_replay_entries,
+            current_observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
+            execution_projection=execution_projection,
+            task_plan_context_payload=task_plan_context_payload,
+            evidence_index_cursor_payload=evidence_index_cursor_payload,
+            editor_context_payload=editor_context_payload,
+            read_evidence_payload=read_evidence_payload,
+            volatile_payload=volatile_payload,
+            runtime_memory_context_payload=runtime_memory_context_payload,
+            user_steering_payload=user_steering_payload,
+            runtime_control_signals=runtime_control_signals,
+        )
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="task_execution",
@@ -1515,34 +1559,16 @@ class RuntimeCompiler:
                     content=active_skill_instruction,
                     kind="active_skills",
                     source_ref=",".join(active_skill_meta.get("source_refs") or ()),
-                    cache_scope="none",
-                    cache_role="volatile",
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
                         "authority_class": "active_skill_runtime",
-                        "volatility_reason": "active skill bodies are activated runtime content and must remain outside the cacheable task prefix",
-                        "cache_impact": "volatile_suffix_only",
+                        "cache_impact": "task_prefix_active_skill_snapshot",
+                        "stability_rule": "active skill instruction is locked once sent for this task invocation; later changes append new tail context",
                     },
                 )
                 if active_skill_instruction.strip()
-                else None,
-                _message_spec(
-                    role="system",
-                    content=runtime_lifecycle_instruction,
-                    kind="lifecycle_runtime_guidance",
-                    source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
-                    cache_scope="none",
-                    cache_role="volatile",
-                    compression_role="preserve",
-                    metadata={
-                        "authority_class": "runtime_lifecycle_guidance",
-                        "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
-                        "lifecycle_trigger_reasons": dict(prompt_mount_plan.runtime_lifecycle_trigger_reasons),
-                        "volatility_reason": "runtime lifecycle guidance is selected from active task state such as memory, observations, steering, or recovery and must not enter the cacheable task prefix",
-                        "cache_impact": "volatile_suffix_only",
-                    },
-                )
-                if runtime_lifecycle_instruction.strip()
                 else None,
                 *_attachment_context_message_specs(
                     attachment_context_payload,
@@ -1575,10 +1601,14 @@ class RuntimeCompiler:
                     payload=inherited_start_context_payload,
                     kind="task_start_inherited_context",
                     source_ref=str(inherited_start_context_payload.get("handoff_ref") or inherited_start_context_payload.get("handoff_id") or ""),
-                    cache_scope="none",
-                    cache_role="volatile",
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="ref_only",
-                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="turn_to_task_context_handoff"),
+                    metadata={
+                        **_dynamic_context_segment_metadata(dynamic_context, source="turn_to_task_context_handoff"),
+                        "cache_impact": "task_prefix_inherited_context_snapshot",
+                        "stability_rule": "task start inherited context is immutable after handoff; later updates are appended as task deltas",
+                    },
                 )
                 if inherited_start_context_payload
                 else None,
@@ -1588,14 +1618,14 @@ class RuntimeCompiler:
                     payload=bound_task_runtime_context_payload,
                     kind="bound_task_runtime_context",
                     source_ref=bound_task_context.source_ref,
-                    cache_scope="none",
-                    cache_role="volatile",
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="ref_only",
                     metadata={
                         "authority_class": "bound_task_runtime_context",
                         "semantic_layer": "L7_bound_task_runtime_context",
-                        "volatility_reason": "bound file, context, artifact, and rehydration facts are derived from runtime task state",
-                        "cache_impact": "volatile_suffix_only",
+                        "cache_impact": "task_prefix_bound_runtime_snapshot",
+                        "stability_rule": "bound runtime context is a hashable snapshot; changed file/artifact/rehydration state must append a later delta",
                         "content_source": "harness.runtime.bound_task_context",
                     },
                 )
@@ -1604,21 +1634,21 @@ class RuntimeCompiler:
                 _runtime_payload_spec(
                     role="system",
                     title="Task current exact read evidence",
-                    payload=read_evidence_payload,
+                    payload=read_evidence_prompt_payload,
                     kind="read_evidence_injection",
-                    source_ref=str(read_evidence_payload.get("packet_id") or packet_id),
-                    cache_scope="none",
-                    cache_role="volatile",
+                    source_ref=_read_evidence_prompt_source_ref(read_evidence_prompt_payload, fallback=packet_id),
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
                         "authority_class": "read_evidence_injection",
                         "projection_strategy": "current_exact_read_once_historical_refs",
                         "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
-                        "volatility_reason": "current packet exact file read evidence is visible once; historical file evidence is represented by refs",
-                        "cache_impact": "volatile_suffix_only",
+                        "cache_impact": "task_prefix_read_evidence_snapshot",
+                        "stability_rule": "exact read evidence already selected for this invocation is a stable snapshot; newer reads append later observations",
                     },
                 )
-                if read_evidence_payload
+                if read_evidence_prompt_payload
                 else None,
                 _runtime_payload_spec(
                     role="system",
@@ -1643,17 +1673,35 @@ class RuntimeCompiler:
                     preamble=runtime_instruction,
                     kind="task_runtime_boundary_dynamic",
                     source_ref="agent_visible_runtime_projection",
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "runtime_boundary",
+                        "cache_impact": "task_prefix_runtime_boundary_snapshot",
+                        "projection_strategy": "agent_visible_runtime_boundary",
+                        "content_source": "runtime.dynamic_context.runtime_delta_projection",
+                        "stability_rule": "runtime boundary is a selected model-visible snapshot; actual per-invocation deltas remain in volatile_task_state and incremental_context_frame",
+                    },
+                ),
+                _message_spec(
+                    role="system",
+                    content=runtime_lifecycle_instruction,
+                    kind="lifecycle_runtime_guidance",
+                    source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "runtime_boundary",
+                        "authority_class": "runtime_lifecycle_guidance",
+                        "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
+                        "lifecycle_trigger_reasons": dict(prompt_mount_plan.runtime_lifecycle_trigger_reasons),
+                        "volatility_reason": "runtime lifecycle guidance is selected from active state such as memory, observations, steering, or recovery",
                         "cache_impact": "volatile_suffix_only",
-                        "projection_strategy": "agent_visible_runtime_boundary",
-                        "content_source": "runtime.dynamic_context.runtime_delta_projection",
-                        "volatility_reason": "runtime dynamic projection may include active state and must not mutate the cacheable task prefix",
                     },
-                ),
+                )
+                if runtime_lifecycle_instruction.strip()
+                else None,
                 _runtime_payload_spec(
                     role="system",
                     title="Task execution current state",
@@ -1677,12 +1725,29 @@ class RuntimeCompiler:
                     metadata={
                         "authority_class": "runtime_memory_context",
                         "content_source": "memory_system.runtime_memory_context",
-                        "volatility_reason": "selected task memory can change every invocation; keep it in the volatile tail so runtime boundary and append-only replay remain cache-readable",
-                        "cache_impact": "volatile_suffix_tail",
+                        "volatility_reason": "selected memory context can change on each task invocation and belongs in the dynamic tail",
+                        "cache_impact": "volatile_suffix_only",
                     },
                 )
                 if runtime_memory_context_payload
                 else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task execution incremental context frame",
+                    payload={"incremental_context_frame": incremental_context_frame_payload},
+                    kind="incremental_context_frame",
+                    source_ref=TASK_EXECUTION_INCREMENTAL_CONTEXT_FRAME_SOURCE_REF,
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="summarize",
+                    metadata={
+                        "authority_class": "incremental_context_frame",
+                        "runtime_fragment_role": "task_execution_delta_explanation",
+                        "volatility_reason": "task execution incremental frame changes each invocation and must stay in the volatile suffix",
+                        "cache_impact": "volatile_suffix_only",
+                        "content_source": "harness.runtime.incremental_context_frame",
+                    },
+                ),
                 _runtime_payload_spec(
                     role="user",
                     title="User steering updates for this task",
@@ -1739,6 +1804,9 @@ class RuntimeCompiler:
             "active_skills",
             "recovery_packet",
             "task_start_inherited_context",
+            "task_plan_context",
+            "evidence_index_cursor",
+            "editor_context_index",
         )
         task_volatile_refs = (
             "runtime_envelope",
@@ -1748,11 +1816,10 @@ class RuntimeCompiler:
             "pending_user_steers",
             "active_contract_revisions",
             "runtime_control_signals",
-            "lifecycle_runtime_guidance",
-            "task_plan_context",
-            "evidence_index_cursor",
-            "editor_context_index",
             "current_editor_evidence_delta",
+            "incremental_context_frame",
+            "lifecycle_runtime_guidance",
+            "runtime_memory_context",
         )
         prompt_manifest = build_runtime_prompt_manifest(
             invocation_kind="task_execution",
@@ -2005,6 +2072,7 @@ class RuntimeCompiler:
             current_observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
         )
         read_evidence_payload = dict(session_evidence_projection.get("read_evidence_payload") or {})
+        read_evidence_prompt_payload = _read_evidence_prompt_payload(read_evidence_payload)
         dynamic_context = self.dynamic_context_manager.project(
             DynamicContextInput(
                 invocation_kind="tool_observation_followup",
@@ -2142,13 +2210,13 @@ class RuntimeCompiler:
                     content=skill_candidate_instruction,
                     kind="skill_candidates",
                     source_ref="runtime_skill_candidates",
-                    cache_scope="none",
-                    cache_role="volatile",
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
                         "authority_class": "active_skill_runtime",
-                        "volatility_reason": "skill candidates are selected for the current runtime followup and must remain outside the cacheable session prefix",
-                        "cache_impact": "volatile_suffix_only",
+                        "cache_impact": "task_prefix_stable_within_turn",
+                        "stability_rule": "selected skill candidates are stable for the current turn; if rebuilt differently prefix lock must downgrade the segment",
                     },
                 ),
                 _message_spec(
@@ -2156,15 +2224,15 @@ class RuntimeCompiler:
                     content=runtime_lifecycle_instruction,
                     kind="lifecycle_runtime_guidance",
                     source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
-                    cache_scope="none",
-                    cache_role="volatile",
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
                         "authority_class": "runtime_lifecycle_guidance",
                         "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
                         "lifecycle_trigger_reasons": dict(prompt_mount_plan.runtime_lifecycle_trigger_reasons),
-                        "volatility_reason": "runtime lifecycle guidance is selected from observation followup state and must remain outside the cacheable prefix",
-                        "cache_impact": "volatile_suffix_only",
+                        "cache_impact": "task_prefix_stable_within_turn",
+                        "stability_rule": "runtime lifecycle guidance is locked once sent for this turn; later changes must append a new tail segment",
                     },
                 )
                 if runtime_lifecycle_instruction.strip()
@@ -2172,21 +2240,21 @@ class RuntimeCompiler:
                 _runtime_payload_spec(
                     role="system",
                     title="Task current exact read evidence",
-                    payload=read_evidence_payload,
+                    payload=read_evidence_prompt_payload,
                     kind="read_evidence_injection",
-                    source_ref=str(read_evidence_payload.get("packet_id") or packet_id),
-                    cache_scope="none",
-                    cache_role="volatile",
+                    source_ref=_read_evidence_prompt_source_ref(read_evidence_prompt_payload, fallback=packet_id),
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
                         "authority_class": "read_evidence_injection",
                         "projection_strategy": "current_exact_read_once_historical_refs",
                         "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
-                        "volatility_reason": "current packet exact file read evidence is visible once; historical file evidence is represented by refs",
-                        "cache_impact": "volatile_suffix_only",
+                        "cache_impact": "task_prefix_read_evidence_snapshot",
+                        "stability_rule": "exact read evidence already sent in this turn is a stable snapshot; later reads append new observations",
                     },
                 )
-                if read_evidence_payload
+                if read_evidence_prompt_payload
                 else None,
                 *_attachment_context_message_specs(
                     attachment_context_payload,
@@ -2226,8 +2294,8 @@ class RuntimeCompiler:
                     preamble=runtime_instruction,
                     kind="dynamic_projection",
                     source_ref="agent_visible_runtime_projection",
-                    cache_scope="none",
-                    cache_role="volatile",
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="summarize",
                     metadata=_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
                 ),
@@ -2237,14 +2305,14 @@ class RuntimeCompiler:
                     payload=runtime_memory_context_payload,
                     kind="runtime_memory_context",
                     source_ref=_runtime_memory_context_source_ref(runtime_memory_context_payload),
-                    cache_scope="none",
-                    cache_role="volatile",
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="summarize",
                     metadata={
                         "authority_class": "runtime_memory_context",
                         "content_source": "memory_system.runtime_memory_context",
-                        "volatility_reason": "selected followup memory can change every invocation; keep it in the volatile tail",
-                        "cache_impact": "volatile_suffix_tail",
+                        "cache_impact": "task_prefix_memory_snapshot",
+                        "stability_rule": "selected memory context is a stable snapshot for this turn; later changes append a new tail segment",
                     },
                 )
                 if runtime_memory_context_payload
@@ -2268,17 +2336,21 @@ class RuntimeCompiler:
             message_specs=message_specs,
             fallback_model_messages=model_messages,
         )
-        observation_dynamic_refs = ("agent_visible_runtime_projection", "operation_authorization")
+        observation_dynamic_refs = (
+            "agent_visible_runtime_projection",
+            "operation_authorization",
+            "history",
+            "task_plan_context",
+            "editor_context_index",
+            "lifecycle_runtime_guidance",
+            "runtime_memory_context",
+        )
         observation_volatile_refs = (
             "runtime_envelope",
             "turn_id",
-            "history",
             "user_message",
             "observations",
-            "task_plan_context",
-            "editor_context_index",
             "current_editor_evidence_delta",
-            "lifecycle_runtime_guidance",
         )
         prompt_manifest = build_runtime_prompt_manifest(
             invocation_kind="tool_observation_followup",
@@ -2567,15 +2639,14 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
         ],
         "action_selection_rules": [
             "先识别用户当前输入本身要你回应什么：提问、质疑、状态追问、纠错、继续执行、修改目标、请求交付或闲聊。任何 action 都不能绕过这个输入意图。",
-            "先判断用户当前要求是否是任务承接请求：是否要求开始/启动/继续推进/执行/落地/实现/修复/构建/生成/写入/验证，并要求做到可验收结果。",
-            "先判断目标是否需要多阶段完成、规划后执行、持续推进、失败恢复、真实产物、文件修改、命令或浏览器验证、跨步骤状态记录。",
-            "当用户要求审查、评估、排查、review、audit、梳理架构或检查一个模块/子系统/目录/多文件链路，并需要形成可靠结论、问题清单、修复建议、报告或可验收结果时，这就是任务承接请求；如果 request_task_run 可用，必须主动选择 request_task_run，而不是在单轮里连续读取大量文件。",
-            "大型审查的范围只需要足以形成 task_contract_seed，不需要在单轮里先枚举完全部文件；一旦目标、范围和验收标准足够，就应提交 request_task_run，让持续任务生命周期负责后续证据读取和阶段反馈。",
-            "只有审查范围明确很小，例如只核对一个已知文件、一个具体函数、一个报错片段或一个单点事实，且不要求持续推进、完整结论或交付物时，才可以留在普通 tool_call。",
+            "默认优先在当前 turn 内完成用户请求；复杂、跨文件或需要审查不自动等于 Task。",
+            "只有当当前 turn 的自然边界不足以承载目标、计划、状态、恢复、验收、审计、用户可追踪阶段反馈或资源隔离时，才申请 request_task_run。",
+            "先判断目标是否需要持久工作生命周期：跨 turn 状态记录、暂停/恢复/停止/replan、明确完成证据、长期执行、工具/上下文预算恢复、独立验收或资源隔离。",
+            "审查、评估、排查、review、audit、架构梳理或多文件链路检查可以留在普通 ReAct/tool_call，只要当前 turn 能通过有限工具调用形成可靠结论、验证并收口。",
+            "当工作范围、状态、验收或恢复需求已经超过当前 turn 能稳定保存和交付的边界时，先形成足够的 task_contract_seed，再申请 request_task_run。",
             "如果用户当前输入是问题、质疑、追问、状态询问、纠错或询问为什么，必须先对这个输入给出公开回应；只有用户明确要求继续/执行/恢复当前任务时，才允许 active_work_control 只承接执行。",
-            "如果 allowed_action_types 包含 request_task_run 且任务承接条件成立，必须选择 request_task_run；不要用 respond 给计划替代启动任务，也不要先用普通 tool_call 消耗任务。",
-            "如果任务承接条件成立但目标、范围或验收标准不足以形成 task_contract_seed，必须选择 ask_user 补齐关键缺口。",
-            "只有用户只是询问概念、要求解释、要求状态说明，或明确要求一次性读取/搜索/检查且不要求持续完成交付时，才使用 respond 或普通 tool_call。",
+            "如果需要 Task 但目标、范围、计划或验收标准不足以形成 task_contract_seed，必须选择 ask_user 补齐关键缺口。",
+            "普通 tool_call 是合法路径，只要当前 turn 仍能保住目标、证据、反馈和收口；在状态控制、验收或恢复需求越过 turn 边界前升级 Task。",
         ],
         "public_response_obligation": {
             "authority": "model_semantic_response",
@@ -2623,10 +2694,40 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
         "tool_call": {"tool_name": "", "args": {}},
         "request_task_run_shape_rules": [
             "request_task_run 必须是单个结构化控制信号；可以使用 JSON action，也可以使用 provider-native canonical request_task_run；如果文本里带代码块或简短说明，只提取唯一 action-like 对象执行。",
+            "开启 Task 前先按 request_task_run_required_skeleton 自检；缺少任一必填路径时不要申请 Task，改用 ask_user 补齐或继续当前 turn 查证。",
             "不要使用 payload 包裹任务字段；顶层只能放 action_type、authority、public_progress_note、public_action_state、task_contract_seed、completion_contract、permission_request、diagnostics 等动作控制字段。",
-            "working_scope、capability_intent、skill_intent、observation_contract、completion_criteria、required_artifacts、required_verifications 都必须放在 task_contract_seed 内，不允许放在 JSON 顶层。",
-            "capability_intent 使用 needed_capability_groups；不要写 selected_groups。observation_contract 必须包含 evidence_policy。skill_intent 即使不选择 skill，也要给 selected_skill_ids: [] 并说明 reason。",
+            "task_contract_seed 的最小必填是 user_visible_goal、task_run_goal、working_scope.target_objects 和完成证据。",
         ],
+        "request_task_run_required_skeleton": {
+            "instruction": "这是开启持续任务的最小必填骨架。用当前用户目标和已观察事实替换占位内容；不要删除这些键，不要把它们放到 JSON 顶层。",
+            "required_top_level": ["authority", "action_type", "public_progress_note", "public_action_state", "task_contract_seed"],
+            "required_task_contract_seed_paths": [
+                "user_visible_goal",
+                "task_run_goal",
+                "working_scope.target_objects",
+                "completion_criteria",
+            ],
+            "minimal_action": {
+                "authority": "harness.loop.model_action_request",
+                "action_type": "request_task_run",
+                "public_progress_note": "说明为什么当前工作需要进入持续任务生命周期。",
+                "public_action_state": {
+                    "current_judgment": "说明当前 turn 无法稳定承载的边界。",
+                    "next_action": "进入持续任务执行流程。",
+                },
+                "task_contract_seed": {
+                    "user_visible_goal": "用户能看懂的任务目标。",
+                    "task_run_goal": "执行生命周期要持续推进的具体任务目标。",
+                    "working_scope": {
+                        "target_objects": ["要处理的文件、模块、目录、对象或问题域"],
+                        "source_refs": ["用户消息或已观察证据"],
+                        "excluded_scope": [],
+                        "known_constraints": ["用户明确约束、质量要求或排除项"],
+                    },
+                    "completion_criteria": ["可验收完成标准"],
+                },
+            },
+        },
         "resume_recoverable_work_shape_rules": [
             "resume_recoverable_work 必须是单个结构化控制信号；可以使用 JSON action，也可以使用 provider-native canonical resume_recoverable_work；如果文本里带代码块或简短说明，只提取唯一 action-like 对象执行。",
             "task_run_id 和 continuation_id 必须放在 recovery_resume 对象内；不允许放在 JSON 顶层，也不要使用 payload 包裹。",
@@ -2649,9 +2750,9 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
         "minimal_valid_request_task_run_example": {
             "authority": "harness.loop.model_action_request",
             "action_type": "request_task_run",
-            "public_progress_note": "这是跨多文件的审查任务，我会进入持续任务来读取证据、分阶段反馈并形成可验收结论。",
+            "public_progress_note": "这项工作需要跨 turn 保存目标、计划、证据和验收状态，我会申请进入持续任务生命周期。",
             "public_action_state": {
-                "current_judgment": "目标和范围已经足以启动持续任务。",
+                "current_judgment": "当前 turn 已不足以稳定承载任务目标、恢复和验收边界。",
                 "next_action": "进入持续任务执行流程。",
             },
             "task_contract_seed": {
@@ -2665,23 +2766,6 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                     "known_constraints": ["用户明确的质量标准和边界"],
                 },
                 "completion_criteria": ["读取关键证据", "形成问题清单和结论", "交付报告或修复建议"],
-                "capability_intent": {
-                    "needed_capability_groups": ["file_work"],
-                    "preferred_tool_namespaces": ["file_work"],
-                    "requires_deferred_tool_loading": True,
-                    "reason": "需要跨文件读取、证据记录和持续执行。",
-                },
-                "skill_intent": {
-                    "selected_skill_ids": [],
-                    "candidate_skill_ids": [],
-                    "required_capability_tags": ["code_review"],
-                    "reason": "当前任务主要依赖代码阅读和架构审查。",
-                },
-                "observation_contract": {
-                    "evidence_policy": "observation_required",
-                    "progress_granularity": "step",
-                    "finalization_requires_evidence": True,
-                },
             },
         },
         "task_contract_seed": {
@@ -2710,25 +2794,6 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                     "description": "验收或验证要求"
                 }
             ],
-            "capability_intent": {
-                "needed_capability_groups": [
-                    "需要的能力组，例如 file_work, web_research, browser_use, shell_execution, artifact_generation, subagent_delegation；表达服务类别，不列完整 operation 清单"
-                ],
-                "preferred_tool_namespaces": ["可选；希望加载的工具命名空间或能力目录节点"],
-                "requires_deferred_tool_loading": True,
-                "reason": "为什么该任务需要这些能力组"
-            },
-            "skill_intent": {
-                "selected_skill_ids": ["可选；从候选 Skills 中选择需要激活的 skill_id，例如 skill.deep-web-research"],
-                "candidate_skill_ids": ["可选；认为可能相关但尚未激活的 skill_id"],
-                "required_capability_tags": ["可选；需要的 skill 能力标签"],
-                "reason": "为什么选择或请求这些 skill"
-            },
-            "observation_contract": {
-                "evidence_policy": "observation_required",
-                "progress_granularity": "step",
-                "finalization_requires_evidence": True
-            },
             "plan_ref": "可选；用户已批准或已有记录的计划引用。没有批准计划时不要伪造。",
             "active_work_relationship": "可选；只有 allowed_action_types 包含 request_task_run 时填写。new_work 表示用户要求开启新的持续任务；不要用 request_task_run 恢复、替换或接管旧任务。",
             "plan_requirements": {
@@ -3154,23 +3219,23 @@ def _single_agent_turn_output_contract(
     if "active_work_control" not in allowed_actions:
         forbidden.append("active_work_control")
     action_selection_rules = [
-        "先判断用户当前要求是否是任务承接请求：是否要求开始/启动/继续推进/执行/落地/实现/修复/构建/生成/写入/验证，并要求做到可验收结果。",
-        "先判断目标是否需要多阶段完成、规划后执行、持续推进、失败恢复、真实产物、文件修改、命令或浏览器验证、跨步骤状态记录。",
-        "如果用户要求审查、评估、排查、review、audit、梳理架构或检查模块/子系统/目录/多文件链路，并需要可靠结论、问题清单、修复建议、报告或可验收结果，应视为任务承接请求。",
-        "普通 tool_call 只适合明确的小范围一次性核对；不要用连续读取大量文件来代替 request_task_run。",
-        "大型审查只需要先确认足以形成 task_contract_seed 的目标、范围和验收标准，不要为了完整预扫描而继续消耗单轮工具预算。",
+        "默认优先在当前 turn 内完成用户请求；复杂、跨文件或需要审查不自动等于 Task。",
+        "只有当当前 turn 的自然边界不足以承载目标、计划、状态、恢复、验收、审计、用户可追踪阶段反馈或资源隔离时，才升级到 request_task_run。",
+        "先判断目标是否需要持久工作生命周期：跨 turn 状态记录、暂停/恢复/停止/replan、明确完成证据、长期执行、工具/上下文预算恢复、独立验收或资源隔离。",
+        "普通 tool_call 是合法路径，只要当前 turn 能保住目标、证据、反馈和收口；审查、评估、排查或多文件链路检查也可以在 turn 内完成。",
+        "当工作范围、状态、验收或恢复需求越过 turn 边界时，先确认足以形成 task_contract_seed 的目标、范围、计划和验收标准，再申请 Task。",
     ]
     if "request_task_run" in allowed_actions:
         action_selection_rules.extend(
             [
-                "任务承接条件成立时必须选择 request_task_run；不要用 respond 给计划替代启动任务，也不要先用普通 tool_call 消耗任务。",
-                "任务承接条件成立但目标、范围或验收标准不足以形成 task_contract_seed 时，必须选择 ask_user 补齐关键缺口。",
-                "只有用户只是询问概念、要求解释、要求状态说明，或明确要求一次性读取/搜索/检查且不要求持续完成交付时，才使用 respond 或普通 tool_call。",
+                "如果需要 Task 但目标、范围、计划或验收标准不足以形成 task_contract_seed，必须选择 ask_user 补齐关键缺口。",
+                "不要把 Task 当作普通工具调用；Task 是持续工作生命周期容器，只在 turn 边界不足时申请。",
+                "如果当前 turn 可以通过有限工具调用完成、验证并收口，应继续使用 respond 或普通 tool_call。",
             ]
         )
     else:
         action_selection_rules.append(
-            "如果任务承接条件成立但本轮没有挂载 request_task_run，必须用可用动作公开说明持续任务生命周期未挂载或补齐缺口；不能假装已经进入持续任务。"
+            "如果当前工作确实需要持续 Task 但本轮没有挂载 request_task_run，必须用可用动作公开说明持续任务生命周期未挂载或补齐缺口；不能假装已经进入持续任务。"
         )
     return {
         "format": "assistant_message_or_action",
@@ -3467,14 +3532,15 @@ def _attachment_context_message_specs(
             payload={"attachment_context_index": attachment_context_index},
             kind="attachment_context_index",
             source_ref=f"{source_ref_prefix}:attachment_context_index",
-            cache_scope="none",
-            cache_role="volatile",
+            cache_scope="task",
+            cache_role="session_stable",
             compression_role="ref_only",
             metadata={
                 **_dynamic_context_segment_metadata(dynamic_context, source="attachment_context_index"),
                 "authority_class": "attachment_context_index",
                 "content_source": "harness.runtime.dynamic_context.attachment_context_index",
                 "runtime_fragment_role": "attachment_context_index",
+                "cache_impact": "task_prefix_attachment_index_snapshot",
             },
         )
     ]
@@ -3497,14 +3563,15 @@ def _evidence_index_cursor_message_specs(
             payload={"evidence_index_cursor": evidence_index_cursor},
             kind="evidence_index_cursor",
             source_ref=f"{source_ref_prefix}:evidence_index_cursor",
-            cache_scope="none",
-            cache_role="volatile",
+            cache_scope="task",
+            cache_role="session_stable",
             compression_role="ref_only",
             metadata={
                 **_dynamic_context_segment_metadata(dynamic_context, source="evidence_index_cursor"),
                 "authority_class": "evidence_index_cursor",
                 "content_source": "harness.runtime.dynamic_context.evidence_index_cursor",
                 "runtime_fragment_role": "evidence_index_cursor",
+                "cache_impact": "task_prefix_evidence_cursor_snapshot",
             },
         )
     ]
@@ -3527,14 +3594,15 @@ def _task_plan_context_message_specs(
             payload={"task_plan_context": task_plan_context},
             kind="task_plan_context",
             source_ref=f"{source_ref_prefix}:task_plan_context",
-            cache_scope="none",
-            cache_role="volatile",
+            cache_scope="task",
+            cache_role="session_stable",
             compression_role="ref_only",
             metadata={
                 **_dynamic_context_segment_metadata(dynamic_context, source="task_plan_context"),
                 "authority_class": "task_plan_context",
                 "content_source": "harness.runtime.dynamic_context.task_plan_context",
                 "runtime_fragment_role": "task_plan_context",
+                "cache_impact": "task_prefix_plan_context_snapshot",
             },
         )
     ]
@@ -3558,14 +3626,15 @@ def _editor_context_message_specs(
                 payload={"editor_context_index": editor_context_index},
                 kind="editor_context_index",
                 source_ref=f"{source_ref_prefix}:editor_context_index",
-                cache_scope="none",
-                cache_role="volatile",
+                cache_scope="task",
+                cache_role="session_stable",
                 compression_role="ref_only",
                 metadata={
                     **_dynamic_context_segment_metadata(dynamic_context, source="editor_context_index"),
                     "authority_class": "editor_context_index",
                     "content_source": "harness.runtime.dynamic_context.editor_context_index",
                     "runtime_fragment_role": "editor_context_index",
+                    "cache_impact": "task_prefix_editor_context_index_snapshot",
                 },
             )
         )
@@ -3609,12 +3678,14 @@ def _session_history_message_specs(
             payload=clean_payload,
             kind="session_history",
             source_ref=source_ref,
-            cache_scope="none",
-            cache_role="volatile",
+            cache_scope="task",
+            cache_role="session_stable",
             compression_role="summarize",
             metadata={
                 **dict(metadata or {}),
                 "authority_class": "natural_history",
+                "cache_impact": "task_prefix_history_snapshot",
+                "stability_rule": "history already selected for this turn is preserved by hash; new user input is appended separately",
             },
         )
     ]
@@ -3634,13 +3705,13 @@ def _task_state_replay_message_specs(entries: tuple[dict[str, Any], ...]) -> lis
                 payload={"task_state_replay_entry": entry},
                 kind="task_state_replay_entry",
                 source_ref=f"task_state_replay:{entry_ref}",
-                cache_scope="none",
-                cache_role="volatile",
+                cache_scope="task",
+                cache_role="session_stable",
                 compression_role="preserve",
                 metadata={
                     "authority_class": "runtime_state",
-                    "cache_impact": "volatile_suffix_append_only",
-                    "volatility_reason": "task_state_replay_entries append after each tool observation and must not change the cacheable task prefix",
+                    "cache_impact": "append_only_task_prefix",
+                    "stability_rule": "replay entries are append-only historical evidence; current invocation deltas remain in volatile task state",
                     "dynamic_context_report_ref": "task_state_replay_entries",
                     "projection_strategy": "bounded_task_state_replay_entry",
                     "task_state_replay_entry_index": index,
@@ -4543,7 +4614,7 @@ def _file_evidence_policy_stable_payload() -> dict[str, Any]:
                     "只有 stale、changed、missing、hash 缺失或目标范围未覆盖时才需要新的 read_file。"
                 ),
                 "known_path_boundary": (
-                    "已知 bound/editor 文件路径，以及 task_contract.working_scope 中表现为路径的 target_objects、"
+                    "已知 bound/editor 文件路径，以及 task_contract.environment_contract.working_scope 中表现为路径的 target_objects、"
                     "source_refs 或 workspace_refs，不需要通过 search_files 或 search_text 重新发现；"
                     "未知位置才使用 search_files、glob_paths 或 search_text。"
                 ),
@@ -5150,16 +5221,19 @@ def _model_decision_contract_payload(
         },
         "task_entry_rule": {
             "request_task_run_allowed": bool(task_run_allowed),
-            "must_choose_request_task_run_when_task_entry_conditions_hold": bool(task_run_allowed),
+            "upgrade_to_task_when_turn_boundary_insufficient": bool(task_run_allowed),
             "ask_user_when_contract_gaps_exist": True,
-            "task_entry_conditions": [
-                "用户要求开始、继续推进、执行、落地、实现、修复、构建、生成、写入或验证，并要求做到可验收结果。",
-                "目标需要多阶段完成、规划后执行、持续推进、失败恢复、真实产物、文件修改、命令或浏览器验证、跨步骤状态记录。",
-                "用户要求审查、评估、排查、review、audit、梳理架构或检查模块/子系统/目录/多文件链路，并需要可靠结论、问题清单、修复建议、报告或可验收结果。",
+            "turn_first_policy": (
+                "默认在当前 turn 内完成、验证并收口；复杂、跨文件或需要审查不自动等于 Task。"
+            ),
+            "task_upgrade_conditions": [
+                "当前 turn 无法稳定承载目标、计划、状态、恢复、验收、审计、用户可追踪阶段反馈或资源隔离。",
+                "工作需要跨 turn 状态记录、暂停/恢复/停止/replan、明确完成证据、长期执行、独立验收或资源隔离。",
+                "工具/上下文预算触发 closeout/recover，需要保存证据、未完成项和恢复点后继续。",
             ],
             "single_turn_tool_call_boundary": (
-                "普通 tool_call 只适合明确的小范围一次性核对，例如一个已知文件、一个具体函数、"
-                "一个报错片段或一个单点事实；不要用连续读取大量文件来代替 request_task_run。"
+                "普通 tool_call 是有效路径，只要当前 turn 能保住目标、证据、反馈和收口；"
+                "在状态控制、验收或恢复需求越过 turn 边界前升级 Task。"
             ),
         },
         "feedback_obligation": {
@@ -5447,6 +5521,29 @@ def _runtime_memory_context_source_ref(payload: dict[str, Any] | None) -> str:
     return "runtime_memory_context"
 
 
+def _read_evidence_prompt_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
+    data = dict(payload or {})
+    if not data:
+        return {}
+    meaningful = (
+        bool(data.get("read_evidence_refs"))
+        or bool(data.get("read_required_windows"))
+        or bool(data.get("read_evidence_injections"))
+        or bool(data.get("visible_exact_in_packet") is True)
+    )
+    if not meaningful:
+        return {}
+    data.pop("packet_id", None)
+    return _drop_empty_payload(data)
+
+
+def _read_evidence_prompt_source_ref(payload: dict[str, Any] | None, *, fallback: str) -> str:
+    data = dict(payload or {})
+    if not data:
+        return str(fallback or "read_evidence_injection")
+    return f"read_evidence:{_stable_json_hash(data).removeprefix('sha256:')[:16]}"
+
+
 def _skill_candidate_instruction(assembly_payload: dict[str, Any]) -> str:
     cards = render_skill_candidate_cards(
         [
@@ -5460,10 +5557,10 @@ def _skill_candidate_instruction(assembly_payload: dict[str, Any]) -> str:
     return _join_prompt_sections(
         cards,
         (
-            "Skill 使用规则：如果某个候选 skill 能改善持续任务，请在 request_task_run 的 "
-            "task_contract_seed.skill_intent.selected_skill_ids 中填写对应 skill_id。"
-            "候选卡片不是完整技能说明；进入持续任务后会展开已选择 skill 的全文。"
-            "不要把 skill_id、内部路由或工具名暴露给用户。"
+            "能力说明：这些候选内容只帮助你理解当前工作可用的专门能力。"
+            "启动持续任务时请只提交任务目标、范围和完成标准。"
+            "候选卡片不是完整技能说明；进入持续任务后运行环境会提供相关能力说明。"
+            "不要把内部路由或工具名暴露给用户。"
         ),
     )
 

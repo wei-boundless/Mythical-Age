@@ -25,6 +25,11 @@ CACHE_READ_REQUIRED_SEGMENT_KINDS = {
     "tool_index_stable",
     "task_contract_stable",
 }
+APPEND_ONLY_REPLAY_SEGMENT_KINDS = {
+    "single_agent_turn_tool_call",
+    "single_agent_turn_tool_observation",
+    "task_state_replay_entry",
+}
 
 
 def stable_text_hash(text: str) -> str:
@@ -194,6 +199,26 @@ class PromptCachePlanner:
             status = "hit"
         else:
             status = "miss"
+        base_diagnostics = dict(record.diagnostics or {})
+        coverage_diagnostics = _provider_cache_read_coverage_diagnostics(
+            diagnostics=base_diagnostics,
+            usage=usage,
+            cached_tokens=cached,
+        )
+        diagnostics = {
+            **base_diagnostics,
+            **coverage_diagnostics,
+        }
+        diagnostics = {
+            **diagnostics,
+            **_provider_actual_cache_target_diagnostics(
+                diagnostics=diagnostics,
+                usage=usage,
+                cached_tokens=cached,
+            ),
+            "provider_usage_ref": usage.usage_id,
+            "provider_cached_tokens": cached,
+        }
         return replace(
             record,
             status=status,
@@ -201,16 +226,7 @@ class PromptCachePlanner:
             cache_read_tokens=int(usage.cache_read_tokens or 0),
             cache_creation_tokens=creation,
             cache_savings_tokens=cached,
-            diagnostics={
-                **dict(record.diagnostics or {}),
-                **_provider_cache_read_coverage_diagnostics(
-                    diagnostics=dict(record.diagnostics or {}),
-                    usage=usage,
-                    cached_tokens=cached,
-                ),
-                "provider_usage_ref": usage.usage_id,
-                "provider_cached_tokens": cached,
-            },
+            diagnostics=diagnostics,
         )
 
 
@@ -251,14 +267,14 @@ def _prefix_diagnostics(
     replay_stable_tokens = sum(
         int(segment.predicted_tokens or 0)
         for segment in segment_map.segments
-        if str(segment.kind or "") == "task_state_replay_entry"
+        if str(segment.kind or "") in APPEND_ONLY_REPLAY_SEGMENT_KINDS
         and str(segment.cache_role or "") in {"cacheable_prefix", "session_stable"}
         and str(segment.prefix_tier or "") == "task"
     )
     replay_volatile_tokens = sum(
         int(segment.predicted_tokens or 0)
         for segment in segment_map.segments
-        if str(segment.kind or "") == "task_state_replay_entry"
+        if str(segment.kind or "") in APPEND_ONLY_REPLAY_SEGMENT_KINDS
         and str(segment.cache_role or "") in {"volatile", "never_cache"}
     )
     read_evidence_tokens = sum(
@@ -480,6 +496,11 @@ def _provider_cache_read_coverage_diagnostics(
         for item in required_coverage
         if item.get("covered_by_provider_scaled_boundary") is False
     ]
+    uncovered_stable = [
+        item
+        for item in stable_coverage
+        if item.get("covered_by_provider_scaled_boundary") is False
+    ]
     stable_prefix_estimated_tokens = 0
     if stable_coverage:
         stable_prefix_estimated_tokens = int(stable_coverage[-1].get("provider_scaled_cumulative_tokens") or 0)
@@ -502,10 +523,17 @@ def _provider_cache_read_coverage_diagnostics(
             str(item.get("kind") or "") for item in uncovered_required
         ],
         "provider_cache_read_uncovered_required_count": len(uncovered_required),
+        "provider_cache_read_stable_segment_coverage": stable_coverage,
+        "provider_cache_read_first_uncovered_stable_segment": dict(uncovered_stable[0]) if uncovered_stable else {},
+        "provider_cache_read_uncovered_stable_count": len(uncovered_stable),
         "provider_cache_read_stable_prefix_estimated_tokens": stable_prefix_estimated_tokens,
         "provider_cache_read_stable_prefix_estimated_covered": stable_prefix_estimated_covered,
         "provider_cache_read_stable_prefix_covered": None,
-        "provider_cache_read_stable_prefix_coverage_evidence": "unmeasured_by_provider_usage",
+        "provider_cache_read_stable_prefix_coverage_evidence": (
+            "estimated_from_local_token_scale"
+            if stable_coverage and stable_prefix_estimated_covered
+            else ("unmeasured_by_provider_usage" if stable_coverage else "unmeasured")
+        ),
     }
 
 
@@ -570,6 +598,88 @@ def _cache_read_target_diagnostics(
         "target_warm_cache_read_rate_total_tokens": total_tokens,
         "target_warm_cache_read_rate_blockers": blockers,
     }
+
+
+def _provider_actual_cache_target_diagnostics(
+    *,
+    diagnostics: dict[str, Any],
+    usage: ModelTokenUsageRecord,
+    cached_tokens: int,
+) -> dict[str, Any]:
+    provider_prompt_tokens = int(usage.prompt_tokens or 0)
+    actual = _ratio(int(cached_tokens or 0), provider_prompt_tokens)
+    goal = float(diagnostics.get("target_warm_cache_read_rate_goal") or 0.9)
+    plan_estimate = diagnostics.get("target_warm_cache_read_rate_estimate")
+    plan_status = str(diagnostics.get("target_warm_cache_read_rate_status") or "")
+    stable_prefix_estimated_covered = diagnostics.get("provider_cache_read_stable_prefix_estimated_covered")
+    provider_below_target = provider_prompt_tokens > 0 and actual < goal
+    stable_prefix_under_read = stable_prefix_estimated_covered is False
+    blockers = list(diagnostics.get("target_warm_cache_read_rate_blockers") or [])
+    if provider_below_target or stable_prefix_under_read:
+        blockers = [
+            *_provider_cache_under_read_blockers(
+                diagnostics=diagnostics,
+                cached_tokens=int(cached_tokens or 0),
+                provider_prompt_tokens=provider_prompt_tokens,
+                actual=actual,
+                goal=goal,
+            ),
+            *blockers,
+        ]
+    if provider_below_target:
+        status = "provider_below_target"
+    elif stable_prefix_under_read:
+        status = "provider_stable_prefix_under_read"
+    else:
+        status = "ok"
+    return {
+        "target_warm_cache_read_rate_plan_estimate": plan_estimate,
+        "target_warm_cache_read_rate_plan_status": plan_status,
+        "target_warm_cache_read_rate_actual": actual,
+        "target_warm_cache_read_rate_actual_source": "provider_usage_cached_tokens_over_prompt_tokens"
+        if provider_prompt_tokens > 0
+        else "unmeasured",
+        "target_warm_cache_read_rate_gap": round(max(0.0, goal - actual), 4)
+        if provider_prompt_tokens > 0
+        else diagnostics.get("target_warm_cache_read_rate_gap"),
+        "target_warm_cache_read_rate_status": status,
+        "target_warm_cache_read_rate_blockers": blockers,
+    }
+
+
+def _provider_cache_under_read_blockers(
+    *,
+    diagnostics: dict[str, Any],
+    cached_tokens: int,
+    provider_prompt_tokens: int,
+    actual: float,
+    goal: float,
+) -> list[dict[str, Any]]:
+    first_uncovered = dict(diagnostics.get("provider_cache_read_first_uncovered_stable_segment") or {})
+    stable_prefix_estimated_tokens = int(diagnostics.get("provider_cache_read_stable_prefix_estimated_tokens") or 0)
+    blocker = {
+        "kind": "provider_cache_read_under_target",
+        "cache_roles": ["provider_usage"],
+        "prefix_tiers": ["provider_payload"],
+        "segment_count": 1,
+        "provider_cached_tokens": int(cached_tokens or 0),
+        "provider_prompt_tokens": int(provider_prompt_tokens or 0),
+        "provider_cache_hit_rate": actual,
+        "target_cache_hit_rate_goal": goal,
+        "stable_prefix_estimated_tokens": stable_prefix_estimated_tokens,
+        "stable_prefix_estimated_covered": diagnostics.get("provider_cache_read_stable_prefix_estimated_covered"),
+        "under_read_tokens": max(0, stable_prefix_estimated_tokens - int(cached_tokens or 0)),
+    }
+    if first_uncovered:
+        blocker["first_uncovered_stable_segment"] = {
+            "kind": str(first_uncovered.get("kind") or ""),
+            "ordinal": int(first_uncovered.get("ordinal") or 0),
+            "prefix_tier": str(first_uncovered.get("prefix_tier") or ""),
+            "cache_role": str(first_uncovered.get("cache_role") or ""),
+            "provider_scaled_cumulative_tokens": int(first_uncovered.get("provider_scaled_cumulative_tokens") or 0),
+            "provider_scaled_under_read_tokens": int(first_uncovered.get("provider_scaled_under_read_tokens") or 0),
+        }
+    return [blocker]
 
 
 def _prompt_manifest_cache_diagnostics(segment_map: PromptSegmentMap) -> dict[str, Any]:
@@ -754,8 +864,31 @@ def _provider_payload_prefix_token_diagnostics(
 
 
 def _provider_payload_tool_prefix_predicted_tokens(segment_map: PromptSegmentMap, *, tier: str) -> int:
-    del segment_map, tier
-    return 0
+    total = 0
+    for segment in tuple(segment_map.segments or ()):
+        metadata = dict(getattr(segment, "metadata", None) or {})
+        if not _is_provider_payload_tool_prefix_segment(segment, metadata=metadata):
+            continue
+        if not is_prefix_eligible_for_tier(
+            cache_role=getattr(segment, "cache_role", ""),
+            prefix_tier=getattr(segment, "prefix_tier", ""),
+            tier=tier,
+        ):
+            continue
+        total += int(getattr(segment, "predicted_tokens", 0) or 0)
+    return total
+
+
+def _is_provider_payload_tool_prefix_segment(segment: Any, *, metadata: dict[str, Any]) -> bool:
+    if str(getattr(segment, "kind", "") or "") != "native_tool_binding_schema":
+        return False
+    if metadata.get("provider_payload_prefix_component") is False:
+        return False
+    if str(metadata.get("provider_payload_transport_location") or "") == "tools":
+        return True
+    if str(getattr(segment, "role", "") or "") == "tool_schema":
+        return True
+    return str(getattr(segment, "source", "") or "") == "model_request.tools"
 
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:

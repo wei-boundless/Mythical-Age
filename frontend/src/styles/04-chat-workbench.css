@@ -1,4 +1,4 @@
-/* Chat workbench. */
+﻿/* Chat workbench. */
 
 .mcp-server-list,
 .mcp-tool-list {
@@ -12,21 +12,21 @@
   align-items: start;
   gap: 0.7rem;
   width: 100%;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--console-line);
   border-radius: var(--radius-inner);
   padding: 0.8rem;
   text-align: left;
 }
 
 .mcp-server-row--active {
-  border-color: color-mix(in srgb, var(--color-accent-primary) 38%, var(--color-border));
-  background: color-mix(in srgb, var(--color-accent-primary) 8%, transparent);
+  border-color: color-mix(in srgb, var(--console-accent) 38%, var(--console-line));
+  background: color-mix(in srgb, var(--console-accent) 8%, transparent);
 }
 
 .mcp-server-row__status {
   display: grid;
   place-items: center;
-  color: var(--color-accent);
+  color: var(--console-accent);
 }
 
 .mcp-server-row__copy {
@@ -37,14 +37,14 @@
 
 .mcp-server-row__copy strong {
   overflow: hidden;
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.88rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .mcp-server-row__copy em {
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.72rem;
   font-style: normal;
   overflow-wrap: anywhere;
@@ -53,7 +53,7 @@
 .mcp-server-row__copy small {
   display: block;
   overflow: hidden;
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 0.68rem;
   text-overflow: ellipsis;
@@ -61,19 +61,19 @@
 }
 
 .mcp-status--ok {
-  color: #66c6a0;
+  color: var(--console-success);
 }
 
 .mcp-status--bad {
-  color: #f07566;
+  color: var(--console-danger);
 }
 
 .mcp-status--wait {
-  color: #d8a85d;
+  color: var(--console-warning);
 }
 
 .mcp-status--muted {
-  color: var(--color-text-muted);
+  color: var(--console-muted);
 }
 
 .mcp-form-grid {
@@ -89,7 +89,7 @@
 }
 
 .mcp-form-grid label span {
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.72rem;
   font-weight: 800;
   text-transform: uppercase;
@@ -101,10 +101,10 @@
 .mcp-tool-list textarea {
   width: 100%;
   min-width: 0;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--console-line);
   border-radius: var(--radius-inner);
   background: rgba(0, 0, 0, 0.18);
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.82rem;
   outline: none;
   padding: 0.72rem 0.82rem;
@@ -122,7 +122,7 @@
 
 .mcp-discovery-grid h4,
 .mcp-tool-list h4 {
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.9rem;
   font-weight: 900;
 }
@@ -131,9 +131,9 @@
 .mcp-call-result {
   max-height: 420px;
   overflow: auto;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--console-line);
   border-radius: var(--radius-inner);
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.76rem;
   line-height: 1.55;
   margin-top: 0.65rem;
@@ -154,10 +154,10 @@
   align-items: center;
   gap: 0.42rem;
   min-height: 2.28rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid color-mix(in srgb, var(--console-surface) 8%, transparent);
   border-radius: var(--radius-control);
-  background: rgba(255, 255, 255, 0.035);
-  color: var(--color-text-soft);
+  background: color-mix(in srgb, var(--console-surface) 3.5%, transparent);
+  color: var(--console-muted);
   font-size: 0.82rem;
   font-weight: 800;
   padding: 0.46rem 0.72rem;
@@ -165,28 +165,28 @@
 
 .chat-page-tabs__item:hover,
 .chat-page-tabs__item--active {
-  border-color: color-mix(in srgb, var(--color-accent-primary) 44%, transparent);
+  border-color: color-mix(in srgb, var(--console-accent) 44%, transparent);
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--color-accent-primary) 15%, transparent), transparent 62%),
-    rgba(255, 255, 255, 0.05);
-  color: var(--color-text);
+    linear-gradient(135deg, color-mix(in srgb, var(--console-accent) 15%, transparent), transparent 62%),
+    color-mix(in srgb, var(--console-surface) 5%, transparent);
+  color: var(--console-text);
 }
 
 .chat-page-tabs__item svg {
-  color: var(--color-accent-primary);
+  color: var(--console-accent);
   flex-shrink: 0;
 }
 
 .coordination-topology-viewport {
   min-height: 320px;
-  border: 1px solid rgba(255, 255, 255, 0.055);
+  border: 1px solid color-mix(in srgb, var(--console-surface) 5.5%, transparent);
   border-radius: calc(var(--radius-panel) - 16px);
   background:
-    radial-gradient(circle at 22% 18%, color-mix(in srgb, var(--color-accent-primary) 13%, transparent), transparent 30%),
+    radial-gradient(circle at 22% 18%, color-mix(in srgb, var(--console-accent) 13%, transparent), transparent 30%),
     radial-gradient(circle at 82% 78%, rgba(76, 174, 255, 0.09), transparent 34%),
-    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.024), transparent 24%),
+    linear-gradient(color-mix(in srgb, var(--console-surface) 3.5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--console-surface) 3%, transparent) 1px, transparent 1px),
+    linear-gradient(180deg, color-mix(in srgb, var(--console-surface) 2.4%, transparent), transparent 24%),
     rgba(0, 0, 0, 0.18);
   background-size: auto, auto, 34px 34px, 34px 34px, auto, auto;
   overflow: hidden;
@@ -197,8 +197,8 @@
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.04), transparent 18%, transparent 82%, rgba(0, 0, 0, 0.14)),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 22%, rgba(0, 0, 0, 0.16));
+    linear-gradient(90deg, color-mix(in srgb, var(--console-surface) 4%, transparent), transparent 18%, transparent 82%, rgba(0, 0, 0, 0.14)),
+    linear-gradient(180deg, color-mix(in srgb, var(--console-surface) 5%, transparent), transparent 22%, rgba(0, 0, 0, 0.16));
   content: "";
   pointer-events: none;
 }
@@ -246,14 +246,14 @@
 }
 
 .coordination-topology-empty__copy strong {
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.96rem;
 }
 
 .coordination-topology-empty__copy p {
   margin: 0;
   max-width: 30rem;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.76rem;
   line-height: 1.55;
 }
@@ -268,32 +268,32 @@
 }
 
 .coordination-topology-edge.is-idle {
-  stroke: rgba(255, 255, 255, 0.2);
+  stroke: color-mix(in srgb, var(--console-surface) 20%, transparent);
 }
 
 .coordination-topology-edge.is-complete {
-  stroke: color-mix(in srgb, var(--color-accent-primary) 72%, #8affc5 28%);
+  stroke: color-mix(in srgb, var(--console-accent) 72%, var(--console-success) 28%);
   opacity: 0.62;
 }
 
 .coordination-topology-edge.is-running {
-  stroke: #ffd47b;
+  stroke: var(--console-warning);
   opacity: 0.82;
 }
 
 .coordination-topology-edge.is-failed {
-  stroke: #ff745b;
+  stroke: var(--console-danger);
   opacity: 0.9;
 }
 
 .coordination-topology-edge.is-blocked {
-  stroke: #ffb86b;
+  stroke: var(--console-warning);
   opacity: 0.82;
 }
 
 .coordination-topology-edge.is-ready,
 .coordination-topology-edge.is-waiting {
-  stroke: color-mix(in srgb, var(--color-accent-primary) 58%, white);
+  stroke: color-mix(in srgb, var(--console-accent) 58%, var(--console-surface));
   opacity: 0.56;
 }
 
@@ -314,31 +314,31 @@
 }
 
 .coordination-topology-edge-arrow.is-idle {
-  fill: rgba(255, 255, 255, 0.38);
+  fill: color-mix(in srgb, var(--console-surface) 38%, transparent);
 }
 
 .coordination-topology-edge-arrow.is-complete {
-  fill: color-mix(in srgb, var(--color-accent-primary) 72%, #8affc5 28%);
+  fill: color-mix(in srgb, var(--console-accent) 72%, var(--console-success) 28%);
 }
 
 .coordination-topology-edge-arrow.is-running {
-  fill: #ffd47b;
+  fill: var(--console-warning);
   opacity: 0.82;
 }
 
 .coordination-topology-edge-arrow.is-failed {
-  fill: #ff745b;
+  fill: var(--console-danger);
   opacity: 0.9;
 }
 
 .coordination-topology-edge-arrow.is-blocked {
-  fill: #ffb86b;
+  fill: var(--console-warning);
   opacity: 0.82;
 }
 
 .coordination-topology-edge-arrow.is-ready,
 .coordination-topology-edge-arrow.is-waiting {
-  fill: color-mix(in srgb, var(--color-accent-primary) 58%, white);
+  fill: color-mix(in srgb, var(--console-accent) 58%, var(--console-surface));
 }
 
 .coordination-topology-edge-arrow.is-current,
@@ -347,61 +347,61 @@
 }
 
 .coordination-topology-edge--memory_read {
-  stroke: #38bdf8;
+  stroke: var(--console-accent);
   stroke-dasharray: 7 5;
   opacity: 0.68;
 }
 
 .coordination-topology-edge-arrow.coordination-topology-edge--memory_read {
-  fill: #38bdf8;
+  fill: var(--console-accent);
 }
 
 .coordination-topology-edge--memory_write_candidate {
-  stroke: #fbbf24;
+  stroke: var(--console-warning);
   stroke-dasharray: 5 5;
   opacity: 0.72;
 }
 
 .coordination-topology-edge-arrow.coordination-topology-edge--memory_write_candidate {
-  fill: #fbbf24;
+  fill: var(--console-warning);
 }
 
 .coordination-topology-edge--memory_commit {
-  stroke: #34d399;
+  stroke: var(--console-success);
   opacity: 0.78;
 }
 
 .coordination-topology-edge-arrow.coordination-topology-edge--memory_commit {
-  fill: #34d399;
+  fill: var(--console-success);
 }
 
 .coordination-topology-edge--artifact_context {
-  stroke: #a78bfa;
+  stroke: var(--console-accent);
   stroke-dasharray: 10 4;
   opacity: 0.68;
 }
 
 .coordination-topology-edge-arrow.coordination-topology-edge--artifact_context {
-  fill: #a78bfa;
+  fill: var(--console-accent);
 }
 
 .coordination-topology-edge--revision_request {
-  stroke: #fb7185;
+  stroke: var(--console-danger);
   stroke-dasharray: 4 4;
   opacity: 0.8;
 }
 
 .coordination-topology-edge-arrow.coordination-topology-edge--revision_request {
-  fill: #fb7185;
+  fill: var(--console-danger);
 }
 
 .coordination-topology-edge--control_flow {
-  stroke: #cbd5e1;
+  stroke: var(--console-muted);
   opacity: 0.7;
 }
 
 .coordination-topology-edge-arrow.coordination-topology-edge--control_flow {
-  fill: #cbd5e1;
+  fill: var(--console-muted);
 }
 
 .coordination-topology-frames {
@@ -413,8 +413,8 @@
 }
 
 .coordination-topology-frame__rect {
-  fill: color-mix(in srgb, var(--color-accent-primary) 6%, transparent);
-  stroke: color-mix(in srgb, var(--color-accent-primary) 36%, transparent);
+  fill: color-mix(in srgb, var(--console-accent) 6%, transparent);
+  stroke: color-mix(in srgb, var(--console-accent) 36%, transparent);
   stroke-dasharray: 8 7;
   stroke-width: 1.2;
 }
@@ -436,7 +436,7 @@
 
 .coordination-topology-frame__label,
 .coordination-topology-frame__meta {
-  fill: var(--color-text-soft);
+  fill: var(--console-muted);
   font-family: var(--font-mono), monospace;
   pointer-events: none;
 }
@@ -452,19 +452,19 @@
 }
 
 .coordination-topology-frame--selected .coordination-topology-frame__rect {
-  fill: color-mix(in srgb, var(--color-accent-primary) 12%, transparent);
-  stroke: color-mix(in srgb, var(--color-accent-primary) 72%, white);
+  fill: color-mix(in srgb, var(--console-accent) 12%, transparent);
+  stroke: color-mix(in srgb, var(--console-accent) 72%, white);
   stroke-dasharray: 0;
   stroke-width: 1.8;
 }
 
 .coordination-topology-frame--selected .coordination-topology-frame__label {
-  fill: var(--color-text);
+  fill: var(--console-text);
 }
 
 .coordination-topology-box-select {
-  fill: color-mix(in srgb, var(--color-accent-primary) 12%, transparent);
-  stroke: color-mix(in srgb, var(--color-accent-primary) 76%, white);
+  fill: color-mix(in srgb, var(--console-accent) 12%, transparent);
+  stroke: color-mix(in srgb, var(--console-accent) 76%, white);
   stroke-dasharray: 5 4;
   stroke-width: 1.2;
   pointer-events: none;
@@ -481,28 +481,28 @@
 }
 
 .coordination-topology-edge.is-idle {
-  color: rgba(255, 255, 255, 0.18);
+  color: color-mix(in srgb, var(--console-surface) 18%, transparent);
 }
 
 .coordination-topology-edge.is-complete {
-  color: color-mix(in srgb, var(--color-accent-primary) 72%, #8affc5 28%);
+  color: color-mix(in srgb, var(--console-accent) 72%, #8affc5 28%);
 }
 
 .coordination-topology-edge.is-running {
-  color: #ffd47b;
+  color: var(--console-warning);
 }
 
 .coordination-topology-edge.is-failed {
-  color: #ff745b;
+  color: var(--console-danger);
 }
 
 .coordination-topology-edge.is-blocked {
-  color: #ffb86b;
+  color: var(--console-warning);
 }
 
 .coordination-topology-edge.is-ready,
 .coordination-topology-edge.is-waiting {
-  color: color-mix(in srgb, var(--color-accent-primary) 58%, white);
+  color: color-mix(in srgb, var(--console-accent) 58%, var(--console-surface));
 }
 
 .coordination-topology-agent-label,
@@ -516,7 +516,7 @@
 }
 
 .coordination-topology-agent-label {
-  fill: var(--color-text-soft);
+  fill: var(--console-muted);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0px;
@@ -527,41 +527,41 @@
 }
 
 .coordination-topology-agent-label.is-current {
-  fill: var(--color-text);
+  fill: var(--console-text);
 }
 
 .coordination-topology-node-halo {
   fill: transparent;
-  stroke: rgba(255, 255, 255, 0.13);
+  stroke: color-mix(in srgb, var(--console-surface) 13%, transparent);
   stroke-width: 1.2;
 }
 
 .coordination-topology-node-halo.is-idle {
-  stroke: rgba(255, 255, 255, 0.08);
+  stroke: color-mix(in srgb, var(--console-surface) 8%, transparent);
 }
 
 .coordination-topology-node-halo.is-complete {
-  stroke: color-mix(in srgb, var(--color-accent-primary) 65%, rgba(130, 230, 180, 0.75));
+  stroke: color-mix(in srgb, var(--console-accent) 65%, rgba(130, 230, 180, 0.75));
 }
 
 .coordination-topology-node-halo.is-running {
-  stroke: #ffd47b;
+  stroke: var(--console-warning);
 }
 
 .coordination-topology-node-halo.is-failed {
-  stroke: #ff745b;
+  stroke: var(--console-danger);
 }
 
 .coordination-topology-node-halo.is-blocked {
-  stroke: #ffb86b;
+  stroke: var(--console-warning);
 }
 
 .coordination-topology-node-halo.is-ready {
-  stroke: color-mix(in srgb, var(--color-accent-primary) 48%, white);
+  stroke: color-mix(in srgb, var(--console-accent) 48%, var(--console-surface));
 }
 
 .coordination-topology-node-halo.is-waiting {
-  stroke: #d7c5ff;
+  stroke: var(--console-accent);
 }
 
 .coordination-topology-node-halo.is-current {
@@ -569,12 +569,12 @@
 }
 
 .coordination-topology-node-halo.is-selected {
-  stroke: color-mix(in srgb, var(--color-accent-primary) 72%, white);
+  stroke: color-mix(in srgb, var(--console-accent) 72%, var(--console-surface));
   stroke-width: 2.5;
 }
 
 .coordination-topology-node-halo.is-linking {
-  stroke: #ffd47b;
+  stroke: var(--console-warning);
   stroke-width: 3;
 }
 
@@ -588,13 +588,13 @@
 }
 
 .coordination-topology-node-surface.is-idle {
-  fill: color-mix(in srgb, var(--color-accent-primary) 7%, rgba(255, 255, 255, 0.09));
-  stroke: rgba(255, 255, 255, 0.2);
+  fill: color-mix(in srgb, var(--console-accent) 7%, transparent);
+  stroke: color-mix(in srgb, var(--console-surface) 20%, transparent);
 }
 
 .coordination-topology-node-surface.is-complete {
-  fill: color-mix(in srgb, var(--color-accent-primary) 26%, rgba(130, 230, 180, 0.22));
-  stroke: color-mix(in srgb, var(--color-accent-primary) 62%, rgba(130, 230, 180, 0.78));
+  fill: color-mix(in srgb, var(--console-accent) 26%, rgba(130, 230, 180, 0.22));
+  stroke: color-mix(in srgb, var(--console-accent) 62%, rgba(130, 230, 180, 0.78));
 }
 
 .coordination-topology-node-surface.is-running {
@@ -613,8 +613,8 @@
 }
 
 .coordination-topology-node-surface.is-ready {
-  fill: color-mix(in srgb, var(--color-accent-primary) 16%, rgba(255, 255, 255, 0.08));
-  stroke: color-mix(in srgb, var(--color-accent-primary) 50%, white);
+  fill: color-mix(in srgb, var(--console-accent) 16%, transparent);
+  stroke: color-mix(in srgb, var(--console-accent) 50%, white);
 }
 
 .coordination-topology-node-surface.is-waiting {
@@ -627,8 +627,8 @@
 }
 
 .coordination-topology-node-surface.is-selected {
-  fill: color-mix(in srgb, var(--color-accent-primary) 28%, rgba(255, 255, 255, 0.1));
-  stroke: color-mix(in srgb, var(--color-accent-primary) 76%, white);
+  fill: color-mix(in srgb, var(--console-accent) 28%, transparent);
+  stroke: color-mix(in srgb, var(--console-accent) 76%, white);
 }
 
 .coordination-topology-node-surface.is-linking {
@@ -703,7 +703,7 @@
 }
 
 .coordination-topology-node-glyph {
-  fill: var(--color-text);
+  fill: var(--console-text);
   font-size: 7px;
   font-weight: 900;
 }
@@ -713,7 +713,7 @@
 }
 
 .coordination-topology-node-title {
-  fill: color-mix(in srgb, var(--color-text) 78%, var(--color-text-soft));
+  fill: color-mix(in srgb, var(--console-text) 78%, var(--console-muted));
   font-size: 8px;
   font-weight: 800;
 }
@@ -723,7 +723,7 @@
 }
 
 .coordination-topology-node-title.is-current {
-  fill: var(--color-text);
+  fill: var(--console-text);
 }
 
 .coordination-topology-node-tools {
@@ -747,10 +747,10 @@
   justify-content: center;
   width: 26px;
   height: 26px;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 20%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 20%, var(--console-line));
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-panel-strong) 94%, black);
-  color: var(--color-text);
+  background: color-mix(in srgb, var(--console-bg-raised) 94%, black);
+  color: var(--console-text);
   cursor: pointer;
   padding: 0;
 }
@@ -762,8 +762,8 @@
 }
 
 .coordination-topology-node-tools__bar button:hover {
-  border-color: color-mix(in srgb, var(--color-accent-primary) 60%, white);
-  background: color-mix(in srgb, var(--color-accent-primary) 12%, rgba(0, 0, 0, 0.22));
+  border-color: color-mix(in srgb, var(--console-accent) 60%, white);
+  background: color-mix(in srgb, var(--console-accent) 12%, transparent);
 }
 
 .workspace-view {
@@ -797,7 +797,7 @@
   font-size: 1.75rem;
   font-weight: 700;
   letter-spacing: 0px;
-  color: var(--color-text);
+  color: var(--console-text);
 }
 
 .workspace-view__actions {
@@ -811,25 +811,25 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--console-line);
   border-radius: var(--radius-control);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 42%),
-    var(--color-panel-strong);
+    linear-gradient(180deg, color-mix(in srgb, var(--console-surface) 2.5%, transparent), transparent 42%),
+    var(--console-bg-raised);
   padding: 0.85rem 1rem;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
 }
 
 .workspace-search input {
   width: 100%;
   border: 0;
   background: transparent;
-  color: var(--color-text);
+  color: var(--console-text);
   outline: none;
 }
 
 .workspace-search input::placeholder {
-  color: var(--color-text-soft);
+  color: var(--console-muted);
 }
 
 .workspace-alert {
@@ -840,21 +840,21 @@
   border-radius: var(--radius-card);
   background:
     linear-gradient(180deg, rgba(242, 154, 120, 0.12), transparent 70%),
-    var(--color-panel-strong);
-  color: var(--color-text);
+    var(--console-bg-raised);
+  color: var(--console-text);
   padding: 0.75rem 0.85rem;
 }
 
 .workspace-alert svg {
-  color: #f29a78;
+  color: var(--console-danger);
 }
 
 .workspace-section {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--console-line);
   border-radius: var(--radius-block);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 42%),
-    var(--color-panel-soft);
+    linear-gradient(180deg, color-mix(in srgb, var(--console-surface) 2.5%, transparent), transparent 42%),
+    var(--console-surface);
   padding: 1rem;
 }
 
@@ -863,43 +863,43 @@
   align-items: center;
   gap: 0.55rem;
   margin-bottom: 0.85rem;
-  color: var(--color-accent-primary);
+  color: var(--console-accent);
 }
 
 .workspace-section__head h3 {
   margin: 0;
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 1.05rem;
   font-weight: 700;
 }
 
 .workspace-alert {
-  border: 1px solid color-mix(in srgb, var(--color-danger) 45%, transparent);
+  border: 1px solid color-mix(in srgb, var(--console-danger) 45%, transparent);
   border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--color-danger) 12%, var(--color-panel-soft));
+  background: color-mix(in srgb, var(--console-danger) 12%, var(--console-surface));
   padding: 0.85rem 1rem;
-  color: var(--color-text);
+  color: var(--console-text);
 }
 
 .workspace-record {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--console-line);
   border-radius: var(--radius-card);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.022), transparent 48%),
-    var(--color-panel-strong);
+    linear-gradient(180deg, color-mix(in srgb, var(--console-surface) 2.2%, transparent), transparent 48%),
+    var(--console-bg-raised);
   padding: 1rem;
 }
 
 .workspace-record h3 {
   margin: 0.55rem 0 0;
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 1.05rem;
   font-weight: 700;
 }
 
 .workspace-record p {
   margin: 0.5rem 0 0;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   line-height: 1.72;
 }
 
@@ -914,10 +914,10 @@
 }
 
 .workspace-mini-chip {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--console-line);
   border-radius: var(--radius-control);
-  background: var(--color-accent-primary-soft);
-  color: var(--color-text);
+  background: var(--console-muted);
+  color: var(--console-text);
 }
 
 .workspace-mini-chip {
@@ -1156,7 +1156,7 @@
 
 .agent-workbench .chat-message-attachment {
   max-width: min(100%, 300px);
-  background: rgba(241, 245, 249, 0.9);
+  background: color-mix(in srgb, var(--console-bg-raised) 90%, transparent);
 }
 
 .agent-workbench .chat-message-shell .archive-detail-card,
@@ -1792,7 +1792,7 @@
 .agent-workbench .chat-send-button {
   border-color: var(--console-accent);
   background: var(--console-accent);
-  color: #fff;
+  color: var(--console-surface, #fff);
 }
 
 .agent-workbench .chat-send-button:hover:not(:disabled) {
@@ -2612,8 +2612,8 @@
   border: 1px solid var(--console-line);
   border-radius: 7px;
   /* dark terminal-style bg for code preview */
-  background: #0f172a;
-  color: #dbeafe;
+  background: var(--console-bg-raised, #0f172a);
+  color: var(--console-text, #dbeafe);
   font-family: var(--font-mono), "SFMono-Regular", Consolas, monospace;
   font-size: 0.72rem;
   line-height: 1.5;
@@ -2631,7 +2631,7 @@
 
 .task-system-json-editor--invalid textarea {
   border-color: var(--console-danger);
-  background: #1f2937;
+  background: var(--console-bg-raised, #1f2937);
 }
 
 .task-system-runtime-preview {

@@ -383,6 +383,11 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "terminal_reason",
         "completion_state",
         "error_summary",
+        "failure_code",
+        "model_error_code",
+        "provider",
+        "model",
+        "retryable",
         "stopped_reason",
         "runtime_event_id",
         "source_task_event_id",
@@ -2219,7 +2224,12 @@ def _turn_completed_data(source_event_type: str, raw_data: dict[str, Any]) -> di
         "final_message_ref": str(raw_data.get("message_ref") or raw_data.get("stream_ref") or ""),
         "terminal_reason": terminal_reason,
         "completion_state": str(raw_data.get("completion_state") or ""),
-        "error_summary": "处理失败" if status == "failed" else "",
+        "error_summary": _turn_error_summary(raw_data, fallback=terminal_reason) if status == "failed" else "",
+        "failure_code": str(raw_data.get("failure_code") or raw_data.get("model_error_code") or raw_data.get("code") or ""),
+        "model_error_code": str(raw_data.get("model_error_code") or ""),
+        "provider": str(raw_data.get("provider") or ""),
+        "model": str(raw_data.get("model") or ""),
+        "retryable": raw_data.get("retryable") if isinstance(raw_data.get("retryable"), bool) else None,
         "stopped_reason": _safe_public_action_text(raw_data.get("reason") or raw_data.get("content")) if status == "stopped" else "",
         "runtime_event_id": str(raw_data.get("runtime_event_id") or raw_data.get("event_id") or ""),
         "source_task_event_id": str(raw_data.get("source_task_event_id") or ""),
@@ -2227,6 +2237,21 @@ def _turn_completed_data(source_event_type: str, raw_data: dict[str, Any]) -> di
         "source_event_type": str(raw_data.get("source_event_type") or ""),
     }
     return {key: value for key, value in payload.items() if value not in ("", None)}
+
+
+def _turn_error_summary(raw_data: dict[str, Any], *, fallback: str = "") -> str:
+    for value in (
+        raw_data.get("error_summary"),
+        raw_data.get("user_message"),
+        raw_data.get("message"),
+        raw_data.get("error"),
+        raw_data.get("content"),
+        fallback,
+    ):
+        text = _safe_public_action_text(value)
+        if text:
+            return text[:260]
+    return "处理失败"
 
 
 def _tool_action_public_events(raw_data: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
@@ -2448,7 +2473,7 @@ def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
         "task_run_id": str(observation.get("task_run_id") or tool_observation.get("task_run_id") or execution_receipt.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
         "tool_name": tool_name,
         "title": _safe_public_action_text(tool_observation.get("title") or observation.get("title") or result_envelope.get("title")),
-        "target": _safe_public_tool_target(tool_args),
+        "target": _safe_public_tool_target(tool_args, tool_name=tool_name),
         "arguments_preview": _tool_arguments_preview(tool_args),
         "state": state,
         "observation": observation_text,
@@ -2901,6 +2926,19 @@ def _public_terminal_reason(value: Any) -> str:
 def _public_runtime_reason_label(reason: str) -> str:
     normalized = str(reason or "").strip()
     return {
+        "insufficient_balance": "模型服务余额不足",
+        "payment_required": "模型服务余额不足",
+        "billing": "模型服务余额不足",
+        "rate_limit": "模型请求触发限流",
+        "timeout": "模型请求超时",
+        "provider_unavailable": "模型服务暂时不可用",
+        "provider_error": "模型调用失败",
+        "single_agent_turn_model_failed": "模型调用失败",
+        "model_runtime_unavailable": "模型运行时不可用",
+        "configuration": "模型配置有误",
+        "agent_contract_feedback_required": "动作合同未通过",
+        "model_action_contract_feedback_required": "动作合同未通过",
+        "model_action_recovery_required": "动作需要修正",
         "user_input_required": "等待你的确认",
         "waiting_executor": "等待继续",
         "waiting_user": "等待你的确认",

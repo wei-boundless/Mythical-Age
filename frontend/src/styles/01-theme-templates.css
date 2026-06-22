@@ -6,6 +6,7 @@
   --console-surface: #ffffff;
   --console-surface-muted: #f1f5f9;
   --console-surface-strong: #e8eef5;
+  --console-surface-soft: #f4f7fa;
   --console-hover: #eef5ff;
   --console-selected: #eaf3ff;
   --console-line: #d6e0ea;
@@ -27,6 +28,13 @@
   --console-danger-soft: #fff0ee;
   --console-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   --console-shadow-soft: 0 1px 1px rgba(15, 23, 42, 0.035);
+  /* Workspace background texture — 浅蓝灰，配合 clean-light 主题 */
+  --workspace-bg-base: #d7e3e8;
+  --workspace-bg-mid: #c9d8de;
+  --workspace-bg-warm: rgba(232, 216, 196, 0.34);
+  --workspace-bg-cool: rgba(170, 202, 214, 0.42);
+  --workspace-bg-green: rgba(190, 218, 207, 0.26);
+  --workspace-bg-paper: rgba(255, 255, 255, 0.22);
 }
 
 :root[data-workbench-theme="focus-dark"] {
@@ -36,6 +44,7 @@
   --console-surface: #17212d;
   --console-surface-muted: #1d2a37;
   --console-surface-strong: #263544;
+  --console-surface-soft: #131d2a;
   --console-hover: #203147;
   --console-selected: #233957;
   --console-line: #334556;
@@ -70,14 +79,15 @@
 :root[data-workbench-theme="warm-paper"] {
   color-scheme: light;
   --console-bg: #faf7f0;
-  --console-bg-raised: #f5f2e8;
-  --console-surface: #ffffff;
-  --console-surface-muted: #f0ece2;
-  --console-surface-strong: #e6e0d4;
-  --console-hover: #f5efe4;
-  --console-selected: #efe8da;
-  --console-line: #d6cebe;
-  --console-line-soft: #e6dfd0;
+  --console-bg-raised: #f3efe4;
+  --console-surface: #fdfaf4;
+  --console-surface-muted: #f5efe5;
+  --console-surface-strong: #eae2d4;
+  --console-surface-soft: #f5efe4;
+  --console-hover: #f0e9dc;
+  --console-selected: #ebe2d2;
+  --console-line: #d8cfbe;
+  --console-line-soft: #e8e0d2;
   --console-line-strong: #b8ad98;
   --console-active-ring: #d4c4b0;
   --console-text: #2d2a24;
@@ -86,7 +96,7 @@
   --console-faint: #918a80;
   --console-accent: #b87c4b;
   --console-accent-hover: #a06a3d;
-  --console-accent-soft: #f5ede2;
+  --console-accent-soft: #f2e8d8;
   --console-success: #7a8f5a;
   --console-success-soft: #eff3e6;
   --console-warning: #b88a3a;
@@ -95,18 +105,26 @@
   --console-danger-soft: #fcece8;
   --console-shadow: 0 1px 2px rgba(45, 42, 36, 0.06);
   --console-shadow-soft: 0 1px 1px rgba(45, 42, 36, 0.04);
+  /* Workspace background texture — 暖米色，配合 warm-paper 主题 */
+  --workspace-bg-base: #e8e0d0;
+  --workspace-bg-mid: #ded4c4;
+  --workspace-bg-warm: rgba(210, 180, 140, 0.38);
+  --workspace-bg-cool: rgba(160, 180, 190, 0.25);
+  --workspace-bg-green: rgba(170, 190, 150, 0.22);
+  --workspace-bg-paper: rgba(255, 252, 245, 0.28);
 }
 
 /* ===== ocean-breeze: 海风 — 清爽冷调浅色主题 ===== */
 :root[data-workbench-theme="ocean-breeze"] {
   color-scheme: light;
   --console-bg: #f0f5fa;
-  --console-bg-raised: #e8eff6;
-  --console-surface: #ffffff;
+  --console-bg-raised: #eaf1f8;
+  --console-surface: #f7fafd;
   --console-surface-muted: #edf2f8;
   --console-surface-strong: #dde6f0;
-  --console-hover: #e4edf7;
-  --console-selected: #dce8f5;
+  --console-surface-soft: #edf3f8;
+  --console-hover: #e2ebf5;
+  --console-selected: #dae5f2;
   --console-line: #c8d6e5;
   --console-line-soft: #dde6f0;
   --console-line-strong: #a6b9ce;
@@ -117,7 +135,7 @@
   --console-faint: #7a8fa4;
   --console-accent: #2a7faa;
   --console-accent-hover: #1f6b92;
-  --console-accent-soft: #e6f0f8;
+  --console-accent-soft: #e4eef6;
   --console-success: #2f8f6f;
   --console-success-soft: #e8f4ef;
   --console-warning: #9a7a2a;
@@ -126,18 +144,26 @@
   --console-danger-soft: #fce8e8;
   --console-shadow: 0 1px 2px rgba(26, 42, 58, 0.06);
   --console-shadow-soft: 0 1px 1px rgba(26, 42, 58, 0.04);
+  /* Workspace background texture — 冷蓝调，配合 ocean-breeze 主题 */
+  --workspace-bg-base: #d4dfea;
+  --workspace-bg-mid: #c4d4e2;
+  --workspace-bg-warm: rgba(200, 185, 160, 0.20);
+  --workspace-bg-cool: rgba(150, 190, 220, 0.48);
+  --workspace-bg-green: rgba(160, 200, 185, 0.24);
+  --workspace-bg-paper: rgba(255, 255, 255, 0.26);
 }
 
 /* ===== mineral-gray: 矿物灰 — 中性极简浅色主题 ===== */
 :root[data-workbench-theme="mineral-gray"] {
   color-scheme: light;
   --console-bg: #f2f2f2;
-  --console-bg-raised: #eaeaea;
-  --console-surface: #ffffff;
-  --console-surface-muted: #eeeceb;
-  --console-surface-strong: #e0dddc;
-  --console-hover: #e8e6e4;
-  --console-selected: #e0dddb;
+  --console-bg-raised: #ececec;
+  --console-surface: #fafafa;
+  --console-surface-muted: #f0eeee;
+  --console-surface-strong: #e2e0de;
+  --console-surface-soft: #f2f0ee;
+  --console-hover: #e6e4e2;
+  --console-selected: #dedcda;
   --console-line: #cdcaca;
   --console-line-soft: #e0dddc;
   --console-line-strong: #b0acab;
@@ -148,7 +174,7 @@
   --console-faint: #858585;
   --console-accent: #6b7280;
   --console-accent-hover: #555c68;
-  --console-accent-soft: #f0f0f0;
+  --console-accent-soft: #eeeeee;
   --console-success: #5a8a6a;
   --console-success-soft: #eef4ef;
   --console-warning: #8a7a40;
@@ -157,20 +183,28 @@
   --console-danger-soft: #fcecec;
   --console-shadow: 0 1px 2px rgba(31, 31, 31, 0.05);
   --console-shadow-soft: 0 1px 1px rgba(31, 31, 31, 0.035);
+  /* Workspace background texture — 中性灰，配合 mineral-gray 主题 */
+  --workspace-bg-base: #dcdcdc;
+  --workspace-bg-mid: #d0d0d0;
+  --workspace-bg-warm: rgba(200, 190, 180, 0.30);
+  --workspace-bg-cool: rgba(180, 185, 195, 0.35);
+  --workspace-bg-green: rgba(180, 195, 185, 0.22);
+  --workspace-bg-paper: rgba(255, 255, 255, 0.25);
 }
 
 /* ===== lavender-mist: 薰衣草雾 — 紫色调浅色主题 ===== */
 :root[data-workbench-theme="lavender-mist"] {
   color-scheme: light;
   --console-bg: #f5f0fb;
-  --console-bg-raised: #ede6f7;
-  --console-surface: #ffffff;
-  --console-surface-muted: #f0ebf8;
-  --console-surface-strong: #e2d9f0;
-  --console-hover: #ede4f7;
-  --console-selected: #e5daf5;
+  --console-bg-raised: #eee7f6;
+  --console-surface: #fcf9ff;
+  --console-surface-muted: #f2edf9;
+  --console-surface-strong: #e4dcf2;
+  --console-surface-soft: #f4edf8;
+  --console-hover: #ebe2f5;
+  --console-selected: #e3d8f2;
   --console-line: #d0c8e2;
-  --console-line-soft: #e2d9f0;
+  --console-line-soft: #e4dcf2;
   --console-line-strong: #b8adce;
   --console-active-ring: #cdc0e0;
   --console-text: #1e1a2e;
@@ -179,7 +213,7 @@
   --console-faint: #80789a;
   --console-accent: #7c5cbf;
   --console-accent-hover: #684ba8;
-  --console-accent-soft: #f0ebfa;
+  --console-accent-soft: #ede6f7;
   --console-success: #608060;
   --console-success-soft: #eef5ee;
   --console-warning: #8a7a50;
@@ -188,6 +222,13 @@
   --console-danger-soft: #fce8ee;
   --console-shadow: 0 1px 2px rgba(30, 26, 46, 0.06);
   --console-shadow-soft: 0 1px 1px rgba(30, 26, 46, 0.04);
+  /* Workspace background texture — 薰衣草紫，配合 lavender-mist 主题 */
+  --workspace-bg-base: #e0d8ed;
+  --workspace-bg-mid: #d2c8e0;
+  --workspace-bg-warm: rgba(210, 190, 200, 0.28);
+  --workspace-bg-cool: rgba(175, 170, 210, 0.42);
+  --workspace-bg-green: rgba(175, 195, 180, 0.20);
+  --workspace-bg-paper: rgba(255, 252, 255, 0.28);
 }
 
 /* ===== midnight-ocean: 午夜海洋 — 深蓝暗色主题 ===== */
@@ -198,6 +239,7 @@
   --console-surface: #111d35;
   --console-surface-muted: #162743;
   --console-surface-strong: #1d3050;
+  --console-surface-soft: #142440;
   --console-hover: #1a2e4a;
   --console-selected: #1e3558;
   --console-line: #2a405e;
@@ -236,6 +278,7 @@
   --console-surface: #241e18;
   --console-surface-muted: #2d261f;
   --console-surface-strong: #383027;
+  --console-surface-soft: #28201a;
   --console-hover: #2e271f;
   --console-selected: #352e25;
   --console-line: #403a32;

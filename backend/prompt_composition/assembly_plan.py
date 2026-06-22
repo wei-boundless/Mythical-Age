@@ -19,56 +19,6 @@ PREFIX_TIER_ORDER = {
     "none": 990,
 }
 
-LAYER_ORDER = {
-    "provider_global_stable": 100,
-    "session_stable_capability": 180,
-    "session_stable_protocol": 200,
-    "session_stable_environment": 240,
-    "session_stable_lifecycle": 260,
-    "session_stable_personality": 280,
-    "session_stable_agent": 300,
-    "session_stable_project": 320,
-    "session_stable_file_evidence": 340,
-    "task_stable_capability": 380,
-    "task_stable_contract": 400,
-    "task_stable_scope": 420,
-    "runtime_cursor_prefix": 500,
-    "append_only_runtime_evidence": 600,
-    "task_plan_context": 620,
-    "evidence_index_cursor": 625,
-    "attachment_context_index": 630,
-    "editor_context_index": 640,
-    "file_evidence_cursor": 660,
-    "runtime_cursor": 700,
-    "current_exact_evidence": 720,
-    "user_editor_volatile": 800,
-    "volatile": 850,
-    "dynamic_context_tail": 870,
-    "runtime_memory_context": 880,
-    "assistant_completion_prefix": 900,
-}
-
-DYNAMIC_TIER_ORDER = {
-    "stable_prefix": 0,
-    "runtime_cursor_prefix": 80,
-    "append_only_runtime_evidence": 100,
-    "task_plan_context": 160,
-    "evidence_index_cursor": 165,
-    "attachment_context_index": 170,
-    "editor_context_index": 180,
-    "runtime_cursor": 200,
-    "file_evidence_cursor": 220,
-    "current_exact_evidence": 240,
-    "user_editor_volatile": 300,
-    "active_skills": 320,
-    "history_replay": 340,
-    "assistant_completion_prefix": 900,
-    "volatile": 500,
-    "dynamic_context_tail": 870,
-    "runtime_memory_context": 880,
-}
-
-
 @dataclass(frozen=True, slots=True)
 class PromptAssemblySlot:
     slot_id: str
@@ -137,8 +87,6 @@ def build_prompt_assembly_plan(
         planned,
         key=lambda slot: (
             PREFIX_TIER_ORDER.get(slot.prefix_tier, 999),
-            LAYER_ORDER.get(slot.layer, 899),
-            DYNAMIC_TIER_ORDER.get(slot.dynamic_tier, 500),
             int(slot.source_order or 0),
         ),
     )
@@ -217,6 +165,7 @@ def build_prompt_assembly_plan(
             **diagnostics,
             "source_bundle_ref": source_bundle.bundle_id,
             "provider_profile": provider_profile_payload,
+            "assembly_order_policy": "prefix_tier_partition_preserve_source_order",
             "authority": "prompt_composition.assembly_plan.builder",
         },
     )
@@ -308,7 +257,7 @@ def _layer_for_source(source: PromptSource, *, cache_role: str, prefix_tier: str
         return "task_stable_scope"
     if kind in {"task_runtime_boundary_dynamic", "task_start_inherited_context"} or source_kind == "runtime_dynamic_boundary":
         return "runtime_cursor_prefix"
-    if kind == "task_state_replay_entry" or source_kind == "runtime_task_state_replay":
+    if kind in {"task_state_replay_entry", "single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"} or source_kind == "runtime_task_state_replay":
         return "append_only_runtime_evidence"
     if kind == "task_plan_context" or source_kind == "runtime_task_plan_context":
         return "task_plan_context"
@@ -326,7 +275,9 @@ def _layer_for_source(source: PromptSource, *, cache_role: str, prefix_tier: str
         return "file_evidence_cursor"
     if kind == "runtime_memory_context" or source_kind == "runtime_memory_context":
         return "runtime_memory_context"
-    if kind in {"user_steering_updates", "volatile_user", "tool_observations", "single_agent_turn_tool_observation"}:
+    if kind == "incremental_context_frame" or source_kind == "runtime_incremental_context_frame":
+        return "dynamic_context_tail"
+    if kind in {"user_steering_updates", "volatile_user"}:
         return "user_editor_volatile"
     if kind == "graph_node_completion_prefix":
         return "assistant_completion_prefix"
@@ -360,12 +311,16 @@ def _dynamic_tier_for_source(source: PromptSource, *, cache_role: str, prefix_ti
         return "current_exact_evidence"
     if kind in {"bound_task_runtime_context", "graph_node_runtime_context"}:
         return "file_evidence_cursor"
-    if kind in {"session_history", "provider_protocol_history", "single_agent_turn_tool_call"}:
+    if kind in {"single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"}:
+        return "append_only_runtime_evidence"
+    if kind in {"session_history", "provider_protocol_history"}:
         return "history_replay"
-    if kind in {"user_steering_updates", "volatile_user", "tool_observations", "semantic_compaction_request"}:
+    if kind in {"user_steering_updates", "volatile_user", "semantic_compaction_request"}:
         return "user_editor_volatile"
     if kind == "runtime_memory_context" or source_kind == "runtime_memory_context":
         return "runtime_memory_context"
+    if kind == "incremental_context_frame" or source_kind == "runtime_incremental_context_frame":
+        return "dynamic_context_tail"
     if kind in {"active_skills", "skill_candidates"}:
         return "active_skills"
     if kind == "graph_node_completion_prefix":

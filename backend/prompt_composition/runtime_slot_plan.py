@@ -236,6 +236,8 @@ def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str) -> str:
         return "file_evidence_cursor"
     if source_kind == "runtime_memory_context" or kind == "runtime_memory_context":
         return "runtime_memory_context"
+    if source_kind == "runtime_incremental_context_frame" or kind == "incremental_context_frame":
+        return "dynamic_context_tail"
     if source_kind == "runtime_editor_evidence_delta" or kind == "current_editor_evidence_delta":
         return "current_exact_evidence"
     if kind == "read_evidence_injection":

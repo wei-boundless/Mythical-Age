@@ -58,19 +58,11 @@ def build_evidence_index_cursor(
                     "status": status,
                     "freshness": _freshness(status=status, windows=windows),
                     "version": str(item.get("content_sha256") or ""),
-                    "content_sha256": str(item.get("content_sha256") or ""),
                     "total_lines": item.get("total_lines"),
                     "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
                     "latest_evidence_ref": _latest_evidence_ref(item, windows=windows),
                     "covered_ranges_ref": _covered_ranges_ref(path=path, item=item, windows=windows),
                     "read_window_refs": windows,
-                    "evidence_refs": _dedupe_strings(
-                        [
-                            *[str(ref) for ref in list(item.get("evidence_refs") or [])],
-                            *[str(window.get("observation_ref") or "") for window in windows],
-                            *[str(window.get("exact_artifact_ref") or window.get("reusable_result_ref") or "") for window in windows],
-                        ]
-                    )[-10:],
                     "missing_ranges": _missing_ranges(decision, item),
                     "cautions": _decision_windows(decision.get("cautions")),
                     "candidate_read_windows": _decision_windows(decision.get("candidate_read_windows")),
@@ -169,20 +161,18 @@ def _confidence_by_path(value: dict[str, Any] | None) -> dict[str, dict[str, Any
 def _read_window_refs(item: dict[str, Any]) -> list[dict[str, Any]]:
     windows: list[dict[str, Any]] = []
     for segment in dict_tuple(item.get("read_window_refs") or item.get("read_ranges"))[-8:]:
+        exact_ref = str(segment.get("exact_artifact_ref") or "")
+        reusable_ref = str(segment.get("reusable_result_ref") or "")
+        observation_ref = "" if exact_ref or reusable_ref else str(segment.get("observation_ref") or "")
         windows.append(
             drop_empty(
                 {
                     "start_line": segment.get("start_line"),
                     "end_line": segment.get("end_line"),
-                    "observation_ref": str(segment.get("observation_ref") or ""),
-                    "exact_artifact_ref": str(segment.get("exact_artifact_ref") or ""),
-                    "reusable_result_ref": str(segment.get("reusable_result_ref") or ""),
-                    "artifact_ref_status": str(segment.get("artifact_ref_status") or ""),
-                    "text_sha256": str(segment.get("text_sha256") or ""),
-                    "returned_exact": segment.get("returned_exact") if isinstance(segment.get("returned_exact"), bool) else None,
+                    "observation_ref": observation_ref,
+                    "exact_artifact_ref": exact_ref,
+                    "reusable_result_ref": reusable_ref,
                     "stale": segment.get("stale") if isinstance(segment.get("stale"), bool) else None,
-                    "has_more": segment.get("has_more") if isinstance(segment.get("has_more"), bool) else None,
-                    "next_start_line": segment.get("next_start_line"),
                 }
             )
         )

@@ -74,6 +74,23 @@ def test_canonical_artifact_contract_does_not_keep_executable_requested_path() -
     assert normalized.normalizations[0]["requested_path"] == "artifacts/demo/index.html"
 
 
+def test_canonical_artifact_contract_normalizes_acceptance_contract_paths() -> None:
+    artifact_root = "storage/task_environments/coding/vibe-workspace/artifacts"
+    normalized = canonicalize_task_contract_artifacts(
+        {
+            "acceptance_contract": {
+                "required_artifacts": [{"artifact_kind": "html_document", "path": "artifacts/demo/index.html"}]
+            }
+        },
+        artifact_root=artifact_root,
+    )
+
+    assert normalized.contract["acceptance_contract"]["required_artifacts"] == [
+        {"artifact_kind": "html_document", "path": f"{artifact_root}/demo/index.html"}
+    ]
+    assert normalized.normalizations[0]["collection"] == "acceptance_contract.required_artifacts"
+
+
 def test_canonical_artifact_contract_rejects_absolute_drive_paths() -> None:
     normalized = canonicalize_task_contract_artifacts(
         {"required_artifacts": [{"artifact_kind": "html_document", "path": "C:/tmp/escape.html"}]},

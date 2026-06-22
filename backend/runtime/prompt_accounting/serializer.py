@@ -5,7 +5,7 @@ import json
 import time
 from typing import Any
 
-from prompt_cache_policy import normalize_cache_role, normalize_compression_role, normalize_prefix_tier
+from prompt_cache_policy import is_cache_eligible_prefix, normalize_cache_role, normalize_compression_role, normalize_prefix_tier
 
 from .cache_planner import stable_text_hash
 from .models import PromptSegment, PromptSegmentMap
@@ -64,16 +64,64 @@ class CanonicalPromptSerializer:
             normalized_tools=normalized_tools,
             has_provider_payload_manifest=bool(provider_payload_manifest),
         )
+        tool_schema_inserted = False
+        stable_tool_schema_prefix = bool(normalized_tools) and is_cache_eligible_prefix(
+            cache_role=str(tool_schema_profile.get("cache_role") or ""),
+            prefix_tier=str(tool_schema_profile.get("prefix_tier") or ""),
+        )
         segments: list[PromptSegment] = []
         ordinal = 0
-        for index, message in enumerate(normalized_messages):
+
+        def append_tool_schema_segment() -> None:
+            nonlocal ordinal, tool_schema_inserted
+            if tool_schema_inserted or not normalized_tools:
+                return
             ordinal += 1
+            segment_payload = canonical_json({"tools": normalized_tools})
+            token_count = self.token_counter.count_text(segment_payload, provider=provider, model=model)
+            tool_schema_metadata = dict(tool_schema_profile.get("metadata") or {})
+            segments.append(
+                PromptSegment(
+                    segment_id=_segment_id(request_id, ordinal, str(tool_schema_profile.get("kind") or "tool_schema_catalog"), segment_payload),
+                    request_id=request_id,
+                    run_id=canonical_run_id,
+                    task_run_id=str(task_run_id or ""),
+                    session_id=str(session_id or ""),
+                    kind=str(tool_schema_profile.get("kind") or "tool_schema_catalog"),
+                    ordinal=ordinal,
+                    role="tool_schema",
+                    content_hash=stable_text_hash(segment_payload),
+                    byte_length=len(segment_payload.encode("utf-8", errors="ignore")),
+                    predicted_tokens=token_count.tokens,
+                    cache_role=str(tool_schema_profile.get("cache_role") or "never_cache"),
+                    prefix_tier=str(tool_schema_profile.get("prefix_tier") or "none"),
+                    compression_role="preserve",
+                    authority_class="contract",
+                    source=str(tool_schema_profile.get("source") or "model_request.tools"),
+                    created_at=timestamp,
+                    metadata={
+                        "tool_count": len(normalized_tools),
+                        "token_count_mode": token_count.mode,
+                        "provider_payload_transport_location": "tools",
+                        "provider_payload_prefix_component": stable_tool_schema_prefix,
+                        **tool_schema_metadata,
+                    },
+                )
+            )
+            tool_schema_inserted = True
+
+        saw_stable_tool_catalog = False
+        for index, message in enumerate(normalized_messages):
             segment_payload = canonical_json(message)
             planned = planned_by_index.get(index)
             kind = str(planned.get("kind") or "unknown_unplanned") if planned else "unknown_unplanned"
             cache_role = _cache_role(planned.get("cache_role")) if planned else "never_cache"
             prefix_tier = _prefix_tier(planned.get("prefix_tier"), cache_scope=str(planned.get("cache_scope") or "none"), cache_role=cache_role) if planned else "none"
             compression_role = _compression_role(planned.get("compression_role")) if planned else "summarize"
+            stable_message = is_cache_eligible_prefix(cache_role=cache_role, prefix_tier=prefix_tier)
+            if stable_tool_schema_prefix and saw_stable_tool_catalog and not tool_schema_inserted and not stable_message:
+                append_tool_schema_segment()
+            ordinal += 1
             authority_class = _authority_class(
                 planned,
                 message=message,
@@ -112,37 +160,12 @@ class CanonicalPromptSerializer:
                     },
                 )
             )
-        if normalized_tools:
-            ordinal += 1
-            segment_payload = canonical_json({"tools": normalized_tools})
-            token_count = self.token_counter.count_text(segment_payload, provider=provider, model=model)
-            tool_schema_metadata = dict(tool_schema_profile.get("metadata") or {})
-            segments.append(
-                PromptSegment(
-                    segment_id=_segment_id(request_id, ordinal, str(tool_schema_profile.get("kind") or "tool_schema_catalog"), segment_payload),
-                    request_id=request_id,
-                    run_id=canonical_run_id,
-                    task_run_id=str(task_run_id or ""),
-                    session_id=str(session_id or ""),
-                    kind=str(tool_schema_profile.get("kind") or "tool_schema_catalog"),
-                    ordinal=ordinal,
-                    role="tool_schema",
-                    content_hash=stable_text_hash(segment_payload),
-                    byte_length=len(segment_payload.encode("utf-8", errors="ignore")),
-                    predicted_tokens=token_count.tokens,
-                    cache_role=str(tool_schema_profile.get("cache_role") or "never_cache"),
-                    prefix_tier=str(tool_schema_profile.get("prefix_tier") or "none"),
-                    compression_role="preserve",
-                    authority_class="contract",
-                    source=str(tool_schema_profile.get("source") or "model_request.tools"),
-                    created_at=timestamp,
-                    metadata={
-                        "tool_count": len(normalized_tools),
-                        "token_count_mode": token_count.mode,
-                        **tool_schema_metadata,
-                    },
-                )
-            )
+            if stable_message and kind in {"tool_schema_catalog", "tool_index_stable"}:
+                saw_stable_tool_catalog = True
+            if stable_tool_schema_prefix and kind == "tool_index_stable":
+                append_tool_schema_segment()
+        if normalized_tools and not tool_schema_inserted:
+            append_tool_schema_segment()
         return PromptSegmentMap(
             request_id=request_id,
             run_id=canonical_run_id,

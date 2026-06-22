@@ -242,6 +242,11 @@ class HarnessRuntimeFacade:
             return {}
         return dict(payload) if isinstance(payload, dict) and payload else {}
 
+    def _context_recovery_package_allowed_for_record(self, history_record: dict[str, Any]) -> bool:
+        return bool(str(dict(history_record or {}).get("compressed_context") or "").strip()) or (
+            float(dict(history_record or {}).get("provider_protocol_compaction_created_at") or 0.0) > 0
+        )
+
     def _runtime_history_and_session_context_for_record(
         self,
         *,
@@ -273,7 +278,11 @@ class HarnessRuntimeFacade:
             for item in list(api_transcript or [])
             if isinstance(item, dict)
         ]
-        context_recovery_package = self._context_recovery_package_for_session(session_id)
+        context_recovery_package = (
+            self._context_recovery_package_for_session(session_id)
+            if self._context_recovery_package_allowed_for_record(history_record)
+            else {}
+        )
         if context_recovery_package:
             session_context["context_recovery_package"] = context_recovery_package
         else:
@@ -454,7 +463,11 @@ class HarnessRuntimeFacade:
             "compressed_context": history_assembly.compressed_context,
             "api_transcript": [dict(item) for item in list(api_transcript or []) if isinstance(item, dict)],
         }
-        context_recovery_package = self._context_recovery_package_for_session(request.session_id)
+        context_recovery_package = (
+            self._context_recovery_package_for_session(request.session_id)
+            if self._context_recovery_package_allowed_for_record(history_record)
+            else {}
+        )
         if context_recovery_package:
             session_context["context_recovery_package"] = context_recovery_package
         provider_protocol_compaction_created_at = float(history_record.get("provider_protocol_compaction_created_at") or 0.0)

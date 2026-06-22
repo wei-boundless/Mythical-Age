@@ -712,6 +712,45 @@ def test_fail_closed_visible_error_still_terminalizes_chat_turn() -> None:
     assert data["final_message_ref"] == "history-message:turn:test:blocked:assistant"
 
 
+def test_model_provider_balance_error_terminalizes_without_assistant_body() -> None:
+    events = _project_public_stream_event(
+        "error",
+        {
+            "code": "insufficient_balance",
+            "reason": "insufficient_balance",
+            "failure_code": "insufficient_balance",
+            "model_error_code": "insufficient_balance",
+            "error_summary": "模型服务余额不足，请检查模型提供商账户余额或更换可用模型。",
+            "provider": "deepseek",
+            "model": "deepseek-chat",
+            "retryable": False,
+            "answer_persist_policy": "do_not_persist",
+            "answer_finalization_policy": "no_agent_answer_model_runtime_failed",
+            "turn_run_id": "turnrun:turn:test:model-error",
+            "event_id": "event:model-error:balance",
+        },
+    )
+
+    assert [event_type for event_type, _ in events] == [TURN_COMPLETED_EVENT]
+    data = events[0][1]
+    assert data["status"] == "failed"
+    assert data["terminal_reason"] == "模型服务余额不足"
+    assert data["error_summary"] == "模型服务余额不足，请检查模型提供商账户余额或更换可用模型。"
+    assert data["failure_code"] == "insufficient_balance"
+    assert data["model_error_code"] == "insufficient_balance"
+    assert data["provider"] == "deepseek"
+    assert data["model"] == "deepseek-chat"
+    assert data["retryable"] is False
+
+    frame = _frame(TURN_COMPLETED_EVENT, data)
+    assert frame["slot"] == "status"
+    assert frame["source_authority"] == "runtime"
+    assert frame["status_kind"] == "recovery_event"
+    assert frame["state"] == "failed"
+    assert frame["detail"] == "模型服务余额不足，请检查模型提供商账户余额或更换可用模型。"
+    assert frame["slot"] != "body"
+
+
 def test_model_admission_projects_tool_request_before_runtime_tool_lifecycle() -> None:
     events = _project_public_stream_event(
         "model_action_admission",
@@ -785,6 +824,49 @@ def test_model_admission_projects_terminal_command_as_public_target() -> None:
     frame = _frame(TOOL_CALL_REQUESTED_EVENT, requested)
     assert frame["title"] == f"运行命令：{command}"
     assert frame["target"] == command
+    assert frame["arguments_preview"]
+
+
+def test_tool_completion_projects_terminal_command_as_public_target() -> None:
+    command = "npm test -- src/components/chat/PublicTimelineActivity.test.ts"
+    events = _project_public_stream_event(
+        "tool_observation",
+        {
+            "tool_observation": {
+                "invocation_id": "toolinv:terminal:1",
+                "caller_kind": "task_run",
+                "caller_ref": "taskrun:terminal",
+                "tool_name": "terminal",
+                "operation_id": "op.shell",
+                "status": "ok",
+                "text": "ok",
+                "result_envelope": {
+                    "tool_name": "terminal",
+                    "tool_call_id": "call:terminal",
+                    "tool_args": {"command": command, "cwd": "D:/AI/langchain-agent"},
+                    "status": "ok",
+                    "text": "ok",
+                },
+                "execution_receipt": {
+                    "tool_call_id": "call:terminal",
+                    "admission_ref": "admission:request:terminal",
+                },
+            },
+            "event_id": "event:tool-observation:terminal",
+        },
+    )
+
+    assert [event_type for event_type, _ in events] == [TOOL_ITEM_COMPLETED_EVENT]
+    completed = events[0][1]
+    assert completed["tool_call_id"] == "call:terminal"
+    assert completed["permission_decision_id"] == "admission:request:terminal"
+    assert completed["tool_name"] == "terminal"
+    assert completed["target"] == command
+    assert f"command={command}" in completed["arguments_preview"]
+
+    frame = _frame(TOOL_ITEM_COMPLETED_EVENT, completed)
+    assert frame["target"] == command
+    assert frame["subject_label"] == command
     assert frame["arguments_preview"]
 
 
@@ -1618,25 +1700,27 @@ def test_task_bridge_terminal_authority_rejects_waiting_as_chat_completion() -> 
         assert _public_turn_status_for_task_status(status) != "completed"
 
 
-def test_agent_contract_feedback_turn_completed_stays_hidden_trace_only() -> None:
+def test_agent_contract_feedback_turn_completed_is_visible_runtime_status_not_body() -> None:
     frame = _frame(
         TURN_COMPLETED_EVENT,
         {
             "status": "failed",
             "turn_run_id": "turnrun:test",
-            "terminal_reason": "agent_contract_feedback_required",
-            "error_summary": "内部纠错观察",
+            "terminal_reason": "动作合同未通过",
+            "completion_state": "agent_contract_feedback_required",
+            "error_summary": "动作合同未通过，任务没有进入执行队列。",
         },
     )
 
     assert frame["op"] == "item_upsert"
-    assert frame["slot"] == "trace"
+    assert frame["slot"] == "status"
     assert frame["source_authority"] == "runtime"
-    assert frame["main_visibility"] == "hidden"
-    assert frame["retention"] == "trace"
-    assert "status_kind" not in frame
-    assert "title" not in frame
-    assert "text" not in frame
+    assert frame["main_visibility"] == "visible_live"
+    assert frame["retention"] == "final"
+    assert frame["status_kind"] == "recovery_event"
+    assert frame["state"] == "failed"
+    assert frame["title"] == "动作合同未通过，任务没有进入执行队列。"
+    assert frame["detail"] == "动作合同未通过，任务没有进入执行队列。"
     assert frame["slot"] != "body"
 
 
@@ -2022,7 +2106,7 @@ def test_agent_contract_feedback_required_is_not_public_stream_event() -> None:
 
 
 def test_public_terminal_reason_names_agent_closeout_boundaries() -> None:
-    assert _public_terminal_reason("agent_contract_feedback_required") == "状态已更新"
+    assert _public_terminal_reason("agent_contract_feedback_required") == "动作合同未通过"
     assert _public_terminal_reason("tool_budget_exhausted") == "本轮工具预算已用完"
     assert _public_terminal_reason("single_turn_tool_iteration_limit") == "本轮工具预算已用完"
     assert _public_terminal_reason("single_agent_turn_empty_response") == "agent 未生成可发布回复"

@@ -13,6 +13,7 @@ class DynamicContextInput:
     turn_id: str = ""
     task_run_id: str = ""
     task_run: dict[str, Any] = field(default_factory=dict)
+    task_contract: dict[str, Any] = field(default_factory=dict)
     history: tuple[dict[str, Any], ...] = ()
     observations: tuple[dict[str, Any], ...] = ()
     tool_results: tuple[dict[str, Any], ...] = ()

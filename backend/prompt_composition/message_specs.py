@@ -98,6 +98,8 @@ def message_spec_content_source(*, kind: str, cache_role: str, source_ref: str) 
         return "harness.runtime.dynamic_context.current_editor_evidence_delta"
     if normalized_kind == "runtime_memory_context":
         return "memory_system.runtime_memory_context"
+    if normalized_kind == "incremental_context_frame":
+        return "harness.runtime.incremental_context_frame"
     if normalized_kind in {
         "dynamic_projection",
         "graph_node_completion_prefix",

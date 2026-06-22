@@ -54,7 +54,11 @@ def build_task_contract_manifest(
     planning_payload = _deepcopy_json_dict(planning_protocol)
     contract_hash = _stable_json_hash(contract_payload)
     planning_hash = _stable_json_hash(planning_payload)
-    completion_criteria = contract_string_list(contract_payload.get("completion_criteria"))
+    acceptance_contract = dict(contract_payload.get("acceptance_contract") or {})
+    goal_contract = dict(contract_payload.get("goal_contract") or {})
+    completion_criteria = contract_string_list(
+        acceptance_contract.get("completion_criteria") or contract_payload.get("completion_criteria")
+    )
     seed = {
         "invocation_kind": str(invocation_kind or ""),
         "source_ref": str(source_ref or ""),
@@ -68,7 +72,7 @@ def build_task_contract_manifest(
         contract_hash=contract_hash,
         planning_protocol_hash=planning_hash,
         contract_kind=_contract_kind(contract_payload),
-        task_run_goal=str(contract_payload.get("task_run_goal") or ""),
+        task_run_goal=str(goal_contract.get("task_run_goal") or contract_payload.get("task_run_goal") or ""),
         completion_criteria_count=len(completion_criteria),
         model_visible_contract=contract_payload,
         planning_protocol=planning_payload,
@@ -114,32 +118,135 @@ def project_task_contract_for_prompt(
                 "authority": "harness.runtime.graph_node_contract.model_visible",
             }
         )
-    resource_requirements = dict(payload.get("resource_requirements") or {})
-    working_scope = _working_scope_stable_payload(payload.get("working_scope"))
+    layered = _layered_task_contract_payload(payload)
     return _drop_empty_payload(
         {
-            "title": str(payload.get("title") or "").strip(),
-            "user_visible_goal": str(payload.get("user_visible_goal") or "").strip(),
-            "task_run_goal": str(payload.get("task_run_goal") or "").strip(),
+            "contract_id": str(payload.get("contract_id") or "").strip(),
+            "contract_source": str(payload.get("contract_source") or "").strip(),
             "task_environment_id": str(payload.get("task_environment_id") or "").strip(),
-            "plan_ref": str(payload.get("plan_ref") or payload.get("approved_plan_ref") or "").strip(),
+            **layered,
+            "authority": "harness.runtime.task_contract.model_visible",
+        }
+    )
+
+
+def _layered_task_contract_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return _drop_empty_payload(
+        {
+            "goal_contract": _goal_contract_model_visible(payload),
+            "plan_contract": _plan_contract_model_visible(payload),
+            "lifecycle_contract": _lifecycle_contract_model_visible(payload),
+            "environment_contract": _environment_contract_model_visible(payload),
+            "feedback_contract": _feedback_contract_model_visible(payload),
+            "acceptance_contract": _acceptance_contract_model_visible(payload),
+        }
+    )
+
+
+def _goal_contract_model_visible(payload: dict[str, Any]) -> dict[str, Any]:
+    raw = dict(payload.get("goal_contract") or {})
+    return _drop_empty_payload(
+        {
+            "user_visible_goal": str(raw.get("user_visible_goal") or payload.get("user_visible_goal") or "").strip(),
+            "task_run_goal": str(raw.get("task_run_goal") or raw.get("agent_goal") or payload.get("task_run_goal") or "").strip(),
+            "agent_goal": str(raw.get("agent_goal") or raw.get("task_run_goal") or payload.get("task_run_goal") or "").strip(),
+            "non_goals": _string_list(raw.get("non_goals") or payload.get("non_goals")),
+            "success_definition": str(raw.get("success_definition") or payload.get("success_definition") or "").strip(),
+            "completion_evidence": _string_list(raw.get("completion_evidence") or payload.get("completion_evidence")),
+            "authority": "harness.runtime.task_contract.goal_contract.model_visible",
+        }
+    )
+
+
+def _plan_contract_model_visible(payload: dict[str, Any]) -> dict[str, Any]:
+    raw = dict(payload.get("plan_contract") or {})
+    plan_ref = str(raw.get("plan_id") or payload.get("plan_ref") or payload.get("approved_plan_ref") or payload.get("external_plan_ref") or "").strip()
+    return _drop_empty_payload(
+        {
+            "plan_id": plan_ref,
+            "plan_version": str(raw.get("plan_version") or "").strip(),
+            "plan_status": str(raw.get("plan_status") or raw.get("approval_state") or "agent_managed").strip(),
+            "strategy_summary": str(raw.get("strategy_summary") or "").strip(),
+            "major_steps": _string_list(raw.get("major_steps") or raw.get("steps")),
+            "decision_points": _string_list(raw.get("decision_points")),
+            "allowed_plan_operations": _string_list(raw.get("allowed_plan_operations") or raw.get("allowed_operations")),
+            "replan_policy": dict(raw.get("replan_policy") or {}) if isinstance(raw.get("replan_policy"), dict) else {},
             "plan_requirements": dict(payload.get("plan_requirements") or {}) if isinstance(payload.get("plan_requirements"), dict) else {},
             "implementation_lock": dict(payload.get("implementation_lock") or {}) if isinstance(payload.get("implementation_lock"), dict) else {},
+            "authority": "harness.runtime.task_contract.plan_contract.model_visible",
+        }
+    )
+
+
+def _lifecycle_contract_model_visible(payload: dict[str, Any]) -> dict[str, Any]:
+    raw = dict(payload.get("lifecycle_contract") or {})
+    return _drop_empty_payload(
+        {
+            "allowed_states": _string_list(raw.get("allowed_states")),
+            "pause_policy": dict(raw.get("pause_policy") or {}) if isinstance(raw.get("pause_policy"), dict) else {},
+            "resume_policy": dict(raw.get("resume_policy") or {}) if isinstance(raw.get("resume_policy"), dict) else {},
+            "stop_policy": dict(raw.get("stop_policy") or {}) if isinstance(raw.get("stop_policy"), dict) else {},
+            "replan_policy": dict(raw.get("replan_policy") or {}) if isinstance(raw.get("replan_policy"), dict) else {},
+            "tool_limit_closeout_policy": dict(raw.get("tool_limit_closeout_policy") or {}) if isinstance(raw.get("tool_limit_closeout_policy"), dict) else {},
+            "failure_recovery_policy": dict(raw.get("failure_recovery_policy") or payload.get("recovery_policy") or {}) if isinstance(raw.get("failure_recovery_policy") or payload.get("recovery_policy"), dict) else {},
+            "terminal_policy": dict(raw.get("terminal_policy") or {}) if isinstance(raw.get("terminal_policy"), dict) else {},
+            "authority": "harness.runtime.task_contract.lifecycle_contract.model_visible",
+        }
+    )
+
+
+def _environment_contract_model_visible(payload: dict[str, Any]) -> dict[str, Any]:
+    raw = dict(payload.get("environment_contract") or {})
+    working_scope = _working_scope_stable_payload(raw.get("working_scope") or payload.get("working_scope"))
+    resource_requirements = dict(raw.get("resource_requirements") or payload.get("resource_requirements") or {})
+    return _drop_empty_payload(
+        {
+            "task_environment_id": str(raw.get("task_environment_id") or payload.get("task_environment_id") or "").strip(),
+            "working_scope": working_scope,
+            "capability_intent": dict(raw.get("capability_intent") or payload.get("capability_intent") or {}),
+            "skill_intent": dict(raw.get("skill_intent") or payload.get("skill_intent") or {}),
+            "permission_requirements": dict(raw.get("permission_requirements") or payload.get("permission_requirements") or {}),
+            "resource_requirements": _resource_requirements_stable_payload(resource_requirements) if resource_requirements else {},
+            "safety_boundaries": _string_list(raw.get("safety_boundaries") or payload.get("safety_boundaries")),
+            "authority": "harness.runtime.task_contract.environment_contract.model_visible",
+        }
+    )
+
+
+def _feedback_contract_model_visible(payload: dict[str, Any]) -> dict[str, Any]:
+    raw = dict(payload.get("feedback_contract") or {})
+    observation_policy = raw.get("observation_policy") or raw.get("observation_contract") or payload.get("observation_contract")
+    return _drop_empty_payload(
+        {
+            "feedback_sources": _string_list(raw.get("feedback_sources")),
+            "dynamic_context_slots": _string_list(raw.get("dynamic_context_slots")),
+            "steer_policy": dict(raw.get("steer_policy") or {}) if isinstance(raw.get("steer_policy"), dict) else {},
+            "observation_policy": dict(observation_policy or {}) if isinstance(observation_policy, dict) else {},
+            "verification_feedback_policy": dict(raw.get("verification_feedback_policy") or {}) if isinstance(raw.get("verification_feedback_policy"), dict) else {},
+            "budget_feedback_policy": dict(raw.get("budget_feedback_policy") or {}) if isinstance(raw.get("budget_feedback_policy"), dict) else {},
+            "feedback_priority": _string_list(raw.get("feedback_priority")),
+            "feedback_identity_binding": str(raw.get("feedback_identity_binding") or "").strip(),
+            "authority": "harness.runtime.task_contract.feedback_contract.model_visible",
+        }
+    )
+
+
+def _acceptance_contract_model_visible(payload: dict[str, Any]) -> dict[str, Any]:
+    raw = dict(payload.get("acceptance_contract") or {})
+    return _drop_empty_payload(
+        {
+            "completion_criteria": _string_list(raw.get("completion_criteria") or payload.get("completion_criteria")),
             "required_artifacts": [
-                dict(item) for item in list(payload.get("required_artifacts") or []) if isinstance(item, dict)
+                dict(item) for item in list(raw.get("required_artifacts") or payload.get("required_artifacts") or []) if isinstance(item, dict)
             ],
             "required_verifications": [
-                dict(item) for item in list(payload.get("required_verifications") or []) if isinstance(item, dict)
+                dict(item) for item in list(raw.get("required_verifications") or payload.get("required_verifications") or []) if isinstance(item, dict)
             ],
-            "completion_criteria": _string_list(payload.get("completion_criteria")),
-            "constraints": _string_list(payload.get("constraints")),
-            "working_scope": working_scope,
-            "forbidden_actions": _string_list(payload.get("forbidden_actions")),
-            "resource_requirements": _resource_requirements_stable_payload(resource_requirements) if resource_requirements else {},
-            "permission_requirements": dict(payload.get("permission_requirements") or {}),
-            "acceptance_policy": dict(payload.get("acceptance_policy") or {}),
-            "recovery_policy": dict(payload.get("recovery_policy") or {}),
-            "authority": "harness.runtime.task_contract.model_visible",
+            "verification_gate": dict(raw.get("verification_gate") or {}) if isinstance(raw.get("verification_gate"), dict) else {},
+            "final_answer_requirements": _string_list(raw.get("final_answer_requirements")),
+            "evidence_refs_required": raw.get("evidence_refs_required") if isinstance(raw.get("evidence_refs_required"), bool) else None,
+            "acceptance_policy": dict(raw.get("acceptance_policy") or payload.get("acceptance_policy") or {}),
+            "authority": "harness.runtime.task_contract.acceptance_contract.model_visible",
         }
     )
 

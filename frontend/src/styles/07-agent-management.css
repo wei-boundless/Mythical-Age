@@ -5,10 +5,10 @@
   align-items: center;
   gap: 0.45rem;
   min-height: 36px;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 14%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 14%, var(--console-line));
   border-radius: 8px;
-  background: color-mix(in srgb, var(--color-text) 14%, transparent);
-  color: var(--color-text-soft);
+  background: color-mix(in srgb, var(--console-text) 14%, transparent);
+  color: var(--console-muted);
   padding: 0 0.62rem;
 }
 
@@ -17,15 +17,15 @@
   width: 100%;
   border: 0;
   background: transparent;
-  color: var(--color-text);
+  color: var(--console-text);
   outline: none;
   font-size: 0.78rem;
 }
 
 .boundary-subtabs button.active {
-  border-color: color-mix(in srgb, var(--color-accent-primary) 50%, var(--color-border));
-  color: var(--color-text);
-  background: color-mix(in srgb, var(--color-accent-primary) 10%, transparent);
+  border-color: color-mix(in srgb, var(--console-accent) 50%, var(--console-line));
+  color: var(--console-text);
+  background: color-mix(in srgb, var(--console-accent) 10%, transparent);
 }
 
 .boundary-layer-grid {
@@ -67,7 +67,7 @@
 }
 
 .boundary-field > span {
-  color: var(--color-accent-primary);
+  color: var(--console-accent);
   font-size: 0.7rem;
   font-weight: 900;
   letter-spacing: 0;
@@ -78,12 +78,12 @@
 .boundary-field select {
   width: 100%;
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 18%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 18%, var(--console-line));
   border-radius: 7px;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--console-surface) 2.6%, transparent), transparent 70%),
-    color-mix(in srgb, var(--color-surface) 86%, var(--color-bg));
-  color: var(--color-text);
+    color-mix(in srgb, var(--console-surface) 86%, var(--console-bg));
+  color: var(--console-text);
   font-size: 0.78rem;
   outline: none;
   padding: 0.56rem 0.62rem;
@@ -92,7 +92,7 @@
 .boundary-field input:focus,
 .boundary-field textarea:focus,
 .boundary-field select:focus {
-  border-color: color-mix(in srgb, var(--color-accent-primary) 52%, var(--color-border));
+  border-color: color-mix(in srgb, var(--console-accent) 52%, var(--console-line));
 }
 
 .boundary-field select {
@@ -113,7 +113,7 @@
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.78rem;
 }
 
@@ -128,28 +128,28 @@
 }
 
 .boundary-choice {
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 14%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 14%, var(--console-line));
   border-radius: 999px;
   background: color-mix(in srgb, var(--console-surface) 2.5%, transparent);
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   cursor: pointer;
   font-size: 0.72rem;
   padding: 0.36rem 0.56rem;
 }
 
 .boundary-choice--active {
-  border-color: color-mix(in srgb, var(--color-accent-primary) 54%, var(--color-border));
-  background: color-mix(in srgb, var(--color-accent-primary) 12%, var(--console-surface));
-  color: var(--color-text);
+  border-color: color-mix(in srgb, var(--console-accent) 54%, var(--console-line));
+  background: color-mix(in srgb, var(--console-accent) 12%, var(--console-surface));
+  color: var(--console-text);
 }
 
 .boundary-badge {
   display: inline-flex;
   align-items: center;
   min-height: 1.45rem;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 18%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 18%, var(--console-line));
   border-radius: 999px;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.68rem;
   font-weight: 850;
   padding: 0.2rem 0.48rem;
@@ -181,7 +181,7 @@
 .boundary-readiness {
   display: grid;
   gap: 0.16rem;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 12%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
   border-radius: 8px;
   background: color-mix(in srgb, var(--console-surface) 2%, transparent);
   padding: 0.58rem 0.64rem;
@@ -194,12 +194,12 @@
 
 .boundary-readiness span,
 .boundary-readiness small {
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.68rem;
 }
 
 .boundary-readiness strong {
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.8rem;
   overflow-wrap: anywhere;
 }
@@ -214,7 +214,7 @@
   grid-template-columns: minmax(74px, 0.34fr) minmax(0, 1fr);
   gap: 0.48rem;
   margin: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-accent-primary) 10%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--console-accent) 10%, transparent);
   padding-bottom: 0.42rem;
 }
 
@@ -251,17 +251,17 @@
   align-items: center;
   gap: 0.34rem;
   min-height: 1.62rem;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 13%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 13%, var(--console-line));
   border-radius: 6px;
   background: color-mix(in srgb, var(--console-surface) 2.5%, transparent);
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.68rem;
   font-weight: 850;
   padding: 0.18rem 0.48rem;
 }
 
 .orchestration-permission-summary b {
-  color: var(--color-text);
+  color: var(--console-text);
   font-family: var(--font-mono), monospace;
   font-size: 0.72rem;
 }
@@ -269,7 +269,7 @@
 .orchestration-tool-package-manager {
   display: grid;
   gap: 0.62rem;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 12%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
   border-radius: 8px;
   background: color-mix(in srgb, var(--boundary-bg) 72%, transparent);
   padding: 0.68rem;
@@ -288,12 +288,12 @@
 }
 
 .orchestration-tool-package-manager__head strong {
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.82rem;
 }
 
 .orchestration-tool-package-manager__head span {
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.68rem;
 }
 
@@ -316,10 +316,10 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.16rem 0.5rem;
   min-height: 3rem;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 10%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 10%, var(--console-line));
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.02);
-  color: var(--color-text-soft);
+  background: color-mix(in srgb, var(--console-surface) 0.02, transparent);
+  color: var(--console-muted);
   cursor: pointer;
   padding: 0.48rem 0.58rem;
   text-align: left;
@@ -330,8 +330,8 @@
 .orchestration-tool-package-row:focus-visible,
 .orchestration-tool-package-row--active {
   outline: 0;
-  border-color: color-mix(in srgb, var(--color-accent-primary) 48%, var(--color-border));
-  background: color-mix(in srgb, var(--color-accent-primary) 8%, transparent);
+  border-color: color-mix(in srgb, var(--console-accent) 48%, var(--console-line));
+  background: color-mix(in srgb, var(--console-accent) 8%, transparent);
 }
 
 .orchestration-tool-package-row--enabled {
@@ -343,14 +343,14 @@
   align-items: center;
   gap: 0.34rem;
   min-width: 0;
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.74rem;
   font-weight: 900;
 }
 
 .orchestration-tool-package-row small {
   min-width: 0;
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.64rem;
 }
 
@@ -358,9 +358,9 @@
   grid-column: 2;
   grid-row: 1 / span 2;
   align-self: center;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 16%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 16%, var(--console-line));
   border-radius: 999px;
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.62rem;
   font-style: normal;
   font-weight: 900;
@@ -369,7 +369,7 @@
 
 .orchestration-tool-package-row--enabled em {
   border-color: rgba(103, 220, 154, 0.42);
-  color: #baf7cf;
+  color: var(--console-success);
 }
 
 .orchestration-tool-package-detail {
@@ -377,7 +377,7 @@
   align-content: start;
   gap: 0.58rem;
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 10%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 10%, var(--console-line));
   border-radius: 8px;
   padding: 0.58rem;
 }
@@ -396,12 +396,12 @@
 }
 
 .orchestration-tool-package-detail > header strong {
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.82rem;
 }
 
 .orchestration-tool-package-detail > header span {
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.68rem;
   line-height: 1.45;
 }
@@ -409,10 +409,10 @@
 .orchestration-tool-package-detail > header button {
   flex: 0 0 auto;
   min-height: 1.8rem;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 22%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 22%, var(--console-line));
   border-radius: 8px;
-  background: color-mix(in srgb, var(--color-accent-primary) 8%, transparent);
-  color: var(--color-text-soft);
+  background: color-mix(in srgb, var(--console-accent) 8%, transparent);
+  color: var(--console-muted);
   cursor: pointer;
   font-size: 0.68rem;
   font-weight: 900;
@@ -421,7 +421,7 @@
 
 .orchestration-tool-package-detail > header button.is-active {
   border-color: rgba(255, 140, 125, 0.42);
-  color: #ffd0c8;
+  color: var(--console-danger);
 }
 
 .orchestration-package-operation {
@@ -430,18 +430,18 @@
   align-items: center;
   gap: 0.42rem;
   min-height: 2.05rem;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 8%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 8%, var(--console-line));
   border-radius: 7px;
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.68rem;
   font-weight: 700;
   padding: 0.3rem 0.46rem;
 }
 
 .orchestration-package-operation--enabled {
-  border-color: color-mix(in srgb, var(--color-accent-primary) 30%, var(--color-border));
-  background: color-mix(in srgb, var(--color-accent-primary) 7%, transparent);
-  color: var(--color-text-soft);
+  border-color: color-mix(in srgb, var(--console-accent) 30%, var(--console-line));
+  background: color-mix(in srgb, var(--console-accent) 7%, transparent);
+  color: var(--console-muted);
 }
 
 .orchestration-package-operation input {
@@ -460,7 +460,7 @@
   display: grid;
   min-width: 0;
   overflow: auto;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 12%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
   border-radius: 8px;
 }
 
@@ -478,9 +478,9 @@
   top: 0;
   z-index: 1;
   min-height: 2.1rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-accent-primary) 13%, var(--color-border));
-  background: color-mix(in srgb, var(--boundary-bg) 96%, var(--color-panel));
-  color: var(--color-text-muted);
+  border-bottom: 1px solid color-mix(in srgb, var(--console-accent) 13%, var(--console-line));
+  background: color-mix(in srgb, var(--boundary-bg) 96%, var(--console-surface));
+  color: var(--console-muted);
   font-size: 0.62rem;
   font-weight: 900;
   letter-spacing: 0;
@@ -490,8 +490,8 @@
 
 .orchestration-permission-row {
   min-height: 2.9rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-accent-primary) 8%, var(--color-border));
-  color: var(--color-text-soft);
+  border-bottom: 1px solid color-mix(in srgb, var(--console-accent) 8%, var(--console-line));
+  color: var(--console-muted);
   cursor: pointer;
   padding: 0.38rem 0.62rem;
   transition: background 140ms ease, box-shadow 140ms ease, color 140ms ease;
@@ -504,17 +504,17 @@
 .orchestration-permission-row:hover,
 .orchestration-permission-row:focus-visible {
   outline: 0;
-  background: color-mix(in srgb, var(--color-accent-primary) 7%, transparent);
+  background: color-mix(in srgb, var(--console-accent) 7%, transparent);
 }
 
 .orchestration-permission-row--active {
-  background: color-mix(in srgb, var(--color-accent-primary) 11%, transparent);
+  background: color-mix(in srgb, var(--console-accent) 11%, transparent);
   box-shadow: inset 0 0 0 1px var(--console-active-ring);
 }
 
 .orchestration-permission-row--allowed .orchestration-permission-row__status em {
   border-color: rgba(103, 220, 154, 0.42);
-  color: #baf7cf;
+  color: var(--console-success);
 }
 
 .orchestration-permission-row--blocked {
@@ -535,12 +535,12 @@
 .orchestration-permission-row--blocked .orchestration-permission-row__status em,
 .orchestration-permission-row--conflict .orchestration-permission-row__status em {
   border-color: rgba(255, 140, 125, 0.42);
-  color: #ffd0c8;
+  color: var(--console-danger);
 }
 
 .orchestration-permission-row--partial .orchestration-permission-row__status em {
   border-color: rgba(255, 215, 107, 0.42);
-  color: #ffdf83;
+  color: var(--console-warning);
 }
 
 .orchestration-permission-row > span,
@@ -552,17 +552,17 @@
 }
 
 .orchestration-permission-row strong {
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.76rem;
 }
 
 .orchestration-permission-row span {
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.68rem;
 }
 
 .orchestration-permission-row__type {
-  color: var(--color-accent-primary);
+  color: var(--console-accent);
   font-weight: 900;
 }
 
@@ -571,9 +571,9 @@
   align-items: center;
   justify-content: center;
   min-width: 4.4rem;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 13%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 13%, var(--console-line));
   border-radius: 999px;
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.64rem;
   font-style: normal;
   font-weight: 900;
@@ -594,10 +594,10 @@
   justify-content: center;
   gap: 0.32rem;
   min-height: 1.72rem;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 16%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 16%, var(--console-line));
   border-radius: 8px;
   background: color-mix(in srgb, var(--console-surface) 2.5%, transparent);
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   cursor: pointer;
   font-size: 0.68rem;
   font-weight: 850;
@@ -613,13 +613,13 @@
 .orchestration-permission-row__actions button.is-active,
 .orchestration-permission-inspector__actions button:first-child {
   border-color: rgba(103, 220, 154, 0.5);
-  color: #baf7cf;
+  color: var(--console-success);
 }
 
 .orchestration-permission-row__actions button.is-danger-active,
 .orchestration-permission-inspector__actions button:last-child {
   border-color: rgba(255, 140, 125, 0.45);
-  color: #ffd0c8;
+  color: var(--console-danger);
 }
 
 .orchestration-permission-inspector {
@@ -631,26 +631,26 @@
 .orchestration-permission-inspector__hero {
   display: grid;
   gap: 0.36rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-accent-primary) 12%, var(--color-border));
+  border-bottom: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
   padding-bottom: 0.64rem;
 }
 
 .orchestration-permission-inspector__hero span {
-  color: var(--color-accent-primary);
+  color: var(--console-accent);
   font-size: 0.68rem;
   font-weight: 900;
 }
 
 .orchestration-permission-inspector__hero h4 {
   margin: 0;
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 1rem;
 }
 
 .orchestration-permission-inspector__hero p,
 .orchestration-permission-detail-block p {
   margin: 0;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.74rem;
   line-height: 1.52;
 }
@@ -658,12 +658,12 @@
 .orchestration-permission-detail-block {
   display: grid;
   gap: 0.48rem;
-  border-top: 1px solid color-mix(in srgb, var(--color-accent-primary) 12%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--console-accent) 12%, transparent);
   padding-top: 0.64rem;
 }
 
 .orchestration-permission-detail-block > strong {
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.8rem;
 }
 
@@ -675,9 +675,9 @@
 
 .orchestration-permission-detail-block div > span {
   max-width: 100%;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 14%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 14%, var(--console-line));
   border-radius: 999px;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.64rem;
   padding: 0.18rem 0.38rem;
   overflow-wrap: anywhere;
@@ -690,13 +690,13 @@
 }
 
 .orchestration-permission-detail-block p span {
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.66rem;
   font-weight: 850;
 }
 
 .orchestration-permission-detail-block p b {
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.72rem;
   font-weight: 700;
   overflow-wrap: anywhere;
@@ -709,13 +709,13 @@
 }
 
 .orchestration-permission-raw {
-  border: 1px dashed color-mix(in srgb, var(--color-accent-primary) 16%, var(--color-border));
+  border: 1px dashed color-mix(in srgb, var(--console-accent) 16%, var(--console-line));
   border-radius: 8px;
   padding: 0.58rem;
 }
 
 .orchestration-permission-raw summary {
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   cursor: pointer;
   font-size: 0.72rem;
   font-weight: 850;
@@ -741,10 +741,10 @@
   display: inline-flex;
   align-items: center;
   gap: 0.34rem;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 22%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 22%, var(--console-line));
   border-radius: 7px;
   background: color-mix(in srgb, var(--console-surface) 3.6%, transparent);
-  color: var(--color-text);
+  color: var(--console-text);
   cursor: pointer;
   font-size: 0.72rem;
   font-weight: 850;
@@ -752,7 +752,7 @@
 }
 
 .orchestration-memory-boundary__actions button:hover {
-  border-color: color-mix(in srgb, var(--color-accent-primary) 48%, var(--color-border));
+  border-color: color-mix(in srgb, var(--console-accent) 48%, var(--console-line));
   transform: translateY(-1px);
 }
 
@@ -788,9 +788,9 @@
   display: grid;
   gap: 0.28rem;
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 16%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 16%, var(--console-line));
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.026);
+  background: color-mix(in srgb, var(--console-surface) 0.026, transparent);
   padding: 0.62rem;
 }
 
@@ -798,21 +798,21 @@
   display: inline-flex;
   align-items: center;
   gap: 0.32rem;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.68rem;
   font-weight: 850;
   line-height: 1.25;
 }
 
 .orchestration-memory-lane strong {
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.86rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
 
 .orchestration-memory-lane small {
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.72rem;
   line-height: 1.45;
   overflow-wrap: anywhere;
@@ -825,9 +825,9 @@
 }
 
 .orchestration-memory-path span {
-  border: 1px dashed color-mix(in srgb, var(--color-border) 80%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--console-line) 80%, transparent);
   border-radius: 999px;
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.68rem;
   font-weight: 800;
   padding: 0.22rem 0.5rem;
@@ -835,8 +835,8 @@
 
 .orchestration-memory-path span.is-on {
   border-style: solid;
-  border-color: color-mix(in srgb, var(--color-success) 38%, var(--color-border));
-  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--console-success) 38%, var(--console-line));
+  color: var(--console-success);
 }
 
 @media (max-width: 1320px) {
@@ -851,9 +851,9 @@
 }
 
 .coordination-editor-panel-tabs button.active {
-  border-color: color-mix(in srgb, var(--color-accent-primary) 48%, var(--color-border));
-  background: color-mix(in srgb, var(--color-accent-primary) 11%, rgba(255, 255, 255, 0.03));
-  color: var(--color-text);
+  border-color: color-mix(in srgb, var(--console-accent) 48%, var(--console-line));
+  background: color-mix(in srgb, var(--console-accent) 11%, color-mix(in srgb, var(--console-surface) 0.03, transparent));
+  color: var(--console-text);
 }
 
 .coordination-mechanism-drawer__body > .boundary-empty {
@@ -861,7 +861,7 @@
 }
 
 .coordination-editor-actions .boundary-chip {
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 18%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 18%, var(--console-line));
   border-radius: 999px;
   background: color-mix(in srgb, var(--console-surface) 2.2%, transparent);
   color: inherit;
@@ -893,7 +893,7 @@
   align-items: center;
   gap: 0.38rem;
   min-width: 0;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.72rem;
   padding: 0.46rem 0.56rem;
 }
@@ -907,9 +907,9 @@
   display: grid;
   gap: 0.58rem;
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 13%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 13%, var(--console-line));
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.018);
+  background: color-mix(in srgb, var(--console-surface) 0.018, transparent);
   padding: 0.62rem;
 }
 
@@ -921,14 +921,14 @@
 }
 
 .boundary-option-selection__head span {
-  color: var(--color-accent-primary);
+  color: var(--console-accent);
   font-size: 0.72rem;
   font-weight: 900;
 }
 
 .boundary-option-selection__head small,
 .boundary-selected-token-list__empty {
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.68rem;
 }
 
@@ -946,10 +946,10 @@
   gap: 0.34rem;
   min-width: 0;
   max-width: 100%;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 34%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 34%, var(--console-line));
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-accent-primary) 10%, rgba(255, 255, 255, 0.026));
-  color: var(--color-text);
+  background: color-mix(in srgb, var(--console-accent) 10%, color-mix(in srgb, var(--console-surface) 0.026, transparent));
+  color: var(--console-text);
   cursor: pointer;
   font-size: 0.72rem;
   font-weight: 800;
@@ -965,7 +965,7 @@
 
 .boundary-selected-token svg {
   flex: 0 0 auto;
-  color: var(--color-text-muted);
+  color: var(--console-muted);
 }
 
 .boundary-empty {
@@ -973,9 +973,9 @@
   align-items: center;
   gap: 0.48rem;
   min-height: 72px;
-  border: 1px dashed color-mix(in srgb, var(--color-accent-primary) 18%, var(--color-border));
+  border: 1px dashed color-mix(in srgb, var(--console-accent) 18%, var(--console-line));
   border-radius: 8px;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.78rem;
   line-height: 1.45;
   padding: 0.75rem;
@@ -1037,7 +1037,7 @@
 
   .task-graph-layer-nav {
     border-right: 0;
-    border-bottom: 1px solid color-mix(in srgb, var(--color-accent-primary) 12%, var(--color-border));
+    border-bottom: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1078,7 +1078,7 @@
 .health-recovery-card strong,
 .health-failure-chain strong,
 .health-evidence-packet-strip strong {
-  color: var(--color-text);
+  color: var(--console-text);
   overflow-wrap: anywhere;
 }
 
@@ -1087,7 +1087,7 @@
 .health-failure-chain p,
 .health-evidence-packet-strip p {
   margin: 0;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.82rem;
   line-height: 1.55;
   overflow-wrap: anywhere;
@@ -1096,7 +1096,7 @@
 .health-diagnosis-card em,
 .health-recovery-card em,
 .health-failure-chain__refs span {
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.74rem;
   font-style: normal;
   line-height: 1.45;
@@ -1105,19 +1105,19 @@
 
 .health-status-panel__main span,
 .health-token-chart .health-panel-head span {
-  color: var(--color-accent-primary);
+  color: var(--console-accent);
   font-size: 0.72rem;
   font-weight: 900;
 }
 
 .health-pill--asset {
   border-color: rgba(92, 214, 219, 0.44);
-  color: #bff7fb;
+  color: var(--console-accent);
 }
 
 .health-pill--user {
   border-color: rgba(190, 170, 255, 0.44);
-  color: #ddd2ff;
+  color: var(--console-accent);
 }
 
 .health-token-chart {
@@ -1139,14 +1139,14 @@
 }
 
 .health-token-table__head {
-  border-bottom: 1px solid color-mix(in srgb, var(--color-accent-primary) 12%, var(--color-border));
+  border-bottom: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
   padding: 0 0 0.45rem;
 }
 
 .health-token-table__head span,
 .health-token-table__row > span,
 .health-token-table__row em {
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.74rem;
   font-style: normal;
 }
@@ -1169,7 +1169,7 @@
 .health-token-table__bar strong {
   position: absolute;
   right: 0;
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.78rem;
   text-align: right;
 }
@@ -1177,11 +1177,11 @@
 .health-token-chart-panel {
   display: grid;
   gap: 1rem;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 18%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 18%, var(--console-line));
   border-radius: 8px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 38%),
-    color-mix(in srgb, var(--color-panel-strong) 94%, transparent);
+    linear-gradient(180deg, color-mix(in srgb, var(--console-surface) 0.045, transparent), transparent 38%),
+    color-mix(in srgb, var(--console-bg-raised) 94%, transparent);
   padding: 1rem;
 }
 
@@ -1190,7 +1190,7 @@
   grid-template-columns: 58px minmax(0, 1fr);
   gap: 0.7rem;
   min-height: 330px;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 12%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
   border-radius: 7px;
   background: rgba(0, 0, 0, 0.14);
   padding: 1rem 1rem 0.9rem;
@@ -1204,7 +1204,7 @@
 }
 
 .health-token-y-axis span {
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.72rem;
   text-align: right;
 }
@@ -1225,7 +1225,7 @@
 }
 
 .health-token-grid-lines i {
-  border-top: 1px solid color-mix(in srgb, var(--color-accent-primary) 11%, var(--color-border));
+  border-top: 1px solid color-mix(in srgb, var(--console-accent) 11%, var(--console-line));
 }
 
 .health-token-line-svg {
@@ -1260,7 +1260,7 @@
 
 .health-token-line-values span {
   position: absolute;
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.72rem;
   font-weight: 850;
   transform: translate(-50%, -120%);
@@ -1278,7 +1278,7 @@
 }
 
 .health-token-x-axis span {
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.68rem;
   line-height: 1.2;
   text-align: center;
@@ -1286,13 +1286,13 @@
 }
 
 .health-token-detail-table {
-  border-top: 1px solid color-mix(in srgb, var(--color-accent-primary) 12%, var(--color-border));
+  border-top: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
   padding-top: 0.2rem;
 }
 
 .health-token-detail-table summary {
   cursor: pointer;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.78rem;
   font-weight: 850;
 }
@@ -1320,9 +1320,9 @@
 .health-token-task-row {
   display: grid;
   gap: 0.62rem;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 13%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 13%, var(--console-line));
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.024);
+  background: color-mix(in srgb, var(--console-surface) 0.024, transparent);
   padding: 0.78rem;
 }
 
@@ -1342,7 +1342,7 @@
 
 .health-token-task-row__head strong {
   overflow: hidden;
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.88rem;
   line-height: 1.25;
   text-overflow: ellipsis;
@@ -1351,7 +1351,7 @@
 
 .health-token-task-row__head span {
   overflow: hidden;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.72rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1359,9 +1359,9 @@
 
 .health-token-source {
   flex: 0 0 auto;
-  border: 1px solid color-mix(in srgb, var(--color-text-soft) 22%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-muted) 22%, var(--console-line));
   border-radius: 999px;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.68rem;
   font-style: normal;
   font-weight: 850;
@@ -1372,7 +1372,7 @@
 
 .health-token-source--exact {
   border-color: rgba(114, 227, 162, 0.42);
-  color: #9ff0bc;
+  color: var(--console-success);
 }
 
 .health-token-source--predicted {
@@ -1391,9 +1391,9 @@
   min-height: 28px;
   align-items: center;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 10%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 10%, var(--console-line));
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.045);
+  background: color-mix(in srgb, var(--console-surface) 0.045, transparent);
 }
 
 .health-token-task-row__meter i {
@@ -1410,7 +1410,7 @@
   z-index: 1;
   justify-self: end;
   padding-right: 0.62rem;
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.76rem;
   font-weight: 900;
 }
@@ -1422,12 +1422,12 @@
 }
 
 .health-token-task-row__numbers span {
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.72rem;
 }
 
 .health-token-task-row__numbers b {
-  color: var(--color-text);
+  color: var(--console-text);
   font-weight: 850;
 }
 
@@ -1532,11 +1532,11 @@
 
 .system-page-shell:not(.system-page-shell--removed-system) .health-token-workbench .health-token-stat--trace::before,
 .system-page-shell:not(.system-page-shell--removed-system) .health-token-workbench .health-token-structure__trace {
-  background: #fb7185;
+  background: var(--console-danger);
 }
 
 .system-page-shell:not(.system-page-shell--removed-system) .health-token-workbench .health-token-structure__missing {
-  background: #cbd5e1;
+  background: var(--console-bg-raised);
 }
 
 .system-page-shell:not(.system-page-shell--removed-system) .health-token-workbench .health-token-structure__bar,
@@ -1550,7 +1550,7 @@
 }
 
 .system-page-shell:not(.system-page-shell--removed-system) .health-token-workbench .health-token-switch button:hover {
-  background: #e8f0ff;
+  background: var(--console-hover);
   color: var(--health-token-accent);
 }
 
@@ -1604,7 +1604,7 @@
 }
 
 .system-page-shell:not(.system-page-shell--removed-system) .health-token-workbench .health-token-table__bar i {
-  background: linear-gradient(90deg, #16a34a, #0284c7);
+  background: linear-gradient(90deg, var(--console-success), var(--console-accent));
 }
 
 .health-diagnosis-brief__title > div {
@@ -1614,25 +1614,25 @@
 .health-diagnosis-brief__title span:not(.health-pill),
 .health-diagnosis-card span,
 .health-evidence-run-selector > span {
-  color: var(--color-accent-primary);
+  color: var(--console-accent);
   font-size: 0.72rem;
   font-weight: 900;
 }
 
 .health-diagnosis-brief__title h3 {
   margin: 0.24rem 0 0;
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: clamp(1.2rem, 2vw, 1.85rem);
   line-height: 1.16;
   overflow-wrap: anywhere;
 }
 
 .health-diagnosis-card svg {
-  color: var(--color-accent-primary);
+  color: var(--console-accent);
 }
 
 .health-diagnosis-card strong {
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 1rem;
   line-height: 1.25;
   overflow-wrap: anywhere;
@@ -1640,16 +1640,16 @@
 
 .health-diagnosis-card p {
   margin: 0;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.82rem;
   line-height: 1.58;
   overflow-wrap: anywhere;
 }
 
 .health-review-checks div {
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 12%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
   border-radius: var(--radius-inner);
-  background: rgba(255, 255, 255, 0.024);
+  background: color-mix(in srgb, var(--console-surface) 0.024, transparent);
   padding: 0.62rem;
 }
 
@@ -1657,13 +1657,13 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.82rem;
   line-height: 1.45;
 }
 
 .health-review-checks svg {
-  color: #baf7cf;
+  color: var(--console-success);
   flex: 0 0 auto;
 }
 
@@ -1682,7 +1682,7 @@
 .health-panel-head h3,
 .health-detail-panel__title h3 {
   margin: 0.18rem 0 0;
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 1rem;
   line-height: 1.25;
   overflow-wrap: anywhere;
@@ -1690,30 +1690,30 @@
 
 .health-panel-head svg,
 .health-detail-panel__title svg {
-  color: var(--color-accent-primary);
+  color: var(--console-accent);
   flex: 0 0 auto;
 }
 
 .health-signal-list button,
 .health-run-list button {
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 12%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
   border-radius: var(--radius-inner);
-  background: rgba(255, 255, 255, 0.026);
+  background: color-mix(in srgb, var(--console-surface) 0.026, transparent);
   color: inherit;
   text-align: left;
 }
 
 .health-signal-list button:hover,
 .health-run-list button:hover {
-  border-color: color-mix(in srgb, var(--color-accent-primary) 52%, white);
-  background: color-mix(in srgb, var(--color-accent-primary) 10%, transparent);
+  border-color: color-mix(in srgb, var(--console-accent) 52%, white);
+  background: color-mix(in srgb, var(--console-accent) 10%, transparent);
 }
 
 .health-signal-list strong,
 .health-run-list strong,
 .health-node-row strong,
 .health-semantic-box strong {
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.92rem;
   overflow-wrap: anywhere;
 }
@@ -1721,7 +1721,7 @@
 .health-signal-list span,
 .health-run-list em,
 .health-run-mini-list span {
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.74rem;
   font-style: normal;
 }
@@ -1730,9 +1730,9 @@
 .health-pill {
   display: inline-flex;
   align-items: center;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 20%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 20%, var(--console-line));
   border-radius: 999px;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.7rem;
   font-style: normal;
   line-height: 1.2;
@@ -1741,17 +1741,17 @@
 
 .health-pill--success {
   border-color: rgba(103, 220, 154, 0.4);
-  color: #baf7cf;
+  color: var(--console-success);
 }
 
 .health-pill--warning {
   border-color: rgba(255, 215, 107, 0.44);
-  color: #ffe29b;
+  color: var(--console-warning);
 }
 
 .health-pill--danger {
   border-color: rgba(255, 140, 125, 0.48);
-  color: #ffd0c8;
+  color: var(--console-danger);
 }
 
 .health-list-panel {
@@ -1764,20 +1764,20 @@
 }
 
 .health-detail-panel__title span {
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.74rem;
 }
 
 .health-run-mini-list article,
 .health-semantic-box {
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 14%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 14%, var(--console-line));
   border-radius: var(--radius-inner);
-  background: rgba(255, 255, 255, 0.026);
+  background: color-mix(in srgb, var(--console-surface) 0.026, transparent);
   padding: 0.82rem;
 }
 
 .health-node-row span {
-  color: var(--color-accent-primary);
+  color: var(--console-accent);
   font-size: 0.72rem;
   font-weight: 900;
 }
@@ -1799,9 +1799,9 @@
   align-items: center;
   gap: 0.55rem;
   min-height: 92px;
-  border: 1px dashed color-mix(in srgb, var(--color-accent-primary) 18%, var(--color-border));
+  border: 1px dashed color-mix(in srgb, var(--console-accent) 18%, var(--console-line));
   border-radius: var(--radius-inner);
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.82rem;
   padding: 1rem;
 }
@@ -1820,11 +1820,11 @@
   align-items: center;
   gap: 0.5rem;
   user-select: none;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 42%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 42%, var(--console-line));
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-panel-strong) 94%, black);
+  background: color-mix(in srgb, var(--console-bg-raised) 94%, black);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.32);
-  color: var(--color-text);
+  color: var(--console-text);
   cursor: grab;
   font-size: 0.82rem;
   font-weight: 850;
@@ -1850,7 +1850,7 @@
 }
 
 .health-agent-launcher > svg {
-  color: var(--color-text-soft);
+  color: var(--console-muted);
 }
 
 .health-agent-dock {
@@ -1858,9 +1858,9 @@
   width: min(430px, calc(100vw - 1.6rem));
   max-height: min(760px, 82vh);
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 28%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 28%, var(--console-line));
   border-radius: var(--radius-block);
-  background: color-mix(in srgb, var(--color-panel-strong) 96%, black);
+  background: color-mix(in srgb, var(--console-bg-raised) 96%, black);
   box-shadow: 0 22px 80px rgba(0, 0, 0, 0.45);
 }
 
@@ -1869,7 +1869,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--console-line);
   cursor: grab;
   padding: 1rem;
   touch-action: none;
@@ -1886,23 +1886,23 @@
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   flex: 0 0 auto;
 }
 
 .health-agent-dock header span {
-  color: var(--color-accent-primary);
+  color: var(--console-accent);
   font-size: 0.72rem;
   font-weight: 900;
 }
 
 .health-agent-dock header strong {
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 1rem;
 }
 
 .health-agent-dock header em {
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.72rem;
   font-style: normal;
   overflow-wrap: anywhere;
@@ -1913,24 +1913,24 @@
   width: 34px;
   height: 34px;
   place-items: center;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--console-line);
   border-radius: 50%;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
 }
 
 .health-agent-dock__scope {
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
-  border-bottom: 1px solid var(--color-border);
-  color: var(--color-text-soft);
+  border-bottom: 1px solid var(--console-line);
+  color: var(--console-muted);
   font-size: 0.75rem;
   line-height: 1.45;
   padding: 0.78rem 1rem;
 }
 
 .health-agent-dock__scope svg {
-  color: var(--color-accent-primary);
+  color: var(--console-accent);
   flex: 0 0 auto;
 }
 
@@ -1942,9 +1942,9 @@
 }
 
 .health-agent-message {
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 12%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
   border-radius: var(--radius-inner);
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.8rem;
   line-height: 1.55;
   padding: 0.72rem;
@@ -1954,7 +1954,7 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.48rem;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--console-line);
   padding: 0.78rem 1rem;
 }
 
@@ -1964,9 +1964,9 @@
   justify-content: center;
   gap: 0.4rem;
   min-height: 34px;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 18%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 18%, var(--console-line));
   border-radius: 0.85rem;
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.74rem;
   font-weight: 800;
   white-space: nowrap;
@@ -1980,24 +1980,24 @@
 .health-agent-dock__input input {
   min-width: 0;
   width: 100%;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--console-line);
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.18);
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.82rem;
   outline: none;
   padding: 0.62rem 0.82rem;
 }
 
 .task-graph-run-interaction-launcher {
-  border-color: color-mix(in srgb, #22c55e 38%, var(--color-border));
+  border-color: color-mix(in srgb, var(--console-success) 38%, var(--console-line));
   max-width: min(520px, calc(100vw - 1rem));
   border-radius: 1rem;
   padding: 0.34rem 0.58rem 0.34rem 0.34rem;
 }
 
 .task-graph-run-interaction-launcher button svg {
-  color: #22c55e;
+  color: var(--console-success);
 }
 
 .task-graph-run-interaction-launcher button {
@@ -2021,41 +2021,41 @@
 }
 
 .task-graph-run-interaction-launcher__body strong {
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.78rem;
   font-weight: 850;
 }
 
 .task-graph-run-interaction-launcher__body span,
 .task-graph-run-interaction-launcher__body small {
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.68rem;
   font-weight: 720;
 }
 
 .task-graph-run-interaction-launcher--attention {
-  border-color: color-mix(in srgb, #f59e0b 52%, var(--color-border));
-  box-shadow: 0 22px 70px rgba(245, 158, 11, 0.26);
+  border-color: color-mix(in srgb, var(--console-warning) 52%, var(--console-line));
+  box-shadow: 0 22px 70px color-mix(in srgb, var(--console-warning) 26%, transparent);
 }
 
 .task-graph-run-interaction-launcher--attention button svg {
-  color: #f59e0b;
+  color: var(--console-warning);
 }
 
 .task-graph-run-interaction-dock {
-  border-color: color-mix(in srgb, #22c55e 30%, var(--color-border));
+  border-color: color-mix(in srgb, var(--console-success) 30%, var(--console-line));
 }
 
 .task-graph-run-interaction-dock header span,
 .task-graph-run-interaction-dock .health-agent-dock__scope svg {
-  color: #22c55e;
+  color: var(--console-success);
 }
 
 .task-graph-run-interaction-status {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.48rem;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--console-line);
   padding: 0.78rem 1rem;
 }
 
@@ -2063,14 +2063,14 @@
   display: grid;
   gap: 0.16rem;
   min-width: 0;
-  border: 1px solid color-mix(in srgb, #22c55e 14%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-success) 14%, var(--console-line));
   border-radius: 0.78rem;
   background: rgba(0, 0, 0, 0.14);
   padding: 0.55rem 0.62rem;
 }
 
 .task-graph-run-interaction-status span {
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.66rem;
   font-weight: 780;
 }
@@ -2078,7 +2078,7 @@
 .task-graph-run-interaction-status strong {
   min-width: 0;
   overflow: hidden;
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.78rem;
   font-weight: 850;
   text-overflow: ellipsis;
@@ -2109,14 +2109,14 @@
 .task-graph-run-interaction-message--warning,
 .task-graph-run-interaction-message--error,
 .task-graph-run-interaction-message--critical {
-  border-color: color-mix(in srgb, #f59e0b 36%, var(--color-border));
-  background: color-mix(in srgb, #f59e0b 8%, transparent);
-  color: var(--color-text);
+  border-color: color-mix(in srgb, var(--console-warning) 36%, var(--console-line));
+  background: color-mix(in srgb, var(--console-warning) 8%, transparent);
+  color: var(--console-text);
 }
 
 .task-graph-run-interaction-work-packet {
-  border-color: color-mix(in srgb, #22c55e 24%, var(--color-border));
-  background: color-mix(in srgb, #22c55e 6%, transparent);
+  border-color: color-mix(in srgb, var(--console-success) 24%, var(--console-line));
+  background: color-mix(in srgb, var(--console-success) 6%, transparent);
 }
 
 .task-graph-run-interaction-work-packet__grid {
@@ -2128,9 +2128,9 @@
   display: grid;
   gap: 0.25rem;
   padding: 0.45rem;
-  border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--console-line) 78%, transparent);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--color-surface) 72%, transparent);
+  background: color-mix(in srgb, var(--console-surface) 72%, transparent);
 }
 
 .task-graph-run-interaction-work-packet__grid b {
@@ -2195,7 +2195,7 @@
 }
 
 .task-graph-responsibility-card > header small {
-  color: #94a3b8;
+  color: var(--console-muted);
   font-size: 11px;
 }
 
@@ -2205,19 +2205,19 @@
   min-width: 0;
   margin: 0;
   padding: 9px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  border: 1px solid color-mix(in srgb, var(--console-muted) 18%, transparent);
   border-radius: 8px;
   background: rgba(15, 23, 42, 0.34);
 }
 
 .task-graph-responsibility-preview span {
-  color: #94a3b8;
+  color: var(--console-muted);
   font-size: 11px;
 }
 
 .task-graph-responsibility-preview strong {
   overflow: hidden;
-  color: #e2e8f0;
+  color: var(--console-text);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2251,31 +2251,31 @@
 .task-system-boundary input,
 .task-system-boundary textarea,
 .task-system-boundary select {
-  accent-color: var(--color-accent-primary);
+  accent-color: var(--console-accent);
   color-scheme: dark;
 }
 
 .task-system-boundary input:not([type="checkbox"]):not([type="radio"]),
 .task-system-boundary textarea,
 .task-system-boundary select {
-  border-color: color-mix(in srgb, var(--color-accent-primary) 18%, var(--color-border));
+  border-color: color-mix(in srgb, var(--console-accent) 18%, var(--console-line));
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.026), transparent 70%),
-    color-mix(in srgb, var(--color-surface) 86%, #07121a);
-  color: var(--color-text);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.012);
+    linear-gradient(180deg, color-mix(in srgb, var(--console-surface) 0.026, transparent), transparent 70%),
+    color-mix(in srgb, var(--console-surface) 86%, #07121a);
+  color: var(--console-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-surface) 0.012, transparent);
 }
 
 .task-system-boundary input:not([type="checkbox"]):not([type="radio"]):focus,
 .task-system-boundary textarea:focus,
 .task-system-boundary select:focus {
-  border-color: color-mix(in srgb, var(--color-accent-primary) 52%, var(--color-border));
+  border-color: color-mix(in srgb, var(--console-accent) 52%, var(--console-line));
   outline: none;
 }
 
 .task-system-boundary input::placeholder,
 .task-system-boundary textarea::placeholder {
-  color: color-mix(in srgb, var(--color-text-muted) 72%, transparent);
+  color: color-mix(in srgb, var(--console-muted) 72%, transparent);
 }
 
 .task-system-boundary select option {
@@ -2292,7 +2292,7 @@
 .task-system-boundary input[type="radio"] {
   width: 15px;
   height: 15px;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 34%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 34%, var(--console-line));
   background-color: var(--console-bg-raised);
 }
 
@@ -2316,17 +2316,17 @@
 }
 
 .task-graph-composer-inspector {
-  border-left: 1px solid color-mix(in srgb, var(--color-accent-primary) 12%, var(--color-border));
-  background: rgba(255, 255, 255, 0.012);
+  border-left: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
+  background: color-mix(in srgb, var(--console-surface) 0.012, transparent);
 }
 
 .task-graph-composer-inspector-card {
   display: grid;
   gap: 0.52rem;
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 12%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.02);
+  background: color-mix(in srgb, var(--console-surface) 0.02, transparent);
   padding: 0.58rem;
 }
 
@@ -2336,13 +2336,13 @@
   align-items: center;
   gap: 0.38rem;
   min-width: 0;
-  color: var(--color-text);
+  color: var(--console-text);
 }
 
 .task-graph-composer-panel > header svg,
 .task-graph-composer-inspector-card > header svg {
   flex: 0 0 auto;
-  color: var(--color-accent-primary);
+  color: var(--console-accent);
 }
 
 .task-graph-composer-panel > header strong,
@@ -2356,7 +2356,7 @@
 }
 
 .task-graph-composer-inspector-card > header span {
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.6rem;
   white-space: nowrap;
 }
@@ -2366,10 +2366,10 @@
 .task-graph-composer-facet-grid button,
 .task-graph-composer-subtle-action {
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 12%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.018);
-  color: var(--color-text-soft);
+  background: color-mix(in srgb, var(--console-surface) 0.018, transparent);
+  color: var(--console-muted);
   cursor: pointer;
   text-align: left;
   transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
@@ -2381,9 +2381,9 @@
 .task-graph-composer-facet-grid button:hover,
 .task-graph-composer-facet-grid button.active,
 .task-graph-composer-subtle-action:hover {
-  border-color: color-mix(in srgb, var(--color-accent-primary) 44%, var(--color-border));
-  background: color-mix(in srgb, var(--color-accent-primary) 9%, rgba(255, 255, 255, 0.02));
-  color: var(--color-text);
+  border-color: color-mix(in srgb, var(--console-accent) 44%, var(--console-line));
+  background: color-mix(in srgb, var(--console-accent) 9%, color-mix(in srgb, var(--console-surface) 0.02, transparent));
+  color: var(--console-text);
 }
 
 .task-graph-composer-tree-card strong,
@@ -2410,22 +2410,22 @@
   gap: 0.08rem;
   min-width: 0;
   margin: 0;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 10%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 10%, var(--console-line));
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.018);
+  background: color-mix(in srgb, var(--console-surface) 0.018, transparent);
   padding: 0.38rem 0.44rem;
 }
 
 .task-graph-composer-mini-metrics span,
 .task-graph-composer-kv span {
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.56rem;
   font-weight: 850;
 }
 
 .task-graph-composer-mini-metrics strong,
 .task-graph-composer-kv strong {
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.7rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2435,8 +2435,8 @@
 .task-graph-composer-mode-strip article.active,
 .task-graph-composer-mode-strip button.active,
 .task-graph-composer-mode-strip button:hover {
-  border-color: color-mix(in srgb, var(--color-accent-primary) 42%, var(--color-border));
-  background: color-mix(in srgb, var(--color-accent-primary) 8%, rgba(255, 255, 255, 0.018));
+  border-color: color-mix(in srgb, var(--console-accent) 42%, var(--console-line));
+  background: color-mix(in srgb, var(--console-accent) 8%, color-mix(in srgb, var(--console-surface) 0.018, transparent));
 }
 
 .coordination-topology-edge--port_edge {
@@ -2477,25 +2477,25 @@
   display: grid;
   gap: 0.1rem;
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 10%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 10%, var(--console-line));
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.12);
   padding: 0.48rem 0.52rem;
 }
 
 .task-graph-composer-selection-title span {
-  color: var(--color-accent-primary);
+  color: var(--console-accent);
   font-size: 0.58rem;
   font-weight: 900;
 }
 
 .task-graph-composer-selection-title strong {
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.82rem;
 }
 
 .task-graph-composer-selection-title small {
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.62rem;
 }
 
@@ -2528,9 +2528,9 @@
   display: grid;
   gap: 0.48rem;
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 10%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 10%, var(--console-line));
   border-radius: 7px;
-  background: color-mix(in srgb, var(--color-surface) 1.4%, transparent);
+  background: color-mix(in srgb, var(--console-surface) 1.4%, transparent);
   padding: 0.52rem;
 }
 
@@ -2549,20 +2549,20 @@
 }
 
 .task-graph-contract-binding-section > header strong {
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.72rem;
 }
 
 .task-graph-contract-binding-section > header span {
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.58rem;
   line-height: 1.35;
 }
 
 .task-graph-contract-binding-section > header em {
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 16%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 16%, var(--console-line));
   border-radius: 999px;
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.52rem;
   font-style: normal;
   font-weight: 850;
@@ -2582,9 +2582,9 @@
   grid-template-columns: minmax(5.6rem, max-content) minmax(0, 1fr) max-content;
   align-items: center;
   gap: 0.5rem;
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 12%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
   border-radius: 6px;
-  background: color-mix(in srgb, var(--color-surface) 1.8%, transparent);
+  background: color-mix(in srgb, var(--console-surface) 1.8%, transparent);
   padding: 0.38rem 0.46rem;
   min-width: 0;
 }
@@ -2604,22 +2604,22 @@
 }
 
 .task-graph-batch-runtime-row strong {
-  color: var(--color-text);
+  color: var(--console-text);
   font-size: 0.66rem;
   font-weight: 850;
 }
 
 .task-graph-batch-runtime-row small,
 .task-graph-batch-runtime-row em {
-  color: var(--color-text-muted);
+  color: var(--console-muted);
   font-size: 0.58rem;
   font-style: normal;
 }
 
 .task-graph-batch-runtime-row__status {
-  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 16%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--console-accent) 16%, var(--console-line));
   border-radius: 999px;
-  color: var(--color-text-soft);
+  color: var(--console-muted);
   font-size: 0.56rem;
   font-weight: 850;
   padding: 0.16rem 0.42rem;
@@ -2628,25 +2628,25 @@
 }
 
 .task-graph-batch-runtime-row__status--committed {
-  border-color: color-mix(in srgb, var(--color-success) 36%, var(--color-border));
-  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--console-success) 36%, var(--console-line));
+  color: var(--console-success);
 }
 
 .task-graph-batch-runtime-row__status--running,
 .task-graph-batch-runtime-row__status--repairing {
-  border-color: color-mix(in srgb, var(--color-accent) 38%, var(--color-border));
-  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--console-accent) 38%, var(--console-line));
+  color: var(--console-accent);
 }
 
 .task-graph-batch-runtime-row__status--ready,
 .task-graph-batch-runtime-row__status--repair_ready {
-  border-color: color-mix(in srgb, var(--color-warning) 36%, var(--color-border));
-  color: var(--color-warning);
+  border-color: color-mix(in srgb, var(--console-warning) 36%, var(--console-line));
+  color: var(--console-warning);
 }
 
 .task-graph-batch-runtime-row__status--failed {
-  border-color: color-mix(in srgb, var(--color-danger) 42%, var(--color-border));
-  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--console-danger) 42%, var(--console-line));
+  color: var(--console-danger);
 }
 
 @media (max-width: 1100px) {
@@ -2746,7 +2746,7 @@
   border-radius: 16px;
   background: var(--agent-page-panel);
   padding: 14px 16px;
-  box-shadow: inset 0 0 0 1px rgba(214, 224, 234, 0.72);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-line) 72%, transparent);
 }
 
 .system-page-shell--orchestration .orchestration-console-head__title span {
@@ -2786,11 +2786,11 @@
   border-radius: 14px;
   background: var(--agent-page-panel);
   padding: 12px 13px;
-  box-shadow: inset 0 0 0 1px rgba(228, 235, 243, 0.92);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-line) 92%, transparent);
 }
 
 .system-page-shell--orchestration .orchestration-console-head__summary span {
-  color: #46566a;
+  color: var(--console-muted);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.28;
@@ -2810,7 +2810,7 @@
 .system-page-shell--orchestration .orchestration-console-head__summary small {
   display: -webkit-box;
   overflow: hidden;
-  color: #3f4b5d;
+  color: var(--console-text);
   font-size: 13px;
   line-height: 1.42;
   -webkit-box-orient: vertical;
@@ -2825,7 +2825,7 @@
   border-radius: 16px;
   background: var(--agent-page-panel);
   padding: 10px;
-  box-shadow: inset 0 0 0 1px rgba(228, 235, 243, 0.92);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-line) 92%, transparent);
 }
 
 .system-page-shell--orchestration .orchestration-console-head__actions .boundary-button {

@@ -1129,7 +1129,22 @@ def test_task_run_final_output_without_turn_id_uses_task_run_output_turn_id() ->
         runtime,
         task_run_id="taskrun:turn:session-output-missing-turn:1:abc",
         session_id="session-output-missing-turn",
-        status="running",
+        status="waiting_executor",
+    )
+    seeded_task = host.state_index.get_task_run(task_run_id)
+    host.state_index.upsert_task_run(
+        replace(
+            seeded_task,
+            diagnostics={
+                **dict(seeded_task.diagnostics or {}),
+                "executor_status": "waiting_executor",
+                "recovery_action": "rerun_task_executor",
+                "recoverable_error": {
+                    "error_code": "test_task_run_output_turn_id_recovery",
+                    "retryable": True,
+                },
+            },
+        )
     )
 
     result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=2))
@@ -2163,23 +2178,6 @@ def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> 
                         },
                         "required_artifacts": [{"artifact_kind": "html_app", "user_visible_name": "可运行页面"}],
                         "completion_criteria": ["任务生命周期必须由系统直接启动"],
-                        "capability_intent": {
-                            "needed_capability_groups": ["file_work", "artifact_generation"],
-                            "preferred_tool_namespaces": [],
-                            "requires_deferred_tool_loading": True,
-                            "reason": "显式合同要求交付可运行页面并保留执行证据。",
-                        },
-                        "skill_intent": {
-                            "selected_skill_ids": [],
-                            "candidate_skill_ids": [],
-                            "required_capability_tags": [],
-                            "reason": "",
-                        },
-                        "observation_contract": {
-                            "evidence_policy": "observation_required",
-                            "progress_granularity": "step",
-                            "finalization_requires_evidence": True,
-                        },
                     },
                 },
             )

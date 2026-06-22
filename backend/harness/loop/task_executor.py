@@ -2869,7 +2869,8 @@ def _runtime_signal_event_ref(runtime_host: Any, *, task_run_id: str, signal_id:
     normalized_signal_id = str(signal_id or "").strip()
     if not normalized_signal_id:
         return ""
-    event_log = getattr(runtime_host, "event_log", None)
+    runtime_gateway = getattr(runtime_host, "runtime_gateway", None)
+    event_log = getattr(runtime_host, "event_log", None) or getattr(runtime_gateway, "event_log", None)
     list_events = getattr(event_log, "list_events", None)
     if not callable(list_events):
         return ""
@@ -4741,7 +4742,8 @@ def _verify_completion(
         environment_payload=environment,
         artifact_root=artifact_scope.artifact_root,
     ).contract
-    required_artifacts = [dict(item) for item in list(contract.get("required_artifacts") or []) if isinstance(item, dict)]
+    acceptance_contract = _acceptance_contract_projection(contract)
+    required_artifacts = _contract_dict_items(acceptance_contract.get("required_artifacts"))
     artifact_refs = dedupe_artifact_refs(
         [
             *artifact_refs,
@@ -4888,9 +4890,10 @@ def _verification_gate_required_reasons(
     observations: list[dict[str, Any]],
 ) -> list[str]:
     reasons: list[str] = []
-    if [dict(item) for item in list(contract.get("required_verifications") or []) if isinstance(item, dict)]:
+    acceptance_contract = _acceptance_contract_projection(contract)
+    if _contract_dict_items(acceptance_contract.get("required_verifications")):
         reasons.append("required_verifications")
-    if [dict(item) for item in list(contract.get("required_artifacts") or []) if isinstance(item, dict)]:
+    if _contract_dict_items(acceptance_contract.get("required_artifacts")):
         reasons.append("required_artifacts")
     if artifact_refs or verified_artifacts:
         reasons.append("artifact_evidence")
@@ -4900,18 +4903,37 @@ def _verification_gate_required_reasons(
 
 
 def _should_enforce_completion_verification_gate(task_run: Any, *, contract: dict[str, Any]) -> bool:
-    required = [
-        dict(item)
-        for item in list(contract.get("required_verifications") or [])
-        if isinstance(item, dict)
-    ]
-    acceptance = dict(contract.get("acceptance_policy") or {})
+    acceptance_contract = _acceptance_contract_projection(contract)
+    required = _contract_dict_items(acceptance_contract.get("required_verifications"))
+    acceptance = dict(acceptance_contract.get("acceptance_policy") or contract.get("acceptance_policy") or {})
     required.extend(
         dict(item)
         for item in list(acceptance.get("required_verifications") or [])
         if isinstance(item, dict)
     )
     return bool(required)
+
+
+def _acceptance_contract_projection(contract: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(contract or {})
+    acceptance = dict(payload.get("acceptance_contract") or {})
+    if not acceptance:
+        acceptance = {}
+    if "completion_criteria" not in acceptance:
+        acceptance["completion_criteria"] = list(payload.get("completion_criteria") or [])
+    if "required_artifacts" not in acceptance:
+        acceptance["required_artifacts"] = _contract_dict_items(payload.get("required_artifacts"))
+    if "required_verifications" not in acceptance:
+        acceptance["required_verifications"] = _contract_dict_items(payload.get("required_verifications"))
+    if "acceptance_policy" not in acceptance and isinstance(payload.get("acceptance_policy"), dict):
+        acceptance["acceptance_policy"] = dict(payload.get("acceptance_policy") or {})
+    acceptance.setdefault("authority", "harness.loop.task_completion.acceptance_contract_projection")
+    return acceptance
+
+
+def _contract_dict_items(value: Any) -> list[dict[str, Any]]:
+    raw_values = value if isinstance(value, (list, tuple)) else ([value] if isinstance(value, dict) else [])
+    return [dict(item) for item in raw_values if isinstance(item, dict)]
 
 
 def _observation_is_successful_write(observation: dict[str, Any]) -> bool:
@@ -7552,11 +7574,45 @@ def _runtime_control_signal_ref_is_gateway_published(
     runtime_gateway = getattr(runtime_host, "runtime_gateway", None)
     signal_by_id = getattr(runtime_gateway, "signal_by_id", None)
     if not callable(signal_by_id):
+        return _runtime_control_signal_ref_exists_in_event_log(
+            runtime_host,
+            task_run_id=normalized_task_run_id,
+            signal_ref=normalized_signal_ref,
+        )
+    try:
+        if signal_by_id(normalized_task_run_id, signal_id=normalized_signal_ref) is not None:
+            return True
+    except Exception:
+        pass
+    return _runtime_control_signal_ref_exists_in_event_log(
+        runtime_host,
+        task_run_id=normalized_task_run_id,
+        signal_ref=normalized_signal_ref,
+    )
+
+
+def _runtime_control_signal_ref_exists_in_event_log(
+    runtime_host: Any | None,
+    *,
+    task_run_id: str,
+    signal_ref: str,
+) -> bool:
+    runtime_gateway = getattr(runtime_host, "runtime_gateway", None)
+    event_log = getattr(runtime_host, "event_log", None) or getattr(runtime_gateway, "event_log", None)
+    list_events = getattr(event_log, "list_events", None)
+    if not callable(list_events):
         return False
     try:
-        return signal_by_id(normalized_task_run_id, signal_id=normalized_signal_ref) is not None
+        events = list_events(task_run_id)
     except Exception:
         return False
+    for event in list(events or []):
+        if str(getattr(event, "event_type", "") or "") != "runtime_control_signal_published":
+            continue
+        signal = dict(dict(getattr(event, "payload", {}) or {}).get("signal") or {})
+        if str(signal.get("signal_id") or "") == signal_ref:
+            return True
+    return False
 
 
 def _steer_for_projection(steer: dict[str, Any]) -> dict[str, Any]:

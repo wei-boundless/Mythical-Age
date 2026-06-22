@@ -404,7 +404,7 @@ def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict
                     "read_intent": dict(field_paths.get("read_intent") or {}),
                 },
                 "usage_hint": (
-                    "Use directly for known file paths, including file-like task_contract.working_scope.target_objects, "
+                    "Use directly for known file paths, including file-like task_contract.environment_contract.working_scope.target_objects, "
                     "source_refs, workspace_refs, or bound/editor paths. line_count may be omitted; use returned window facts "
                     "and the file evidence contract/read_resource_state before deciding whether another read is needed. "
                     "has_more is a window fact, not a continuation command; continue only for target lines outside coverage, "
@@ -419,7 +419,7 @@ def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict
             {
                 "critical_fields": {"path": dict(field_paths.get("path") or {})},
                 "usage_hint": (
-                    "Use to confirm a known path from task_contract.working_scope, bound context, or editor context. "
+                    "Use to confirm a known path from task_contract.environment_contract.working_scope, bound context, or editor context. "
                     "It is a direct path check, not a search tool."
                 ),
                 "output_facts": ["path", "exists", "kind"],
@@ -458,7 +458,7 @@ def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict
                 },
                 "usage_hint": (
                     "Use for filename or path keywords only when the exact path is unknown. "
-                    "If task_contract.working_scope.target_objects/source_refs/workspace_refs or bound/editor context already gives a file-like path, "
+                    "If task_contract.environment_contract.working_scope.target_objects/source_refs/workspace_refs or bound/editor context already gives a file-like path, "
                     "use path_exists/read_file directly instead of search_files."
                 ),
                 "output_facts": ["query", "matches", "searched_roots", "used_default_roots", "omitted_workspace_root", "search_meta"],

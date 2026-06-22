@@ -485,6 +485,11 @@ export function SystemConfigView() {
     setStoredCustomSettings({ panelColor: color || null });
   }
 
+  function handleAccentSoftColorChange(color: string) {
+    setCustomSettings((prev) => ({ ...prev, accentSoftColor: color || null }));
+    setStoredCustomSettings({ accentSoftColor: color || null });
+  }
+
   function handleBgImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -676,6 +681,25 @@ export function SystemConfigView() {
                 </button>
               ) : null}
               <em>{customSettings.panelColor ?? "使用主题默认"}</em>
+            </label>
+            <label className="system-config-color-picker">
+              <span>强调背景色</span>
+              <input
+                type="color"
+                value={customSettings.accentSoftColor ?? "#eaf3ff"}
+                onChange={(e) => handleAccentSoftColorChange(e.target.value)}
+              />
+              {customSettings.accentSoftColor ? (
+                <button
+                  className="system-config-color-reset"
+                  onClick={() => handleAccentSoftColorChange("")}
+                  type="button"
+                  title="恢复主题默认"
+                >
+                  ✕
+                </button>
+              ) : null}
+              <em>{customSettings.accentSoftColor ?? "使用主题默认"}</em>
             </label>
           </div>
         </section>
