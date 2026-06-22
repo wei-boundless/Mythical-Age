@@ -1266,6 +1266,38 @@
   min-width: 0;
 }
 
+.agent-workbench .chat-vscode-open-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 23px;
+  border: 1px solid var(--console-line);
+  border-radius: 999px;
+  background: var(--console-surface);
+  color: var(--console-text-soft);
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.agent-workbench .chat-vscode-open-button svg {
+  color: var(--console-muted);
+}
+
+.agent-workbench .chat-vscode-open-button:hover {
+  border-color: var(--console-active-ring);
+  background: var(--console-accent-soft);
+  color: var(--console-accent);
+}
+
+.agent-workbench .chat-vscode-open-button:disabled {
+  cursor: default;
+  opacity: 0.66;
+}
+
 .agent-workbench .chat-environment-switcher {
   width: 100%;
   min-width: 0;

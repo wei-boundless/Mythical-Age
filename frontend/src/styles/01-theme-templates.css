@@ -201,8 +201,8 @@
   --console-surface-muted: #f2edf9;
   --console-surface-strong: #e4dcf2;
   --console-surface-soft: #f4edf8;
-  --console-hover: #ebe2f5;
-  --console-selected: #e3d8f2;
+  --console-hover: var(--console-surface-soft);
+  --console-selected: var(--console-surface-muted);
   --console-line: #d0c8e2;
   --console-line-soft: #e4dcf2;
   --console-line-strong: #b8adce;

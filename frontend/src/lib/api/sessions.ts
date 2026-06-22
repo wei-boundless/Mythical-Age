@@ -191,6 +191,20 @@ export async function createProjectWorkspaceSession(projectKey: string, title = 
   });
 }
 
+export async function openSessionProjectInVSCode(sessionId: string, scope?: Partial<SessionScope>) {
+  return request<{
+    ok: boolean;
+    command?: string[];
+    connection_reused?: boolean;
+    connection_status?: Record<string, unknown>;
+    project_binding?: SessionProjectBinding;
+    session_id: string;
+    window_mode?: string;
+  }>(withSessionScopeQuery(`/sessions/${encodeURIComponent(sessionId)}/project-binding/open-vscode`, scope), {
+    method: "POST",
+  });
+}
+
 export async function getProjectWorkspaceTree(projectKey: string, options: { maxDepth?: number; maxEntries?: number } = {}) {
   const params = new URLSearchParams();
   params.set("max_depth", String(options.maxDepth || 10));

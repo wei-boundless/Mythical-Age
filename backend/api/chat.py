@@ -2269,7 +2269,7 @@ def _tool_action_public_events(raw_data: dict[str, Any]) -> list[tuple[str, dict
 
 def _tool_call_requested_items(raw_data: dict[str, Any]) -> list[dict[str, Any]]:
     raw_event = _record(raw_data.get("event"))
-    payload = _record(raw_event.get("payload") or raw_data)
+    payload = _semantic_event_payload(raw_data)
     refs = _record(raw_event.get("refs"))
     request = _record(payload.get("model_action_request") or raw_data.get("model_action_request"))
     if not request:
@@ -2355,7 +2355,7 @@ def _record_or_json_object(value: Any) -> dict[str, Any]:
 
 def _tool_permission_decided_data(raw_data: dict[str, Any], *, request_data: dict[str, Any]) -> dict[str, Any]:
     raw_event = _record(raw_data.get("event"))
-    payload = _record(raw_event.get("payload") or raw_data)
+    payload = _semantic_event_payload(raw_data)
     refs = _record(raw_event.get("refs"))
     admission = _record(payload.get("admission") or payload.get("admission_decision") or raw_data.get("admission"))
     if not admission:
@@ -2880,6 +2880,13 @@ def _public_action_state(value: Any) -> dict[str, str]:
 
 def _record(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _semantic_event_payload(raw_data: dict[str, Any]) -> dict[str, Any]:
+    raw_event = _record(raw_data.get("event"))
+    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
+    preview = _record(payload.get("preview"))
+    return preview or payload
 
 
 def _int_value(value: Any, *, fallback: int = 0) -> int:

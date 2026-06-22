@@ -9,6 +9,7 @@ from harness.runtime.prompt_segment_plan import stable_model_message_hash, stabl
 
 _FRAME_SOURCE_REF = "single_agent_turn_incremental_context_frame"
 TASK_EXECUTION_INCREMENTAL_CONTEXT_FRAME_SOURCE_REF = "task_execution_incremental_context_frame"
+TASK_EXECUTION_INCREMENTAL_CONTEXT_CURSOR_SOURCE_REF = "task_execution_incremental_context_cursor"
 _FRAME_TITLE = "Single agent turn incremental context frame"
 _PREVIEW_LIMIT = 240
 _UNCHANGED_REF_LIMIT = 4
@@ -636,26 +637,6 @@ def _task_changed_state(
                         if str(item.get("steer_id") or "")
                     ],
                     "details_visible_in": "user_steering_updates",
-                }
-            )
-        )
-    memory_payload = dict(runtime_memory_context_payload or {})
-    if memory_payload:
-        changes.append(
-            _drop_empty(
-                {
-                    "subject": "runtime_memory_context",
-                    "change": "selected_memory_visible",
-                    "memory_context_ref": _first_text(
-                        memory_payload.get("memory_runtime_view_ref"),
-                        memory_payload.get("memory_context_ref"),
-                    ),
-                    "selected_sections": [
-                        str(item)
-                        for item in list(memory_payload.get("selected_sections") or [])[:8]
-                        if str(item)
-                    ],
-                    "details_visible_in": "runtime_memory_context",
                 }
             )
         )

@@ -243,7 +243,10 @@ def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str) -> str:
         return "runtime_baseline_refs"
     if kind == "dynamic_projection":
         return "runtime_delta_tail"
-    if source_kind == "runtime_incremental_context_frame" or kind == "incremental_context_frame":
+    if source_kind in {"runtime_incremental_context_frame", "runtime_incremental_context_cursor"} or kind in {
+        "incremental_context_frame",
+        "incremental_context_cursor",
+    }:
         return "dynamic_context_tail"
     if source_kind == "runtime_editor_evidence_delta" or kind == "current_editor_evidence_delta":
         return "current_exact_evidence"

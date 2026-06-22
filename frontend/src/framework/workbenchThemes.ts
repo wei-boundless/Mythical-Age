@@ -321,6 +321,21 @@ export function setStoredCustomSettings(settings: Partial<CustomAppearanceSettin
   window.dispatchEvent(new CustomEvent(WORKBENCH_CUSTOM_SETTINGS_CHANGE_EVENT, { detail: next }));
 }
 
+export function clearCustomColorOverrides(): CustomAppearanceSettings {
+  if (typeof window === "undefined") return { ...DEFAULT_CUSTOM_SETTINGS };
+  const current = getStoredCustomSettings();
+  const next = {
+    ...current,
+    bgColor: null,
+    panelColor: null,
+    accentSoftColor: null,
+  };
+  window.localStorage.setItem(WORKBENCH_CUSTOM_SETTINGS_KEY, JSON.stringify(next));
+  applyAppearanceOverrides(next);
+  window.dispatchEvent(new CustomEvent(WORKBENCH_CUSTOM_SETTINGS_CHANGE_EVENT, { detail: next }));
+  return next;
+}
+
 export function applyAppearanceOverrides(settings: CustomAppearanceSettings) {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
@@ -349,20 +364,24 @@ export function applyAppearanceOverrides(settings: CustomAppearanceSettings) {
   root.style.setProperty("--console-font-size-body", `${Math.round(baseBody * scale)}px`);
   root.style.fontSize = `${Math.round(baseUi * scale)}px`;
 
-  // Background color override
   if (settings.bgColor) {
     root.style.setProperty("--console-bg", settings.bgColor);
+  } else {
+    root.style.removeProperty("--console-bg");
   }
 
-  // Panel/surface color override
   if (settings.panelColor) {
     root.style.setProperty("--console-surface", settings.panelColor);
     root.style.setProperty("--console-bg-raised", settings.panelColor);
+  } else {
+    root.style.removeProperty("--console-surface");
+    root.style.removeProperty("--console-bg-raised");
   }
 
-  // Accent soft color override (highlight/emphasis background)
   if (settings.accentSoftColor) {
     root.style.setProperty("--console-accent-soft", settings.accentSoftColor);
+  } else {
+    root.style.removeProperty("--console-accent-soft");
   }
 
   // Background image

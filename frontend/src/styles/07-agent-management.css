@@ -4087,7 +4087,7 @@ textarea:focus-visible {
   width: 6px;
   height: 26px;
   border-radius: 999px;
-  background: var(--console-active-ring);
+  background: var(--console-line-soft);
 }
 
 .agent-workbench .workbench-project-scope-row__status.is-missing {
@@ -4248,14 +4248,6 @@ textarea:focus-visible {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-danger) 18%, transparent);
 }
 
-/* Left rail controls share the same quiet workbench surface. */
-.agent-workbench {
-  --left-rail-control-bg: color-mix(in srgb, var(--console-accent) 14%, var(--console-surface));
-  --left-rail-control-hover-bg: color-mix(in srgb, var(--console-accent) 21%, var(--console-surface));
-  --left-rail-control-ring: color-mix(in srgb, var(--console-accent) 26%, var(--console-line-soft));
-  --left-rail-control-hover-ring: color-mix(in srgb, var(--console-accent) 42%, var(--console-line));
-}
-
 .agent-workbench .workbench-session-toolbar {
   padding: 10px 8px 7px;
   background: transparent;
@@ -4265,11 +4257,11 @@ textarea:focus-visible {
   min-height: 32px;
   border: 0;
   border-radius: 12px;
-  background: var(--left-rail-control-bg);
+  background: var(--console-bg-raised);
   color: var(--console-accent);
   font-size: 13px;
   font-weight: 720;
-  box-shadow: inset 0 0 0 1px var(--left-rail-control-ring);
+  box-shadow: inset 0 0 0 1px var(--console-line-soft);
 }
 
 .agent-workbench .workbench-session-toolbar button span,
@@ -4278,9 +4270,9 @@ textarea:focus-visible {
 }
 
 .agent-workbench .workbench-session-toolbar button:hover:not(:disabled) {
-  background: var(--left-rail-control-hover-bg);
+  background: var(--console-hover);
   color: var(--console-accent-hover);
-  box-shadow: inset 0 0 0 1px var(--left-rail-control-hover-ring);
+  box-shadow: inset 0 0 0 1px var(--console-active-ring);
 }
 
 .agent-workbench .workbench-file-tree--secondary {
@@ -4311,10 +4303,10 @@ textarea:focus-visible {
   padding: 7px 9px;
   border: 0;
   border-radius: 13px;
-  background: var(--left-rail-control-bg);
+  background: var(--console-bg-raised);
   color: var(--console-text);
   text-align: left;
-  box-shadow: inset 0 0 0 1px var(--left-rail-control-ring);
+  box-shadow: inset 0 0 0 1px var(--console-line-soft);
 }
 
 .agent-workbench .workbench-file-tree__toggle > div {
@@ -4348,15 +4340,15 @@ textarea:focus-visible {
 
 .agent-workbench .workbench-file-tree__toggle:hover,
 .agent-workbench .workbench-file-tree--secondary:not(.is-collapsed) .workbench-file-tree__toggle {
-  background: var(--left-rail-control-hover-bg);
-  box-shadow: inset 0 0 0 1px var(--left-rail-control-hover-ring);
+  background: var(--console-hover);
+  box-shadow: inset 0 0 0 1px var(--console-active-ring);
 }
 
 .agent-workbench .workbench-project-file-list {
   margin-top: 5px;
   padding: 5px;
   border-radius: 13px;
-  background: color-mix(in srgb, var(--console-surface) 78%, transparent);
+  background: var(--console-surface-muted);
   box-shadow: inset 0 0 0 1px var(--console-line-soft);
 }
 
@@ -4370,4 +4362,78 @@ textarea:focus-visible {
   border-radius: 11px;
   padding-top: 4px;
   padding-bottom: 4px;
+}
+
+/* Left sidebar: match the right inspector's low-card treatment. */
+.agent-workbench .workbench-resource-panel {
+  background: var(--console-bg-raised);
+}
+
+.agent-workbench .workbench-resource-panel .workbench-panel-head,
+.agent-workbench .workbench-resource-panel .workbench-project-context,
+.agent-workbench .workbench-resource-panel .workbench-session-toolbar {
+  background: transparent;
+}
+
+.agent-workbench .workbench-resource-panel .workbench-panel-head__action,
+.agent-workbench .workbench-resource-panel .workbench-session-toolbar button {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--console-line-soft);
+}
+
+.agent-workbench .workbench-resource-panel .workbench-panel-head__action:hover:not(:disabled),
+.agent-workbench .workbench-resource-panel .workbench-session-toolbar button:hover:not(:disabled) {
+  background: var(--console-hover);
+  box-shadow: inset 0 0 0 1px var(--console-active-ring);
+}
+
+.agent-workbench .workbench-resource-panel .workbench-project-scope-row,
+.agent-workbench .workbench-resource-panel .workbench-session-row {
+  border: 1px solid transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.agent-workbench .workbench-resource-panel .workbench-project-scope-row:hover:not(:disabled),
+.agent-workbench .workbench-resource-panel .workbench-session-row:hover {
+  border-color: transparent;
+  background: var(--console-hover);
+  box-shadow: none;
+}
+
+.agent-workbench .workbench-resource-panel .workbench-project-scope-row--active,
+.agent-workbench .workbench-resource-panel .workbench-project-scope-item--active .workbench-project-scope-row,
+.agent-workbench .workbench-resource-panel .workbench-session-row--active {
+  border-color: transparent;
+  background: var(--console-selected);
+  box-shadow: none;
+}
+
+.agent-workbench .workbench-resource-panel .workbench-project-scope-row__icon,
+.agent-workbench .workbench-resource-panel .workbench-project-scope-row__count {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--console-line-soft);
+}
+
+.agent-workbench .workbench-resource-panel .workbench-project-scope-row:hover:not(:disabled) .workbench-project-scope-row__icon {
+  background: var(--console-hover);
+}
+
+.agent-workbench .workbench-resource-panel .workbench-project-scope-row--active .workbench-project-scope-row__icon,
+.agent-workbench .workbench-resource-panel .workbench-project-scope-item--active .workbench-project-scope-row__icon {
+  background: transparent;
+}
+
+.agent-workbench .workbench-resource-panel .workbench-project-scope-row__actions {
+  background: var(--console-bg-raised);
+}
+
+.agent-workbench .workbench-resource-panel .workbench-file-tree__toggle:hover {
+  background: var(--console-hover);
+  box-shadow: none;
+}
+
+.agent-workbench .workbench-resource-panel .workbench-file-tree--secondary:not(.is-collapsed) .workbench-file-tree__toggle {
+  background: var(--console-selected);
+  box-shadow: none;
 }

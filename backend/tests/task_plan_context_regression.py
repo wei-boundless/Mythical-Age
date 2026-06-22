@@ -131,7 +131,7 @@ def test_task_execution_projects_plan_contract_without_todo_cursor() -> None:
     assert "todo_cursor" not in context
 
 
-def test_task_execution_incremental_context_frame_indexes_steer_and_runtime_signals() -> None:
+def test_task_execution_incremental_context_cursor_indexes_steer_and_runtime_signals() -> None:
     historical_exact_text = "SECRET_OLD_EXACT_TEXT_SHOULD_NOT_BE_DUPLICATED"
     result = RuntimeCompiler().compile_task_execution_packet(
         session_id="session:feedback-context",
@@ -173,28 +173,29 @@ def test_task_execution_incremental_context_frame_indexes_steer_and_runtime_sign
     )
 
     kinds = [segment["kind"] for segment in result.packet.segment_plan["segments"]]
-    frame_segment = _segment_by_kind(result.packet, "incremental_context_frame")
-    frame_payload = _payload_with_title(result.packet, "Task execution incremental context frame")
-    frame = frame_payload["incremental_context_frame"]
-    frame_text = json.dumps(frame, ensure_ascii=False)
-    event_refs = {item.get("event_ref") for item in frame["new_events"]}
-    change_subjects = {item.get("subject") for item in frame["changed_state"]}
+    cursor_segment = _segment_by_kind(result.packet, "incremental_context_cursor")
+    cursor_payload = _payload_with_title(result.packet, "Task execution current delta cursor")
+    cursor = cursor_payload["incremental_context_cursor"]
+    cursor_text = json.dumps(cursor, ensure_ascii=False)
+    event_refs = {item.get("event_ref") for item in cursor["new_events"]}
+    change_subjects = {item.get("subject") for item in cursor["changed_state"]}
 
-    assert kinds.index("volatile_task_state") < kinds.index("incremental_context_frame")
-    assert kinds.index("incremental_context_frame") < kinds.index("user_steering_updates")
-    assert frame_segment["cache_role"] == "volatile"
-    assert frame_segment["cache_scope"] == "none"
-    assert frame_segment["prefix_tier"] == "volatile"
-    assert frame["frame_type"] == "incremental_context_frame"
-    assert frame["frame_scope"] == "task_execution"
-    assert frame["append_only_replay"]["entry_refs"][0]["ref"] == "obs:read:1"
+    assert kinds.index("volatile_task_state") < kinds.index("incremental_context_cursor")
+    assert kinds.index("incremental_context_cursor") < kinds.index("user_steering_updates")
+    assert cursor_segment["cache_role"] == "volatile"
+    assert cursor_segment["cache_scope"] == "none"
+    assert cursor_segment["prefix_tier"] == "volatile"
+    assert dict(cursor_segment.get("metadata") or {})["cache_impact"] == "volatile_suffix_only"
+    assert cursor["frame_type"] == "incremental_context_frame"
+    assert cursor["frame_scope"] == "task_execution"
+    assert cursor["append_only_replay"]["entry_refs"][0]["ref"] == "obs:read:1"
     assert "steer:feedback:1" in event_refs
     assert "rtsig:budget:1" in event_refs
     assert "obs:read:1" in event_refs
     assert "user_steering_updates" in change_subjects
     assert "runtime_control_signals" in change_subjects
     assert "volatile_task_state" in change_subjects
-    assert historical_exact_text not in frame_text
+    assert historical_exact_text not in cursor_text
 
 
 def test_task_execution_read_file_tool_memory_uses_refs_without_replaying_exact_text() -> None:

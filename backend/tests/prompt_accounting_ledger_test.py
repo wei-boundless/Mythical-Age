@@ -99,7 +99,7 @@ def test_prompt_cache_recent_read_returns_latest_records_without_full_scan(tmp_p
 
 
 def test_provider_payload_prefix_follows_transport_order_without_inserting_native_tools() -> None:
-    schema = {"type": "object", "properties": {"path": {"type": "string"}}}
+    schema = {"type": "object", "properties": {"path": {"type": "string"}}, "required": []}
     tool_index = {
         "available_tools": [
             {
@@ -113,7 +113,7 @@ def test_provider_payload_prefix_follows_transport_order_without_inserting_nativ
         {"role": "system", "content": "Tool index\n" + json.dumps(tool_index, ensure_ascii=False, sort_keys=True)},
         {"role": "user", "content": "Current request that must stay in the dynamic tail"},
     ]
-    tools = [{"name": "read_file", "description": "Read file", "schema": schema}]
+    tools = [{"tool_name": "read_file", "description": "Read file", "input_schema": schema}]
     segment_plan = build_prompt_segment_plan(
         packet_id="packet:provider-transport-order",
         invocation_kind="single_agent_turn",
@@ -181,8 +181,10 @@ def test_provider_payload_prefix_follows_transport_order_without_inserting_nativ
     assert native_tool_segment.cache_role == "never_cache"
     assert native_tool_segment.prefix_tier == "none"
     assert native_tool_segment.metadata["provider_payload_prefix_component"] is False
-    assert native_tool_segment.metadata["stable_transport_contract"] is True
-    assert native_tool_segment.metadata["transport_contract_role"] == "stable_transport_contract"
+    assert native_tool_segment.metadata["provider_payload_sidecar_component"] is True
+    assert native_tool_segment.metadata["transport_sidecar_role"] == "native_tool_binding_schema"
+    assert native_tool_segment.metadata["sidecar_drift_status"] == "matched"
+    assert native_tool_segment.metadata["message_prefix_cacheable"] is False
 
     cache_record = PromptCachePlanner().plan(
         segment_map,
@@ -192,8 +194,8 @@ def test_provider_payload_prefix_follows_transport_order_without_inserting_nativ
     )
     diagnostics = dict(cache_record.diagnostics)
     assert diagnostics["provider_payload_tool_prefix_predicted_tokens"] == 0
-    assert diagnostics["provider_payload_stable_tool_component_predicted_tokens"] == native_tool_segment.predicted_tokens
-    assert diagnostics["stable_transport_contract_predicted_tokens"] == native_tool_segment.predicted_tokens
+    assert diagnostics["provider_sidecar_tool_schema_predicted_tokens"] == native_tool_segment.predicted_tokens
+    assert "stable_transport_contract_predicted_tokens" not in diagnostics
     assert "native_tool_binding_schema" not in {
         str(item.get("kind") or "") for item in diagnostics["top_volatile_segment_families"]
     }
@@ -2244,12 +2246,20 @@ def test_task_execution_prompt_matrix_has_no_task_entry_conflict_and_keeps_state
     assert _segment_by_kind(result.packet, "task_runtime_boundary_dynamic")["cache_role"] == "volatile"
     assert _segment_by_kind(result.packet, "volatile_task_state")["cache_scope"] == "none"
     assert _segment_by_kind(result.packet, "user_steering_updates")["cache_scope"] == "none"
+    assert _segment_by_kind(result.packet, "incremental_context_cursor")["cache_scope"] == "none"
+    assert _segment_by_kind(result.packet, "incremental_context_cursor")["cache_role"] == "volatile"
+    assert _segment_by_kind(result.packet, "incremental_context_cursor")["prefix_tier"] == "volatile"
+    assert (
+        dict(_segment_by_kind(result.packet, "incremental_context_cursor").get("metadata") or {})["cache_impact"]
+        == "volatile_suffix_only"
+    )
     assert _segment_by_kind(result.packet, "task_contract_stable")["cache_scope"] == "task"
     assert "把 prompt cache 也纳入检查" not in stable_text
     assert "已完成 admission 分类" in stable_text
+    _assert_cacheable_prefix_is_contiguous(result.packet)
 
 
-def test_observation_followup_prompt_matrix_keeps_tool_observations_volatile() -> None:
+def test_observation_followup_prompt_matrix_splits_tool_observations_into_append_only_context() -> None:
     runtime_assembly = {
         "profile": {
             "profile_ref": "main_interactive_agent",
@@ -2305,6 +2315,10 @@ def test_observation_followup_prompt_matrix_keeps_tool_observations_volatile() -
         _message_content_with_title(first.packet, "Observation followup current request"),
         "Observation followup current request",
     )
+    first_observation_payload = _payload_after_title(
+        _message_content_with_title(first.packet, "Observation followup tool observation obs:followup:read"),
+        "Observation followup tool observation obs:followup:read",
+    )
     projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
     first_cache = _cache_record_for_packet(first.packet, request_id="modelreq:observation-followup-matrix:1")
     second_cache = _cache_record_for_packet(second.packet, request_id="modelreq:observation-followup-matrix:2")
@@ -2317,10 +2331,36 @@ def test_observation_followup_prompt_matrix_keeps_tool_observations_volatile() -
     assert _segment_by_source(first.packet, "agent_visible_runtime_projection")["cache_scope"] == "none"
     assert _segment_by_source(first.packet, "agent_visible_runtime_projection")["cache_role"] == "volatile"
     assert _segment_by_source(first.packet, "observation_followup_current_request")["cache_scope"] == "none"
-    assert current_request_payload["observations"]["latest_observations"][0]["observation_id"] == "obs:followup:read"
-    assert "第一轮读取结果" not in stable_text
-    assert "第二轮搜索结果" not in stable_text
-    assert first_cache.prefix_hash == second_cache.prefix_hash
+    assert "latest_observations" not in dict(current_request_payload.get("observations") or {})
+    assert (
+        _segment_by_source(first.packet, "observation_followup:tool_observation:obs:followup:read")["cache_scope"]
+        == "task"
+    )
+    assert (
+        _segment_by_source(first.packet, "observation_followup:tool_observation:obs:followup:read")["cache_role"]
+        == "session_stable"
+    )
+    assert (
+        _segment_by_source(first.packet, "observation_followup:tool_observation:obs:followup:read")["prefix_tier"]
+        == "task"
+    )
+    assert (
+        dict(
+            _segment_by_source(first.packet, "observation_followup:tool_observation:obs:followup:read").get(
+                "metadata"
+            )
+            or {}
+        )["cache_impact"]
+        == "append_only_task_prefix"
+    )
+    assert first_observation_payload["tool_observation"]["observation_id"] == "obs:followup:read"
+    assert "第一轮读取结果" in stable_text
+    assert "第二轮搜索结果" in stable_text
+    assert first_cache.prefix_hash != second_cache.prefix_hash
+    assert first_cache.diagnostics["provider_global_prefix_hash"] == second_cache.diagnostics["provider_global_prefix_hash"]
+    assert first_cache.diagnostics["session_prefix_hash"] == second_cache.diagnostics["session_prefix_hash"]
+    _assert_cacheable_prefix_is_contiguous(first.packet)
+    _assert_cacheable_prefix_is_contiguous(second.packet)
 
 
 def test_runtime_projection_blocks_task_run_without_mode_instruction_text() -> None:

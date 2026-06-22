@@ -273,7 +273,10 @@ def _layer_for_source(source: PromptSource, *, cache_role: str, prefix_tier: str
         return "file_evidence_cursor"
     if kind == "runtime_memory_context" or source_kind == "runtime_memory_context":
         return "runtime_memory_context"
-    if kind == "incremental_context_frame" or source_kind == "runtime_incremental_context_frame":
+    if kind in {"incremental_context_frame", "incremental_context_cursor"} or source_kind in {
+        "runtime_incremental_context_frame",
+        "runtime_incremental_context_cursor",
+    }:
         return "dynamic_context_tail"
     if kind in {"user_steering_updates", "volatile_user"}:
         return "user_editor_volatile"
@@ -323,7 +326,10 @@ def _dynamic_tier_for_source(source: PromptSource, *, cache_role: str, prefix_ti
         return "user_editor_volatile"
     if kind == "runtime_memory_context" or source_kind == "runtime_memory_context":
         return "runtime_memory_context"
-    if kind == "incremental_context_frame" or source_kind == "runtime_incremental_context_frame":
+    if kind in {"incremental_context_frame", "incremental_context_cursor"} or source_kind in {
+        "runtime_incremental_context_frame",
+        "runtime_incremental_context_cursor",
+    }:
         return "dynamic_context_tail"
     if kind in {"active_skills", "skill_candidates"}:
         return "active_skills"

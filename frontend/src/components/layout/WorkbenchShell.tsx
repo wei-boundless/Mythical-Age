@@ -368,10 +368,8 @@ function WorkbenchProjectTreeNode({
 }
 
 function WorkspaceManagerPanel({
-  onCollapse,
   onOpenFile,
 }: {
-  onCollapse: () => void;
   onOpenFile: (path: string) => void;
 }) {
   const {
@@ -460,15 +458,6 @@ function WorkspaceManagerPanel({
           <span>{projectWorkspaces.length ? `${projectWorkspaces.length} 个可选项目` : "可直接对话"}</span>
         </div>
         <div className="workbench-panel-head__actions">
-          <button
-            aria-label="收起左侧项目栏"
-            className="workbench-panel-head__action"
-            onClick={onCollapse}
-            title="收起左侧项目栏"
-            type="button"
-          >
-            <PanelLeftClose size={14} />
-          </button>
           <button
             aria-label="添加项目"
             className="workbench-panel-head__action"
@@ -763,22 +752,9 @@ function useViewportWidth() {
   return viewportWidth;
 }
 
-function RightToolPanel({
-  onCollapse,
-}: {
-  onCollapse: () => void;
-}) {
+function RightToolPanel() {
   return (
     <aside className="workbench-right-panel" aria-label="辅助面板">
-      <button
-        aria-label="收起监控台"
-        className="workbench-right-panel__collapse"
-        onClick={onCollapse}
-        title="收起监控台"
-        type="button"
-      >
-        <PanelRightClose size={14} />
-      </button>
       <div className="workbench-right-body">
         <section className="workbench-right-monitor" aria-label="运行监控">
           <RunMonitorPanel embedded />
@@ -838,13 +814,12 @@ export function WorkbenchShell({
   const effectiveRightWidth = layout.rightWidth;
   const left = leftPanel ?? (
     <WorkspaceManagerPanel
-      onCollapse={() => setLeftCollapsed(true)}
       onOpenFile={(path) => {
         openWorkspaceFile(path);
       }}
     />
   );
-  const right = rightPanel ?? <RightToolPanel onCollapse={() => setRightCollapsed(true)} />;
+  const right = rightPanel ?? <RightToolPanel />;
   const shellControls = useMemo<WorkbenchShellControls>(() => ({
     closeLeftPanel: () => setLeftCollapsed(true),
     closeRightPanel: () => setRightCollapsed(true),

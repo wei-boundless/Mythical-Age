@@ -307,16 +307,16 @@ def _tool_schema_cache_profile(
                 else "validated_against_stable_tool_index"
             ),
             "cache_note": (
-                "native_tool_binding_schema_is_not_provider_message_prefix_cacheable; stable schema is carried by tool_schema_catalog message"
+                "native_tool_binding_schema_is_provider_sidecar_not_message_prefix_cacheable; stable schema is carried by tool_schema_catalog message"
                 if manifest_payload
-                else "native_tool_binding_schema_is_not_provider_message_prefix_cacheable"
+                else "native_tool_binding_schema_is_provider_sidecar_not_message_prefix_cacheable"
             ),
-            "stability_rule": "native tools are stable only while their schema fingerprint matches the stable tool catalog",
+            "stability_rule": "native tools sidecar is valid only while its schema fingerprint matches the stable tool catalog",
             "provider_payload_transport_location": "tools",
-            "provider_payload_stable_component": True,
+            "provider_payload_sidecar_component": True,
             "provider_payload_prefix_component": False,
-            "stable_transport_contract": True,
-            "transport_contract_role": "stable_transport_contract",
+            "transport_sidecar_role": "native_tool_binding_schema",
+            "sidecar_drift_status": "matched",
             "message_prefix_cacheable": False,
             "tool_catalog_manifest_ref": manifest_ref,
             "tool_catalog_manifest_hash": str(manifest_payload.get("tool_catalog_hash") or ""),
@@ -338,13 +338,27 @@ def _native_tool_binding_schema_never_cache(reason: str, **metadata: Any) -> dic
         "metadata": {
             "native_tool_binding_decision": "not_promoted",
             "native_tool_binding_reason": str(reason or "unknown"),
-            "cache_note": "native_tool_binding_schema_is_recorded_but_not_provider_prefix_cacheable",
+            "cache_note": "native_tool_binding_schema_is_recorded_as_provider_sidecar_but_not_message_prefix_cacheable",
             "provider_payload_transport_location": "tools",
-            "provider_payload_stable_component": False,
+            "provider_payload_sidecar_component": True,
             "provider_payload_prefix_component": False,
+            "transport_sidecar_role": "native_tool_binding_schema",
+            "sidecar_drift_status": _native_tool_sidecar_drift_status(reason),
+            "message_prefix_cacheable": False,
             **dict(metadata),
         },
     }
+
+
+def _native_tool_sidecar_drift_status(reason: str) -> str:
+    normalized = str(reason or "").strip()
+    if not normalized:
+        return "unknown"
+    if normalized in {"missing_stable_tool_index", "stable_tool_index_message_missing"}:
+        return "missing_catalog"
+    if "does_not_match" in normalized or "do_not_match" in normalized:
+        return "drifted"
+    return "not_validated"
 
 
 def _parse_titled_json_payload(content: str) -> Any | None:

@@ -17,6 +17,7 @@ DYNAMIC_SEGMENT_KINDS = {
     "graph_node_completion_prefix",
     "graph_node_runtime_context",
     "incremental_context_frame",
+    "incremental_context_cursor",
     "provider_protocol_history",
     "semantic_compaction_request",
     "session_history",
@@ -56,6 +57,7 @@ RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
     "runtime_memory_context": "runtime_memory_context",
     "runtime_baseline_refs": "runtime_baseline_refs",
     "incremental_context_frame": "runtime_incremental_context_frame",
+    "incremental_context_cursor": "runtime_incremental_context_cursor",
     "read_evidence_injection": "runtime_read_evidence",
     "bound_task_runtime_context": "runtime_bound_task_context",
     "task_runtime_boundary_dynamic": "runtime_dynamic_boundary",
@@ -190,7 +192,9 @@ def _binding_reason(*, status: str, kind: str, source_ref: str) -> str:
     if status == "runtime_memory_context":
         return "segment is selected runtime memory context; it belongs in the volatile tail, not inside runtime boundary"
     if status == "runtime_incremental_context_frame":
-        return "segment tells the agent which prior context is preserved, which tool observations are new, and which state changed"
+        return "segment is an append-only tool follow-up delta frame"
+    if status == "runtime_incremental_context_cursor":
+        return "segment points at current invocation delta refs and control signals; it belongs in the volatile tail"
     if status == "runtime_bound_task_context":
         return "segment is bound runtime context refs and recovery handles"
     if status == "runtime_dynamic_boundary":

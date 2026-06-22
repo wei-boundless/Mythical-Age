@@ -989,6 +989,56 @@ def test_chat_bridge_projects_tool_calls_array_without_admission_body_feedback()
     ]
 
 
+def test_externalized_write_file_admission_still_projects_tool_record() -> None:
+    events = _project_public_stream_event(
+        "model_action_admission_checked",
+        {
+            "event": {
+                "event_id": "event:admission:externalized-write",
+                "payload": {
+                    "preview": {
+                        "turn_id": "turn:test",
+                        "model_action_request": {
+                            "request_id": "request:write-plan",
+                            "action_type": "tool_call",
+                            "tool_call": {
+                                "id": "call:write-plan",
+                                "tool_name": "write_file",
+                                "args": {
+                                    "path": "docs/plan.md",
+                                    "content": "# plan\n\n" + "x" * 4000,
+                                },
+                            },
+                        },
+                        "admission": {
+                            "decision": "allow",
+                            "admission_id": "permit:write-plan",
+                        },
+                    },
+                    "payload_externalized": True,
+                    "payload_ref": "rtpayload:test",
+                    "payload_size_bytes": 50000,
+                },
+                "refs": {"turn_run_ref": "turnrun:turn:test:1"},
+            },
+        },
+    )
+
+    assert [event_type for event_type, _ in events] == [
+        TOOL_CALL_REQUESTED_EVENT,
+        TOOL_PERMISSION_DECIDED_EVENT,
+    ]
+    request = events[0][1]
+    permission = events[1][1]
+    assert request["tool_call_id"] == "call:write-plan"
+    assert request["tool_name"] == "write_file"
+    assert request["target"] == "docs/plan.md"
+    assert request["arguments_preview"] == "path=docs/plan.md"
+    assert "content" not in request["arguments_preview"]
+    assert permission["tool_call_id"] == "call:write-plan"
+    assert permission["permission_decision_id"] == "permit:write-plan:call:write-plan"
+
+
 def test_tool_call_requested_is_the_only_live_main_tool_projection() -> None:
     frame = _frame(
         TOOL_CALL_REQUESTED_EVENT,

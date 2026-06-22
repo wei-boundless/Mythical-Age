@@ -265,12 +265,12 @@ def _prefix_diagnostics(
             str(segment.cache_role or "") in {"volatile", "never_cache"}
             or str(segment.prefix_tier or "") in {"volatile", "none"}
         )
-        and not _is_stable_transport_contract_segment(segment)
+        and not _is_provider_payload_tool_sidecar_segment(segment)
     )
-    stable_transport_contract_tokens = sum(
+    provider_sidecar_tool_schema_tokens = sum(
         int(segment.predicted_tokens or 0)
         for segment in segment_map.segments
-        if _is_stable_transport_contract_segment(segment)
+        if _is_provider_payload_tool_sidecar_segment(segment)
     )
     replay_stable_tokens = sum(
         int(segment.predicted_tokens or 0)
@@ -340,7 +340,7 @@ def _prefix_diagnostics(
         "combined_stable_prefix_predicted_tokens": stable_prefix_tokens,
         "stable_cache_role_predicted_tokens": stable_role_tokens,
         "volatile_predicted_tokens": volatile_tokens,
-        "stable_transport_contract_predicted_tokens": stable_transport_contract_tokens,
+        "provider_sidecar_tool_schema_predicted_tokens": provider_sidecar_tool_schema_tokens,
         "body_after_stable_prefix_predicted_tokens": max(0, total_tokens - stable_prefix_tokens),
         "body_after_task_prefix_predicted_tokens": max(0, total_tokens - task_tokens),
         "provider_global_prefix_token_ratio": _ratio(provider_global_tokens, total_tokens),
@@ -385,7 +385,7 @@ def _ratio(numerator: int, denominator: int) -> float:
 def _top_volatile_segment_families(segment_map: PromptSegmentMap, *, limit: int = 8) -> list[dict[str, Any]]:
     totals: dict[str, dict[str, Any]] = {}
     for segment in segment_map.segments:
-        if _is_stable_transport_contract_segment(segment):
+        if _is_provider_payload_tool_sidecar_segment(segment):
             continue
         cache_role = str(segment.cache_role or "")
         prefix_tier = str(segment.prefix_tier or "")
@@ -875,11 +875,11 @@ def _provider_payload_prefix_token_diagnostics(
         if tool_prefix_selected
         else 0
     )
-    stable_tool_component_tokens = _provider_payload_tool_component_predicted_tokens(segment_map, tier=tier)
+    sidecar_tool_schema_tokens = _provider_sidecar_tool_schema_predicted_tokens(segment_map)
     return {
         "provider_payload_message_prefix_predicted_tokens": message_tokens,
         "provider_payload_tool_prefix_predicted_tokens": tool_tokens,
-        "provider_payload_stable_tool_component_predicted_tokens": stable_tool_component_tokens,
+        "provider_sidecar_tool_schema_predicted_tokens": sidecar_tool_schema_tokens,
         "provider_payload_tool_prefix_transport_selected": int(tool_prefix_selected),
         "provider_payload_prefix_predicted_tokens": message_tokens + tool_tokens,
     }
@@ -901,22 +901,10 @@ def _provider_payload_tool_prefix_predicted_tokens(segment_map: PromptSegmentMap
     return total
 
 
-def _provider_payload_tool_component_predicted_tokens(segment_map: PromptSegmentMap, *, tier: str) -> int:
+def _provider_sidecar_tool_schema_predicted_tokens(segment_map: PromptSegmentMap) -> int:
     total = 0
     for segment in tuple(segment_map.segments or ()):
-        metadata = dict(getattr(segment, "metadata", None) or {})
-        if str(getattr(segment, "kind", "") or "") != "native_tool_binding_schema":
-            continue
-        if str(metadata.get("provider_payload_transport_location") or "") != "tools" and str(getattr(segment, "role", "") or "") != "tool_schema":
-            continue
-        if _is_stable_transport_contract_segment(segment, metadata=metadata):
-            total += int(getattr(segment, "predicted_tokens", 0) or 0)
-            continue
-        if not is_prefix_eligible_for_tier(
-            cache_role=getattr(segment, "cache_role", ""),
-            prefix_tier=getattr(segment, "prefix_tier", ""),
-            tier=tier,
-        ):
+        if not _is_provider_payload_tool_sidecar_segment(segment):
             continue
         total += int(getattr(segment, "predicted_tokens", 0) or 0)
     return total
@@ -934,17 +922,17 @@ def _is_provider_payload_tool_prefix_segment(segment: Any, *, metadata: dict[str
     return str(getattr(segment, "source", "") or "") == "model_request.tools"
 
 
-def _is_stable_transport_contract_segment(segment: Any, *, metadata: dict[str, Any] | None = None) -> bool:
+def _is_provider_payload_tool_sidecar_segment(segment: Any, *, metadata: dict[str, Any] | None = None) -> bool:
     if str(getattr(segment, "kind", "") or "") != "native_tool_binding_schema":
         return False
     payload = dict(metadata if metadata is not None else getattr(segment, "metadata", None) or {})
     if str(payload.get("provider_payload_transport_location") or "") != "tools" and str(getattr(segment, "source", "") or "") != "model_request.tools":
         return False
-    if payload.get("stable_transport_contract") is True:
+    if payload.get("provider_payload_prefix_component") is True:
+        return False
+    if str(payload.get("transport_sidecar_role") or "") == "native_tool_binding_schema":
         return True
-    if str(payload.get("transport_contract_role") or "") == "stable_transport_contract":
-        return True
-    return payload.get("provider_payload_stable_component") is True and payload.get("provider_payload_prefix_component") is False
+    return payload.get("provider_payload_sidecar_component") is True
 
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:

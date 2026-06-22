@@ -1635,8 +1635,11 @@ button:hover {
 .center-workspace-file__actions {
   display: inline-flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.45rem;
+  max-width: min(100%, 34rem);
 }
 
 .center-workspace-file__actions button,
@@ -1721,7 +1724,7 @@ button:hover {
   min-height: 0;
   overflow: hidden;
   border-top: 1px solid color-mix(in srgb, var(--console-line) 72%, transparent);
-  background: var(--console-surface);
+  background: color-mix(in srgb, var(--console-bg) 72%, var(--console-surface));
 }
 
 .center-workspace-file__editor {
@@ -1729,6 +1732,95 @@ button:hover {
   min-width: 0;
   min-height: 100%;
   height: 100%;
+}
+
+.center-workspace-file__reader {
+  height: 100%;
+  min-width: 0;
+  overflow: auto;
+  padding: clamp(22px, 3vw, 38px);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--console-surface) 96%, transparent), var(--console-surface) 74%),
+    var(--console-surface);
+  color: var(--console-text);
+}
+
+.center-workspace-file__reader > * {
+  max-width: 860px;
+  margin-inline: auto;
+}
+
+.center-workspace-file__reader.markdown {
+  font-size: 15.5px;
+  line-height: 1.86;
+}
+
+.center-workspace-file__reader.markdown h1,
+.center-workspace-file__reader.markdown h2,
+.center-workspace-file__reader.markdown h3,
+.center-workspace-file__reader.markdown h4 {
+  color: var(--console-text);
+  letter-spacing: 0;
+}
+
+.center-workspace-file__reader.markdown h1 {
+  margin: 0 0 22px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--console-line) 70%, transparent);
+  font-size: clamp(24px, 3vw, 34px);
+  line-height: 1.22;
+}
+
+.center-workspace-file__reader.markdown h2 {
+  margin: 34px 0 14px;
+  font-size: 21px;
+  line-height: 1.32;
+}
+
+.center-workspace-file__reader.markdown h3 {
+  margin: 26px 0 10px;
+  font-size: 17px;
+  line-height: 1.38;
+}
+
+.center-workspace-file__reader.markdown p,
+.center-workspace-file__reader.markdown ul,
+.center-workspace-file__reader.markdown ol {
+  margin-bottom: 14px;
+}
+
+.center-workspace-file__reader.markdown blockquote {
+  border-left-color: var(--console-success);
+  border-radius: 0 10px 10px 0;
+  background: color-mix(in srgb, var(--console-success-soft) 48%, transparent);
+  padding: 10px 14px;
+}
+
+.center-workspace-file__reader.markdown code {
+  border: 1px solid color-mix(in srgb, var(--console-line) 74%, transparent);
+  border-radius: 7px;
+  background: var(--console-surface-soft);
+  color: var(--console-text);
+  font-size: 0.9em;
+  padding: 0.08rem 0.34rem;
+}
+
+.center-workspace-file__reader.markdown pre {
+  border: 1px solid color-mix(in srgb, var(--console-line) 70%, transparent);
+  border-radius: 12px;
+  background: #0d1320;
+  box-shadow: none;
+}
+
+.center-workspace-file__reader.markdown pre code {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.center-workspace-file__reader.markdown table {
+  box-shadow: none;
 }
 
 .center-workspace-file__body pre,

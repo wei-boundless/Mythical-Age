@@ -1,8 +1,10 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { AlertTriangle, ExternalLink, FileText, GitCompare, Loader2, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, RefreshCw, Save, Sparkles, Terminal, Workflow, X } from "lucide-react";
+import { AlertTriangle, Code2, ExternalLink, FileText, GitCompare, Loader2, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, RefreshCw, Save, Sparkles, Terminal, Workflow, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { RuntimeLogPanel, type RuntimeLogTarget } from "@/components/layout/RuntimeLogPanel";
@@ -20,7 +22,10 @@ const CENTER_PAGE_DEFAULT_WIDTH = 680;
 const CENTER_PAGE_MIN_WIDTH = 320;
 const CENTER_PAGE_MAX_WIDTH = 1280;
 const CENTER_CHAT_MIN_VISIBLE_WIDTH = 72;
-const CENTER_SPLIT_RESIZER_WIDTH = 10;
+const CENTER_SPLIT_RESIZER_WIDTH = 16;
+const CENTER_DIFF_SPLIT_DEFAULT_PERCENT = 50;
+const CENTER_DIFF_SPLIT_MIN_PERCENT = 28;
+const CENTER_DIFF_SPLIT_MAX_PERCENT = 72;
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
   ssr: false,
   loading: () => <div className="center-workspace-file__empty">编辑器载入中。</div>,
@@ -34,6 +39,9 @@ type FileChangeDiffPage = {
   title?: string;
   subtitle?: string;
 };
+
+type FileReaderMode = "preview" | "source";
+type DiffViewMode = "split" | "before" | "after";
 
 function compactFileName(path: string) {
   const normalized = path.replace(/\\/g, "/");
@@ -130,6 +138,7 @@ function CenterWorkspaceFileLayer({
   const [saving, setSaving] = useState(false);
   const [openingVSCode, setOpeningVSCode] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [readerMode, setReaderMode] = useState<FileReaderMode>("preview");
   const targetPath = path.trim();
   const displayPath = targetPath || inspectorPath;
   const loaded = Boolean(displayPath && inspectorPath === displayPath);
@@ -138,6 +147,8 @@ function CenterWorkspaceFileLayer({
   const canOpenInVSCode = Boolean(loaded && inspectorTarget && currentSessionId);
   const canOpenDiff = Boolean(loaded && inspectorLastChangeRecordId);
   const language = languageIdForPath(displayPath);
+  const markdownFile = language === "markdown";
+  const previewActive = loaded && markdownFile && readerMode === "preview";
 
   useEffect(() => {
     setActionError("");
@@ -145,6 +156,10 @@ function CenterWorkspaceFileLayer({
       void loadInspectorFile(targetPath);
     }
   }, [inspectorPath, loadInspectorFile, targetPath]);
+
+  useEffect(() => {
+    setReaderMode(languageIdForPath(displayPath) === "markdown" ? "preview" : "source");
+  }, [displayPath]);
 
   async function refreshFile() {
     if (!displayPath) {
@@ -222,6 +237,12 @@ function CenterWorkspaceFileLayer({
             <RefreshCw size={14} />
             <span>{refreshing ? "刷新中" : "刷新"}</span>
           </button>
+          {markdownFile ? (
+            <button onClick={() => setReaderMode(previewActive ? "source" : "preview")} type="button">
+              {previewActive ? <Code2 size={14} /> : <FileText size={14} />}
+              <span>{previewActive ? "源码" : "预览"}</span>
+            </button>
+          ) : null}
           <button disabled={!canOpenInVSCode || openingVSCode} onClick={() => void openInVSCode()} type="button">
             <ExternalLink size={14} />
             <span>{openingVSCode ? "打开中" : "VS Code"}</span>
@@ -242,6 +263,7 @@ function CenterWorkspaceFileLayer({
 
       <div className="center-workspace-file__meta" aria-label="文件状态">
         <span>{language}</span>
+        {markdownFile ? <span>{previewActive ? "阅读视图" : "源码视图"}</span> : null}
         <span>{lineCount(inspectorContent)} 行</span>
         {inspectorContentSha256 ? <span title={inspectorContentSha256}>sha256:{inspectorContentSha256.slice(0, 8)}</span> : null}
       </div>
@@ -254,6 +276,19 @@ function CenterWorkspaceFileLayer({
       <div className="center-workspace-file__body" aria-busy={!loaded}>
         {!loaded ? (
           <div className="center-workspace-file__empty">正在读取文件。</div>
+        ) : previewActive ? (
+          <article className="center-workspace-file__reader markdown">
+            {inspectorContent.trim() ? (
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {inspectorContent}
+              </ReactMarkdown>
+            ) : (
+              <div className="center-workspace-file__empty">
+                <FileText size={18} />
+                <span>这个 Markdown 文件暂无内容。</span>
+              </div>
+            )}
+          </article>
         ) : (
           <div className="center-workspace-file__editor">
             <MonacoEditor
@@ -291,6 +326,13 @@ function CenterWorkspaceFileLayer({
 function lineCount(value: string) {
   if (!value) return 0;
   return value.split(/\r?\n/).length;
+}
+
+function clampDiffSplitPercent(value: number) {
+  if (!Number.isFinite(value)) {
+    return CENTER_DIFF_SPLIT_DEFAULT_PERCENT;
+  }
+  return Math.min(Math.max(Math.round(value), CENTER_DIFF_SPLIT_MIN_PERCENT), CENTER_DIFF_SPLIT_MAX_PERCENT);
 }
 
 type DiffLineState = "unchanged" | "removed" | "added";
@@ -453,6 +495,16 @@ function CenterWorkspaceDiffLayer({
   const [diff, setDiff] = useState<FileChangeDiffPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [viewMode, setViewMode] = useState<DiffViewMode>("split");
+  const [splitPercent, setSplitPercent] = useState(CENTER_DIFF_SPLIT_DEFAULT_PERCENT);
+  const [resizingDiff, setResizingDiff] = useState(false);
+  const diffBodyRef = useRef<HTMLDivElement | null>(null);
+  const diffResizeRef = useRef({
+    pointerId: -1,
+    startPercent: CENTER_DIFF_SPLIT_DEFAULT_PERCENT,
+    startX: 0,
+    width: 0,
+  });
 
   const refreshDiff = useCallback(async () => {
     const targetRecordId = recordId.trim();
@@ -489,6 +541,69 @@ function CenterWorkspaceDiffLayer({
   const beforeContent = diff?.before_content || "";
   const afterContent = diff?.after_content || "";
   const lineDiff = useMemo(() => buildLineDiff(beforeContent, afterContent), [afterContent, beforeContent]);
+  const splitActive = viewMode === "split";
+  const showBeforePane = viewMode !== "after";
+  const showAfterPane = viewMode !== "before";
+
+  function startDiffResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!splitActive) {
+      return;
+    }
+    const bodyWidth = diffBodyRef.current?.getBoundingClientRect().width ?? 0;
+    if (bodyWidth <= 0) {
+      return;
+    }
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    diffResizeRef.current = {
+      pointerId: event.pointerId,
+      startPercent: splitPercent,
+      startX: event.clientX,
+      width: bodyWidth,
+    };
+    setResizingDiff(true);
+  }
+
+  function resizeDiffWithPointer(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = diffResizeRef.current;
+    if (!resizingDiff || drag.pointerId !== event.pointerId || drag.width <= 0) {
+      return;
+    }
+    const deltaPercent = ((event.clientX - drag.startX) / drag.width) * 100;
+    setSplitPercent(clampDiffSplitPercent(drag.startPercent + deltaPercent));
+  }
+
+  function stopDiffResize(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = diffResizeRef.current;
+    if (drag.pointerId !== event.pointerId) {
+      return;
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    diffResizeRef.current.pointerId = -1;
+    setResizingDiff(false);
+  }
+
+  function resizeDiffWithKeyboard(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (!splitActive) {
+      return;
+    }
+    const step = event.shiftKey ? 8 : 4;
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      setSplitPercent((value) => clampDiffSplitPercent(value - step));
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      setSplitPercent((value) => clampDiffSplitPercent(value + step));
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setSplitPercent(CENTER_DIFF_SPLIT_MIN_PERCENT);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      setSplitPercent(CENTER_DIFF_SPLIT_MAX_PERCENT);
+    }
+  }
 
   return (
     <section className="center-workspace__diff-layer" aria-label="文件 Diff">
@@ -499,6 +614,11 @@ function CenterWorkspaceDiffLayer({
           <small title={path}>{path}</small>
         </div>
         <div className="center-workspace-diff__actions">
+          <div className="center-workspace-diff__view-switch" aria-label="Diff 视图">
+            <button aria-pressed={viewMode === "split"} onClick={() => setViewMode("split")} type="button">双栏</button>
+            <button aria-pressed={viewMode === "before"} onClick={() => setViewMode("before")} type="button">修改前</button>
+            <button aria-pressed={viewMode === "after"} onClick={() => setViewMode("after")} type="button">修改后</button>
+          </div>
           <button disabled={loading} onClick={() => void refreshDiff()} type="button">
             {loading ? <Loader2 className="spin" size={14} /> : <RefreshCw size={14} />}
             <span>{loading ? "加载中" : "刷新"}</span>
@@ -526,10 +646,18 @@ function CenterWorkspaceDiffLayer({
         {mode === "final" ? <span>最终对比{changeCount && changeCount > 1 ? ` · ${changeCount} 次修改` : ""}</span> : <span>单次记录</span>}
         <span>{beforeTitle}: {lineCount(beforeContent)} 行</span>
         <span>{afterTitle}: {lineCount(afterContent)} 行</span>
-        <span>{diff?.diff_id || recordId}</span>
       </div>
 
-      <div className="center-workspace-diff__body" aria-busy={loading}>
+      <div
+        className={cn(
+          "center-workspace-diff__body",
+          `center-workspace-diff__body--${viewMode}`,
+          resizingDiff && "center-workspace-diff__body--resizing",
+        )}
+        aria-busy={loading}
+        ref={diffBodyRef}
+        style={{ "--center-diff-before-width": `${splitPercent}%` } as CSSProperties}
+      >
         {loading && !diff ? (
           <div className="center-workspace-file__empty">
             <Loader2 className="spin" size={17} />
@@ -537,20 +665,40 @@ function CenterWorkspaceDiffLayer({
           </div>
         ) : (
           <>
-            <section className="center-workspace-diff__pane" aria-label={beforeTitle}>
-              <header>
-                <span>{beforeTitle}</span>
-                <small>{diff?.before_sha256 ? diff.before_sha256.slice(0, 10) : "-"}</small>
-              </header>
-              <DiffCodePane emptyText="空文件" lines={lineDiff.before} />
-            </section>
-            <section className="center-workspace-diff__pane center-workspace-diff__pane--after" aria-label={afterTitle}>
-              <header>
-                <span>{afterTitle}</span>
-                <small>{diff?.after_sha256 ? diff.after_sha256.slice(0, 10) : "-"}</small>
-              </header>
-              <DiffCodePane emptyText="空文件" lines={lineDiff.after} />
-            </section>
+            {showBeforePane ? (
+              <section className="center-workspace-diff__pane center-workspace-diff__pane--before" aria-label={beforeTitle}>
+                <header>
+                  <span>{beforeTitle}</span>
+                </header>
+                <DiffCodePane emptyText="空文件" lines={lineDiff.before} />
+              </section>
+            ) : null}
+            {splitActive ? (
+              <div
+                aria-label="调整 Diff 双栏宽度"
+                aria-orientation="vertical"
+                aria-valuemax={CENTER_DIFF_SPLIT_MAX_PERCENT}
+                aria-valuemin={CENTER_DIFF_SPLIT_MIN_PERCENT}
+                aria-valuenow={splitPercent}
+                className="center-workspace-diff__split-resizer"
+                onKeyDown={resizeDiffWithKeyboard}
+                onPointerCancel={stopDiffResize}
+                onPointerDown={startDiffResize}
+                onPointerMove={resizeDiffWithPointer}
+                onPointerUp={stopDiffResize}
+                role="separator"
+                tabIndex={0}
+                title="拖动调整修改前/修改后宽度"
+              />
+            ) : null}
+            {showAfterPane ? (
+              <section className="center-workspace-diff__pane center-workspace-diff__pane--after" aria-label={afterTitle}>
+                <header>
+                  <span>{afterTitle}</span>
+                </header>
+                <DiffCodePane emptyText="空文件" lines={lineDiff.after} />
+              </section>
+            ) : null}
           </>
         )}
       </div>

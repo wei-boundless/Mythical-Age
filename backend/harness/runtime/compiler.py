@@ -57,7 +57,7 @@ from .bound_task_context import build_bound_task_context
 from .environment_storage import ensure_environment_storage_dirs
 from .environment_prompt_controller import GENERAL_ENVIRONMENT_ID, prompt_mount_plan_for_invocation, prompt_mount_plan_from_payload
 from .incremental_context_frame import (
-    TASK_EXECUTION_INCREMENTAL_CONTEXT_FRAME_SOURCE_REF,
+    TASK_EXECUTION_INCREMENTAL_CONTEXT_CURSOR_SOURCE_REF,
     build_task_execution_incremental_context_frame_payload,
 )
 from .packet_assembler import (
@@ -229,6 +229,8 @@ class RuntimeCompiler:
                     },
                 ),
             ],
+            sealed_context_scope=resolved_session_id,
+            storage_root=self.base_dir,
         )
         protocol_sanitizer = sanitize_messages_for_prompt(
             model_messages,
@@ -875,6 +877,8 @@ class RuntimeCompiler:
                 ),
             ],
             enforce_dynamic_context_reports=True,
+            sealed_context_scope=session_id,
+            storage_root=self.base_dir,
         )
         protocol_sanitizer = sanitize_messages_for_prompt(
             model_messages,
@@ -1755,19 +1759,23 @@ class RuntimeCompiler:
                 else None,
                 _runtime_payload_spec(
                     role="system",
-                    title="Task execution incremental context frame",
-                    payload={"incremental_context_frame": incremental_context_frame_payload},
-                    kind="incremental_context_frame",
-                    source_ref=TASK_EXECUTION_INCREMENTAL_CONTEXT_FRAME_SOURCE_REF,
+                    title="Task execution current delta cursor",
+                    payload={"incremental_context_cursor": incremental_context_frame_payload},
+                    kind="incremental_context_cursor",
+                    source_ref=TASK_EXECUTION_INCREMENTAL_CONTEXT_CURSOR_SOURCE_REF,
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="summarize",
                     metadata={
-                        "authority_class": "incremental_context_frame",
+                        "authority_class": "incremental_context_cursor",
                         "runtime_fragment_role": "task_execution_delta_explanation",
-                        "volatility_reason": "task execution incremental frame changes each invocation and must stay in the volatile suffix",
+                        "volatility_reason": (
+                            "the cursor explains the current invocation delta and must stay after the "
+                            "locked append-only task context; durable tool/context facts are carried by "
+                            "task_state_replay_entry and tool_observations segments"
+                        ),
                         "cache_impact": "volatile_suffix_only",
-                        "content_source": "harness.runtime.incremental_context_frame",
+                        "content_source": "harness.runtime.incremental_context_cursor",
                     },
                 ),
                 _runtime_payload_spec(
@@ -1814,6 +1822,8 @@ class RuntimeCompiler:
                 else None,
             ],
             enforce_dynamic_context_reports=True,
+            sealed_context_scope=task_run_id or session_id,
+            storage_root=self.base_dir,
         )
         content_fragments = build_content_fragments_from_message_specs(
             segment_plan=segment_plan,
@@ -1839,7 +1849,7 @@ class RuntimeCompiler:
             "active_contract_revisions",
             "runtime_control_signals",
             "current_editor_evidence_delta",
-            "incremental_context_frame",
+            "incremental_context_cursor",
             "lifecycle_runtime_guidance",
             "runtime_memory_context",
         )
@@ -2120,6 +2130,9 @@ class RuntimeCompiler:
         attachment_context_payload, current_request_payload = _extract_attachment_context_payload(current_request_payload)
         task_plan_context_payload, current_request_payload = _extract_task_plan_context_payload(current_request_payload)
         editor_context_payload, current_request_payload = _extract_editor_context_payload(current_request_payload)
+        tool_observation_context_payload, current_request_payload = _extract_tool_observation_context_payload(
+            current_request_payload
+        )
         provider_protocol_specs = _provider_protocol_message_specs(
             session_context,
             source_ref="observation_followup_api_transcript",
@@ -2279,6 +2292,12 @@ class RuntimeCompiler:
                 ),
                 *session_history_specs,
                 *provider_protocol_specs,
+                *_tool_observation_context_message_specs(
+                    tool_observation_context_payload,
+                    title_prefix="Observation followup",
+                    source_ref_prefix="observation_followup",
+                    dynamic_context=dynamic_context,
+                ),
                 *_session_history_tail_context_message_specs(
                     session_history_payload,
                     title="Observation followup session history",
@@ -2377,7 +2396,7 @@ class RuntimeCompiler:
                     role="user",
                     title="Observation followup current request",
                     payload=current_request_payload,
-                    kind="tool_observations",
+                    kind="volatile_user",
                     source_ref="observation_followup_current_request",
                     cache_scope="none",
                     cache_role="volatile",
@@ -2386,6 +2405,8 @@ class RuntimeCompiler:
                 ),
             ],
             enforce_dynamic_context_reports=True,
+            sealed_context_scope=session_id,
+            storage_root=self.base_dir,
         )
         content_fragments = build_content_fragments_from_message_specs(
             segment_plan=segment_plan,
@@ -3567,6 +3588,35 @@ def _extract_task_plan_context_payload(payload: dict[str, Any] | None) -> tuple[
     return task_plan_payload, _drop_empty_payload(current)
 
 
+def _extract_tool_observation_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
+    current = dict(payload or {})
+    observations_payload = (
+        dict(current.get("observations") or {}) if isinstance(current.get("observations"), dict) else {}
+    )
+    latest_observations = [
+        _drop_empty_payload(dict(item))
+        for item in list(observations_payload.get("latest_observations") or [])
+        if isinstance(item, dict)
+    ]
+    latest_observations = [item for item in latest_observations if item]
+    if not latest_observations:
+        return {}, _drop_empty_payload(current)
+
+    remaining_observations = dict(observations_payload)
+    remaining_observations.pop("latest_observations", None)
+    if set(remaining_observations) <= {"authority"}:
+        remaining_observations = {}
+    if remaining_observations:
+        current["observations"] = _drop_empty_payload(remaining_observations)
+    else:
+        current.pop("observations", None)
+    return {
+        "observations": {
+            "latest_observations": latest_observations,
+        }
+    }, _drop_empty_payload(current)
+
+
 def _extract_evidence_index_cursor_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
     current = dict(payload or {})
     evidence_payload = _drop_empty_payload(
@@ -3723,6 +3773,81 @@ def _editor_context_message_specs(
     return specs
 
 
+def _tool_observation_context_message_specs(
+    payload: dict[str, Any] | None,
+    *,
+    title_prefix: str,
+    source_ref_prefix: str,
+    dynamic_context: DynamicContextProjection,
+) -> list[dict[str, Any]]:
+    observations_payload = (
+        dict(dict(payload or {}).get("observations") or {})
+        if isinstance(dict(payload or {}).get("observations"), dict)
+        else {}
+    )
+    observations = [
+        _drop_empty_payload(dict(item))
+        for item in list(observations_payload.get("latest_observations") or [])
+        if isinstance(item, dict)
+    ]
+    observations = [item for item in observations if item]
+    specs: list[dict[str, Any]] = []
+    for index, observation in enumerate(observations, start=1):
+        observation_ref = _tool_observation_entry_ref(observation, fallback_index=index)
+        specs.append(
+            _runtime_payload_spec(
+                role="system",
+                title=f"{title_prefix} tool observation {observation_ref}",
+                payload={"tool_observation": observation},
+                kind="tool_observations",
+                source_ref=f"{source_ref_prefix}:tool_observation:{observation_ref}",
+                cache_scope="task",
+                cache_role="session_stable",
+                compression_role="ref_only",
+                metadata={
+                    **_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
+                    "authority_class": "append_only_tool_observation_context",
+                    "volatility_reason": (
+                        "this tool observation entry is newly appended for the current follow-up; "
+                        "later follow-ups must reuse it unchanged and append later observations after it"
+                    ),
+                    "cache_impact": "append_only_task_prefix",
+                    "stability_rule": (
+                        "tool observations are emitted as append-only context entries; existing "
+                        "observation entries must not be rewritten when later observations arrive"
+                    ),
+                    "content_source": "harness.runtime.dynamic_context.tool_observation_context",
+                    "runtime_fragment_role": "tool_observation_delta",
+                    "append_only_context_package": "tool_observation_context",
+                    "append_only_context_stream": "tool_observations",
+                    "append_only_event_offset": _safe_int(observation.get("event_offset")),
+                    "append_only_created_at": _safe_float(observation.get("created_at")),
+                    "append_only_stream_index": index,
+                    "tool_observation_ref": observation_ref,
+                },
+            )
+        )
+    return specs
+
+
+def _tool_observation_entry_ref(observation: dict[str, Any], *, fallback_index: int) -> str:
+    explicit = str(
+        observation.get("observation_id")
+        or observation.get("observation_ref")
+        or observation.get("tool_result_ref")
+        or ""
+    ).strip()
+    if explicit:
+        return explicit
+    digest = hashlib.sha256(
+        json.dumps(_json_stable(observation), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8",
+            errors="ignore",
+        )
+    ).hexdigest()[:12]
+    return f"observation:{digest or fallback_index}"
+
+
 def _session_history_message_specs(
     payload: dict[str, Any] | None,
     *,
@@ -3772,8 +3897,16 @@ def _session_history_message_specs(
                 },
             )
         )
+    previous_entry_created_at = 0.0
     for index, entry in enumerate(active_history, start=1):
         entry_ref = _session_history_entry_ref(entry, fallback_index=index)
+        entry_created_at = _session_history_entry_created_at(
+            entry,
+            entry_index=index,
+            previous_created_at=previous_entry_created_at,
+        )
+        if entry_created_at > 0:
+            previous_entry_created_at = entry_created_at
         specs.append(
             _runtime_payload_spec(
                 role="system",
@@ -3791,7 +3924,7 @@ def _session_history_message_specs(
                     "session_history_entry_ref": entry_ref,
                     "append_only_context_package": "historical_context",
                     "append_only_context_stream": "session_history",
-                    "append_only_created_at": _message_created_at(entry),
+                    "append_only_created_at": entry_created_at,
                     "append_only_stream_index": index,
                 },
             )
@@ -3925,6 +4058,49 @@ def _session_history_entry_ref(entry: dict[str, Any], *, fallback_index: int) ->
         )
     ).hexdigest()[:12]
     return f"history:{digest or fallback_index}"
+
+
+def _session_history_entry_created_at(
+    entry: dict[str, Any],
+    *,
+    entry_index: int,
+    previous_created_at: float,
+) -> float:
+    created_at = _message_created_at(entry)
+    if created_at > 0:
+        return created_at
+    identity_created_at = _timestamp_from_message_identity(
+        entry.get("message_id")
+        or entry.get("id")
+        or entry.get("turn_id")
+        or ""
+    )
+    if identity_created_at > 0:
+        return identity_created_at
+    if previous_created_at > 0:
+        return previous_created_at + max(1, int(entry_index or 1)) * 0.001
+    return 0.0
+
+
+def _timestamp_from_message_identity(value: Any) -> float:
+    text = str(value or "").strip()
+    if not text:
+        return 0.0
+    digits = []
+    for char in text:
+        if char.isdigit():
+            digits.append(char)
+            continue
+        break
+    if len(digits) < 10:
+        return 0.0
+    prefix = "".join(digits)
+    try:
+        if len(prefix) >= 13:
+            return max(0.0, int(prefix[:13]) / 1000.0)
+        return max(0.0, float(int(prefix[:10])))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _task_state_replay_message_specs(entries: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
@@ -4152,6 +4328,8 @@ def _model_messages_and_segment_plan(
     invocation_kind: str,
     specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
     enforce_dynamic_context_reports: bool = False,
+    sealed_context_scope: str = "",
+    storage_root: Path | None = None,
 ) -> tuple[list[dict[str, Any]], Any, tuple[dict[str, Any], ...], Any, Any, Any]:
     source_specs: list[dict[str, Any]] = []
     for raw_spec in list(specs or []):
@@ -4165,7 +4343,12 @@ def _model_messages_and_segment_plan(
         spec["content"] = str(model_message.get("content") or spec.get("content") or "")
         spec["model_message"] = model_message
         source_specs.append(spec)
-    source_specs = _fixed_context_package_message_specs(source_specs)
+    source_specs = _fixed_context_package_message_specs(
+        source_specs,
+        invocation_kind=invocation_kind,
+        sealed_context_scope=sealed_context_scope or packet_id,
+        storage_root=storage_root,
+    )
     source_bundle = build_prompt_source_bundle(
         packet_id=packet_id,
         invocation_kind=invocation_kind,
@@ -4212,7 +4395,13 @@ _APPEND_ONLY_CONTEXT_KINDS = {
 }
 
 
-def _fixed_context_package_message_specs(specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _fixed_context_package_message_specs(
+    specs: list[dict[str, Any]],
+    *,
+    invocation_kind: str = "",
+    sealed_context_scope: str = "",
+    storage_root: Path | None = None,
+) -> list[dict[str, Any]]:
     stable_base: list[tuple[int, dict[str, Any]]] = []
     append_only_context: list[tuple[int, dict[str, Any]]] = []
     volatile_tail: list[tuple[int, dict[str, Any]]] = []
@@ -4231,7 +4420,12 @@ def _fixed_context_package_message_specs(specs: list[dict[str, Any]]) -> list[di
             volatile_tail.append((index, spec))
         else:
             stable_base.append((index, spec))
-    append_only_context = sorted(append_only_context, key=_append_only_context_order_key)
+    append_only_context = _sealed_append_only_context_specs(
+        append_only_context,
+        invocation_kind=invocation_kind,
+        sealed_context_scope=sealed_context_scope,
+        storage_root=storage_root,
+    )
     ordered = [
         *[spec for _, spec in stable_base],
         *[spec for _, spec in append_only_context],
@@ -4275,17 +4469,193 @@ def _spec_prefix_tier(spec: dict[str, Any]) -> str:
     return "none"
 
 
-def _append_only_context_order_key(item: tuple[int, dict[str, Any]]) -> tuple[float, float, int, int, int]:
+def _sealed_append_only_context_specs(
+    items: list[tuple[int, dict[str, Any]]],
+    *,
+    invocation_kind: str,
+    sealed_context_scope: str,
+    storage_root: Path | None,
+) -> list[tuple[int, dict[str, Any]]]:
+    if not items:
+        return []
+    scope = _sealed_context_scope(invocation_kind=invocation_kind, sealed_context_scope=sealed_context_scope)
+    receipt = _load_sealed_context_receipt(storage_root=storage_root, scope=scope)
+    receipt_items = dict(receipt.get("items") or {}) if isinstance(receipt.get("items"), dict) else {}
+    next_order = _safe_int(receipt.get("next_order")) or (max([_safe_int(value) for value in receipt_items.values()] or [0]) + 1)
+    changed = False
+    sealed: list[tuple[int, dict[str, Any]]] = []
+    seen_in_call: set[str] = set()
+    assignment_items = sorted(
+        list(items or []),
+        key=_append_only_bootstrap_order_key if not receipt_items else lambda item: int(item[0] or 0),
+    )
+    for original_order, raw_spec in assignment_items:
+        spec = dict(raw_spec or {})
+        key = _sealed_context_item_key(spec)
+        if not key or key in seen_in_call:
+            key = f"{key or 'append-only'}:{original_order}"
+        seen_in_call.add(key)
+        existing_order = _safe_int(receipt_items.get(key))
+        order_source = "receipt"
+        if existing_order <= 0:
+            existing_order = next_order
+            receipt_items[key] = existing_order
+            next_order += 1
+            changed = True
+            order_source = "new_append" if receipt.get("items") else "bootstrap"
+        metadata = {
+            **dict(spec.get("metadata") or {}),
+            "sealed_accumulated_context_package": "append_only_context",
+            "sealed_accumulated_context_scope": scope,
+            "sealed_accumulated_context_item_key": key,
+            "sealed_accumulated_context_order": existing_order,
+            "sealed_accumulated_context_order_source": order_source,
+        }
+        spec["metadata"] = metadata
+        sealed.append((original_order, spec))
+    if changed:
+        _save_sealed_context_receipt(
+            storage_root=storage_root,
+            scope=scope,
+            receipt={
+                "authority": "harness.runtime.compiler.sealed_append_only_context_receipt",
+                "version": 1,
+                "scope": scope,
+                "next_order": next_order,
+                "items": receipt_items,
+            },
+        )
+    return sorted(sealed, key=_append_only_context_order_key)
+
+
+def _append_only_bootstrap_order_key(item: tuple[int, dict[str, Any]]) -> tuple[int, float, int, int, int]:
+    original_order, spec = item
+    metadata = dict(dict(spec or {}).get("metadata") or {})
+    stream_rank = _append_only_stream_rank(spec)
+    created_at = _append_only_created_at(spec)
+    if created_at > 0:
+        return (0, created_at, stream_rank, _safe_int(metadata.get("append_only_stream_index")), original_order)
+    ledger_order = _safe_int(
+        metadata.get("append_only_ledger_order")
+        or metadata.get("append_only_event_offset")
+        or metadata.get("append_only_context_order")
+    )
+    if ledger_order > 0:
+        return (1, float(ledger_order), stream_rank, _safe_int(metadata.get("append_only_stream_index")), original_order)
+    return (2, float(original_order), stream_rank, _safe_int(metadata.get("append_only_stream_index")), original_order)
+
+
+def _sealed_context_scope(*, invocation_kind: str, sealed_context_scope: str) -> str:
+    scope = str(sealed_context_scope or "").strip()
+    if not scope:
+        scope = "default"
+    invocation = str(invocation_kind or "runtime").strip() or "runtime"
+    if invocation == "tool_observation_followup":
+        invocation = "single_agent_turn"
+    if invocation == "memory.maintenance_after_commit":
+        invocation = "single_agent_turn"
+    return f"{invocation}:{scope}"
+
+
+def _sealed_context_item_key(spec: dict[str, Any]) -> str:
+    model_message = dict(spec.get("model_message") or _model_message_from_spec(spec))
+    seed = {
+        "kind": str(spec.get("kind") or ""),
+        "source_ref": str(spec.get("source_ref") or ""),
+        "message_hash": _stable_json_hash(model_message),
+    }
+    return _stable_json_hash(seed)
+
+
+def _load_sealed_context_receipt(*, storage_root: Path | None, scope: str) -> dict[str, Any]:
+    path = _sealed_context_receipt_path(storage_root=storage_root, scope=scope)
+    if path is None or not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(payload or {}) if isinstance(payload, dict) else {}
+
+
+def _save_sealed_context_receipt(*, storage_root: Path | None, scope: str, receipt: dict[str, Any]) -> None:
+    path = _sealed_context_receipt_path(storage_root=storage_root, scope=scope)
+    if path is None:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(_json_stable(receipt), ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+            encoding="utf-8",
+        )
+    except Exception:
+        return
+
+
+def _sealed_context_receipt_path(*, storage_root: Path | None, scope: str) -> Path | None:
+    if storage_root is None:
+        return None
+    try:
+        project_root = ProjectLayout.from_backend_dir(Path(storage_root)).project_root.resolve()
+    except Exception:
+        project_root = Path(storage_root).resolve().parent
+    safe_scope = _safe_context_receipt_filename(scope)
+    if not safe_scope:
+        return None
+    return project_root / "storage" / "runtime_state" / "context_receipts" / "sealed_append_only_context" / f"{safe_scope}.json"
+
+
+def _safe_context_receipt_filename(value: str) -> str:
+    text = str(value or "").strip()
+    result = []
+    for char in text:
+        if char.isalnum() or char in {"-", "_", "."}:
+            result.append(char)
+        else:
+            result.append("_")
+    return "".join(result).strip("._")[:180]
+
+
+def _append_only_context_order_key(item: tuple[int, dict[str, Any]]) -> tuple[int, float, int, int, int]:
     original_order, spec = item
     metadata = dict(spec.get("metadata") or {})
+    stream_rank = _append_only_stream_rank(spec)
+    sealed_order = _safe_int(metadata.get("sealed_accumulated_context_order"))
+    if sealed_order > 0:
+        return (0, float(sealed_order), stream_rank, _safe_int(metadata.get("append_only_stream_index")), original_order)
+    ledger_order = _safe_int(
+        metadata.get("append_only_ledger_order")
+        or metadata.get("append_only_event_offset")
+        or metadata.get("append_only_context_order")
+    )
+    if ledger_order > 0:
+        return (1, float(ledger_order), stream_rank, _safe_int(metadata.get("append_only_stream_index")), original_order)
+    created_at = _append_only_created_at(spec)
+    if created_at > 0:
+        return (2, created_at, stream_rank, _safe_int(metadata.get("append_only_stream_index")), original_order)
+    return (3, float(original_order), stream_rank, _safe_int(metadata.get("append_only_stream_index")), original_order)
+
+
+def _append_only_created_at(spec: dict[str, Any]) -> float:
+    metadata = dict(dict(spec or {}).get("metadata") or {})
     created_at = _safe_float(
         metadata.get("append_only_created_at")
-        or dict(spec.get("model_message") or {}).get("created_at")
-        or spec.get("created_at")
+        or dict(dict(spec or {}).get("model_message") or {}).get("created_at")
+        or dict(spec or {}).get("created_at")
     )
     if created_at > 0:
-        return (0.0, created_at, _append_only_stream_rank(spec), _safe_int(metadata.get("append_only_stream_index")), original_order)
-    return (1.0, 0.0, 0, 0, original_order)
+        return created_at
+    source_ref = str(dict(spec or {}).get("source_ref") or "").strip()
+    identity_time = _timestamp_from_message_identity(source_ref.rsplit(":", 1)[-1] if source_ref else "")
+    if identity_time > 0:
+        return identity_time
+    model_message = dict(dict(spec or {}).get("model_message") or {})
+    return _timestamp_from_message_identity(
+        model_message.get("message_id")
+        or model_message.get("id")
+        or model_message.get("turn_id")
+        or ""
+    )
 
 
 def _append_only_stream_rank(spec: dict[str, Any]) -> int:
@@ -4300,8 +4670,12 @@ def _append_only_stream_rank(spec: dict[str, Any]) -> int:
         return 30
     if kind == "single_agent_turn_tool_observation":
         return 40
-    if kind == "incremental_context_frame":
+    if kind == "task_state_replay_entry":
         return 50
+    if kind == "tool_observations":
+        return 60
+    if kind == "incremental_context_frame":
+        return 70
     return 90
 
 

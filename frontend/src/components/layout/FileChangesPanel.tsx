@@ -1,13 +1,17 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, ExternalLink, FileClock, FilePenLine, GitCompare, History, ListTree, PackageOpen, RefreshCw, RotateCcw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, ExternalLink, FileClock, FilePenLine, FileText, GitCompare, History, ListTree, PackageOpen, RefreshCw, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import {
   openFileChangeDiffInVSCode,
+  openManagedFileInVSCode,
+  openSessionProjectInVSCode,
   rollbackFileChange,
+  type ManagedFileTarget,
   type FileChangeRecord,
+  type SessionSummary,
 } from "@/lib/api";
 import { useAppStoreActions, useAppStoreSelector } from "@/lib/store";
 import { shallowEqual } from "@/lib/store/hooks";
@@ -20,6 +24,8 @@ import {
 const INITIAL_REFRESH_DELAY_MS = 1200;
 const FILE_CHANGE_REFRESH_LIMIT = 200;
 const EMPTY_FILE_CHANGE_RECORDS: FileChangeRecord[] = [];
+const MANAGED_PROJECT_PROFILE_ID = "file_profile.managed_project_workspace";
+const MANAGED_PROJECT_REPOSITORY_ID = "repo.managed_project.project_workspace";
 
 function formatChangeTime(timestamp: number) {
   if (!Number.isFinite(timestamp) || timestamp <= 0) return "无时间";
@@ -81,7 +87,7 @@ export function FileChangesPanel({ embedded = false }: { embedded?: boolean } = 
       : EMPTY_FILE_CHANGE_RECORDS,
     sessions: state.sessions,
   }), shallowEqual);
-  const { applyFileChangeRecord, hydrateFileChangesForSession, openFileChangeDiff } = useAppStoreActions();
+  const { applyFileChangeRecord, hydrateFileChangesForSession, openFileChangeDiff, openWorkspaceFile } = useAppStoreActions();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [actionLoading, setActionLoading] = useState("");
@@ -171,6 +177,15 @@ export function FileChangesPanel({ embedded = false }: { embedded?: boolean } = 
     setError("");
   }
 
+  async function handleOpenGroup(group: FileChangeGroup) {
+    if (group.kind === "artifact") {
+      openWorkspaceFile(group.path);
+      setError("");
+      return;
+    }
+    handleOpenFinalDiff(group);
+  }
+
   function handleOpenSingleDiff(record: FileChangeRecord) {
     const path = displayPath(record);
     openFileChangeDiff({
@@ -184,6 +199,44 @@ export function FileChangesPanel({ embedded = false }: { embedded?: boolean } = 
     setError("");
   }
 
+  async function handleOpenRecord(record: FileChangeRecord, options: { opensFile?: boolean } = {}) {
+    if (options.opensFile || isArtifactChange(record)) {
+      openWorkspaceFile(displayPath(record));
+      setError("");
+      return;
+    }
+    handleOpenSingleDiff(record);
+  }
+
+  function groupMetaLabel(group: FileChangeGroup) {
+    const record = group.latest;
+    const timeLabel = formatChangeTime(Number(record.created_at || 0));
+    if (group.kind === "artifact") {
+      return group.records.length > 1
+        ? `文件产物 · ${group.records.length} 次更新`
+        : `文件产物 · ${timeLabel}`;
+    }
+    return group.records.length > 1
+      ? `最终对比 · ${group.records.length} 次`
+      : `${changeStatusLabel(record)} · ${timeLabel}`;
+  }
+
+  function recordActionLabel(record: FileChangeRecord, options: { opensFile?: boolean } = {}) {
+    return options.opensFile || isArtifactChange(record) ? "打开文件" : "打开单次 Diff";
+  }
+
+  function vscodeRecordActionLabel(record: FileChangeRecord, options: { opensFile?: boolean } = {}) {
+    return options.opensFile || isArtifactChange(record) ? "VS Code 打开文件" : "VS Code 打开 Diff";
+  }
+
+  async function handleOpenRecordInVSCode(record: FileChangeRecord, options: { opensFile?: boolean } = {}) {
+    if (options.opensFile || isArtifactChange(record)) {
+      await handleOpenVSCodeFile(record);
+      return;
+    }
+    await handleOpenVSCodeDiff(record);
+  }
+
   async function handleOpenVSCodeDiff(record: FileChangeRecord) {
     if (!currentSessionId) {
       setError("选择会话后才能打开 VS Code Diff。");
@@ -191,13 +244,71 @@ export function FileChangesPanel({ embedded = false }: { embedded?: boolean } = 
     }
     setActionLoading(`diff:${record.record_id}`);
     try {
-      await openFileChangeDiffInVSCode(currentSessionId, record.record_id);
+      await runVSCodeOpenAction({
+        action: () => openFileChangeDiffInVSCode(currentSessionId, record.record_id),
+        fallback: "无法在 VS Code 打开 Diff。",
+        sessionId: currentSessionId,
+      });
       setError("");
     } catch (openError) {
-      setError(openError instanceof Error ? openError.message : "无法在 VS Code 打开 Diff。");
+      setError(fileChangeActionErrorMessage(openError, "无法在 VS Code 打开 Diff。"));
     } finally {
       setActionLoading("");
     }
+  }
+
+  async function handleOpenVSCodeFile(record: FileChangeRecord) {
+    const sessionId = currentSessionId || String(record.session_id || "").trim();
+    if (!sessionId) {
+      setError("选择会话后才能在 VS Code 打开文件。");
+      return;
+    }
+    setActionLoading(`vscode-file:${record.record_id}`);
+    try {
+      const target = managedFileTargetForRecord(record, currentSession);
+      await runVSCodeOpenAction({
+        action: () => openManagedFileInVSCode(target, sessionId),
+        fallback: "无法在 VS Code 打开文件。",
+        sessionId,
+      });
+      setError("");
+    } catch (openError) {
+      setError(fileChangeActionErrorMessage(openError, "无法在 VS Code 打开文件。"));
+    } finally {
+      setActionLoading("");
+    }
+  }
+
+  async function runVSCodeOpenAction(options: {
+    action: () => Promise<unknown>;
+    fallback: string;
+    sessionId: string;
+  }) {
+    try {
+      await options.action();
+      return;
+    } catch (error) {
+      if (!isVSCodeConnectionInactive(error)) {
+        throw error;
+      }
+    }
+
+    setError("正在打开 VS Code 并建立连接...");
+    await openSessionProjectInVSCode(options.sessionId);
+    let lastError: unknown = null;
+    for (const delayMs of [900, 1200, 1600, 2200, 3000]) {
+      await delay(delayMs);
+      try {
+        await options.action();
+        return;
+      } catch (error) {
+        lastError = error;
+        if (!isVSCodeConnectionInactive(error)) {
+          throw error;
+        }
+      }
+    }
+    throw lastError ?? new Error(options.fallback);
   }
 
   async function handleRollback(record: FileChangeRecord) {
@@ -228,36 +339,43 @@ export function FileChangesPanel({ embedded = false }: { embedded?: boolean } = 
     const rolledBack = record.status === "rolled_back";
     const historyOpen = expandedGroupKey === group.key;
     const historyRecords = sortedRecordsByTime(group.records, "desc");
+    const opensFile = group.kind === "artifact";
     return (
       <div className="file-change-group" key={group.key}>
         <article
           className={[
             "file-change-row",
             `file-change-row--${group.kind}`,
+            opensFile ? "file-change-row--opens-file" : "",
             historyOpen ? "file-change-row--expanded" : "",
             rolledBack ? "file-change-row--rolled-back" : "",
           ].filter(Boolean).join(" ")}
         >
           <button
             className="file-change-row__main"
-            onClick={() => handleOpenFinalDiff(group)}
-            title={`打开最终 Diff：${path}`}
+            onClick={() => void handleOpenGroup(group)}
+            title={opensFile ? `打开文件：${path}` : `打开最终 Diff：${path}`}
             type="button"
           >
-            <span className="file-change-row__icon">{changeStatusIcon(record)}</span>
+            <span className="file-change-row__icon">{opensFile ? <FileText size={14} /> : changeStatusIcon(record)}</span>
             <span className="file-change-row__body">
               <strong title={path}>{fileName}</strong>
               <small>
                 <span title={path}>{folder}</span>
-                <em>
-                  {group.records.length > 1
-                    ? `最终对比 · ${group.records.length} 次`
-                    : `${changeStatusLabel(record)} · ${formatChangeTime(Number(record.created_at || 0))}`}
-                </em>
+                <em>{groupMetaLabel(group)}</em>
               </small>
             </span>
           </button>
           <div className="file-change-row__actions">
+            <button
+              aria-label={opensFile ? `VS Code 打开文件：${path}` : `VS Code 打开 Diff：${path}`}
+              disabled={Boolean(actionLoading)}
+              onClick={() => void handleOpenRecordInVSCode(record, { opensFile })}
+              title={opensFile ? `VS Code 打开文件：${path}` : `VS Code 打开 Diff：${path}`}
+              type="button"
+            >
+              <ExternalLink size={14} />
+            </button>
             <button
               aria-expanded={historyOpen}
               aria-label={`${historyOpen ? "收起" : "展开"} ${path} 的修改详情`}
@@ -274,10 +392,21 @@ export function FileChangesPanel({ embedded = false }: { embedded?: boolean } = 
           <div className="file-change-history-list" aria-label={`${path} 的修改历史`}>
             <div className="file-change-history-tools">
               <span>最新记录</span>
+              {opensFile ? (
+                <button
+                  disabled={Boolean(actionLoading)}
+                  onClick={() => void handleOpenGroup(group)}
+                  title="打开最新产物文件"
+                  type="button"
+                >
+                  <FileText size={13} />
+                  <span>打开</span>
+                </button>
+              ) : null}
               <button
                 disabled={Boolean(actionLoading)}
-                onClick={() => void handleOpenVSCodeDiff(record)}
-                title="VS Code 打开最新一次 Diff"
+                onClick={() => void handleOpenRecordInVSCode(record, { opensFile })}
+                title={opensFile ? "VS Code 打开最新产物文件" : "VS Code 打开最新一次 Diff"}
                 type="button"
               >
                 <ExternalLink size={13} />
@@ -294,20 +423,31 @@ export function FileChangesPanel({ embedded = false }: { embedded?: boolean } = 
               </button>
             </div>
             {historyRecords.map((historyRecord, index) => (
-              <button
-                className="file-change-history-row"
-                key={historyRecord.record_id}
-                onClick={() => handleOpenSingleDiff(historyRecord)}
-                title={`打开单次 Diff：${formatChangeTime(Number(historyRecord.created_at || 0))}`}
-                type="button"
-              >
-                <span className="file-change-history-row__icon"><History size={13} /></span>
-                <span className="file-change-history-row__body">
-                  <strong>第 {historyRecords.length - index} 次 · {formatChangeTime(Number(historyRecord.created_at || 0))}</strong>
-                  <small>{changeStatusLabel(historyRecord)} · {historyRecord.tool_name || historyRecord.operation_id || "文件操作"}</small>
-                </span>
-                <GitCompare size={13} />
-              </button>
+              <div className="file-change-history-row-shell" key={historyRecord.record_id}>
+                <button
+                  className="file-change-history-row"
+                  onClick={() => void handleOpenRecord(historyRecord, { opensFile })}
+                  title={`${recordActionLabel(historyRecord, { opensFile })}：${formatChangeTime(Number(historyRecord.created_at || 0))}`}
+                  type="button"
+                >
+                  <span className="file-change-history-row__icon">{opensFile || isArtifactChange(historyRecord) ? <FileText size={13} /> : <History size={13} />}</span>
+                  <span className="file-change-history-row__body">
+                    <strong>第 {historyRecords.length - index} 次 · {formatChangeTime(Number(historyRecord.created_at || 0))}</strong>
+                    <small>{opensFile || isArtifactChange(historyRecord) ? "文件产物" : changeStatusLabel(historyRecord)} · {historyRecord.tool_name || historyRecord.operation_id || "文件操作"}</small>
+                  </span>
+                  {opensFile || isArtifactChange(historyRecord) ? <FileText size={13} /> : <GitCompare size={13} />}
+                </button>
+                <button
+                  aria-label={`${vscodeRecordActionLabel(historyRecord, { opensFile })}：${displayPath(historyRecord)}`}
+                  className="file-change-history-row__vscode"
+                  disabled={Boolean(actionLoading)}
+                  onClick={() => void handleOpenRecordInVSCode(historyRecord, { opensFile })}
+                  title={`${vscodeRecordActionLabel(historyRecord, { opensFile })}：${formatChangeTime(Number(historyRecord.created_at || 0))}`}
+                  type="button"
+                >
+                  <ExternalLink size={13} />
+                </button>
+              </div>
             ))}
           </div>
         ) : null}
@@ -317,7 +457,7 @@ export function FileChangesPanel({ embedded = false }: { embedded?: boolean } = 
 
   function renderGroupSection(title: string, groups: FileChangeGroup[], icon: "modified" | "artifact") {
     return (
-      <section className="file-change-section" aria-label={title}>
+      <section className={`file-change-section file-change-section--${icon}`} aria-label={title}>
         <header className="file-change-section__head">
           <span>{icon === "artifact" ? <PackageOpen size={14} /> : <FilePenLine size={14} />}{title}</span>
           <strong>{groups.length}</strong>
@@ -511,6 +651,39 @@ function isArtifactChange(record: FileChangeRecord) {
   if (["output", "outputs", "artifacts", "exports", "reports", "dist", "build", "coverage"].includes(root)) return true;
   if (parts.some((part) => ["artifacts", "screenshots", "playwright", "generated", "exports", "reports"].includes(part))) return true;
   return /\.(png|jpe?g|webp|gif|svg|pdf|docx|pptx|xlsx|zip|mp4|mov|webm)$/i.test(path);
+}
+
+function managedFileTargetForRecord(record: FileChangeRecord, session: SessionSummary | null): ManagedFileTarget {
+  const sessionId = String(record.session_id || session?.id || "").trim();
+  return {
+    repository_id: MANAGED_PROJECT_REPOSITORY_ID,
+    repository_kind: "project_workspace",
+    scope_kind: "project_scoped",
+    scope_id: sessionId,
+    logical_path: displayPath(record),
+    workspace_root: String(record.workspace_root || session?.conversation_state?.project_binding?.workspace_root || "").trim(),
+    profile_id: MANAGED_PROJECT_PROFILE_ID,
+  };
+}
+
+function fileChangeActionErrorMessage(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : "";
+  if (!message) return fallback;
+  try {
+    const parsed = JSON.parse(message) as { detail?: unknown };
+    const detail = String(parsed.detail || "").trim();
+    return detail || fallback;
+  } catch {
+    return message;
+  }
+}
+
+function isVSCodeConnectionInactive(error: unknown) {
+  return /VS Code connection is not active/i.test(fileChangeActionErrorMessage(error, ""));
+}
+
+function delay(ms: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 }
 
 function taskRunKeyFromMessages(messages: Array<{ sourceTaskRunId?: string; runtimeProgress?: Array<{ taskRunId?: string }> }>) {

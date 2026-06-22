@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, type CSSProperties } from "react";
+import { ExternalLink } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
+import { openSessionProjectInVSCode } from "@/lib/api";
 import { publicRuntimeStatusText } from "@/lib/runtimeStatusText";
 import { sessionSummaryIsRunning } from "@/lib/sessionTaskPresentation";
 import { useAppStoreActions, useAppStoreSelector } from "@/lib/store";
@@ -16,6 +18,8 @@ import type { HarnessTaskRunLiveMonitor } from "@/lib/api";
 import type { ActiveTurnSnapshot, Message, StoreState, TokenStats } from "@/lib/store/types";
 
 export function ChatPanel() {
+  const [openingVSCode, setOpeningVSCode] = useState(false);
+  const [vscodeOpenError, setVSCodeOpenError] = useState("");
   const {
     messages,
     activeProjectionsByKey,
@@ -97,6 +101,21 @@ export function ChatPanel() {
     return null;
   }, [projectedMessages]);
 
+  async function openVSCodeProject() {
+    if (!currentSessionId || openingVSCode) {
+      return;
+    }
+    setOpeningVSCode(true);
+    setVSCodeOpenError("");
+    try {
+      await openSessionProjectInVSCode(currentSessionId);
+    } catch (error) {
+      setVSCodeOpenError(readableActionError(error, "无法打开 VS Code。"));
+    } finally {
+      setOpeningVSCode(false);
+    }
+  }
+
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -175,6 +194,17 @@ export function ChatPanel() {
           </div>
           <div className="chat-panel-status-row__right">
             <ThemeToggle />
+            <button
+              aria-label={openingVSCode ? "正在打开 VS Code" : "打开 VS Code 项目"}
+              className="chat-vscode-open-button"
+              disabled={!currentSessionId || openingVSCode}
+              onClick={() => void openVSCodeProject()}
+              title={vscodeOpenError || "打开/唤起当前会话的 VS Code 项目"}
+              type="button"
+            >
+              <ExternalLink size={13} />
+              <span>{openingVSCode ? "打开中" : "VS Code"}</span>
+            </button>
             <SessionTokenMeter tokenStats={tokenStats} />
           </div>
         </div>
@@ -211,6 +241,18 @@ function messagesWithActiveProjectionViews(
     }
     return { ...message, projectionView };
   });
+}
+
+function readableActionError(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : "";
+  if (!message) return fallback;
+  try {
+    const parsed = JSON.parse(message) as { detail?: unknown };
+    const detail = String(parsed.detail || "").trim();
+    return detail || fallback;
+  } catch {
+    return message;
+  }
 }
 
 export function shouldSuppressSessionActivityBar(

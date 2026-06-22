@@ -1534,7 +1534,7 @@ async def run_single_agent_turn(
                             "segment_plan_ref": str(closeout_segment_plan.get("segment_plan_id") or ""),
                         },
                     },
-                    native_tools=[],
+                    native_tools=_native_tools_for_packet(current_allowed_action_types, available_tools=current_available_tools),
                     allow_assistant_text_delta=False,
                     require_json_action=True,
                 ):
@@ -1904,7 +1904,7 @@ async def run_single_agent_turn(
                             "segment_plan_ref": str(recovery_segment_plan.get("segment_plan_id") or ""),
                         },
                     },
-                    native_tools=_native_tools_for_packet(current_allowed_action_types, available_tools=current_available_tools),
+                    native_tools=[],
                     allow_assistant_text_delta=False,
                     require_json_action=True,
                 ):
@@ -2442,6 +2442,11 @@ async def run_single_agent_turn(
                         ),
                     ),
                 ]
+                followup_context_messages = _append_tool_followup_context_boundary(
+                    followup_context_messages,
+                    tool_iteration=tool_iteration,
+                    turn_id=turn_id,
+                )
                 followup_invocation_messages = _tool_followup_action_contract_messages(
                     [
                         *[dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)],
@@ -2459,6 +2464,16 @@ async def run_single_agent_turn(
                     "control_action_transport": "json_action",
                     "non_native_control_action_requires_json_action": True,
                 }
+            else:
+                followup_context_messages = _append_tool_followup_context_boundary(
+                    followup_context_messages,
+                    tool_iteration=tool_iteration,
+                    turn_id=turn_id,
+                )
+                followup_invocation_messages = [
+                    *[dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)],
+                    *[dict(item) for item in list(followup_dynamic_tail_messages or []) if isinstance(item, dict)],
+                ]
             followup_segment_plan = _single_agent_turn_followup_segment_plan(
                 base_segment_plan=dict(followup_segment_plan or {}),
                 model_messages=followup_invocation_messages,
@@ -6274,6 +6289,10 @@ def _single_agent_turn_followup_segment_plan(
         invocation_kind="single_agent_turn_tool_followup",
         message_specs=specs,
     ).to_dict()
+    segment_plan = _seal_single_agent_followup_segment_plan(
+        segment_plan,
+        packet_id=str(packet_id or ""),
+    )
     segment_plan["prefix_lock"] = prefix_lock_report
     if str(prefix_lock_report.get("status") or "") != "preserved":
         logger.warning(
@@ -6335,6 +6354,139 @@ def _single_agent_turn_followup_message_specs(
     return list(normalized_messages or []), specs, prefix_lock_report
 
 
+def _seal_single_agent_followup_segment_plan(segment_plan: dict[str, Any], *, packet_id: str) -> dict[str, Any]:
+    payload = dict(segment_plan or {})
+    segments = [dict(item) for item in list(payload.get("segments") or []) if isinstance(item, dict)]
+    if not segments:
+        return payload
+    scope = _single_agent_sealed_context_scope(packet_id)
+    receipt = _load_single_agent_sealed_receipt(scope)
+    receipt_items = dict(receipt.get("items") or {}) if isinstance(receipt.get("items"), dict) else {}
+    next_order = _safe_int_value(receipt.get("next_order")) or (
+        max([_safe_int_value(value) for value in receipt_items.values()] or [0]) + 1
+    )
+    changed = False
+    sealed_segments: list[dict[str, Any]] = []
+    for segment in segments:
+        metadata = dict(segment.get("metadata") or {})
+        if not _is_followup_sealable_segment(segment):
+            sealed_segments.append(segment)
+            continue
+        if _safe_int_value(metadata.get("sealed_accumulated_context_order")) > 0:
+            sealed_segments.append(segment)
+            continue
+        key = _single_agent_sealed_segment_key(segment)
+        existing_order = _safe_int_value(receipt_items.get(key))
+        order_source = "receipt"
+        if existing_order <= 0:
+            existing_order = next_order
+            receipt_items[key] = existing_order
+            next_order += 1
+            changed = True
+            order_source = "new_append" if receipt.get("items") else "bootstrap"
+        segment["metadata"] = {
+            **metadata,
+            "sealed_accumulated_context_package": "append_only_context",
+            "sealed_accumulated_context_scope": scope,
+            "sealed_accumulated_context_item_key": key,
+            "sealed_accumulated_context_order": existing_order,
+            "sealed_accumulated_context_order_source": order_source,
+        }
+        sealed_segments.append(segment)
+    if changed:
+        _save_single_agent_sealed_receipt(
+            scope=scope,
+            receipt={
+                "authority": "harness.loop.single_agent_turn.sealed_append_only_context_receipt",
+                "version": 1,
+                "scope": scope,
+                "next_order": next_order,
+                "items": receipt_items,
+            },
+        )
+    payload["segments"] = sealed_segments
+    return payload
+
+
+def _is_followup_sealable_segment(segment: dict[str, Any]) -> bool:
+    kind = str(dict(segment or {}).get("kind") or "").strip()
+    if kind not in _FOLLOWUP_BASE_ACCUMULATED_CONTEXT_KINDS:
+        return False
+    cache_role = str(dict(segment or {}).get("cache_role") or "").strip()
+    prefix_tier = str(dict(segment or {}).get("prefix_tier") or "").strip()
+    return cache_role in {"cacheable_prefix", "session_stable"} and prefix_tier not in {"volatile", "none"}
+
+
+def _single_agent_sealed_context_scope(packet_id: str) -> str:
+    text = str(packet_id or "").strip()
+    session_id = ""
+    marker = "session-"
+    if marker in text:
+        suffix = text.split(marker, 1)[1]
+        session_id = marker + suffix.split(":", 1)[0]
+    if not session_id:
+        session_id = "default"
+    return f"single_agent_turn:{session_id}"
+
+
+def _single_agent_sealed_segment_key(segment: dict[str, Any]) -> str:
+    seed = {
+        "kind": str(segment.get("kind") or ""),
+        "source_ref": str(segment.get("source_ref") or ""),
+        "message_hash": str(segment.get("model_message_hash") or segment.get("content_hash") or ""),
+    }
+    return _stable_payload_hash(seed)
+
+
+def _load_single_agent_sealed_receipt(scope: str) -> dict[str, Any]:
+    path = _single_agent_sealed_receipt_path(scope)
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(payload or {}) if isinstance(payload, dict) else {}
+
+
+def _save_single_agent_sealed_receipt(*, scope: str, receipt: dict[str, Any]) -> None:
+    path = _single_agent_sealed_receipt_path(scope)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(_json_stable_value(receipt), ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+            encoding="utf-8",
+        )
+    except Exception:
+        logger.debug("Failed to save single-agent sealed context receipt", exc_info=True)
+
+
+def _single_agent_sealed_receipt_path(scope: str) -> Path:
+    backend_dir = Path(__file__).resolve().parents[2]
+    project_root = ProjectLayout.from_backend_dir(backend_dir).project_root.resolve()
+    return (
+        project_root
+        / "storage"
+        / "runtime_state"
+        / "context_receipts"
+        / "sealed_append_only_context"
+        / f"{_safe_receipt_filename(scope)}.json"
+    )
+
+
+def _safe_receipt_filename(value: str) -> str:
+    text = str(value or "").strip()
+    chars = [char if (char.isalnum() or char in {"-", "_", "."}) else "_" for char in text]
+    return "".join(chars).strip("._")[:180] or "default"
+
+
+def _safe_int_value(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _is_tool_followup_action_contract_message(message: dict[str, Any]) -> bool:
     payload = dict(message or {})
     if str(payload.get("source_ref") or "") == "single_agent_turn_tool_followup_action_contract":
@@ -6370,6 +6522,7 @@ _TOOL_FOLLOWUP_REPLACEABLE_DYNAMIC_TAIL_KINDS = {
 
 
 _FOLLOWUP_BASE_ACCUMULATED_CONTEXT_KINDS = {
+    "accumulated_context_boundary",
     "incremental_context_frame",
     "provider_protocol_history",
     "read_evidence_injection",
@@ -6400,6 +6553,9 @@ def _tool_followup_context_layers(
     accumulated: list[dict[str, Any]] = []
     dynamic_tail: list[dict[str, Any]] = []
     for index, message in enumerate([dict(item) for item in list(messages or []) if isinstance(item, dict)]):
+        if _is_tool_followup_context_boundary_message(message):
+            accumulated.append(message)
+            continue
         if _is_tool_followup_action_contract_message(message):
             continue
         if _is_tool_followup_accumulated_message_by_shape(message):
@@ -6494,6 +6650,10 @@ def _message_hash_keys(message: dict[str, Any]) -> tuple[str, ...]:
 def _is_tool_followup_replaceable_dynamic_tail_segment(segment: dict[str, Any]) -> bool:
     if not segment:
         return False
+    cache_role = str(segment.get("cache_role") or "").strip()
+    prefix_tier = str(segment.get("prefix_tier") or "").strip()
+    if cache_role in {"cacheable_prefix", "session_stable"} and prefix_tier not in {"volatile", "none"}:
+        return False
     kind = str(segment.get("kind") or "").strip()
     if kind in _TOOL_FOLLOWUP_REPLACEABLE_DYNAMIC_TAIL_KINDS:
         return True
@@ -6515,6 +6675,8 @@ def _is_tool_followup_replaceable_dynamic_tail_segment(segment: dict[str, Any]) 
 def _is_tool_followup_accumulated_message_by_shape(message: dict[str, Any]) -> bool:
     payload = dict(message or {})
     role = str(payload.get("role") or "")
+    if _is_tool_followup_context_boundary_message(payload):
+        return True
     if is_incremental_context_frame_message(payload):
         return True
     if role == "tool":
@@ -6522,6 +6684,46 @@ def _is_tool_followup_accumulated_message_by_shape(message: dict[str, Any]) -> b
     if role == "assistant" and payload.get("tool_calls"):
         return True
     return False
+
+
+def _append_tool_followup_context_boundary(
+    messages: list[dict[str, Any]],
+    *,
+    tool_iteration: int,
+    turn_id: str,
+) -> list[dict[str, Any]]:
+    accumulated = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
+    if not accumulated:
+        return accumulated
+    payload = {
+        "frame_type": "accumulated_context_boundary",
+        "boundary_iteration": max(1, int(tool_iteration or 1)),
+        "accumulated_message_count": len(accumulated),
+        "accumulated_context_hash": _stable_payload_hash(
+            [stable_model_message_hash(message) for message in accumulated]
+        ),
+        "stability_rule": "messages before this boundary are append-only accumulated context; only later dynamic tail may be replaced",
+        "authority": "harness.loop.single_agent_turn.accumulated_context_boundary",
+    }
+    content = (
+        "你正在继续同一轮工具执行。\n"
+        "以上内容是已经固定的历史上下文、工具调用和工具观察；这条消息只标记累计上下文边界，不是新的用户需求。\n"
+        "请继续读取后面的动态执行契约，并基于这些固定事实决定下一步。\n"
+        f"{json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))}"
+    )
+    return [
+        *accumulated,
+        {
+            "role": "user",
+            "content": content,
+            "turn_id": turn_id,
+        },
+    ]
+
+
+def _is_tool_followup_context_boundary_message(message: dict[str, Any]) -> bool:
+    content = str(dict(message or {}).get("content") or "")
+    return '"frame_type":"accumulated_context_boundary"' in content or '"frame_type": "accumulated_context_boundary"' in content
 
 
 def _indexed_tool_transcript_messages(
@@ -6601,6 +6803,30 @@ def _single_agent_turn_followup_message_spec(
     tool_iteration: int,
     is_current_tool_round: bool = True,
 ) -> dict[str, Any]:
+    boundary_payload = _tool_followup_context_boundary_payload(message)
+    if boundary_payload:
+        boundary_iteration = _safe_int_value(boundary_payload.get("boundary_iteration")) or max(1, int(tool_iteration or 1))
+        boundary_hash = str(boundary_payload.get("accumulated_context_hash") or "").strip()
+        return {
+            "role": str(message.get("role") or "user"),
+            "content": str(message.get("content") or ""),
+            "kind": "accumulated_context_boundary",
+            "source_ref": f"single_agent_turn.accumulated_context_boundary:{boundary_iteration}:{boundary_hash[:16]}",
+            "cache_scope": "task",
+            "cache_role": "session_stable",
+            "prefix_tier": "task",
+            "compression_role": "preserve",
+            "metadata": {
+                "authority_class": "accumulated_context_boundary",
+                "cache_impact": "append_only_task_prefix",
+                "stability_rule": "this boundary seals the accumulated context prefix before the per-turn dynamic tail",
+                "followup_iteration": boundary_iteration,
+                "accumulated_context_hash": boundary_hash,
+                "accumulated_message_count": _safe_int_value(boundary_payload.get("accumulated_message_count")),
+                "provider_cache_boundary": "deepseek_user_input_prefix_unit",
+            },
+            "model_message": dict(message),
+        }
     if is_incremental_context_frame_message(message):
         return incremental_context_frame_segment_spec(message, tool_iteration=tool_iteration)
     role = str(message.get("role") or "user")
@@ -6650,6 +6876,23 @@ def _single_agent_turn_followup_message_spec(
         "metadata": metadata,
         "model_message": dict(message),
     }
+
+
+def _tool_followup_context_boundary_payload(message: dict[str, Any]) -> dict[str, Any]:
+    content = str(dict(message or {}).get("content") or "")
+    if not _is_tool_followup_context_boundary_message({"content": content}):
+        return {}
+    for candidate in reversed(content.replace("\r\n", "\n").split("\n")):
+        text = candidate.strip()
+        if not text.startswith("{") or not text.endswith("}"):
+            continue
+        try:
+            payload = json.loads(text)
+        except Exception:
+            continue
+        if isinstance(payload, dict) and str(payload.get("frame_type") or "") == "accumulated_context_boundary":
+            return dict(payload)
+    return {}
 
 
 def _rebased_followup_base_cache_policy(

@@ -84,12 +84,13 @@ class CanonicalPromptSerializer:
                     prefix_tier=str(tool_schema_profile.get("prefix_tier") or ""),
                 )
             )
-            stable_transport_contract = bool(
-                tool_schema_metadata.get("stable_transport_contract")
-                or str(tool_schema_metadata.get("transport_contract_role") or "") == "stable_transport_contract"
-                or tool_schema_metadata.get("provider_payload_stable_component") is True
+            sidecar_tool_schema_component = bool(
+                normalized_tools
+                and (
+                    tool_schema_metadata.get("provider_payload_sidecar_component") is not False
+                    or str(tool_schema_metadata.get("provider_payload_transport_location") or "") == "tools"
+                )
             )
-            stable_tool_schema_component = bool(normalized_tools and (message_prefix_eligible_component or stable_transport_contract))
             tool_schema_prefix_component = bool(message_prefix_eligible_component and message_transport_prefix_open)
             segments.append(
                 PromptSegment(
@@ -107,8 +108,8 @@ class CanonicalPromptSerializer:
                     cache_role=str(tool_schema_profile.get("cache_role") or "never_cache"),
                     prefix_tier=str(tool_schema_profile.get("prefix_tier") or "none"),
                     compression_role="preserve",
-                    authority_class="stable_transport_contract"
-                    if stable_transport_contract and not tool_schema_prefix_component
+                    authority_class="transport_sidecar_diagnostic"
+                    if sidecar_tool_schema_component and not tool_schema_prefix_component
                     else "contract",
                     source=str(tool_schema_profile.get("source") or "model_request.tools"),
                     created_at=timestamp,
@@ -116,17 +117,17 @@ class CanonicalPromptSerializer:
                         "tool_count": len(normalized_tools),
                         "token_count_mode": token_count.mode,
                         "provider_payload_transport_location": "tools",
-                        "provider_payload_stable_component": stable_tool_schema_component,
+                        "provider_payload_sidecar_component": sidecar_tool_schema_component,
                         "provider_payload_prefix_component": tool_schema_prefix_component,
-                        "stable_transport_contract": stable_transport_contract,
-                        "transport_contract_role": "stable_transport_contract"
-                        if stable_transport_contract
-                        else str(tool_schema_metadata.get("transport_contract_role") or ""),
+                        "transport_sidecar_role": str(
+                            tool_schema_metadata.get("transport_sidecar_role")
+                            or "native_tool_binding_schema"
+                        ),
                         "message_prefix_cacheable": tool_schema_prefix_component,
                         "provider_payload_prefix_component_reason": (
                             "transport_prefix_open"
                             if tool_schema_prefix_component
-                            else "tools_are_after_non_prefix_message_in_transport_order"
+                            else "native_tools_are_provider_sidecar_not_message_prefix"
                         ),
                         **tool_schema_metadata,
                     },
@@ -445,6 +446,12 @@ def _unmanifested_tool_schema_profile(
             "native_tool_binding_decision": "not_promoted",
             "native_tool_binding_reason": reason,
             "provider_payload_manifest_required": True,
+            "provider_payload_transport_location": "tools",
+            "provider_payload_sidecar_component": True,
+            "provider_payload_prefix_component": False,
+            "transport_sidecar_role": "native_tool_binding_schema",
+            "sidecar_drift_status": "missing_manifest",
+            "message_prefix_cacheable": False,
         },
     }
 

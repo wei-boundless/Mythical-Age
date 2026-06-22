@@ -100,6 +100,8 @@ def message_spec_content_source(*, kind: str, cache_role: str, source_ref: str) 
         return "memory_system.runtime_memory_context"
     if normalized_kind == "incremental_context_frame":
         return "harness.runtime.incremental_context_frame"
+    if normalized_kind == "incremental_context_cursor":
+        return "harness.runtime.incremental_context_cursor"
     if normalized_kind in {
         "dynamic_projection",
         "graph_node_completion_prefix",

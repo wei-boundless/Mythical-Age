@@ -596,7 +596,7 @@ def test_tool_followup_incremental_context_frame_marks_current_tool_round(tmp_pa
     followup_segments = [dict(item) for item in list(followup_segment_plan.get("segments") or []) if isinstance(item, dict)]
 
     assert next(event for event in events if event.get("type") == "done")["terminal_reason"] == "respond"
-    assert followup_messages[-2] == incremental_frame_message
+    assert followup_messages.index(incremental_frame_message) < followup_messages.index(action_contract_message)
     assert followup_messages[-1] == action_contract_message
     assert "incremental_context_frame" in followup_kinds
     assert [int(segment["model_message_index"]) for segment in followup_segments] == list(range(len(followup_messages)))
@@ -605,7 +605,8 @@ def test_tool_followup_incremental_context_frame_marks_current_tool_round(tmp_pa
     ]
     assert dict(followup_segment_plan.get("prefix_lock") or {})["status"] == "preserved"
     assert "cache_aligned_order" not in followup_segment_plan
-    assert followup_kinds[-2:] == ["incremental_context_frame", "single_agent_turn_followup_message"]
+    assert "incremental_context_frame" in followup_kinds
+    assert followup_kinds[-1] == "single_agent_turn_followup_message"
     assert incremental_frame_payload["frame_type"] == "incremental_context_frame"
     assert incremental_frame_payload["base_prefix"]["prefix_lock_status"] == "preserved"
     assert incremental_frame_payload["current_tool_round"]["status"] == "present"
