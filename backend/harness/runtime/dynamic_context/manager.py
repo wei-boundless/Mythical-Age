@@ -258,7 +258,7 @@ class DynamicContextManager:
             replay_entry_limit=_task_state_replay_entry_limit(request.projection_policy),
         )
         replay_entries = self._ordered_task_state_replay_entries(request, replay_entries)
-        evidence_index_cursor, task_state_cursor = split_evidence_index_cursor(task_state_cursor)
+        evidence_index_cursor, _evidence_source_remainder = split_evidence_index_cursor(task_state)
         payload = {
             "task_state": task_state_cursor,
         }

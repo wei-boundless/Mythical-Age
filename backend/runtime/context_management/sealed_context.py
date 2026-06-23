@@ -26,6 +26,7 @@ def assign_sealed_append_order(
     stable_base_hash: str = "",
     physical_prefix_hash: str = "",
     sealed_context_hash: str = "",
+    provider_visible_message: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized_scope = str(scope or "default").strip() or "default"
     key = str(item_key or "").strip()
@@ -50,6 +51,7 @@ def assign_sealed_append_order(
 
     previous_receipt_hash = str(receipt.get("receipt_hash") or _receipt_content_hash(receipt) or "")
     visible_hash = str(provider_visible_hash or "").strip()
+    visible_message = _provider_visible_message(provider_visible_message)
     if existing_index > 0:
         entry = dict(entries.get(existing_index) or {})
         previous_visible_hash = str(entry.get("provider_visible_hash") or "").strip()
@@ -62,6 +64,8 @@ def assign_sealed_append_order(
                 "normalization_version": SEALED_CONTEXT_NORMALIZATION_VERSION,
                 "hash_backfilled_at": time.time(),
             }
+            if visible_message:
+                entry["provider_visible_message"] = visible_message
             entry["entry_hash"] = _stable_json_hash({key: value for key, value in entry.items() if key != "entry_hash"})
             receipt["entries"] = [
                 entry if _safe_int(item.get("append_index")) == existing_index else dict(item)
@@ -70,6 +74,20 @@ def assign_sealed_append_order(
             ]
             changed = True
             order_source = "receipt_hash_backfilled"
+        elif visible_message and not isinstance(entry.get("provider_visible_message"), dict):
+            entry = {
+                **entry,
+                "provider_visible_message": visible_message,
+                "message_backfilled_at": time.time(),
+            }
+            entry["entry_hash"] = _stable_json_hash({key: value for key, value in entry.items() if key != "entry_hash"})
+            receipt["entries"] = [
+                entry if _safe_int(item.get("append_index")) == existing_index else dict(item)
+                for item in list(receipt.get("entries") or [])
+                if isinstance(item, dict)
+            ]
+            changed = True
+            order_source = "receipt_message_backfilled"
         elif visible_hash and previous_visible_hash and visible_hash != previous_visible_hash:
             integrity_status = "failed"
             integrity_failure = _structured_failure(
@@ -95,6 +113,7 @@ def assign_sealed_append_order(
             append_index=existing_index,
             item_key=key,
             provider_visible_hash=visible_hash,
+            provider_visible_message=visible_message,
             kind=str(kind or ""),
             source_ref=str(source_ref or ""),
             previous_receipt_hash=previous_receipt_hash,
@@ -266,6 +285,7 @@ def _migrate_legacy_receipt(receipt: dict[str, Any], *, scope: str, failure: dic
                 append_index=append_index,
                 item_key=str(item_key or ""),
                 provider_visible_hash="",
+                provider_visible_message={},
                 kind="legacy_unverified",
                 source_ref="legacy_receipt_items",
                 previous_receipt_hash="",
@@ -356,6 +376,7 @@ def _sealed_entry(
     append_index: int,
     item_key: str,
     provider_visible_hash: str,
+    provider_visible_message: dict[str, Any],
     kind: str,
     source_ref: str,
     previous_receipt_hash: str,
@@ -364,6 +385,7 @@ def _sealed_entry(
         "append_index": int(append_index or 0),
         "item_key": str(item_key or ""),
         "provider_visible_hash": str(provider_visible_hash or ""),
+        "provider_visible_message": dict(provider_visible_message or {}),
         "kind": str(kind or ""),
         "source_ref": str(source_ref or ""),
         "previous_receipt_hash": str(previous_receipt_hash or ""),
@@ -372,6 +394,12 @@ def _sealed_entry(
     }
     payload["entry_hash"] = _stable_json_hash(payload)
     return payload
+
+
+def _provider_visible_message(value: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _json_stable(dict(value or {}))
 
 
 def _entries_by_index(receipt: dict[str, Any]) -> dict[int, dict[str, Any]]:

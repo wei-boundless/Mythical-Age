@@ -137,14 +137,14 @@ def test_visible_prefix_recovery_segment_plan_covers_appended_recovery_messages(
             },
             {
                 "segment_id": "seg:base:2",
-                "kind": "volatile_user",
+                "kind": "current_turn_user_context",
                 "ordinal": 2,
                 "model_message_index": 1,
                 "model_message_role": "user",
                 "source_ref": "test.user",
-                "cache_scope": "none",
-                "cache_role": "volatile",
-                "prefix_tier": "volatile",
+                "cache_scope": "task",
+                "cache_role": "session_stable",
+                "prefix_tier": "task",
                 "compression_role": "summarize",
             },
         ]
@@ -186,7 +186,7 @@ def test_visible_prefix_recovery_segment_plan_covers_appended_recovery_messages(
 
     assert kinds == [
         "global_static",
-        "volatile_user",
+        "current_turn_user_context",
         "partial_stream_recovery_instruction",
         "partial_stream_recovery_visible_prefix",
     ]

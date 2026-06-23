@@ -52,6 +52,7 @@ MEMORY_CONTEXT_KINDS = {
     "session_history_context",
     "session_history_entry",
     "session_pinned_facts_context",
+    "current_turn_user_context",
     "single_agent_turn_followup_message",
     "single_agent_turn_tool_call",
     "single_agent_turn_tool_observation",
@@ -61,7 +62,6 @@ MEMORY_CONTEXT_KINDS = {
     "task_state_replay_entry",
     "tool_observations",
     "user_steering_context_append",
-    "volatile_user",
 }
 
 APPEND_ONLY_CONTEXT_KINDS = {
@@ -71,6 +71,7 @@ APPEND_ONLY_CONTEXT_KINDS = {
     "runtime_memory_context",
     "session_history_entry",
     "session_pinned_facts_context",
+    "current_turn_user_context",
     "single_agent_turn_followup_message",
     "single_agent_turn_tool_call",
     "single_agent_turn_tool_observation",
@@ -78,10 +79,6 @@ APPEND_ONLY_CONTEXT_KINDS = {
     "task_state_replay_entry",
     "tool_observations",
     "user_steering_context_append",
-}
-
-CURRENT_UNCACHED_CONTEXT_APPEND_KINDS = {
-    "volatile_user",
 }
 
 CURRENT_CONTROL_TAIL_KINDS = {
@@ -100,6 +97,7 @@ CURRENT_CONTROL_TAIL_KINDS = {
     "semantic_compaction_request",
     "session_history_tail_context",
     "skill_candidates",
+    "single_agent_turn_followup_action_contract",
     "task_runtime_boundary_dynamic",
     "user_steering_consumption_tail",
     "volatile_runtime_state",
@@ -229,9 +227,14 @@ def is_context_append_spec(spec: dict[str, Any] | None) -> bool:
 
 def is_sealable_context_spec(spec: dict[str, Any] | None) -> bool:
     classification = classify_context_spec(spec)
-    if classification.context_cache_section in {SEALED_CONTEXT_PREFIX, CONTEXT_APPEND}:
-        return True
-    return classification.kind in APPEND_ONLY_CONTEXT_KINDS
+    if classification.context_cache_section not in {SEALED_CONTEXT_PREFIX, CONTEXT_APPEND}:
+        return False
+    if classification.memory_commit_policy == "never_commit":
+        return False
+    return classification.cache_role in {"cacheable_prefix", "session_stable"} and classification.prefix_tier not in {
+        "volatile",
+        "none",
+    }
 
 
 def _cache_policy_for_section(
@@ -249,8 +252,6 @@ def _cache_policy_for_section(
             cache_scope = "global" if cache_role == "cacheable_prefix" else "session"
         return cache_scope, cache_role, _prefix_tier(spec.get("prefix_tier"), cache_scope=cache_scope, cache_role=cache_role)
     if section in {SEALED_CONTEXT_PREFIX, CONTEXT_APPEND}:
-        if kind in CURRENT_UNCACHED_CONTEXT_APPEND_KINDS:
-            return "none", "volatile", "volatile"
         return "task", "session_stable", "task"
     return "none", "volatile", "volatile"
 
@@ -261,7 +262,7 @@ def _semantic_commit_class(*, kind: str, section: str) -> str:
     if section == SEALED_CONTEXT_PREFIX:
         return "sealed_context_memory"
     if section == CONTEXT_APPEND:
-        if kind in {"volatile_user", "single_agent_turn_user_steer_context", "user_steering_context_append"}:
+        if kind in {"current_turn_user_context", "single_agent_turn_user_steer_context", "user_steering_context_append"}:
             return "current_user_context"
         if kind == "runtime_memory_context":
             return "selected_memory_context"

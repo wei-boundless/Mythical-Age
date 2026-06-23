@@ -59,8 +59,13 @@ from harness.runtime.sandbox_artifacts import (
 from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_scope
 from runtime.cache_manager import DEFAULT_SANDBOX_CACHE_TTL_SECONDS, runtime_cache_manager_for_host
 from runtime.context_management import (
+    CONTEXT_APPEND,
+    SEALED_CONTEXT_PREFIX,
+    STATIC_PREFIX,
     apply_context_assembly_classification,
     assign_sealed_append_order,
+    classify_context_spec,
+    DYNAMIC_TAIL,
     is_dynamic_tail_spec,
     is_sealable_context_spec,
 )
@@ -6299,6 +6304,7 @@ def _single_agent_turn_followup_segment_plan(
         segment_plan,
         packet_id=str(packet_id or ""),
     )
+    _validate_single_agent_followup_tail_order(segment_plan)
     segment_plan["prefix_lock"] = prefix_lock_report
     if str(prefix_lock_report.get("status") or "") != "preserved":
         logger.warning(
@@ -6308,6 +6314,35 @@ def _single_agent_turn_followup_segment_plan(
             prefix_lock_report.get("violation_count"),
         )
     return segment_plan
+
+
+def _validate_single_agent_followup_tail_order(segment_plan: dict[str, Any]) -> None:
+    dynamic_tail_seen = False
+    violations: list[dict[str, Any]] = []
+    for segment in sorted(
+        [dict(item) for item in list(dict(segment_plan or {}).get("segments") or []) if isinstance(item, dict)],
+        key=lambda item: _safe_int_value(item.get("ordinal")),
+    ):
+        classification = classify_context_spec(segment)
+        section = classification.context_cache_section
+        if section == DYNAMIC_TAIL:
+            dynamic_tail_seen = True
+            continue
+        if dynamic_tail_seen and section in {STATIC_PREFIX, SEALED_CONTEXT_PREFIX, CONTEXT_APPEND}:
+            violations.append(
+                {
+                    "kind": str(segment.get("kind") or ""),
+                    "ordinal": _safe_int_value(segment.get("ordinal")),
+                    "context_cache_section": section,
+                    "cache_role": str(segment.get("cache_role") or ""),
+                    "prefix_tier": str(segment.get("prefix_tier") or ""),
+                }
+            )
+    if violations:
+        raise RuntimeError(
+            "single_agent_followup_context_after_dynamic_tail:"
+            + json.dumps(violations, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        )
 
 
 def _single_agent_turn_followup_message_specs(
@@ -6464,6 +6499,7 @@ _FOLLOWUP_BASE_ACCUMULATED_CONTEXT_KINDS = {
     "session_history_context",
     "session_history_entry",
     "session_pinned_facts_context",
+    "current_turn_user_context",
     "single_agent_turn_followup_message",
     "single_agent_turn_tool_call",
     "single_agent_turn_tool_observation",
@@ -6472,7 +6508,6 @@ _FOLLOWUP_BASE_ACCUMULATED_CONTEXT_KINDS = {
     "task_state_replay_entry",
     "tool_observations",
     "user_steering_context_append",
-    "volatile_user",
 }
 
 
@@ -6764,7 +6799,12 @@ def _single_agent_turn_followup_message_spec(
     if is_incremental_context_frame_message(message):
         return incremental_context_frame_segment_spec(message, tool_iteration=tool_iteration)
     role = str(message.get("role") or "user")
-    if role == "assistant" and message.get("tool_calls"):
+    is_action_contract = _is_tool_followup_action_contract_message(message)
+    if is_action_contract:
+        kind = "single_agent_turn_followup_action_contract"
+        source_ref = f"single_agent_turn.followup_action_contract:{tool_iteration}"
+        compression_role = "preserve"
+    elif role == "assistant" and message.get("tool_calls"):
         kind = "single_agent_turn_tool_call"
         source_ref = _followup_tool_message_source_ref(message, prefix="single_agent_turn.tool_call")
         compression_role = "preserve"
@@ -6780,7 +6820,6 @@ def _single_agent_turn_followup_message_spec(
         kind = "single_agent_turn_followup_message"
         source_ref = f"single_agent_turn.followup:{tool_iteration}"
         compression_role = "summarize"
-    is_action_contract = _is_tool_followup_action_contract_message(message)
     cache_scope = "none" if is_action_contract else "task"
     cache_role = "volatile" if is_action_contract else "session_stable"
     prefix_tier = "volatile" if is_action_contract else "task"

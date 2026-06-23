@@ -54,6 +54,7 @@ from runtime.context_management import (
     assign_sealed_append_order,
     classify_context_spec,
     is_sealable_context_spec,
+    load_sealed_context_receipt,
 )
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
@@ -901,12 +902,15 @@ class RuntimeCompiler:
                     role="user",
                     title="Single agent turn current request",
                     payload=current_request_payload,
-                    kind="volatile_user",
+                    kind="current_turn_user_context",
                     source_ref="single_agent_turn_current_request",
-                    cache_scope="none",
-                    cache_role="volatile",
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="summarize",
-                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
+                    metadata={
+                        **_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
+                        **_current_user_context_append_metadata(current_request_payload),
+                    },
                 ),
             ],
             enforce_dynamic_context_reports=True,
@@ -1340,9 +1344,6 @@ class RuntimeCompiler:
         runtime_control_signals = canonical_runtime_control_signal_projection(
             execution_projection.get("runtime_control_signals")
         )
-        if runtime_control_signals:
-            volatile_payload["runtime_control_signals"] = runtime_control_signals
-            volatile_payload["latest_runtime_control_signal"] = dict(runtime_control_signals[-1])
         task_plan_context_payload, volatile_payload = _extract_task_plan_context_payload(volatile_payload)
         evidence_index_cursor_payload, volatile_payload = _extract_evidence_index_cursor_payload(volatile_payload)
         editor_context_payload, volatile_payload = _extract_editor_context_payload(volatile_payload)
@@ -2445,12 +2446,15 @@ class RuntimeCompiler:
                     role="user",
                     title="Observation followup current request",
                     payload=current_request_payload,
-                    kind="volatile_user",
+                    kind="current_turn_user_context",
                     source_ref="observation_followup_current_request",
-                    cache_scope="none",
-                    cache_role="volatile",
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="ref_only",
-                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
+                    metadata={
+                        **_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
+                        **_current_user_context_append_metadata(current_request_payload),
+                    },
                 ),
             ],
             enforce_dynamic_context_reports=True,
@@ -4652,6 +4656,8 @@ def _sealed_append_only_context_specs(
         return []
     scope = _sealed_context_scope(invocation_kind=invocation_kind, sealed_context_scope=sealed_context_scope)
     sealed: list[tuple[int, dict[str, Any]]] = []
+    sealed_by_order: dict[int, tuple[int, dict[str, Any]]] = {}
+    latest_receipt: dict[str, Any] = {}
     seen_in_call: set[str] = set()
     assignment_items = sorted(
         list(items or []),
@@ -4671,12 +4677,18 @@ def _sealed_append_only_context_specs(
             item_key=key,
             receipt_authority="harness.runtime.compiler.sealed_append_only_context",
             provider_visible_hash=provider_visible_hash,
+            provider_visible_message=model_message,
             kind=str(spec.get("kind") or ""),
             source_ref=str(spec.get("source_ref") or ""),
         )
+        latest_receipt = dict(assignment.get("receipt") or latest_receipt or {})
         existing_order = _safe_int(assignment.get("order"))
         order_source = str(assignment.get("order_source") or "receipt")
-        context_section = SEALED_CONTEXT_PREFIX if order_source == "receipt" else CONTEXT_APPEND
+        context_section = (
+            SEALED_CONTEXT_PREFIX
+            if order_source in {"receipt", "receipt_hash_backfilled", "receipt_message_backfilled"}
+            else CONTEXT_APPEND
+        )
         metadata = {
             **dict(spec.get("metadata") or {}),
             "sealed_accumulated_context_package": "append_only_context",
@@ -4697,8 +4709,135 @@ def _sealed_append_only_context_specs(
         spec["cache_role"] = "session_stable"
         spec["prefix_tier"] = "task"
         spec["metadata"] = metadata
-        sealed.append((original_order, spec))
+        sealed_item = (original_order, spec)
+        sealed.append(sealed_item)
+        if existing_order > 0:
+            sealed_by_order[existing_order] = sealed_item
+    receipt = latest_receipt or load_sealed_context_receipt(storage_root=storage_root, scope=scope)
+    materialized = _materialize_sealed_receipt_entries(
+        receipt,
+        sealed_by_order=sealed_by_order,
+        scope=scope,
+    )
+    if materialized:
+        return sorted(materialized, key=_append_only_context_order_key)
     return sorted(sealed, key=_append_only_context_order_key)
+
+
+def _materialize_sealed_receipt_entries(
+    receipt: dict[str, Any],
+    *,
+    sealed_by_order: dict[int, tuple[int, dict[str, Any]]],
+    scope: str,
+) -> list[tuple[int, dict[str, Any]]]:
+    entries = _sealed_receipt_entries(receipt)
+    if not entries:
+        return list(sealed_by_order.values())
+    materialized: list[tuple[int, dict[str, Any]]] = []
+    seen_orders: set[int] = set()
+    for entry in entries:
+        order = _safe_int(entry.get("append_index"))
+        if order <= 0 or order in seen_orders:
+            continue
+        seen_orders.add(order)
+        current = sealed_by_order.get(order)
+        if current is not None:
+            materialized.append(current)
+            continue
+        materialized.append((order, _sealed_context_spec_from_receipt_entry(entry, scope=scope)))
+    for order, item in sorted(sealed_by_order.items()):
+        if order not in seen_orders:
+            materialized.append(item)
+    return materialized
+
+
+def _sealed_receipt_entries(receipt: dict[str, Any]) -> list[dict[str, Any]]:
+    entries = [dict(item) for item in list(dict(receipt or {}).get("entries") or []) if isinstance(item, dict)]
+    return sorted(entries, key=lambda item: (_safe_int(item.get("append_index")), str(item.get("item_key") or "")))
+
+
+def _sealed_context_spec_from_receipt_entry(entry: dict[str, Any], *, scope: str) -> dict[str, Any]:
+    order = _safe_int(entry.get("append_index"))
+    message = dict(entry.get("provider_visible_message") or {}) if isinstance(entry.get("provider_visible_message"), dict) else {}
+    missing_message = not bool(message)
+    if missing_message:
+        failure = {
+            "code": "sealed_context_provider_visible_message_missing",
+            "message": "sealed context receipt entry cannot be materialized because provider-visible message content is absent",
+            "append_index": order,
+            "item_key": str(entry.get("item_key") or ""),
+            "provider_visible_hash": str(entry.get("provider_visible_hash") or ""),
+            "recovery_policy": "replace this prefix position with compacted recovery context before relying on cache lineage",
+            "authority": "harness.runtime.compiler.sealed_context_recovery",
+        }
+        content = "Sealed context recovery required\n" + json.dumps(failure, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        message = {"role": "system", "content": content}
+    role = str(message.get("role") or "system")
+    content = str(message.get("content") or "")
+    kind = str(entry.get("kind") or ("sealed_context_recovery_notice" if missing_message else "sealed_context_entry"))
+    source_ref = str(entry.get("source_ref") or entry.get("item_key") or "")
+    metadata = {
+        **_sealed_receipt_append_metadata(kind, order=order),
+        "sealed_accumulated_context_package": "append_only_context",
+        "sealed_accumulated_context_scope": scope,
+        "sealed_accumulated_context_item_key": str(entry.get("item_key") or ""),
+        "sealed_accumulated_context_order": order,
+        "sealed_accumulated_context_order_source": "receipt_materialized",
+        "sealed_accumulated_context_authority": "runtime.context_management.sealed_context.receipt",
+        "sealed_accumulated_context_integrity_status": "missing_provider_visible_message" if missing_message else "ok",
+        "sealed_accumulated_context_recovery_required": bool(missing_message),
+        "sealed_accumulated_context_structured_failure": failure if missing_message else {},
+        "provider_visible_hash": str(entry.get("provider_visible_hash") or _stable_json_hash(message)),
+        "context_cache_section": SEALED_CONTEXT_PREFIX,
+        "context_assembly_section": SEALED_CONTEXT_PREFIX,
+        "fixed_context_package": "sealed_context",
+        "content_source": "runtime.context_management.sealed_context.receipt_materialization",
+    }
+    return {
+        "role": role,
+        "content": content,
+        "kind": kind,
+        "source_ref": source_ref,
+        "cache_scope": "task",
+        "cache_role": "session_stable",
+        "prefix_tier": "task",
+        "compression_role": "preserve",
+        "metadata": metadata,
+        "model_message": message,
+    }
+
+
+def _sealed_receipt_append_metadata(kind: str, *, order: int) -> dict[str, Any]:
+    normalized = str(kind or "")
+    if normalized == "current_turn_user_context":
+        return {
+            "append_only_context_package": "current_user_context",
+            "append_only_context_stream": "current_user_context",
+            "append_only_stream_index": int(order or 0),
+        }
+    if normalized == "runtime_memory_context":
+        return {
+            "append_only_context_package": "runtime_memory_context",
+            "append_only_context_stream": "runtime_memory_context",
+            "append_only_stream_index": int(order or 0),
+        }
+    if normalized == "provider_protocol_history":
+        return {
+            "append_only_context_package": "historical_context",
+            "append_only_context_stream": "provider_protocol",
+            "append_only_stream_index": int(order or 0),
+        }
+    if normalized in {"task_state_replay_entry", "read_evidence_context", "tool_observations"}:
+        return {
+            "append_only_context_package": "append_only_runtime_evidence",
+            "append_only_context_stream": "append_only_runtime_evidence",
+            "append_only_stream_index": int(order or 0),
+        }
+    return {
+        "append_only_context_package": "sealed_context",
+        "append_only_context_stream": "sealed_context",
+        "append_only_stream_index": int(order or 0),
+    }
 
 
 def _append_only_bootstrap_order_key(item: tuple[int, dict[str, Any]]) -> tuple[int, float, int, int, int]:
@@ -4715,7 +4854,7 @@ def _append_only_bootstrap_order_key(item: tuple[int, dict[str, Any]]) -> tuple[
     )
     if ledger_order > 0:
         return (1, float(ledger_order), stream_rank, _safe_int(metadata.get("append_only_stream_index")), original_order)
-    return (2, float(original_order), stream_rank, _safe_int(metadata.get("append_only_stream_index")), original_order)
+    return (2, float(stream_rank), _safe_int(metadata.get("append_only_stream_index")), original_order, original_order)
 
 
 def _sealed_context_scope(*, invocation_kind: str, sealed_context_scope: str) -> str:
@@ -4757,7 +4896,7 @@ def _append_only_context_order_key(item: tuple[int, dict[str, Any]]) -> tuple[in
     created_at = _append_only_created_at(spec)
     if created_at > 0:
         return (2, created_at, stream_rank, _safe_int(metadata.get("append_only_stream_index")), original_order)
-    return (3, float(original_order), stream_rank, _safe_int(metadata.get("append_only_stream_index")), original_order)
+    return (3, float(stream_rank), _safe_int(metadata.get("append_only_stream_index")), original_order, original_order)
 
 
 def _append_only_created_at(spec: dict[str, Any]) -> float:
@@ -4785,21 +4924,27 @@ def _append_only_created_at(spec: dict[str, Any]) -> float:
 def _append_only_stream_rank(spec: dict[str, Any]) -> int:
     metadata = dict(spec.get("metadata") or {})
     stream = str(metadata.get("append_only_context_stream") or "").strip()
+    kind = str(spec.get("kind") or "")
     if stream == "session_history":
         return 10
     if stream == "provider_protocol":
         return 20
-    kind = str(spec.get("kind") or "")
-    if kind == "single_agent_turn_tool_call":
+    if stream == "runtime_memory_context" or kind == "runtime_memory_context":
+        return 25
+    if stream == "current_user_context" or kind == "current_turn_user_context":
         return 30
-    if kind == "single_agent_turn_tool_observation":
+    if stream == "read_evidence" or kind == "read_evidence_context":
+        return 35
+    if kind == "single_agent_turn_tool_call":
         return 40
-    if kind == "task_state_replay_entry":
+    if kind == "single_agent_turn_tool_observation":
         return 50
-    if kind == "tool_observations":
+    if kind == "task_state_replay_entry":
         return 60
-    if kind == "incremental_context_frame":
+    if kind == "tool_observations":
         return 70
+    if kind == "incremental_context_frame":
+        return 80
     return 90
 
 
@@ -4867,6 +5012,24 @@ def _dynamic_context_segment_metadata(
                 "cache_impact": report.cache_impact,
             }
     raise ValueError(f"dynamic context section report missing for source: {source_text}")
+
+
+def _current_user_context_append_metadata(payload: dict[str, Any] | None) -> dict[str, Any]:
+    user_message = str(dict(payload or {}).get("user_message") or "")
+    return {
+        "authority_class": "current_user_context",
+        "content_source": "harness.runtime.compiler.current_turn_user_context",
+        "runtime_fragment_role": "current_user_request",
+        "cache_impact": "context_append_then_sealed_prefix",
+        "stability_rule": (
+            "current user input is rememberable context for this turn; tool followups must keep it "
+            "inside the cacheable prefix while only current execution control stays in the dynamic tail"
+        ),
+        "append_only_context_package": "current_user_context",
+        "append_only_context_stream": "current_user_context",
+        "append_only_stream_index": 1,
+        "append_only_content_hash": _stable_json_hash({"user_message": user_message}),
+    }
 
 
 def _optional_dynamic_context_segment_metadata(
@@ -6041,12 +6204,6 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         for item in list(projection.get("allowed_action_types") or [])
         if str(item)
     ]
-    model_contract = dict(projection.get("model_decision_contract") or {})
-    control_actions = [
-        str(item)
-        for item in list(model_contract.get("control_actions") or [])
-        if str(item)
-    ]
     service_surface = dict(projection.get("service_surface") or {})
     tool_boundary = dict(projection.get("tool_boundary") or {})
     try:
@@ -6057,17 +6214,8 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         visible_tool_count > 0
     )
     allowed_text = "、".join(allowed_actions) if allowed_actions else "见 payload.allowed_action_types"
-    protocol_refs = ["output_contract", "action_schema_static", "runtime_prompt.system_call_boundary"]
-    if control_actions:
-        protocol_refs.append("runtime_prompt.control_action_json")
-    if native_tool_available:
-        protocol_refs.append("runtime_prompt.native_tool_preamble")
-    lines = [
-        "本轮动作增量：",
-        f"本轮允许动作：{allowed_text}。",
-        "详细规则见：" + ", ".join(protocol_refs) + "；本段只列本轮新增约束。",
-    ]
-    return "\n".join(lines).strip() + "\n"
+    transport_ref = "native_tool_preamble" if native_tool_available else "json_action"
+    return f"本轮动态契约：动作={allowed_text}；规则=action_schema_static；传输={transport_ref}；本段只列当前边界。\n"
 
 
 def _environment_stable_payload(environment_payload: dict[str, Any]) -> dict[str, Any]:

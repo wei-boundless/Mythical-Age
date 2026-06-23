@@ -123,7 +123,7 @@ def message_spec_content_source(*, kind: str, cache_role: str, source_ref: str) 
         "task_runtime_boundary_dynamic",
         "tool_observations",
         "volatile_task_state",
-        "volatile_user",
+        "current_turn_user_context",
     }:
         return "runtime.dynamic_context_fragment"
     if str(cache_role or "") in {"volatile", "never_cache"}:

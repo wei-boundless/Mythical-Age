@@ -233,7 +233,7 @@ def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str, classificatio
     if section in {"sealed_context_prefix", "context_append"}:
         if kind == "runtime_memory_context":
             return "runtime_memory_context"
-        if kind in {"volatile_user", "single_agent_turn_user_steer_context", "user_steering_context_append"}:
+        if kind in {"current_turn_user_context", "single_agent_turn_user_steer_context", "user_steering_context_append"}:
             return "user_context_append"
         if kind in {"provider_protocol_history", "single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"}:
             return "append_only_task_evidence"
@@ -287,7 +287,9 @@ def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str, classificatio
         return "history_replay"
     if kind == "session_history_tail_context":
         return "dynamic_context_tail"
-    if kind in {"volatile_user", "semantic_compaction_request"}:
+    if kind == "current_turn_user_context":
+        return "user_context_append"
+    if kind == "semantic_compaction_request":
         return "user_editor_volatile"
     if str(cache_role or "") not in {"volatile", "never_cache"}:
         return "stable_prefix"

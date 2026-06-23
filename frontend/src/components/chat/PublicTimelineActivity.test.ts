@@ -38,10 +38,40 @@ describe("PublicTimelineActivity", () => {
 
     expect(html).toContain("data-tool-family=\"file\"");
     expect(html).toContain("目标");
-    expect(html).toContain("参数");
+    expect(html).toContain("参数预览");
     expect(html).not.toContain("读取请求");
     expect(html).not.toContain("返回结果");
     expect(html).not.toContain("系统返回");
+  });
+
+  it("does not render target-only detail as a separate detail row", () => {
+    const target = "_structured_bundle_capabilities";
+    const html = renderActivity([
+      {
+        kind: "tool_event",
+        id: "tool:search-duplicate-detail",
+        title: `搜索文件 ${target}`,
+        detail: target,
+        state: "done",
+        toolCallId: "call:search-duplicate-detail",
+        toolLifecycleId: "toolinv:search-duplicate-detail",
+        toolName: "search_files",
+        actionKind: "",
+        target,
+        argumentsPreview: `query=${target}, context=10, output_mode=content`,
+        commandLine: "",
+        output: "搜索完成。",
+        sourceItemId: "",
+        sourceEventType: "tool_item_completed",
+        sourceEventId: "event:tool:search-duplicate-detail",
+        firstOffset: 1,
+        lastOffset: 2,
+      },
+    ]);
+
+    expect(html).toContain("<dt>目标</dt>");
+    expect(html).toContain("<dt>参数预览</dt>");
+    expect(html).not.toContain("<dt>详情</dt>");
   });
 
   it("does not render public status placeholders as tool output", () => {
@@ -71,8 +101,8 @@ describe("PublicTimelineActivity", () => {
 
     expect(html).toContain("data-tool-family=\"search\"");
     expect(html).toContain("backend/harness/agent_control/controller.py");
-    expect(html).toContain("详情");
-    expect(html).not.toContain("返回结果");
+    expect(html).toContain("返回结果");
+    expect(html).not.toContain("<dt>详情</dt>");
     expect(html).not.toContain("状态已更新");
   });
 

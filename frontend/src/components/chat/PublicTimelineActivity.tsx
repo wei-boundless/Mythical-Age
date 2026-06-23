@@ -347,13 +347,13 @@ function toolEntryFromBlock(block: ToolProjectionBlock, index: number): Activity
   if (!text) {
     return null;
   }
+  const sections = toolWindowSections(block);
+  const outputText = toolWindowOutputText(block, sections);
   let detail = firstDifferentToolText(text, block.detail);
-  const sections = [
-    block.target ? { label: "目标", text: displayTargetLabel(block.target) } : null,
-    block.argumentsPreview ? { label: "参数", text: block.argumentsPreview } : null,
-    block.detail ? { label: "详情", text: block.detail } : null,
-  ].filter((section): section is { label: string; text: string } => Boolean(section?.label && section?.text && !isInternalToolWindowSection(section.label)));
-  if (sections.some((section) => compactText(section.text) === compactText(detail))) {
+  if (
+    sections.some((section) => compactText(section.text) === compactText(detail))
+    || compactText(outputText) === compactText(detail)
+  ) {
     detail = "";
   }
   const stableId = cleanText(block.id) || cleanText(block.sourceEventId) || `tool:${index}`;
@@ -365,7 +365,7 @@ function toolEntryFromBlock(block: ToolProjectionBlock, index: number): Activity
     detail,
     id: `tool-window:${stableId}`,
     kind: "tool_window",
-    outputText: toolWindowOutputText(block, sections),
+    outputText,
     sections,
     state: cleanText(block.state).toLowerCase(),
     statusLabel: toolWindowStatusLabel(block),
@@ -539,6 +539,20 @@ function toolWindowStatusLabel(block: ToolProjectionBlock) {
   return "运行中";
 }
 
+function toolWindowSections(block: ToolProjectionBlock) {
+  const sections: Array<{ label: string; text: string }> = [];
+  const target = displayTargetLabel(block.target);
+  const argumentsPreview = cleanText(block.argumentsPreview);
+
+  if (target) {
+    sections.push({ label: "目标", text: target });
+  }
+  if (argumentsPreview) {
+    sections.push({ label: "参数预览", text: argumentsPreview });
+  }
+  return sections.filter((section) => !isInternalToolWindowSection(section.label));
+}
+
 function toolWindowRoundKey(block: ToolProjectionBlock) {
   const sourceItemId = cleanText(block.sourceItemId);
   if (!sourceItemId) return "";
@@ -588,7 +602,7 @@ function toolWindowCommandLine(block: ToolProjectionBlock, sections: Array<{ lab
   const rawTool = cleanText(block.toolName || block.actionKind);
   const shellTool = isShellTool(block);
   const target = shellTool ? commandInvocationText(block) : firstSectionText(sections, "目标") || displayTargetLabel(block.target);
-  const params = firstSectionText(sections, "参数") || cleanText(block.argumentsPreview);
+  const params = firstSectionText(sections, "参数预览") || firstSectionText(sections, "参数") || cleanText(block.argumentsPreview);
   const explicitIsGeneric = isGenericToolText(explicit);
   const explicitUsesRawTool = rawTool
     && (sameCompactText(explicit, rawTool) || cleanText(explicit).toLowerCase().startsWith(`${rawTool.toLowerCase()} `));
@@ -607,16 +621,19 @@ function toolWindowOutputText(
   sections: Array<{ label: string; text: string }>,
 ) {
   const explicit = displayToolOutputText(block.output);
-  if (explicit) return explicit;
-  const observation = firstSectionText(sections, "观察")
-    || firstSectionText(sections, "错误")
-    || firstSectionText(sections, "详情");
-  if (observation) return observation;
-  return displayToolOutputText(block.detail);
+  if (explicit && !sectionHasSameText(sections, explicit)) return explicit;
+  const detail = displayToolOutputText(block.detail);
+  if (detail && !sectionHasSameText(sections, detail)) return detail;
+  return "";
 }
 
 function firstSectionText(sections: Array<{ label: string; text: string }>, label: string) {
   return sections.find((section) => section.label === label)?.text ?? "";
+}
+
+function sectionHasSameText(sections: Array<{ text: string }>, value: string) {
+  const normalized = compactText(value);
+  return Boolean(normalized) && sections.some((section) => compactText(section.text) === normalized);
 }
 
 function quoteCommandPart(value: string) {

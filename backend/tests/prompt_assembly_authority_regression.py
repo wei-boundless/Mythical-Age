@@ -221,17 +221,15 @@ def test_task_execution_cursor_does_not_duplicate_user_steers_or_runtime_control
     assert "pending_user_steers" not in task_state
     assert "runtime_control_signals" not in task_state
     assert "latest_runtime_control_signal" not in task_state
-    control_signal = current_state["runtime_control_signals"][0]
-    latest_control_signal = current_state["latest_runtime_control_signal"]
-    assert len(current_state["runtime_control_signals"]) == 1
-    assert control_signal["runtime_control_signal_ref"] == "sig:1"
-    assert control_signal["signal_kind"] == "continue"
-    assert "signal_id" not in control_signal
-    assert "kind" not in control_signal
-    assert latest_control_signal["runtime_control_signal_ref"] == "sig:1"
-    assert latest_control_signal["signal_kind"] == "continue"
-    assert "signal_id" not in latest_control_signal
-    assert "kind" not in latest_control_signal
+    assert "runtime_control_signals" not in current_state
+    assert "latest_runtime_control_signal" not in current_state
+    cursor = _payload_with_title(result.packet, "Task execution current delta cursor")["incremental_context_cursor"]
+    control_refs = cursor["current_invocation"]["runtime_control_refs"]
+    assert len(control_refs) == 1
+    assert control_refs[0]["event_ref"] == "sig:1"
+    assert control_refs[0]["signal_kind"] == "continue"
+    assert "signal_id" not in control_refs[0]
+    assert "kind" not in control_refs[0]
     assert user_steer["pending_user_steers"][0]["content"] == "Do not drop memory."
     assert user_steer_tail["steer_consumption_states"][0]["consumption_state"] == "pending"
     assert baseline["memory_contract"] == "baseline_plus_append_only_replay_plus_bounded_cursor"
@@ -264,8 +262,11 @@ def test_task_runtime_boundary_uses_protocol_refs_not_repeated_rule_text() -> No
     serialized = __import__("json").dumps(runtime_boundary, ensure_ascii=False)
 
     assert model_contract["protocol_ref"] == "action_schema_static"
+    assert model_contract["action_contract_ref"] == "action_schema_static.action_type"
     assert model_contract["json_action_contract_ref"] == "action_schema_static.json_action_shape_rules"
     assert service_surface["mounted_tools_ref"] == "tool_index_stable.available_tools"
+    assert "authorization_hash" not in serialized
+    assert "task_environment_id" not in serialized
     assert "task_entry_conditions" not in serialized
     assert "respond_requires_top_level_final_answer" not in serialized
     assert "\"mounted_tools\":" not in serialized

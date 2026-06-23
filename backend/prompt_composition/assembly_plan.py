@@ -18,6 +18,17 @@ from runtime.context_management.context_assembly import (
 STABLE_CACHE_ROLES = {"cacheable_prefix", "session_stable"}
 VOLATILE_CACHE_ROLES = {"volatile", "never_cache"}
 
+CONTEXT_APPEND_LAYER_NAMES = {
+    "append_only_runtime_evidence",
+    "attachment_context_index",
+    "current_turn_user_context",
+    "editor_context_index",
+    "evidence_index_cursor",
+    "file_evidence_cursor",
+    "runtime_memory_context",
+    "task_plan_context",
+}
+
 PREFIX_TIER_ORDER = {
     "provider_global": 100,
     "session": 200,
@@ -199,7 +210,7 @@ def _slot_from_source(source: PromptSource, *, provider_profile: dict[str, Any])
     source_cache_scope = classification.cache_scope
     layer = _layer_for_source(source, cache_role=cache_role, prefix_tier=prefix_tier)
     if classification.context_cache_section in {SEALED_CONTEXT_PREFIX, CONTEXT_APPEND}:
-        layer = "context_memory_append"
+        layer = _context_append_layer(layer)
     elif classification.context_cache_section == DYNAMIC_TAIL:
         layer = "dynamic_context_tail"
     elif classification.context_cache_section == STATIC_PREFIX and layer == "volatile":
@@ -250,6 +261,13 @@ def _slot_from_source(source: PromptSource, *, provider_profile: dict[str, Any])
         message_spec=dict(source.message_spec or {}),
         metadata=metadata,
     )
+
+
+def _context_append_layer(layer: str) -> str:
+    normalized = str(layer or "").strip()
+    if normalized in CONTEXT_APPEND_LAYER_NAMES:
+        return normalized
+    return "context_memory_append"
 
 
 def _layer_for_source(source: PromptSource, *, cache_role: str, prefix_tier: str) -> str:
@@ -320,8 +338,8 @@ def _layer_for_source(source: PromptSource, *, cache_role: str, prefix_tier: str
         "runtime_incremental_context_cursor",
     }:
         return "dynamic_context_tail"
-    if kind == "volatile_user":
-        return "user_editor_volatile"
+    if kind == "current_turn_user_context":
+        return "current_turn_user_context"
     if kind == "graph_node_completion_prefix":
         return "assistant_completion_prefix"
     if cache_role in VOLATILE_CACHE_ROLES or prefix_tier in {"volatile", "none"}:
@@ -337,7 +355,7 @@ def _dynamic_tier_for_source(source: PromptSource, *, cache_role: str, prefix_ti
             return "append_only_runtime_evidence"
         if kind == "runtime_memory_context":
             return "runtime_memory_context"
-        if kind in {"volatile_user", "single_agent_turn_user_steer_context", "user_steering_context_append"}:
+        if kind in {"current_turn_user_context", "single_agent_turn_user_steer_context", "user_steering_context_append"}:
             return "user_context_append"
         return "context_memory_append"
     if layer == "dynamic_context_tail":
@@ -388,7 +406,9 @@ def _dynamic_tier_for_source(source: PromptSource, *, cache_role: str, prefix_ti
         return "history_replay"
     if kind == "session_history_tail_context":
         return "dynamic_context_tail"
-    if kind in {"volatile_user", "semantic_compaction_request"}:
+    if kind == "current_turn_user_context":
+        return "user_context_append"
+    if kind == "semantic_compaction_request":
         return "user_editor_volatile"
     if kind == "runtime_memory_context" or source_kind == "runtime_memory_context":
         return "runtime_memory_context"

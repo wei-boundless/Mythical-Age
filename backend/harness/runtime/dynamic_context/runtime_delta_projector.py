@@ -109,23 +109,16 @@ def _task_execution_runtime_context_projection(
     agent_visible_runtime_projection: dict[str, Any],
     prompt_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    environment = dict(assembly_payload.get("task_environment") or {})
     tool_boundary = dict(agent_visible_runtime_projection.get("tool_boundary") or {})
     permission_boundary = dict(agent_visible_runtime_projection.get("permission_boundary") or {})
     model_decision_contract = dict(agent_visible_runtime_projection.get("model_decision_contract") or {})
     service_surface = dict(agent_visible_runtime_projection.get("service_surface") or {})
     execution_boundary = dict(agent_visible_runtime_projection.get("execution_boundary") or {})
-    show_environment = _prompt_policy_visible(
-        dict(prompt_policy or {}),
-        "runtime_environment_boundary_visibility",
-        default=True,
-    )
     return drop_empty(
         {
-            **({"task_environment_id": str(environment.get("environment_id") or "")} if show_environment else {}),
             "model_decision_contract": _task_execution_model_decision_cursor(model_decision_contract),
             "service_surface": _task_execution_service_surface_cursor(service_surface),
-            "execution_boundary": execution_boundary,
+            "execution_boundary": _task_execution_boundary_cursor(execution_boundary),
             "permission_scope": str(permission_boundary.get("permission_scope") or ""),
             "tool_boundary": drop_empty(
                 {
@@ -149,22 +142,27 @@ def _task_execution_model_decision_cursor(value: dict[str, Any]) -> dict[str, An
     return drop_empty(
         {
             "protocol_ref": "action_schema_static",
-            "semantic_actions": [
-                str(item)
-                for item in list(value.get("semantic_actions") or [])
-                if str(item)
-            ],
-            "control_actions": [
-                str(item)
-                for item in list(value.get("control_actions") or [])
-                if str(item)
-            ],
+            "action_contract_ref": "action_schema_static.action_type",
             "task_run_allowed": task_entry_rule.get("request_task_run_allowed")
             if isinstance(task_entry_rule.get("request_task_run_allowed"), bool)
             else None,
             "json_action_contract_ref": "action_schema_static.json_action_shape_rules",
             "feedback_contract_ref": "action_schema_static.public_response_obligation",
             "authority": "harness.runtime.model_decision_contract.cursor",
+        }
+    )
+
+
+def _task_execution_boundary_cursor(value: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(value or {})
+    return drop_empty(
+        {
+            "operation_gate_ref": "runtime.tooling.supervisor",
+            "permission_mode": str(payload.get("permission_mode") or ""),
+            "approval_required_operation_count": payload.get("approval_required_operation_count")
+            if isinstance(payload.get("approval_required_operation_count"), int)
+            else None,
+            "authority": str(payload.get("authority") or "harness.runtime.execution_boundary"),
         }
     )
 
@@ -267,7 +265,6 @@ def _operation_authorization_model_visible(authorization: dict[str, Any], *, pro
         "critical_denied_groups": sorted(denied_groups - allowed_groups),
         "omitted_denial_details": True,
         "summary_policy": "model_visible_minimal",
-        "authorization_hash": stable_json_hash(payload) if payload else "",
     }
 
 

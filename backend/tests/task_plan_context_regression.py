@@ -174,11 +174,13 @@ def test_task_execution_incremental_context_cursor_indexes_steer_and_runtime_sig
 
     kinds = [segment["kind"] for segment in result.packet.segment_plan["segments"]]
     cursor_segment = _segment_by_kind(result.packet, "incremental_context_cursor")
+    current_state_payload = _payload_with_title(result.packet, "Task execution current state")
     cursor_payload = _payload_with_title(result.packet, "Task execution current delta cursor")
     cursor = cursor_payload["incremental_context_cursor"]
     cursor_text = json.dumps(cursor, ensure_ascii=False)
-    event_refs = {item.get("event_ref") for item in cursor["new_events"]}
-    change_subjects = {item.get("subject") for item in cursor["changed_state"]}
+    event_refs = {item.get("event_ref") for item in cursor["current_invocation"]["new_event_refs"]}
+    runtime_control_refs = {item.get("event_ref") for item in cursor["current_invocation"]["runtime_control_refs"]}
+    task_state = current_state_payload["task_state"]
 
     assert kinds.index("volatile_task_state") < kinds.index("incremental_context_cursor")
     assert kinds.index("user_steering_context_append") < kinds.index("volatile_task_state")
@@ -187,15 +189,24 @@ def test_task_execution_incremental_context_cursor_indexes_steer_and_runtime_sig
     assert cursor_segment["cache_scope"] == "none"
     assert cursor_segment["prefix_tier"] == "volatile"
     assert dict(cursor_segment.get("metadata") or {})["cache_impact"] == "volatile_suffix_only"
-    assert cursor["frame_type"] == "incremental_context_frame"
+    assert cursor["frame_type"] == "dynamic_execution_tail"
     assert cursor["frame_scope"] == "task_execution"
-    assert cursor["append_only_replay"]["entry_refs"][0]["ref"] == "obs:read:1"
+    assert cursor["sealed_context_cursor"]["latest_task_state_replay_ref"] == "obs:read:1"
+    assert cursor["execution_contract"]["memory_source"] == "sealed_context_prefix+context_append"
+    assert cursor["execution_contract"]["tail_scope"] == "current_invocation_control_only"
     assert "steer:feedback:1" in event_refs
-    assert "rtsig:budget:1" in event_refs
+    assert "rtsig:budget:1" in runtime_control_refs
     assert "obs:read:1" in event_refs
-    assert "user_steering_context_append" in change_subjects
-    assert "runtime_control_signals" in change_subjects
-    assert "volatile_task_state" in change_subjects
+    assert "append_only_replay" not in cursor
+    assert "changed_state" not in cursor
+    assert "dynamic_context_refs" not in cursor
+    assert "payload_hash" not in cursor_text
+    assert "先处理新的验收要求" not in cursor_text
+    assert "Facts, memory" not in cursor_text
+    assert "latest_runtime_control_signal" not in current_state_payload
+    assert "runtime_control_signals" not in current_state_payload
+    assert "latest_tool_results" not in task_state
+    assert "current_facts" not in task_state
     assert historical_exact_text not in cursor_text
 
 
@@ -263,7 +274,8 @@ def test_task_execution_read_file_tool_memory_uses_refs_without_replaying_exact_
     assert exact_text not in frame_text
     assert replay_payload["task_state_replay_entry"]["content_range"]["path"] == "backend/example.py"
     assert replay_payload["task_state_replay_entry"]["content_range"]["exact_artifact_ref"] == "read_observation:example-content"
-    assert current_state_payload["task_state"]["latest_tool_results"][0]["cursor_code"] == "details_available_in_task_state_replay"
+    assert "latest_tool_results" not in current_state_payload["task_state"]
+    assert frame_payload["incremental_context_cursor"]["sealed_context_cursor"]["latest_task_state_replay_ref"] == "obs:read:structured"
 
 
 def _payload_with_title(packet, title: str) -> dict[str, object]:

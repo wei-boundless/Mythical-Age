@@ -104,8 +104,8 @@ def test_runtime_compiler_sanitizes_provider_protocol_history() -> None:
     assert result.packet.diagnostics["protocol_sanitizer"]["dropped_orphan_tool_outputs"] == 0
 
 
-def test_runtime_compiler_uses_provider_protocol_as_single_append_only_history_prefix() -> None:
-    compiler = RuntimeCompiler()
+def test_runtime_compiler_uses_provider_protocol_as_single_append_only_history_prefix(tmp_path) -> None:
+    compiler = RuntimeCompiler(base_dir=tmp_path / "backend")
     base_history = [
         {"role": "user", "content": "第一轮。", "message_id": "msg:user:1", "turn_id": "turn:1", "created_at": 1.0},
         {"role": "assistant", "content": "第一轮答复。", "message_id": "msg:assistant:1", "turn_id": "turn:1", "created_at": 4.0},
@@ -165,17 +165,62 @@ def test_runtime_compiler_uses_provider_protocol_as_single_append_only_history_p
     assert "session_history_entry" in first_kinds
     assert "session_history_entry" in second_kinds
 
-    first_stable = _stable_prefix_signature(first_segments)
-    second_stable = _stable_prefix_signature(second_segments)
-    assert first_stable == second_stable[: len(first_stable)]
+    first_historical_stable = _stable_prefix_signature(first_segments, exclude_kinds={"current_turn_user_context"})
+    second_historical_stable = _stable_prefix_signature(second_segments, exclude_kinds={"current_turn_user_context"})
+    assert first_historical_stable == second_historical_stable[: len(first_historical_stable)]
+
+    first_current = _segment_by_kind(first_segments, "current_turn_user_context")
+    second_current_segments = [item for item in second_segments if str(item.get("kind") or "") == "current_turn_user_context"]
+    second_current = second_current_segments[-1]
+    assert first_current["cache_role"] == "session_stable"
+    assert first_current["prefix_tier"] == "task"
+    assert dict(first_current["metadata"])["append_only_context_stream"] == "current_user_context"
+    assert dict(second_current["metadata"])["append_only_context_stream"] == "current_user_context"
+    assert len(second_current_segments) >= 2
+    assert dict(second_current_segments[0]["metadata"])["context_cache_section"] == "sealed_context_prefix"
+    assert dict(second_current["metadata"])["context_cache_section"] == "context_append"
+    assert _last_history_segment_index(first_segments) < first_segments.index(first_current)
+    assert _last_history_segment_index(second_segments) < second_segments.index(second_current)
+    assert first_segments.index(first_current) < _first_dynamic_tail_segment_index(first_segments)
+    assert second_segments.index(second_current) < _first_dynamic_tail_segment_index(second_segments)
 
 
-def _stable_prefix_signature(segments: list[dict]) -> list[tuple[str, str]]:
+def _stable_prefix_signature(segments: list[dict], *, exclude_kinds: set[str] | None = None) -> list[tuple[str, str]]:
+    excluded = set(exclude_kinds or set())
     result: list[tuple[str, str]] = []
     for segment in segments:
+        if str(segment.get("kind") or "") in excluded:
+            continue
         if str(segment.get("cache_role") or "") not in {"cacheable_prefix", "session_stable"}:
             continue
         if str(segment.get("prefix_tier") or "") in {"volatile", "none"}:
             continue
         result.append((str(segment.get("kind") or ""), str(segment.get("content_hash") or "")))
     return result
+
+
+def _segment_by_kind(segments: list[dict], kind: str) -> dict:
+    for segment in segments:
+        if str(segment.get("kind") or "") == kind:
+            return segment
+    raise AssertionError(f"missing segment kind: {kind}")
+
+
+def _last_history_segment_index(segments: list[dict]) -> int:
+    indexes = [
+        index
+        for index, segment in enumerate(segments)
+        if str(segment.get("kind") or "") in {"provider_protocol_history", "session_history_entry"}
+    ]
+    assert indexes
+    return max(indexes)
+
+
+def _first_dynamic_tail_segment_index(segments: list[dict]) -> int:
+    for index, segment in enumerate(segments):
+        if str(segment.get("cache_role") or "") == "volatile" or str(segment.get("prefix_tier") or "") in {
+            "volatile",
+            "none",
+        }:
+            return index
+    return len(segments)

@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from harness.runtime.compiler import _fixed_context_package_message_specs
+from harness.loop.single_agent_turn import (
+    _single_agent_turn_followup_message_spec,
+    _validate_single_agent_followup_tail_order,
+)
 from prompt_composition import build_model_message_spec
 from runtime.context_management import assign_sealed_append_order
-from runtime.context_management.context_assembly import classify_context_spec
+from runtime.context_management.context_assembly import classify_context_spec, is_sealable_context_spec
 from runtime.model_gateway.model_request import ModelRequestBuilder
 from runtime.model_gateway.provider_payload import _short_schema_ref
 from runtime.prompt_accounting.cache_planner import PromptCachePlanner
@@ -27,12 +33,19 @@ def _spec(*, kind: str, content: str, cache_role: str = "volatile", cache_scope:
 
 def test_context_classifier_separates_memory_context_from_dynamic_tail() -> None:
     runtime_memory = classify_context_spec({"kind": "runtime_memory_context", "cache_role": "volatile"})
-    user_request = classify_context_spec({"kind": "volatile_user", "cache_role": "volatile"})
+    user_request = classify_context_spec({"kind": "current_turn_user_context", "cache_role": "volatile"})
+    action_contract = classify_context_spec({"kind": "single_agent_turn_followup_action_contract", "cache_role": "session_stable"})
     lifecycle = classify_context_spec({"kind": "lifecycle_runtime_guidance", "cache_role": "volatile"})
 
     assert runtime_memory.context_cache_section == "context_append"
     assert runtime_memory.cache_role == "session_stable"
     assert user_request.context_cache_section == "context_append"
+    assert user_request.cache_role == "session_stable"
+    assert user_request.prefix_tier == "task"
+    assert is_sealable_context_spec({"kind": "current_turn_user_context", "cache_role": "volatile"}) is True
+    assert action_contract.context_cache_section == "dynamic_tail"
+    assert action_contract.memory_commit_policy == "never_commit"
+    assert is_sealable_context_spec({"kind": "single_agent_turn_followup_action_contract", "cache_role": "session_stable"}) is False
     assert lifecycle.context_cache_section == "dynamic_tail"
     assert lifecycle.cache_role == "volatile"
 
@@ -44,7 +57,7 @@ def test_fixed_context_order_seals_previous_context_and_keeps_dynamic_tail_last(
         _spec(kind="global_static", content="Global protocol", cache_role="cacheable_prefix", cache_scope="global"),
         _spec(kind="lifecycle_runtime_guidance", content="Lifecycle now"),
         _spec(kind="runtime_memory_context", content="Memory\n{\"fact\":\"remember\"}"),
-        _spec(kind="volatile_user", content="Current request\n{\"text\":\"fix cache\"}", cache_role="volatile"),
+        _spec(kind="current_turn_user_context", content="Current request\n{\"text\":\"fix cache\"}", cache_role="volatile"),
         _spec(kind="read_evidence_context", content="Evidence ref\n{\"ref\":\"obs:1\"}", cache_role="session_stable", cache_scope="task"),
     ]
 
@@ -56,7 +69,7 @@ def test_fixed_context_order_seals_previous_context_and_keeps_dynamic_tail_last(
     )
     first_kinds = [item["kind"] for item in first]
     assert first_kinds[-1] == "lifecycle_runtime_guidance"
-    assert first_kinds[:4] == ["global_static", "runtime_memory_context", "volatile_user", "read_evidence_context"]
+    assert first_kinds[:4] == ["global_static", "runtime_memory_context", "current_turn_user_context", "read_evidence_context"]
     assert [dict(item["metadata"]).get("context_cache_section") for item in first[1:4]] == [
         "context_append",
         "context_append",
@@ -75,6 +88,122 @@ def test_fixed_context_order_seals_previous_context_and_keeps_dynamic_tail_last(
         "sealed_context_prefix",
     ]
     assert all(dict(item["metadata"]).get("sealed_accumulated_context_order", 0) > 0 for item in second[1:4])
+
+
+def test_sealed_context_materializes_previous_memory_when_current_context_changes(tmp_path) -> None:
+    backend_dir = tmp_path / "backend"
+    backend_dir.mkdir()
+    first = _fixed_context_package_message_specs(
+        [
+            _spec(kind="global_static", content="Global protocol", cache_role="cacheable_prefix", cache_scope="global"),
+            _spec(kind="runtime_memory_context", content="Memory\n{\"fact\":\"first\"}"),
+            _spec(kind="lifecycle_runtime_guidance", content="Lifecycle now"),
+        ],
+        invocation_kind="task_execution",
+        sealed_context_scope="taskrun:sealed-order",
+        storage_root=backend_dir,
+    )
+    assert [item["kind"] for item in first] == ["global_static", "runtime_memory_context", "lifecycle_runtime_guidance"]
+
+    second = _fixed_context_package_message_specs(
+        [
+            _spec(kind="global_static", content="Global protocol", cache_role="cacheable_prefix", cache_scope="global"),
+            _spec(kind="runtime_memory_context", content="Memory\n{\"fact\":\"second\"}"),
+            _spec(kind="task_state_replay_entry", content="Replay\n{\"ref\":\"obs:1\"}", cache_role="session_stable", cache_scope="task"),
+            _spec(kind="lifecycle_runtime_guidance", content="Lifecycle now"),
+        ],
+        invocation_kind="task_execution",
+        sealed_context_scope="taskrun:sealed-order",
+        storage_root=backend_dir,
+    )
+    second_context = second[1:-1]
+
+    assert [item["content"] for item in second_context] == [
+        "Memory\n{\"fact\":\"first\"}",
+        "Memory\n{\"fact\":\"second\"}",
+        "Replay\n{\"ref\":\"obs:1\"}",
+    ]
+    assert [dict(item["metadata"]).get("context_cache_section") for item in second_context] == [
+        "sealed_context_prefix",
+        "context_append",
+        "context_append",
+    ]
+
+    third = _fixed_context_package_message_specs(
+        [
+            _spec(kind="global_static", content="Global protocol", cache_role="cacheable_prefix", cache_scope="global"),
+            _spec(kind="runtime_memory_context", content="Memory\n{\"fact\":\"second\"}"),
+            _spec(kind="task_state_replay_entry", content="Replay\n{\"ref\":\"obs:1\"}", cache_role="session_stable", cache_scope="task"),
+            _spec(kind="task_state_replay_entry", content="Replay\n{\"ref\":\"obs:2\"}", cache_role="session_stable", cache_scope="task"),
+            _spec(kind="lifecycle_runtime_guidance", content="Lifecycle now"),
+        ],
+        invocation_kind="task_execution",
+        sealed_context_scope="taskrun:sealed-order",
+        storage_root=backend_dir,
+    )
+    third_context = third[1:-1]
+
+    assert [item["content"] for item in third_context] == [
+        "Memory\n{\"fact\":\"first\"}",
+        "Memory\n{\"fact\":\"second\"}",
+        "Replay\n{\"ref\":\"obs:1\"}",
+        "Replay\n{\"ref\":\"obs:2\"}",
+    ]
+    assert [dict(item["metadata"]).get("context_cache_section") for item in third_context] == [
+        "sealed_context_prefix",
+        "sealed_context_prefix",
+        "sealed_context_prefix",
+        "context_append",
+    ]
+
+
+def test_tool_followup_action_contract_is_dynamic_tail_not_context_memory() -> None:
+    spec = _single_agent_turn_followup_message_spec(
+        {
+            "role": "user",
+            "content": "你是正在根据刚才工具观察决定下一步的 coding agent。\n只决定本轮下一步。",
+        },
+        tool_iteration=3,
+    )
+
+    classification = classify_context_spec(spec)
+    assert spec["kind"] == "single_agent_turn_followup_action_contract"
+    assert spec["cache_role"] == "volatile"
+    assert spec["prefix_tier"] == "volatile"
+    assert classification.context_cache_section == "dynamic_tail"
+    assert classification.memory_commit_policy == "never_commit"
+    assert is_sealable_context_spec(spec) is False
+
+
+def test_followup_segment_plan_rejects_context_append_after_dynamic_tail() -> None:
+    with pytest.raises(RuntimeError, match="single_agent_followup_context_after_dynamic_tail"):
+        _validate_single_agent_followup_tail_order(
+            {
+                "segments": [
+                    {
+                        "ordinal": 1,
+                        "kind": "global_static",
+                        "cache_role": "cacheable_prefix",
+                        "cache_scope": "global",
+                        "prefix_tier": "provider_global",
+                    },
+                    {
+                        "ordinal": 2,
+                        "kind": "single_agent_turn_followup_action_contract",
+                        "cache_role": "volatile",
+                        "cache_scope": "none",
+                        "prefix_tier": "volatile",
+                    },
+                    {
+                        "ordinal": 3,
+                        "kind": "single_agent_turn_followup_message",
+                        "cache_role": "session_stable",
+                        "cache_scope": "task",
+                        "prefix_tier": "task",
+                    },
+                ]
+            }
+        )
 
 
 def test_sealed_receipt_reports_hash_change_as_structured_recovery(tmp_path) -> None:
@@ -148,7 +277,7 @@ def test_provider_accounting_excludes_sidecar_and_current_context_append_from_hi
             },
             {
                 "segment_id": "seg:user-append",
-                "kind": "volatile_user",
+                "kind": "current_turn_user_context",
                 "ordinal": 3,
                 "model_message_index": 2,
                 "model_message_role": "user",

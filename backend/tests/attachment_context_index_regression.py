@@ -44,7 +44,7 @@ def test_single_turn_attachment_context_index_is_not_user_message_text() -> None
     current_request_payload = _payload_with_title(result.packet, "Single agent turn current request")
     current_request_text = json.dumps(current_request_payload, ensure_ascii=False)
 
-    assert kinds.index("attachment_context_index") < kinds.index("volatile_user")
+    assert kinds.index("attachment_context_index") < kinds.index("current_turn_user_context")
     assert attachment_segment["metadata"]["prompt_assembly_layer"] == "attachment_context_index"
     assert attachment_payload["attachment_context_index"][0]["attachment_id"] == "att:image:1"
     assert attachment_payload["attachment_context_index"][0]["content_sha256"] == "sha256:abc123"
