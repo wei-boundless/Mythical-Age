@@ -92,6 +92,8 @@ def message_spec_content_source(*, kind: str, cache_role: str, source_ref: str) 
         return "harness.runtime.dynamic_context.attachment_context_index"
     if normalized_kind == "evidence_index_cursor":
         return "harness.runtime.dynamic_context.evidence_index_cursor"
+    if normalized_kind == "read_evidence_context":
+        return "harness.runtime.dynamic_context.read_evidence_projector"
     if normalized_kind == "task_plan_context":
         return "harness.runtime.dynamic_context.task_plan_context"
     if normalized_kind == "current_editor_evidence_delta":

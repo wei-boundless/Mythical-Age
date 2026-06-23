@@ -44,6 +44,7 @@ class ProviderPayloadManifest:
     provider: str
     model: str
     segments: tuple[ProviderPayloadSegment, ...] = ()
+    transport_contract: dict[str, Any] = field(default_factory=dict)
     cache_boundary: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "runtime.model_gateway.provider_payload.manifest"
@@ -55,6 +56,7 @@ class ProviderPayloadManifest:
             "provider": self.provider,
             "model": self.model,
             "segments": [segment.to_dict() for segment in self.segments],
+            "transport_contract": dict(self.transport_contract),
             "cache_boundary": dict(self.cache_boundary),
             "diagnostics": dict(self.diagnostics),
             "authority": self.authority,
@@ -217,10 +219,16 @@ def build_provider_payload_manifest(
         request_id=str(request_id or ""),
         segments=segments,
     )
+    transport_contract = _transport_stable_contract(
+        provider=str(provider or ""),
+        model=str(model or ""),
+        segments=ordered_segments,
+    )
     seed = {
         "request_id": str(request_id or ""),
         "provider": str(provider or ""),
         "model": str(model or ""),
+        "transport_contract_hash": str(transport_contract.get("contract_hash") or ""),
         "segments": [
             {
                 "kind": segment.kind,
@@ -239,10 +247,16 @@ def build_provider_payload_manifest(
         provider=str(provider or ""),
         model=str(model or ""),
         segments=ordered_segments,
-        cache_boundary=_cache_boundary(ordered_segments),
+        transport_contract=transport_contract,
+        cache_boundary=_cache_boundary(
+            ordered_segments,
+            transport_contract=transport_contract,
+        ),
         diagnostics={
             "message_segment_count": sum(1 for segment in ordered_segments if segment.transport_location == "messages"),
             "tool_segment_count": sum(1 for segment in ordered_segments if segment.transport_location == "tools"),
+            "transport_contract_ref": str(transport_contract.get("contract_id") or ""),
+            "transport_contract_hash": str(transport_contract.get("contract_hash") or ""),
             "tool_catalog_manifest_ref": str(dict(tool_catalog_manifest or {}).get("manifest_id") or ""),
             "authority": "runtime.model_gateway.provider_payload.builder",
         },
@@ -315,6 +329,8 @@ def _tool_schema_cache_profile(
             "provider_payload_transport_location": "tools",
             "provider_payload_sidecar_component": True,
             "provider_payload_prefix_component": False,
+            "transport_contract_component": True,
+            "transport_contract_role": "stable_provider_tool_schema",
             "transport_sidecar_role": "native_tool_binding_schema",
             "sidecar_drift_status": "matched",
             "message_prefix_cacheable": False,
@@ -342,6 +358,8 @@ def _native_tool_binding_schema_never_cache(reason: str, **metadata: Any) -> dic
             "provider_payload_transport_location": "tools",
             "provider_payload_sidecar_component": True,
             "provider_payload_prefix_component": False,
+            "transport_contract_component": True,
+            "transport_contract_role": "stable_provider_tool_schema_unvalidated",
             "transport_sidecar_role": "native_tool_binding_schema",
             "sidecar_drift_status": _native_tool_sidecar_drift_status(reason),
             "message_prefix_cacheable": False,
@@ -422,7 +440,13 @@ def _short_schema_ref(schema: Any) -> str:
     return "sha256:" + digest.removeprefix("sha256:")[:10]
 
 
-def _cache_boundary(segments: tuple[ProviderPayloadSegment, ...]) -> dict[str, Any]:
+def _cache_boundary(
+    segments: tuple[ProviderPayloadSegment, ...],
+    *,
+    transport_contract: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    transport = dict(transport_contract or {})
+    transport_contract_hash = str(transport.get("contract_hash") or "")
     stable_message_prefix = _contiguous_stable_message_prefix(segments)
     stable_tool_catalog_segments = [
         segment
@@ -431,7 +455,11 @@ def _cache_boundary(segments: tuple[ProviderPayloadSegment, ...]) -> dict[str, A
         and is_cache_eligible_prefix(cache_role=segment.cache_role, prefix_tier=segment.prefix_tier)
     ]
     tier_prefixes = {
-        tier: _tier_prefix_diagnostics(segments, tier=tier)
+        tier: _tier_prefix_diagnostics(
+            segments,
+            tier=tier,
+            transport_contract_hash=transport_contract_hash,
+        )
         for tier in ("provider_global", "session", "task")
     }
     selected_tier, selected_prefix = _selected_tier_prefix(tier_prefixes)
@@ -448,10 +476,20 @@ def _cache_boundary(segments: tuple[ProviderPayloadSegment, ...]) -> dict[str, A
     return {
         "selected_prefix_key_tier": selected_tier,
         "provider_payload_prefix_hash": str(selected_prefix.get("provider_payload_prefix_hash") or ""),
+        "provider_payload_message_prefix_hash": str(selected_prefix.get("message_prefix_hash") or ""),
+        "transport_contract_ref": str(transport.get("contract_id") or ""),
+        "transport_contract_hash": transport_contract_hash,
+        "stable_transport_contract_hash": transport_contract_hash,
+        "transport_contract_component_count": int(transport.get("component_count") or 0),
+        "transport_contract_components": list(transport.get("components") or []),
         "selected_boundary_segment_id": str(selected_prefix.get("boundary_segment_id") or ""),
         "stable_segment_count": len(stable_prefix_segments),
         "stable_segment_hash": str(selected_prefix.get("provider_payload_prefix_hash") or ""),
         "stable_message_prefix_hash": _segments_hash(stable_message_prefix),
+        "stable_message_prefix_physical_hash": _physical_prefix_hash(
+            transport_contract_hash=transport_contract_hash,
+            message_prefix_hash=_segments_hash(stable_message_prefix),
+        ),
         "stable_message_prefix_segment_count": len(stable_message_prefix),
         "tool_catalog_hash": _segments_hash(tool_segments),
         "stable_tool_catalog_hash": _segments_hash(stable_tool_catalog_segments),
@@ -525,13 +563,24 @@ def _provider_prefix_segments_for_tier(
     return result
 
 
-def _tier_prefix_diagnostics(segments: tuple[ProviderPayloadSegment, ...], *, tier: str) -> dict[str, Any]:
+def _tier_prefix_diagnostics(
+    segments: tuple[ProviderPayloadSegment, ...],
+    *,
+    tier: str,
+    transport_contract_hash: str = "",
+) -> dict[str, Any]:
     prefix_segments = _provider_prefix_segments_for_tier(segments, tier=tier)
     message_segments = [segment for segment in prefix_segments if segment.transport_location == "messages"]
     tool_segments = [segment for segment in prefix_segments if segment.transport_location == "tools"]
     boundary = prefix_segments[-1] if prefix_segments else None
+    message_prefix_hash = _segments_hash(prefix_segments)
     return {
-        "provider_payload_prefix_hash": _segments_hash(prefix_segments),
+        "provider_payload_prefix_hash": _physical_prefix_hash(
+            transport_contract_hash=transport_contract_hash,
+            message_prefix_hash=message_prefix_hash,
+        ),
+        "provider_payload_message_prefix_hash": message_prefix_hash,
+        "transport_contract_hash": str(transport_contract_hash or ""),
         "message_prefix_hash": _segments_hash(message_segments),
         "tool_prefix_hash": _segments_hash(tool_segments),
         "segment_count": len(prefix_segments),
@@ -590,6 +639,88 @@ def _segments_hash(segments: list[ProviderPayloadSegment]) -> str:
     if not segments:
         return ""
     return _stable_text_hash("|".join(segment.content_hash for segment in segments))
+
+
+def _transport_stable_contract(
+    *,
+    provider: str,
+    model: str,
+    segments: tuple[ProviderPayloadSegment, ...],
+) -> dict[str, Any]:
+    components: list[dict[str, Any]] = []
+    for segment in sorted(tuple(segments or ()), key=lambda item: item.ordinal):
+        if segment.transport_location == "messages":
+            continue
+        metadata = dict(segment.metadata or {})
+        components.append(
+            {
+                "kind": segment.kind,
+                "transport_location": segment.transport_location,
+                "source_ref": segment.source_ref,
+                "content_hash": segment.content_hash,
+                "byte_length": int(segment.byte_length or 0),
+                "cache_role": segment.cache_role,
+                "prefix_tier": segment.prefix_tier,
+                "transport_contract_component": bool(
+                    metadata.get("transport_contract_component") is not False
+                ),
+                "transport_contract_role": str(
+                    metadata.get("transport_contract_role")
+                    or _transport_contract_role(segment)
+                ),
+                "sidecar_drift_status": str(metadata.get("sidecar_drift_status") or ""),
+            }
+        )
+    seed = {
+        "provider": str(provider or ""),
+        "model": str(model or ""),
+        "components": components,
+    }
+    contract_hash = _stable_text_hash(canonical_json(seed))
+    return {
+        "contract_id": "transportcontract:" + contract_hash.removeprefix("sha256:")[:16],
+        "contract_hash": contract_hash,
+        "provider": str(provider or ""),
+        "model": str(model or ""),
+        "component_count": len(components),
+        "components": components,
+        "tool_schema_hash": _segments_hash([segment for segment in segments if segment.transport_location == "tools"]),
+        "cache_sensitive_params_hash": _segments_hash(
+            [
+                segment
+                for segment in segments
+                if segment.transport_location in {"request_params", "tool_call_options", "response_format"}
+            ]
+        ),
+        "authority": "runtime.model_gateway.provider_payload.transport_stable_contract",
+    }
+
+
+def _transport_contract_role(segment: ProviderPayloadSegment) -> str:
+    location = str(segment.transport_location or "")
+    if location == "tools":
+        return "stable_provider_tool_schema"
+    if location == "tool_call_options":
+        return "stable_tool_binding_options"
+    if location == "response_format":
+        return "stable_response_format"
+    if location == "request_params":
+        return "stable_provider_params"
+    return "stable_transport_component"
+
+
+def _physical_prefix_hash(*, transport_contract_hash: str, message_prefix_hash: str) -> str:
+    message_hash = str(message_prefix_hash or "")
+    if not message_hash:
+        return ""
+    return _stable_text_hash(
+        canonical_json(
+            {
+                "transport_contract_hash": str(transport_contract_hash or ""),
+                "message_prefix_hash": message_hash,
+            }
+        )
+    )
 
 
 def _segment_id(request_id: str, ordinal: int, kind: Any, payload: str) -> str:

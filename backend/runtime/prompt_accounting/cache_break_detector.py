@@ -207,6 +207,10 @@ def _changed_payload_reason(
         _diag_value(previous_diag, "section_fingerprint") != _diag_value(current_diag, "section_fingerprint")
     ):
         return "prompt_section_fingerprint_changed"
+    if _diag_value(previous_diag, "stable_transport_contract_hash") != _diag_value(current_diag, "stable_transport_contract_hash"):
+        return "transport_contract_changed"
+    if _diag_value(previous_diag, "transport_contract_hash") != _diag_value(current_diag, "transport_contract_hash"):
+        return "transport_contract_changed"
     if _diag_value(previous_diag, "stable_message_prefix_hash") != _diag_value(current_diag, "stable_message_prefix_hash"):
         return "stable_message_prefix_changed"
     if _diag_value(previous_diag, "tool_catalog_hash") != _diag_value(current_diag, "tool_catalog_hash"):
@@ -237,7 +241,11 @@ def _provider_payload_diagnostics(
     current_diag = dict(current.diagnostics or {})
     keys = (
         "provider_payload_prefix_hash",
+        "provider_payload_message_prefix_hash",
         "provider_payload_prefix_key_tier",
+        "transport_contract_hash",
+        "stable_transport_contract_hash",
+        "transport_contract_ref",
         "stable_message_prefix_hash",
         "tool_catalog_hash",
         "stable_tool_catalog_hash",

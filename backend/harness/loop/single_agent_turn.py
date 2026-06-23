@@ -58,6 +58,7 @@ from harness.runtime.sandbox_artifacts import (
 )
 from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_scope
 from runtime.cache_manager import DEFAULT_SANDBOX_CACHE_TTL_SECONDS, runtime_cache_manager_for_host
+from runtime.context_management import assign_sealed_append_order
 from runtime.prompt_accounting.serializer import normalize_messages
 from runtime.prompt_accounting import ContextUsageMeter
 from runtime.model_gateway.assistant_stream_frame import (
@@ -2485,7 +2486,7 @@ async def run_single_agent_turn(
                 **dict(followup_prompt_manifest or {}),
                 "segment_plan_ref": str(followup_segment_plan.get("segment_plan_id") or ""),
                 "append_only_followup_order": True,
-                "physical_message_order": "preserve_transcript_append_dynamic_tail",
+                "physical_message_order": "stable_append_only_context_then_dynamic_tail",
             }
             response = None
             async for model_event in _invoke_single_turn_model_with_stream_events(
@@ -2513,9 +2514,9 @@ async def run_single_agent_turn(
                 capture_assistant_stream_event(model_event)
                 yield model_event
             model_messages = _sanitize_model_messages(
-                followup_context_messages,
+                followup_invocation_messages,
                 turn_id=turn_id,
-                source="harness.loop.single_agent_turn.tool_followup_accumulated_context",
+                source="harness.loop.single_agent_turn.tool_followup_full_invocation_context",
             )
         if isinstance(response, dict) and response.get("type") == "error":
             if runtime_host is not None and turn_run is not None:
@@ -6310,9 +6311,8 @@ def _single_agent_turn_followup_message_specs(
     model_messages: list[dict[str, Any]],
     tool_iteration: int,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-    prefix_locked_base_plan = _tool_followup_prefix_locked_base_segment_plan(dict(base_segment_plan or {}))
+    prefix_locked_base_plan = dict(base_segment_plan or {})
     base_segments = _segment_plan_segments_by_message_index(prefix_locked_base_plan)
-    dynamic_tail_segments_by_hash = _replaceable_dynamic_tail_segments_by_hash(dict(base_segment_plan or {}))
     normalized_messages = normalize_messages(
         _sanitize_model_messages(
             model_messages,
@@ -6324,17 +6324,23 @@ def _single_agent_turn_followup_message_specs(
         base_segment_plan=prefix_locked_base_plan,
         model_messages=list(normalized_messages or []),
     )
+    dynamic_tail_segments_by_hash = _dynamic_tail_segments_by_hash(prefix_locked_base_plan)
     current_tool_round_indexes = _current_tool_round_message_indexes(normalized_messages)
     specs: list[dict[str, Any]] = []
     for index, message in enumerate(normalized_messages):
         base = dict(base_segments.get(index) or {})
+        base_from_hash = False
+        if base and _followup_base_segment_conflicts_with_message_shape(base, message):
+            base = {}
         if not base:
-            base = _pop_matching_replaceable_dynamic_tail_segment(
-                dynamic_tail_segments_by_hash,
-                message=message,
-            )
+            base = _pop_matching_dynamic_tail_segment(dynamic_tail_segments_by_hash, message=message)
+            base_from_hash = bool(base)
         if base:
-            prefix_lock_violation = prefix_lock_violation_for_index(prefix_lock_report, index)
+            prefix_lock_violation = (
+                {}
+                if base_from_hash and _is_tool_followup_current_dynamic_tail_segment(base)
+                else prefix_lock_violation_for_index(prefix_lock_report, index)
+            )
             specs.append(
                 _single_agent_turn_followup_base_message_spec(
                     base,
@@ -6360,12 +6366,7 @@ def _seal_single_agent_followup_segment_plan(segment_plan: dict[str, Any], *, pa
     if not segments:
         return payload
     scope = _single_agent_sealed_context_scope(packet_id)
-    receipt = _load_single_agent_sealed_receipt(scope)
-    receipt_items = dict(receipt.get("items") or {}) if isinstance(receipt.get("items"), dict) else {}
-    next_order = _safe_int_value(receipt.get("next_order")) or (
-        max([_safe_int_value(value) for value in receipt_items.values()] or [0]) + 1
-    )
-    changed = False
+    storage_root = Path(__file__).resolve().parents[2]
     sealed_segments: list[dict[str, Any]] = []
     for segment in segments:
         metadata = dict(segment.get("metadata") or {})
@@ -6376,14 +6377,14 @@ def _seal_single_agent_followup_segment_plan(segment_plan: dict[str, Any], *, pa
             sealed_segments.append(segment)
             continue
         key = _single_agent_sealed_segment_key(segment)
-        existing_order = _safe_int_value(receipt_items.get(key))
-        order_source = "receipt"
-        if existing_order <= 0:
-            existing_order = next_order
-            receipt_items[key] = existing_order
-            next_order += 1
-            changed = True
-            order_source = "new_append" if receipt.get("items") else "bootstrap"
+        assignment = assign_sealed_append_order(
+            storage_root=storage_root,
+            scope=scope,
+            item_key=key,
+            receipt_authority="harness.loop.single_agent_turn.sealed_append_only_context",
+        )
+        existing_order = _safe_int_value(assignment.get("order"))
+        order_source = str(assignment.get("order_source") or "receipt")
         segment["metadata"] = {
             **metadata,
             "sealed_accumulated_context_package": "append_only_context",
@@ -6391,19 +6392,9 @@ def _seal_single_agent_followup_segment_plan(segment_plan: dict[str, Any], *, pa
             "sealed_accumulated_context_item_key": key,
             "sealed_accumulated_context_order": existing_order,
             "sealed_accumulated_context_order_source": order_source,
+            "sealed_accumulated_context_authority": str(assignment.get("authority") or ""),
         }
         sealed_segments.append(segment)
-    if changed:
-        _save_single_agent_sealed_receipt(
-            scope=scope,
-            receipt={
-                "authority": "harness.loop.single_agent_turn.sealed_append_only_context_receipt",
-                "version": 1,
-                "scope": scope,
-                "next_order": next_order,
-                "items": receipt_items,
-            },
-        )
     payload["segments"] = sealed_segments
     return payload
 
@@ -6430,54 +6421,12 @@ def _single_agent_sealed_context_scope(packet_id: str) -> str:
 
 
 def _single_agent_sealed_segment_key(segment: dict[str, Any]) -> str:
-    seed = {
-        "kind": str(segment.get("kind") or ""),
-        "source_ref": str(segment.get("source_ref") or ""),
-        "message_hash": str(segment.get("model_message_hash") or segment.get("content_hash") or ""),
-    }
-    return _stable_payload_hash(seed)
-
-
-def _load_single_agent_sealed_receipt(scope: str) -> dict[str, Any]:
-    path = _single_agent_sealed_receipt_path(scope)
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return dict(payload or {}) if isinstance(payload, dict) else {}
-
-
-def _save_single_agent_sealed_receipt(*, scope: str, receipt: dict[str, Any]) -> None:
-    path = _single_agent_sealed_receipt_path(scope)
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(_json_stable_value(receipt), ensure_ascii=False, sort_keys=True, separators=(",", ":")),
-            encoding="utf-8",
-        )
-    except Exception:
-        logger.debug("Failed to save single-agent sealed context receipt", exc_info=True)
-
-
-def _single_agent_sealed_receipt_path(scope: str) -> Path:
-    backend_dir = Path(__file__).resolve().parents[2]
-    project_root = ProjectLayout.from_backend_dir(backend_dir).project_root.resolve()
-    return (
-        project_root
-        / "storage"
-        / "runtime_state"
-        / "context_receipts"
-        / "sealed_append_only_context"
-        / f"{_safe_receipt_filename(scope)}.json"
+    return _stable_payload_hash(
+        {
+            "normalization": "provider_visible_message_v1",
+            "model_message_hash": str(segment.get("model_message_hash") or segment.get("content_hash") or ""),
+        }
     )
-
-
-def _safe_receipt_filename(value: str) -> str:
-    text = str(value or "").strip()
-    chars = [char if (char.isalnum() or char in {"-", "_", "."}) else "_" for char in text]
-    return "".join(chars).strip("._")[:180] or "default"
 
 
 def _safe_int_value(value: Any) -> int:
@@ -6495,7 +6444,7 @@ def _is_tool_followup_action_contract_message(message: dict[str, Any]) -> bool:
     return "你是正在根据刚才工具观察决定下一步的 coding agent。" in content
 
 
-_TOOL_FOLLOWUP_REPLACEABLE_DYNAMIC_TAIL_KINDS = {
+_TOOL_FOLLOWUP_CURRENT_DYNAMIC_TAIL_KINDS = {
     "active_skills",
     "attachment_context_index",
     "bound_task_runtime_context",
@@ -6513,7 +6462,7 @@ _TOOL_FOLLOWUP_REPLACEABLE_DYNAMIC_TAIL_KINDS = {
     "skill_candidates",
     "task_plan_context",
     "task_runtime_boundary_dynamic",
-    "tool_observations",
+    "read_evidence_injection",
     "user_steering_updates",
     "volatile_runtime_state",
     "volatile_task_state",
@@ -6525,13 +6474,15 @@ _FOLLOWUP_BASE_ACCUMULATED_CONTEXT_KINDS = {
     "accumulated_context_boundary",
     "incremental_context_frame",
     "provider_protocol_history",
-    "read_evidence_injection",
+    "read_evidence_context",
     "session_history",
     "session_history_context",
     "session_history_entry",
     "single_agent_turn_followup_message",
     "single_agent_turn_tool_call",
     "single_agent_turn_tool_observation",
+    "task_state_replay_entry",
+    "tool_observations",
 }
 
 
@@ -6550,19 +6501,23 @@ def _tool_followup_context_layers(
     segment_plan: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     base_segments = _segment_plan_segments_by_message_index(dict(segment_plan or {}))
+    dynamic_tail_segments_by_hash = _dynamic_tail_segments_by_hash(dict(segment_plan or {}))
     accumulated: list[dict[str, Any]] = []
     dynamic_tail: list[dict[str, Any]] = []
     for index, message in enumerate([dict(item) for item in list(messages or []) if isinstance(item, dict)]):
-        if _is_tool_followup_context_boundary_message(message):
-            accumulated.append(message)
-            continue
         if _is_tool_followup_action_contract_message(message):
+            continue
+        if _is_tool_followup_context_boundary_message(message):
             continue
         if _is_tool_followup_accumulated_message_by_shape(message):
             accumulated.append(message)
             continue
         segment = dict(base_segments.get(index) or {})
-        if _is_tool_followup_replaceable_dynamic_tail_segment(segment):
+        if segment and _followup_base_segment_conflicts_with_message_shape(segment, message):
+            segment = {}
+        if not segment:
+            segment = _pop_matching_dynamic_tail_segment(dynamic_tail_segments_by_hash, message=message)
+        if _is_tool_followup_current_dynamic_tail_segment(segment):
             dynamic_tail.append(message)
             continue
         accumulated.append(message)
@@ -6595,30 +6550,20 @@ def _segment_plan_segments_by_message_index(segment_plan: dict[str, Any]) -> dic
     return result
 
 
-def _tool_followup_prefix_locked_base_segment_plan(base_segment_plan: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(base_segment_plan or {})
-    payload["segments"] = [
-        dict(segment)
-        for segment in list(payload.get("segments") or [])
-        if isinstance(segment, dict) and not _is_tool_followup_replaceable_dynamic_tail_segment(dict(segment))
-    ]
-    return payload
-
-
-def _replaceable_dynamic_tail_segments_by_hash(segment_plan: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+def _dynamic_tail_segments_by_hash(segment_plan: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     result: dict[str, list[dict[str, Any]]] = {}
     for segment in list(dict(segment_plan or {}).get("segments") or []):
         if not isinstance(segment, dict):
             continue
         payload = dict(segment)
-        if not _is_tool_followup_replaceable_dynamic_tail_segment(payload):
+        if not _is_tool_followup_current_dynamic_tail_segment(payload):
             continue
         for key in _segment_hash_keys(payload):
             result.setdefault(key, []).append(payload)
     return result
 
 
-def _pop_matching_replaceable_dynamic_tail_segment(
+def _pop_matching_dynamic_tail_segment(
     segments_by_hash: dict[str, list[dict[str, Any]]],
     *,
     message: dict[str, Any],
@@ -6647,15 +6592,11 @@ def _message_hash_keys(message: dict[str, Any]) -> tuple[str, ...]:
     )
 
 
-def _is_tool_followup_replaceable_dynamic_tail_segment(segment: dict[str, Any]) -> bool:
+def _is_tool_followup_current_dynamic_tail_segment(segment: dict[str, Any]) -> bool:
     if not segment:
         return False
-    cache_role = str(segment.get("cache_role") or "").strip()
-    prefix_tier = str(segment.get("prefix_tier") or "").strip()
-    if cache_role in {"cacheable_prefix", "session_stable"} and prefix_tier not in {"volatile", "none"}:
-        return False
     kind = str(segment.get("kind") or "").strip()
-    if kind in _TOOL_FOLLOWUP_REPLACEABLE_DYNAMIC_TAIL_KINDS:
+    if kind in _TOOL_FOLLOWUP_CURRENT_DYNAMIC_TAIL_KINDS:
         return True
     metadata = dict(segment.get("metadata") or {}) if isinstance(segment.get("metadata"), dict) else {}
     dynamic_tier = str(metadata.get("prompt_assembly_dynamic_tier") or metadata.get("dynamic_tier") or "").strip()
@@ -6669,14 +6610,14 @@ def _is_tool_followup_replaceable_dynamic_tail_segment(segment: dict[str, Any]) 
         "user_editor_volatile",
     }:
         return True
-    return False
+    cache_role = str(segment.get("cache_role") or "").strip()
+    prefix_tier = str(segment.get("prefix_tier") or "").strip()
+    return cache_role == "volatile" or prefix_tier == "volatile"
 
 
 def _is_tool_followup_accumulated_message_by_shape(message: dict[str, Any]) -> bool:
     payload = dict(message or {})
     role = str(payload.get("role") or "")
-    if _is_tool_followup_context_boundary_message(payload):
-        return True
     if is_incremental_context_frame_message(payload):
         return True
     if role == "tool":
@@ -6702,13 +6643,13 @@ def _append_tool_followup_context_boundary(
         "accumulated_context_hash": _stable_payload_hash(
             [stable_model_message_hash(message) for message in accumulated]
         ),
-        "stability_rule": "messages before this boundary are append-only accumulated context; only later dynamic tail may be replaced",
+        "stability_rule": "messages before this boundary are append-only accumulated context; later follow-up contracts are appended instead of replacing history",
         "authority": "harness.loop.single_agent_turn.accumulated_context_boundary",
     }
     content = (
         "你正在继续同一轮工具执行。\n"
         "以上内容是已经固定的历史上下文、工具调用和工具观察；这条消息只标记累计上下文边界，不是新的用户需求。\n"
-        "请继续读取后面的动态执行契约，并基于这些固定事实决定下一步。\n"
+        "请继续读取后面的最新执行契约，并基于这些固定事实决定下一步。\n"
         f"{json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))}"
     )
     return [
@@ -6763,6 +6704,12 @@ def _single_agent_turn_followup_base_message_spec(
             "volatility_reason": "previously planned message changed at the same model_message_index",
             "cache_impact": "cache_break_diagnostic",
         }
+    elif _is_tool_followup_current_dynamic_tail_segment(base):
+        metadata = {
+            **metadata,
+            "cache_impact": "volatile_suffix_only",
+            "stability_rule": "current dynamic tail remains after the append-only context prefix and is not promoted into the cached prefix",
+        }
     else:
         already_prefix_stable = cache_role in {"cacheable_prefix", "session_stable"} and prefix_tier not in {"volatile", "none"}
         rebased = (
@@ -6812,14 +6759,14 @@ def _single_agent_turn_followup_message_spec(
             "content": str(message.get("content") or ""),
             "kind": "accumulated_context_boundary",
             "source_ref": f"single_agent_turn.accumulated_context_boundary:{boundary_iteration}:{boundary_hash[:16]}",
-            "cache_scope": "task",
-            "cache_role": "session_stable",
-            "prefix_tier": "task",
+            "cache_scope": "none",
+            "cache_role": "volatile",
+            "prefix_tier": "volatile",
             "compression_role": "preserve",
             "metadata": {
                 "authority_class": "accumulated_context_boundary",
-                "cache_impact": "append_only_task_prefix",
-                "stability_rule": "this boundary seals the accumulated context prefix before the per-turn dynamic tail",
+                "cache_impact": "volatile_suffix_only",
+                "stability_rule": "this boundary is rebuilt for the current invocation and must not become part of the cacheable prefix",
                 "followup_iteration": boundary_iteration,
                 "accumulated_context_hash": boundary_hash,
                 "accumulated_message_count": _safe_int_value(boundary_payload.get("accumulated_message_count")),
@@ -6834,34 +6781,39 @@ def _single_agent_turn_followup_message_spec(
         kind = "single_agent_turn_tool_call"
         source_ref = _followup_tool_message_source_ref(message, prefix="single_agent_turn.tool_call")
         compression_role = "preserve"
-        append_only_stable = True
     elif role == "tool":
         kind = "single_agent_turn_tool_observation"
         source_ref = _followup_tool_message_source_ref(message, prefix="single_agent_turn.tool_observation")
         compression_role = "summarize"
-        append_only_stable = True
     else:
         kind = "single_agent_turn_followup_message"
         source_ref = f"single_agent_turn.followup:{tool_iteration}"
         compression_role = "summarize"
-        append_only_stable = not _is_tool_followup_action_contract_message(message)
-    cache_scope = "task" if append_only_stable else "none"
-    cache_role = "session_stable" if append_only_stable else "volatile"
-    prefix_tier = "task" if append_only_stable else "volatile"
+    is_action_contract = _is_tool_followup_action_contract_message(message)
+    cache_scope = "none" if is_action_contract else "task"
+    cache_role = "volatile" if is_action_contract else "session_stable"
+    prefix_tier = "volatile" if is_action_contract else "task"
     metadata = {"followup_iteration": max(1, int(tool_iteration or 1))}
-    if append_only_stable:
+    authority_class = (
+        "tool_followup_action_contract"
+        if is_action_contract
+        else "append_only_tool_transcript"
+    )
+    if is_action_contract:
         metadata.update(
             {
-                "authority_class": "append_only_tool_transcript",
-                "cache_impact": "append_only_task_prefix",
-                "stability_rule": "follow-up context is appended before the dynamic tail and is immutable after assembly",
+                "authority_class": authority_class,
+                "cache_impact": "volatile_suffix_only",
+                "stability_rule": "the latest follow-up action contract is current-invocation control and stays behind the cacheable context prefix",
+                "volatility_reason": "tool follow-up control can change every tool round",
             }
         )
     else:
         metadata.update(
             {
-                "volatility_reason": "current tool follow-up control or current tool round changes after each observation",
-                "cache_impact": "volatile_suffix_only",
+                "authority_class": authority_class,
+                "cache_impact": "append_only_task_prefix",
+                "stability_rule": "follow-up context is appended as immutable context after it has been sent to the model",
             }
         )
     return {
@@ -6876,6 +6828,21 @@ def _single_agent_turn_followup_message_spec(
         "metadata": metadata,
         "model_message": dict(message),
     }
+
+
+def _followup_base_segment_conflicts_with_message_shape(base: dict[str, Any], message: dict[str, Any]) -> bool:
+    kind = str(dict(base or {}).get("kind") or "").strip()
+    payload = dict(message or {})
+    role = str(payload.get("role") or "")
+    if is_incremental_context_frame_message(payload):
+        return kind != "incremental_context_frame"
+    if _is_tool_followup_context_boundary_message(payload):
+        return kind != "accumulated_context_boundary"
+    if role == "assistant" and payload.get("tool_calls"):
+        return kind != "single_agent_turn_tool_call"
+    if role == "tool":
+        return kind != "single_agent_turn_tool_observation"
+    return False
 
 
 def _tool_followup_context_boundary_payload(message: dict[str, Any]) -> dict[str, Any]:
@@ -6902,18 +6869,6 @@ def _rebased_followup_base_cache_policy(
     is_current_tool_round: bool,
 ) -> dict[str, Any]:
     role = str(message.get("role") or "")
-    if _is_tool_followup_action_contract_message(message):
-        return {
-            "cache_scope": "none",
-            "cache_role": "volatile",
-            "prefix_tier": "volatile",
-            "metadata": {
-                "authority_class": "tool_followup_action_contract",
-                "cache_impact": "volatile_suffix_only",
-                "stability_rule": "the current action contract is rebuilt for this model invocation and stays at the dynamic tail",
-                "cache_policy_rebased": "current_action_contract_tail",
-            },
-        }
     if kind == "incremental_context_frame" or is_incremental_context_frame_message(message):
         return {
             "cache_scope": "task",
@@ -6939,7 +6894,7 @@ def _rebased_followup_base_cache_policy(
             "metadata": {
                 "authority_class": "append_only_tool_transcript",
                 "cache_impact": "append_only_task_prefix",
-                "stability_rule": "tool transcript is appended before the dynamic tail and is immutable after assembly",
+                "stability_rule": "tool transcript is appended to the model-visible context and is immutable after assembly",
                 "cache_policy_rebased": "historical_tool_transcript_promoted_from_base_plan",
             },
         }

@@ -9,6 +9,14 @@ from .recovery_package import (
     render_context_recovery_markdown,
 )
 from .session_compaction import auto_compact_session_if_needed, compact_session_history
+from .sealed_context import (
+    SEALED_CONTEXT_NORMALIZATION_VERSION,
+    assign_sealed_append_order,
+    load_sealed_context_receipt,
+    safe_context_receipt_filename,
+    save_sealed_context_receipt,
+    sealed_context_receipt_path,
+)
 from runtime_objects.tool_result_storage import (
     DEFAULT_FIELD_SIZE_LIMIT_BYTES,
     DEFAULT_PAYLOAD_BUDGET_BYTES,
@@ -39,6 +47,12 @@ __all__ = [
     "estimate_json_bytes",
     "estimate_text_bytes",
     "microcompact_history",
+    "SEALED_CONTEXT_NORMALIZATION_VERSION",
+    "assign_sealed_append_order",
+    "load_sealed_context_receipt",
+    "save_sealed_context_receipt",
+    "sealed_context_receipt_path",
+    "safe_context_receipt_filename",
 ]
 
 

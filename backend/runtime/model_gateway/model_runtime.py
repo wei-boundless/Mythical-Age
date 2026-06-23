@@ -289,11 +289,13 @@ class ModelRuntime:
         candidates = self._candidate_specs(model_spec=model_spec)
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
-                model = self._get_chat_model_for_spec(spec)
+                effective_spec = _spec_with_chat_prefix_endpoint(spec)
+                effective_messages = _messages_with_chat_prefix_protocol(messages, spec=effective_spec)
+                model = self._get_chat_model_for_spec(effective_spec)
                 accounting = self._begin_prompt_accounting(
-                    messages,
+                    effective_messages,
                     tools=tools,
-                    spec=spec,
+                    spec=effective_spec,
                     accounting_context=accounting_context,
                     attempt=attempt,
                     call_kind="invoke_messages_with_tools",
@@ -305,15 +307,15 @@ class ModelRuntime:
                             model,
                             tools,
                             tool_call_options=tool_call_options,
-                            spec=spec,
-                            thinking_mode=self._thinking_mode_for_spec(spec),
+                            spec=effective_spec,
+                            thinking_mode=self._thinking_mode_for_spec(effective_spec),
                         )
                         if tools
                         else model
                     )
                     response = await asyncio.wait_for(
-                        bound_model.ainvoke(messages),
-                        timeout=self._model_call_timeout_seconds_for_spec(spec),
+                        bound_model.ainvoke(effective_messages),
+                        timeout=self._model_call_timeout_seconds_for_spec(effective_spec),
                     )
                     self._finish_prompt_accounting(accounting, response=response)
                     return response
@@ -322,8 +324,8 @@ class ModelRuntime:
                     raise
                 except Exception as exc:
                     self._finish_prompt_accounting(accounting, response=None, error=exc)
-                    last_error = self._map_error(exc, spec)
-                    await self._invalidate_chat_model_for_spec(spec)
+                    last_error = self._map_error(exc, effective_spec)
+                    await self._invalidate_chat_model_for_spec(effective_spec)
                     if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
                         logger.warning(
                             "Retrying tool-enabled model invoke after %s (%s/%s): %s",
@@ -448,11 +450,13 @@ class ModelRuntime:
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 emitted = False
-                model = self._get_chat_model_for_spec(spec)
+                effective_spec = _spec_with_chat_prefix_endpoint(spec)
+                effective_messages = _messages_with_chat_prefix_protocol(messages, spec=effective_spec)
+                model = self._get_chat_model_for_spec(effective_spec)
                 accounting = self._begin_prompt_accounting(
-                    messages,
+                    effective_messages,
                     tools=tools,
-                    spec=spec,
+                    spec=effective_spec,
                     accounting_context=accounting_context,
                     attempt=attempt,
                     call_kind="astream_messages_with_tools",
@@ -465,14 +469,14 @@ class ModelRuntime:
                             model,
                             tools,
                             tool_call_options=tool_call_options,
-                            spec=spec,
-                            thinking_mode=self._thinking_mode_for_spec(spec),
+                            spec=effective_spec,
+                            thinking_mode=self._thinking_mode_for_spec(effective_spec),
                         )
                         if tools
                         else model
                     )
-                    stream = bound_model.astream(messages)
-                    async for chunk in self._iterate_with_timeout(stream, spec=spec):
+                    stream = bound_model.astream(effective_messages)
+                    async for chunk in self._iterate_with_timeout(stream, spec=effective_spec):
                         emitted = True
                         try:
                             aggregated_chunk = chunk if aggregated_chunk is None else aggregated_chunk + chunk
@@ -486,8 +490,8 @@ class ModelRuntime:
                     raise
                 except Exception as exc:
                     self._finish_prompt_accounting(accounting, response=None, error=exc)
-                    last_error = self._map_error(exc, spec)
-                    await self._invalidate_chat_model_for_spec(spec)
+                    last_error = self._map_error(exc, effective_spec)
+                    await self._invalidate_chat_model_for_spec(effective_spec)
                     if emitted:
                         raise last_error from exc
                     if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
@@ -1054,6 +1058,9 @@ class ModelRuntime:
                 "model_request_tool_catalog_hash": model_request.tool_catalog_hash,
                 "model_request_stable_tool_catalog_hash": model_request.stable_tool_catalog_hash,
                 "model_request_cache_sensitive_params_hash": model_request.cache_sensitive_params_hash,
+                "model_request_provider_transport_payload": dict(
+                    model_request_diagnostics.get("provider_transport_payload") or {}
+                ),
                 "prefix_hash_matches_model_request": prefix_hash_matches_model_request,
                 "unplanned_message_count": int(model_request_diagnostics.get("unplanned_message_count") or 0),
                 "bound_segment_count": int(model_request_diagnostics.get("bound_segment_count") or 0),

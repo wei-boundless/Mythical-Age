@@ -119,6 +119,13 @@ class CanonicalPromptSerializer:
                         "provider_payload_transport_location": "tools",
                         "provider_payload_sidecar_component": sidecar_tool_schema_component,
                         "provider_payload_prefix_component": tool_schema_prefix_component,
+                        "transport_contract_component": bool(
+                            tool_schema_metadata.get("transport_contract_component") is not False
+                        ),
+                        "transport_contract_role": str(
+                            tool_schema_metadata.get("transport_contract_role")
+                            or "stable_provider_tool_schema"
+                        ),
                         "transport_sidecar_role": str(
                             tool_schema_metadata.get("transport_sidecar_role")
                             or "native_tool_binding_schema"
@@ -449,6 +456,8 @@ def _unmanifested_tool_schema_profile(
             "provider_payload_transport_location": "tools",
             "provider_payload_sidecar_component": True,
             "provider_payload_prefix_component": False,
+            "transport_contract_component": True,
+            "transport_contract_role": "stable_provider_tool_schema_missing_manifest",
             "transport_sidecar_role": "native_tool_binding_schema",
             "sidecar_drift_status": "missing_manifest",
             "message_prefix_cacheable": False,
@@ -516,6 +525,7 @@ def _provider_payload_tool_segment(manifest: dict[str, Any]) -> dict[str, Any]:
         if str(item.get("transport_location") or "") != "tools":
             continue
         metadata = dict(item.get("metadata") or {})
+        transport_contract = dict(dict(manifest or {}).get("transport_contract") or {})
         return {
             "kind": str(item.get("kind") or "native_tool_binding_schema"),
             "cache_role": _cache_role(item.get("cache_role")),
@@ -528,6 +538,8 @@ def _provider_payload_tool_segment(manifest: dict[str, Any]) -> dict[str, Any]:
             "metadata": {
                 **metadata,
                 "provider_payload_manifest_ref": str(dict(manifest or {}).get("manifest_id") or ""),
+                "transport_contract_ref": str(transport_contract.get("contract_id") or ""),
+                "transport_contract_hash": str(transport_contract.get("contract_hash") or ""),
                 "provider_payload_segment_id": str(item.get("segment_id") or ""),
                 "provider_payload_authority": str(item.get("authority") or ""),
             },

@@ -523,10 +523,9 @@ def _provider_prefix_continuity(
     }
 
 
-def _provider_prefix_segment_identity(segment: dict[str, Any]) -> tuple[str, str, str]:
+def _provider_prefix_segment_identity(segment: dict[str, Any]) -> tuple[str, str]:
     return (
         str(segment.get("transport_location") or ""),
-        str(segment.get("kind") or ""),
         str(segment.get("content_hash") or ""),
     )
 

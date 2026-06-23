@@ -255,7 +255,13 @@ def _layer_for_source(source: PromptSource, *, cache_role: str, prefix_tier: str
         return "session_stable_protocol" if prefix_tier == "session" else "task_stable_scope"
     if kind == "dynamic_projection":
         return "runtime_delta_tail" if prefix_tier in {"volatile", "none"} else "task_stable_scope"
-    if kind in {"task_state_replay_entry", "single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"} or source_kind == "runtime_task_state_replay":
+    if kind in {
+        "read_evidence_context",
+        "task_state_replay_entry",
+        "single_agent_turn_tool_call",
+        "single_agent_turn_tool_observation",
+        "tool_observations",
+    } or source_kind in {"runtime_task_state_replay", "runtime_read_evidence_context"}:
         return "append_only_runtime_evidence"
     if kind == "task_plan_context" or source_kind == "runtime_task_plan_context":
         return "task_plan_context"
@@ -292,7 +298,10 @@ def _dynamic_tier_for_source(source: PromptSource, *, cache_role: str, prefix_ti
         return "stable_prefix"
     kind = str(source.kind or "")
     source_kind = str(source.source_kind or "")
-    if layer == "append_only_runtime_evidence" or source_kind == "runtime_task_state_replay":
+    if layer == "append_only_runtime_evidence" or source_kind in {
+        "runtime_task_state_replay",
+        "runtime_read_evidence_context",
+    }:
         return "append_only_runtime_evidence"
     if layer == "runtime_cursor_prefix" or kind in {"task_runtime_boundary_dynamic", "task_start_inherited_context"}:
         return "runtime_cursor_prefix"
@@ -316,7 +325,12 @@ def _dynamic_tier_for_source(source: PromptSource, *, cache_role: str, prefix_ti
         return "current_exact_evidence"
     if kind in {"bound_task_runtime_context", "graph_node_runtime_context"}:
         return "file_evidence_cursor"
-    if kind in {"single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"}:
+    if kind in {
+        "read_evidence_context",
+        "single_agent_turn_tool_call",
+        "single_agent_turn_tool_observation",
+        "tool_observations",
+    }:
         return "append_only_runtime_evidence"
     if kind in {"session_history", "session_history_context", "session_history_entry", "provider_protocol_history"}:
         return "history_replay"

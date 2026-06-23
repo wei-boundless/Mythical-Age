@@ -320,13 +320,9 @@ def _diff_stable_sections(
             changed.append(item)
             continue
         if (
-            previous.kind,
-            previous.source_ref,
             previous.cache_role,
             previous.content_hash,
         ) != (
-            current.kind,
-            current.source_ref,
             current.cache_role,
             current.content_hash,
         ):

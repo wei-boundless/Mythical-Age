@@ -453,8 +453,9 @@ export function SystemConfigView() {
 
   function chooseTheme(themeId: WorkbenchThemeId) {
     setStoredWorkbenchTheme(themeId);
+    setCustomSettings(getStoredCustomSettings());
     setActiveThemeId(themeId);
-    setNotice(`已切换主题：${WORKBENCH_THEME_TEMPLATES.find((theme) => theme.id === themeId)?.label ?? themeId}`);
+    setNotice(`已切换主题：${WORKBENCH_THEME_TEMPLATES.find((theme) => theme.id === themeId)?.label ?? themeId}，已使用模板默认颜色`);
     setError("");
   }
 
@@ -466,28 +467,34 @@ export function SystemConfigView() {
   }
 
   function handleFontChange(fontId: WorkbenchFontId) {
-    setCustomSettings((prev) => ({ ...prev, fontOverride: fontId }));
-    setStoredCustomSettings({ fontOverride: fontId });
+    setCustomSettings(setStoredCustomSettings({ fontOverride: fontId }));
   }
 
   function handleFontSizeChange(scale: number) {
-    setCustomSettings((prev) => ({ ...prev, fontSizeScale: scale }));
-    setStoredCustomSettings({ fontSizeScale: scale });
+    setCustomSettings(setStoredCustomSettings({ fontSizeScale: scale }));
+  }
+
+  function commitCustomColors(patch: Partial<Pick<CustomAppearanceSettings, "accentSoftColor" | "bgColor" | "panelColor">>) {
+    const next = { ...getStoredCustomSettings(), ...patch };
+    const customColorsEnabled = Boolean(next.bgColor || next.panelColor || next.accentSoftColor);
+    setCustomSettings(setStoredCustomSettings({
+      customColorsEnabled,
+      bgColor: next.bgColor,
+      panelColor: next.panelColor,
+      accentSoftColor: next.accentSoftColor,
+    }));
   }
 
   function handleBgColorChange(color: string) {
-    setCustomSettings((prev) => ({ ...prev, bgColor: color || null }));
-    setStoredCustomSettings({ bgColor: color || null });
+    commitCustomColors({ bgColor: color || null });
   }
 
   function handlePanelColorChange(color: string) {
-    setCustomSettings((prev) => ({ ...prev, panelColor: color || null }));
-    setStoredCustomSettings({ panelColor: color || null });
+    commitCustomColors({ panelColor: color || null });
   }
 
   function handleAccentSoftColorChange(color: string) {
-    setCustomSettings((prev) => ({ ...prev, accentSoftColor: color || null }));
-    setStoredCustomSettings({ accentSoftColor: color || null });
+    commitCustomColors({ accentSoftColor: color || null });
   }
 
   function handleBgImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
@@ -496,15 +503,13 @@ export function SystemConfigView() {
     const reader = new FileReader();
     reader.onload = (e) => {
       const dataUrl = e.target?.result as string;
-      setCustomSettings((prev) => ({ ...prev, bgImage: dataUrl }));
-      setStoredCustomSettings({ bgImage: dataUrl });
+      setCustomSettings(setStoredCustomSettings({ bgImage: dataUrl }));
     };
     reader.readAsDataURL(file);
   }
 
   function handleRemoveBgImage() {
-    setCustomSettings((prev) => ({ ...prev, bgImage: null }));
-    setStoredCustomSettings({ bgImage: null });
+    setCustomSettings(setStoredCustomSettings({ bgImage: null }));
   }
 
   function handleResetCustom() {
@@ -524,7 +529,7 @@ export function SystemConfigView() {
         <section className="system-config-field-section">
           <div className="system-config-field-section__head">
             <strong>主题模板</strong>
-            <em>选择预置配色方案，自定义覆盖会在切换主题后继续生效。</em>
+            <em>每个模板是一套我们调好的完整颜色；切换模板会回到模板默认色。</em>
           </div>
           <div className="system-config-theme-grid">
             {WORKBENCH_THEME_TEMPLATES.map((theme) => {
@@ -640,8 +645,8 @@ export function SystemConfigView() {
         {/* ===== 自定义颜色 ===== */}
         <section className="system-config-field-section">
           <div className="system-config-field-section__head">
-            <strong>自定义颜色覆盖</strong>
-            <em>单独调整背景色和面板色，留空则使用当前主题色值。</em>
+            <strong>颜色微调</strong>
+            <em>{customSettings.customColorsEnabled ? "已在当前模板上启用微调；清空三个颜色后回到模板默认色。" : "当前使用模板默认颜色；不喜欢时再单独调整。"}</em>
           </div>
           <div className="system-config-color-grid">
             <label className="system-config-color-picker">

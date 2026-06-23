@@ -55,6 +55,9 @@ class ModelRequestPacket:
     provider_payload_provider_global_prefix_hash: str = ""
     provider_payload_session_prefix_hash: str = ""
     provider_payload_task_prefix_hash: str = ""
+    provider_payload_message_prefix_hash: str = ""
+    transport_contract_hash: str = ""
+    transport_contract_ref: str = ""
     tool_catalog_hash: str = ""
     stable_tool_catalog_hash: str = ""
     tool_catalog_manifest: dict[str, Any] = field(default_factory=dict)
@@ -112,6 +115,10 @@ class ModelRequestBuilder:
         provider_transport_tools = tuple(
             provider_tool_payloads(raw_tools, strict=_transport_tool_strict(cache_relevant_params))
         )
+        provider_transport_message_hashes = tuple(
+            _stable_text_hash(canonical_json(message)) for message in provider_transport_messages
+        )
+        provider_transport_tools_hash = _stable_text_hash(canonical_json(list(provider_transport_tools))) if provider_transport_tools else ""
         tool_catalog_manifest_payload = _tool_catalog_manifest_from_metadata(metadata_payload)
         canonical = canonical_json(
             {
@@ -159,6 +166,9 @@ class ModelRequestBuilder:
             provider_payload_provider_global_prefix_hash=str(dict(provider_payload_tiers.get("provider_global") or {}).get("provider_payload_prefix_hash") or ""),
             provider_payload_session_prefix_hash=str(dict(provider_payload_tiers.get("session") or {}).get("provider_payload_prefix_hash") or ""),
             provider_payload_task_prefix_hash=str(dict(provider_payload_tiers.get("task") or {}).get("provider_payload_prefix_hash") or ""),
+            provider_payload_message_prefix_hash=str(provider_payload_boundary.get("provider_payload_message_prefix_hash") or ""),
+            transport_contract_hash=str(provider_payload_boundary.get("transport_contract_hash") or ""),
+            transport_contract_ref=str(provider_payload_boundary.get("transport_contract_ref") or ""),
             tool_catalog_hash=str(provider_payload_boundary.get("tool_catalog_hash") or ""),
             stable_tool_catalog_hash=str(provider_payload_boundary.get("stable_tool_catalog_hash") or ""),
             tool_catalog_manifest=tool_catalog_manifest_payload,
@@ -172,11 +182,16 @@ class ModelRequestBuilder:
                 "provider_payload_manifest_ref": provider_payload_manifest.manifest_id,
                 "provider_payload_cache_boundary": provider_payload_boundary,
                 "provider_payload_plan": provider_payload_plan.to_dict(),
+                "transport_contract_ref": str(provider_payload_boundary.get("transport_contract_ref") or ""),
+                "transport_contract_hash": str(provider_payload_boundary.get("transport_contract_hash") or ""),
                 "tool_catalog_manifest_ref": str(tool_catalog_manifest_payload.get("manifest_id") or ""),
                 "tool_catalog_manifest_hash": str(tool_catalog_manifest_payload.get("tool_catalog_hash") or ""),
                 "provider_transport_payload": {
                     "message_count": len(provider_transport_messages),
                     "tool_count": len(provider_transport_tools),
+                    "messages_hash": _stable_text_hash(canonical_json(list(provider_transport_messages))),
+                    "message_hashes": list(provider_transport_message_hashes),
+                    "tools_hash": provider_transport_tools_hash,
                     "tool_schema_sorted_by_name": True,
                     "messages_include_provider_reasoning_content": any(
                         bool(dict(message).get("reasoning_content"))

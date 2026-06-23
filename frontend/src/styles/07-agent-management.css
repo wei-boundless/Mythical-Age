@@ -3859,13 +3859,13 @@ textarea,
 .workbench-resize-handle::after {
   inset: 14px 3px;
   border-radius: 999px;
-  background: var(--console-line-soft);
-  opacity: 0;
+  background: var(--console-line);
+  opacity: 0.72;
 }
 
 .workbench-resize-handle:hover::after {
   background: var(--console-line-strong);
-  opacity: 0.86;
+  opacity: 0.95;
 }
 
 .workbench-session-row,
@@ -4366,7 +4366,13 @@ textarea:focus-visible {
 
 /* Left sidebar: match the right inspector's low-card treatment. */
 .agent-workbench .workbench-resource-panel {
-  background: var(--console-bg-raised);
+  background: var(--console-surface);
+  box-shadow: inset -1px 0 0 var(--console-line);
+}
+
+.agent-workbench .workbench-right-panel {
+  background: var(--console-surface);
+  box-shadow: inset 1px 0 0 var(--console-line);
 }
 
 .agent-workbench .workbench-resource-panel .workbench-panel-head,
@@ -4425,7 +4431,7 @@ textarea:focus-visible {
 }
 
 .agent-workbench .workbench-resource-panel .workbench-project-scope-row__actions {
-  background: var(--console-bg-raised);
+  background: var(--console-surface);
 }
 
 .agent-workbench .workbench-resource-panel .workbench-file-tree__toggle:hover {

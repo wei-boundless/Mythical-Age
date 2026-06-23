@@ -229,8 +229,8 @@ _LAYER_CACHE_POLICY = {
         "allowed_cache_roles": {"session_stable"},
     },
     "append_only_task_evidence": {
-        "allowed_prefix_tiers": {"volatile", "none"},
-        "allowed_cache_roles": {"volatile", "never_cache"},
+        "allowed_prefix_tiers": {"session", "task", "volatile", "none"},
+        "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
     },
     "task_runtime_boundary_stable": {
         "allowed_prefix_tiers": {"task"},

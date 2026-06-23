@@ -45,6 +45,7 @@ from harness.current_work_receipt import current_work_operation_availability_fro
 from harness.recovery_receipt import recovery_operation_availability_from_receipt
 from project_layout import ProjectLayout
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
+from runtime.context_management import assign_sealed_append_order
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
 from .artifact_scope import runtime_artifact_scope_from_environment
@@ -609,6 +610,8 @@ class RuntimeCompiler:
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="single_agent_turn",
+            sealed_context_scope=session_id,
+            storage_root=self.base_dir,
             specs=[
                 _message_spec(
                     role="system",
@@ -752,6 +755,12 @@ class RuntimeCompiler:
                 ),
                 *session_history_specs,
                 *provider_protocol_specs,
+                *_read_evidence_context_message_specs(
+                    read_evidence_prompt_payload,
+                    title_prefix="Single agent turn",
+                    source_ref_prefix="single_agent_turn",
+                    dynamic_context=dynamic_context,
+                ),
                 *_session_history_tail_context_message_specs(
                     session_history_payload,
                     title="Single agent turn session history",
@@ -761,7 +770,7 @@ class RuntimeCompiler:
                 _runtime_payload_spec(
                     role="system",
                     title="Task current exact read evidence",
-                    payload=read_evidence_prompt_payload,
+                    payload=_read_evidence_current_prompt_payload(read_evidence_prompt_payload),
                     kind="read_evidence_injection",
                     source_ref=_read_evidence_prompt_source_ref(read_evidence_prompt_payload, fallback=packet_id),
                     cache_scope="none",
@@ -769,13 +778,13 @@ class RuntimeCompiler:
                     compression_role="preserve",
                     metadata={
                         "authority_class": "read_evidence_injection",
-                        "projection_strategy": "current_exact_read_once_historical_refs",
+                        "projection_strategy": "current_exact_or_required_read_tail",
                         "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
-                        "volatility_reason": "current packet exact file read evidence is visible once; historical file evidence is represented by refs",
+                        "volatility_reason": "only current exact text or current read-required windows stay in the dynamic tail; historical read refs are split into append-only read_evidence_context messages",
                         "cache_impact": "volatile_suffix_only",
                     },
                 )
-                if read_evidence_prompt_payload
+                if _read_evidence_current_prompt_payload(read_evidence_prompt_payload)
                 else None,
                 _runtime_payload_spec(
                     role="system",
@@ -877,8 +886,6 @@ class RuntimeCompiler:
                 ),
             ],
             enforce_dynamic_context_reports=True,
-            sealed_context_scope=session_id,
-            storage_root=self.base_dir,
         )
         protocol_sanitizer = sanitize_messages_for_prompt(
             model_messages,
@@ -1373,6 +1380,8 @@ class RuntimeCompiler:
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="task_execution",
+            sealed_context_scope=task_run_id,
+            storage_root=self.base_dir,
             specs=[
                 _message_spec(
                     role="system",
@@ -1598,6 +1607,12 @@ class RuntimeCompiler:
                     source_ref_prefix="task_execution",
                     dynamic_context=dynamic_context,
                 ),
+                *_read_evidence_context_message_specs(
+                    read_evidence_prompt_payload,
+                    title_prefix="Task execution",
+                    source_ref_prefix="task_execution",
+                    dynamic_context=dynamic_context,
+                ),
                 *_editor_context_message_specs(
                     editor_context_payload,
                     title_prefix="Task execution",
@@ -1678,7 +1693,7 @@ class RuntimeCompiler:
                 _runtime_payload_spec(
                     role="system",
                     title="Task current exact read evidence",
-                    payload=read_evidence_prompt_payload,
+                    payload=_read_evidence_current_prompt_payload(read_evidence_prompt_payload),
                     kind="read_evidence_injection",
                     source_ref=_read_evidence_prompt_source_ref(read_evidence_prompt_payload, fallback=packet_id),
                     cache_scope="none",
@@ -1686,13 +1701,13 @@ class RuntimeCompiler:
                     compression_role="preserve",
                     metadata={
                         "authority_class": "read_evidence_injection",
-                        "projection_strategy": "current_exact_read_once_historical_refs",
+                        "projection_strategy": "current_exact_or_required_read_tail",
                         "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
-                        "volatility_reason": "current packet exact file read evidence is visible once; historical file evidence is represented by refs",
+                        "volatility_reason": "only current exact text or current read-required windows stay in the dynamic tail; historical read refs are split into append-only read_evidence_context messages",
                         "cache_impact": "volatile_suffix_only",
                     },
                 )
-                if read_evidence_prompt_payload
+                if _read_evidence_current_prompt_payload(read_evidence_prompt_payload)
                 else None,
                 _message_spec(
                     role="system",
@@ -1822,8 +1837,6 @@ class RuntimeCompiler:
                 else None,
             ],
             enforce_dynamic_context_reports=True,
-            sealed_context_scope=task_run_id or session_id,
-            storage_root=self.base_dir,
         )
         content_fragments = build_content_fragments_from_message_specs(
             segment_plan=segment_plan,
@@ -2149,6 +2162,8 @@ class RuntimeCompiler:
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="tool_observation_followup",
+            sealed_context_scope=session_id,
+            storage_root=self.base_dir,
             specs=[
                 _message_spec(
                     role="system",
@@ -2298,6 +2313,12 @@ class RuntimeCompiler:
                     source_ref_prefix="observation_followup",
                     dynamic_context=dynamic_context,
                 ),
+                *_read_evidence_context_message_specs(
+                    read_evidence_prompt_payload,
+                    title_prefix="Observation followup",
+                    source_ref_prefix="observation_followup",
+                    dynamic_context=dynamic_context,
+                ),
                 *_session_history_tail_context_message_specs(
                     session_history_payload,
                     title="Observation followup session history",
@@ -2358,7 +2379,7 @@ class RuntimeCompiler:
                 _runtime_payload_spec(
                     role="system",
                     title="Task current exact read evidence",
-                    payload=read_evidence_prompt_payload,
+                    payload=_read_evidence_current_prompt_payload(read_evidence_prompt_payload),
                     kind="read_evidence_injection",
                     source_ref=_read_evidence_prompt_source_ref(read_evidence_prompt_payload, fallback=packet_id),
                     cache_scope="none",
@@ -2366,13 +2387,13 @@ class RuntimeCompiler:
                     compression_role="preserve",
                     metadata={
                         "authority_class": "read_evidence_injection",
-                        "projection_strategy": "current_exact_read_once_historical_refs",
+                        "projection_strategy": "current_exact_or_required_read_tail",
                         "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
-                        "volatility_reason": "current packet exact file read evidence is visible once; historical file evidence is represented by refs",
+                        "volatility_reason": "only current exact text or current read-required windows stay in the dynamic tail; historical read refs are split into append-only read_evidence_context messages",
                         "cache_impact": "volatile_suffix_only",
                     },
                 )
-                if read_evidence_prompt_payload
+                if _read_evidence_current_prompt_payload(read_evidence_prompt_payload)
                 else None,
                 _runtime_payload_spec(
                     role="system",
@@ -2405,8 +2426,6 @@ class RuntimeCompiler:
                 ),
             ],
             enforce_dynamic_context_reports=True,
-            sealed_context_scope=session_id,
-            storage_root=self.base_dir,
         )
         content_fragments = build_content_fragments_from_message_specs(
             segment_plan=segment_plan,
@@ -3689,6 +3708,97 @@ def _evidence_index_cursor_message_specs(
     ]
 
 
+def _read_evidence_context_message_specs(
+    payload: dict[str, Any] | None,
+    *,
+    title_prefix: str,
+    source_ref_prefix: str,
+    dynamic_context: DynamicContextProjection,
+) -> list[dict[str, Any]]:
+    data = dict(payload or {})
+    refs = [_drop_empty_payload(dict(item)) for item in list(data.get("read_evidence_refs") or []) if isinstance(item, dict)]
+    refs = [item for item in refs if item]
+    if not refs:
+        return []
+    projection_policy = _read_evidence_context_projection_policy(data.get("projection_policy"))
+    specs: list[dict[str, Any]] = []
+    for index, evidence_ref in enumerate(refs, start=1):
+        source_ref = _read_evidence_context_source_ref(
+            evidence_ref,
+            source_ref_prefix=source_ref_prefix,
+            fallback_index=index,
+        )
+        specs.append(
+            _runtime_payload_spec(
+                role="system",
+                title=f"{title_prefix} read evidence context {index}",
+                payload=_drop_empty_payload(
+                    {
+                        "read_evidence_ref": evidence_ref,
+                        "projection_policy": projection_policy,
+                    }
+                ),
+                kind="read_evidence_context",
+                source_ref=source_ref,
+                cache_scope="task",
+                cache_role="session_stable",
+                compression_role="ref_only",
+                metadata={
+                    **_optional_dynamic_context_segment_metadata(dynamic_context, source="read_evidence_context"),
+                    "authority_class": "append_only_read_evidence_context",
+                    "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
+                    "runtime_fragment_role": "read_evidence_ref",
+                    "cache_impact": "append_only_task_prefix",
+                    "stability_rule": (
+                        "read evidence refs already visible to the model are historical context; "
+                        "new refs append as separate context messages and previous refs must not be rewritten"
+                    ),
+                    "append_only_context_package": "read_evidence_context",
+                    "append_only_context_stream": "read_evidence",
+                    "append_only_stream_index": index,
+                },
+            )
+        )
+    return specs
+
+
+def _read_evidence_context_projection_policy(value: Any) -> dict[str, Any]:
+    policy = dict(value or {}) if isinstance(value, dict) else {}
+    return _drop_empty_payload(
+        {
+            "historical_read_evidence": policy.get("historical_read_evidence"),
+            "rehydration": policy.get("rehydration"),
+        }
+    )
+
+
+def _read_evidence_context_source_ref(
+    evidence_ref: dict[str, Any],
+    *,
+    source_ref_prefix: str,
+    fallback_index: int,
+) -> str:
+    payload = dict(evidence_ref or {})
+    stable_ref = str(
+        payload.get("artifact_ref")
+        or payload.get("exact_artifact_ref")
+        or payload.get("evidence_ref")
+        or payload.get("observation_ref")
+        or payload.get("tool_call_id")
+        or ""
+    ).strip()
+    if stable_ref:
+        return f"{source_ref_prefix}:read_evidence_context:{_short_hash(stable_ref, prefix_chars=16)}"
+    seed = {
+        "path": str(payload.get("path") or ""),
+        "start_line": payload.get("start_line"),
+        "end_line": payload.get("end_line"),
+        "content_sha256": str(payload.get("content_sha256") or ""),
+    }
+    digest = _stable_json_hash(seed).removeprefix("sha256:")[:16]
+    return f"{source_ref_prefix}:read_evidence_context:{digest or fallback_index}"
+
+
 def _task_plan_context_message_specs(
     payload: dict[str, Any] | None,
     *,
@@ -4387,6 +4497,7 @@ def _model_messages_and_segment_plan(
 _APPEND_ONLY_CONTEXT_KINDS = {
     "incremental_context_frame",
     "provider_protocol_history",
+    "read_evidence_context",
     "session_history_entry",
     "single_agent_turn_tool_call",
     "single_agent_turn_tool_observation",
@@ -4479,15 +4590,11 @@ def _sealed_append_only_context_specs(
     if not items:
         return []
     scope = _sealed_context_scope(invocation_kind=invocation_kind, sealed_context_scope=sealed_context_scope)
-    receipt = _load_sealed_context_receipt(storage_root=storage_root, scope=scope)
-    receipt_items = dict(receipt.get("items") or {}) if isinstance(receipt.get("items"), dict) else {}
-    next_order = _safe_int(receipt.get("next_order")) or (max([_safe_int(value) for value in receipt_items.values()] or [0]) + 1)
-    changed = False
     sealed: list[tuple[int, dict[str, Any]]] = []
     seen_in_call: set[str] = set()
     assignment_items = sorted(
         list(items or []),
-        key=_append_only_bootstrap_order_key if not receipt_items else lambda item: int(item[0] or 0),
+        key=_append_only_bootstrap_order_key,
     )
     for original_order, raw_spec in assignment_items:
         spec = dict(raw_spec or {})
@@ -4495,14 +4602,14 @@ def _sealed_append_only_context_specs(
         if not key or key in seen_in_call:
             key = f"{key or 'append-only'}:{original_order}"
         seen_in_call.add(key)
-        existing_order = _safe_int(receipt_items.get(key))
-        order_source = "receipt"
-        if existing_order <= 0:
-            existing_order = next_order
-            receipt_items[key] = existing_order
-            next_order += 1
-            changed = True
-            order_source = "new_append" if receipt.get("items") else "bootstrap"
+        assignment = assign_sealed_append_order(
+            storage_root=storage_root,
+            scope=scope,
+            item_key=key,
+            receipt_authority="harness.runtime.compiler.sealed_append_only_context",
+        )
+        existing_order = _safe_int(assignment.get("order"))
+        order_source = str(assignment.get("order_source") or "receipt")
         metadata = {
             **dict(spec.get("metadata") or {}),
             "sealed_accumulated_context_package": "append_only_context",
@@ -4510,21 +4617,10 @@ def _sealed_append_only_context_specs(
             "sealed_accumulated_context_item_key": key,
             "sealed_accumulated_context_order": existing_order,
             "sealed_accumulated_context_order_source": order_source,
+            "sealed_accumulated_context_authority": str(assignment.get("authority") or ""),
         }
         spec["metadata"] = metadata
         sealed.append((original_order, spec))
-    if changed:
-        _save_sealed_context_receipt(
-            storage_root=storage_root,
-            scope=scope,
-            receipt={
-                "authority": "harness.runtime.compiler.sealed_append_only_context_receipt",
-                "version": 1,
-                "scope": scope,
-                "next_order": next_order,
-                "items": receipt_items,
-            },
-        )
     return sorted(sealed, key=_append_only_context_order_key)
 
 
@@ -4559,61 +4655,12 @@ def _sealed_context_scope(*, invocation_kind: str, sealed_context_scope: str) ->
 
 def _sealed_context_item_key(spec: dict[str, Any]) -> str:
     model_message = dict(spec.get("model_message") or _model_message_from_spec(spec))
-    seed = {
-        "kind": str(spec.get("kind") or ""),
-        "source_ref": str(spec.get("source_ref") or ""),
-        "message_hash": _stable_json_hash(model_message),
-    }
-    return _stable_json_hash(seed)
-
-
-def _load_sealed_context_receipt(*, storage_root: Path | None, scope: str) -> dict[str, Any]:
-    path = _sealed_context_receipt_path(storage_root=storage_root, scope=scope)
-    if path is None or not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return dict(payload or {}) if isinstance(payload, dict) else {}
-
-
-def _save_sealed_context_receipt(*, storage_root: Path | None, scope: str, receipt: dict[str, Any]) -> None:
-    path = _sealed_context_receipt_path(storage_root=storage_root, scope=scope)
-    if path is None:
-        return
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(_json_stable(receipt), ensure_ascii=False, sort_keys=True, separators=(",", ":")),
-            encoding="utf-8",
-        )
-    except Exception:
-        return
-
-
-def _sealed_context_receipt_path(*, storage_root: Path | None, scope: str) -> Path | None:
-    if storage_root is None:
-        return None
-    try:
-        project_root = ProjectLayout.from_backend_dir(Path(storage_root)).project_root.resolve()
-    except Exception:
-        project_root = Path(storage_root).resolve().parent
-    safe_scope = _safe_context_receipt_filename(scope)
-    if not safe_scope:
-        return None
-    return project_root / "storage" / "runtime_state" / "context_receipts" / "sealed_append_only_context" / f"{safe_scope}.json"
-
-
-def _safe_context_receipt_filename(value: str) -> str:
-    text = str(value or "").strip()
-    result = []
-    for char in text:
-        if char.isalnum() or char in {"-", "_", "."}:
-            result.append(char)
-        else:
-            result.append("_")
-    return "".join(result).strip("._")[:180]
+    return _stable_json_hash(
+        {
+            "normalization": "provider_visible_message_v1",
+            "model_message_hash": _stable_json_hash(model_message),
+        }
+    )
 
 
 def _append_only_context_order_key(item: tuple[int, dict[str, Any]]) -> tuple[int, float, int, int, int]:
@@ -4743,6 +4790,17 @@ def _dynamic_context_segment_metadata(
                 "cache_impact": report.cache_impact,
             }
     raise ValueError(f"dynamic context section report missing for source: {source_text}")
+
+
+def _optional_dynamic_context_segment_metadata(
+    projection: DynamicContextProjection,
+    *,
+    source: str,
+) -> dict[str, Any]:
+    try:
+        return _dynamic_context_segment_metadata(projection, source=source)
+    except ValueError:
+        return {}
 
 
 def _editor_context_from_session_context(session_context: dict[str, Any] | None) -> dict[str, Any]:
@@ -6061,6 +6119,40 @@ def _read_evidence_prompt_payload(payload: dict[str, Any] | None) -> dict[str, A
         return {}
     data.pop("packet_id", None)
     return _drop_empty_payload(data)
+
+
+def _read_evidence_current_prompt_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
+    data = dict(payload or {})
+    if not data:
+        return {}
+    injections = [
+        _drop_empty_payload(dict(item))
+        for item in list(data.get("read_evidence_injections") or [])
+        if isinstance(item, dict)
+    ]
+    read_required = [
+        _drop_empty_payload(dict(item))
+        for item in list(data.get("read_required_windows") or [])
+        if isinstance(item, dict)
+    ]
+    injections = [item for item in injections if item]
+    read_required = [item for item in read_required if item]
+    if not injections and not read_required:
+        return {}
+    current_payload = {
+        "visible_exact_in_packet": bool(injections),
+        "read_evidence_injections": injections,
+        "read_required_windows": read_required,
+        "projection_policy": dict(data.get("projection_policy") or {}),
+    }
+    if injections:
+        refs = [
+            _drop_empty_payload(dict(item))
+            for item in list(data.get("read_evidence_refs") or [])
+            if isinstance(item, dict)
+        ]
+        current_payload["read_evidence_refs"] = [item for item in refs if item]
+    return _drop_empty_payload(current_payload)
 
 
 def _read_evidence_prompt_source_ref(payload: dict[str, Any] | None, *, fallback: str) -> str:

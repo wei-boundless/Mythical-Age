@@ -19,6 +19,7 @@ DYNAMIC_SEGMENT_KINDS = {
     "incremental_context_frame",
     "incremental_context_cursor",
     "provider_protocol_history",
+    "read_evidence_context",
     "semantic_compaction_request",
     "session_history",
     "session_history_context",
@@ -58,11 +59,17 @@ RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
     "runtime_baseline_refs": "runtime_baseline_refs",
     "incremental_context_frame": "runtime_incremental_context_frame",
     "incremental_context_cursor": "runtime_incremental_context_cursor",
+    "read_evidence_context": "runtime_read_evidence_context",
     "read_evidence_injection": "runtime_read_evidence",
     "bound_task_runtime_context": "runtime_bound_task_context",
     "task_runtime_boundary_dynamic": "runtime_dynamic_boundary",
     "active_skills": "runtime_active_skills",
     "session_history_tail_context": "runtime_session_history_tail_context",
+    "provider_protocol_history": "runtime_append_only_context",
+    "session_history_entry": "runtime_append_only_context",
+    "single_agent_turn_tool_call": "runtime_append_only_context",
+    "single_agent_turn_tool_observation": "runtime_append_only_context",
+    "tool_observations": "runtime_append_only_context",
 }
 
 
@@ -177,6 +184,8 @@ def _binding_reason(*, status: str, kind: str, source_ref: str) -> str:
         return "segment is compiler-generated task/runtime contract and should become a registered contract slot"
     if status == "runtime_task_state_replay":
         return "segment is compiler-generated append-only task state replay evidence"
+    if status == "runtime_append_only_context":
+        return "segment is accumulated provider-visible context that must preserve append-only prefix order"
     if status == "runtime_read_evidence":
         return "segment is current exact read evidence plus historical evidence refs"
     if status == "runtime_editor_context_index":

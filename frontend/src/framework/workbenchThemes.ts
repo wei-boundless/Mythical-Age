@@ -265,15 +265,22 @@ export function applyWorkbenchAppearance(
   document.documentElement.dataset.workbenchTheme = resolvedTheme;
   document.documentElement.dataset.workbenchDensity = resolvedDensity;
   document.documentElement.style.colorScheme = workbenchThemeById(resolvedTheme).mode;
-  // Re-apply custom overrides after theme change
+  // Apply only explicitly enabled user tweaks on top of the selected template.
   const customSettings = getStoredCustomSettings();
   applyAppearanceOverrides(customSettings);
 }
 
-export function setStoredWorkbenchTheme(themeId: string) {
+export type SetWorkbenchThemeOptions = {
+  preserveCustomColors?: boolean;
+};
+
+export function setStoredWorkbenchTheme(themeId: string, options: SetWorkbenchThemeOptions = {}) {
   if (typeof window === "undefined") return;
   const resolvedTheme = resolveWorkbenchThemeId(themeId);
   window.localStorage.setItem(WORKBENCH_THEME_STORAGE_KEY, resolvedTheme);
+  if (!options.preserveCustomColors) {
+    clearCustomColorOverrides();
+  }
   applyWorkbenchAppearance(resolvedTheme, getStoredWorkbenchDensity());
   window.dispatchEvent(new CustomEvent(WORKBENCH_THEME_CHANGE_EVENT, { detail: { themeId: resolvedTheme } }));
 }
@@ -283,6 +290,7 @@ export function setStoredWorkbenchTheme(themeId: string) {
 export type CustomAppearanceSettings = {
   fontOverride: WorkbenchFontId | null;
   fontSizeScale: number; // 0.8 ~ 1.3, 默认为 1
+  customColorsEnabled: boolean;
   bgColor: string | null;
   panelColor: string | null;
   accentSoftColor: string | null;
@@ -292,6 +300,7 @@ export type CustomAppearanceSettings = {
 export const DEFAULT_CUSTOM_SETTINGS: CustomAppearanceSettings = {
   fontOverride: null,
   fontSizeScale: 1,
+  customColorsEnabled: false,
   bgColor: null,
   panelColor: null,
   accentSoftColor: null,
@@ -301,35 +310,50 @@ export const DEFAULT_CUSTOM_SETTINGS: CustomAppearanceSettings = {
 export const WORKBENCH_CUSTOM_SETTINGS_KEY = "workbenchCustomSettings";
 export const WORKBENCH_CUSTOM_SETTINGS_CHANGE_EVENT = "workbench-custom-settings-change";
 
+function normalizeCustomAppearanceSettings(settings: Partial<CustomAppearanceSettings> = {}): CustomAppearanceSettings {
+  const next = { ...DEFAULT_CUSTOM_SETTINGS, ...settings };
+  const customColorsEnabled = next.customColorsEnabled === true && Boolean(next.bgColor || next.panelColor || next.accentSoftColor);
+
+  return {
+    ...next,
+    fontSizeScale: Number.isFinite(next.fontSizeScale) ? Math.min(1.3, Math.max(0.8, next.fontSizeScale)) : DEFAULT_CUSTOM_SETTINGS.fontSizeScale,
+    customColorsEnabled,
+    bgColor: customColorsEnabled ? next.bgColor : null,
+    panelColor: customColorsEnabled ? next.panelColor : null,
+    accentSoftColor: customColorsEnabled ? next.accentSoftColor : null,
+  };
+}
+
 export function getStoredCustomSettings(): CustomAppearanceSettings {
   if (typeof window === "undefined") return { ...DEFAULT_CUSTOM_SETTINGS };
   try {
     const raw = window.localStorage.getItem(WORKBENCH_CUSTOM_SETTINGS_KEY);
     if (!raw) return { ...DEFAULT_CUSTOM_SETTINGS };
-    return { ...DEFAULT_CUSTOM_SETTINGS, ...JSON.parse(raw) };
+    return normalizeCustomAppearanceSettings(JSON.parse(raw));
   } catch {
     return { ...DEFAULT_CUSTOM_SETTINGS };
   }
 }
 
-export function setStoredCustomSettings(settings: Partial<CustomAppearanceSettings>) {
-  if (typeof window === "undefined") return;
+export function setStoredCustomSettings(settings: Partial<CustomAppearanceSettings>): CustomAppearanceSettings {
   const current = getStoredCustomSettings();
-  const next = { ...current, ...settings };
+  const next = normalizeCustomAppearanceSettings({ ...current, ...settings });
+  if (typeof window === "undefined") return next;
   window.localStorage.setItem(WORKBENCH_CUSTOM_SETTINGS_KEY, JSON.stringify(next));
   applyAppearanceOverrides(next);
   window.dispatchEvent(new CustomEvent(WORKBENCH_CUSTOM_SETTINGS_CHANGE_EVENT, { detail: next }));
+  return next;
 }
 
 export function clearCustomColorOverrides(): CustomAppearanceSettings {
   if (typeof window === "undefined") return { ...DEFAULT_CUSTOM_SETTINGS };
-  const current = getStoredCustomSettings();
-  const next = {
-    ...current,
+  const next = normalizeCustomAppearanceSettings({
+    ...getStoredCustomSettings(),
+    customColorsEnabled: false,
     bgColor: null,
     panelColor: null,
     accentSoftColor: null,
-  };
+  });
   window.localStorage.setItem(WORKBENCH_CUSTOM_SETTINGS_KEY, JSON.stringify(next));
   applyAppearanceOverrides(next);
   window.dispatchEvent(new CustomEvent(WORKBENCH_CUSTOM_SETTINGS_CHANGE_EVENT, { detail: next }));
@@ -364,24 +388,24 @@ export function applyAppearanceOverrides(settings: CustomAppearanceSettings) {
   root.style.setProperty("--console-font-size-body", `${Math.round(baseBody * scale)}px`);
   root.style.fontSize = `${Math.round(baseUi * scale)}px`;
 
-  if (settings.bgColor) {
-    root.style.setProperty("--console-bg", settings.bgColor);
-  } else {
-    root.style.removeProperty("--console-bg");
-  }
+  root.style.removeProperty("--console-bg");
+  root.style.removeProperty("--console-surface");
+  root.style.removeProperty("--console-bg-raised");
+  root.style.removeProperty("--console-accent-soft");
 
-  if (settings.panelColor) {
-    root.style.setProperty("--console-surface", settings.panelColor);
-    root.style.setProperty("--console-bg-raised", settings.panelColor);
-  } else {
-    root.style.removeProperty("--console-surface");
-    root.style.removeProperty("--console-bg-raised");
-  }
+  if (settings.customColorsEnabled) {
+    if (settings.bgColor) {
+      root.style.setProperty("--console-bg", settings.bgColor);
+    }
 
-  if (settings.accentSoftColor) {
-    root.style.setProperty("--console-accent-soft", settings.accentSoftColor);
-  } else {
-    root.style.removeProperty("--console-accent-soft");
+    if (settings.panelColor) {
+      root.style.setProperty("--console-surface", settings.panelColor);
+      root.style.setProperty("--console-bg-raised", settings.panelColor);
+    }
+
+    if (settings.accentSoftColor) {
+      root.style.setProperty("--console-accent-soft", settings.accentSoftColor);
+    }
   }
 
   // Background image

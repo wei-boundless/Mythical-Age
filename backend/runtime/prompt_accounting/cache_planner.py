@@ -26,6 +26,7 @@ CACHE_READ_REQUIRED_SEGMENT_KINDS = {
     "task_contract_stable",
 }
 APPEND_ONLY_REPLAY_SEGMENT_KINDS = {
+    "read_evidence_context",
     "single_agent_turn_tool_call",
     "single_agent_turn_tool_observation",
     "task_state_replay_entry",
@@ -272,6 +273,7 @@ def _prefix_diagnostics(
         for segment in segment_map.segments
         if _is_provider_payload_tool_sidecar_segment(segment)
     )
+    stable_transport_contract_tokens = provider_sidecar_tool_schema_tokens
     replay_stable_tokens = sum(
         int(segment.predicted_tokens or 0)
         for segment in segment_map.segments
@@ -288,7 +290,7 @@ def _prefix_diagnostics(
     read_evidence_tokens = sum(
         int(segment.predicted_tokens or 0)
         for segment in segment_map.segments
-        if str(segment.kind or "") == "read_evidence_injection"
+        if str(segment.kind or "") in {"read_evidence_context", "read_evidence_injection"}
     )
     editor_context_index_tokens = sum(
         int(segment.predicted_tokens or 0)
@@ -341,6 +343,7 @@ def _prefix_diagnostics(
         "stable_cache_role_predicted_tokens": stable_role_tokens,
         "volatile_predicted_tokens": volatile_tokens,
         "provider_sidecar_tool_schema_predicted_tokens": provider_sidecar_tool_schema_tokens,
+        "stable_transport_contract_predicted_tokens": stable_transport_contract_tokens,
         "body_after_stable_prefix_predicted_tokens": max(0, total_tokens - stable_prefix_tokens),
         "body_after_task_prefix_predicted_tokens": max(0, total_tokens - task_tokens),
         "provider_global_prefix_token_ratio": _ratio(provider_global_tokens, total_tokens),
@@ -812,6 +815,8 @@ def _plan_from_provider_payload_boundary(
             "boundary_kind": str(selected_prefix.get("boundary_kind") or ""),
             "boundary_ordinal": int(selected_prefix.get("boundary_ordinal") or 0),
             "boundary_content_hash": str(selected_prefix.get("boundary_content_hash") or ""),
+            "transport_contract_hash": str(boundary.get("transport_contract_hash") or ""),
+            "stable_transport_contract_hash": str(boundary.get("stable_transport_contract_hash") or ""),
             "tool_catalog_hash": str(boundary.get("tool_catalog_hash") or ""),
             "stable_tool_catalog_hash": str(boundary.get("stable_tool_catalog_hash") or ""),
             "cache_sensitive_params_hash": str(boundary.get("cache_sensitive_params_hash") or ""),
@@ -876,12 +881,14 @@ def _provider_payload_prefix_token_diagnostics(
         else 0
     )
     sidecar_tool_schema_tokens = _provider_sidecar_tool_schema_predicted_tokens(segment_map)
+    stable_transport_contract_tokens = sidecar_tool_schema_tokens
     return {
         "provider_payload_message_prefix_predicted_tokens": message_tokens,
         "provider_payload_tool_prefix_predicted_tokens": tool_tokens,
         "provider_sidecar_tool_schema_predicted_tokens": sidecar_tool_schema_tokens,
+        "stable_transport_contract_predicted_tokens": stable_transport_contract_tokens,
         "provider_payload_tool_prefix_transport_selected": int(tool_prefix_selected),
-        "provider_payload_prefix_predicted_tokens": message_tokens + tool_tokens,
+        "provider_payload_prefix_predicted_tokens": message_tokens + tool_tokens + stable_transport_contract_tokens,
     }
 
 

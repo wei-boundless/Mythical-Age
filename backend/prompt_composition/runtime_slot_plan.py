@@ -180,7 +180,9 @@ def _layer_for_source_kind(source_kind: str) -> str:
         return "task_contract_stable"
     if source_kind == "runtime_task_boundary":
         return "task_runtime_boundary_stable"
-    if source_kind == "runtime_task_state_replay":
+    if source_kind in {"runtime_task_state_replay", "runtime_append_only_context"}:
+        return "append_only_task_evidence"
+    if source_kind == "runtime_read_evidence_context":
         return "append_only_task_evidence"
     if source_kind == "runtime_evidence_index_cursor":
         return "runtime_dynamic"
@@ -204,6 +206,7 @@ def _authority_class_for_source_kind(source_kind: str) -> str:
         "runtime_project_instructions": "project_instruction_boundary",
         "runtime_task_boundary": "runtime_boundary",
         "runtime_task_state_replay": "runtime_task_state_replay",
+        "runtime_append_only_context": "append_only_context",
         "runtime_attachment_context_index": "attachment_context_index",
         "runtime_evidence_index_cursor": "evidence_index_cursor",
         "runtime_task_plan_context": "task_plan_context",
@@ -211,13 +214,16 @@ def _authority_class_for_source_kind(source_kind: str) -> str:
         "runtime_editor_evidence_delta": "editor_evidence_delta",
         "runtime_memory_context": "runtime_memory_context",
         "runtime_baseline_refs": "runtime_baseline_refs",
+        "runtime_read_evidence_context": "read_evidence_context",
         "runtime_protocol": "runtime_protocol",
         "tool_catalog": "tool_catalog",
     }.get(source_kind, "runtime_prompt_slot")
 
 
 def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str) -> str:
-    if source_kind == "runtime_task_state_replay" or kind == "task_state_replay_entry":
+    if source_kind in {"runtime_task_state_replay", "runtime_append_only_context"} or kind == "task_state_replay_entry":
+        return "append_only_task_evidence"
+    if source_kind == "runtime_read_evidence_context" or kind == "read_evidence_context":
         return "append_only_task_evidence"
     if kind == "lifecycle_runtime_guidance":
         return "dynamic_context_tail"
@@ -252,11 +258,11 @@ def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str) -> str:
         return "current_exact_evidence"
     if kind == "read_evidence_injection":
         return "current_exact_evidence"
-    if kind in {"session_history", "session_history_context", "session_history_entry", "provider_protocol_history"}:
+    if kind in {"session_history", "session_history_context"}:
         return "history_replay"
     if kind == "session_history_tail_context":
         return "dynamic_context_tail"
-    if kind in {"user_steering_updates", "volatile_user", "tool_observations", "semantic_compaction_request"}:
+    if kind in {"user_steering_updates", "volatile_user", "semantic_compaction_request"}:
         return "user_editor_volatile"
     if str(cache_role or "") not in {"volatile", "never_cache"}:
         return "stable_prefix"
