@@ -6,6 +6,13 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .source_bundle import PromptSource, PromptSourceBundle
+from runtime.context_management.context_assembly import (
+    CONTEXT_APPEND,
+    DYNAMIC_TAIL,
+    SEALED_CONTEXT_PREFIX,
+    STATIC_PREFIX,
+    classify_context_spec,
+)
 
 
 STABLE_CACHE_ROLES = {"cacheable_prefix", "session_stable"}
@@ -83,7 +90,7 @@ def build_prompt_assembly_plan(
         slot = _slot_from_source(source, provider_profile=provider_profile_payload)
         planned.append(slot)
 
-    ordered_sources = sorted(planned, key=lambda slot: int(slot.source_order or 0))
+    ordered_sources = sorted(planned, key=_assembly_order_key)
     slots: list[PromptAssemblySlot] = []
     for order, slot in enumerate(ordered_sources, start=1):
         metadata = {
@@ -159,19 +166,47 @@ def build_prompt_assembly_plan(
             **diagnostics,
             "source_bundle_ref": source_bundle.bundle_id,
             "provider_profile": provider_profile_payload,
-            "assembly_order_policy": "model_visible_source_order_prefix_locked",
+            "assembly_order_policy": "context_assembly_section_prefix_locked",
             "authority": "prompt_composition.assembly_plan.builder",
         },
     )
 
 
+def _assembly_order_key(slot: PromptAssemblySlot) -> tuple[int, int, int]:
+    metadata = dict(slot.metadata or {})
+    section = str(metadata.get("context_cache_section") or "").strip()
+    section_rank = {
+        "static_prefix": 10,
+        "sealed_context_prefix": 20,
+        "context_append": 30,
+        "dynamic_tail": 40,
+    }.get(section, 50)
+    return (section_rank, PREFIX_TIER_ORDER.get(str(slot.prefix_tier or ""), 999), int(slot.source_order or 0))
+
+
 def _slot_from_source(source: PromptSource, *, provider_profile: dict[str, Any]) -> PromptAssemblySlot:
-    cache_role = _cache_role(source.cache_role)
-    prefix_tier = _prefix_tier(source.prefix_tier, cache_scope=source.cache_scope, cache_role=cache_role)
+    source_spec = {
+        **dict(source.message_spec or {}),
+        "kind": source.kind,
+        "cache_scope": source.cache_scope,
+        "cache_role": source.cache_role,
+        "prefix_tier": source.prefix_tier,
+        "metadata": dict(source.metadata or {}),
+    }
+    classification = classify_context_spec(source_spec)
+    cache_role = classification.cache_role
+    prefix_tier = classification.prefix_tier
+    source_cache_scope = classification.cache_scope
     layer = _layer_for_source(source, cache_role=cache_role, prefix_tier=prefix_tier)
+    if classification.context_cache_section in {SEALED_CONTEXT_PREFIX, CONTEXT_APPEND}:
+        layer = "context_memory_append"
+    elif classification.context_cache_section == DYNAMIC_TAIL:
+        layer = "dynamic_context_tail"
+    elif classification.context_cache_section == STATIC_PREFIX and layer == "volatile":
+        layer = "task_stable_scope"
     dynamic_tier = _dynamic_tier_for_source(source, cache_role=cache_role, prefix_tier=prefix_tier, layer=layer)
     cache_scope = _cache_scope_for_tier(
-        source.cache_scope,
+        source_cache_scope,
         cache_role=cache_role,
         prefix_tier=prefix_tier,
         layer=layer,
@@ -189,6 +224,7 @@ def _slot_from_source(source: PromptSource, *, provider_profile: dict[str, Any])
         "prompt_source_kind": source.source_kind,
         "prompt_source_order": int(source.source_order or 0),
         "assembly_decided_by": "prompt_composition.assembly_plan",
+        **classification.to_dict(),
     }
     if source.kind == "tool_schema_catalog":
         metadata.setdefault("provider_tool_schema_cache_profile", dict(provider_profile or {}))
@@ -284,7 +320,7 @@ def _layer_for_source(source: PromptSource, *, cache_role: str, prefix_tier: str
         "runtime_incremental_context_cursor",
     }:
         return "dynamic_context_tail"
-    if kind in {"user_steering_updates", "volatile_user"}:
+    if kind == "volatile_user":
         return "user_editor_volatile"
     if kind == "graph_node_completion_prefix":
         return "assistant_completion_prefix"
@@ -294,10 +330,26 @@ def _layer_for_source(source: PromptSource, *, cache_role: str, prefix_tier: str
 
 
 def _dynamic_tier_for_source(source: PromptSource, *, cache_role: str, prefix_tier: str, layer: str) -> str:
-    if cache_role in STABLE_CACHE_ROLES and prefix_tier not in {"volatile", "none"}:
-        return "stable_prefix"
     kind = str(source.kind or "")
     source_kind = str(source.source_kind or "")
+    if layer == "context_memory_append":
+        if kind in {"provider_protocol_history", "single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"}:
+            return "append_only_runtime_evidence"
+        if kind == "runtime_memory_context":
+            return "runtime_memory_context"
+        if kind in {"volatile_user", "single_agent_turn_user_steer_context", "user_steering_context_append"}:
+            return "user_context_append"
+        return "context_memory_append"
+    if layer == "dynamic_context_tail":
+        if kind == "read_evidence_injection":
+            return "current_exact_evidence"
+        if kind in {"active_skills", "skill_candidates"}:
+            return "active_skills"
+        if kind == "graph_node_completion_prefix":
+            return "assistant_completion_prefix"
+        return "dynamic_context_tail"
+    if cache_role in STABLE_CACHE_ROLES and prefix_tier not in {"volatile", "none"}:
+        return "stable_prefix"
     if layer == "append_only_runtime_evidence" or source_kind in {
         "runtime_task_state_replay",
         "runtime_read_evidence_context",
@@ -336,7 +388,7 @@ def _dynamic_tier_for_source(source: PromptSource, *, cache_role: str, prefix_ti
         return "history_replay"
     if kind == "session_history_tail_context":
         return "dynamic_context_tail"
-    if kind in {"user_steering_updates", "volatile_user", "semantic_compaction_request"}:
+    if kind in {"volatile_user", "semantic_compaction_request"}:
         return "user_editor_volatile"
     if kind == "runtime_memory_context" or source_kind == "runtime_memory_context":
         return "runtime_memory_context"

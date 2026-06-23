@@ -120,6 +120,12 @@ class ModelRequestBuilder:
         )
         provider_transport_tools_hash = _stable_text_hash(canonical_json(list(provider_transport_tools))) if provider_transport_tools else ""
         tool_catalog_manifest_payload = _tool_catalog_manifest_from_metadata(metadata_payload)
+        provider_reasoning_contract = _provider_reasoning_contract_diagnostics(
+            provider=str(provider or ""),
+            model=str(model or ""),
+            cache_relevant_params=cache_relevant_params,
+            messages=provider_transport_messages,
+        )
         canonical = canonical_json(
             {
                 "messages": list(provider_transport_messages),
@@ -198,6 +204,7 @@ class ModelRequestBuilder:
                         for message in provider_transport_messages
                     ),
                 },
+                "provider_reasoning_contract": provider_reasoning_contract,
                 "unplanned_message_count": max(0, len(normalized_messages) - len(bindings)),
                 **binding_diagnostics,
                 "prefix_tier_hashes": tier_hashes,
@@ -239,6 +246,53 @@ def _bindings_from_plan(
             )
         )
     return result
+
+
+def _provider_reasoning_contract_diagnostics(
+    *,
+    provider: str,
+    model: str,
+    cache_relevant_params: dict[str, Any],
+    messages: tuple[dict[str, Any], ...],
+) -> dict[str, Any]:
+    normalized_provider = str(provider or "").strip().lower()
+    normalized_model = str(model or "").strip().lower()
+    thinking_mode = str(dict(cache_relevant_params or {}).get("thinking_mode") or "").strip().lower()
+    deepseek_v4_thinking = (
+        normalized_provider == "deepseek"
+        and normalized_model in {"deepseek-v4-pro", "deepseek-v4-flash"}
+        and thinking_mode == "enabled"
+    )
+    assistant_tool_call_indexes: list[int] = []
+    missing_reasoning_indexes: list[int] = []
+    reasoning_indexes: list[int] = []
+    for index, message in enumerate(tuple(messages or ())):
+        payload = dict(message or {})
+        if str(payload.get("role") or "") != "assistant" or not payload.get("tool_calls"):
+            continue
+        assistant_tool_call_indexes.append(index)
+        if str(payload.get("reasoning_content") or "").strip():
+            reasoning_indexes.append(index)
+        else:
+            missing_reasoning_indexes.append(index)
+    status = "not_applicable"
+    if deepseek_v4_thinking:
+        status = "ok" if not missing_reasoning_indexes else "missing_reasoning_content_for_tool_call_history"
+    return {
+        "provider": normalized_provider,
+        "model": str(model or ""),
+        "thinking_mode": thinking_mode,
+        "deepseek_v4_thinking_contract": deepseek_v4_thinking,
+        "assistant_tool_call_message_indexes": assistant_tool_call_indexes,
+        "assistant_tool_call_reasoning_content_indexes": reasoning_indexes,
+        "assistant_tool_call_missing_reasoning_content_indexes": missing_reasoning_indexes,
+        "status": status,
+        "rule": (
+            "DeepSeek V4 thinking tool-call assistant history must preserve provider-visible reasoning_content "
+            "together with tool_calls and subsequent tool observations"
+        ),
+        "authority": "runtime.model_gateway.model_request.provider_reasoning_contract",
+    }
 
 
 def _stable_prefix_hash(bindings: tuple[ModelRequestSegmentBinding, ...]) -> str:

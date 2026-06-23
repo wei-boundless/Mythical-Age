@@ -781,7 +781,11 @@ def _plan_from_provider_payload_boundary(
     )
     target_diagnostics = _cache_read_target_diagnostics(
         segment_map=segment_map,
-        prefix_tokens=int(token_diagnostics.get("provider_payload_prefix_predicted_tokens") or 0),
+        prefix_tokens=int(
+            token_diagnostics.get("expected_cache_read_prefix_predicted_tokens")
+            or token_diagnostics.get("provider_payload_prefix_predicted_tokens")
+            or 0
+        ),
         prefix_source=f"provider_payload_{key_tier}_prefix",
     )
     if not prefix_hash:
@@ -850,6 +854,8 @@ def _plan_from_provider_payload_boundary(
             "stable_prefix_segment_count": int(selected_prefix.get("segment_count") or 0),
             "stable_message_prefix_segment_count": int(selected_prefix.get("message_segment_count") or 0),
             "stable_prefix_predicted_tokens": int(token_diagnostics.get("provider_payload_prefix_predicted_tokens") or 0),
+            "expected_cache_read_prefix_predicted_tokens": int(token_diagnostics.get("expected_cache_read_prefix_predicted_tokens") or 0),
+            "context_append_promoted_to_next_sealed_context": int(token_diagnostics.get("context_append_prefix_predicted_tokens") or 0) > 0,
         },
     )
 
@@ -873,6 +879,8 @@ def _provider_payload_prefix_token_diagnostics(
     selected_prefix: dict[str, Any] | None = None,
 ) -> dict[str, int]:
     message_tokens = _prefix_predicted_tokens_for_tier(diagnostics, tier=tier)
+    context_append_tokens = _context_append_prefix_predicted_tokens(segment_map, tier=tier)
+    expected_cache_read_tokens = max(0, message_tokens - context_append_tokens)
     selected = dict(selected_prefix or {})
     tool_prefix_selected = int(selected.get("tool_segment_count") or 0) > 0
     tool_tokens = (
@@ -887,9 +895,28 @@ def _provider_payload_prefix_token_diagnostics(
         "provider_payload_tool_prefix_predicted_tokens": tool_tokens,
         "provider_sidecar_tool_schema_predicted_tokens": sidecar_tool_schema_tokens,
         "stable_transport_contract_predicted_tokens": stable_transport_contract_tokens,
+        "context_append_prefix_predicted_tokens": context_append_tokens,
+        "expected_cache_read_prefix_predicted_tokens": expected_cache_read_tokens,
         "provider_payload_tool_prefix_transport_selected": int(tool_prefix_selected),
-        "provider_payload_prefix_predicted_tokens": message_tokens + tool_tokens + stable_transport_contract_tokens,
+        "provider_payload_prefix_predicted_tokens": message_tokens + tool_tokens,
+        "provider_payload_physical_contract_predicted_tokens": message_tokens + tool_tokens + stable_transport_contract_tokens,
     }
+
+
+def _context_append_prefix_predicted_tokens(segment_map: PromptSegmentMap, *, tier: str) -> int:
+    total = 0
+    for segment in tuple(segment_map.segments or ()):
+        metadata = dict(getattr(segment, "metadata", None) or {})
+        if str(metadata.get("context_cache_section") or metadata.get("context_assembly_section") or "") != "context_append":
+            continue
+        if not is_prefix_eligible_for_tier(
+            cache_role=getattr(segment, "cache_role", ""),
+            prefix_tier=getattr(segment, "prefix_tier", ""),
+            tier=tier,
+        ):
+            continue
+        total += int(getattr(segment, "predicted_tokens", 0) or 0)
+    return total
 
 
 def _provider_payload_tool_prefix_predicted_tokens(segment_map: PromptSegmentMap, *, tier: str) -> int:

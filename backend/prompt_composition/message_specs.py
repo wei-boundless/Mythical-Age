@@ -86,6 +86,8 @@ def message_spec_content_source(*, kind: str, cache_role: str, source_ref: str) 
         return "runtime.stable_boundary"
     if normalized_kind in {"provider_protocol_history"}:
         return "runtime.provider_protocol_replay"
+    if normalized_kind in {"session_pinned_facts_context"}:
+        return "harness.runtime.dynamic_context.history_projection"
     if normalized_kind == "editor_context_index":
         return "harness.runtime.dynamic_context.editor_context_index"
     if normalized_kind == "attachment_context_index":
@@ -104,6 +106,10 @@ def message_spec_content_source(*, kind: str, cache_role: str, source_ref: str) 
         return "harness.runtime.incremental_context_frame"
     if normalized_kind == "incremental_context_cursor":
         return "harness.runtime.incremental_context_cursor"
+    if normalized_kind in {"single_agent_turn_user_steer_context", "user_steering_context_append"}:
+        return "harness.runtime.user_steering_context"
+    if normalized_kind == "user_steering_consumption_tail":
+        return "harness.runtime.user_steering_consumption_tail"
     if normalized_kind in {
         "dynamic_projection",
         "graph_node_completion_prefix",
@@ -116,7 +122,6 @@ def message_spec_content_source(*, kind: str, cache_role: str, source_ref: str) 
         "read_evidence_injection",
         "task_runtime_boundary_dynamic",
         "tool_observations",
-        "user_steering_updates",
         "volatile_task_state",
         "volatile_user",
     }:

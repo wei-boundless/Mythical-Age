@@ -451,11 +451,11 @@ class DynamicContextManager:
                 VolatileSectionReport(
                     section_id=f"dynamic_context:{request.invocation_kind}:task_plan_context",
                     source="task_plan_context",
-                    volatility_reason="task plan status can change during execution; PlanContract baseline, TodoCursor, and delta are isolated from tool result replay",
+                    volatility_reason="task plan status can change during execution; each visible plan cursor is emitted as appendable context and the previous provider-visible package remains sealed",
                     input_chars=estimate_chars({"execution_state": request.execution_state, "observations": request.observations}),
                     output_chars=estimate_chars(task_plan_context),
                     projection_strategy="plan_contract_plus_todo_cursor_projection",
-                    cache_impact="task_plan_dynamic_layer",
+                    cache_impact="context_append_then_sealed_prefix",
                     refs=tuple(
                         ref
                         for ref in (
@@ -479,7 +479,7 @@ class DynamicContextManager:
                 VolatileSectionReport(
                     section_id=f"dynamic_context:{request.invocation_kind}:evidence_index_cursor",
                     source="evidence_index_cursor",
-                    volatility_reason="file and tool evidence freshness changes with reads and writes; exact content stays in current exact evidence or rehydration refs",
+                    volatility_reason="file and tool evidence freshness changes with reads and writes; the ref/hash/range cursor is emitted as appendable context while exact current evidence stays in the tail",
                     input_chars=estimate_chars(
                         {
                             "execution_state": request.execution_state,
@@ -489,7 +489,7 @@ class DynamicContextManager:
                     ),
                     output_chars=estimate_chars(evidence_index_cursor),
                     projection_strategy="ref_hash_range_freshness_evidence_index",
-                    cache_impact="evidence_index_dynamic_layer",
+                    cache_impact="context_append_then_sealed_prefix",
                     refs=tuple(
                         str(item.get("latest_evidence_ref") or "")
                         for item in list(evidence_index_cursor.get("files") or [])
@@ -504,10 +504,11 @@ class DynamicContextManager:
                 VolatileSectionReport(
                     section_id=f"dynamic_context:{request.invocation_kind}:editor_context_index",
                     source="editor_context_index",
-                    volatility_reason="editor workspace snapshot is captured per invocation and may change between turns",
+                    volatility_reason="editor workspace snapshot is captured per invocation; index metadata is emitted as appendable context, not dynamic tail exact evidence",
                     input_chars=estimate_chars(request.editor_context),
                     output_chars=estimate_chars(editor_context_index),
                     projection_strategy="editor_context_index_ref_projection",
+                    cache_impact="context_append_then_sealed_prefix",
                     refs=tuple(_editor_context_index_refs(editor_context_index)),
                 )
             )
@@ -533,10 +534,11 @@ class DynamicContextManager:
                 VolatileSectionReport(
                     section_id=f"dynamic_context:{request.invocation_kind}:attachment_context_index",
                     source="attachment_context_index",
-                    volatility_reason="turn attachments are current request resources; metadata is indexed separately from user text and extracted evidence",
+                    volatility_reason="turn attachment metadata is indexed as appendable context; extracted current exact evidence remains outside this index",
                     input_chars=estimate_chars(dict(request.session_context or {}).get("turn_input_attachments")),
                     output_chars=estimate_chars(attachment_context_index),
                     projection_strategy="attachment_context_index_ref_projection",
+                    cache_impact="context_append_then_sealed_prefix",
                     refs=tuple(_attachment_context_refs(attachment_context_index)),
                 )
             )

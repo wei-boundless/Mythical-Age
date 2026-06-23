@@ -58,7 +58,12 @@ from harness.runtime.sandbox_artifacts import (
 )
 from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_scope
 from runtime.cache_manager import DEFAULT_SANDBOX_CACHE_TTL_SECONDS, runtime_cache_manager_for_host
-from runtime.context_management import assign_sealed_append_order
+from runtime.context_management import (
+    apply_context_assembly_classification,
+    assign_sealed_append_order,
+    is_dynamic_tail_spec,
+    is_sealable_context_spec,
+)
 from runtime.prompt_accounting.serializer import normalize_messages
 from runtime.prompt_accounting import ContextUsageMeter
 from runtime.model_gateway.assistant_stream_frame import (
@@ -6382,6 +6387,9 @@ def _seal_single_agent_followup_segment_plan(segment_plan: dict[str, Any], *, pa
             scope=scope,
             item_key=key,
             receipt_authority="harness.loop.single_agent_turn.sealed_append_only_context",
+            provider_visible_hash=str(segment.get("model_message_hash") or segment.get("content_hash") or ""),
+            kind=str(segment.get("kind") or ""),
+            source_ref=str(segment.get("source_ref") or ""),
         )
         existing_order = _safe_int_value(assignment.get("order"))
         order_source = str(assignment.get("order_source") or "receipt")
@@ -6393,6 +6401,9 @@ def _seal_single_agent_followup_segment_plan(segment_plan: dict[str, Any], *, pa
             "sealed_accumulated_context_order": existing_order,
             "sealed_accumulated_context_order_source": order_source,
             "sealed_accumulated_context_authority": str(assignment.get("authority") or ""),
+            "sealed_accumulated_context_integrity_status": str(assignment.get("integrity_status") or ""),
+            "sealed_accumulated_context_recovery_required": bool(assignment.get("recovery_required") is True),
+            "sealed_accumulated_context_structured_failure": dict(assignment.get("structured_failure") or {}),
         }
         sealed_segments.append(segment)
     payload["segments"] = sealed_segments
@@ -6400,8 +6411,7 @@ def _seal_single_agent_followup_segment_plan(segment_plan: dict[str, Any], *, pa
 
 
 def _is_followup_sealable_segment(segment: dict[str, Any]) -> bool:
-    kind = str(dict(segment or {}).get("kind") or "").strip()
-    if kind not in _FOLLOWUP_BASE_ACCUMULATED_CONTEXT_KINDS:
+    if not is_sealable_context_spec(dict(segment or {})):
         return False
     cache_role = str(dict(segment or {}).get("cache_role") or "").strip()
     prefix_tier = str(dict(segment or {}).get("prefix_tier") or "").strip()
@@ -6444,45 +6454,25 @@ def _is_tool_followup_action_contract_message(message: dict[str, Any]) -> bool:
     return "你是正在根据刚才工具观察决定下一步的 coding agent。" in content
 
 
-_TOOL_FOLLOWUP_CURRENT_DYNAMIC_TAIL_KINDS = {
-    "active_skills",
-    "attachment_context_index",
-    "bound_task_runtime_context",
-    "current_editor_evidence_delta",
-    "dynamic_projection",
-    "editor_context_index",
-    "evidence_index_cursor",
-    "graph_node_completion_prefix",
-    "graph_node_runtime_context",
-    "lifecycle_runtime_guidance",
-    "runtime_control_signal_tail",
-    "runtime_memory_context",
-    "semantic_compaction_request",
-    "session_history_tail_context",
-    "skill_candidates",
-    "task_plan_context",
-    "task_runtime_boundary_dynamic",
-    "read_evidence_injection",
-    "user_steering_updates",
-    "volatile_runtime_state",
-    "volatile_task_state",
-    "volatile_user",
-}
-
-
 _FOLLOWUP_BASE_ACCUMULATED_CONTEXT_KINDS = {
     "accumulated_context_boundary",
     "incremental_context_frame",
     "provider_protocol_history",
     "read_evidence_context",
+    "runtime_memory_context",
     "session_history",
     "session_history_context",
     "session_history_entry",
+    "session_pinned_facts_context",
     "single_agent_turn_followup_message",
     "single_agent_turn_tool_call",
     "single_agent_turn_tool_observation",
+    "single_agent_turn_user_steer_context",
+    "task_plan_context",
     "task_state_replay_entry",
     "tool_observations",
+    "user_steering_context_append",
+    "volatile_user",
 }
 
 
@@ -6595,24 +6585,7 @@ def _message_hash_keys(message: dict[str, Any]) -> tuple[str, ...]:
 def _is_tool_followup_current_dynamic_tail_segment(segment: dict[str, Any]) -> bool:
     if not segment:
         return False
-    kind = str(segment.get("kind") or "").strip()
-    if kind in _TOOL_FOLLOWUP_CURRENT_DYNAMIC_TAIL_KINDS:
-        return True
-    metadata = dict(segment.get("metadata") or {}) if isinstance(segment.get("metadata"), dict) else {}
-    dynamic_tier = str(metadata.get("prompt_assembly_dynamic_tier") or metadata.get("dynamic_tier") or "").strip()
-    if dynamic_tier in {
-        "active_skills",
-        "current_runtime_cursor",
-        "dynamic_context_tail",
-        "runtime_cursor",
-        "runtime_delta_tail",
-        "runtime_memory_context",
-        "user_editor_volatile",
-    }:
-        return True
-    cache_role = str(segment.get("cache_role") or "").strip()
-    prefix_tier = str(segment.get("prefix_tier") or "").strip()
-    return cache_role == "volatile" or prefix_tier == "volatile"
+    return is_dynamic_tail_spec(dict(segment or {}))
 
 
 def _is_tool_followup_accumulated_message_by_shape(message: dict[str, Any]) -> bool:
@@ -6726,6 +6699,20 @@ def _single_agent_turn_followup_base_message_spec(
             cache_role = rebased["cache_role"]
             prefix_tier = rebased["prefix_tier"]
             metadata = {**metadata, **dict(rebased.get("metadata") or {})}
+        classified = apply_context_assembly_classification(
+            {
+                "kind": kind,
+                "cache_scope": cache_scope,
+                "cache_role": cache_role,
+                "prefix_tier": prefix_tier,
+                "metadata": metadata,
+                "model_message": dict(message),
+            }
+        )
+        cache_scope = str(classified.get("cache_scope") or cache_scope)
+        cache_role = str(classified.get("cache_role") or cache_role)
+        prefix_tier = str(classified.get("prefix_tier") or prefix_tier)
+        metadata = dict(classified.get("metadata") or metadata)
     return {
         "role": str(message.get("role") or "user"),
         "content": str(message.get("content") or ""),
@@ -6785,6 +6772,10 @@ def _single_agent_turn_followup_message_spec(
         kind = "single_agent_turn_tool_observation"
         source_ref = _followup_tool_message_source_ref(message, prefix="single_agent_turn.tool_observation")
         compression_role = "summarize"
+    elif _is_active_turn_user_steer_message(message):
+        kind = "single_agent_turn_user_steer_context"
+        source_ref = _active_turn_user_steer_source_ref(message, tool_iteration=tool_iteration)
+        compression_role = "preserve"
     else:
         kind = "single_agent_turn_followup_message"
         source_ref = f"single_agent_turn.followup:{tool_iteration}"
@@ -6816,6 +6807,20 @@ def _single_agent_turn_followup_message_spec(
                 "stability_rule": "follow-up context is appended as immutable context after it has been sent to the model",
             }
         )
+    classified = apply_context_assembly_classification(
+        {
+            "kind": kind,
+            "cache_scope": cache_scope,
+            "cache_role": cache_role,
+            "prefix_tier": prefix_tier,
+            "metadata": metadata,
+            "model_message": dict(message),
+        }
+    )
+    cache_scope = str(classified.get("cache_scope") or cache_scope)
+    cache_role = str(classified.get("cache_role") or cache_role)
+    prefix_tier = str(classified.get("prefix_tier") or prefix_tier)
+    metadata = dict(classified.get("metadata") or metadata)
     return {
         "role": role,
         "content": str(message.get("content") or ""),
@@ -6828,6 +6833,20 @@ def _single_agent_turn_followup_message_spec(
         "metadata": metadata,
         "model_message": dict(message),
     }
+
+
+def _is_active_turn_user_steer_message(message: dict[str, Any]) -> bool:
+    content = str(dict(message or {}).get("content") or "")
+    return (
+        "用户在本轮 agent 运行期间追加了以下补充要求" in content
+        and "harness.loop.active_turn_steer" in content
+    )
+
+
+def _active_turn_user_steer_source_ref(message: dict[str, Any], *, tool_iteration: int) -> str:
+    content = str(dict(message or {}).get("content") or "")
+    digest = hashlib.sha256(content.encode("utf-8", errors="ignore")).hexdigest()[:16]
+    return f"single_agent_turn.active_turn_user_steer:{max(1, int(tool_iteration or 1))}:{digest}"
 
 
 def _followup_base_segment_conflicts_with_message_shape(base: dict[str, Any], message: dict[str, Any]) -> bool:

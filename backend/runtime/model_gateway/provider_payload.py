@@ -258,6 +258,10 @@ def build_provider_payload_manifest(
             "transport_contract_ref": str(transport_contract.get("contract_id") or ""),
             "transport_contract_hash": str(transport_contract.get("contract_hash") or ""),
             "tool_catalog_manifest_ref": str(dict(tool_catalog_manifest or {}).get("manifest_id") or ""),
+            "context_assembly_order": ["static_prefix", "sealed_context_prefix", "context_append", "dynamic_tail"],
+            "context_cache_section_counts": _context_cache_section_counts(ordered_segments),
+            "stable_segment_after_dynamic_tail_count": _stable_segment_after_dynamic_tail_count(ordered_segments),
+            "dynamic_tail_after_cache_boundary": _stable_segment_after_dynamic_tail_count(ordered_segments) == 0,
             "authority": "runtime.model_gateway.provider_payload.builder",
         },
     )
@@ -639,6 +643,32 @@ def _segments_hash(segments: list[ProviderPayloadSegment]) -> str:
     if not segments:
         return ""
     return _stable_text_hash("|".join(segment.content_hash for segment in segments))
+
+
+def _context_cache_section_counts(segments: tuple[ProviderPayloadSegment, ...]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for segment in tuple(segments or ()):
+        if segment.transport_location != "messages":
+            continue
+        metadata = dict(segment.metadata or {})
+        section = str(metadata.get("context_cache_section") or metadata.get("context_assembly_section") or "unknown")
+        counts[section] = counts.get(section, 0) + 1
+    return counts
+
+
+def _stable_segment_after_dynamic_tail_count(segments: tuple[ProviderPayloadSegment, ...]) -> int:
+    dynamic_seen = False
+    count = 0
+    for segment in [item for item in tuple(segments or ()) if item.transport_location == "messages"]:
+        metadata = dict(segment.metadata or {})
+        section = str(metadata.get("context_cache_section") or metadata.get("context_assembly_section") or "")
+        if section == "dynamic_tail":
+            dynamic_seen = True
+            continue
+        stable = is_cache_eligible_prefix(cache_role=segment.cache_role, prefix_tier=segment.prefix_tier)
+        if dynamic_seen and stable:
+            count += 1
+    return count
 
 
 def _transport_stable_contract(

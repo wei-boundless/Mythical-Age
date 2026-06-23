@@ -17,6 +17,22 @@ from .sealed_context import (
     save_sealed_context_receipt,
     sealed_context_receipt_path,
 )
+from .context_assembly import (
+    APPEND_ONLY_CONTEXT_KINDS,
+    CONTEXT_APPEND,
+    CONTEXT_ASSEMBLY_ORDER,
+    CURRENT_CONTROL_TAIL_KINDS,
+    DYNAMIC_TAIL,
+    MEMORY_CONTEXT_KINDS,
+    SEALED_CONTEXT_PREFIX,
+    STATIC_PREFIX,
+    STATIC_PREFIX_KINDS,
+    apply_context_assembly_classification,
+    classify_context_spec,
+    is_context_append_spec,
+    is_dynamic_tail_spec,
+    is_sealable_context_spec,
+)
 from runtime_objects.tool_result_storage import (
     DEFAULT_FIELD_SIZE_LIMIT_BYTES,
     DEFAULT_PAYLOAD_BUDGET_BYTES,
@@ -53,6 +69,20 @@ __all__ = [
     "save_sealed_context_receipt",
     "sealed_context_receipt_path",
     "safe_context_receipt_filename",
+    "APPEND_ONLY_CONTEXT_KINDS",
+    "CONTEXT_APPEND",
+    "CONTEXT_ASSEMBLY_ORDER",
+    "CURRENT_CONTROL_TAIL_KINDS",
+    "DYNAMIC_TAIL",
+    "MEMORY_CONTEXT_KINDS",
+    "SEALED_CONTEXT_PREFIX",
+    "STATIC_PREFIX",
+    "STATIC_PREFIX_KINDS",
+    "apply_context_assembly_classification",
+    "classify_context_spec",
+    "is_context_append_spec",
+    "is_dynamic_tail_spec",
+    "is_sealable_context_spec",
 ]
 
 

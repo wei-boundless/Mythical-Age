@@ -1802,11 +1802,14 @@ def _previous_stability_report_filter(*, run_id: str, task_run_id: str, session_
 def _previous_prompt_cache_baselines(ledger: Any, *, run_id: str, task_run_id: str, session_id: str) -> list[Any]:
     filters = _previous_stability_report_filter(run_id=run_id, task_run_id=task_run_id, session_id=session_id)
     list_recent = getattr(ledger, "list_recent_prompt_cache_baselines", None)
-    use_recent = _prompt_accounting_scoped_reads_are_expensive(ledger) and callable(list_recent)
+    scoped_reads_expensive = _prompt_accounting_scoped_reads_are_expensive(ledger)
+    use_recent = scoped_reads_expensive and callable(list_recent)
     if use_recent:
         records = list(list_recent(**filters, limit=128))
         if session_id and (filters.get("task_run_id") or filters.get("run_id")):
             records.extend(list_recent(session_id=session_id, limit=128))
+    elif scoped_reads_expensive:
+        records = []
     else:
         records = list(ledger.list_prompt_cache_baselines(**filters))
         if session_id and filters.get("task_run_id"):
@@ -1825,11 +1828,14 @@ def _previous_prompt_cache_baselines(ledger: Any, *, run_id: str, task_run_id: s
 def _previous_prompt_stability_reports(ledger: Any, *, run_id: str, task_run_id: str, session_id: str) -> list[Any]:
     filters = _previous_stability_report_filter(run_id=run_id, task_run_id=task_run_id, session_id=session_id)
     list_recent = getattr(ledger, "list_recent_prompt_stability", None)
-    use_recent = _prompt_accounting_scoped_reads_are_expensive(ledger) and callable(list_recent)
+    scoped_reads_expensive = _prompt_accounting_scoped_reads_are_expensive(ledger)
+    use_recent = scoped_reads_expensive and callable(list_recent)
     if use_recent:
         records = list(list_recent(**filters, limit=128))
         if session_id and (filters.get("task_run_id") or filters.get("run_id")):
             records.extend(list_recent(session_id=session_id, limit=128))
+    elif scoped_reads_expensive:
+        records = []
     else:
         records = list(ledger.list_prompt_stability(**filters))
         if session_id and filters.get("task_run_id"):

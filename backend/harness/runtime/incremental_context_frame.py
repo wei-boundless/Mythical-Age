@@ -518,7 +518,7 @@ def _task_current_events(
                     "event_kind": "pending_user_steer",
                     "event_ref": str(steer.get("steer_id") or ""),
                     "payload_hash": _payload_hash(_drop_empty({"steer_id": steer.get("steer_id"), "content": steer.get("content")})),
-                    "content_visible_in": "user_steering_updates",
+                    "content_visible_in": "user_steering_context_append",
                 }
             )
         )
@@ -628,7 +628,7 @@ def _task_changed_state(
         changes.append(
             _drop_empty(
                 {
-                    "subject": "user_steering_updates",
+                    "subject": "user_steering_context_append",
                     "change": "pending_user_steer_visible",
                     "pending_user_steer_count": int(steer_payload.get("pending_user_steer_count") or 0),
                     "steer_refs": [
@@ -636,7 +636,8 @@ def _task_changed_state(
                         for item in _bounded_dicts(steer_payload.get("pending_user_steers"), limit=8)
                         if str(item.get("steer_id") or "")
                     ],
-                    "details_visible_in": "user_steering_updates",
+                    "details_visible_in": "user_steering_context_append",
+                    "consumption_state_visible_in": "user_steering_consumption_tail",
                 }
             )
         )

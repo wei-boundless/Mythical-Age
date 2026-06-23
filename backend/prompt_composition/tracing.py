@@ -3,35 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from .models import PromptCompositionSegmentBinding, PromptCompositionSlot
-
-
-DYNAMIC_SEGMENT_KINDS = {
-    "dynamic_projection",
-    "attachment_context_index",
-    "evidence_index_cursor",
-    "task_plan_context",
-    "editor_context_index",
-    "current_editor_evidence_delta",
-    "runtime_memory_context",
-    "runtime_baseline_refs",
-    "graph_node_completion_prefix",
-    "graph_node_runtime_context",
-    "incremental_context_frame",
-    "incremental_context_cursor",
-    "provider_protocol_history",
-    "read_evidence_context",
-    "semantic_compaction_request",
-    "session_history",
-    "session_history_context",
-    "session_history_entry",
-    "session_history_tail_context",
-    "single_agent_turn_tool_call",
-    "single_agent_turn_tool_observation",
-    "tool_observations",
-    "user_steering_updates",
-    "volatile_task_state",
-    "volatile_user",
-}
+from runtime.context_management.context_assembly import (
+    CONTEXT_APPEND,
+    DYNAMIC_TAIL,
+    SEALED_CONTEXT_PREFIX,
+    classify_context_spec,
+)
 
 RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
     "action_schema_static": "runtime_action_schema",
@@ -69,7 +46,11 @@ RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
     "session_history_entry": "runtime_append_only_context",
     "single_agent_turn_tool_call": "runtime_append_only_context",
     "single_agent_turn_tool_observation": "runtime_append_only_context",
+    "single_agent_turn_user_steer_context": "runtime_append_only_context",
+    "session_pinned_facts_context": "runtime_append_only_context",
     "tool_observations": "runtime_append_only_context",
+    "user_steering_context_append": "runtime_append_only_context",
+    "user_steering_consumption_tail": "dynamic_context_fragment",
 }
 
 
@@ -139,11 +120,13 @@ def _fallback_status(segment: dict[str, Any]) -> str:
 
 def runtime_source_kind_for_segment(segment: dict[str, Any]) -> str:
     kind = str(segment.get("kind") or "").strip()
-    cache_role = str(segment.get("cache_role") or "").strip()
     source_kind = RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND.get(kind)
     if source_kind:
         return source_kind
-    if kind in DYNAMIC_SEGMENT_KINDS or cache_role in {"volatile", "never_cache"}:
+    classification = classify_context_spec(segment)
+    if classification.context_cache_section in {SEALED_CONTEXT_PREFIX, CONTEXT_APPEND}:
+        return "runtime_append_only_context"
+    if classification.context_cache_section == DYNAMIC_TAIL:
         return "dynamic_context_fragment"
     return "legacy_runtime_text"
 
@@ -199,7 +182,7 @@ def _binding_reason(*, status: str, kind: str, source_ref: str) -> str:
     if status == "runtime_editor_evidence_delta":
         return "segment is current editor selection or preview exact evidence visible for this invocation"
     if status == "runtime_memory_context":
-        return "segment is selected runtime memory context; it belongs in the volatile tail, not inside runtime boundary"
+        return "segment is selected runtime memory context; it belongs in context memory and must not be treated as volatile execution tail"
     if status == "runtime_incremental_context_frame":
         return "segment is an append-only tool follow-up delta frame"
     if status == "runtime_incremental_context_cursor":

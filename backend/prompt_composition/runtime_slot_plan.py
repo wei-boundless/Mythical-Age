@@ -6,6 +6,7 @@ from typing import Any
 
 from .models import PromptCompositionSlot, RuntimePromptSlot, RuntimePromptSlotPlan
 from .tracing import runtime_source_kind_for_segment
+from runtime.context_management.context_assembly import classify_context_spec
 
 
 def build_runtime_prompt_slot_plan(
@@ -21,7 +22,12 @@ def build_runtime_prompt_slot_plan(
         spec = _normalized_spec(raw_spec)
         kind = str(spec.get("kind") or "unknown_unplanned").strip() or "unknown_unplanned"
         source_kind = runtime_source_kind_for_segment(spec)
+        classification = classify_context_spec(spec)
         layer = _layer_for_source_kind(source_kind)
+        if classification.context_cache_section in {"sealed_context_prefix", "context_append"}:
+            layer = "context_memory"
+        elif classification.context_cache_section == "dynamic_tail":
+            layer = "runtime_dynamic"
         metadata = dict(spec.get("metadata") or {})
         prompt_source_manifest_id = str(metadata.get("runtime_prompt_source_manifest_id") or "")
         prompt_source_id = str(metadata.get("runtime_prompt_source_id") or "")
@@ -45,10 +51,10 @@ def build_runtime_prompt_slot_plan(
                 target_role=str(spec.get("role") or "user"),
                 source_kind=source_kind,
                 source_ref=str(spec.get("source_ref") or ""),
-                cache_scope=str(spec.get("cache_scope") or "none"),
-                cache_role=str(spec.get("cache_role") or "volatile"),
-                cache_tier=_cache_tier(spec),
-                dynamic_tier=_dynamic_tier(kind=kind, source_kind=source_kind, cache_role=str(spec.get("cache_role") or "")),
+                cache_scope=classification.cache_scope,
+                cache_role=classification.cache_role,
+                cache_tier=classification.prefix_tier,
+                dynamic_tier=_dynamic_tier(kind=kind, source_kind=source_kind, cache_role=classification.cache_role, classification=classification.to_dict()),
                 compression_role=str(spec.get("compression_role") or "summarize"),
                 authority_class=str(metadata.get("authority_class") or _authority_class_for_source_kind(source_kind)),
                 render_contract=_render_contract(spec, source_kind=source_kind),
@@ -59,6 +65,7 @@ def build_runtime_prompt_slot_plan(
                     "prompt_source_manifest_id": prompt_source_manifest_id,
                     "prompt_source_id": prompt_source_id,
                     "slot_source": "runtime_prompt_source_manifest",
+                    **classification.to_dict(),
                 },
             )
         )
@@ -220,7 +227,25 @@ def _authority_class_for_source_kind(source_kind: str) -> str:
     }.get(source_kind, "runtime_prompt_slot")
 
 
-def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str) -> str:
+def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str, classification: dict[str, Any] | None = None) -> str:
+    assembly = dict(classification or {})
+    section = str(assembly.get("context_cache_section") or "")
+    if section in {"sealed_context_prefix", "context_append"}:
+        if kind == "runtime_memory_context":
+            return "runtime_memory_context"
+        if kind in {"volatile_user", "single_agent_turn_user_steer_context", "user_steering_context_append"}:
+            return "user_context_append"
+        if kind in {"provider_protocol_history", "single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"}:
+            return "append_only_task_evidence"
+        return "context_memory_append"
+    if section == "dynamic_tail":
+        if kind == "read_evidence_injection":
+            return "current_exact_evidence"
+        if kind in {"active_skills", "skill_candidates"}:
+            return "active_skills"
+        if kind == "graph_node_completion_prefix":
+            return "assistant_completion_prefix"
+        return "dynamic_context_tail"
     if source_kind in {"runtime_task_state_replay", "runtime_append_only_context"} or kind == "task_state_replay_entry":
         return "append_only_task_evidence"
     if source_kind == "runtime_read_evidence_context" or kind == "read_evidence_context":
@@ -262,7 +287,7 @@ def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str) -> str:
         return "history_replay"
     if kind == "session_history_tail_context":
         return "dynamic_context_tail"
-    if kind in {"user_steering_updates", "volatile_user", "semantic_compaction_request"}:
+    if kind in {"volatile_user", "semantic_compaction_request"}:
         return "user_editor_volatile"
     if str(cache_role or "") not in {"volatile", "never_cache"}:
         return "stable_prefix"

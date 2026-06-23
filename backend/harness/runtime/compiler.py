@@ -45,7 +45,16 @@ from harness.current_work_receipt import current_work_operation_availability_fro
 from harness.recovery_receipt import recovery_operation_availability_from_receipt
 from project_layout import ProjectLayout
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
-from runtime.context_management import assign_sealed_append_order
+from runtime.context_management import (
+    CONTEXT_APPEND,
+    DYNAMIC_TAIL,
+    SEALED_CONTEXT_PREFIX,
+    STATIC_PREFIX,
+    apply_context_assembly_classification,
+    assign_sealed_append_order,
+    classify_context_spec,
+    is_sealable_context_spec,
+)
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
 from .artifact_scope import runtime_artifact_scope_from_environment
@@ -550,6 +559,15 @@ class RuntimeCompiler:
         )
         runtime_baseline_refs_payload = _runtime_baseline_refs_model_visible_payload(dynamic_context)
         dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or dynamic_context.dynamic_runtime_delta or {})
+        evidence_index_cursor_payload, dynamic_payload = _extract_evidence_index_cursor_payload(dynamic_payload)
+        file_evidence_scope_payload = dynamic_payload.pop("file_evidence_scope", None)
+        if evidence_index_cursor_payload and isinstance(file_evidence_scope_payload, dict):
+            evidence_index_cursor_payload = {
+                **evidence_index_cursor_payload,
+                "file_evidence_scope": dict(file_evidence_scope_payload),
+            }
+        for derived_evidence_key in ("file_evidence_decisions", "read_resource_state", "evidence_confidence"):
+            dynamic_payload.pop(derived_evidence_key, None)
         runtime_memory_context_payload = _memory_context_model_visible_payload(
             memory_context or session_context_payload.get("memory_context")
         )
@@ -747,6 +765,12 @@ class RuntimeCompiler:
                     source_ref_prefix="single_agent_turn",
                     dynamic_context=dynamic_context,
                 ),
+                *_evidence_index_cursor_message_specs(
+                    evidence_index_cursor_payload,
+                    title_prefix="Single agent turn",
+                    source_ref_prefix="single_agent_turn",
+                    dynamic_context=dynamic_context,
+                ),
                 *_editor_context_message_specs(
                     editor_context_payload,
                     title_prefix="Single agent turn",
@@ -867,8 +891,8 @@ class RuntimeCompiler:
                     metadata={
                         "authority_class": "runtime_memory_context",
                         "content_source": "memory_system.runtime_memory_context",
-                        "volatility_reason": "selected memory context can change on each invocation and belongs in the dynamic tail",
-                        "cache_impact": "volatile_suffix_only",
+                        "stability_rule": "selected memory context is rememberable context; changed selections append as new context and the previous provider-visible package remains sealed",
+                        "cache_impact": "context_append_then_sealed_prefix",
                     },
                 )
                 if runtime_memory_context_payload
@@ -901,10 +925,6 @@ class RuntimeCompiler:
         single_turn_dynamic_refs = (
             "agent_visible_runtime_projection",
             "operation_authorization",
-            "file_evidence_scope",
-            "file_state",
-            "file_evidence_decisions",
-            "read_resource_state",
             "active_work_context",
             "recent_work_outcome",
             "current_work_boundary_receipt",
@@ -919,11 +939,8 @@ class RuntimeCompiler:
             "turn_id",
             "history",
             "user_message",
-            "task_plan_context",
-            "editor_context_index",
             "current_editor_evidence_delta",
             "lifecycle_runtime_guidance",
-            "runtime_memory_context",
             "skill_candidates",
         )
         prompt_manifest = build_runtime_prompt_manifest(
@@ -1360,7 +1377,7 @@ class RuntimeCompiler:
         )
         read_evidence_payload = packet_context.read_evidence_payload
         read_evidence_prompt_payload = _read_evidence_prompt_payload(read_evidence_payload)
-        user_steering_payload = _user_steering_updates_payload(execution_state)
+        user_steering_payload = _user_steering_task_payload(execution_state)
         incremental_context_frame_payload = build_task_execution_incremental_context_frame_payload(
             task_run_id=task_run_id,
             invocation_index=invocation_index,
@@ -1766,8 +1783,8 @@ class RuntimeCompiler:
                     metadata={
                         "authority_class": "runtime_memory_context",
                         "content_source": "memory_system.runtime_memory_context",
-                        "volatility_reason": "selected memory context can change on each task invocation and belongs in the dynamic tail",
-                        "cache_impact": "volatile_suffix_only",
+                        "stability_rule": "selected memory context is rememberable context; changed selections append as new context and the previous provider-visible package remains sealed",
+                        "cache_impact": "context_append_then_sealed_prefix",
                     },
                 )
                 if runtime_memory_context_payload
@@ -1795,27 +1812,42 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="user",
-                    title="User steering updates for this task",
-                    payload=user_steering_payload,
-                    kind="user_steering_updates",
+                    title="User steering context for this task",
+                    payload=_user_steering_context_append_payload(user_steering_payload),
+                    kind="user_steering_context_append",
                     source_ref=_user_steering_source_ref(user_steering_payload),
-                    cache_scope="none",
-                    cache_role="volatile",
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
                         "authority_class": "user_task_steer",
-                        "volatility_reason": "user steer queue changes whenever the user adds or the executor consumes active task guidance",
                         "projection_strategy": "preserve_user_supplied_task_steer",
-                        "cache_impact": "volatile_suffix_only",
-                        "steer_refs": [
-                            str(item.get("steer_id") or "")
-                            for item in list(user_steering_payload.get("pending_user_steers") or [])
-                            if isinstance(item, dict) and str(item.get("steer_id") or "")
-                        ],
+                        "cache_impact": "context_append_then_sealed_prefix",
+                        "stability_rule": "user steer text is rememberable context; consumption state is emitted separately in the dynamic tail",
+                        "steer_refs": _user_steering_refs(user_steering_payload),
                         "pending_user_steer_count": int(user_steering_payload.get("pending_user_steer_count") or 0),
                     },
                 )
-                if user_steering_payload
+                if _user_steering_context_append_payload(user_steering_payload)
+                else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="User steering consumption state for this task",
+                    payload=_user_steering_consumption_tail_payload(user_steering_payload),
+                    kind="user_steering_consumption_tail",
+                    source_ref=_user_steering_source_ref(user_steering_payload),
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="summarize",
+                    metadata={
+                        "authority_class": "user_task_steer_consumption_state",
+                        "volatility_reason": "user steer queue consumption changes during task execution and must not enter memory context",
+                        "projection_strategy": "current_user_steer_consumption_tail",
+                        "cache_impact": "volatile_suffix_only",
+                        "steer_refs": _user_steering_refs(user_steering_payload),
+                    },
+                )
+                if _user_steering_consumption_tail_payload(user_steering_payload)
                 else None,
                 _message_spec(
                     role="assistant",
@@ -1848,23 +1880,19 @@ class RuntimeCompiler:
             "operation_authorization",
             "active_skills",
             "recovery_packet",
-            "task_start_inherited_context",
-            "task_plan_context",
-            "evidence_index_cursor",
-            "editor_context_index",
         )
         task_volatile_refs = (
             "runtime_envelope",
             "task_state",
             "turn_to_task_context_handoff",
-            "user_steering_updates",
+            "user_steering_consumption_tail",
             "pending_user_steers",
             "active_contract_revisions",
             "runtime_control_signals",
             "current_editor_evidence_delta",
+            "read_evidence_injection",
             "incremental_context_cursor",
             "lifecycle_runtime_guidance",
-            "runtime_memory_context",
         )
         prompt_manifest = build_runtime_prompt_manifest(
             invocation_kind="task_execution",
@@ -2407,8 +2435,8 @@ class RuntimeCompiler:
                     metadata={
                         "authority_class": "runtime_memory_context",
                         "content_source": "memory_system.runtime_memory_context",
-                        "volatility_reason": "selected memory context can change on each follow-up and belongs in the dynamic tail",
-                        "cache_impact": "volatile_suffix_only",
+                        "stability_rule": "selected memory context is rememberable context; changed selections append as new context and the previous provider-visible package remains sealed",
+                        "cache_impact": "context_append_then_sealed_prefix",
                     },
                 )
                 if runtime_memory_context_payload
@@ -3684,14 +3712,20 @@ def _evidence_index_cursor_message_specs(
     source_ref_prefix: str,
     dynamic_context: DynamicContextProjection,
 ) -> list[dict[str, Any]]:
-    evidence_index_cursor = dict(payload or {}).get("evidence_index_cursor")
+    data = dict(payload or {})
+    evidence_index_cursor = data.get("evidence_index_cursor")
     if not evidence_index_cursor:
         return []
     return [
         _runtime_payload_spec(
             role="system",
             title=f"{title_prefix} evidence index cursor",
-            payload={"evidence_index_cursor": evidence_index_cursor},
+            payload=_drop_empty_payload(
+                {
+                    "file_evidence_scope": data.get("file_evidence_scope"),
+                    "evidence_index_cursor": evidence_index_cursor,
+                }
+            ),
             kind="evidence_index_cursor",
             source_ref=f"{source_ref_prefix}:evidence_index_cursor",
             cache_scope="task",
@@ -4069,32 +4103,56 @@ def _session_history_tail_context_message_specs(
     clean_payload = _drop_empty_payload(dict(payload or {}))
     if not clean_payload:
         return []
+    pinned_facts_payload = _session_history_pinned_facts_context_payload(clean_payload)
     tail_payload = _session_history_tail_context_payload(clean_payload)
-    if not tail_payload:
-        return []
-    return [
-        _runtime_payload_spec(
-            role="system",
-            title=f"{title} dynamic tail context",
-            payload=tail_payload,
-            kind="session_history_tail_context",
-            source_ref=f"{source_ref}:tail_context",
-            cache_scope="none",
-            cache_role="volatile",
-            compression_role="summarize",
-            metadata={
-                **dict(metadata or {}),
-                "authority_class": "natural_history_tail_context",
-                "cache_impact": "volatile_suffix_only",
-                "volatility_reason": (
-                    "session emphasis and recent work outcome may be refreshed independently of "
-                    "append-only history, so they must not sit before the locked historical prefix"
-                ),
-                "stability_rule": "volatile session tail context stays after append-only history and provider protocol replay",
-                "session_history_component": "tail_context",
-            },
+    specs: list[dict[str, Any]] = []
+    if pinned_facts_payload:
+        specs.append(
+            _runtime_payload_spec(
+                role="system",
+                title=f"{title} pinned facts context",
+                payload=pinned_facts_payload,
+                kind="session_pinned_facts_context",
+                source_ref=f"{source_ref}:pinned_facts_context",
+                cache_scope="task",
+                cache_role="session_stable",
+                compression_role="summarize",
+                metadata={
+                    **dict(metadata or {}),
+                    "authority_class": "natural_history_pinned_facts",
+                    "cache_impact": "context_append_then_sealed_prefix",
+                    "stability_rule": "pinned facts are rememberable context; changes append as new context rather than living in the dynamic tail",
+                    "session_history_component": "pinned_facts_context",
+                    "append_only_context_package": "historical_context",
+                    "append_only_context_stream": "session_pinned_facts",
+                },
+            )
         )
-    ]
+    if tail_payload:
+        specs.append(
+            _runtime_payload_spec(
+                role="system",
+                title=f"{title} dynamic tail context",
+                payload=tail_payload,
+                kind="session_history_tail_context",
+                source_ref=f"{source_ref}:tail_context",
+                cache_scope="none",
+                cache_role="volatile",
+                compression_role="summarize",
+                metadata={
+                    **dict(metadata or {}),
+                    "authority_class": "natural_history_tail_context",
+                    "cache_impact": "volatile_suffix_only",
+                    "volatility_reason": (
+                        "recent work outcome may be refreshed independently of append-only history, "
+                        "so it stays after the locked historical prefix"
+                    ),
+                    "stability_rule": "volatile session tail context stays after append-only history and provider protocol replay",
+                    "session_history_component": "tail_context",
+                },
+            )
+        )
+    return specs
 
 
 def _session_history_stable_context_payload(clean_payload: dict[str, Any]) -> dict[str, Any]:
@@ -4116,6 +4174,17 @@ def _session_history_tail_context_payload(clean_payload: dict[str, Any]) -> dict
         if isinstance(session_context.get("recent_work_outcome"), dict)
         else {}
     )
+    return _drop_empty_payload(
+        {
+            "recent_work_outcome": recent_work_outcome,
+            "authority": "harness.runtime.dynamic_context.history_projection.tail_context"
+            if recent_work_outcome
+            else "",
+        }
+    )
+
+
+def _session_history_pinned_facts_context_payload(clean_payload: dict[str, Any]) -> dict[str, Any]:
     pinned_facts = [
         _drop_empty_payload(dict(item))
         for item in list(clean_payload.get("pinned_facts") or [])
@@ -4125,9 +4194,8 @@ def _session_history_tail_context_payload(clean_payload: dict[str, Any]) -> dict
     return _drop_empty_payload(
         {
             "pinned_facts": pinned_facts,
-            "recent_work_outcome": recent_work_outcome,
-            "authority": "harness.runtime.dynamic_context.history_projection.tail_context"
-            if pinned_facts or recent_work_outcome
+            "authority": "harness.runtime.dynamic_context.history_projection.pinned_facts_context"
+            if pinned_facts
             else "",
         }
     )
@@ -4494,18 +4562,6 @@ def _model_messages_and_segment_plan(
     return model_messages, segment_plan, tuple(clean_specs), source_manifest, slot_plan, load_plan
 
 
-_APPEND_ONLY_CONTEXT_KINDS = {
-    "incremental_context_frame",
-    "provider_protocol_history",
-    "read_evidence_context",
-    "session_history_entry",
-    "single_agent_turn_tool_call",
-    "single_agent_turn_tool_observation",
-    "task_state_replay_entry",
-    "tool_observations",
-}
-
-
 def _fixed_context_package_message_specs(
     specs: list[dict[str, Any]],
     *,
@@ -4513,44 +4569,49 @@ def _fixed_context_package_message_specs(
     sealed_context_scope: str = "",
     storage_root: Path | None = None,
 ) -> list[dict[str, Any]]:
-    stable_base: list[tuple[int, dict[str, Any]]] = []
-    append_only_context: list[tuple[int, dict[str, Any]]] = []
-    volatile_tail: list[tuple[int, dict[str, Any]]] = []
+    static_prefix: list[tuple[int, dict[str, Any]]] = []
+    sealed_context: list[tuple[int, dict[str, Any]]] = []
+    context_append: list[tuple[int, dict[str, Any]]] = []
+    unsealed_context_append: list[tuple[int, dict[str, Any]]] = []
+    dynamic_tail: list[tuple[int, dict[str, Any]]] = []
     for index, raw_spec in enumerate(list(specs or []), start=1):
-        spec = dict(raw_spec or {})
-        package = _fixed_context_package_for_spec(spec)
+        spec = apply_context_assembly_classification(dict(raw_spec or {}))
+        classification = classify_context_spec(spec)
+        section = classification.context_cache_section
         metadata = {
             **dict(spec.get("metadata") or {}),
-            "fixed_context_package": package,
+            "fixed_context_package": classification.fixed_context_package,
             "fixed_context_original_order": index,
+            "context_assembly_section": section,
         }
         spec["metadata"] = metadata
-        if package == "append_only_context":
-            append_only_context.append((index, spec))
-        elif package == "volatile_tail":
-            volatile_tail.append((index, spec))
+        if section in {SEALED_CONTEXT_PREFIX, CONTEXT_APPEND}:
+            if is_sealable_context_spec(spec):
+                context_append.append((index, spec))
+            else:
+                unsealed_context_append.append((index, spec))
+        elif section == DYNAMIC_TAIL:
+            dynamic_tail.append((index, spec))
         else:
-            stable_base.append((index, spec))
-    append_only_context = _sealed_append_only_context_specs(
-        append_only_context,
+            static_prefix.append((index, spec))
+    context_append = _sealed_append_only_context_specs(
+        context_append,
         invocation_kind=invocation_kind,
         sealed_context_scope=sealed_context_scope,
         storage_root=storage_root,
     )
     ordered = [
-        *[spec for _, spec in stable_base],
-        *[spec for _, spec in append_only_context],
-        *[spec for _, spec in volatile_tail],
+        *[spec for _, spec in static_prefix],
+        *[spec for _, spec in sealed_context],
+        *[spec for _, spec in context_append],
+        *[spec for _, spec in unsealed_context_append],
+        *[spec for _, spec in dynamic_tail],
     ]
     return ordered
 
 
 def _fixed_context_package_for_spec(spec: dict[str, Any]) -> str:
-    if not _is_cache_stable_spec(spec):
-        return "volatile_tail"
-    if str(spec.get("kind") or "") in _APPEND_ONLY_CONTEXT_KINDS:
-        return "append_only_context"
-    return "stable_base"
+    return classify_context_spec(spec).fixed_context_package
 
 
 def _is_cache_stable_spec(spec: dict[str, Any]) -> bool:
@@ -4602,14 +4663,20 @@ def _sealed_append_only_context_specs(
         if not key or key in seen_in_call:
             key = f"{key or 'append-only'}:{original_order}"
         seen_in_call.add(key)
+        model_message = dict(spec.get("model_message") or _model_message_from_spec(spec))
+        provider_visible_hash = _stable_json_hash(model_message)
         assignment = assign_sealed_append_order(
             storage_root=storage_root,
             scope=scope,
             item_key=key,
             receipt_authority="harness.runtime.compiler.sealed_append_only_context",
+            provider_visible_hash=provider_visible_hash,
+            kind=str(spec.get("kind") or ""),
+            source_ref=str(spec.get("source_ref") or ""),
         )
         existing_order = _safe_int(assignment.get("order"))
         order_source = str(assignment.get("order_source") or "receipt")
+        context_section = SEALED_CONTEXT_PREFIX if order_source == "receipt" else CONTEXT_APPEND
         metadata = {
             **dict(spec.get("metadata") or {}),
             "sealed_accumulated_context_package": "append_only_context",
@@ -4618,7 +4685,17 @@ def _sealed_append_only_context_specs(
             "sealed_accumulated_context_order": existing_order,
             "sealed_accumulated_context_order_source": order_source,
             "sealed_accumulated_context_authority": str(assignment.get("authority") or ""),
+            "sealed_accumulated_context_integrity_status": str(assignment.get("integrity_status") or ""),
+            "sealed_accumulated_context_recovery_required": bool(assignment.get("recovery_required") is True),
+            "sealed_accumulated_context_structured_failure": dict(assignment.get("structured_failure") or {}),
+            "provider_visible_hash": provider_visible_hash,
+            "context_cache_section": context_section,
+            "context_assembly_section": context_section,
+            "fixed_context_package": "sealed_context" if context_section == SEALED_CONTEXT_PREFIX else "context_append",
         }
+        spec["cache_scope"] = "task"
+        spec["cache_role"] = "session_stable"
+        spec["prefix_tier"] = "task"
         spec["metadata"] = metadata
         sealed.append((original_order, spec))
     return sorted(sealed, key=_append_only_context_order_key)
@@ -5117,7 +5194,7 @@ def _looks_like_project_path(value: str) -> bool:
     return any(separator in text for separator in ("/", "\\")) or "." in Path(text).name
 
 
-def _user_steering_updates_payload(execution_state: dict[str, Any] | None) -> dict[str, Any]:
+def _user_steering_task_payload(execution_state: dict[str, Any] | None) -> dict[str, Any]:
     state = dict(execution_state or {})
     projection = dict(state.get("system_projection") or {})
     pending_steers = [
@@ -5128,12 +5205,78 @@ def _user_steering_updates_payload(execution_state: dict[str, Any] | None) -> di
     if not pending_steers:
         return {}
     return {
-        "authority": "harness.runtime.task_execution.user_steering_updates",
+        "authority": "harness.runtime.task_execution.user_steering_task_payload",
         "source": "active_task_steer_queue",
         "policy_ref": "lifecycle_stable.user_steer_contract_revision",
         "pending_user_steer_count": len(pending_steers),
         "pending_user_steers": pending_steers,
     }
+
+
+def _user_steering_context_append_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
+    data = dict(payload or {})
+    steers: list[dict[str, Any]] = []
+    for raw in list(data.get("pending_user_steers") or []):
+        if not isinstance(raw, dict):
+            continue
+        steer = _drop_empty_payload(
+            {
+                "steer_id": str(raw.get("steer_id") or ""),
+                "task_run_id": str(raw.get("task_run_id") or ""),
+                "submission_ref": str(raw.get("submission_ref") or ""),
+                "steer_kind": str(raw.get("steer_kind") or "instruction"),
+                "priority": str(raw.get("priority") or "normal"),
+                "content": str(raw.get("content") or ""),
+                "created_at": raw.get("created_at"),
+                "editor_context": dict(raw.get("editor_context") or {}) if isinstance(raw.get("editor_context"), dict) else {},
+            }
+        )
+        if steer.get("content"):
+            steers.append(steer)
+    if not steers:
+        return {}
+    return {
+        "authority": "harness.runtime.task_execution.user_steering_context_append",
+        "source": str(data.get("source") or "active_task_steer_queue"),
+        "policy_ref": str(data.get("policy_ref") or "lifecycle_stable.user_steer_contract_revision"),
+        "pending_user_steer_count": len(steers),
+        "pending_user_steers": steers,
+    }
+
+
+def _user_steering_consumption_tail_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
+    data = dict(payload or {})
+    states: list[dict[str, Any]] = []
+    for raw in list(data.get("pending_user_steers") or []):
+        if not isinstance(raw, dict):
+            continue
+        state = _drop_empty_payload(
+            {
+                "steer_id": str(raw.get("steer_id") or ""),
+                "task_run_id": str(raw.get("task_run_id") or ""),
+                "submission_ref": str(raw.get("submission_ref") or ""),
+                "consumption_state": str(raw.get("consumption_state") or "pending"),
+                "priority": str(raw.get("priority") or "normal"),
+            }
+        )
+        if state:
+            states.append(state)
+    if not states:
+        return {}
+    return {
+        "authority": "harness.runtime.task_execution.user_steering_consumption_tail",
+        "source": str(data.get("source") or "active_task_steer_queue"),
+        "pending_user_steer_count": int(data.get("pending_user_steer_count") or len(states)),
+        "steer_consumption_states": states,
+    }
+
+
+def _user_steering_refs(payload: dict[str, Any] | None) -> list[str]:
+    return [
+        str(item.get("steer_id") or "")
+        for item in list(dict(payload or {}).get("pending_user_steers") or [])
+        if isinstance(item, dict) and str(item.get("steer_id") or "")
+    ]
 
 
 def _user_steer_model_payload(value: dict[str, Any]) -> dict[str, Any]:

@@ -181,7 +181,8 @@ def test_task_execution_incremental_context_cursor_indexes_steer_and_runtime_sig
     change_subjects = {item.get("subject") for item in cursor["changed_state"]}
 
     assert kinds.index("volatile_task_state") < kinds.index("incremental_context_cursor")
-    assert kinds.index("incremental_context_cursor") < kinds.index("user_steering_updates")
+    assert kinds.index("user_steering_context_append") < kinds.index("volatile_task_state")
+    assert kinds.index("incremental_context_cursor") < kinds.index("user_steering_consumption_tail")
     assert cursor_segment["cache_role"] == "volatile"
     assert cursor_segment["cache_scope"] == "none"
     assert cursor_segment["prefix_tier"] == "volatile"
@@ -192,7 +193,7 @@ def test_task_execution_incremental_context_cursor_indexes_steer_and_runtime_sig
     assert "steer:feedback:1" in event_refs
     assert "rtsig:budget:1" in event_refs
     assert "obs:read:1" in event_refs
-    assert "user_steering_updates" in change_subjects
+    assert "user_steering_context_append" in change_subjects
     assert "runtime_control_signals" in change_subjects
     assert "volatile_task_state" in change_subjects
     assert historical_exact_text not in cursor_text
@@ -252,7 +253,7 @@ def test_task_execution_read_file_tool_memory_uses_refs_without_replaying_exact_
 
     replay_payload = _payload_with_title(result.packet, "Task execution replayed state evidence obs:read:structured")
     current_state_payload = _payload_with_title(result.packet, "Task execution current state")
-    frame_payload = _payload_with_title(result.packet, "Task execution incremental context frame")
+    frame_payload = _payload_with_title(result.packet, "Task execution current delta cursor")
     replay_text = json.dumps(replay_payload, ensure_ascii=False)
     current_state_text = json.dumps(current_state_payload, ensure_ascii=False)
     frame_text = json.dumps(frame_payload, ensure_ascii=False)

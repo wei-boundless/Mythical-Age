@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from prompt_composition import (
     build_model_message_spec,
     build_prompt_assembly_plan,
@@ -74,10 +72,10 @@ def test_prompt_assembly_plan_is_the_topology_authority() -> None:
         "task_contract_stable",
         "volatile_task_state",
     ]
-    assert assembly_plan.diagnostics["assembly_order_policy"] == "model_visible_source_order_prefix_locked"
+    assert assembly_plan.diagnostics["assembly_order_policy"] == "context_assembly_section_prefix_locked"
 
 
-def test_prompt_assembly_rejects_stable_segment_after_volatile_source_order() -> None:
+def test_prompt_assembly_reorders_stable_segment_before_dynamic_tail() -> None:
     source_bundle = build_prompt_source_bundle(
         invocation_kind="task_execution",
         packet_id="packet:tool-schema-catalog",
@@ -103,11 +101,18 @@ def test_prompt_assembly_rejects_stable_segment_after_volatile_source_order() ->
         ],
     )
 
-    with pytest.raises(ValueError, match="stable_slot_after_volatile_boundary"):
-        build_prompt_assembly_plan(source_bundle=source_bundle)
+    assembly_plan = build_prompt_assembly_plan(source_bundle=source_bundle)
+    materialized = materialize_prompt_packet(assembly_plan=assembly_plan)
+
+    assert [spec["kind"] for spec in materialized.message_specs] == [
+        "global_static",
+        "tool_schema_catalog",
+        "volatile_task_state",
+    ]
+    assert assembly_plan.diagnostics["segment_prefix_violations"] == []
 
 
-def test_volatile_runtime_tail_preserves_source_order() -> None:
+def test_context_memory_moves_before_dynamic_tail() -> None:
     source_bundle = build_prompt_source_bundle(
         invocation_kind="task_execution",
         packet_id="packet:append-only-topology",
@@ -162,15 +167,15 @@ def test_volatile_runtime_tail_preserves_source_order() -> None:
     kinds = [spec["kind"] for spec in materialized.message_specs]
 
     assert kinds == [
-        "volatile_task_state",
         "runtime_memory_context",
         "bound_task_runtime_context",
         "task_state_replay_entry",
+        "task_start_inherited_context",
+        "volatile_task_state",
         "task_runtime_boundary_dynamic",
         "lifecycle_runtime_guidance",
-        "task_start_inherited_context",
     ]
-    assert assembly_plan.diagnostics["assembly_order_policy"] == "model_visible_source_order_prefix_locked"
+    assert assembly_plan.diagnostics["assembly_order_policy"] == "context_assembly_section_prefix_locked"
 
 
 def test_task_execution_cursor_does_not_duplicate_user_steers_or_runtime_controls() -> None:
@@ -206,7 +211,8 @@ def test_task_execution_cursor_does_not_duplicate_user_steers_or_runtime_control
     )
 
     current_state = _payload_with_title(result.packet, "Task execution current state")
-    user_steer = _payload_with_title(result.packet, "User steering updates for this task")
+    user_steer = _payload_with_title(result.packet, "User steering context for this task")
+    user_steer_tail = _payload_with_title(result.packet, "User steering consumption state for this task")
     task_state = current_state["task_state"]
     baseline = result.packet.diagnostics["prompt_manifest"]["context_window"]["stable_runtime_baseline_refs"][
         "task_context_baseline"
@@ -227,6 +233,7 @@ def test_task_execution_cursor_does_not_duplicate_user_steers_or_runtime_control
     assert "signal_id" not in latest_control_signal
     assert "kind" not in latest_control_signal
     assert user_steer["pending_user_steers"][0]["content"] == "Do not drop memory."
+    assert user_steer_tail["steer_consumption_states"][0]["consumption_state"] == "pending"
     assert baseline["memory_contract"] == "baseline_plus_append_only_replay_plus_bounded_cursor"
     assert baseline["baseline_id"].startswith("taskctx:")
 
