@@ -5,8 +5,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from bootstrap.app_runtime import app_runtime
-from config import get_settings
-from project_layout import ensure_project_storage
+from core.config import get_settings
+from core.project_layout import ensure_project_storage
 
 
 @asynccontextmanager
@@ -19,5 +19,6 @@ async def runtime_lifespan(_: FastAPI):
         yield
     finally:
         await app_runtime.shutdown()
+
 
 

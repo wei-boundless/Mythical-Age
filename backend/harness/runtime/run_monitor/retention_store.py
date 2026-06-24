@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Any, BinaryIO, Iterator
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 class RuntimeMonitorRetentionStore:
@@ -178,3 +178,4 @@ def _lock_handle(handle: BinaryIO) -> None:
 def _unlock_handle(handle: BinaryIO) -> None:
     handle.seek(0)
     msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+

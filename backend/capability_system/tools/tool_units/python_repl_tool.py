@@ -9,7 +9,7 @@ from typing import Type
 from capability_system.tools.base_tool import AsyncCallbackManagerForToolRun, BaseTool, CallbackManagerForToolRun
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from runtime_encoding import utf8_subprocess_text_kwargs
+from core.runtime_encoding import utf8_subprocess_text_kwargs
 from capability_system.tools.tool_units.sandbox_command_guard import validate_sandbox_command_text
 
 
@@ -56,5 +56,6 @@ class PythonReplTool(BaseTool):
         run_manager: AsyncCallbackManagerForToolRun | None = None,
     ) -> str:
         return await asyncio.to_thread(self._run, code, None)
+
 
 

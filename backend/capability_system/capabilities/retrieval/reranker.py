@@ -8,7 +8,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from config import Settings
+from core.config import Settings
 
 
 logger = logging.getLogger(__name__)
@@ -526,5 +526,6 @@ def _mark_degraded(
     metadata["rerank_degraded_reason_typed"] = updated["rerank_degraded_reason_typed"]
     updated["metadata"] = metadata
     return updated
+
 
 

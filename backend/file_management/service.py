@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from code_environment.workspace_tree import _is_excluded_relative_path
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from runtime.file_changes import FileChangeTracker
 from runtime.file_change_signals import publish_file_change_record
 
@@ -507,3 +507,4 @@ def _normalize_sha256(value: str) -> str:
 
 def _sha256_text(value: str) -> str:
     return stable_content_hash(str(value or ""))
+

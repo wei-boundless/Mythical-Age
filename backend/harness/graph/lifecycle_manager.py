@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 from .models import safe_id
 
@@ -141,3 +141,4 @@ class GraphTaskLifecycleManager:
             "authority": "harness.graph_task_lifecycle.runtime_events",
             "deleted_task_run_ids": deleted,
         }
+

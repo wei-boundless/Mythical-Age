@@ -46,6 +46,14 @@
   --console-font-size-ui: 15px;
   --console-font-size-page: 16px;
   --console-font-size-body: 17px;
+  --console-text-font: var(--console-font);
+  --console-text-size: var(--console-font-size-body);
+  --console-text-soft-font: var(--console-font);
+  --console-text-soft-size: var(--console-font-size-ui);
+  --console-muted-font: var(--console-font);
+  --console-muted-size: calc(var(--console-font-size-ui) - 2px);
+  --console-faint-font: var(--console-font);
+  --console-faint-size: calc(var(--console-font-size-ui) - 3px);
   --workbench-bg: var(--console-bg);
   --workbench-surface: var(--console-surface);
   --workbench-surface-soft: var(--console-surface-muted);
@@ -111,7 +119,7 @@ html {
 
 body {
   min-height: 100dvh;
-  font-family: var(--font-display);
+  font-family: var(--console-text-font);
   font-size: var(--console-font-size-page);
   font-weight: 400;
   line-height: 1.45;

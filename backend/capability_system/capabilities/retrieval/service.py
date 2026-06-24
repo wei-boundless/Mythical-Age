@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from config import get_settings
+from core.config import get_settings
 
 if TYPE_CHECKING:
     from capability_system.capabilities.retrieval.router import RAGQueryRouter
@@ -489,5 +489,6 @@ class RetrievalService:
         if isinstance(exc, RetrievalStageError):
             return exc.stage
         return "execution"
+
 
 

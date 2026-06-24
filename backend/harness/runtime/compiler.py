@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -43,8 +44,23 @@ from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifa
 from agent_system.identity import normalize_agent_id_sequence
 from harness.current_work_receipt import current_work_operation_availability_from_receipt
 from harness.recovery_receipt import recovery_operation_availability_from_receipt
-from project_layout import ProjectLayout
-from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
+from core.project_layout import ProjectLayout
+from runtime.model_gateway.lightweight_chat_model import provider_message_payloads
+from runtime.model_gateway.protocol_sanitizer import ProtocolSanitizerResult, sanitize_messages_for_prompt
+from runtime.context_management.context_assembly import (
+    CONTEXT_APPEND,
+    CONTEXT_MEMORY,
+    CONTEXT_MEMORY_PREFIX,
+    DYNAMIC_TAIL,
+    STATIC_PREFIX,
+    assemble_context_physical_message_specs,
+    classify_context_spec,
+)
+from runtime.context_management.context_capability_policy import apply_context_assembly_capability_profile
+from runtime.context_management.provider_visible_context_ledger import (
+    assemble_provider_visible_context_specs,
+    provider_visible_context_replay_only_candidate_spec,
+)
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
 from .artifact_scope import runtime_artifact_scope_from_environment
@@ -152,6 +168,7 @@ class RuntimeCompiler:
             prompt_refs=_agent_prompt_refs_for_invocation(assembly_payload, invocation_kind=invocation_kind),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
+            assembly_payload=assembly_payload,
         )
         output_contract = {
             "required_json_object": True,
@@ -232,9 +249,12 @@ class RuntimeCompiler:
             provider_visible_context_scope=resolved_session_id,
             storage_root=self.base_dir,
             model_selection=dict(model_selection or {}),
+            context_capability_profile=_context_capability_profile_from_runtime_assembly(assembly_payload),
+            system_wiring_manifest=_system_wiring_manifest_from_runtime_assembly(assembly_payload),
         )
-        protocol_sanitizer = sanitize_messages_for_prompt(
+        protocol_sanitizer = _sanitize_model_messages_for_prompt_packet(
             model_messages,
+            message_specs=message_specs,
             turn_id=resolved_turn_id,
             source="harness.runtime.compiler.semantic_compaction",
         )
@@ -271,6 +291,7 @@ class RuntimeCompiler:
         prompt_manifest["prompt_assembly_plan_ref"] = segment_plan.provider_policy_ref
         prompt_manifest["runtime_prompt_source_manifest_ref"] = source_manifest.manifest_id
         prompt_manifest["runtime_prompt_sources"] = source_manifest.to_dict()
+        prompt_manifest["context_physical_assembly"] = _context_physical_assembly_manifest_from_specs(message_specs)
         prompt_manifest["prompt_slot_plan_ref"] = slot_plan.plan_id
         prompt_manifest["prompt_slot_plan"] = slot_plan.to_dict()
         prompt_manifest["runtime_context_load_plan_ref"] = context_load_plan.plan_id
@@ -452,6 +473,7 @@ class RuntimeCompiler:
             prompt_pack_refs=prompt_pack_refs,
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
+            assembly_payload=assembly_payload,
         )
         prompt_mount_plan = prompt_mount_plan_for_invocation(
             _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload),
@@ -475,22 +497,26 @@ class RuntimeCompiler:
             prompt_refs=_agent_prompt_refs_for_invocation(assembly_payload, invocation_kind="single_agent_turn"),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
+            assembly_payload=assembly_payload,
         )
         personality_prompt_assembly = self._assemble_personality_prompt_layer(
             prompt_mount_plan=prompt_mount_plan,
             invocation_kind="single_agent_turn",
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
+            assembly_payload=assembly_payload,
         )
         environment_prompt_assembly, lifecycle_prompt_assembly = self._assemble_environment_prompt_layers(
             prompt_mount_plan=prompt_mount_plan,
             agent_profile_ref=agent_profile_ref,
+            assembly_payload=assembly_payload,
         )
         runtime_lifecycle_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="environment",
             prompt_refs=tuple(prompt_mount_plan.runtime_lifecycle_prompt_refs or ()),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=str(prompt_mount_plan.selected_environment_id or ""),
+            assembly_payload=assembly_payload,
         )
         project_instruction_bundle = collect_project_instruction_bundle(base_dir=self.base_dir)
         runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
@@ -622,6 +648,8 @@ class RuntimeCompiler:
             provider_visible_context_scope=session_id,
             storage_root=self.base_dir,
             model_selection=dict(model_selection or {}),
+            context_capability_profile=_context_capability_profile_from_runtime_assembly(assembly_payload),
+            system_wiring_manifest=_system_wiring_manifest_from_runtime_assembly(assembly_payload),
             specs=[
                 _message_spec(
                     role="system",
@@ -904,10 +932,11 @@ class RuntimeCompiler:
                 if volatile_runtime_payload
                 else None,
             ],
-            enforce_dynamic_context_reports=True,
+            collect_dynamic_context_metadata_diagnostics=True,
         )
-        protocol_sanitizer = sanitize_messages_for_prompt(
+        protocol_sanitizer = _sanitize_model_messages_for_prompt_packet(
             model_messages,
+            message_specs=message_specs,
             turn_id=turn_id,
             source="harness.runtime.compiler.single_agent_turn",
         )
@@ -957,6 +986,7 @@ class RuntimeCompiler:
         prompt_manifest["prompt_assembly_plan_ref"] = segment_plan.provider_policy_ref
         prompt_manifest["runtime_prompt_source_manifest_ref"] = source_manifest.manifest_id
         prompt_manifest["runtime_prompt_sources"] = source_manifest.to_dict()
+        prompt_manifest["context_physical_assembly"] = _context_physical_assembly_manifest_from_specs(message_specs)
         prompt_manifest["prompt_slot_plan_ref"] = slot_plan.plan_id
         prompt_manifest["prompt_slot_plan"] = slot_plan.to_dict()
         prompt_manifest["runtime_context_load_plan_ref"] = context_load_plan.plan_id
@@ -1158,6 +1188,7 @@ class RuntimeCompiler:
             prompt_pack_refs=prompt_pack_refs,
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
+            assembly_payload=assembly_payload,
         )
         prompt_mount_plan = prompt_mount_plan_for_invocation(
             _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload),
@@ -1178,12 +1209,14 @@ class RuntimeCompiler:
         task_prompt_assembly = self._assemble_prompt_contract(
             task_prompt_contract=task_prompt_contract,
             graph_node_prompt_contract=graph_node_prompt_contract,
+            assembly_payload=assembly_payload,
         )
         agent_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="task_execution",
             prompt_refs=_agent_prompt_refs_for_invocation(assembly_payload, invocation_kind="task_execution"),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
+            assembly_payload=assembly_payload,
         )
         personality_prompt_assembly = (
             self._assemble_personality_prompt_layer(
@@ -1191,6 +1224,7 @@ class RuntimeCompiler:
                 invocation_kind="task_execution",
                 agent_profile_ref=agent_profile_ref,
                 task_environment_ref=task_environment_ref,
+                assembly_payload=assembly_payload,
             )
             if _prompt_policy_visible(prompt_policy, "personality_prompt_visibility", default=True)
             else _empty_prompt_assembly("personality", "promptasm:empty:task_execution_personality_policy_hidden")
@@ -1199,12 +1233,14 @@ class RuntimeCompiler:
             environment_prompt_assembly, lifecycle_prompt_assembly = self._assemble_environment_prompt_layers(
                 prompt_mount_plan=prompt_mount_plan,
                 agent_profile_ref=agent_profile_ref,
+                assembly_payload=assembly_payload,
             )
             runtime_lifecycle_prompt_assembly = self._assemble_prompt_refs(
                 invocation_kind="environment",
                 prompt_refs=tuple(prompt_mount_plan.runtime_lifecycle_prompt_refs or ()),
                 agent_profile_ref=agent_profile_ref,
                 task_environment_ref=str(prompt_mount_plan.selected_environment_id or ""),
+                assembly_payload=assembly_payload,
             )
         else:
             environment_prompt_assembly = _empty_prompt_assembly("environment", "promptasm:empty:environment_policy_hidden")
@@ -1392,6 +1428,8 @@ class RuntimeCompiler:
             provider_visible_context_scope=task_run_id,
             storage_root=self.base_dir,
             model_selection=dict(model_selection or {}),
+            context_capability_profile=_context_capability_profile_from_runtime_assembly(assembly_payload),
+            system_wiring_manifest=_system_wiring_manifest_from_runtime_assembly(assembly_payload),
             specs=[
                 _message_spec(
                     role="system",
@@ -1861,7 +1899,7 @@ class RuntimeCompiler:
                 if graph_node_completion_prefix
                 else None,
             ],
-            enforce_dynamic_context_reports=True,
+            collect_dynamic_context_metadata_diagnostics=True,
         )
         content_fragments = build_content_fragments_from_message_specs(
             segment_plan=segment_plan,
@@ -1907,6 +1945,7 @@ class RuntimeCompiler:
         prompt_manifest["prompt_assembly_plan_ref"] = segment_plan.provider_policy_ref
         prompt_manifest["runtime_prompt_source_manifest_ref"] = source_manifest.manifest_id
         prompt_manifest["runtime_prompt_sources"] = source_manifest.to_dict()
+        prompt_manifest["context_physical_assembly"] = _context_physical_assembly_manifest_from_specs(message_specs)
         prompt_manifest["prompt_slot_plan_ref"] = slot_plan.plan_id
         prompt_manifest["prompt_slot_plan"] = slot_plan.to_dict()
         prompt_manifest["runtime_context_load_plan_ref"] = context_load_plan.plan_id
@@ -2053,6 +2092,7 @@ class RuntimeCompiler:
             prompt_pack_refs=prompt_pack_refs,
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
+            assembly_payload=assembly_payload,
         )
         prompt_mount_plan = prompt_mount_plan_for_invocation(
             _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload),
@@ -2083,22 +2123,26 @@ class RuntimeCompiler:
             prompt_refs=_agent_prompt_refs_for_invocation(assembly_payload, invocation_kind="tool_observation_followup"),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
+            assembly_payload=assembly_payload,
         )
         personality_prompt_assembly = self._assemble_personality_prompt_layer(
             prompt_mount_plan=prompt_mount_plan,
             invocation_kind="tool_observation_followup",
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
+            assembly_payload=assembly_payload,
         )
         environment_prompt_assembly, lifecycle_prompt_assembly = self._assemble_environment_prompt_layers(
             prompt_mount_plan=prompt_mount_plan,
             agent_profile_ref=agent_profile_ref,
+            assembly_payload=assembly_payload,
         )
         runtime_lifecycle_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="environment",
             prompt_refs=tuple(prompt_mount_plan.runtime_lifecycle_prompt_refs or ()),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=str(prompt_mount_plan.selected_environment_id or ""),
+            assembly_payload=assembly_payload,
         )
         project_instruction_bundle = collect_project_instruction_bundle(base_dir=self.base_dir)
         runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
@@ -2186,6 +2230,8 @@ class RuntimeCompiler:
             provider_visible_context_scope=session_id,
             storage_root=self.base_dir,
             model_selection=dict(model_selection or {}),
+            context_capability_profile=_context_capability_profile_from_runtime_assembly(assembly_payload),
+            system_wiring_manifest=_system_wiring_manifest_from_runtime_assembly(assembly_payload),
             specs=[
                 _message_spec(
                     role="system",
@@ -2450,7 +2496,7 @@ class RuntimeCompiler:
                     },
                 ),
             ],
-            enforce_dynamic_context_reports=True,
+            collect_dynamic_context_metadata_diagnostics=True,
         )
         content_fragments = build_content_fragments_from_message_specs(
             segment_plan=segment_plan,
@@ -2492,6 +2538,7 @@ class RuntimeCompiler:
         prompt_manifest["prompt_assembly_plan_ref"] = segment_plan.provider_policy_ref
         prompt_manifest["runtime_prompt_source_manifest_ref"] = source_manifest.manifest_id
         prompt_manifest["runtime_prompt_sources"] = source_manifest.to_dict()
+        prompt_manifest["context_physical_assembly"] = _context_physical_assembly_manifest_from_specs(message_specs)
         prompt_manifest["prompt_slot_plan_ref"] = slot_plan.plan_id
         prompt_manifest["prompt_slot_plan"] = slot_plan.to_dict()
         prompt_manifest["runtime_context_load_plan_ref"] = context_load_plan.plan_id
@@ -2557,6 +2604,7 @@ class RuntimeCompiler:
         prompt_pack_refs: tuple[str, ...],
         agent_profile_ref: str,
         task_environment_ref: str,
+        assembly_payload: dict[str, Any] | None = None,
     ) -> PromptAssemblyResult:
         refs = tuple(prompt_pack_refs or ())
         if not refs:
@@ -2568,6 +2616,7 @@ class RuntimeCompiler:
                 prompt_pack_refs=refs,
                 agent_profile_ref=agent_profile_ref,
                 task_environment_ref=task_environment_ref,
+                metadata=_prompt_assembly_metadata_from_runtime_assembly(assembly_payload),
             )
         )
         _validate_runtime_prompt_pack_assembly(
@@ -2582,6 +2631,7 @@ class RuntimeCompiler:
         *,
         task_prompt_contract: dict[str, Any] | None = None,
         graph_node_prompt_contract: dict[str, Any] | None = None,
+        assembly_payload: dict[str, Any] | None = None,
     ) -> PromptAssemblyResult:
         if not task_prompt_contract and not graph_node_prompt_contract:
             return PromptAssemblyResult(
@@ -2594,6 +2644,7 @@ class RuntimeCompiler:
                 invocation_kind="task_prompt_contract",
                 task_prompt_contract=dict(task_prompt_contract or {}),
                 graph_node_prompt_contract=dict(graph_node_prompt_contract or {}),
+                metadata=_prompt_assembly_metadata_from_runtime_assembly(assembly_payload),
             )
         )
 
@@ -2612,6 +2663,7 @@ class RuntimeCompiler:
         prompt_refs: tuple[str, ...],
         agent_profile_ref: str,
         task_environment_ref: str,
+        assembly_payload: dict[str, Any] | None = None,
     ) -> PromptAssemblyResult:
         if not prompt_refs:
             return PromptAssemblyResult(
@@ -2626,6 +2678,7 @@ class RuntimeCompiler:
                 prompt_refs=prompt_refs,
                 agent_profile_ref=agent_profile_ref,
                 task_environment_ref=task_environment_ref,
+                metadata=_prompt_assembly_metadata_from_runtime_assembly(assembly_payload),
             )
         )
         _validate_runtime_prompt_ref_assembly(
@@ -2640,18 +2693,21 @@ class RuntimeCompiler:
         *,
         prompt_mount_plan: Any,
         agent_profile_ref: str,
+        assembly_payload: dict[str, Any] | None = None,
     ) -> tuple[PromptAssemblyResult, PromptAssemblyResult]:
         base_environment_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="environment",
             prompt_refs=tuple(prompt_mount_plan.base_prompt_refs or ()),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=str(prompt_mount_plan.base_environment_id or ""),
+            assembly_payload=assembly_payload,
         )
         overlay_environment_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="environment",
             prompt_refs=tuple(prompt_mount_plan.overlay_prompt_refs or ()),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=str(prompt_mount_plan.selected_environment_id or ""),
+            assembly_payload=assembly_payload,
         )
         environment_prompt_assembly = _merge_prompt_assemblies(
             base_environment_prompt_assembly,
@@ -2663,6 +2719,7 @@ class RuntimeCompiler:
             prompt_refs=tuple(prompt_mount_plan.lifecycle_prompt_refs or ()),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=str(prompt_mount_plan.selected_environment_id or ""),
+            assembly_payload=assembly_payload,
         )
         return environment_prompt_assembly, lifecycle_prompt_assembly
 
@@ -2673,13 +2730,46 @@ class RuntimeCompiler:
         invocation_kind: str,
         agent_profile_ref: str,
         task_environment_ref: str,
+        assembly_payload: dict[str, Any] | None = None,
     ) -> PromptAssemblyResult:
         return self._assemble_prompt_refs(
             invocation_kind=invocation_kind,
             prompt_refs=tuple(getattr(prompt_mount_plan, "personality_prompt_refs", ()) or ()),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
+            assembly_payload=assembly_payload,
         )
+
+
+def _prompt_assembly_metadata_from_runtime_assembly(assembly_payload: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(assembly_payload or {})
+    system_wiring_manifest = _system_wiring_manifest_from_runtime_assembly(payload)
+    context_capability_profile = _context_capability_profile_from_runtime_assembly(payload)
+    if not system_wiring_manifest and not context_capability_profile:
+        return {}
+    return {
+        "runtime_assembly_id": str(payload.get("assembly_id") or ""),
+        "system_wiring_manifest": system_wiring_manifest,
+        "context_capability_profile": context_capability_profile,
+        "authority": "harness.runtime.compiler.prompt_assembly_metadata",
+    }
+
+
+def _system_wiring_manifest_from_runtime_assembly(assembly_payload: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(assembly_payload or {})
+    manifest = payload.get("system_wiring_manifest")
+    if isinstance(manifest, dict) and manifest:
+        return dict(manifest)
+    diagnostics = dict(payload.get("diagnostics") or {})
+    manifest = diagnostics.get("system_wiring_manifest")
+    return dict(manifest) if isinstance(manifest, dict) else {}
+
+
+def _context_capability_profile_from_runtime_assembly(assembly_payload: dict[str, Any] | None) -> dict[str, Any]:
+    system_wiring_manifest = _system_wiring_manifest_from_runtime_assembly(assembly_payload)
+    compiled = dict(system_wiring_manifest.get("compiled") or {})
+    profile = compiled.get("context_capability_profile")
+    return dict(profile) if isinstance(profile, dict) else {}
 
 
 def _validate_runtime_prompt_pack_assembly(
@@ -4343,12 +4433,11 @@ def _provider_protocol_message_specs(
         transcript_candidates,
         boundary_created_at=compaction_boundary_created_at,
     )
-    protocol_sanitizer = sanitize_messages_for_prompt(
-        boundary_filtered_candidates,
-        turn_id=str(payload.get("turn_id") or ""),
-        source=source_ref,
-    )
-    raw_transcript = [dict(item) for item in protocol_sanitizer.messages]
+    raw_transcript = [
+        dict(item)
+        for item in provider_message_payloads(boundary_filtered_candidates)
+        if isinstance(item, dict)
+    ]
     protocol_transcript = _provider_protocol_hot_messages(raw_transcript)
     if not protocol_transcript:
         return []
@@ -4365,12 +4454,14 @@ def _provider_protocol_message_specs(
     }
     protocol_truncated_count = 0
     protocol_projection = {
-        **dict(protocol_projection or {}),
-        "raw_transcript_message_count": len(raw_transcript),
-        "raw_transcript_input_message_count": len(transcript_candidates),
-        "compaction_boundary_created_at": compaction_boundary_created_at,
-        "compaction_boundary_omitted_message_count": max(0, len(transcript_candidates) - len(boundary_filtered_candidates)),
-        "hot_protocol_message_count": len(protocol_transcript),
+            **dict(protocol_projection or {}),
+            "raw_transcript_message_count": len(raw_transcript),
+            "raw_transcript_input_message_count": len(transcript_candidates),
+            "protocol_projection_strategy": "provider_payload_replay_without_protocol_repair",
+            "protocol_sanitizer_bypassed": True,
+            "compaction_boundary_created_at": compaction_boundary_created_at,
+            "compaction_boundary_omitted_message_count": max(0, len(transcript_candidates) - len(boundary_filtered_candidates)),
+            "hot_protocol_message_count": len(protocol_transcript),
         "non_protocol_message_count": max(0, len(raw_transcript) - len(protocol_transcript)),
     }
     result: list[dict[str, Any]] = []
@@ -4382,15 +4473,19 @@ def _provider_protocol_message_specs(
                 "content": str(message.get("content") or ""),
                 "kind": "provider_protocol_history",
                 "source_ref": f"{source_ref}:{index}",
-                "cache_scope": "task",
-                "cache_role": "session_stable",
-                "prefix_tier": "task",
+                "cache_scope": "none",
+                "cache_role": "never_cache",
+                "prefix_tier": "none",
                 "compression_role": "preserve",
                 "metadata": {
                     "protocol_history_index": index,
                     "provider_protocol_replay": True,
                     "protocol_truncated_count": protocol_truncated_count,
-                    "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
+                    "protocol_sanitizer": {
+                        "status": "bypassed_for_provider_visible_replay",
+                        "reason": "provider protocol history must preserve provider-visible replay bytes",
+                        "authority": "harness.runtime.compiler.provider_protocol_projection",
+                    },
                     "protocol_projection": dict(protocol_projection),
                     "reasoning_content_present": bool(message.get("reasoning_content")),
                     "tool_calls_present": bool(message.get("tool_calls")),
@@ -4502,10 +4597,12 @@ def _model_messages_and_segment_plan(
     packet_id: str,
     invocation_kind: str,
     specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
-    enforce_dynamic_context_reports: bool = False,
+    collect_dynamic_context_metadata_diagnostics: bool = False,
     provider_visible_context_scope: str = "",
     storage_root: Path | None = None,
     model_selection: dict[str, Any] | None = None,
+    context_capability_profile: dict[str, Any] | None = None,
+    system_wiring_manifest: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], Any, tuple[dict[str, Any], ...], Any, Any, Any]:
     source_specs: list[dict[str, Any]] = []
     for raw_spec in list(specs or []):
@@ -4519,6 +4616,12 @@ def _model_messages_and_segment_plan(
         spec["content"] = str(model_message.get("content") or spec.get("content") or "")
         spec["model_message"] = model_message
         source_specs.append(spec)
+    source_specs, _context_capability_diagnostics = _apply_context_capability_profile_to_source_specs(
+        source_specs,
+        invocation_kind=invocation_kind,
+        context_capability_profile=context_capability_profile,
+        system_wiring_manifest=system_wiring_manifest,
+    )
     source_bundle = build_prompt_source_bundle(
         packet_id=packet_id,
         invocation_kind=invocation_kind,
@@ -4536,22 +4639,459 @@ def _model_messages_and_segment_plan(
         message_specs=clean_specs,
     )
     clean_specs = [dict(item) for item in materialize_runtime_prompt_sources(source_manifest)]
+    clean_specs, _provider_visible_context_diagnostics = _apply_provider_visible_context_ledger_to_specs(
+        clean_specs,
+        invocation_kind=invocation_kind,
+        provider_visible_context_scope=provider_visible_context_scope,
+        storage_root=storage_root,
+        model_selection=model_selection,
+        context_capability_profile=context_capability_profile,
+        system_wiring_manifest=system_wiring_manifest,
+    )
+    clean_specs, _context_physical_diagnostics = _assemble_context_physical_message_specs(
+        clean_specs,
+        model_selection=model_selection,
+        context_capability_profile=context_capability_profile,
+        system_wiring_manifest=system_wiring_manifest,
+    )
     slot_plan = build_runtime_prompt_slot_plan(
         packet_id=packet_id,
         invocation_kind=invocation_kind,
         message_specs=clean_specs,
     )
     load_plan = build_runtime_context_load_plan(slot_plan)
-    if enforce_dynamic_context_reports:
-        _validate_dynamic_context_metadata(clean_specs)
+    dynamic_context_validation = _dynamic_context_metadata_validation_diagnostics(
+        clean_specs,
+        requested=collect_dynamic_context_metadata_diagnostics,
+    )
+    strict_dynamic_context_validation = bool(
+        collect_dynamic_context_metadata_diagnostics and _strict_dynamic_context_report_validation_enabled()
+    )
+    if strict_dynamic_context_validation:
+        _raise_dynamic_context_metadata_violations(
+            list(dynamic_context_validation.get("violations") or [])
+        )
     model_messages = [dict(spec.get("model_message") or {}) for spec in clean_specs]
     segment_plan = build_prompt_segment_plan(
         packet_id=packet_id,
         invocation_kind=invocation_kind,
         message_specs=clean_specs,
-        enforce_dynamic_context_reports=enforce_dynamic_context_reports,
+        diagnostics={
+            **dict(_context_physical_diagnostics or {}),
+            "provider_visible_context_ledger": dict(_provider_visible_context_diagnostics or {}),
+            "dynamic_context_metadata_validation": dynamic_context_validation,
+        },
     )
     return model_messages, segment_plan, tuple(clean_specs), source_manifest, slot_plan, load_plan
+
+
+_PROVIDER_VISIBLE_CONTEXT_LEDGER_INVOCATIONS = {
+    "single_agent_turn",
+    "task_execution",
+    "tool_observation_followup",
+}
+
+
+def _apply_provider_visible_context_ledger_to_specs(
+    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    invocation_kind: str,
+    provider_visible_context_scope: str,
+    storage_root: Path | None,
+    model_selection: dict[str, Any] | None,
+    context_capability_profile: dict[str, Any] | None,
+    system_wiring_manifest: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    clean_specs = [dict(item) for item in list(specs or ()) if isinstance(item, dict)]
+    scope = str(provider_visible_context_scope or "").strip()
+    if not clean_specs or not scope or storage_root is None:
+        return clean_specs, {
+            "status": "skipped",
+            "reason": "missing_scope_or_storage_root",
+            "authority": "harness.runtime.compiler.provider_visible_context_ledger",
+        }
+    if str(invocation_kind or "") not in _PROVIDER_VISIBLE_CONTEXT_LEDGER_INVOCATIONS:
+        return clean_specs, {
+            "status": "skipped",
+            "reason": "invocation_kind_not_provider_visible_context_ledger_managed",
+            "invocation_kind": str(invocation_kind or ""),
+            "authority": "harness.runtime.compiler.provider_visible_context_ledger",
+        }
+
+    physical_order, order_diagnostics = _context_physical_order_for_request(
+        model_selection=model_selection,
+        context_capability_profile=context_capability_profile,
+        system_wiring_manifest=system_wiring_manifest,
+    )
+    dynamic_tail_is_independent = (
+        str(order_diagnostics.get("context_physical_model") or "") == "static_context_dynamic_tail"
+        and order_diagnostics.get("dynamic_tail_supported") is True
+    )
+    provider, model = _provider_model_from_selection(model_selection)
+    static_prefix: list[dict[str, Any]] = []
+    provider_visible_candidates: list[tuple[int, dict[str, Any]]] = []
+    independent_dynamic_tail: list[dict[str, Any]] = []
+    converted_dynamic_tail_count = 0
+    context_candidate_count = 0
+
+    for original_order, raw_spec in enumerate(clean_specs, start=1):
+        spec = dict(raw_spec)
+        section = classify_context_spec(spec).context_cache_section
+        if section == STATIC_PREFIX:
+            static_prefix.append(spec)
+            continue
+        if section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
+            provider_visible_candidates.append((original_order, spec))
+            context_candidate_count += 1
+            continue
+        if section == DYNAMIC_TAIL and dynamic_tail_is_independent:
+            independent_dynamic_tail.append(spec)
+            continue
+        if section == DYNAMIC_TAIL:
+            provider_visible_candidates.append(
+                (
+                    original_order,
+                    provider_visible_context_replay_only_candidate_spec(
+                        spec,
+                        storage_root=storage_root,
+                        scope=scope,
+                        provider=provider,
+                        model=model,
+                        replay_reason="folded_dynamic_tail_participates_in_two_part_append_only_provider_prefix",
+                    ),
+                )
+            )
+            converted_dynamic_tail_count += 1
+            continue
+        independent_dynamic_tail.append(spec)
+
+    ledger_specs_with_order = assemble_provider_visible_context_specs(
+        provider_visible_candidates,
+        storage_root=storage_root,
+        scope=scope,
+        provider=provider,
+        model=model,
+    )
+    ledger_specs = [dict(spec) for _order, spec in list(ledger_specs_with_order or []) if isinstance(spec, dict)]
+    if not provider_visible_candidates and not ledger_specs:
+        return clean_specs, {
+            "status": "skipped",
+            "reason": "no_provider_visible_context_candidates_or_confirmed_ledger_entries",
+            "invocation_kind": str(invocation_kind or ""),
+            "context_physical_model": str(order_diagnostics.get("context_physical_model") or ""),
+            "dynamic_tail_supported": bool(order_diagnostics.get("dynamic_tail_supported") is True),
+            "authority": "harness.runtime.compiler.provider_visible_context_ledger",
+        }
+    return [*static_prefix, *ledger_specs, *independent_dynamic_tail], {
+        "status": "applied",
+        "scope": scope,
+        "invocation_kind": str(invocation_kind or ""),
+        "provider": provider,
+        "model": model,
+        "context_physical_model": str(order_diagnostics.get("context_physical_model") or ""),
+        "context_physical_order": list(physical_order),
+        "dynamic_tail_supported": bool(order_diagnostics.get("dynamic_tail_supported") is True),
+        "dynamic_tail_transport": str(order_diagnostics.get("dynamic_tail_transport") or ""),
+        "context_candidate_count": context_candidate_count,
+        "converted_dynamic_tail_replay_only_count": converted_dynamic_tail_count,
+        "ledger_materialized_spec_count": len(ledger_specs),
+        "independent_dynamic_tail_count": len(independent_dynamic_tail),
+        "physical_replay_rule": "static_prefix_then_confirmed_provider_visible_context_then_current_append_only_suffix",
+        "authority": "harness.runtime.compiler.provider_visible_context_ledger",
+    }
+
+
+def _provider_model_from_selection(model_selection: dict[str, Any] | None) -> tuple[str, str]:
+    selection = dict(model_selection or {})
+    return (
+        str(selection.get("provider") or selection.get("llm_provider") or "").strip(),
+        str(selection.get("model") or selection.get("llm_model") or "").strip(),
+    )
+
+
+def _assemble_context_physical_message_specs(
+    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    model_selection: dict[str, Any] | None,
+    context_capability_profile: dict[str, Any] | None,
+    system_wiring_manifest: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    physical_order, order_diagnostics = _context_physical_order_for_request(
+        model_selection=model_selection,
+        context_capability_profile=context_capability_profile,
+        system_wiring_manifest=system_wiring_manifest,
+    )
+    static_prefix: list[tuple[int, dict[str, Any]]] = []
+    context_memory: list[tuple[int, dict[str, Any]]] = []
+    dynamic_tail: list[tuple[int, dict[str, Any]]] = []
+    section_counts: dict[str, int] = {}
+    for original_order, raw_spec in enumerate(list(specs or ()), start=1):
+        if not isinstance(raw_spec, dict):
+            continue
+        spec = dict(raw_spec)
+        classification = classify_context_spec(spec)
+        section = classification.context_cache_section
+        section_counts[section] = section_counts.get(section, 0) + 1
+        metadata = {
+            **dict(spec.get("metadata") or {}),
+            **classification.to_dict(),
+            "context_physical_order_decision": dict(order_diagnostics),
+            "context_physical_bucket_original_order": original_order,
+        }
+        spec["metadata"] = metadata
+        spec["cache_scope"] = classification.cache_scope
+        spec["cache_role"] = classification.cache_role
+        spec["prefix_tier"] = classification.prefix_tier
+        if section == STATIC_PREFIX:
+            static_prefix.append((original_order, spec))
+        elif section == DYNAMIC_TAIL:
+            dynamic_tail.append((original_order, spec))
+        else:
+            context_memory.append((original_order, spec))
+    assembled = assemble_context_physical_message_specs(
+        static_prefix=static_prefix,
+        context_memory=context_memory,
+        dynamic_tail=dynamic_tail,
+        physical_order=physical_order,
+    )
+    diagnostics = {
+        **dict(order_diagnostics),
+        "input_spec_count": len(list(specs or ())),
+        "output_spec_count": len(assembled),
+        "context_cache_section_counts": section_counts,
+        "authority": "harness.runtime.compiler.context_physical_assembly",
+    }
+    return assembled, diagnostics
+
+
+def _context_physical_order_for_request(
+    *,
+    model_selection: dict[str, Any] | None,
+    context_capability_profile: dict[str, Any] | None,
+    system_wiring_manifest: dict[str, Any] | None,
+) -> tuple[tuple[str, ...], dict[str, Any]]:
+    policy = _context_cache_policy_from_model_selection(model_selection)
+    requested_model = str(
+        policy.get("context_physical_model")
+        or dict(context_capability_profile or {}).get("provider_physical_model")
+        or dict(system_wiring_manifest or {}).get("provider_physical_model")
+        or ""
+    ).strip()
+    dynamic_tail_supported = _optional_bool(policy.get("dynamic_tail_supported"))
+    if requested_model == "static_context_dynamic_tail" and dynamic_tail_supported is True:
+        return (STATIC_PREFIX, CONTEXT_MEMORY, DYNAMIC_TAIL), {
+            "context_physical_model": "static_context_dynamic_tail",
+            "dynamic_tail_supported": True,
+            "dynamic_tail_transport": "independent_suffix",
+            "source": str(policy.get("source") or "provider_cache_policy"),
+        }
+    return (STATIC_PREFIX, CONTEXT_MEMORY), {
+        "context_physical_model": "static_context",
+        "dynamic_tail_supported": False,
+        "dynamic_tail_transport": "folded_into_context_suffix",
+        "requested_context_physical_model": requested_model,
+        "source": str(policy.get("source") or "default_static_context"),
+    }
+
+
+def _context_cache_policy_from_model_selection(model_selection: dict[str, Any] | None) -> dict[str, Any]:
+    selection = dict(model_selection or {})
+    extensions = dict(selection.get("provider_extensions") or {})
+    policy = dict(selection.get("context_cache_policy") or extensions.get("context_cache_policy") or {})
+    physical_model = str(
+        policy.get("context_physical_model")
+        or extensions.get("context_physical_model")
+        or selection.get("context_physical_model")
+        or ""
+    ).strip()
+    dynamic_tail_supported = policy.get("dynamic_tail_supported", extensions.get("dynamic_tail_supported"))
+    return {
+        "context_physical_model": physical_model,
+        "dynamic_tail_supported": dynamic_tail_supported,
+        "source": "model_selection.provider_extensions.context_cache_policy" if policy else "model_selection",
+    }
+
+
+def _optional_bool(value: Any) -> bool | None:
+    if value is True:
+        return True
+    if value is False:
+        return False
+    normalized = str(value or "").strip().lower()
+    if normalized in {"true", "1", "yes", "on"}:
+        return True
+    if normalized in {"false", "0", "no", "off"}:
+        return False
+    return None
+
+
+def _sanitize_model_messages_for_prompt_packet(
+    messages: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    message_specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    turn_id: str,
+    source: str,
+) -> ProtocolSanitizerResult:
+    sealed_replay_specs = [
+        dict(item)
+        for item in list(message_specs or ())
+        if isinstance(item, dict) and _sealed_provider_visible_replay_spec(dict(item))
+    ]
+    if not sealed_replay_specs:
+        return sanitize_messages_for_prompt(messages, turn_id=turn_id, source=source)
+    return ProtocolSanitizerResult(
+        messages=tuple(dict(item) for item in list(messages or []) if isinstance(item, dict)),
+        diagnostics={
+            "source": str(source or ""),
+            "turn_id": str(turn_id or ""),
+            "input_message_count": len(list(messages or [])),
+            "output_message_count": len([item for item in list(messages or []) if isinstance(item, dict)]),
+            "status": "bypassed_for_sealed_provider_visible_replay",
+            "sealed_replay_spec_count": len(sealed_replay_specs),
+            "sealed_replay_refs": [
+                str(spec.get("source_ref") or dict(spec.get("metadata") or {}).get("runtime_prompt_source_id") or "")
+                for spec in sealed_replay_specs[:20]
+            ],
+            "authority": "harness.runtime.compiler.sealed_replay_sanitizer_guard",
+        },
+    )
+
+
+def _context_physical_assembly_manifest_from_specs(
+    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> dict[str, Any]:
+    section_counts: dict[str, int] = {}
+    physical_counts: dict[str, int] = {}
+    section_order: list[str] = []
+    physical_order: list[str] = []
+    folded_dynamic_tail_count = 0
+    dynamic_tail_count = 0
+    stable_after_dynamic_tail_count = 0
+    dynamic_seen = False
+    decision: dict[str, Any] = {}
+    for raw_spec in list(specs or ()):
+        if not isinstance(raw_spec, dict):
+            continue
+        metadata = dict(raw_spec.get("metadata") or {})
+        if not decision and isinstance(metadata.get("context_physical_order_decision"), dict):
+            decision = dict(metadata.get("context_physical_order_decision") or {})
+        section = str(metadata.get("context_cache_section") or raw_spec.get("context_cache_section") or "").strip()
+        physical_segment = str(metadata.get("context_physical_segment") or "").strip()
+        if section:
+            section_counts[section] = section_counts.get(section, 0) + 1
+            if section not in section_order:
+                section_order.append(section)
+        if physical_segment:
+            physical_counts[physical_segment] = physical_counts.get(physical_segment, 0) + 1
+            if physical_segment not in physical_order:
+                physical_order.append(physical_segment)
+        if section == DYNAMIC_TAIL:
+            dynamic_seen = True
+            dynamic_tail_count += 1
+        if metadata.get("context_physical_original_segment") == DYNAMIC_TAIL:
+            folded_dynamic_tail_count += 1
+        cache_role = str(raw_spec.get("cache_role") or metadata.get("cache_role") or "").strip()
+        prefix_tier = str(raw_spec.get("prefix_tier") or metadata.get("prefix_tier") or "").strip()
+        if dynamic_seen and section != DYNAMIC_TAIL and cache_role in {"cacheable_prefix", "session_stable"} and prefix_tier not in {"volatile", "none"}:
+            stable_after_dynamic_tail_count += 1
+    return {
+        **decision,
+        "message_spec_count": len([item for item in list(specs or ()) if isinstance(item, dict)]),
+        "context_cache_section_order": section_order,
+        "context_physical_segment_order": physical_order,
+        "context_cache_section_counts": section_counts,
+        "context_physical_segment_counts": physical_counts,
+        "dynamic_tail_count": dynamic_tail_count,
+        "folded_dynamic_tail_count": folded_dynamic_tail_count,
+        "stable_segment_after_dynamic_tail_count": stable_after_dynamic_tail_count,
+        "source_manifest_stage": "pre_physical_source_lineage",
+        "final_order_source": "message_specs_after_context_physical_assembly",
+        "authority": "harness.runtime.compiler.context_physical_assembly_manifest",
+    }
+
+
+def _apply_context_capability_profile_to_source_specs(
+    source_specs: list[dict[str, Any]],
+    *,
+    invocation_kind: str,
+    context_capability_profile: dict[str, Any] | None,
+    system_wiring_manifest: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    profile = dict(context_capability_profile or {})
+    if not profile:
+        compiled = dict(dict(system_wiring_manifest or {}).get("compiled") or {})
+        profile = dict(compiled.get("context_capability_profile") or {})
+    if not profile:
+        return list(source_specs or []), {}
+
+    kept: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    group_counts: dict[str, int] = {}
+    bypassed: list[dict[str, Any]] = []
+    for index, spec in enumerate(list(source_specs or []), start=1):
+        if _sealed_provider_visible_replay_spec(spec):
+            kept.append(_annotated_context_capability_bypass_spec(spec))
+            bypassed.append(
+                {
+                    "index": index,
+                    "kind": str(spec.get("kind") or ""),
+                    "source_ref": str(spec.get("source_ref") or ""),
+                    "reason": "sealed_provider_visible_replay_is_not_reclassified",
+                }
+            )
+            continue
+        filtered, diagnostics = apply_context_assembly_capability_profile(
+            [dict(spec)],
+            profile=profile,
+            invocation_kind=invocation_kind,
+        )
+        for group, count in dict(diagnostics.get("context_capability_group_counts") or {}).items():
+            group_id = str(group or "")
+            group_counts[group_id] = group_counts.get(group_id, 0) + int(count or 0)
+        if filtered:
+            kept.extend(filtered)
+            continue
+        for item in list(diagnostics.get("rejected_context_capabilities") or []):
+            if isinstance(item, dict):
+                rejected.append({"source_index": index, **dict(item)})
+    return kept, {
+        "context_capability_profile": profile,
+        "context_capability_group_counts": group_counts,
+        "rejected_context_capability_count": len(rejected),
+        "rejected_context_capabilities": rejected[:30],
+        "bypassed_sealed_replay_count": len(bypassed),
+        "bypassed_sealed_replay_specs": bypassed[:30],
+        "input_spec_count": len(list(source_specs or [])),
+        "output_spec_count": len(kept),
+        "invocation_kind": str(invocation_kind or ""),
+        "authority": "harness.runtime.compiler.context_capability_source_filter",
+    }
+
+
+def _sealed_provider_visible_replay_spec(spec: dict[str, Any]) -> bool:
+    metadata = dict(spec.get("metadata") or {})
+    if metadata.get("provider_protocol_replay") is True:
+        return True
+    payload_authority = str(metadata.get("provider_visible_payload_authority") or "").strip()
+    if payload_authority.endswith(".replay"):
+        return True
+    replay_policy = str(metadata.get("context_replay_policy") or "").strip()
+    if replay_policy == "provider_visible_ledger_replay":
+        return True
+    if metadata.get("provider_visible_context_ledger_authority") and metadata.get("provider_visible_context_ledger_commit_stage") != "provider_success_required":
+        return True
+    return False
+
+
+def _annotated_context_capability_bypass_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(spec)
+    payload["metadata"] = {
+        **dict(spec.get("metadata") or {}),
+        "context_capability_bypass": "sealed_provider_visible_replay",
+        "context_capability_bypass_reason": "already sealed provider-visible replay must remain byte-stable",
+        "context_capability_authority": "harness.runtime.compiler.context_capability_source_filter",
+    }
+    return payload
 
 
 def _model_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
@@ -4591,16 +5131,67 @@ def _has_model_message_payload(message: dict[str, Any]) -> bool:
     return bool(str(message.get("content") or "").strip())
 
 
-def _validate_dynamic_context_metadata(specs: list[dict[str, Any]]) -> None:
-    for spec in specs:
+def _strict_dynamic_context_report_validation_enabled() -> bool:
+    raw = str(os.getenv("AGENT_STRICT_DYNAMIC_CONTEXT_REPORTS") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _dynamic_context_metadata_validation_diagnostics(
+    specs: list[dict[str, Any]],
+    *,
+    requested: bool,
+) -> dict[str, Any]:
+    violations = _dynamic_context_metadata_violations(specs) if requested else []
+    strict_enabled = _strict_dynamic_context_report_validation_enabled()
+    return {
+        "requested": bool(requested),
+        "mode": "strict" if requested and strict_enabled else "diagnostic",
+        "strict_env": "AGENT_STRICT_DYNAMIC_CONTEXT_REPORTS",
+        "strict_enabled": bool(strict_enabled),
+        "violation_count": len(violations),
+        "violations": violations[:20],
+        "authority": "harness.runtime.compiler.dynamic_context_metadata_validation",
+    }
+
+
+def _raise_dynamic_context_metadata_violations(violations: list[dict[str, Any]]) -> None:
+    if not violations:
+        return
+    first = dict(violations[0] or {})
+    kind = str(first.get("kind") or "")
+    raise ValueError(f"dynamic/volatile segment requires dynamic context metadata: {kind}")
+
+
+def _dynamic_context_metadata_violations(specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    violations: list[dict[str, Any]] = []
+    for index, spec in enumerate(specs):
         cache_role = str(spec.get("cache_role") or "")
         kind = str(spec.get("kind") or "")
         if cache_role != "volatile" and not kind.startswith("dynamic"):
             continue
         metadata = dict(spec.get("metadata") or {})
+        if _is_sealed_provider_visible_replay_metadata(metadata):
+            continue
         if metadata.get("dynamic_context_report_ref") or metadata.get("volatility_reason"):
             continue
-        raise ValueError(f"dynamic/volatile segment requires dynamic context metadata: {kind}")
+        violations.append(
+            {
+                "index": index,
+                "kind": kind,
+                "cache_role": cache_role,
+                "source_ref": str(spec.get("source_ref") or ""),
+                "reason": "missing_dynamic_context_report_ref_or_volatility_reason",
+            }
+        )
+    return violations
+
+
+def _is_sealed_provider_visible_replay_metadata(metadata: dict[str, Any]) -> bool:
+    authority = str(metadata.get("provider_visible_context_ledger_authority") or "")
+    payload_authority = str(metadata.get("provider_visible_payload_authority") or "")
+    if authority != "runtime.context_management.provider_visible_context_ledger":
+        return False
+    return payload_authority == "runtime.context_management.provider_visible_context_ledger.replay"
 
 
 def _dynamic_context_segment_metadata(
@@ -6894,3 +7485,4 @@ def _ensure_environment_storage_dirs_for_runtime(base_dir: Path, environment_pay
         return
     project_root = ProjectLayout.from_backend_dir(base_dir).project_root.resolve()
     ensure_environment_storage_dirs(project_root=project_root, storage_space=storage)
+

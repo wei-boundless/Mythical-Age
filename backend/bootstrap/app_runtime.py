@@ -22,7 +22,7 @@ from health_system.graph_breakpoint_supervisor import GraphBreakpointSupervisor
 from sessions import SessionManager
 from runtime import ModelRuntime
 from runtime.prompt_accounting import PromptAccountingLedger
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 class AppRuntime:
@@ -339,3 +339,4 @@ class AppRuntime:
 
 
 app_runtime = AppRuntime()
+

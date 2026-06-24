@@ -9,7 +9,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from bootstrap.settings import AppSettingsService
-from config import RuntimeConfigManager
+from core.config import RuntimeConfigManager
 
 
 def test_attachment_and_image_ocr_runtime_config_defaults_and_normalizes(tmp_path: Path) -> None:
@@ -78,3 +78,4 @@ def test_runtime_config_console_exposes_image_ocr_group() -> None:
     assert {"enabled", "provider", "default_language", "timeout_seconds", "max_text_chars"} <= field_keys
     assert ocr_group["metadata"]["tool_name"] == "attachment_extract_text"
     assert ocr_group["metadata"]["local_mcp_unit"] == "local_mcp:image_ocr"
+

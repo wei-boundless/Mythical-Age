@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from runtime_encoding import count_mojibake_markers
+from core.runtime_encoding import count_mojibake_markers
 
 
 def repair_mojibake(text: str) -> str:
@@ -34,5 +34,6 @@ def _text_quality_score(text: str) -> int:
     private_use_noise = sum(1 for char in text if unicodedata.category(char) == "Co")
     mojibake_noise = count_mojibake_markers(text) * 12
     return cjk_count * 4 - latin_noise - replacement_noise * 4 - private_use_noise * 4 - mojibake_noise
+
 
 

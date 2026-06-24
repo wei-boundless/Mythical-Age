@@ -7,8 +7,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from config import runtime_config
-from project_layout import ProjectLayout
+from core.config import runtime_config
+from core.project_layout import ProjectLayout
 from code_environment.models import (
     CodeEnvironmentResponse,
     HostCapabilityStatus,
@@ -88,7 +88,7 @@ def build_code_environment_status(
             PiEnvironmentDiagnostic(
                 level="warning",
                 code="code_environment_disabled",
-                message="Professional code environment diagnostics are disabled in backend/config.json.",
+                message="Professional code environment diagnostics are disabled in storage/runtime_config/config.json.",
             )
         )
         return build_response(available=False, mode="web_only")
@@ -220,3 +220,4 @@ def _command_version(command: list[str], diagnostics: list[PiEnvironmentDiagnost
         )
         return ""
     return completed.stdout.strip()
+

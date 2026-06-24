@@ -5,7 +5,7 @@ import json
 import time
 from typing import Any
 
-from prompt_cache_policy import is_cache_eligible_prefix, normalize_cache_role, normalize_compression_role, normalize_prefix_tier
+from runtime.prompt_accounting.cache_policy import is_cache_eligible_prefix, normalize_cache_role, normalize_compression_role, normalize_prefix_tier
 
 from .cache_planner import stable_text_hash
 from .models import PromptSegment, PromptSegmentMap
@@ -685,3 +685,4 @@ def _json_stable(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return repr(value)
+

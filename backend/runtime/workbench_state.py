@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 WORKBENCH_CURRENT_SESSION_AUTHORITY = "workbench.current_session_ref"
@@ -120,3 +120,4 @@ def _normalize_scope(raw: Any) -> dict[str, str]:
         **({"task_environment_id": task_environment_id} if task_environment_id else {}),
         **({"project_id": project_id} if project_id else {}),
     }
+

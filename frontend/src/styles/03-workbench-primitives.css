@@ -779,8 +779,11 @@
     var(--workbench-bg-image),
     var(--workbench-texture),
     var(--workbench-bg);
+  background-position: var(--workbench-bg-position), center, center;
+  background-repeat: no-repeat;
+  background-size: var(--workbench-bg-size), auto, auto;
   color: var(--console-text);
-  font-size: 13px;
+  font-size: var(--console-font-size-ui);
   font-weight: 450;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -2597,7 +2600,13 @@ select:focus-visible {
 }
 
 .agent-workbench {
-  background: var(--console-bg);
+  background:
+    var(--workbench-bg-image),
+    var(--workbench-texture),
+    var(--workbench-bg);
+  background-position: var(--workbench-bg-position), center, center;
+  background-repeat: no-repeat;
+  background-size: var(--workbench-bg-size), auto, auto;
   color: var(--console-text);
 }
 
@@ -6325,6 +6334,10 @@ body {
 }
 
 .agent-workbench .center-workspace__body {
+  --center-active-page-width: min(
+    var(--center-page-width, 680px),
+    calc(100% - var(--center-chat-reveal-width, 72px) - var(--center-split-resizer-width, 10px))
+  );
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -6343,11 +6356,23 @@ body {
 .agent-workbench .center-workspace__chat {
   position: relative;
   z-index: 1;
+  width: 100%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
   border-radius: 14px;
   background: var(--console-bg);
+}
+
+.agent-workbench .center-workspace--page-open .center-workspace__chat {
+  width: max(
+    var(--center-chat-reveal-width, 72px),
+    calc(100% - var(--center-active-page-width) - var(--center-split-resizer-width, 10px))
+  );
+  max-width: max(
+    var(--center-chat-reveal-width, 72px),
+    calc(100% - var(--center-active-page-width) - var(--center-split-resizer-width, 10px))
+  );
 }
 
 .agent-workbench .center-workspace__chat .chat-panel-shell {
@@ -6362,10 +6387,7 @@ body {
   right: 0;
   bottom: 0;
   display: grid;
-  width: min(
-    var(--center-page-width, 680px),
-    calc(100% - var(--center-chat-reveal-width, 72px) - var(--center-split-resizer-width, 10px))
-  );
+  width: var(--center-active-page-width);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -6378,10 +6400,7 @@ body {
   position: absolute;
   z-index: 3;
   top: 0;
-  right: min(
-    var(--center-page-width, 680px),
-    calc(100% - var(--center-chat-reveal-width, 72px) - var(--center-split-resizer-width, 10px))
-  );
+  right: var(--center-active-page-width);
   bottom: 0;
   width: var(--center-split-resizer-width, 10px);
   min-width: var(--center-split-resizer-width, 10px);
@@ -6961,6 +6980,10 @@ body {
 
 /* Center resource pages must remain stable even when rendered outside the shell scope. */
 .center-workspace--page-open .center-workspace__body {
+  --center-active-page-width: min(
+    var(--center-page-width, 680px),
+    calc(100% - var(--center-chat-reveal-width, 72px) - var(--center-split-resizer-width, 10px))
+  );
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -6972,6 +6995,14 @@ body {
 .center-workspace--page-open .center-workspace__chat {
   position: relative;
   z-index: 1;
+  width: max(
+    var(--center-chat-reveal-width, 72px),
+    calc(100% - var(--center-active-page-width) - var(--center-split-resizer-width, 10px))
+  );
+  max-width: max(
+    var(--center-chat-reveal-width, 72px),
+    calc(100% - var(--center-active-page-width) - var(--center-split-resizer-width, 10px))
+  );
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -6984,10 +7015,7 @@ body {
   right: 0;
   bottom: 0;
   display: grid;
-  width: min(
-    var(--center-page-width, 680px),
-    calc(100% - var(--center-chat-reveal-width, 72px) - var(--center-split-resizer-width, 10px))
-  );
+  width: var(--center-active-page-width);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -6997,10 +7025,7 @@ body {
   position: absolute;
   z-index: 3;
   top: 0;
-  right: min(
-    var(--center-page-width, 680px),
-    calc(100% - var(--center-chat-reveal-width, 72px) - var(--center-split-resizer-width, 10px))
-  );
+  right: var(--center-active-page-width);
   bottom: 0;
   width: var(--center-split-resizer-width, 10px);
   min-width: var(--center-split-resizer-width, 10px);

@@ -4,7 +4,7 @@ from pathlib import Path
 import time
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 class MonitorResourceResolver:
@@ -143,3 +143,4 @@ def _artifact_display_path(ref: dict[str, Any]) -> str:
         if filename and "/" not in filename and filename not in {".", ".."}:
             return f"storage/generated/images/{filename}"
     return str(ref.get("absolute_path") or "").strip()
+

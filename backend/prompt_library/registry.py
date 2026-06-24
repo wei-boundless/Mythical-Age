@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
-from prompt_ref_migrations import migrate_prompt_pack_payload, migrate_prompt_resource_payload
+from core.project_layout import ProjectLayout
+from prompt_library.migrations import migrate_prompt_pack_payload, migrate_prompt_resource_payload
 
 from .agent_prompts import list_builtin_agent_prompt_resources
 from .environment_lifecycle_prompts import list_builtin_environment_lifecycle_prompt_resources
@@ -338,5 +338,6 @@ def _environment_prompt_resources_from_definitions(definitions: tuple[Any, ...],
                 )
             )
     return tuple(resources)
+
 
 

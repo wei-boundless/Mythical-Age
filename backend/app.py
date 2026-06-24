@@ -33,7 +33,7 @@ from api.vscode import router as vscode_router
 from api.workbench import router as workbench_router
 from bootstrap.lifespan import runtime_lifespan
 from sessions import InvalidSessionId, SessionPayloadCorrupt, SessionStorageError
-from runtime_encoding import configure_process_utf8
+from core.runtime_encoding import configure_process_utf8
 
 configure_process_utf8()
 
@@ -99,5 +99,6 @@ async def session_storage_error_handler(_: Request, exc: SessionStorageError) ->
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
 
 

@@ -17,7 +17,7 @@ from memory_system.governance_service import DEFAULT_GOVERNANCE_MIN_INTERVAL_SEC
 from memory_system.layout import durable_memory_namespace_id_for_task_environment
 from memory_system.runtime_services import MemoryRuntimeServices
 from memory_system.storage_layout import MemoryStorageLayout
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from request_intent.memory_intent import analyze_memory_intent
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 
@@ -896,6 +896,7 @@ def _govern_existing_note(
         "filename": result["filename"],
         "header": _header_payload(result["header"]) if result.get("header") else None,
     }
+
 
 
 

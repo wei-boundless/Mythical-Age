@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 class StructuredDataCatalog:
@@ -343,5 +343,6 @@ class StructuredDataCatalog:
     def _extract_tokens(cls, text: str) -> list[str]:
         parts = re.findall(r"[\u4e00-\u9fff]{2,}|[a-z0-9]{2,}", text)
         return [part.strip() for part in parts if part.strip()]
+
 
 

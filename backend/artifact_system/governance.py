@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +57,7 @@ class ArtifactGovernanceRegistry:
             ArtifactPortPolicy("task_environment.artifacts", "storage/task_environments", "ArtifactSystem", "canonical_artifact", "durable_fact", "project_artifact", "durable_protected", True, "artifact_indexed", "hash_and_lifecycle"),
             ArtifactPortPolicy("artifact.repository", "storage/artifact_repository", "ArtifactSystem", "artifact_index", "durable_fact", "runtime_fact", "L1_warm", True, "artifact_index", "retain"),
             ArtifactPortPolicy("knowledge.assets", "../langchain-agent-data/knowledge", "KnowledgeSystem", "knowledge_asset", "durable_fact", "user_asset", "durable_protected", True, "durable_asset", "external_root"),
-            ArtifactPortPolicy("diagnostics.local_traces", "output/local_traces", "DiagnosticOutput", "diagnostic_trace", "diagnostic", "diagnostic_artifact", "L3_rebuildable", False, "diagnostic", "ttl_keep_failures"),
+            ArtifactPortPolicy("diagnostics.local_traces", "storage/runtime_state/local_traces", "RuntimeSystem", "diagnostic_trace", "diagnostic", "diagnostic_artifact", "L3_rebuildable", False, "diagnostic", "ttl_keep_failures"),
             ArtifactPortPolicy("diagnostics.test_runs", "output/test_runs", "DiagnosticOutput", "diagnostic_trace", "diagnostic", "diagnostic_artifact", "L3_rebuildable", False, "diagnostic", "ttl_keep_failures"),
             ArtifactPortPolicy("diagnostics.playwright", "output/playwright", "DiagnosticOutput", "diagnostic_trace", "diagnostic", "diagnostic_artifact", "L3_rebuildable", False, "diagnostic", "keep_last_n"),
             ArtifactPortPolicy("diagnostics.runtime_logs", "output/runtime", "DiagnosticOutput", "diagnostic_trace", "diagnostic", "diagnostic_artifact", "L3_rebuildable", False, "diagnostic", "rotate"),
@@ -156,3 +156,4 @@ def _protection_reasons(policy: ArtifactPortPolicy, *, protected: bool) -> list[
     if not protected:
         reasons.append("rebuildable_or_diagnostic")
     return reasons
+

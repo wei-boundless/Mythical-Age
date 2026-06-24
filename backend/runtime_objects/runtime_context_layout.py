@@ -11,7 +11,7 @@ class RuntimeContextStorageLayout:
 
     @classmethod
     def from_backend_dir(cls, base_dir: str | Path) -> "RuntimeContextStorageLayout":
-        from project_layout import ProjectLayout
+        from core.project_layout import ProjectLayout
 
         return cls(ProjectLayout.from_backend_dir(base_dir).storage_root)
 
@@ -55,3 +55,4 @@ class RuntimeContextStorageLayout:
 
 
 __all__ = ["RuntimeContextStorageLayout"]
+

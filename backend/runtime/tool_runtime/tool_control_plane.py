@@ -2010,7 +2010,7 @@ def _workspace_root(request: ToolInvocationRequest) -> Path:
     assembly_backend = runtime_assembly.get("backend_dir")
     root = str(assembly_backend or backend_dir or ".")
     try:
-        from project_layout import ProjectLayout
+        from core.project_layout import ProjectLayout
 
         return ProjectLayout.from_backend_dir(Path(root)).project_root.resolve()
     except Exception:
@@ -2053,3 +2053,4 @@ def _public_policy(policy: dict[str, Any]) -> dict[str, Any]:
         for key, value in dict(policy or {}).items()
         if key not in {"material_mounts"}
     }
+

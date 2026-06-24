@@ -13,7 +13,7 @@ from capability_system.skills.scanner import scan_skills
 from capability_system.tools.paths import CapabilityToolPaths
 from code_environment.workspace_tree import _is_excluded_relative_path
 from memory_system.storage_layout import MemoryStorageLayout
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 
 router = APIRouter()
@@ -330,5 +330,6 @@ def _list_skills_payload(runtime: Any) -> list[dict[str, Any]]:
         }
         for skill in scan_skills(runtime.base_dir)
     ]
+
 
 

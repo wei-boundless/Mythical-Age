@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type CSSProperties } from "react";
 import {
   Check,
   ChevronDown,
@@ -26,9 +26,11 @@ import {
   DEFAULT_WORKBENCH_DENSITY,
   DEFAULT_WORKBENCH_THEME_ID,
   WORKBENCH_CUSTOM_SETTINGS_CHANGE_EVENT,
+  WORKBENCH_COLOR_TOKEN_GROUPS,
   WORKBENCH_DENSITY_CHANGE_EVENT,
   WORKBENCH_DENSITY_OPTIONS,
   WORKBENCH_FONT_OPTIONS,
+  WORKBENCH_TEXT_TOKEN_IDS,
   WORKBENCH_THEME_CHANGE_EVENT,
   WORKBENCH_THEME_TEMPLATES,
   clearCustomOverrides,
@@ -39,8 +41,11 @@ import {
   setStoredWorkbenchDensity,
   setStoredWorkbenchTheme,
   type CustomAppearanceSettings,
+  type WorkbenchBackgroundImageMeta,
+  type WorkbenchColorTokenId,
   type WorkbenchDensity,
   type WorkbenchFontId,
+  type WorkbenchTextTokenId,
   type WorkbenchThemeId,
 } from "@/framework/workbenchThemes";
 import {
@@ -99,8 +104,37 @@ const RUNTIME_CONFIG_GROUP_IDS: ReadonlySet<string> = new Set(
     .filter((id) => id !== "appearance" && id !== "capabilities")
 );
 
+const TEXT_TOKEN_ID_SET: ReadonlySet<string> = new Set(WORKBENCH_TEXT_TOKEN_IDS);
+const CUSTOM_TEXT_FONT_VALUE = "__custom_font__";
+const CUSTOM_TEXT_FONT_FAMILY = '"Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", sans-serif';
+
+const TEXT_SIZE_OPTIONS = [
+  { value: "", label: "跟随全局" },
+  { value: "12", label: "12 px" },
+  { value: "13", label: "13 px" },
+  { value: "14", label: "14 px" },
+  { value: "15", label: "15 px" },
+  { value: "16", label: "16 px" },
+  { value: "17", label: "17 px" },
+  { value: "18", label: "18 px" },
+  { value: "20", label: "20 px" },
+  { value: "22", label: "22 px" },
+  { value: "24", label: "24 px" },
+  { value: "28", label: "28 px" },
+  { value: "32", label: "32 px" },
+] as const;
+
+const BACKGROUND_IMAGE_MAX_STORED_CHARS = 2_800_000;
+const BACKGROUND_IMAGE_MAX_EDGE = 2560;
+const BACKGROUND_IMAGE_QUALITY_STEPS = [0.86, 0.78, 0.68, 0.58] as const;
+const BACKGROUND_IMAGE_OUTPUT_TYPES = ["image/webp", "image/jpeg"] as const;
+
 function isRuntimeConfigGroupId(value: SystemConfigGroupId) {
   return RUNTIME_CONFIG_GROUP_IDS.has(value);
+}
+
+function isTextTokenId(tokenId: WorkbenchColorTokenId): tokenId is WorkbenchTextTokenId {
+  return TEXT_TOKEN_ID_SET.has(tokenId);
 }
 
 function fieldInitialValue(field: RuntimeConfigField) {
@@ -157,6 +191,153 @@ function fieldDescription(group: RuntimeConfigGroup | null, field: RuntimeConfig
     .replace(/对应凭据引用\s+provider:[^。]+。?/g, "Agent 只会引用这份主模型密钥。");
 }
 
+function enabledLabel(enabled: boolean) {
+  return enabled ? "已开启" : "跟随主题";
+}
+
+function colorOverrideSummary(count: number) {
+  if (count <= 0) return "全部使用当前主题";
+  return `已自定义 ${count} 项`;
+}
+
+function appearancePercent(value: number) {
+  return `${Math.round(value)}%`;
+}
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+function storedImageSizeLabel(dataUrl: string) {
+  return formatBytes(Math.round(dataUrl.length * 0.75));
+}
+
+function backgroundImageMetaFromDimensions(width: number, height: number): WorkbenchBackgroundImageMeta {
+  const roundedWidth = Math.max(1, Math.round(width));
+  const roundedHeight = Math.max(1, Math.round(height));
+  return {
+    width: roundedWidth,
+    height: roundedHeight,
+    aspectRatio: Number((roundedWidth / roundedHeight).toFixed(4)),
+  };
+}
+
+function backgroundImageDetailLabel(settings: CustomAppearanceSettings) {
+  const sizeLabel = settings.bgImage ? storedImageSizeLabel(settings.bgImage) : "0 KB";
+  if (!settings.bgImageMeta) return sizeLabel;
+  return `${settings.bgImageMeta.width} x ${settings.bgImageMeta.height} / ${sizeLabel}`;
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("读取图片失败，请重新选择。"));
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("读取图片失败，请重新选择。"));
+        return;
+      }
+      resolve(result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImageFromObjectUrl(objectUrl: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("无法解析这张图片，请换一张 PNG、JPG 或 WebP。"));
+    image.src = objectUrl;
+  });
+}
+
+async function readBackgroundImageMeta(file: File) {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await loadImageFromObjectUrl(objectUrl);
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    if (!width || !height) {
+      throw new Error("无法读取图片尺寸，请换一张图片。");
+    }
+    return backgroundImageMetaFromDimensions(width, height);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function compressBackgroundImage(file: File) {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await loadImageFromObjectUrl(objectUrl);
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    if (!width || !height) {
+      throw new Error("无法读取图片尺寸，请换一张图片。");
+    }
+
+    const scale = Math.min(1, BACKGROUND_IMAGE_MAX_EDGE / Math.max(width, height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("浏览器无法处理这张背景图片。");
+    }
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    const candidates: string[] = [];
+    BACKGROUND_IMAGE_OUTPUT_TYPES.forEach((mimeType) => {
+      BACKGROUND_IMAGE_QUALITY_STEPS.forEach((quality) => {
+        const dataUrl = canvas.toDataURL(mimeType, quality);
+        if (dataUrl.startsWith(`data:${mimeType}`)) {
+          candidates.push(dataUrl);
+        }
+      });
+    });
+    candidates.sort((a, b) => a.length - b.length);
+    return {
+      dataUrl: candidates.find((candidate) => candidate.length <= BACKGROUND_IMAGE_MAX_STORED_CHARS) ?? candidates[0] ?? "",
+      meta: backgroundImageMetaFromDimensions(canvas.width, canvas.height),
+    };
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function prepareWorkbenchBackgroundImage(file: File) {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("请选择图片文件。");
+  }
+
+  const meta = await readBackgroundImageMeta(file);
+  const rawDataUrl = await readFileAsDataUrl(file);
+  if (rawDataUrl.length <= BACKGROUND_IMAGE_MAX_STORED_CHARS) {
+    return { compressed: false, dataUrl: rawDataUrl, meta };
+  }
+
+  if (file.type === "image/svg+xml") {
+    throw new Error(`这张 SVG 太大，当前约 ${formatBytes(file.size)}。请换一张更小的背景图。`);
+  }
+
+  const compressed = await compressBackgroundImage(file);
+  if (!compressed.dataUrl || compressed.dataUrl.length > BACKGROUND_IMAGE_MAX_STORED_CHARS) {
+    throw new Error(`这张图片压缩后仍然过大，当前约 ${formatBytes(file.size)}。请换一张更小的背景图。`);
+  }
+  return { compressed: true, dataUrl: compressed.dataUrl, meta: compressed.meta };
+}
+
+function textFontPresetValue(fontFamily: string | undefined) {
+  if (!fontFamily) return "";
+  return WORKBENCH_FONT_OPTIONS.find((font) => font.fontDisplay === fontFamily)?.id ?? CUSTOM_TEXT_FONT_VALUE;
+}
+
 export function SystemConfigView() {
   const [consoleConfig, setConsoleConfig] = useState<RuntimeConfigConsole | null>(null);
   const [capabilityCatalog, setCapabilityCatalog] = useState<CapabilitySystemCatalog | null>(null);
@@ -164,9 +345,11 @@ export function SystemConfigView() {
   const [activeThemeId, setActiveThemeId] = useState<WorkbenchThemeId>(DEFAULT_WORKBENCH_THEME_ID);
   const [activeDensity, setActiveDensity] = useState<WorkbenchDensity>(DEFAULT_WORKBENCH_DENSITY);
   const [customSettings, setCustomSettings] = useState<CustomAppearanceSettings>(DEFAULT_CUSTOM_SETTINGS);
+  const [resolvedColorTokens, setResolvedColorTokens] = useState<Partial<Record<WorkbenchColorTokenId, string>>>({});
   const [draft, setDraft] = useState<Record<string, string | number | boolean>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [backgroundImageBusy, setBackgroundImageBusy] = useState(false);
   const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -233,6 +416,20 @@ export function SystemConfigView() {
       window.removeEventListener("storage", syncAppearance);
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const tokenIds = WORKBENCH_COLOR_TOKEN_GROUPS.flatMap((group) => group.tokens.map((token) => token.id));
+    const readResolvedColors = () => {
+      const computed = window.getComputedStyle(document.documentElement);
+      setResolvedColorTokens(Object.fromEntries(tokenIds.map((tokenId) => [
+        tokenId,
+        colorInputValue(computed.getPropertyValue(`--${tokenId}`)),
+      ])) as Partial<Record<WorkbenchColorTokenId, string>>);
+    };
+    const frame = window.requestAnimationFrame(readResolvedColors);
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeThemeId, customSettings]);
 
   async function saveGroup() {
     if (!activeGroup || activeGroup.group_id === "context") return;
@@ -347,7 +544,8 @@ export function SystemConfigView() {
   );
   const internalTools = (capabilityCatalog?.tools ?? []).filter((tool) => tool.runtime_visibility === "agent_internal");
   const highRiskTools = (capabilityCatalog?.tools ?? []).filter((tool) => ["高", "极高"].includes(tool.operation_metadata.risk_level));
-  const activeThemeLabel = WORKBENCH_THEME_TEMPLATES.find((theme) => theme.id === activeThemeId)?.label ?? "清爽工作台";
+  const activeTheme = WORKBENCH_THEME_TEMPLATES.find((theme) => theme.id === activeThemeId) ?? WORKBENCH_THEME_TEMPLATES[0];
+  const activeThemeLabel = activeTheme.label;
   const activeDensityLabel = WORKBENCH_DENSITY_OPTIONS.find((density) => density.id === activeDensity)?.label ?? "标准";
   const activePanelTitle = activeGroupId === "appearance"
     ? "外观与布局"
@@ -474,42 +672,122 @@ export function SystemConfigView() {
     setCustomSettings(setStoredCustomSettings({ fontSizeScale: scale }));
   }
 
-  function commitCustomColors(patch: Partial<Pick<CustomAppearanceSettings, "accentSoftColor" | "bgColor" | "panelColor">>) {
-    const next = { ...getStoredCustomSettings(), ...patch };
-    const customColorsEnabled = Boolean(next.bgColor || next.panelColor || next.accentSoftColor);
+  function handleColorTokenChange(tokenId: WorkbenchColorTokenId, color: string) {
+    const current = getStoredCustomSettings();
+    const colorOverrides = { ...current.colorOverrides };
+    if (color) {
+      colorOverrides[tokenId] = color;
+    } else {
+      delete colorOverrides[tokenId];
+    }
     setCustomSettings(setStoredCustomSettings({
-      customColorsEnabled,
-      bgColor: next.bgColor,
-      panelColor: next.panelColor,
-      accentSoftColor: next.accentSoftColor,
+      colorOverrides,
+      customColorsEnabled: Object.keys(colorOverrides).length > 0,
     }));
   }
 
-  function handleBgColorChange(color: string) {
-    commitCustomColors({ bgColor: color || null });
+  function handleTextStyleChange(
+    tokenId: WorkbenchTextTokenId,
+    patch: { fontFamily?: string | null; fontSizePx?: number | null },
+  ) {
+    const current = getStoredCustomSettings();
+    const textStyleOverrides = { ...current.textStyleOverrides };
+    const nextStyle = { ...(textStyleOverrides[tokenId] ?? {}) };
+
+    if ("fontFamily" in patch) {
+      const fontFamily = patch.fontFamily?.trim() ?? "";
+      if (fontFamily) {
+        nextStyle.fontFamily = fontFamily;
+      } else {
+        delete nextStyle.fontFamily;
+      }
+    }
+    if ("fontSizePx" in patch) {
+      const fontSizePx = Number(patch.fontSizePx);
+      if (Number.isFinite(fontSizePx) && fontSizePx > 0) {
+        nextStyle.fontSizePx = fontSizePx;
+      } else {
+        delete nextStyle.fontSizePx;
+      }
+    }
+
+    if (nextStyle.fontFamily || nextStyle.fontSizePx) {
+      textStyleOverrides[tokenId] = nextStyle;
+    } else {
+      delete textStyleOverrides[tokenId];
+    }
+    setCustomSettings(setStoredCustomSettings({ textStyleOverrides }));
   }
 
-  function handlePanelColorChange(color: string) {
-    commitCustomColors({ panelColor: color || null });
+  function handleTextFontPresetChange(tokenId: WorkbenchTextTokenId, presetId: string) {
+    if (!presetId) {
+      handleTextStyleChange(tokenId, { fontFamily: null });
+      return;
+    }
+    if (presetId === CUSTOM_TEXT_FONT_VALUE) {
+      const currentFont = getStoredCustomSettings().textStyleOverrides[tokenId]?.fontFamily;
+      handleTextStyleChange(tokenId, {
+        fontFamily: currentFont && textFontPresetValue(currentFont) === CUSTOM_TEXT_FONT_VALUE
+          ? currentFont
+          : CUSTOM_TEXT_FONT_FAMILY,
+      });
+      return;
+    }
+    const preset = WORKBENCH_FONT_OPTIONS.find((font) => font.id === presetId);
+    if (preset) {
+      handleTextStyleChange(tokenId, { fontFamily: preset.fontDisplay });
+    }
   }
 
-  function handleAccentSoftColorChange(color: string) {
-    commitCustomColors({ accentSoftColor: color || null });
+  function handleTextLevelReset(tokenId: WorkbenchTextTokenId) {
+    const current = getStoredCustomSettings();
+    const colorOverrides = { ...current.colorOverrides };
+    const textStyleOverrides = { ...current.textStyleOverrides };
+    delete colorOverrides[tokenId];
+    delete textStyleOverrides[tokenId];
+    setCustomSettings(setStoredCustomSettings({
+      colorOverrides,
+      customColorsEnabled: Object.keys(colorOverrides).length > 0,
+      textStyleOverrides,
+    }));
   }
 
-  function handleBgImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleBgImageUpload(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
     const file = event.target.files?.[0];
+    input.value = "";
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      setCustomSettings(setStoredCustomSettings({ bgImage: dataUrl }));
-    };
-    reader.readAsDataURL(file);
+    setBackgroundImageBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const prepared = await prepareWorkbenchBackgroundImage(file);
+      const current = getStoredCustomSettings();
+      const next = setStoredCustomSettings({
+        bgImage: prepared.dataUrl,
+        bgImageMeta: prepared.meta,
+        chatCanvasVeil: current.bgImage ? current.chatCanvasVeil : Math.min(current.chatCanvasVeil, 24),
+      });
+      setCustomSettings(next);
+      setNotice(prepared.compressed
+        ? `已压缩并应用背景图片，${prepared.meta.width} x ${prepared.meta.height}，存储大小约 ${storedImageSizeLabel(prepared.dataUrl)}。`
+        : `已应用背景图片，${prepared.meta.width} x ${prepared.meta.height}，存储大小约 ${storedImageSizeLabel(prepared.dataUrl)}。`);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "应用背景图片失败。");
+    } finally {
+      setBackgroundImageBusy(false);
+    }
   }
 
   function handleRemoveBgImage() {
-    setCustomSettings(setStoredCustomSettings({ bgImage: null }));
+    setError("");
+    setNotice("");
+    setCustomSettings(setStoredCustomSettings({ bgImage: null, bgImageMeta: null }));
+    setNotice("已移除背景图片。");
+  }
+
+  function handleAppearanceNumberChange(patch: Partial<Pick<CustomAppearanceSettings, "chatCanvasVeil" | "chatSurfaceOpacity" | "closeoutMaxWidth" | "textureIntensity">>) {
+    setCustomSettings(setStoredCustomSettings(patch));
   }
 
   function handleResetCustom() {
@@ -519,12 +797,233 @@ export function SystemConfigView() {
     setNotice("已重置所有自定义覆盖");
   }
 
-  const currentFont = WORKBENCH_FONT_OPTIONS.find((f) => f.id === (customSettings.fontOverride ?? "system"))!;
+  function defaultTextSizePx(tokenId: WorkbenchTextTokenId) {
+    if (tokenId === "console-text") return currentBodyFontSize;
+    if (tokenId === "console-text-soft") return currentUiFontSize;
+    if (tokenId === "console-muted") return Math.max(10, currentUiFontSize - 2);
+    return Math.max(10, currentUiFontSize - 3);
+  }
+
+  function renderTextTypographyGroup(group: (typeof WORKBENCH_COLOR_TOKEN_GROUPS)[number]) {
+    return (
+      <details className="system-config-token-group system-config-token-group--type" key={group.id} open>
+        <summary>{group.label}</summary>
+        <div className="system-config-type-list">
+          {group.tokens.map((token) => {
+            if (!isTextTokenId(token.id)) return null;
+            const textTokenId = token.id;
+            const overrideColor = customSettings.colorOverrides[textTokenId] ?? "";
+            const resolvedColor = resolvedColorTokens[textTokenId] || "#ffffff";
+            const value = colorInputValue(overrideColor || resolvedColor);
+            const textStyle = customSettings.textStyleOverrides[textTokenId] ?? {};
+            const fontPreset = textFontPresetValue(textStyle.fontFamily);
+            const defaultSize = defaultTextSizePx(textTokenId);
+            const hasOverride = Boolean(overrideColor || textStyle.fontFamily || textStyle.fontSizePx);
+            return (
+              <article className="system-config-type-row" key={textTokenId}>
+                <div
+                  className="system-config-type-row__sample"
+                  style={{
+                    "--type-sample-color": value,
+                    "--type-sample-font": textStyle.fontFamily ?? currentFont.fontDisplay,
+                    "--type-sample-size": `${textStyle.fontSizePx ?? defaultSize}px`,
+                  } as CSSProperties}
+                >
+                  文
+                </div>
+                <div className="system-config-type-row__copy">
+                  <strong>{token.label}</strong>
+                  <small>{token.description}</small>
+                  <em>{hasOverride ? "已自定义" : "跟随当前主题"}</em>
+                </div>
+                <div className="system-config-type-row__controls">
+                  <label>
+                    <span>颜色</span>
+                    <input
+                      aria-label={`${token.label}颜色`}
+                      type="color"
+                      value={value}
+                      onChange={(event) => handleColorTokenChange(textTokenId, event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>字号</span>
+                    <select
+                      aria-label={`${token.label}字号`}
+                      value={textStyle.fontSizePx ? String(textStyle.fontSizePx) : ""}
+                      onChange={(event) => handleTextStyleChange(textTokenId, {
+                        fontSizePx: event.target.value ? Number(event.target.value) : null,
+                      })}
+                    >
+                      {TEXT_SIZE_OPTIONS.map((option) => (
+                        <option key={option.value || "default"} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>精确字号</span>
+                    <input
+                      aria-label={`${token.label}精确字号`}
+                      inputMode="numeric"
+                      min="10"
+                      max="32"
+                      step="1"
+                      type="number"
+                      value={textStyle.fontSizePx ?? ""}
+                      placeholder={`${defaultSize}`}
+                      onChange={(event) => handleTextStyleChange(textTokenId, {
+                        fontSizePx: event.target.value ? Number(event.target.value) : null,
+                      })}
+                    />
+                  </label>
+                  <label className="system-config-type-row__font">
+                    <span>字体样式</span>
+                    <select
+                      aria-label={`${token.label}字体样式`}
+                      value={fontPreset}
+                      onChange={(event) => handleTextFontPresetChange(textTokenId, event.target.value)}
+                    >
+                      <option value="">跟随全局</option>
+                      {WORKBENCH_FONT_OPTIONS.map((font) => (
+                        <option key={font.id} value={font.id}>{font.label}</option>
+                      ))}
+                      <option value={CUSTOM_TEXT_FONT_VALUE}>自定义字体</option>
+                    </select>
+                  </label>
+                  {fontPreset === CUSTOM_TEXT_FONT_VALUE ? (
+                    <label className="system-config-type-row__custom-font">
+                      <span>字体名称</span>
+                      <input
+                        aria-label={`${token.label}字体名称`}
+                        type="text"
+                        value={textStyle.fontFamily ?? ""}
+                        placeholder="Microsoft YaHei UI"
+                        onChange={(event) => handleTextStyleChange(textTokenId, { fontFamily: event.target.value })}
+                      />
+                    </label>
+                  ) : null}
+                  {hasOverride ? (
+                    <button
+                      className="system-config-type-row__reset"
+                      onClick={() => handleTextLevelReset(textTokenId)}
+                      type="button"
+                    >
+                      重置
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </details>
+    );
+  }
+
+  const currentFontId = customSettings.fontOverride ?? activeTheme.font;
+  const currentFont = WORKBENCH_FONT_OPTIONS.find((f) => f.id === currentFontId) ?? WORKBENCH_FONT_OPTIONS[0];
   const currentScale = customSettings.fontSizeScale;
+  const currentUiFontSize = Math.round(15 * currentScale);
+  const currentPageFontSize = Math.round(16 * currentScale);
+  const currentBodyFontSize = Math.round(17 * currentScale);
+  const fontSourceLabel = customSettings.fontOverride ? "手动覆盖" : "模板默认";
+  const activeColorOverrideCount = Object.keys(customSettings.colorOverrides).length;
+  const activeTypographyOverrideCount = Object.keys(customSettings.textStyleOverrides).length;
+  const themeToneLabel = activeTheme.mode === "dark" ? "深色界面" : "浅色界面";
+  const colorModeLabel = colorOverrideSummary(activeColorOverrideCount);
+  const backgroundModeLabel = customSettings.bgImage ? "自定义图片" : "主题背景";
+  const backgroundDetailLabel = customSettings.bgImage ? `已上传 / ${backgroundImageDetailLabel(customSettings)}` : "使用当前主题的背景质感";
 
   function renderAppearancePanel() {
     return (
       <div className="system-config-appearance">
+        <section className="system-config-field-section system-config-live-preview-section">
+          <div className="system-config-field-section__head">
+            <strong>当前生效配置</strong>
+            <em>只展示当前外观效果和用户可调整项，不显示内部实现信息。</em>
+          </div>
+          <div
+            className="system-config-appearance-preview"
+            style={{
+              "--appearance-preview-font": currentFont.fontDisplay,
+              "--appearance-preview-mono": currentFont.fontMono,
+              "--appearance-preview-body-size": `${currentBodyFontSize}px`,
+            } as CSSProperties}
+          >
+            <div className="system-config-appearance-preview__canvas">
+              <article className="system-config-appearance-preview__message" aria-label="Markdown 收口预览">
+                <header>
+                  <span>Markdown 收口预览</span>
+                  <h3>一、完成概览</h3>
+                  <p>已经修复消息投影与收口排版，正文、表格、代码块和文件引用会统一跟随当前主题。</p>
+                </header>
+                <p>
+                  关键改动集中在 <code>AssistantMessage.tsx</code> 与 <code>05-system-pages.css</code>，文件引用会保持清晰可点，长文本不会再挤压正文宽度。
+                </p>
+                <ul>
+                  <li>正文使用当前字体与正文字号。</li>
+                  <li>辅助信息保持低干扰，但仍具备可读对比度。</li>
+                  <li>表格与代码块宽度跟随收口阅读区。</li>
+                </ul>
+                <pre><code>{`const preview = {
+  status: "ready",
+  layout: "responsive"
+};`}</code></pre>
+                <div className="system-config-appearance-preview__table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>区域</th>
+                        <th>效果</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>正文</td>
+                        <td>跟随字体与字号</td>
+                      </tr>
+                      <tr>
+                        <td>代码</td>
+                        <td>保持等宽与换行</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+            </div>
+            <dl className="system-config-appearance-preview__meta">
+              <div>
+                <dt>主题</dt>
+                <dd>{activeTheme.label}<span>{themeToneLabel}</span></dd>
+              </div>
+              <div>
+                <dt>字体</dt>
+                <dd>{currentFont.label}<span>{fontSourceLabel}</span></dd>
+              </div>
+              <div>
+                <dt>字号</dt>
+                <dd>{Math.round(currentScale * 100)}%<span>UI {currentUiFontSize}px / 页面 {currentPageFontSize}px / 正文 {currentBodyFontSize}px</span></dd>
+              </div>
+              <div>
+                <dt>颜色</dt>
+                <dd>{colorModeLabel}<span>{enabledLabel(customSettings.customColorsEnabled)}</span></dd>
+              </div>
+              <div>
+                <dt>背景</dt>
+                <dd>{backgroundModeLabel}<span>{backgroundDetailLabel}</span></dd>
+              </div>
+              <div>
+                <dt>画布</dt>
+                <dd>遮罩 {appearancePercent(customSettings.chatCanvasVeil)}<span>质感 {appearancePercent(customSettings.textureIntensity)} / 面层 {appearancePercent(customSettings.chatSurfaceOpacity)}</span></dd>
+              </div>
+              <div>
+                <dt>收口</dt>
+                <dd>{Math.round(customSettings.closeoutMaxWidth)}px<span>最大阅读宽度</span></dd>
+              </div>
+            </dl>
+          </div>
+        </section>
+
         {/* ===== 主题模板 ===== */}
         <section className="system-config-field-section">
           <div className="system-config-field-section__head">
@@ -574,7 +1073,7 @@ export function SystemConfigView() {
           </div>
           <div className="system-config-font-grid">
             {WORKBENCH_FONT_OPTIONS.map((font) => {
-              const active = (customSettings.fontOverride ?? "system") === font.id;
+              const active = currentFontId === font.id;
               return (
                 <button
                   aria-pressed={active}
@@ -642,69 +1141,116 @@ export function SystemConfigView() {
           </div>
         </section>
 
-        {/* ===== 自定义颜色 ===== */}
+        {/* ===== 主题变量 ===== */}
         <section className="system-config-field-section">
           <div className="system-config-field-section__head">
-            <strong>颜色微调</strong>
-            <em>{customSettings.customColorsEnabled ? "已在当前模板上启用微调；清空三个颜色后回到模板默认色。" : "当前使用模板默认颜色；不喜欢时再单独调整。"}</em>
+            <strong>颜色与文字层级</strong>
+            <em>{activeColorOverrideCount || activeTypographyOverrideCount ? `已自定义颜色 ${activeColorOverrideCount} 项，文字样式 ${activeTypographyOverrideCount} 项；单项重置后回到当前主题。` : "当前全部跟随主题；任意修改都会保存为自定义外观。"}</em>
           </div>
-          <div className="system-config-color-grid">
-            <label className="system-config-color-picker">
-              <span>背景颜色</span>
+          <div className="system-config-token-groups">
+            {WORKBENCH_COLOR_TOKEN_GROUPS.map((group) => {
+              if (group.id === "text") {
+                return renderTextTypographyGroup(group);
+              }
+              return (
+                <details className="system-config-token-group" key={group.id} open>
+                  <summary>{group.label}</summary>
+                  <div className="system-config-token-grid">
+                    {group.tokens.map((token) => {
+                      const overrideColor = customSettings.colorOverrides[token.id] ?? "";
+                      const resolvedColor = resolvedColorTokens[token.id] || "#ffffff";
+                      const value = colorInputValue(overrideColor || resolvedColor);
+                      return (
+                        <label className="system-config-token-picker" key={token.id}>
+                          <span
+                            className="system-config-token-picker__swatch"
+                            style={{ background: value }}
+                          />
+                          <span className="system-config-token-picker__copy">
+                            <strong>{token.label}</strong>
+                            <small>{token.description}</small>
+                            <em>{overrideColor ? "已自定义" : "跟随当前主题"}</em>
+                          </span>
+                          <input
+                            aria-label={`${token.label}颜色`}
+                            type="color"
+                            value={value}
+                            onChange={(event) => handleColorTokenChange(token.id, event.target.value)}
+                          />
+                          {overrideColor ? (
+                            <button
+                              className="system-config-color-reset"
+                              onClick={() => handleColorTokenChange(token.id, "")}
+                              type="button"
+                              title="恢复主题默认"
+                            >
+                              ✕
+                            </button>
+                          ) : null}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </details>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* ===== 会话画布 ===== */}
+        <section className="system-config-field-section">
+          <div className="system-config-field-section__head">
+            <strong>会话画布参数</strong>
+            <em>控制会话页背景、正文面层和收口阅读宽度。</em>
+          </div>
+          <div className="system-config-appearance-controls">
+            <label>
+              <span>背景遮罩强度</span>
               <input
-                type="color"
-                value={customSettings.bgColor ?? "#ffffff"}
-                onChange={(e) => handleBgColorChange(e.target.value)}
+                type="range"
+                min="0"
+                max="90"
+                step="1"
+                value={customSettings.chatCanvasVeil}
+                onChange={(event) => handleAppearanceNumberChange({ chatCanvasVeil: Number(event.target.value) })}
               />
-              {customSettings.bgColor ? (
-                <button
-                  className="system-config-color-reset"
-                  onClick={() => handleBgColorChange("")}
-                  type="button"
-                  title="恢复主题默认"
-                >
-                  ✕
-                </button>
-              ) : null}
-              <em>{customSettings.bgColor ?? "使用主题默认"}</em>
+              <output>{Math.round(customSettings.chatCanvasVeil)}%</output>
             </label>
-            <label className="system-config-color-picker">
-              <span>面板颜色</span>
+            <label>
+              <span>纹理强度</span>
               <input
-                type="color"
-                value={customSettings.panelColor ?? "#ffffff"}
-                onChange={(e) => handlePanelColorChange(e.target.value)}
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value={customSettings.textureIntensity}
+                onChange={(event) => handleAppearanceNumberChange({ textureIntensity: Number(event.target.value) })}
               />
-              {customSettings.panelColor ? (
-                <button
-                  className="system-config-color-reset"
-                  onClick={() => handlePanelColorChange("")}
-                  type="button"
-                  title="恢复主题默认"
-                >
-                  ✕
-                </button>
-              ) : null}
-              <em>{customSettings.panelColor ?? "使用主题默认"}</em>
+              <output>{Math.round(customSettings.textureIntensity)}%</output>
             </label>
-            <label className="system-config-color-picker">
-              <span>强调背景色</span>
+            <label>
+              <span>会话面层透明度</span>
               <input
-                type="color"
-                value={customSettings.accentSoftColor ?? "#eaf3ff"}
-                onChange={(e) => handleAccentSoftColorChange(e.target.value)}
+                type="range"
+                min="35"
+                max="100"
+                step="1"
+                value={customSettings.chatSurfaceOpacity}
+                onChange={(event) => handleAppearanceNumberChange({ chatSurfaceOpacity: Number(event.target.value) })}
               />
-              {customSettings.accentSoftColor ? (
-                <button
-                  className="system-config-color-reset"
-                  onClick={() => handleAccentSoftColorChange("")}
-                  type="button"
-                  title="恢复主题默认"
-                >
-                  ✕
-                </button>
-              ) : null}
-              <em>{customSettings.accentSoftColor ?? "使用主题默认"}</em>
+              <output>{Math.round(customSettings.chatSurfaceOpacity)}%</output>
+            </label>
+            <label>
+              <span>收口最大宽度</span>
+              <input
+                type="range"
+                min="860"
+                max="1480"
+                step="20"
+                value={customSettings.closeoutMaxWidth}
+                onChange={(event) => handleAppearanceNumberChange({ closeoutMaxWidth: Number(event.target.value) })}
+              />
+              <output>{Math.round(customSettings.closeoutMaxWidth)}px</output>
             </label>
           </div>
         </section>
@@ -713,26 +1259,38 @@ export function SystemConfigView() {
         <section className="system-config-field-section">
           <div className="system-config-field-section__head">
             <strong>背景图片</strong>
-            <em>上传图片作为工作台背景，图片会自适应覆盖整个背景区域。</em>
+            <em>只显示当前背景状态；画布效果以上方预览为准。</em>
           </div>
           <div className="system-config-bg-image-upload">
-            {customSettings.bgImage ? (
-              <div className="system-config-bg-image-preview">
-                <img src={customSettings.bgImage} alt="背景预览" />
-                <button onClick={handleRemoveBgImage} type="button" className="system-config-bg-image-remove">
-                  移除背景图片
-                </button>
+            <div className={`system-config-bg-status ${customSettings.bgImage ? "system-config-bg-status--active" : ""}`}>
+              <span className="system-config-bg-status__thumb" aria-hidden="true">
+                {customSettings.bgImage ? <img src={customSettings.bgImage} alt="" /> : <ImageIcon size={16} />}
+              </span>
+              <span className="system-config-bg-status__copy">
+                <strong>{customSettings.bgImage ? "已上传背景图片" : "未设置背景图片"}</strong>
+                <small>
+                  {customSettings.bgImage
+                    ? `已应用到会话画布 / ${backgroundImageDetailLabel(customSettings)} / 自动适配`
+                    : "上传后会应用到会话画布背景。"}
+                </small>
+              </span>
+              <div className="system-config-bg-status__actions">
+                <label className="system-config-bg-image-action">
+                  <input
+                    disabled={backgroundImageBusy}
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+                    onChange={handleBgImageUpload}
+                  />
+                  <span>{customSettings.bgImage ? "更换" : backgroundImageBusy ? "处理中" : "选择图片"}</span>
+                </label>
+                {customSettings.bgImage ? (
+                  <button disabled={backgroundImageBusy} onClick={handleRemoveBgImage} type="button" className="system-config-bg-image-remove">
+                    移除
+                  </button>
+                ) : null}
               </div>
-            ) : (
-              <label className="system-config-bg-image-input">
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
-                  onChange={handleBgImageUpload}
-                />
-                <span>点击选择图片</span>
-              </label>
-            )}
+            </div>
           </div>
         </section>
 
@@ -849,7 +1407,7 @@ export function SystemConfigView() {
         <div>
           <p className="workspace-view__eyebrow">运行配置工作台</p>
           <h2 className="workspace-view__title">系统配置</h2>
-          <p className="workspace-view__subtitle">管理模型、上下文、检索、文档解析和运行限制；保存到运行时覆盖配置，`.env` 仍作为底座。</p>
+          <p className="workspace-view__subtitle">管理模型、上下文、检索、文档解析、运行限制和界面外观。</p>
         </div>
         <ActionBar className="workspace-view__actions">
           <Button chrome="action" disabled={loading || saving} onClick={() => void refreshConfig()}>
@@ -870,7 +1428,7 @@ export function SystemConfigView() {
 
       <section className="system-config-overview">
         <MetricCard detail={activePanelStatus} detailAs="em" label="当前面板" value={activePanelTitle} />
-        <MetricCard detail="当前由前端配置覆盖的字段" detailAs="em" label="运行时覆盖" value={overriddenCount} />
+        <MetricCard detail="已保存的自定义配置项" detailAs="em" label="已改设置" value={overriddenCount} />
         <MetricCard detail="新密钥只在保存时写入" detailAs="em" label="密钥策略" value="不回显密钥" />
       </section>
 
@@ -992,4 +1550,18 @@ export function SystemConfigView() {
       </div>
     </div>
   );
+}
+
+function colorInputValue(value: string | null | undefined) {
+  const trimmed = String(value ?? "").trim();
+  if (/^#[0-9a-f]{6}$/i.test(trimmed)) {
+    return trimmed;
+  }
+  const rgb = trimmed.match(/^rgba?\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3})/i);
+  if (!rgb) {
+    return "#ffffff";
+  }
+  return `#${[rgb[1], rgb[2], rgb[3]]
+    .map((channel) => Math.max(0, Math.min(255, Number(channel))).toString(16).padStart(2, "0"))
+    .join("")}`;
 }

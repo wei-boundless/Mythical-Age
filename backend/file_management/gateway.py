@@ -5,6 +5,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from core.project_layout import ProjectLayout
+
 from .access_table import FileAccessGrant, FileAccessTable
 from .filesystem_adapter import FsspecLocalFileAdapter
 from .models import ManagedFileRef, ManagedFileRepositorySpec, normalize_logical_path
@@ -104,6 +106,7 @@ class RepositoryRootResolver:
         runtime_output_root: str | Path | None = None,
     ) -> None:
         self.project_root = Path(project_root).resolve()
+        self.storage_root = ProjectLayout.from_backend_dir(self.project_root).storage_root.resolve()
         self.sandbox_root = Path(sandbox_root).resolve() if sandbox_root is not None else None
         self.managed_storage_root = Path(managed_storage_root).resolve() if managed_storage_root is not None else self.project_root / ".managed-files"
         self.runtime_output_root = Path(runtime_output_root).resolve() if runtime_output_root is not None else self.managed_storage_root / "runtime"
@@ -127,7 +130,7 @@ class RepositoryRootResolver:
         elif root_ref.startswith("research://"):
             root = self.managed_storage_root / "research" / _safe_root_fragment(root_ref.removeprefix("research://"))
         elif root_ref.startswith("graph-task-instance://"):
-            root = self.project_root / "storage" / "graph_task_instances" / _safe_root_fragment(root_ref.removeprefix("graph-task-instance://"))
+            root = self.storage_root / "graph_task_instances" / _safe_root_fragment(root_ref.removeprefix("graph-task-instance://"))
         elif not root_ref:
             root = self.managed_storage_root / "repositories" / _safe_root_fragment(repository.repository_id.replace(".", "/"))
         else:
@@ -489,5 +492,6 @@ def _safe_root_fragment(value: str) -> Path:
 
 def _is_inside(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
+
 
 

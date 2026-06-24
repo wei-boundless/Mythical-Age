@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, json_file_lock, read_json_dict, write_json_dict
+from core.json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, json_file_lock, read_json_dict, write_json_dict
 
 
 READ_OBSERVATION_AUTHORITY = "runtime_objects.read_observation_artifact.v1"
@@ -257,3 +257,4 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value not in ("", None, [], {}, ())}
+

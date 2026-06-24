@@ -15,7 +15,7 @@ from context_system.models.context_models import (
 )
 from memory_system.runtime_view import MemoryRuntimeView
 from memory_system.contracts import MemoryContextCandidate
-from token_accounting import count_text_tokens
+from core.token_accounting import count_text_tokens
 
 from .contracts import ContextCandidateDecision, ContextPolicyResult
 
@@ -439,5 +439,6 @@ def _render_retrieval_results(
 
 def _estimate_tokens(text: str) -> int:
     return count_text_tokens(text)
+
 
 

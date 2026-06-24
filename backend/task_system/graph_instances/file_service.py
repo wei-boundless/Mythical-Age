@@ -5,7 +5,7 @@ from typing import Any
 
 from file_management.filesystem_adapter import FsspecLocalFileAdapter
 from file_management.models import normalize_logical_path
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from task_system.graph_instances.repository import GraphTaskInstanceRepository
 
 
@@ -177,3 +177,4 @@ def _safe_path_component(value: str) -> str:
     safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or "").strip())
     safe = safe.strip("_-")
     return safe or "graph_task_instance"
+

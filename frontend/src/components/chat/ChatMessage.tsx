@@ -17,6 +17,8 @@ import type {
 } from "@/lib/api";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
 
+import { writeClipboardText } from "./clipboardText";
+
 type ChatMessageProps = {
   id: string;
   role: "user" | "assistant";
@@ -42,7 +44,12 @@ type ChatMessageProps = {
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
   canEdit?: boolean;
+  compactUserLongText?: boolean;
+  fileNameIndex?: Map<string, string>;
+  hideInlineTodoPlans?: boolean;
+  onOpenWorkspaceFile?: (path: string, options?: { lineNumber?: number }) => void;
   onResendEdit?: (messageId: string, value: string) => Promise<void>;
+  workspaceRoot?: string;
 };
 
 function ChatMessageComponent({
@@ -61,7 +68,12 @@ function ChatMessageComponent({
   streamingContent = false,
   retrievals,
   canEdit = false,
-  onResendEdit
+  compactUserLongText = true,
+  fileNameIndex,
+  hideInlineTodoPlans = false,
+  onOpenWorkspaceFile,
+  onResendEdit,
+  workspaceRoot
 }: ChatMessageProps) {
   const isUser = role === "user";
   const [editing, setEditing] = useState(false);
@@ -93,12 +105,12 @@ function ChatMessageComponent({
     [isUser, projectionView?.blocks],
   );
   const hasPublicTimelineActivity = useMemo(
-    () => publicTimelineHasDisplayableActivity(projectionBlocks),
-    [projectionBlocks],
+    () => publicTimelineHasDisplayableActivity(projectionBlocks, { hideTodoPlans: hideInlineTodoPlans }),
+    [hideInlineTodoPlans, projectionBlocks],
   );
   const hasAssistantAnchoredProjection = useMemo(
-    () => projectionBlocks.some(projectionBlockCanAnchorAssistantMessage),
-    [projectionBlocks],
+    () => projectionBlocks.some((block) => projectionBlockCanAnchorAssistantMessage(block, { hideTodoPlans: hideInlineTodoPlans })),
+    [hideInlineTodoPlans, projectionBlocks],
   );
   const baseDisplayContent = isUser
     ? content
@@ -178,6 +190,7 @@ function ChatMessageComponent({
     return isUser ? (
       <UserMessage
         attachments={attachments}
+        compactLongText={compactUserLongText}
         content={content}
         draft={draft}
         editing={editing}
@@ -201,13 +214,16 @@ function ChatMessageComponent({
         copyableReplyText={copyableReplyText}
         displayText={displayText}
         explicitBodyText={explicitBodyText}
+        fileNameIndex={fileNameIndex}
         image={image}
         imageUnavailable={imageUnavailable}
         key={key}
         onCopyReply={() => void copyReply()}
+        onOpenWorkspaceFile={onOpenWorkspaceFile}
         onImageError={setFailedImageSrc}
         showCopy={showCopy}
         streamingContent={streamingContent}
+        workspaceRoot={workspaceRoot}
       />
     );
   };
@@ -234,6 +250,7 @@ function ChatMessageComponent({
         <PublicTimelineActivity
           ariaLabel="收口前轨迹"
           blocks={projectionBlocks}
+          hideTodoPlans={hideInlineTodoPlans}
         />
       ) : null}
       {renderMessageContent()}
@@ -289,6 +306,7 @@ function ChatMessageComponent({
                   <PublicTimelineActivity
                     ariaLabel="运行状态"
                     blocks={block.blocks}
+                    hideTodoPlans={hideInlineTodoPlans}
                     key={block.key}
                   />
                 )
@@ -326,28 +344,17 @@ function areChatMessagePropsEqual(previous: ChatMessageProps, next: ChatMessageP
     && previous.toolCalls === next.toolCalls
     && previous.retrievals === next.retrievals
     && previous.canEdit === next.canEdit
-    && previous.onResendEdit === next.onResendEdit;
+    && previous.compactUserLongText === next.compactUserLongText
+    && previous.fileNameIndex === next.fileNameIndex
+    && previous.hideInlineTodoPlans === next.hideInlineTodoPlans
+    && previous.onOpenWorkspaceFile === next.onOpenWorkspaceFile
+    && previous.onResendEdit === next.onResendEdit
+    && previous.workspaceRoot === next.workspaceRoot;
 }
 
 function editFailureMessage(error: unknown) {
   const message = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
   return message || "改写没有发送成功。";
-}
-
-async function writeClipboardText(text: string) {
-  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "true");
-  textarea.style.position = "fixed";
-  textarea.style.left = "-9999px";
-  document.body.appendChild(textarea);
-  textarea.select();
-  document.execCommand("copy");
-  document.body.removeChild(textarea);
 }
 
 function assistantDisplayContent(
@@ -373,15 +380,21 @@ function cleanText(value: unknown) {
   return String(value ?? "").trim();
 }
 
-function projectionBlockCanAnchorAssistantMessage(block: ProjectionRenderBlock): boolean {
+function projectionBlockCanAnchorAssistantMessage(
+  block: ProjectionRenderBlock,
+  options: { hideTodoPlans?: boolean } = {},
+): boolean {
   if (block.kind === "body_segment") {
     return Boolean(cleanText(block.text)) && !isInternalControlProtocolText(block.text);
   }
-  if (block.kind === "tool_event" || block.kind === "todo_plan") {
+  if (block.kind === "todo_plan") {
+    return !options.hideTodoPlans;
+  }
+  if (block.kind === "tool_event") {
     return true;
   }
   if (block.kind === "activity_archive") {
-    return block.blocks.some((child) => child.kind === "tool_event" || child.kind === "todo_plan");
+    return block.blocks.some((child) => projectionBlockCanAnchorAssistantMessage(child, options));
   }
   return false;
 }

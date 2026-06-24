@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Literal
 from uuid import uuid4
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 DispatchMode = Literal["sync", "async", "background", "parallel", "barrier", "manual_gate"]
@@ -432,5 +432,6 @@ class BackgroundTaskManager:
         if not candidates:
             return None
         return sorted(candidates, key=lambda item: str(item.queued_at or ""), reverse=True)[0]
+
 
 

@@ -7,7 +7,7 @@ from pathlib import Path
 from memory_system.governance_service import DurableMemoryGovernanceService
 from memory_system.layout import durable_memory_layout_from_backend_dir
 from memory_system.storage.memory_manager import MemoryManager
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from capability_system.capabilities.retrieval.service import RetrievalService
 
 from .parser_adapter import MultimodalParserAdapter
@@ -196,6 +196,7 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
 
 
 

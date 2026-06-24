@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from config import EMBEDDING_PROVIDER_DEFAULTS, IMAGE_OCR_PROVIDER_OPTIONS, LLM_PROVIDER_DEFAULTS, Settings, get_settings, runtime_config
+from core.config import EMBEDDING_PROVIDER_DEFAULTS, IMAGE_OCR_PROVIDER_OPTIONS, LLM_PROVIDER_DEFAULTS, Settings, get_settings, runtime_config
 from context_system.budget.presets import (
     get_context_budget_preset,
     list_context_budget_presets,
@@ -219,7 +219,7 @@ class AppSettingsService:
         fallback_base_url: str | None = None,
         fallback_api_key: str | None = None,
     ) -> dict[str, Any]:
-        from config import get_settings as cached_get_settings
+        from core.config import get_settings as cached_get_settings
 
         normalized_provider = _normalize_provider_with_payload_hints(provider, model, base_url)
         if normalized_provider not in LLM_PROVIDER_DEFAULTS:
@@ -672,7 +672,7 @@ class AppSettingsService:
         }
 
     def set_runtime_config_group(self, group_id: str, values: dict[str, Any]) -> dict[str, Any]:
-        from config import get_settings as cached_get_settings
+        from core.config import get_settings as cached_get_settings
 
         if group_id == "model":
             self.set_model_provider(
@@ -776,6 +776,7 @@ class AppSettingsService:
         for alias in ("rerank_mode", "rerank_local_model", "rerank_api_provider", "rerank_api_model", "rerank_api_base_url"):
             normalized.pop(alias, None)
         return normalized
+
 
 
 

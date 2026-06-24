@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from api.deps import require_runtime
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from runtime.file_changes import FileChangeConflict, FileChangeMissing, FileChangeTracker
 from runtime.file_change_signals import publish_file_change_record
 
@@ -172,3 +172,4 @@ def _safe_write_review_id(value: str) -> str:
 
 def _sha256_text(value: str) -> str:
     return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
+

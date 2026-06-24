@@ -11,7 +11,7 @@ from memory_system.storage.models import Message
 from memory_system.storage.session_memory import SessionMemoryManager
 from memory_system.storage.session_memory_view import has_material_session_memory_content
 from runtime.prompt_accounting import CanonicalPromptSerializer, CompressionBudgetPlanner
-from token_accounting import count_text_tokens
+from core.token_accounting import count_text_tokens
 
 from .hooks import CompactBoundaryReceipt, CompactHookDecision, PreCompactHookRequest
 from .invariants import validate_compacted_messages
@@ -1353,6 +1353,7 @@ class ContextCompactor:
             "content": message.content,
             "source": str(dict(message.meta or {}).get("source") or "session_history"),
         }
+
 
 
 

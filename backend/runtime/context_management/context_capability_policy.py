@@ -17,11 +17,14 @@ TOOL_CONTEXT = "tool_context"
 CONTEXT_MEMORY = "context_memory"
 TASK_STATE_CONTEXT = "task_state_context"
 EVIDENCE_CONTEXT = "evidence_context"
+EVIDENCE_ALIGNMENT = "evidence_alignment"
 CURRENT_DYNAMIC_CONTROL = "current_dynamic_control"
 LIFECYCLE_CONTROL = "lifecycle_control"
 REPAIR_FEEDBACK = "repair_feedback"
 ACTIVE_SKILL = "active_skill"
 MEMORY_WRITE = "memory_write"
+REASONING_PROJECTION = "reasoning_projection"
+SUBAGENT_SYSTEM = "subagent_system"
 
 
 DEFAULT_CONTEXT_CAPABILITY_GROUPS = (
@@ -33,11 +36,14 @@ DEFAULT_CONTEXT_CAPABILITY_GROUPS = (
     CONTEXT_MEMORY,
     TASK_STATE_CONTEXT,
     EVIDENCE_CONTEXT,
+    EVIDENCE_ALIGNMENT,
     CURRENT_DYNAMIC_CONTROL,
     LIFECYCLE_CONTROL,
     REPAIR_FEEDBACK,
     ACTIVE_SKILL,
     MEMORY_WRITE,
+    REASONING_PROJECTION,
+    SUBAGENT_SYSTEM,
 )
 
 _DISABLED_TEXT = {"disabled", "disable", "off", "false", "0", "none", "omit", "omitted", "hidden"}
@@ -380,6 +386,8 @@ def _contract_group_for_slot(slot: str, *, kind: str) -> str:
     normalized = str(slot or "").strip()
     if normalized in {"runtime_control_contract", "lifecycle_guidance"}:
         return LIFECYCLE_CONTROL
+    if normalized in {"answer_evidence_alignment_contract", "evidence_alignment_contract"}:
+        return EVIDENCE_ALIGNMENT
     if normalized in {"action_contract", "visible_prefix_recovery_contract"}:
         return ACTION_CONTRACTS if normalized == "action_contract" else REPAIR_FEEDBACK
     if "tool" in normalized or str(kind or "").startswith("tool_"):
@@ -395,6 +403,10 @@ def _group_for_rule_kind(rule_kind: str) -> str:
         return REPAIR_FEEDBACK
     if "tool" in value or "subagent" in value or "multi_tool" in value:
         return TOOL_CONTEXT
+    if "evidence_alignment" in value or "answer_evidence" in value:
+        return EVIDENCE_ALIGNMENT
+    if "reasoning_projection" in value:
+        return REASONING_PROJECTION
     if "permission" in value or "system_call" in value or "turn_decision" in value or "plan_mode" in value:
         return ACTION_CONTRACTS
     if "lifecycle" in value:
@@ -443,9 +455,17 @@ _KIND_GROUPS: dict[str, tuple[str, str, str]] = {
     "read_evidence_context": (EVIDENCE_CONTEXT, "read_evidence_context", "content"),
     "read_evidence_injection": (EVIDENCE_CONTEXT, "current_exact_evidence", "content"),
     "evidence_index_cursor": (EVIDENCE_CONTEXT, "evidence_index_cursor", "content"),
+    "evidence_delta_summary": (EVIDENCE_ALIGNMENT, "evidence_semantic_summary", "content"),
+    "evidence_semantic_summary": (EVIDENCE_ALIGNMENT, "evidence_semantic_summary", "content"),
+    "read_coverage_projection": (EVIDENCE_ALIGNMENT, "read_coverage_projection", "content"),
+    "execution_action_evidence": (EVIDENCE_ALIGNMENT, "execution_action_evidence", "content"),
+    "answer_evidence_alignment_contract": (EVIDENCE_ALIGNMENT, "answer_evidence_alignment_contract", "contract"),
+    "answer_alignment_feedback": (EVIDENCE_ALIGNMENT, "answer_alignment_feedback", "feedback"),
     "attachment_context_index": (EVIDENCE_CONTEXT, "attachment_context_index", "content"),
     "editor_context_index": (EVIDENCE_CONTEXT, "editor_context_index", "content"),
     "current_editor_evidence_delta": (EVIDENCE_CONTEXT, "current_editor_evidence_delta", "content"),
+    "reasoning_trace_projection": (REASONING_PROJECTION, "reasoning_trace_projection", "content"),
+    "provider_reasoning_projection": (REASONING_PROJECTION, "provider_reasoning_projection", "content"),
     "provider_visible_ledger_recovery_checkpoint": (REPAIR_FEEDBACK, "provider_visible_ledger_recovery", "feedback"),
     "recovery_context_package": (REPAIR_FEEDBACK, "recovery_context_package", "feedback"),
     "recent_work_outcome": (REPAIR_FEEDBACK, "recent_work_outcome", "feedback"),
@@ -468,6 +488,14 @@ _SEMANTIC_SLOT_GROUPS: dict[str, tuple[str, str]] = {
     "current_user_intent": (CONTEXT_MEMORY, "content"),
     "active_user_steer_content": (CONTEXT_MEMORY, "content"),
     "evidence_refs_and_file_state_facts": (EVIDENCE_CONTEXT, "content"),
+    "evidence_semantic_summary": (EVIDENCE_ALIGNMENT, "content"),
+    "read_coverage_projection": (EVIDENCE_ALIGNMENT, "content"),
+    "provider_usage_truth_source": (EVIDENCE_ALIGNMENT, "content"),
+    "execution_action_evidence": (EVIDENCE_ALIGNMENT, "content"),
+    "answer_evidence_alignment_contract": (EVIDENCE_ALIGNMENT, "contract"),
+    "answer_alignment_feedback": (EVIDENCE_ALIGNMENT, "feedback"),
+    "reasoning_trace_projection": (REASONING_PROJECTION, "content"),
+    "provider_reasoning_projection": (REASONING_PROJECTION, "content"),
     "tool_transcript": (TOOL_CONTEXT, "content"),
     "action_contract": (ACTION_CONTRACTS, "contract"),
     "lifecycle_guidance": (LIFECYCLE_CONTROL, "contract"),
@@ -546,8 +574,16 @@ def _normalize_group(value: str) -> str:
         "contracts": ACTION_CONTRACTS,
         "tool": TOOL_CONTEXT,
         "tools": TOOL_CONTEXT,
+        "subagent": SUBAGENT_SYSTEM,
+        "subagents": SUBAGENT_SYSTEM,
+        "subagent_delegation": SUBAGENT_SYSTEM,
         "dynamic_tail": CURRENT_DYNAMIC_CONTROL,
         "dynamic": CURRENT_DYNAMIC_CONTROL,
+        "evidence": EVIDENCE_CONTEXT,
+        "evidence_alignment": EVIDENCE_ALIGNMENT,
+        "answer_evidence_alignment": EVIDENCE_ALIGNMENT,
+        "reasoning": REASONING_PROJECTION,
+        "reasoning_projection": REASONING_PROJECTION,
         "feedback": REPAIR_FEEDBACK,
         "recovery": REPAIR_FEEDBACK,
         "static": STATIC_IDENTITY,

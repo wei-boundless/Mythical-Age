@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from core.project_layout import ProjectLayout
 from runtime.storage_policy import DEFAULT_RUNTIME_STORAGE_POLICY, RuntimeStoragePolicy
 
 
@@ -46,8 +47,9 @@ class RuntimeFactArchiver:
         storage_policy: RuntimeStoragePolicy = DEFAULT_RUNTIME_STORAGE_POLICY,
     ) -> None:
         self.project_root = Path(project_root).resolve()
+        layout = ProjectLayout.from_runtime_root(self.project_root)
         self.storage_policy = storage_policy
-        self.runtime_root = self.project_root / "storage" / "runtime_state"
+        self.runtime_root = layout.runtime_state_dir
         self.archive_root = self.runtime_root / "cold_archive"
 
     def plan(self, *, now: float | None = None) -> dict[str, Any]:
@@ -549,3 +551,4 @@ def _prune_empty_parents(path: Path, *, stop_at: Path) -> None:
         except OSError:
             return
         current = current.parent
+

@@ -4,6 +4,8 @@ from pathlib import Path
 import re
 from typing import Any
 
+from core.project_layout import ProjectLayout
+
 from .artifact_scope import normalize_logical_path
 
 
@@ -18,13 +20,15 @@ ENVIRONMENT_STORAGE_DIR_KEYS = (
 
 def ensure_environment_storage_dirs(*, project_root: Path, storage_space: dict[str, Any]) -> list[str]:
     root = Path(project_root).resolve()
+    layout = ProjectLayout.from_backend_dir(root)
+    allowed_roots = (root, layout.storage_root.resolve())
     created_or_existing: list[str] = []
     for key in ENVIRONMENT_STORAGE_DIR_KEYS:
         logical_path = normalize_logical_path(str(dict(storage_space or {}).get(key) or ""))
         if not logical_path:
             continue
-        target = (root / logical_path).resolve()
-        if not _is_inside(target, root):
+        target = _resolve_runtime_owned_storage_path(layout, logical_path)
+        if not any(_is_inside(target, allowed_root) for allowed_root in allowed_roots):
             continue
         target.mkdir(parents=True, exist_ok=True)
         created_or_existing.append(logical_path)
@@ -49,7 +53,7 @@ def session_scoped_environment_storage_space(
     namespace = normalize_logical_path(storage.get("storage_namespace")) or _environment_namespace(environment)
     if not namespace:
         namespace = "general/workspace"
-    root = normalize_logical_path(f"mythical-agent/sessions/{session_segment}/environments/{namespace}")
+    root = normalize_logical_path(f"storage/session_environments/{session_segment}/{namespace}")
     resolved = {
         **storage,
         "environment_storage_root": root,
@@ -198,14 +202,24 @@ def _execution_storage_root(
             fallback="attempt",
         )
         return normalize_logical_path(
-            f"mythical-agent/task-groups/{group_segment}/nodes/{node_segment}/attempts/{attempt_segment}/environments/{clean_namespace}"
+            f"storage/task_environments/{clean_namespace}/task_groups/{group_segment}/nodes/{node_segment}/attempts/{attempt_segment}"
         )
     thread_segment = _safe_path_segment(isolation.get("task_thread_id"), fallback="task_thread")
     task_segment = _safe_path_segment(task_run_id, fallback=_safe_path_segment(session_id, fallback="task_run"))
     return normalize_logical_path(
-        f"mythical-agent/task-threads/{thread_segment}/task-runs/{task_segment}/environments/{clean_namespace}"
+        f"storage/task_environments/{clean_namespace}/task_threads/{thread_segment}/task_runs/{task_segment}"
     )
+
+
+def _resolve_runtime_owned_storage_path(layout: ProjectLayout, logical_path: str) -> Path:
+    normalized = normalize_logical_path(logical_path)
+    if normalized == "storage":
+        return layout.storage_root.resolve()
+    if normalized.startswith("storage/"):
+        return (layout.storage_root / normalized.removeprefix("storage/")).resolve()
+    return (layout.project_root / normalized).resolve()
 
 
 def _is_inside(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
+

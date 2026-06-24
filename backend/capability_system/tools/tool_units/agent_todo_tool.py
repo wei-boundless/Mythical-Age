@@ -52,8 +52,7 @@ class AgentTodoInput(BaseModel):
         description=(
             "Todo items for replace/append. Each item should include content, optional active_form, status, "
             "evidence_expectations, contract_refs, and optional subagent orchestration metadata such as "
-            "owner_agent_id, scope, subagent_run_ref, depends_on, handoff_goal, or parallel_group. "
-            "Use this field instead of todos."
+            "owner_agent_id, scope, subagent_run_ref, depends_on, handoff_goal, or parallel_group."
         ),
     )
     todo_id: str = Field(default="", description="Target todo id for start, complete, update_status, or remove. Use this field name, not id.")
@@ -88,14 +87,13 @@ class AgentTodoTool(BaseTool):
         session_id: str = "default",
         task_id: str = "runtime",
         items: list[dict[str, Any]] | None = None,
-        todos: list[dict[str, Any]] | None = None,
         todo_id: str = "",
         status: str = "",
         notes: str = "",
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
         try:
-            normalized_items = normalize_todo_items(items=list(items or []) or list(todos or []))
+            normalized_items = normalize_todo_items(items=list(items or []))
             current = self._state_store.read(session_id=session_id, task_id=task_id)
             if operation == "view":
                 plan = build_todo_plan(session_id=session_id, task_id=task_id, items=todo_items(current))
@@ -139,13 +137,12 @@ class AgentTodoTool(BaseTool):
         session_id: str = "default",
         task_id: str = "runtime",
         items: list[dict[str, Any]] | None = None,
-        todos: list[dict[str, Any]] | None = None,
         todo_id: str = "",
         status: str = "",
         notes: str = "",
         run_manager: AsyncCallbackManagerForToolRun | None = None,
     ) -> str:
-        return await asyncio.to_thread(self._run, operation, session_id, task_id, items, todos, todo_id, status, notes, None)
+        return await asyncio.to_thread(self._run, operation, session_id, task_id, items, todo_id, status, notes, None)
 
 _build_plan = build_todo_plan
 _update_plan = update_todo_plan

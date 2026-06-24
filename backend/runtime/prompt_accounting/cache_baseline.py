@@ -7,7 +7,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-from prompt_cache_policy import is_cache_eligible_prefix, is_prefix_eligible_for_tier
+from runtime.prompt_accounting.cache_policy import is_cache_eligible_prefix, is_prefix_eligible_for_tier
 
 from .cache_planner import stable_text_hash
 from .models import PromptSegment, PromptSegmentMap
@@ -610,3 +610,4 @@ def _int(value: Any) -> int:
         return max(0, int(value or 0))
     except (TypeError, ValueError):
         return 0
+

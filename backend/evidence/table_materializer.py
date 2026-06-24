@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from evidence.models import EvidenceArtifact
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,7 +24,8 @@ class TableMaterializer:
         self.root_dir = Path(root_dir).resolve()
         layout = ProjectLayout.from_backend_dir(self.root_dir)
         self.workspace_root = layout.project_root.resolve()
-        self.artifact_dir = self.workspace_root / "output" / "evidence_artifacts" / "tables"
+        self.storage_root = layout.storage_root.resolve()
+        self.artifact_dir = self.storage_root / "evidence_artifacts" / "tables"
 
     def materialize(
         self,
@@ -41,11 +42,11 @@ class TableMaterializer:
         safe_session = _safe_token(session_id or "default")
         safe_artifact = _safe_token(artifact.artifact_id)
         target_dir = (self.artifact_dir / safe_session).resolve()
-        if self.workspace_root not in target_dir.parents and target_dir != self.workspace_root:
+        if self.storage_root not in target_dir.parents and target_dir != self.storage_root:
             return None
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = (target_dir / f"{safe_artifact}.csv").resolve()
-        if self.workspace_root not in target_path.parents:
+        if self.storage_root not in target_path.parents:
             return None
 
         with target_path.open("w", encoding="utf-8-sig", newline="") as handle:
@@ -198,5 +199,6 @@ def _safe_token(value: str) -> str:
 def _stable_id(prefix: str, value: str) -> str:
     digest = hashlib.sha1(str(value or "").encode("utf-8")).hexdigest()[:16]
     return f"{prefix}:{digest}"
+
 
 

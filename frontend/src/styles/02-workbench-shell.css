@@ -614,6 +614,21 @@ html *::after {
   --workspace-control-bg: color-mix(in srgb, var(--console-surface) 64%, transparent);
   --workspace-control-hover: color-mix(in srgb, var(--console-surface) 86%, transparent);
   --workspace-tone-ink: var(--console-text);
+  --workbench-bg-image: none;
+  --workbench-bg-size: cover;
+  --workbench-bg-position: center center;
+  --workbench-bg-atmosphere-size: cover;
+  --workbench-bg-atmosphere-position: center center;
+  --workbench-bg-subject-size: contain;
+  --workbench-bg-subject-position: center center;
+  --workbench-bg-subject-opacity: 0;
+  --workbench-bg-subject-mask: linear-gradient(90deg, transparent 0%, black 18%, black 82%, transparent 100%);
+  --chat-canvas-veil: 34%;
+  --chat-canvas-veil-soft: 20%;
+  --chat-panel-surface-alpha: 72%;
+  --chat-panel-surface-alpha-soft: 54%;
+  --closeout-content-max: 1180px;
+  --workspace-bg-texture-opacity: 1;
   --workspace-bg-texture:
     radial-gradient(ellipse at 18% 12%, var(--workspace-bg-paper), transparent 36%),
     radial-gradient(ellipse at 82% 18%, var(--workspace-bg-cool), transparent 38%),
@@ -648,22 +663,8 @@ button:hover {
 }
 
 .agent-workbench {
-  --workbench-font:
-    -apple-system,
-    BlinkMacSystemFont,
-    "SF Pro Text",
-    "Segoe UI Variable Text",
-    "Segoe UI",
-    "PingFang SC",
-    "Noto Sans SC",
-    "Microsoft YaHei UI",
-    sans-serif;
-  --workbench-font-mono:
-    "SFMono-Regular",
-    "Cascadia Code",
-    "JetBrains Mono",
-    Consolas,
-    monospace;
+  --workbench-font: var(--font-display);
+  --workbench-font-mono: var(--font-mono);
   --workbench-bg: var(--console-bg);
   --workbench-surface: var(--console-surface);
   --workbench-surface-soft: var(--console-surface-muted);
@@ -682,7 +683,6 @@ button:hover {
     linear-gradient(180deg, transparent, transparent);
   --workbench-glow: 0 0 0 rgba(0, 0, 0, 0);
   --workbench-input: var(--console-bg-raised);
-  --workbench-bg-image: none;
   display: grid;
   min-height: 0;
   height: 100%;
@@ -692,12 +692,12 @@ button:hover {
     var(--workbench-bg-image),
     var(--workbench-texture),
     var(--workbench-bg);
-  background-size: cover;
-  background-position: center;
+  background-size: var(--workbench-bg-size), auto, auto;
+  background-position: var(--workbench-bg-position), center, center;
   background-repeat: no-repeat;
   color: var(--workbench-text);
   font-family: var(--workbench-font);
-  font-size: 14px;
+  font-size: var(--console-font-size-ui);
   font-feature-settings: "kern" 1;
   letter-spacing: 0;
   text-rendering: geometricPrecision;

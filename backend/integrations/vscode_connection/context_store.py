@@ -5,7 +5,7 @@ import time
 import uuid
 from typing import Any
 
-from project_workspaces import project_workspace_key
+from project_workspaces.service import project_workspace_key
 from sessions import SessionProjectBindingConflict
 
 from .models import (
@@ -796,3 +796,4 @@ _STORE = VSCodeConnectionStore()
 
 def get_vscode_connection_store() -> VSCodeConnectionStore:
     return _STORE
+

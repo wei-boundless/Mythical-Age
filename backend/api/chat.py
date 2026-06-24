@@ -60,8 +60,8 @@ from runtime.shared.stream_replay import sanitize_public_stream_event_data_for_r
 from sessions import SessionProjectBindingConflict, validate_session_id
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 from capability_system.capabilities.attachments import SUPPORTED_ATTACHMENT_IMAGE_SUFFIXES
-from config import runtime_config
-from project_layout import ProjectLayout
+from core.config import runtime_config
+from core.project_layout import ProjectLayout
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -3111,3 +3111,4 @@ def _runtime_run_refs_from_event(event: dict[str, Any]) -> dict[str, str]:
     if active_turn_id:
         refs["active_turn_id"] = active_turn_id
     return refs
+

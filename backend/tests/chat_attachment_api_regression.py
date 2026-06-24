@@ -13,7 +13,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 import api.chat_attachments as chat_attachments_module
 from app import app
-from config import RuntimeConfigManager
+from core.config import RuntimeConfigManager
 from tests.support.app_client import isolated_app_client
 
 
@@ -89,3 +89,4 @@ def _png_bytes(*, width: int = 64, height: int = 32) -> bytes:
     buffer = BytesIO()
     image.save(buffer, format="PNG")
     return buffer.getvalue()
+

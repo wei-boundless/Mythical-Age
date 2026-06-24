@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 from .models import HealthManagementReceipt
 
@@ -705,3 +705,4 @@ def _empty_recent_event_snapshot(task_run_id: str) -> dict[str, Any]:
 
 def _safe_runtime_object_id(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))[:180]
+

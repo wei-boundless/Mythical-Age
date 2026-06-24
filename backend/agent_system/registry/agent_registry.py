@@ -6,7 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from ..identity import agent_id_aliases, normalize_agent_id
 from ..models.agent_models import AgentDescriptor
 
@@ -504,6 +504,7 @@ def _enforce_system_builtin_payload(
         ),
     }
     return enforced
+
 
 
 

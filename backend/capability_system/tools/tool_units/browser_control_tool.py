@@ -11,7 +11,7 @@ from typing import Any, Literal, Type
 from capability_system.tools.base_tool import AsyncCallbackManagerForToolRun, BaseTool, CallbackManagerForToolRun
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 BrowserAction = Literal["open", "snapshot", "click", "type", "wait", "screenshot", "extract", "close"]
@@ -239,5 +239,6 @@ class BrowserControlTool(BaseTool):
         if text.strip():
             return page.get_by_text(text.strip(), exact=False).first.inner_text(timeout=3000)[:5000]
         return page.locator("body").inner_text(timeout=3000)[:5000]
+
 
 

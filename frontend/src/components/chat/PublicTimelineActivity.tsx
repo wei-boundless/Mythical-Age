@@ -20,6 +20,11 @@ import type {
 type PublicTimelineActivityProps = {
   ariaLabel?: string;
   blocks?: ProjectionRenderBlock[] | null;
+  hideTodoPlans?: boolean;
+};
+
+type PublicTimelineActivityOptions = {
+  hideTodoPlans?: boolean;
 };
 
 export type PublicTimelineActivityTone = "running" | "done" | "waiting" | "stopped" | "soft_error";
@@ -72,8 +77,8 @@ export type ActivityRenderUnit =
       statusTone: PublicTimelineActivityTone;
     };
 
-export function PublicTimelineActivity({ ariaLabel = "运行状态", blocks }: PublicTimelineActivityProps) {
-  const view = publicTimelineActivityView(blocks);
+export function PublicTimelineActivity({ ariaLabel = "运行状态", blocks, hideTodoPlans = false }: PublicTimelineActivityProps) {
+  const view = publicTimelineActivityView(blocks, { hideTodoPlans });
   if (!view.entries.length) {
     return null;
   }
@@ -95,13 +100,17 @@ export function PublicTimelineActivity({ ariaLabel = "运行状态", blocks }: P
 
 export function publicTimelineHasDisplayableActivity(
   blocks: ProjectionRenderBlock[] | null | undefined,
+  options: PublicTimelineActivityOptions = {},
 ) {
-  return publicTimelineActivityView(blocks).entries.length > 0;
+  return publicTimelineActivityView(blocks, options).entries.length > 0;
 }
 
-function publicTimelineActivityView(blocks: ProjectionRenderBlock[] | null | undefined) {
+function publicTimelineActivityView(
+  blocks: ProjectionRenderBlock[] | null | undefined,
+  options: PublicTimelineActivityOptions = {},
+) {
   const entries = (blocks ?? [])
-    .map((block, index) => activityEntryFromBlock(block, index, { allowBody: false }))
+    .map((block, index) => activityEntryFromBlock(block, index, { allowBody: false, hideTodoPlans: options.hideTodoPlans }))
     .filter((entry): entry is ActivityEntry => Boolean(entry));
   return {
     entries,
@@ -279,7 +288,7 @@ function toolPreviewPart(entry: ActivityEntry) {
 function activityEntryFromBlock(
   block: ProjectionRenderBlock,
   index: number,
-  options: { allowBody: boolean },
+  options: { allowBody: boolean; hideTodoPlans?: boolean },
 ): ActivityEntry | null {
   if (block.kind === "body_segment") {
     return options.allowBody ? bodyEntryFromBlock(block, index) : null;
@@ -288,9 +297,12 @@ function activityEntryFromBlock(
     return null;
   }
   if (block.kind === "activity_archive") {
-    return archiveEntryFromBlock(block, index);
+    return archiveEntryFromBlock(block, index, { hideTodoPlans: options.hideTodoPlans });
   }
   if (block.kind === "todo_plan") {
+    if (options.hideTodoPlans) {
+      return null;
+    }
     return todoEntryFromBlock(block, index);
   }
   if (block.kind === "status_event" || block.kind === "recovery_event" || block.kind === "terminal_event") {
@@ -302,9 +314,13 @@ function activityEntryFromBlock(
   return null;
 }
 
-function archiveEntryFromBlock(block: ActivityArchiveProjectionBlock, index: number): ActivityEntry | null {
+function archiveEntryFromBlock(
+  block: ActivityArchiveProjectionBlock,
+  index: number,
+  options: { hideTodoPlans?: boolean } = {},
+): ActivityEntry | null {
   const entries = (block.blocks ?? [])
-    .map((item, childIndex) => activityEntryFromBlock(item, childIndex, { allowBody: true }))
+    .map((item, childIndex) => activityEntryFromBlock(item, childIndex, { allowBody: true, hideTodoPlans: options.hideTodoPlans }))
     .filter((entry): entry is ActivityEntry => Boolean(entry));
   if (!entries.length) {
     return null;

@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 from bootstrap.settings import AppSettingsService
-from config import LLM_PROVIDER_DEFAULTS
+from core.config import LLM_PROVIDER_DEFAULTS
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 from prompt_library import SESSION_TITLE_GENERATION_PROMPT
 from runtime.prompt_accounting import (
@@ -943,6 +943,8 @@ class ModelRuntime:
         run_id = raw_run_id or task_run_id
         session_id = str(context.get("session_id") or "")
         created_at = time.time()
+        prompt_manifest = _prompt_accounting_manifest_refs(context.get("prompt_manifest"))
+        tool_catalog_manifest = _tool_catalog_manifest_for_model_request(context.get("prompt_manifest"))
         metadata = {
             "source": str(context.get("source") or call_kind),
             "call_kind": call_kind,
@@ -952,7 +954,7 @@ class ModelRuntime:
             "invocation_index": context.get("invocation_index"),
             "call_purpose": str(context.get("call_purpose") or ""),
             "cache_metric_scope": str(context.get("cache_metric_scope") or "agent_runtime"),
-            "prompt_manifest": dict(context.get("prompt_manifest") or {}),
+            "prompt_manifest": prompt_manifest,
             "cache_relevant_params": self._cache_relevant_params_for_spec(
                 spec,
                 call_kind=call_kind,
@@ -972,7 +974,10 @@ class ModelRuntime:
                 model=spec.model,
                 base_url=spec.base_url,
                 segment_plan=segment_plan,
-                metadata=metadata,
+                metadata={
+                    **metadata,
+                    "tool_catalog_manifest": tool_catalog_manifest,
+                },
             )
         except Exception:
             logger.debug("Failed to build model request accounting projection", exc_info=True)
@@ -1735,6 +1740,64 @@ def _compact_error_detail(detail: str, *, limit: int = 500) -> str:
     return normalized[: limit - 3] + "..."
 
 
+def _prompt_accounting_manifest_refs(value: Any) -> dict[str, Any]:
+    manifest = dict(value or {}) if isinstance(value, dict) else {}
+    composition = dict(manifest.get("prompt_composition") or {})
+    context_window = dict(manifest.get("context_window") or {})
+    context_window_refs = (
+        _drop_empty_refs(
+            {
+                "context_recovery_package_hash": str(context_window.get("context_recovery_package_hash") or ""),
+                "context_recovery_package_present": bool(context_window.get("context_recovery_package_present") or False),
+                "context_recovery_package_covered_message_count": _int(context_window.get("context_recovery_package_covered_message_count")),
+                "context_recovery_package_covered_event_offset_end": _int(context_window.get("context_recovery_package_covered_event_offset_end")),
+                "raw_history_message_count": _int(context_window.get("raw_history_message_count")),
+                "active_history_message_count": _int(context_window.get("active_history_message_count")),
+            }
+        )
+        if context_window
+        else {}
+    )
+    return _drop_empty_refs(
+        {
+            "manifest_id": str(manifest.get("manifest_id") or ""),
+            "segment_plan_ref": str(manifest.get("segment_plan_ref") or ""),
+            "prompt_assembly_plan_ref": str(manifest.get("prompt_assembly_plan_ref") or ""),
+            "runtime_prompt_source_manifest_ref": str(manifest.get("runtime_prompt_source_manifest_ref") or ""),
+            "runtime_context_load_plan_ref": str(manifest.get("runtime_context_load_plan_ref") or ""),
+            "prompt_slot_plan_ref": str(manifest.get("prompt_slot_plan_ref") or ""),
+            "prompt_composition_ref": str(composition.get("manifest_id") or ""),
+            "cache_metric_scope": str(manifest.get("cache_metric_scope") or ""),
+            "context_window": context_window_refs,
+        }
+    )
+
+
+def _tool_catalog_manifest_for_model_request(value: Any) -> dict[str, Any]:
+    manifest = dict(value or {}) if isinstance(value, dict) else {}
+    catalog = dict(manifest.get("tool_catalog_manifest") or {})
+    return _drop_empty_refs(
+        {
+            "manifest_id": str(catalog.get("manifest_id") or ""),
+            "tool_catalog_hash": str(catalog.get("tool_catalog_hash") or ""),
+            "stable_tool_catalog_hash": str(catalog.get("stable_tool_catalog_hash") or ""),
+            "model_visible_catalog": [
+                dict(item)
+                for item in list(catalog.get("model_visible_catalog") or [])
+                if isinstance(item, dict)
+            ],
+        }
+    )
+
+
+def _drop_empty_refs(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        str(key): value
+        for key, value in dict(payload or {}).items()
+        if value not in (None, "", [], {})
+    }
+
+
 def _lightweight_model_provider_kwargs(model_kwargs: dict[str, Any]) -> dict[str, Any]:
     payload = dict(model_kwargs or {})
     nested_model_kwargs = dict(payload.pop("model_kwargs", {}) or {})
@@ -2394,3 +2457,4 @@ def _exception_chain_text(exc: Exception) -> str:
         parts.append(f"{current.__class__.__name__}: {current}")
         current = current.__cause__ or current.__context__
     return " | ".join(parts) or exc.__class__.__name__
+

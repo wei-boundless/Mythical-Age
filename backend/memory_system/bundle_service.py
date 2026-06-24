@@ -5,7 +5,7 @@ from typing import Any, Callable
 
 from context_system.policy import build_context_package_result
 from context_system.budget.presets import get_context_budget_preset
-from token_accounting import count_text_tokens
+from core.token_accounting import count_text_tokens
 
 from .contracts import MemoryContextCandidate
 from .continuity import SessionMemoryLayer
@@ -599,5 +599,6 @@ def _confidence_score(confidence: str) -> float:
     if normalized == "medium":
         return 0.6
     return 0.5
+
 
 

@@ -10,6 +10,10 @@ from .models import PromptAssemblyRequest, PromptAssemblyResult, PromptSection
 from .packs import default_pack_ref_for_invocation
 from .registry import PromptLibraryRegistry
 from .rules import build_rule_diagnostics
+from runtime.context_management.context_capability_policy import (
+    context_capability_decision_for_prompt_resource,
+    context_capability_profile_from_payload,
+)
 
 
 class PromptAssemblyService:
@@ -18,6 +22,12 @@ class PromptAssemblyService:
 
     def assemble(self, request: PromptAssemblyRequest) -> PromptAssemblyResult:
         pack_refs = tuple(request.prompt_pack_refs or ())
+        request_metadata = dict(request.metadata or {})
+        system_wiring_manifest = _system_wiring_manifest_from_request_metadata(request_metadata)
+        context_capability_profile = _context_capability_profile_from_request_metadata(
+            request_metadata,
+            system_wiring_manifest=system_wiring_manifest,
+        )
         has_explicit_refs = bool(
             tuple(request.prompt_refs or ())
             or tuple(request.skill_prompt_refs or ())
@@ -65,6 +75,19 @@ class PromptAssemblyService:
             if reason:
                 rejected.append({"ref": prompt_ref, "reason": reason})
                 continue
+            wiring_reason = _resource_context_wiring_rejection_reason(
+                resource.to_dict(),
+                context_capability_profile=context_capability_profile,
+                system_wiring_manifest=system_wiring_manifest,
+            )
+            if wiring_reason:
+                rejected.append({"ref": prompt_ref, "reason": wiring_reason})
+                continue
+            context_capability_metadata = _resource_context_wiring_metadata(
+                resource.to_dict(),
+                context_capability_profile=context_capability_profile,
+                system_wiring_manifest=system_wiring_manifest,
+            )
             sections.append(
                 PromptSection(
                     section_id=f"{resource.category}.{resource.subtype}:{order}",
@@ -82,6 +105,7 @@ class PromptAssemblyService:
                         "resource_type": resource.resource_type,
                         "authority_scope": dict(resource.metadata or {}).get("authority_scope"),
                         "prompt_rule": dict(resource.metadata or {}).get("prompt_rule"),
+                        **context_capability_metadata,
                     },
                 )
             )
@@ -139,6 +163,10 @@ class PromptAssemblyService:
             "layer_summary": _assembly_layer_summary(tuple(sections)),
             "prompt_precedence": build_prompt_precedence_report(tuple(sections)),
             "prompt_authority": prompt_authority_manifest,
+            "system_wiring_manifest_ref": str(system_wiring_manifest.get("manifest_id") or ""),
+            "context_capability_profile": (
+                context_capability_profile.to_dict() if context_capability_profile is not None else {}
+            ),
             "contract_section_count": len([item for item in sections if not item.prompt_ref]),
             "authority": "prompt_library.prompt_assembly_manifest",
         }
@@ -163,6 +191,7 @@ class PromptAssemblyService:
         prompt_refs: tuple[str, ...] | list[str],
         agent_profile_ref: str = "",
         task_environment_ref: str = "",
+        metadata: dict[str, Any] | None = None,
     ) -> PromptAssemblyResult:
         return self.assemble(
             PromptAssemblyRequest(
@@ -171,8 +200,94 @@ class PromptAssemblyService:
                 prompt_refs=tuple(str(item).strip() for item in list(prompt_refs or []) if str(item).strip()),
                 agent_profile_ref=agent_profile_ref,
                 task_environment_ref=task_environment_ref,
+                metadata=dict(metadata or {}),
             )
         )
+
+
+def _system_wiring_manifest_from_request_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    manifest = metadata.get("system_wiring_manifest")
+    if isinstance(manifest, dict):
+        return dict(manifest)
+    runtime_assembly = metadata.get("runtime_assembly")
+    if isinstance(runtime_assembly, dict) and isinstance(runtime_assembly.get("system_wiring_manifest"), dict):
+        return dict(runtime_assembly.get("system_wiring_manifest") or {})
+    return {}
+
+
+def _context_capability_profile_from_request_metadata(
+    metadata: dict[str, Any],
+    *,
+    system_wiring_manifest: dict[str, Any],
+) -> Any | None:
+    profile_payload = metadata.get("context_capability_profile")
+    if not isinstance(profile_payload, dict) or not profile_payload:
+        compiled = dict(system_wiring_manifest.get("compiled") or {})
+        profile_payload = compiled.get("context_capability_profile")
+    if not isinstance(profile_payload, dict) or not profile_payload:
+        return None
+    return context_capability_profile_from_payload(dict(profile_payload))
+
+
+def _resource_context_wiring_rejection_reason(
+    resource: dict[str, Any],
+    *,
+    context_capability_profile: Any | None,
+    system_wiring_manifest: dict[str, Any],
+) -> str:
+    prompt_ref = str(resource.get("prompt_id") or resource.get("resource_id") or "").strip()
+    gate = _prompt_resource_gate(system_wiring_manifest, prompt_ref=prompt_ref)
+    if gate and gate.get("enabled") is False and not list(gate.get("system_groups") or []):
+        disabled = ",".join(str(item) for item in list(gate.get("disabled_system_groups") or []) if str(item))
+        return f"system_group_disabled:{disabled or prompt_ref}"
+    if context_capability_profile is None:
+        return ""
+    decision = context_capability_decision_for_prompt_resource(resource, profile=context_capability_profile)
+    if not decision.enabled:
+        return decision.reason
+    return ""
+
+
+def _resource_context_wiring_metadata(
+    resource: dict[str, Any],
+    *,
+    context_capability_profile: Any | None,
+    system_wiring_manifest: dict[str, Any],
+) -> dict[str, Any]:
+    prompt_ref = str(resource.get("prompt_id") or resource.get("resource_id") or "").strip()
+    gate = _prompt_resource_gate(system_wiring_manifest, prompt_ref=prompt_ref)
+    metadata: dict[str, Any] = {}
+    if context_capability_profile is not None:
+        decision = context_capability_decision_for_prompt_resource(resource, profile=context_capability_profile)
+        metadata.update(
+            {
+                "context_capability_profile_id": str(getattr(context_capability_profile, "profile_id", "") or ""),
+                "context_capability_group": decision.group,
+                "context_capability_slot": decision.slot,
+                "context_capability_member": decision.member,
+                "context_capability_enabled": decision.enabled,
+                "context_capability_reason": decision.reason,
+                "context_capability_authority": decision.source,
+            }
+        )
+    if gate:
+        metadata["system_wiring_prompt_gate"] = {
+            "enabled": bool(gate.get("enabled") is True),
+            "system_groups": [str(item) for item in list(gate.get("system_groups") or []) if str(item)],
+            "disabled_system_groups": [
+                str(item) for item in list(gate.get("disabled_system_groups") or []) if str(item)
+            ],
+        }
+    return metadata
+
+
+def _prompt_resource_gate(system_wiring_manifest: dict[str, Any], *, prompt_ref: str) -> dict[str, Any]:
+    if not prompt_ref:
+        return {}
+    compiled = dict(system_wiring_manifest.get("compiled") or {})
+    gates = dict(compiled.get("prompt_resource_gates") or {})
+    gate = gates.get(prompt_ref)
+    return dict(gate) if isinstance(gate, dict) else {}
 
 
 def _resource_rejection_reason(resource: dict[str, Any], *, request: dict[str, Any]) -> str:

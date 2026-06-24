@@ -7,7 +7,7 @@ from hashlib import sha1
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from runtime_encoding import utf8_subprocess_text_kwargs
+from core.runtime_encoding import utf8_subprocess_text_kwargs
 
 
 SandboxRunner = Callable[..., subprocess.CompletedProcess[str]]
@@ -495,5 +495,6 @@ def _redacted_command(command: Sequence[str]) -> list[str]:
 def _sbx_already_exists(completed: subprocess.CompletedProcess[str]) -> bool:
     text = f"{completed.stdout or ''}\n{completed.stderr or ''}".lower()
     return "already exists" in text or "exists already" in text
+
 
 

@@ -4,7 +4,7 @@ import os
 from typing import Any
 
 from bootstrap.settings import AppSettingsService
-from config import LLM_PROVIDER_DEFAULTS
+from core.config import LLM_PROVIDER_DEFAULTS
 
 from ..profiles.runtime_profile_models import AgentRuntimeProfile
 from .model_profile_models import AgentModelProfile, ModelRequirement, ResolvedModelSpec, parse_model_requirement
@@ -438,5 +438,6 @@ def _float_or(value: Any, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return float(default)
+
 
 

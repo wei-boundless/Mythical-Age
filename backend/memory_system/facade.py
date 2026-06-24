@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from orchestration import BackgroundTaskManager
 from .bundle_service import MemoryBundleService
 from .continuity import ForegroundContinuityStateStore, MemoryMessageAdapter, SessionMemoryLayer
@@ -350,5 +350,6 @@ class MemoryFacade:
             memory_request_profile=memory_request_profile,
             note_limit=note_limit,
         )
+
 
 

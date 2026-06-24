@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from prompt_cache_policy import is_cache_eligible_prefix
+from runtime.prompt_accounting.cache_policy import is_cache_eligible_prefix
 
 from .models import PromptSegment
 
@@ -179,3 +179,4 @@ class CompressionBudgetPlanner:
         ceiling = max(160, min(1400, int(compressible_budget * 0.35)))
         floor = 120 if hard_required_tokens else 80
         return max(floor, min(ceiling, compressible_tokens))
+

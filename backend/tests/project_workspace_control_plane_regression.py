@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from api import project_workspaces as project_workspaces_api
-from project_workspaces import ProjectWorkspaceService
+from project_workspaces.service import ProjectWorkspaceService
 from sessions import SessionManager
 
 
@@ -78,3 +78,4 @@ def test_project_workspace_tree_uses_registered_project_without_session(tmp_path
 
     assert Path(tree.root_path) == project_root.resolve()
     assert [node.name for node in tree.tree.children] == ["src"]
+

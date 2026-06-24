@@ -110,7 +110,7 @@ def _default_environment_services(host: Any) -> tuple[Any | None, Any | None]:
     try:
         from artifact_system import ArtifactRepositoryService
         from memory_system.runtime_services import MemoryRuntimeServices
-        from project_layout import ProjectLayout
+        from core.project_layout import ProjectLayout
     except Exception:
         return None, None
     try:
@@ -149,3 +149,4 @@ class TaskExecutorServices:
 
     def all_tool_instances(self) -> list[Any]:
         return list(self.tool_instances)
+

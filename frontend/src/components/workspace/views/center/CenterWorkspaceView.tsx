@@ -5,6 +5,7 @@ import { AlertTriangle, Code2, ExternalLink, FileText, GitCompare, Loader2, Mess
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import type { editor as MonacoEditorNamespace } from "monaco-editor";
 
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { RuntimeLogPanel, type RuntimeLogTarget } from "@/components/layout/RuntimeLogPanel";
@@ -116,9 +117,11 @@ function languageIdForPath(path: string) {
 }
 
 function CenterWorkspaceFileLayer({
+  lineNumber,
   onClose,
   path,
 }: {
+  lineNumber?: number;
   onClose: () => void;
   path: string;
 }) {
@@ -140,7 +143,9 @@ function CenterWorkspaceFileLayer({
   const [openingVSCode, setOpeningVSCode] = useState(false);
   const [actionError, setActionError] = useState("");
   const [readerMode, setReaderMode] = useState<FileReaderMode>("preview");
+  const editorRef = useRef<MonacoEditorNamespace.IStandaloneCodeEditor | null>(null);
   const targetPath = path.trim();
+  const targetLineNumber = normalizedLineNumber(lineNumber);
   const displayPath = targetPath || inspectorPath;
   const loaded = Boolean(displayPath && inspectorPath === displayPath);
   const editable = loaded && (Boolean(inspectorTarget) || isLegacyInternalEditablePath(displayPath));
@@ -159,8 +164,18 @@ function CenterWorkspaceFileLayer({
   }, [inspectorPath, loadInspectorFile, targetPath]);
 
   useEffect(() => {
-    setReaderMode(languageIdForPath(displayPath) === "markdown" ? "preview" : "source");
-  }, [displayPath]);
+    setReaderMode(targetLineNumber ? "source" : languageIdForPath(displayPath) === "markdown" ? "preview" : "source");
+  }, [displayPath, targetLineNumber]);
+
+  useEffect(() => {
+    if (!loaded || !targetLineNumber || readerMode !== "source") {
+      return;
+    }
+    const animationFrame = window.requestAnimationFrame(() => {
+      revealEditorLine(editorRef.current, targetLineNumber);
+    });
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [loaded, readerMode, targetLineNumber]);
 
   async function refreshFile() {
     if (!displayPath) {
@@ -300,6 +315,10 @@ function CenterWorkspaceFileLayer({
                   updateInspectorContent(value ?? "");
                 }
               }}
+              onMount={(editor) => {
+                editorRef.current = editor;
+                revealEditorLine(editor, targetLineNumber);
+              }}
               options={{
                 automaticLayout: true,
                 contextmenu: true,
@@ -327,6 +346,26 @@ function CenterWorkspaceFileLayer({
 function lineCount(value: string) {
   if (!value) return 0;
   return value.split(/\r?\n/).length;
+}
+
+function normalizedLineNumber(value: unknown): number | undefined {
+  const lineNumber = Number(value);
+  return Number.isInteger(lineNumber) && lineNumber > 0 ? Math.min(lineNumber, 999999) : undefined;
+}
+
+function revealEditorLine(
+  editor: MonacoEditorNamespace.IStandaloneCodeEditor | null,
+  lineNumber: number | undefined,
+) {
+  if (!editor || !lineNumber) {
+    return;
+  }
+  const model = editor.getModel();
+  const lineCount = model?.getLineCount() ?? lineNumber;
+  const boundedLine = Math.min(Math.max(lineNumber, 1), Math.max(lineCount, 1));
+  editor.setPosition({ lineNumber: boundedLine, column: 1 });
+  editor.revealLineInCenterIfOutsideViewport(boundedLine);
+  editor.focus();
 }
 
 function clampDiffSplitPercent(value: number) {
@@ -781,6 +820,7 @@ export function CenterWorkspaceView({
   const [activeResourcePageId, setActiveResourcePageId] = useState("");
   const [openResourcePageIds, setOpenResourcePageIds] = useState<string[]>([]);
   const [activeFilePath, setActiveFilePath] = useState("");
+  const [activeFileLineNumber, setActiveFileLineNumber] = useState<number | undefined>(undefined);
   const [openFilePaths, setOpenFilePaths] = useState<string[]>([]);
   const [activeDiffKey, setActiveDiffKey] = useState("");
   const [openDiffPages, setOpenDiffPages] = useState<FileChangeDiffPage[]>([]);
@@ -826,14 +866,16 @@ export function CenterWorkspaceView({
     return window.confirm("当前文件有未保存修改，切换文件会丢弃这些修改。继续切换吗？");
   }, [activeFilePath, inspectorDirty]);
 
-  const openFilePage = useCallback((path: string) => {
+  const openFilePage = useCallback((path: string, options: { lineNumber?: number } = {}) => {
     const nextPath = path.trim();
     if (!nextPath || !canSwitchActiveFile(nextPath)) {
       return;
     }
+    const nextLineNumber = normalizedLineNumber(options.lineNumber);
     const nextOpenFilePaths = openFilePaths.includes(nextPath) ? openFilePaths : [...openFilePaths, nextPath];
     setOpenFilePaths(nextOpenFilePaths);
     setActiveFilePath(nextPath);
+    setActiveFileLineNumber(nextLineNumber);
     setLayer("file");
     setPageLayerOpen(true);
     setSessionEditorPageState({ activeFilePath: nextPath, openFilePaths: nextOpenFilePaths });
@@ -855,6 +897,7 @@ export function CenterWorkspaceView({
     setOpenFilePaths(nextOpenFilePaths);
     setActiveFilePath(nextActiveFilePath);
     if (targetPath === activeFilePath) {
+      setActiveFileLineNumber(undefined);
       const nextLayer: CenterWorkspaceLayer = nextActiveFilePath
         ? "file"
         : activeDiffKey
@@ -1114,6 +1157,7 @@ export function CenterWorkspaceView({
     const nextActiveFilePath = sessionEditorContext?.activeFilePath ?? "";
     setOpenFilePaths(nextOpenFilePaths);
     setActiveFilePath(nextActiveFilePath);
+    setActiveFileLineNumber(undefined);
     setLayer(nextActiveFilePath ? "file" : "chat");
     setPageLayerOpen(Boolean(nextActiveFilePath));
     setActiveResourcePageId("");
@@ -1125,7 +1169,7 @@ export function CenterWorkspaceView({
       return;
     }
     if (centerWorkspaceTarget.layer === "file") {
-      openFilePage(centerWorkspaceTarget.file_path);
+      openFilePage(centerWorkspaceTarget.file_path, { lineNumber: centerWorkspaceTarget.line_number });
     } else if (centerWorkspaceTarget.layer === "file-change-diff") {
       openFileChangeDiffPage({
         baselineRecordId: centerWorkspaceTarget.baseline_record_id,
@@ -1196,7 +1240,7 @@ export function CenterWorkspaceView({
 
   function renderAuxPanel() {
     if (activeAuxLayer === "file") {
-      return <CenterWorkspaceFileLayer onClose={closeFileLayer} path={activeFilePath} />;
+      return <CenterWorkspaceFileLayer lineNumber={activeFileLineNumber} onClose={closeFileLayer} path={activeFilePath} />;
     }
     if (activeAuxLayer === "file-change-diff" && activeDiffPage) {
       return (
@@ -1305,6 +1349,7 @@ export function CenterWorkspaceView({
                 onClick={() => {
                   if (!canSwitchActiveFile(path)) return;
                   setActiveFilePath(path);
+                  setActiveFileLineNumber(undefined);
                   setLayer("file");
                   setPageLayerOpen(true);
                   setSessionEditorPageState({ activeFilePath: path, openFilePaths });

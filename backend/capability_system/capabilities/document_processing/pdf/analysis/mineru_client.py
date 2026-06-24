@@ -12,7 +12,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from config import Settings, get_settings
+from core.config import Settings, get_settings
 
 
 @dataclass(frozen=True)
@@ -552,5 +552,6 @@ def build_default_mineru_client(settings: Settings | None = None) -> MinerUApiCl
             timeout_seconds=active_settings.mineru_api_timeout_seconds,
         )
     )
+
 
 

@@ -39,7 +39,7 @@ from runtime.shared.tool_identity import (
 
 from permissions.policy import normalize_permission_mode
 from prompt_library import TASK_ACTION_JSON_REPAIR_PROMPT
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from harness.task_run_status import is_stopped_or_terminal_task_run, runtime_control_state_from_task_run
 from harness.runtime.assembly import assemble_runtime
 from harness.runtime.compiler import RuntimeCompiler
@@ -9843,3 +9843,4 @@ def _not_found(task_run_id: str) -> dict[str, Any]:
 
 def _conflict(task_run_id: str, error: str) -> dict[str, Any]:
     return {"ok": False, "task_run_id": task_run_id, "error": error}
+

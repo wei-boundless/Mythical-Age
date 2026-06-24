@@ -5,7 +5,7 @@ import json
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
-from prompt_cache_policy import (
+from runtime.prompt_accounting.cache_policy import (
     is_cache_eligible_prefix,
     is_prefix_eligible_for_tier,
     normalize_cache_role,
@@ -929,3 +929,4 @@ def _response_format_param(params: dict[str, Any]) -> Any:
     if "output_schema" in params:
         return params.pop("output_schema")
     return None
+

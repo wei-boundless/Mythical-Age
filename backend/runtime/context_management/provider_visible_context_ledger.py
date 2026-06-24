@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from runtime.model_gateway.lightweight_chat_model import provider_message_payloads
 
 from .context_segment_policy import (
@@ -41,8 +41,6 @@ def assemble_provider_visible_context_specs(
 
     """
 
-    if not items:
-        return []
     normalized_scope = str(scope or "default").strip() or "default"
     normalized_adapter = str(adapter_contract or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT).strip()
     ledger = load_provider_visible_context_ledger(storage_root=storage_root, scope=normalized_scope)
@@ -518,13 +516,13 @@ def provider_visible_context_ledger_path(*, storage_root: Path | None, scope: st
     if storage_root is None:
         return None
     try:
-        project_root = ProjectLayout.from_backend_dir(Path(storage_root)).project_root.resolve()
+        runtime_state_dir = ProjectLayout.from_runtime_root(Path(storage_root)).runtime_state_dir.resolve()
     except Exception:
-        project_root = Path(storage_root).resolve().parent
+        runtime_state_dir = Path(storage_root).resolve()
     safe_scope = safe_provider_visible_context_ledger_filename(scope)
     if not safe_scope:
         return None
-    return project_root / "storage" / "runtime_state" / "provider_visible_context_ledger" / f"{safe_scope}.json"
+    return runtime_state_dir / "provider_visible_context_ledger" / f"{safe_scope}.json"
 
 
 def safe_provider_visible_context_ledger_filename(value: str) -> str:
@@ -1032,3 +1030,4 @@ def _safe_int(value: Any) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+

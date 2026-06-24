@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 PROJECT_INSTRUCTIONS_PROMPT_REF = "project.instructions.scoped"
@@ -179,3 +179,4 @@ def _render_project_instruction_content(sources: tuple[ProjectInstructionSource,
 def _bundle_hash(sources: tuple[ProjectInstructionSource, ...]) -> str:
     seed = "|".join(f"{source.path}:{source.scope_root}:{source.content_hash}" for source in sources)
     return "sha256:" + hashlib.sha256(seed.encode("utf-8")).hexdigest()
+

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from capability_system.paths import resolve_capability_backend_dir
+from core.project_layout import ProjectLayout
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,10 +16,11 @@ class CapabilityMCPPaths:
     @classmethod
     def from_base_dir(cls, base_dir: str | Path) -> "CapabilityMCPPaths":
         resolved_base_dir = resolve_capability_backend_dir(base_dir)
+        layout = ProjectLayout.from_backend_dir(resolved_base_dir)
         return cls(
             base_dir=resolved_base_dir,
             code_dir=resolved_base_dir / "capability_system" / "mcp",
-            external_servers_path=resolved_base_dir / "mcp_external_servers.json",
+            external_servers_path=layout.storage_root / "capability_system" / "mcp" / "external_servers.json",
         )
 
     def ensure(self) -> None:

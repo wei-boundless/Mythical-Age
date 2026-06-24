@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, read_json_dict, write_json_dict
-from project_layout import ProjectLayout
+from core.json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, read_json_dict, write_json_dict
+from core.project_layout import ProjectLayout
 
 
 class TaskSystemStorageError(RuntimeError):
@@ -78,5 +78,6 @@ def _normalize_filename(filename: str) -> Path:
     if path.is_absolute() or ".." in path.parts:
         raise ValueError(f"Unsafe task storage path: {filename}")
     return path
+
 
 

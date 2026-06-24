@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 class FileChangeConflict(RuntimeError):
@@ -220,3 +220,4 @@ def _atomic_write_text(path: Path, content: str) -> None:
             tmp.unlink(missing_ok=True)
         except OSError:
             pass
+

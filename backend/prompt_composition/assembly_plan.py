@@ -172,7 +172,7 @@ def build_prompt_assembly_plan(
             **diagnostics,
             "source_bundle_ref": source_bundle.bundle_id,
             "provider_profile": provider_profile_payload,
-            "assembly_order_policy": "physical_source_order_append_only",
+            "assembly_order_policy": "source_lineage_order_pre_physical_assembly",
             "authority": "prompt_composition.assembly_plan.builder",
         },
     )

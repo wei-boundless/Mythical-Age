@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs
+from core.project_layout import ProjectLayout
 
 from .execution_state_projector import ExecutionStateProjector
 from .evidence_index_cursor import build_evidence_index_cursor, split_evidence_index_cursor
@@ -586,8 +587,8 @@ def dynamic_context_storage_root(base_dir: Path, runtime_assembly: dict[str, Any
         value = str(storage.get(key) or "").strip()
         if value:
             path = Path(value)
-            return path if path.is_absolute() else _runtime_base_dir(base_dir, assembly) / path
-    return _runtime_base_dir(base_dir, assembly) / "runtime_state"
+            return path.resolve() if path.is_absolute() else _runtime_storage_path(base_dir, assembly, value)
+    return ProjectLayout.from_runtime_root(_runtime_layout_anchor(base_dir, assembly)).runtime_state_dir.resolve()
 
 
 def _runtime_storage_ref(runtime_assembly: dict[str, Any]) -> dict[str, Any]:
@@ -603,11 +604,21 @@ def _runtime_storage_ref(runtime_assembly: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def _runtime_base_dir(base_dir: Path, runtime_assembly: dict[str, Any]) -> Path:
+def _runtime_layout_anchor(base_dir: Path, runtime_assembly: dict[str, Any]) -> Path:
     backend_dir = str(runtime_assembly.get("backend_dir") or "").strip()
     if backend_dir:
         return Path(backend_dir)
     return Path(base_dir)
+
+
+def _runtime_storage_path(base_dir: Path, runtime_assembly: dict[str, Any], value: str) -> Path:
+    layout = ProjectLayout.from_runtime_root(_runtime_layout_anchor(base_dir, runtime_assembly))
+    normalized = str(value or "").replace("\\", "/").strip("/")
+    if normalized == "storage":
+        return layout.storage_root.resolve()
+    if normalized.startswith("storage/"):
+        return (layout.storage_root / normalized.removeprefix("storage/")).resolve()
+    return (layout.project_root / normalized).resolve()
 
 
 def _task_state_replay_entry_limit(projection_policy: dict[str, Any] | None) -> int:
@@ -1483,3 +1494,4 @@ def _as_list(value: Any) -> list[Any]:
     if value in (None, ""):
         return []
     return [value]
+

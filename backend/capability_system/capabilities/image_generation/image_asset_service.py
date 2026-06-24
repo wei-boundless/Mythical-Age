@@ -13,8 +13,8 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 from PIL import Image
-from config import runtime_config
-from project_layout import ProjectLayout
+from core.config import runtime_config
+from core.project_layout import ProjectLayout
 
 
 IMAGE_ASSET_ROUTE_PREFIX = "/api/image-assets/files"
@@ -767,6 +767,7 @@ def _resize_png(image_bytes: bytes, target_size: tuple[int, int]) -> bytes:
             return output.getvalue()
     except Exception as exc:
         raise ImageAssetError("Generated PNG could not be resized", code="generated_asset_resize_failed", retryable=True) from exc
+
 
 
 

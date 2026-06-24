@@ -48,6 +48,7 @@ class PromptSegmentPlan:
     provider_global_prefix_hash: str = ""
     session_prefix_hash: str = ""
     task_prefix_hash: str = ""
+    diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "runtime.prompt_segment_plan"
 
     def to_dict(self) -> dict[str, Any]:
@@ -61,7 +62,7 @@ def build_prompt_segment_plan(
     packet_id: str,
     invocation_kind: str,
     message_specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
-    enforce_dynamic_context_reports: bool = False,
+    diagnostics: dict[str, Any] | None = None,
 ) -> PromptSegmentPlan:
     segments: list[PromptSegmentPlanSegment] = []
     stable_hash_parts: list[str] = []
@@ -80,10 +81,6 @@ def build_prompt_segment_plan(
         cache_scope = str(spec.get("cache_scope") or "none")
         prefix_tier = _prefix_tier(spec.get("prefix_tier"), cache_scope=cache_scope, cache_role=cache_role)
         _validate_prefix_tier_content(kind=kind, prefix_tier=prefix_tier, content=content)
-        if enforce_dynamic_context_reports and _requires_dynamic_context_report(kind=kind, cache_role=cache_role):
-            metadata = dict(spec.get("metadata") or {})
-            if not (metadata.get("dynamic_context_report_ref") or metadata.get("volatility_reason")):
-                raise ValueError(f"dynamic/volatile segment requires dynamic context metadata: {kind}")
         content_hash = stable_text_hash(content)
         model_message_payload = spec.get("model_message") if isinstance(spec.get("model_message"), dict) else {"role": role, "content": content}
         model_message_hash = stable_model_message_hash(model_message_payload)
@@ -148,6 +145,7 @@ def build_prompt_segment_plan(
         provider_global_prefix_hash=stable_text_hash("|".join(provider_global_hash_parts)) if provider_global_hash_parts else "",
         session_prefix_hash=stable_text_hash("|".join(session_hash_parts)) if session_hash_parts else "",
         task_prefix_hash=stable_text_hash("|".join(task_hash_parts)) if task_hash_parts else "",
+        diagnostics=dict(diagnostics or {}),
     )
 
 
@@ -225,12 +223,6 @@ def _compression_role(value: Any) -> SegmentCompressionRole:
     if normalized in {"preserve", "summarize", "drop_if_cold", "ref_only"}:
         return normalized  # type: ignore[return-value]
     return "summarize"
-
-
-def _requires_dynamic_context_report(*, kind: str, cache_role: str) -> bool:
-    if str(cache_role or "") == "volatile":
-        return True
-    return str(kind or "").startswith("dynamic")
 
 
 RUNTIME_INSTANCE_FIELDS = {

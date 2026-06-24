@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from memory_system.layout import durable_memory_layout_from_backend_dir
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,5 +88,6 @@ def build_default_collections(base_dir: Path) -> dict[str, CollectionConfig]:
             file_extensions=(".md", ".txt", ".json", ".csv"),
         )
     return collections
+
 
 

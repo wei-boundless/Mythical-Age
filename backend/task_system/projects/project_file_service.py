@@ -8,7 +8,7 @@ from file_management import build_file_access_table, default_file_environment_re
 from file_management.filesystem_adapter import FsspecLocalFileAdapter
 from file_management.gateway import RepositoryRootResolver
 from file_management.models import ManagedFileRepositorySpec, normalize_logical_path
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from task_system.projects.project_instance import ProjectInstance
 from task_system.projects.project_library_manifest import ProjectLibraryManifest, ProjectRepositoryBinding
 from task_system.repositories.project_instance_repository import ProjectInstanceRepository
@@ -138,11 +138,11 @@ class ProjectFileService:
         root_ref = str(binding.root_ref or repository.root_ref or "").strip()
         if root_ref.startswith("project://"):
             fragment = _safe_root_fragment(root_ref.removeprefix("project://"))
-            return (self.layout.project_root / "storage" / "task_projects" / project.project_id / fragment).resolve()
+            return (self.layout.storage_root / "task_projects" / project.project_id / fragment).resolve()
         if root_ref.startswith("environment://"):
             fragment = _safe_root_fragment(root_ref.removeprefix("environment://"))
             namespace = _project_environment_storage_namespace(project.environment_id)
-            return (self.layout.project_root / "storage" / "task_environments" / namespace / fragment).resolve()
+            return (self.layout.storage_root / "task_environments" / namespace / fragment).resolve()
         resolver = RepositoryRootResolver(project_root=self.layout.project_root)
         return resolver.resolve(repository).root
 
@@ -224,3 +224,4 @@ def _project_environment_storage_namespace(environment_id: str) -> Path:
     if not normalized or any(part in {"", ".", ".."} for part in path.parts):
         raise ValueError("project environment storage namespace is invalid")
     return Path(*path.parts)
+

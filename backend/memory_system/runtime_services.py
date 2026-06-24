@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 from .formal_memory_service import FormalMemoryService
 from .storage_layout import MemoryStorageLayout
@@ -39,5 +39,6 @@ class MemoryRuntimeServices:
         if runtime_root.name == "backend" or (runtime_root / "app.py").exists():
             return cls.from_backend_dir(runtime_root)
         return cls(runtime_root)
+
 
 

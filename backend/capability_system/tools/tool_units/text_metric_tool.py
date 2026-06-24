@@ -9,7 +9,7 @@ from capability_system.tools.base_tool import AsyncCallbackManagerForToolRun, Ba
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from capability_system.tools.workspace_file_service import WorkspaceFileService
-from text_metric import measure_text
+from core.text_metric import measure_text
 
 
 class TextMetricInput(BaseModel):
@@ -65,5 +65,6 @@ class TextMetricTool(BaseTool):
         run_manager: AsyncCallbackManagerForToolRun | None = None,
     ) -> str:
         return await asyncio.to_thread(self._run, text, path, measurement_mode, None)
+
 
 

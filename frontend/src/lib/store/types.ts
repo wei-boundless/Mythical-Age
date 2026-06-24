@@ -378,6 +378,7 @@ export type TaskGraphWorkspaceTarget = {
 export type FileCenterWorkspaceTarget = {
   layer: "file";
   file_path: string;
+  line_number?: number;
   requested_at: number;
 };
 
@@ -576,7 +577,7 @@ export type StoreActions = {
   refreshRunMonitor: () => Promise<void>;
   runMonitorAction: (payload: RuntimeMonitorActionPayload) => Promise<RuntimeMonitorActionResult | null>;
   openTaskGraphWorkspace: (target?: Omit<TaskGraphWorkspaceTarget, "layer" | "requested_at">) => void;
-  openWorkspaceFile: (path: string) => void;
+  openWorkspaceFile: (path: string, options?: { lineNumber?: number }) => void;
   openFileChangeDiff: (target: Omit<FileChangeDiffCenterWorkspaceTarget, "layer" | "requested_at">) => void;
   openRuntimeLog: (target: Omit<RuntimeLogCenterWorkspaceTarget, "layer" | "requested_at">) => void;
   openSessionProjection: (target: Omit<SessionProjectionCenterWorkspaceTarget, "layer" | "requested_at">) => void;

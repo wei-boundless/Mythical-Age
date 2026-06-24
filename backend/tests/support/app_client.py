@@ -37,9 +37,10 @@ def _restore_env(name: str, value: str | None) -> None:
 
 def _clear_settings_cache() -> None:
     try:
-        from config import get_settings
+        from core.config import get_settings
     except Exception:
         return
     cache_clear = getattr(get_settings, "cache_clear", None)
     if callable(cache_clear):
         cache_clear()
+

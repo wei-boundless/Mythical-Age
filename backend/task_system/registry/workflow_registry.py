@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from task_system.registry.workflow_models import TaskWorkflowBinding
 
 
@@ -193,5 +193,6 @@ class TaskWorkflowRegistry:
                 "development_workflow_count": sum(1 for item in workflows if item.workflow_id.startswith("workflow.dev.")),
             },
         }
+
 
 

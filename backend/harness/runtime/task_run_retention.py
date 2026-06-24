@@ -11,6 +11,7 @@ from harness.loop.work_rollout import append_work_rollout_item
 from harness.task_run_status import runtime_control_state_from_task_run
 from harness.runtime.dynamic_context.manager import dynamic_context_storage_root
 from harness.runtime.dynamic_context.replacement_store import ReplacementStore
+from core.project_layout import ProjectLayout
 from runtime.cache_manager import SANDBOX_CACHE_NAMESPACE, runtime_cache_manager_for_host
 from runtime_objects.tool_result_storage import ToolResultStore
 
@@ -494,7 +495,7 @@ class EphemeralRuntimeCacheReleaser:
                 pass
         backend_dir = getattr(self.runtime_host, "backend_dir", None)
         if backend_dir is not None:
-            roots.append(Path(backend_dir) / "storage" / "runtime_state")
+            roots.append(ProjectLayout.from_backend_dir(Path(backend_dir)).runtime_state_dir)
         return roots
 
     def _prune_dynamic_context_root(self, root: Path, task_run_id: str) -> dict[str, Any]:
@@ -670,3 +671,4 @@ def _positive_float(value: Any, default: float) -> float:
     except (TypeError, ValueError):
         parsed = float(default)
     return max(1.0, parsed)
+

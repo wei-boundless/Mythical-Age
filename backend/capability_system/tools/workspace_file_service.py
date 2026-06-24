@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 DEFAULT_SEARCH_ROOTS: tuple[str, ...] = ("docs", "backend", "frontend", "knowledge")
@@ -380,5 +380,6 @@ def _targets_default_excluded_path(pattern: str) -> bool:
         if fixed_prefix == target or fixed_prefix.startswith(f"{target}/"):
             return True
     return False
+
 
 

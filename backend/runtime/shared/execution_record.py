@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
-from json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, json_file_lock, read_json_dict, write_json_dict
+from core.json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, json_file_lock, read_json_dict, write_json_dict
 from permissions.operations import OperationDescriptor
 
 from .action_request import RuntimeActionRequest
@@ -430,5 +430,6 @@ def _safe_id(value: str, *, limit: int = 160) -> str:
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
     head_limit = max(1, limit - len(digest) - 1)
     return f"{safe[:head_limit].rstrip('_')}_{digest}"
+
 
 

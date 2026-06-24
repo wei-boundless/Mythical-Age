@@ -193,15 +193,31 @@ def assemble_context_physical_message_specs(
     """Assemble the provider-visible physical context sequence.
 
     This is the single physical concatenation point for context packages. The
-    dynamic tail participates in the same message sequence, always after
-    static prefix and context memory, but remains a volatile suffix by policy.
+    dynamic tail participates in the same message sequence after static prefix
+    and context memory. If the provider physical model does not expose an
+    independent dynamic-tail slot, the tail is folded into the context suffix
+    instead of being dropped.
     """
 
     package_order = _normalized_physical_order(physical_order)
+    fold_dynamic_tail = DYNAMIC_TAIL not in package_order
+    context_memory_specs = _package_specs(context_memory, package=CONTEXT_MEMORY, package_order=package_order)
+    if fold_dynamic_tail:
+        context_memory_specs.extend(
+            _package_specs(
+                dynamic_tail,
+                package=CONTEXT_MEMORY,
+                package_order=package_order,
+                original_package=DYNAMIC_TAIL,
+                folded_into=CONTEXT_MEMORY,
+            )
+        )
     buckets = {
         STATIC_PREFIX: _package_specs(static_prefix, package=STATIC_PREFIX, package_order=package_order),
-        CONTEXT_MEMORY: _package_specs(context_memory, package=CONTEXT_MEMORY, package_order=package_order),
-        DYNAMIC_TAIL: _package_specs(dynamic_tail, package=DYNAMIC_TAIL, package_order=package_order),
+        CONTEXT_MEMORY: context_memory_specs,
+        DYNAMIC_TAIL: []
+        if fold_dynamic_tail
+        else _package_specs(dynamic_tail, package=DYNAMIC_TAIL, package_order=package_order),
     }
     assembled: list[dict[str, Any]] = []
     assembly_index = 0
@@ -351,6 +367,8 @@ def _package_specs(
     *,
     package: str,
     package_order: tuple[str, ...],
+    original_package: str = "",
+    folded_into: str = "",
 ) -> list[dict[str, Any]]:
     specs: list[dict[str, Any]] = []
     for original_order, raw_spec in list(values or []):
@@ -364,6 +382,11 @@ def _package_specs(
             "context_physical_original_order": int(original_order or 0),
             "context_physical_segment_order": list(package_order),
         }
+        if original_package and original_package != package:
+            metadata["context_physical_original_segment"] = original_package
+        if folded_into:
+            metadata["context_physical_folded_into"] = folded_into
+            metadata["context_physical_fold_reason"] = "provider_physical_model_uses_single_context_suffix"
         spec["metadata"] = metadata
         specs.append(spec)
     return specs
@@ -404,6 +427,8 @@ def _cache_policy_for_section(
             cache_scope = "global" if cache_role == "cacheable_prefix" else "session"
         return cache_scope, cache_role, _prefix_tier(spec.get("prefix_tier"), cache_scope=cache_scope, cache_role=cache_role)
     if section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
+        if _cache_role(spec.get("cache_role")) == "never_cache":
+            return "none", "never_cache", "none"
         return "task", "session_stable", "task"
     return "none", "volatile", "volatile"
 

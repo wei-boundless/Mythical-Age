@@ -1,14 +1,20 @@
 "use client";
 
-import { Check, X } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Copy, FileText, X } from "lucide-react";
 import React from "react";
 
 import type { ChatAttachment } from "@/lib/api";
 
+import { writeClipboardText } from "./clipboardText";
+import {
+  createLongTextCompactionModel,
+  LONG_TEXT_COMPACTION_PROFILES,
+} from "./longTextCompact";
 import { MessageAttachments } from "./MessageAttachments";
 
 type UserMessageProps = {
   attachments: ChatAttachment[];
+  compactLongText?: boolean;
   content: string;
   draft: string;
   editing: boolean;
@@ -22,6 +28,7 @@ type UserMessageProps = {
 
 export function UserMessage({
   attachments,
+  compactLongText = true,
   content,
   draft,
   editing,
@@ -32,6 +39,26 @@ export function UserMessage({
   sendEditDisabled,
   submittingEdit,
 }: UserMessageProps) {
+  const [expanded, setExpanded] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  const compaction = React.useMemo(
+    () => createLongTextCompactionModel(content, LONG_TEXT_COMPACTION_PROFILES.userMessage),
+    [content],
+  );
+  const compact = compactLongText && compaction.shouldCompact;
+
+  React.useEffect(() => {
+    setExpanded(false);
+    setCopied(false);
+  }, [content]);
+
+  async function copyFullContent() {
+    if (!content) return;
+    await writeClipboardText(content);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }
+
   return (
     <div className="chat-message-shell__content whitespace-pre-wrap leading-7">
       {editing ? (
@@ -69,7 +96,35 @@ export function UserMessage({
         </div>
       ) : (
         <>
-          {content ? <span>{content}</span> : null}
+          {content ? compact && !expanded ? (
+            <button
+              aria-label={`展开完整用户消息，当前 ${compaction.metricLabel}`}
+              className="user-message-compact-trigger"
+              onClick={() => setExpanded(true)}
+              title={`${compaction.title}，点击展开完整用户消息`}
+              type="button"
+            >
+              <FileText aria-hidden="true" size={13} />
+              <span>{compaction.preview}</span>
+              <ChevronDown aria-hidden="true" size={14} />
+            </button>
+          ) : (
+            <>
+              <span className="user-message-full-text">{content}</span>
+              {compact ? (
+                <div className="user-message-long-actions" aria-label="长消息操作">
+                  <button onClick={() => setExpanded(false)} type="button">
+                    <ChevronUp size={13} />
+                    收起
+                  </button>
+                  <button onClick={() => void copyFullContent()} type="button">
+                    {copied ? <Check size={13} /> : <Copy size={13} />}
+                    {copied ? "已复制" : "复制全文"}
+                  </button>
+                </div>
+              ) : null}
+            </>
+          ) : null}
           <MessageAttachments attachments={attachments} />
         </>
       )}

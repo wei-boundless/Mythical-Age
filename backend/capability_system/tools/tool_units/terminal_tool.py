@@ -8,8 +8,8 @@ from typing import Type
 from capability_system.tools.base_tool import AsyncCallbackManagerForToolRun, BaseTool, CallbackManagerForToolRun
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from config import get_settings
-from runtime_encoding import (
+from core.config import get_settings
+from core.runtime_encoding import (
     build_windows_powershell_command,
     is_windows,
     utf8_subprocess_text_kwargs,
@@ -82,5 +82,6 @@ class TerminalTool(BaseTool):
         run_manager: AsyncCallbackManagerForToolRun | None = None,
     ) -> str:
         return await asyncio.to_thread(self._run, command, None)
+
 
 

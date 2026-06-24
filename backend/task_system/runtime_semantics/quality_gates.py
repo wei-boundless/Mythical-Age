@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from text_metric import count_text_units
+from core.text_metric import count_text_units
 
 from .protocol_boundary import has_protocol_leak
 from .review_gate_verdict import (
@@ -973,5 +973,6 @@ def _parse_index_number(value: str) -> int:
             total += (current or 1) * 100
             current = 0
     return total + current
+
 
 

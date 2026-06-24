@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, json_file_lock, read_json_dict, write_json_dict
+from core.json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, json_file_lock, read_json_dict, write_json_dict
 from runtime_objects.read_observation_artifacts import ReadObservationArtifactStore
 
 from .file_evidence_scope import (
@@ -260,3 +260,4 @@ def _safe_id(value: str, *, limit: int = 160) -> str:
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value not in ("", None, [], {}, ())}
+

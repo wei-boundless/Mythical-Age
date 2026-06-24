@@ -16,7 +16,7 @@ from capability_system import (
     TOOL_TYPE_OPTIONS,
     build_capability_catalog,
 )
-from config import runtime_config
+from core.config import runtime_config
 from agent_system.registry.agent_registry import AgentRegistry
 from capability_system.supply import build_capability_supply_package, build_capability_supply_package_from_base_dir
 from orchestration import (
@@ -346,5 +346,6 @@ async def update_capability_tool(tool_name: str, payload: ToolMetadataRequest) -
     }
     _save_capability_config(config)
     return build_capability_catalog_payload()
+
 
 

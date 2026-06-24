@@ -12,7 +12,7 @@ class MemoryStorageLayout:
 
     @classmethod
     def from_backend_dir(cls, base_dir: str | Path) -> "MemoryStorageLayout":
-        from project_layout import ProjectLayout
+        from core.project_layout import ProjectLayout
 
         return cls(ProjectLayout.from_backend_dir(base_dir).storage_root)
 
@@ -102,3 +102,4 @@ __all__ = [
     "durable_memory_namespace_id_for_task_environment",
     "safe_memory_namespace_id",
 ]
+

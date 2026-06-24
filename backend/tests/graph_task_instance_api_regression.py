@@ -8,7 +8,7 @@ from api import graph_task_instances as instance_api
 from api import orchestration as orchestration_api
 from harness import AgentRuntimeServices, GraphHarness
 from harness.runtime import SingleAgentRuntimeHost
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from sessions import SessionManager
 from task_system import TaskFlowRegistry
 from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
@@ -544,3 +544,4 @@ def test_writing_chapter_action_replace_writes_project_file_and_advances_edge(tm
         "chapters/chapter-001.md",
     )
     assert file_payload["content"] == "用户改写后的第一章正文"
+

@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 class ModalityArtifactStore:
@@ -34,5 +34,6 @@ class ModalityArtifactStore:
         safe_modality = modality.strip().lower().replace("\\", "-").replace("/", "-")
         safe_kind = kind.strip().lower().replace("\\", "-").replace("/", "-")
         return self.base_dir / safe_modality / f"{digest}.{safe_kind}.json"
+
 
 

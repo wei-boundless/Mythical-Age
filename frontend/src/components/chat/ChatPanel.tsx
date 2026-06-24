@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
+import { SessionTodoPanel } from "@/components/chat/SessionTodoPanel";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
 import { openSessionProjectInVSCode } from "@/lib/api";
@@ -15,6 +16,7 @@ import { useAppStoreActions, useAppStoreSelector } from "@/lib/store";
 import { shallowEqual } from "@/lib/store/hooks";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
 import type { HarnessTaskRunLiveMonitor } from "@/lib/api";
+import type { CodeEnvironmentTreeNode } from "@/lib/api/types";
 import type { ActiveTurnSnapshot, Message, StoreState, TokenStats } from "@/lib/store/types";
 
 export function ChatPanel() {
@@ -38,6 +40,8 @@ export function ChatPanel() {
     activeTurnSnapshot,
     taskGraphLiveMonitor,
     chatStreamConnectionStatus,
+    activeProjectRoot,
+    workspaceTree,
   } = useAppStoreSelector((state) => ({
     messages: state.messages,
     activeProjectionsByKey: state.activeProjectionsByKey,
@@ -56,6 +60,8 @@ export function ChatPanel() {
     activeTurnSnapshot: state.activeTurnSnapshot,
     taskGraphLiveMonitor: state.taskGraphLiveMonitor,
     chatStreamConnectionStatus: state.chatStreamConnectionStatus,
+    activeProjectRoot: state.activeProjectRoot,
+    workspaceTree: state.workspaceTree,
   }), shallowEqual);
   const {
     sendMessage,
@@ -64,6 +70,7 @@ export function ChatPanel() {
     setPermissionMode,
     setChatThinkingMode,
     setSelectedChatModel,
+    openWorkspaceFile,
   } = useAppStoreActions();
   const endRef = useRef<HTMLDivElement | null>(null);
   const footerRef = useRef<HTMLDivElement | null>(null);
@@ -72,6 +79,11 @@ export function ChatPanel() {
   const currentSession = useMemo(
     () => sessions.find((session) => session.id === currentSessionId) ?? null,
     [currentSessionId, sessions],
+  );
+  const currentWorkspaceRoot = currentSession?.conversation_state?.project_binding?.workspace_root || activeProjectRoot || "";
+  const fileNameIndex = useMemo(
+    () => buildUniqueFileNameIndex(workspaceTree?.tree ?? null),
+    [workspaceTree],
   );
   const currentSessionReceivingStream = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
   const currentTaskIsRunning = Boolean(currentSession && sessionSummaryIsRunning(currentSession))
@@ -195,7 +207,9 @@ export function ChatPanel() {
               image={message.image}
               attachments={message.attachments}
               id={message.id}
+              fileNameIndex={fileNameIndex}
               key={messageRenderKeys[index] ?? message.id}
+              onOpenWorkspaceFile={openWorkspaceFile}
               onResendEdit={resendEditedMessage}
               answerChannel={message.answerChannel}
               answerCanonicalState={message.answerCanonicalState}
@@ -210,12 +224,15 @@ export function ChatPanel() {
               projectionView={message.projectionView}
               retrievals={message.retrievals}
               role={message.role}
+              hideInlineTodoPlans
               streamingContent={message.id === liveAssistantMessageId}
               toolCalls={message.toolCalls}
+              workspaceRoot={currentWorkspaceRoot}
             />
           ))}
           <div ref={endRef} />
         </div>
+        <SessionTodoPanel active={currentTaskIsRunning} messages={projectedMessages} />
       </div>
 
       <div className="chat-panel-footer min-w-0" ref={footerRef}>
@@ -384,6 +401,33 @@ export function chatMessageRenderKeys(messages: Pick<Message, "id" | "role" | "s
     seen.set(base, count + 1);
     return count ? `${base}:duplicate-${count}` : base;
   });
+}
+
+function buildUniqueFileNameIndex(root: CodeEnvironmentTreeNode | null): Map<string, string> {
+  const pathsByName = new Map<string, string[]>();
+  const visit = (node: CodeEnvironmentTreeNode | null) => {
+    if (!node) {
+      return;
+    }
+    if (node.kind === "file" && node.name && node.path) {
+      const key = node.name.toLowerCase();
+      const paths = pathsByName.get(key) ?? [];
+      paths.push(node.path);
+      pathsByName.set(key, paths);
+    }
+    for (const child of node.children ?? []) {
+      visit(child);
+    }
+  };
+  visit(root);
+  const index = new Map<string, string>();
+  pathsByName.forEach((paths, name) => {
+    const uniquePaths = Array.from(new Set(paths));
+    if (uniquePaths.length === 1) {
+      index.set(name, uniquePaths[0]);
+    }
+  });
+  return index;
 }
 
 type LiveAssistantSelectionOptions = {

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 try:
     from langsmith import Client, tracing_context
@@ -124,7 +124,7 @@ def _local_trace_root() -> Path:
     explicit = _first_env("APP_TRACE_DIR", "LOCAL_TRACE_DIR")
     if explicit:
         return Path(explicit).expanduser()
-    return ProjectLayout.from_backend_dir(Path(__file__).resolve().parents[1]).project_root / "output" / "local_traces"
+    return ProjectLayout.from_backend_dir(Path(__file__).resolve().parents[1]).runtime_state_dir / "local_traces"
 
 
 @lru_cache(maxsize=1)
@@ -601,5 +601,6 @@ def build_debug_trace_event(trace: LangSmithTurnTrace | LocalTurnTrace) -> dict[
         "trace_id": trace.trace_id,
         "trace_url": trace.trace_url,
     }
+
 
 

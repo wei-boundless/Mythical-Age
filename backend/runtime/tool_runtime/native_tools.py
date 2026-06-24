@@ -23,7 +23,7 @@ from capability_system.tools.workspace_file_service import (
     DEFAULT_SEARCH_EXCLUDED_PATHS,
     WorkspaceFileService,
 )
-from config import get_settings
+from core.config import get_settings
 from file_management import (
     FileGateway,
     FileGatewayApprovalRequired,
@@ -33,6 +33,7 @@ from file_management import (
     resolve_file_environment,
 )
 from memory_system.runtime_scope import project_id_for_task_run
+from core.project_layout import ProjectLayout
 from memory_system.runtime_services import MemoryRuntimeServices
 from runtime.file_changes import FileChangeTracker
 from runtime_objects.tool_result_storage import (
@@ -41,7 +42,7 @@ from runtime_objects.tool_result_storage import (
     read_persisted_tool_result,
 )
 from runtime_objects.read_observation_artifacts import ReadObservationArtifactStore
-from runtime_encoding import build_windows_powershell_command, is_windows, utf8_subprocess_text_kwargs
+from core.runtime_encoding import build_windows_powershell_command, is_windows, utf8_subprocess_text_kwargs
 from runtime.tool_runtime.docker_sandbox_backend import DockerSandboxBackend
 from runtime.tool_runtime.tool_definition import ToolPermissionResult, ToolValidationResult
 from runtime.tool_runtime.read_file_window import (
@@ -3512,16 +3513,17 @@ def _sha256_text(value: str) -> str:
 def _runtime_context_storage_roots(context: ToolUseContext) -> tuple[Path, ...]:
     roots: list[Path] = []
     project_root = _real_workspace_root(context)
+    layout = ProjectLayout.from_runtime_root(project_root)
     for storage in _runtime_context_storage_refs(context):
         for key in ("runtime_state_root", "dynamic_context_root", "cache_root", "environment_storage_root"):
             text = str(storage.get(key) or "").strip()
             if not text:
                 continue
             candidate = Path(text)
-            root = candidate.resolve() if candidate.is_absolute() else (project_root / candidate).resolve()
+            root = candidate.resolve() if candidate.is_absolute() else _runtime_storage_path(layout, text)
             if root not in roots:
                 roots.append(root)
-    for root in _runtime_context_storage_fallbacks(context, project_root=project_root):
+    for root in _runtime_context_storage_fallbacks(context, layout=layout):
         if root not in roots:
             roots.append(root)
     return tuple(roots)
@@ -3543,12 +3545,10 @@ def _runtime_context_storage_refs(context: ToolUseContext) -> tuple[dict[str, An
     return tuple(ref for ref in refs if ref)
 
 
-def _runtime_context_storage_fallbacks(context: ToolUseContext, *, project_root: Path) -> tuple[Path, ...]:
+def _runtime_context_storage_fallbacks(context: ToolUseContext, *, layout: ProjectLayout) -> tuple[Path, ...]:
     candidates: list[Path] = []
     for raw in (
-        project_root / "storage" / "runtime_state",
-        project_root / "runtime_state",
-        Path(str(context.runtime_base_dir or "")).resolve() / "runtime_state" if str(context.runtime_base_dir or "").strip() else None,
+        layout.runtime_state_dir,
     ):
         if raw is None:
             continue
@@ -3559,6 +3559,15 @@ def _runtime_context_storage_fallbacks(context: ToolUseContext, *, project_root:
         if resolved.exists() and resolved not in candidates:
             candidates.append(resolved)
     return tuple(candidates)
+
+
+def _runtime_storage_path(layout: ProjectLayout, value: str) -> Path:
+    normalized = str(value or "").replace("\\", "/").strip("/")
+    if normalized == "storage":
+        return layout.storage_root.resolve()
+    if normalized.startswith("storage/"):
+        return (layout.storage_root / normalized.removeprefix("storage/")).resolve()
+    return (layout.project_root / normalized).resolve()
 
 
 def _sandbox_root_from_policy(context: ToolUseContext) -> Path | None:
@@ -4123,3 +4132,4 @@ def _artifact_ref_for_gateway_file(
     if repository_kind and repository_kind != "sandbox_workspace":
         artifact["bypass_sandbox_publish"] = True
     return artifact
+

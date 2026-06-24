@@ -10,7 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from artifact_system import ArtifactInventoryService
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 def main() -> int:
@@ -34,3 +34,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

@@ -4,8 +4,8 @@ from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
-from json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, json_file_lock, read_json_dict, write_json_dict
-from project_layout import ProjectLayout
+from core.json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, json_file_lock, read_json_dict, write_json_dict
+from core.project_layout import ProjectLayout
 
 from .models import (
     EngagementAssignee,
@@ -134,4 +134,5 @@ def _list_payload(value: Any, *, path: str) -> list[Any]:
     if not isinstance(value, list):
         raise EngagementPlanConfigError(f"{path} must be a list")
     return list(value)
+
 

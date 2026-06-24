@@ -14,7 +14,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from config import get_settings
+from core.config import get_settings
 from runtime.model_gateway.lightweight_chat_model import LightweightChatModel
 from runtime.prompt_accounting.serializer import canonical_json
 
@@ -419,3 +419,4 @@ def _int(value: Any) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

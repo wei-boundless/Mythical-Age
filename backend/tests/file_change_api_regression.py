@@ -16,7 +16,7 @@ if str(BACKEND_DIR) not in sys.path:
 from api import file_changes as file_changes_api
 from api import vscode as vscode_api
 from integrations.vscode_connection.context_store import VSCodeConnectionStore
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from runtime.file_changes import FileChangeTracker
 from runtime.shared.event_log import RuntimeEventLog
 
@@ -208,3 +208,4 @@ class _SessionManagerStub:
 
     def bind_project(self, session_id: str, *, workspace_root: str, source: str) -> dict:
         return {"workspace_root": self.workspace_root, "source": source}
+

@@ -8,7 +8,7 @@ from typing import Any
 
 from knowledge_system.conversion import DocumentCacheLayout, DoclingConverter, discover_source_files
 from knowledge_system.conversion.models import STRUCTURE_CONTRACT_VERSION, build_conversion_doc_id
-from config import get_settings
+from core.config import get_settings
 from knowledge_system.ingestion import ChunkingPolicy, NormalizedDocumentBuilder, build_cleaning_manifest, build_indexable_units
 from capability_system.capabilities.retrieval.collections import CollectionConfig
 from knowledge_system.indexing.llamaindex_backend import LlamaIndexRetrievalBackend
@@ -222,5 +222,6 @@ def _percentile(values: list[int], percentile: int) -> int:
     ordered = sorted(values)
     index = int(round((max(min(percentile, 100), 0) / 100) * (len(ordered) - 1)))
     return int(ordered[index])
+
 
 

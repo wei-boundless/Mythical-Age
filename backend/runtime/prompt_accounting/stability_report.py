@@ -6,7 +6,7 @@ import time
 from dataclasses import replace
 from typing import Any
 
-from prompt_cache_policy import is_cache_eligible_prefix, is_prefix_eligible_for_tier
+from runtime.prompt_accounting.cache_policy import is_cache_eligible_prefix, is_prefix_eligible_for_tier
 
 from .models import ModelTokenUsageRecord, PromptSegment, PromptSegmentMap
 from .provider_payload_boundary import (
@@ -473,3 +473,4 @@ def _int(value: Any) -> int:
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
+

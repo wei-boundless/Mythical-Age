@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,5 +92,6 @@ def build_runtime_resource_inventory(base_dir: Path | str | None = None) -> Runt
         ),
     )
     return RuntimeResourceInventory(inventory_id="runtime-resource-inventory:default", items=items)
+
 
 

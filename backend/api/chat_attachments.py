@@ -15,8 +15,8 @@ from capability_system.capabilities.attachments import (
     SUPPORTED_ATTACHMENT_IMAGE_MIME_TYPES,
     SUPPORTED_ATTACHMENT_IMAGE_SUFFIXES,
 )
-from config import runtime_config
-from project_layout import ProjectLayout
+from core.config import runtime_config
+from core.project_layout import ProjectLayout
 from sessions import validate_session_id
 
 
@@ -89,7 +89,12 @@ async def upload_chat_attachment(
 
 def _attachment_root(base_dir: str | Path, *, storage_relative_dir: str) -> Path:
     layout = ProjectLayout.from_backend_dir(base_dir)
-    return (layout.project_root / storage_relative_dir).resolve()
+    normalized = str(storage_relative_dir or "").replace("\\", "/").strip("/")
+    if normalized == "storage":
+        return layout.storage_root.resolve()
+    if normalized.startswith("storage/"):
+        normalized = normalized.removeprefix("storage/").strip("/")
+    return (layout.storage_root / normalized).resolve()
 
 
 def _ensure_within_root(root: Path, path: Path) -> None:
@@ -128,3 +133,4 @@ def _inspect_image(data: bytes) -> dict[str, Any]:
     except OSError as exc:
         raise HTTPException(status_code=400, detail={"message": f"Attachment image validation failed: {exc}", "code": "attachment_image_validation_failed"}) from exc
     return {"width": width, "height": height, "format": image_format, "mime_type": Image.MIME.get(image_format.upper(), "")}
+

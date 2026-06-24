@@ -9,7 +9,7 @@ import tempfile
 import time
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 class ProjectWorkspaceMissing(ValueError):
@@ -285,3 +285,4 @@ def _same_workspace_root(left: str, right: str) -> bool:
         left_key = os.path.normcase(str(left or ""))
         right_key = os.path.normcase(str(right or ""))
     return left_key == right_key
+

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from memory_system.storage.text_utils import normalize_storage_text
-from token_accounting import count_text_tokens
+from core.token_accounting import count_text_tokens
 
 from .contracts import ConversationMemorySnapshot, MemoryContextCandidate
 from .paths import normalize_session_id, safe_session_dir
@@ -138,6 +138,7 @@ def _latest_mtime_iso(paths: list[Path]) -> str:
     from datetime import datetime, timezone
 
     return datetime.fromtimestamp(max(mtimes), tz=timezone.utc).isoformat()
+
 
 
 

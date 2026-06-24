@@ -1131,9 +1131,145 @@ User request / task run
 | Model request | model gateway | 序列化、hash、usage 诊断 | 改 message 顺序 |
 | Confirm | model runtime/ledger | provider 成功后确认 candidates | provider 未成功就写 ledger |
 
-## 13. 当前链路需要收束的点
+## 13. 算法架构：复用现有链路的 resolver/compiler
 
-### 13.1 context_assembly 应成为唯一物理排序权威
+本方案不是新造一套 agent 配置系统。现有材料已经足够，目标是把它们整理成一个稳定算法：
+
+```text
+前端 orchestration 配置
+  -> AgentRuntimeProfile
+  -> Task / Workflow / Environment policy
+  -> RuntimeAssemblyProfile
+  -> System Wiring Manifest
+  -> Prompt / Context Capability Gates
+  -> Provider Physical Assembly
+```
+
+### 13.1 现有输入
+
+直接复用现有输入，不新建第二套来源：
+
+| 输入 | 现有来源 | 用途 |
+| --- | --- | --- |
+| Agent 身份和运行档案 | `agent_system.registry.agent_registry`、`agent_system.profiles.runtime_profile_registry` | agent id、allowed tools、blocked operations、subagent policy、allowed memory scopes、allowed context sections |
+| 前端配置 | `frontend/src/components/workspace/views/orchestration`、`backend/api/orchestration_catalog.py` | 编辑和保存 runtime profile、subagent policy、工具包、上下文段、记忆范围 |
+| runtime 组装 | `harness.runtime.assembly.assemble_runtime(...)` | 解析 runtime contract、environment、operation authorization、tool exposure、subagent policy、context/memory/prompt policy |
+| task 契约 | `harness.loop.model_action_protocol`、`task_system.services.assembly_builder` | `task_contract_seed`、goal/plan/lifecycle/acceptance contract |
+| environment | `task_system.environments`、`backend/api/task_system.py` | sandbox、file/resource/memory space、environment prompts、lifecycle policy |
+| memory profile | `TaskMemoryRequestProfile`、`task_system.repositories.assembly_config_repository` | memory layers、topics、writeback policy、allow_long_term_memory |
+| prompt library | `prompt_library`、`prompt_composition` | prompt resources、rules、packs、source bundle |
+| provider policy | `runtime.model_gateway.provider_cache_policy` | 两段式/三段式、cache mode、provider protocol |
+| provider-visible ledger | `runtime.context_management.provider_visible_context_ledger` | 旧 provider-visible prefix 原文 replay 和 candidate confirm |
+
+### 13.2 核心算法
+
+目标算法是一个纯整合流程，不负责创造新事实。
+
+```text
+resolve_runtime_system_profile(input):
+  1. 读取 AgentRuntimeProfile。
+  2. 读取 environment binding / task_environment。
+  3. 读取 task/workflow/graph node policy。
+  4. 读取 TaskMemoryRequestProfile。
+  5. 应用前端 sparse override。
+  6. 调用 provider adapter 解析 physical policy。
+  7. 生成 System Wiring Manifest。
+  8. 从 manifest 编译 prompt/context capability gates。
+  9. 把 gates 传给 prompt assembly 和 context assembly。
+```
+
+这里的第 7 步是算法核心。`System Wiring Manifest` 不是新业务系统，而是现有配置的编译结果：
+
+```json
+{
+  "authority": "runtime.system_wiring_manifest",
+  "source_profile_ref": "main_interactive_agent",
+  "environment_ref": "env.coding.vibe_workspace",
+  "provider_physical_model": "static_context",
+  "system_groups": {
+    "react_loop": {"enabled": true},
+    "tool_runtime": {"enabled": true},
+    "subagent_delegation": {"enabled": true},
+    "memory_governance": {"enabled": true}
+  },
+  "compiled": {
+    "prompt_resource_gates": {},
+    "context_segment_gates": {},
+    "tool_operation_gates": {},
+    "skill_gates": {},
+    "feedback_channels": {}
+  }
+}
+```
+
+它只做编译和诊断，不替代 `AgentRuntimeProfile`、`TaskMemoryRequestProfile`、`assemble_runtime` 或 provider policy。
+
+### 13.3 复用原则
+
+必须复用现有系统：
+
+```text
+AgentRuntimeProfile 继续做 agent 运行边界。
+assemble_runtime 继续做 runtime profile/environment/tool authorization 汇总。
+TaskMemoryRequestProfile 继续做任务记忆读取和长期记忆许可。
+PromptAssemblyRequest.metadata 作为能力 gate 传递口。
+context_capability_policy 作为 prompt/context 过滤器。
+context_assembly 作为唯一物理拼接口。
+provider_visible_context_ledger 作为旧 provider-visible 上下文权威。
+orchestration 前端继续做配置控制面。
+```
+
+禁止新造：
+
+```text
+新的前端配置页面体系。
+新的 agent profile 存储。
+新的 environment 选择机制。
+新的工具权限系统。
+新的 memory profile 系统。
+新的 provider physical policy 系统。
+新的 message 排序器。
+```
+
+### 13.4 前端定位
+
+前端已经具备 orchestration 控制能力，不需要重做。
+
+当前前端已经有：
+
+```text
+运行权限页：allowed / blocked operations。
+运行配置页：runtime config / model profile。
+上下文页：allowed_context_sections / allowed_memory_scopes。
+协作页：subagent_policy。
+保存链路：updateOrchestrationAgentRuntimeProfile(...).
+预览链路：/orchestration/body-preview、/orchestration/runtime-spec-preview。
+```
+
+目标不是让前端维护底层能力表，而是让前端发 sparse override：
+
+```text
+用户在 UI 调整“协作/上下文/工具/记忆/模型”。
+前端保存到现有 runtime profile API。
+后端 resolver 把这些 profile 字段编译成 System Wiring Manifest。
+前端预览 manifest 和诊断，不直接编辑 compiled capability gates。
+```
+
+### 13.5 输出
+
+算法输出三类对象：
+
+```text
+RuntimeAssemblyProfile：运行权限、工具、环境、subagent、memory/prompt/context policy。
+SystemWiringManifest：系统组展开后的接线诊断。
+ContextAssemblyInput：最终交给 context_assembly 的 static/context/dynamic 包。
+```
+
+其中只有 `ContextAssemblyInput` 进入 provider-visible message 拼接。`SystemWiringManifest` 是诊断和 gate 来源，不是新的上下文段。
+
+## 14. 当前链路需要收束的点
+
+### 14.1 context_assembly 应成为唯一物理排序权威
 
 当前：
 
@@ -1153,7 +1289,7 @@ context_assembly 只调用一次并输出最终 provider-visible specs。
 follow-up/resume/steer 复用同一个 physical assembly protocol。
 ```
 
-### 13.2 prompt library 应接入能力组，而不是独立选择内容
+### 14.2 prompt library 应接入能力组，而不是独立选择内容
 
 目标：
 
@@ -1171,7 +1307,7 @@ skill 关掉时，skill body 和 skill output rule 不会残留。
 evidence_read 关掉时，read evidence contract 不会残留。
 ```
 
-### 13.3 compiler 应只处理新候选，不碰旧上下文
+### 14.3 compiler 应只处理新候选，不碰旧上下文
 
 目标：
 
@@ -1189,7 +1325,7 @@ evidence_read 关掉时，read evidence contract 不会残留。
 根据 source_order 把 replay 和新内容混排。
 ```
 
-### 13.4 follow-up / resume / steer 必须同链路
+### 14.4 follow-up / resume / steer 必须同链路
 
 目标：
 
@@ -1202,13 +1338,16 @@ evidence_read 关掉时，read evidence contract 不会残留。
 
 不能出现另一条 follow-up 专用拼接路径。
 
-## 14. 文件级实施方案
+## 15. 文件级整合方案
 
-### 阶段一：定义系统组配置模型
+### 阶段一：复用现有 profile，生成系统接线 manifest
 
 涉及文件：
 
 ```text
+backend/agent_system/profiles/runtime_profile_models.py
+backend/agent_system/profiles/runtime_profile_registry.py
+backend/harness/runtime/assembly.py
 backend/runtime/context_management/context_capability_policy.py
 backend/task_system/services/assembly_builder.py
 backend/task_system/services/assembly_support.py
@@ -1218,10 +1357,10 @@ backend/prompt_library/models.py
 交付：
 
 ```text
-ContextSystemGroupProfile
-ContextSystemGroupDecision
-system_group -> capability_groups 映射表
-system_group -> prompt_resources/context_segments/feedback_channels 映射表
+不新增独立 profile 存储。
+在现有 RuntimeAssemblyProfile / diagnostics 中生成 System Wiring Manifest。
+system_group -> prompt_resources/context_segments/feedback_channels 的编译映射。
+前端 sparse override 继续走现有 orchestration runtime profile API。
 ```
 
 完成标准：
@@ -1229,6 +1368,7 @@ system_group -> prompt_resources/context_segments/feedback_channels 映射表
 ```text
 任意系统组开启/关闭后，可以生成结构化 wiring manifest。
 manifest 明确列出契约、上下文段、反馈、tools、skills。
+manifest 可从现有 runtime profile / task policy / environment policy 追溯来源。
 ```
 
 ### 阶段二：把 prompt library 接到系统组
@@ -1339,7 +1479,7 @@ reasoning_content 是否保留由 provider/model/tool-call contract 决定。
 prefix/hash 诊断能解释 miss 来源。
 ```
 
-## 15. 结构化失败和恢复
+## 16. 结构化失败和恢复
 
 以下情况必须结构化失败：
 
@@ -1369,7 +1509,7 @@ candidate message hash mismatch
 
 这样可以最大程度保留记忆，同时不把坏 ledger 当成稳定 prefix。
 
-## 16. 验证标准
+## 17. 验证标准
 
 不以本地预测为最终命中依据。
 
@@ -1402,7 +1542,7 @@ reasoning_content/tool_calls contract
 follow-up/resume/steer 是否改了旧 prefix
 ```
 
-## 17. 禁止的设计
+## 18. 禁止的设计
 
 ```text
 禁止让 agent 自己决定 provider physical model。
@@ -1416,7 +1556,7 @@ follow-up/resume/steer 是否改了旧 prefix
 禁止工具权限由 prompt 文本兜底，而不是由 runtime authorization 控制。
 ```
 
-## 18. 最终目标形态
+## 19. 最终目标形态
 
 最终系统应该像接线板一样工作。
 
@@ -1455,3 +1595,79 @@ output commit boundary
 ```
 
 这才是稳定 agent runtime 的装配模型：能力足够灵活，但底层运转机制不漂移。
+
+## 20. 本轮落地状态
+
+本轮已按上述原则完成第一段后端接线，不新增独立配置系统。
+
+已落地链路：
+
+```text
+harness.runtime.assembly.assemble_runtime(...)
+  -> RuntimeAssembly.system_wiring_manifest
+  -> PromptAssemblyRequest.metadata.system_wiring_manifest
+  -> prompt_library.assembly PromptResource gate
+  -> compiler _model_messages_and_segment_plan(...) context spec gate
+  -> prompt_composition source/materialize lineage
+  -> context_assembly.assemble_context_physical_message_specs(...) final physical assembly
+  -> prompt_segment_plan diagnostics
+  -> model_gateway provider-visible append-only passthrough
+```
+
+具体落地点：
+
+| 文件 | 落地内容 |
+| --- | --- |
+| `backend/harness/runtime/assembly.py` | 在 `RuntimeAssembly` 中加入 `system_wiring_manifest`；由现有 profile、environment、operation authorization、tools、skills、memory policy、control capabilities 编译系统组接线图；补齐 tool capability 系统组，包括 `task_planning`、`file_work`、`artifact_generation`、`shell_execution`、`source_control`、`web_research`、`browser_use`、`attachment_processing`、`subagent_delegation` |
+| `backend/prompt_library/assembly.py` | 从 `PromptAssemblyRequest.metadata` 读取 wiring manifest 和 compiled context capability profile；用 `context_capability_decision_for_prompt_resource(...)` 过滤 prompt resource；拒绝原因结构化写入 prompt assembly manifest |
+| `backend/harness/runtime/compiler.py` | 所有主要 invocation 的 prompt assembly helper 都传入 `assembly_payload`；`_model_messages_and_segment_plan(...)` 在 source bundle 前应用 context capability profile；sealed provider-visible replay / provider protocol replay 标记为不可重分类；在 source lineage materialize 后调用 `context_assembly` 做最终物理拼接，并把 `context_physical_assembly` 写入 prompt manifest；sealed replay 存在时旁路 compiler sanitizer，provider protocol history 只做 provider payload projection，不做协议修复式插入/删除 |
+| `backend/runtime/context_management/context_assembly.py` | `assemble_context_physical_message_specs(...)` 成为最终物理拼接点；默认两段式下 dynamic tail 不丢弃，而是折叠进同一 provider-visible context suffix 的最后位置；显式三段式时保留独立 dynamic_tail suffix |
+| `backend/harness/runtime/prompt_segment_plan.py` | `PromptSegmentPlan` 增加 diagnostics，使 provider physical model、dynamic tail transport、稳定段顺序等信息能进入 packet 顶层 |
+| `backend/harness/loop/single_agent_turn.py` | follow-up 继续保持 append-only 和 prefix lock；已发送过的旧 dynamic/control tail 在 follow-up 中封存为 provider-visible history replay；多轮工具 follow-up 继承 base segment_plan 的物理模型诊断，避免三段式第二轮丢失策略 |
+
+当前已接入的系统组：
+
+```text
+task_contract_intake
+react_loop
+tool_runtime
+skill_runtime
+subagent_delegation
+context_memory
+memory_governance
+evidence_read
+lifecycle_resume_steer
+output_projection
+recovery_closeout
+tool_task_planning
+tool_file_work
+tool_artifact_generation
+tool_shell_execution
+tool_source_control
+tool_web_research
+tool_browser_use
+tool_attachment_processing
+tool_subagent_delegation
+```
+
+关键修正：
+
+```text
+1. prompt/context gate 由 RuntimeAssembly 的 manifest 驱动，不由 prompt layer 自己猜。
+2. prompt resource gate 支持多系统所有者聚合，避免同一 prompt 被后写入系统覆盖。
+3. `runtime.rule.turn_decision` 错名已改为真实存在的 `runtime.rule.turn_decision_alignment`。
+4. `tool.guidance.batch_edit_file` 加入默认工具指导映射，避免批量编辑工具缺 prompt 线。
+5. context spec gate 只过滤候选段；provider-visible / provider-protocol replay 不重新分类。
+6. 物理模型默认两段式：static prefix + context suffix；dynamic tail 参与同一 message 拼接，但在两段式中折叠到 context suffix 末尾，不再走独立尾部替换链路。
+7. 只有 provider/model selection 显式声明 `static_context_dynamic_tail` 且 `dynamic_tail_supported=true` 时，才启用独立 dynamic tail。
+8. follow-up/resume/steer 路径不重新 sanitize 旧 provider-visible prefix；旧消息只做浅复制和 prefix lock/hash 诊断，新消息 append。
+9. compiler 初始包遇到 sealed replay 时不再对整包做 sanitizer；历史 provider protocol replay 不再补 aborted tool output 或丢 orphan tool output，避免把旧 provider-visible 字节改写成“修复后”的新上下文。
+```
+
+后续剩余收束点：
+
+```text
+resume / user pause / pending steer 的入口还需要继续逐条审查，确保都走 append-only 和 sealed replay。
+provider adapter 仍是两段式/三段式、reasoning_content、tools/request params 的最终协议权威。
+前端 orchestration 的 sparse override 与后端 system wiring manifest 的预览/诊断展示还可以继续对齐。
+```

@@ -7,7 +7,7 @@ import time
 from dataclasses import replace
 from typing import Any
 
-from prompt_cache_policy import is_cache_eligible_prefix, is_prefix_eligible_for_tier
+from runtime.prompt_accounting.cache_policy import is_cache_eligible_prefix, is_prefix_eligible_for_tier
 
 from .models import ModelTokenUsageRecord, PromptCacheRecord, PromptSegmentMap
 from .provider_payload_boundary import (
@@ -1091,3 +1091,4 @@ def _is_provider_payload_tool_sidecar_segment(segment: Any, *, metadata: dict[st
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
     return {str(key): value for key, value in payload.items() if value not in ("", None, [], {})}
+

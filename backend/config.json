@@ -33,27 +33,5 @@
       "pi_source_root": "D:/AI应用/pi-main",
       "pi_cli_path": ""
     }
-  },
-  "model_provider": {
-    "provider": "deepseek",
-    "model": "deepseek-v4-flash",
-    "base_url": "https://api.deepseek.com"
-  },
-  "system_config": {
-    "runtime": {
-      "llm_timeout_seconds": 60.0,
-      "llm_long_output_timeout_seconds": 360.0,
-      "llm_max_retries": 2,
-      "llm_max_output_tokens": 65536,
-      "llm_thinking_mode": "enabled",
-      "terminal_timeout_seconds": 30,
-      "component_char_limit": 20000
-    }
-  },
-  "image_assets": {
-    "base_url": "https://www.aimapi.cloud/v1",
-    "model": "gpt-image-2",
-    "request_timeout_seconds": 150,
-    "concurrency": 1
   }
 }

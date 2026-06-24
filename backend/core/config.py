@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 _LOGGER = logging.getLogger(__name__)
 _RUNTIME_CONFIG_WARNING_KEYS: set[tuple[str, str]] = set()
@@ -249,7 +249,7 @@ def _normalize_runtime_permission_mode(mode: Any) -> str:
 
 
 def _load_env_file() -> Path:
-    backend_dir = Path(__file__).resolve().parent
+    backend_dir = Path(__file__).resolve().parents[1]
     load_dotenv(backend_dir / ".env")
     return backend_dir
 
@@ -461,7 +461,8 @@ def _resolve_llm_fallback_provider() -> str | None:
 
 
 def _runtime_config_path() -> Path:
-    return Path(__file__).resolve().parent / "config.json"
+    backend_dir = Path(__file__).resolve().parents[1]
+    return ProjectLayout.from_backend_dir(backend_dir).storage_root / "runtime_config" / "config.json"
 
 
 def _warn_runtime_config_issue(path: Path, reason: str, detail: str) -> None:
@@ -1231,4 +1232,4 @@ class RuntimeConfigManager:
         next_payload["pi_sidecar"] = sidecar
         return self.save({"code_environment": {**current, **next_payload}})
 
-runtime_config = RuntimeConfigManager(get_settings().backend_dir / "config.json")
+runtime_config = RuntimeConfigManager(_runtime_config_path())

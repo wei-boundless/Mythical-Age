@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
-from prompt_ref_migrations import migrate_runtime_profile_prompt_metadata
+from core.project_layout import ProjectLayout
+from prompt_library.migrations import migrate_runtime_profile_prompt_metadata
 
 from ..registry.agent_registry import AgentRegistry
 from ..identity import agent_id_aliases, normalize_agent_id, normalize_agent_id_sequence
@@ -1079,3 +1079,4 @@ def _without_allowed_operations(blocked_operations: Any, *, allowed_operations: 
         seen.add(value)
         result.append(value)
     return tuple(result)
+

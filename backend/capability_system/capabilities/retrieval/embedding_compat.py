@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 
-from config import Settings, get_settings
+from core.config import Settings, get_settings
 
 
 class CompatibleOpenAIEmbedding:
@@ -138,5 +138,6 @@ def build_embedding_model(settings: Settings | None = None) -> CompatibleOpenAIE
         dimensions=settings.embedding_dimensions,
         embed_batch_size=64,
     )
+
 
 

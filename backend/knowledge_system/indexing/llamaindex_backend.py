@@ -10,7 +10,7 @@ from typing import Any
 
 import portalocker
 
-from config import get_settings
+from core.config import get_settings
 from capability_system.capabilities.retrieval.models import RetrievalHit
 from knowledge_system.ingestion.models import IndexableUnit
 from capability_system.capabilities.retrieval.candidate_graph import coalesce_with_candidate_graph
@@ -89,7 +89,7 @@ class LlamaIndexRetrievalBackend:
             self._write_metadata(collection, payload)
             return payload
 
-        from embedding_compat import build_embedding_model
+        from capability_system.capabilities.retrieval.embedding_compat import build_embedding_model
         from llama_index.core import Settings as LlamaSettings, VectorStoreIndex
 
         dense_dir = self.layout.dense_dir(collection)
@@ -163,7 +163,7 @@ class LlamaIndexRetrievalBackend:
         if self._dense_backend() == "qdrant":
             return self._retrieve_dense_qdrant(collection, request, embed_model=embed_model)
 
-        from embedding_compat import build_embedding_model
+        from capability_system.capabilities.retrieval.embedding_compat import build_embedding_model
         from llama_index.core import Settings as LlamaSettings, StorageContext, load_index_from_storage
 
         dense_dir = self.layout.dense_dir(collection)
@@ -254,7 +254,7 @@ class LlamaIndexRetrievalBackend:
             self._reset_dir(dense_dir)
             dense_dir.mkdir(parents=True, exist_ok=True)
         if embed_model is None:
-            from embedding_compat import build_embedding_model
+            from capability_system.capabilities.retrieval.embedding_compat import build_embedding_model
 
         active_model = embed_model or build_embedding_model(self.settings)
         total_units = len(units)
@@ -400,7 +400,7 @@ class LlamaIndexRetrievalBackend:
             if not client.collection_exists(collection_name):
                 return []
             if embed_model is None:
-                from embedding_compat import build_embedding_model
+                from capability_system.capabilities.retrieval.embedding_compat import build_embedding_model
 
             active_model = embed_model or build_embedding_model(self.settings)
             query_vector = self._embed_query(active_model, request.query)
@@ -1192,5 +1192,6 @@ class LlamaIndexRetrievalBackend:
             return int(value)
         except (TypeError, ValueError):
             return None
+
 
 

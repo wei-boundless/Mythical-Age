@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from artifact_system import ArtifactInventoryService
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 class HealthArtifactGovernanceViewBuilder:
@@ -41,3 +41,4 @@ class HealthArtifactGovernanceViewBuilder:
             },
             "updated_at": inventory.get("updated_at"),
         }
+

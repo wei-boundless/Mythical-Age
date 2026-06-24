@@ -46,7 +46,7 @@ class RAGQueryRouter:
     @property
     def reranker(self) -> Any:
         if self._reranker is None:
-            from config import get_settings
+            from core.config import get_settings
 
             from .reranker import build_reranker
 
@@ -146,3 +146,4 @@ class RAGQueryRouter:
 
         terms = re.findall(r"[\w\u4e00-\u9fff.-]+\.(?:pdf|docx|pptx|xlsx|csv|md|txt)", str(query or ""), flags=re.IGNORECASE)
         return tuple(dict.fromkeys(term.strip() for term in terms if term.strip()))
+

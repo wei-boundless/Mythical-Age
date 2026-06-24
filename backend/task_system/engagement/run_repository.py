@@ -4,8 +4,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, json_file_lock, read_json_dict, write_json_dict
-from project_layout import ProjectLayout
+from core.json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, json_file_lock, read_json_dict, write_json_dict
+from core.project_layout import ProjectLayout
 
 from .models import EngagementEvent, EngagementRunRecord
 from .repository import EngagementPlanConfigError
@@ -101,4 +101,5 @@ class EngagementRunRepository:
             write_json_dict(self.path, payload, label="engagement runs", sort_keys=True)
         except JsonFileStoreError as exc:
             raise EngagementPlanConfigError(f"failed to write engagement runs: {exc}") from exc
+
 

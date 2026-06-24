@@ -13,7 +13,7 @@ from context_system.models.context_models import CONTEXT_TEXT_NORMALIZATION_VERS
 from memory_system.storage.models import MemoryNote
 from memory_system.storage.process_state import ContextSlots, ProcessState
 from prompting.builder import _render_context_package_block
-from token_accounting import count_text_tokens
+from core.token_accounting import count_text_tokens
 
 
 def _durable_recall_selector(*note_ids: str):
@@ -379,4 +379,5 @@ def test_context_package_receipt_rejects_tampered_model_visible_sections() -> No
     assert tampered_payload["package"]["sealed_receipt"]["package_sha256"] != hash_context_section_package(
         result.package.model_visible_sections
     )
+
 

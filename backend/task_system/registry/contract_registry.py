@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 from task_system.contracts.contract_definition_models import (
     ACCEPTANCE_RULE_SEVERITY_OPTIONS,
@@ -592,5 +592,6 @@ class TaskContractRegistry:
                 "validation_issue_count": len(issues),
             },
         }
+
 
 

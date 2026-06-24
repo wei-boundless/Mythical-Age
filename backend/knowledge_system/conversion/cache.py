@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from knowledge_system.conversion.models import ConversionBlock, ConversionPage, ConversionResult
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 def _json_ready(value: Any) -> Any:
@@ -176,5 +176,6 @@ class DocumentCacheLayout:
             encoding="utf-8",
         )
         return path
+
 
 

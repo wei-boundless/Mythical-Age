@@ -14,7 +14,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from permissions.policy import normalize_permission_mode
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 try:
     import orjson
@@ -1022,3 +1022,4 @@ def validate_session_id(value: str) -> str:
     if normalized != _safe_session_id(normalized):
         raise InvalidSessionId("Invalid session_id")
     return normalized
+

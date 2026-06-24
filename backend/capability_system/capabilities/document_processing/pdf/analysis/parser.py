@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from pdf_runtime import suppress_pypdf_warnings
-from project_layout import ProjectLayout
+from capability_system.capabilities.document_processing.pdf.analysis.pdf_runtime import suppress_pypdf_warnings
+from core.project_layout import ProjectLayout
 
 from .mineru_client import MinerUApiClient, MinerUBlock, MinerUParseResult, build_default_mineru_client
 
@@ -1052,5 +1052,6 @@ class PdfTextParser:
             return True
         except Exception:
             return False
+
 
 

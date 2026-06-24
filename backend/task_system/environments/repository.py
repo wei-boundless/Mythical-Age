@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from file_management import default_file_environment_registry
-from json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, json_file_lock, read_json_dict, write_json_dict
-from prompt_ref_migrations import migrate_prompt_ref
+from core.json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, json_file_lock, read_json_dict, write_json_dict
+from prompt_library.migrations import migrate_prompt_ref
 
 from .models import (
     ArtifactPolicy,
@@ -366,3 +366,4 @@ def _list_payload(value: Any, *, path: str) -> list[Any]:
     if not isinstance(value, list):
         raise TaskEnvironmentConfigError(f"{path} must be a list")
     return list(value)
+

@@ -12,7 +12,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query
 
 from api.deps import require_runtime
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from code_environment.models import (
     CodeEnvironmentResponse,
     CodeEnvironmentWorkspaceTreeResponse,
@@ -268,3 +268,4 @@ async def code_environment_sidecar_readonly_command(payload: PiSidecarCommandReq
         response=response,
         error=str(response.get("error") or ""),
     )
+

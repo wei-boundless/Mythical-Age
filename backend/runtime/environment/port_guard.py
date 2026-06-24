@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from core.project_layout import ProjectLayout
+
 
 FIXED_FRONTEND_PORT = 3000
 FIXED_BACKEND_PORT = 8003
@@ -25,18 +27,19 @@ class PortGuardResult:
 
 def check_fixed_project_ports() -> PortGuardResult:
     project_root = Path(__file__).resolve().parents[3]
+    process_root = ProjectLayout.from_runtime_root(project_root).runtime_state_dir / "runtime_process"
     diagnostics = {
         "frontend": _port_probe(
             FIXED_FRONTEND_PORT,
             project_root=project_root,
             expected_command_markers=("next",),
-            pid_file=project_root / "output" / "runtime" / "frontend-fixed-3000.pid",
+            pid_file=process_root / "frontend-fixed-3000.pid",
         ),
         "backend": _port_probe(
             FIXED_BACKEND_PORT,
             project_root=project_root,
             expected_command_markers=("run_uvicorn.py",),
-            pid_file=project_root / "output" / "runtime" / "backend-fixed-8003.pid",
+            pid_file=process_root / "backend-fixed-8003.pid",
         ),
         "policy": "fixed_project_ports",
     }
@@ -167,5 +170,6 @@ def _port_summary(*, port: int, listening: bool, owner_status: str, process: dic
     if owner_status == "unknown_process_owner":
         return f"Fixed port {port} is listening, but process ownership could not be confirmed."
     return f"Fixed port {port} is listening with expected process ownership."
+
 
 

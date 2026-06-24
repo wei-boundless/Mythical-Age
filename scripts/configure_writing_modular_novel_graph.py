@@ -16,7 +16,7 @@ if str(BACKEND_DIR) not in sys.path:
 from agent_system.models.model_profile_models import AgentModelProfile, parse_agent_model_profile
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.registry.agent_registry import AgentRegistry
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from task_system.contracts.contract_definition_models import AcceptanceRule, ArtifactRequirement, ContractField, ContractSpec
 from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
 from task_system.registry.contract_registry import TaskContractRegistry
@@ -4234,3 +4234,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

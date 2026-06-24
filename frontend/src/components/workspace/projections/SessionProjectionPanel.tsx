@@ -206,6 +206,7 @@ export function SessionProjectionPanel({
                 answerSource={message.answerSource}
                 attachments={message.attachments}
                 closeoutSummary={message.closeoutSummary}
+                compactUserLongText={false}
                 content={message.content}
                 id={message.id}
                 image={message.image}

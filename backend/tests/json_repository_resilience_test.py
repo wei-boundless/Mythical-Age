@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-import json_file_store as json_file_store_module
+import core.json_file_store as json_file_store_module
 from runtime.shared.action_request import RuntimeActionRequest
 from runtime.shared.execution_record import (
     RuntimeExecutionStore,
@@ -134,3 +134,4 @@ def test_runtime_execution_store_preserves_existing_payload_when_atomic_replace_
 
     assert json.loads(path.read_text(encoding="utf-8")) == original
     assert list(path.parent.glob(f".{path.name}.*.tmp")) == []
+

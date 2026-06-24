@@ -6,7 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,5 +210,6 @@ def _builtin_profiles() -> tuple[ContinuationDomainProfile, ...]:
             handle_prefixes=("graph.", "coordination:"),
         ),
     )
+
 
 

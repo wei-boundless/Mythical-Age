@@ -1,10 +1,18 @@
 "use client";
 
-import { ArrowUp, BrainCircuit, ImagePlus, ShieldCheck, Square, X, Zap } from "lucide-react";
+import { ArrowUp, BrainCircuit, ChevronDown, ChevronUp, FileText, ImagePlus, ShieldCheck, Square, X, Zap } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ModelProviderConfig, ImageAssetConfig } from "@/lib/api";
 import type { ChatThinkingMode } from "@/lib/store/types";
+
+import {
+  createLongTextCompactionModel,
+  LONG_TEXT_COMPACTION_PROFILES,
+  resolveLongTextCompactionMode,
+  type LongTextDraftIntent,
+  type LongTextCompactionMode,
+} from "./longTextCompact";
 
 export function ChatInput({
   disabled,
@@ -38,10 +46,19 @@ export function ChatInput({
   const [value, setValue] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [draftMode, setDraftMode] = useState<LongTextCompactionMode>("expanded");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const pendingDraftIntentRef = useRef<LongTextDraftIntent | null>(null);
+  const focusExpandedDraftRef = useRef(false);
   const modelOptions = useMemo(() => buildChatModelOptions(modelProviderConfig, imageAssetConfig), [modelProviderConfig, imageAssetConfig]);
   const inputDisabled = disabled || (submitting && !streaming);
   const trimmedValue = value.trim();
+  const draftCompaction = useMemo(
+    () => createLongTextCompactionModel(value, LONG_TEXT_COMPACTION_PROFILES.composer),
+    [value],
+  );
+  const draftCompacted = draftCompaction.shouldCompact && draftMode === "compact";
   const hasSelectedFiles = selectedFiles.length > 0;
   const activeModelId = modelOptions.some((option) => option.id === selectedChatModelId)
     ? selectedChatModelId
@@ -56,7 +73,11 @@ export function ChatInput({
   const activePermissionMode = permissionOptions.some((option) => option.value === permissionMode)
     ? permissionMode
     : permissionOptions[0]?.value ?? "default";
-  const panelClassName = `chat-input-panel chat-input-panel--inline${streaming ? " chat-input-panel--streaming" : ""}`;
+  const panelClassName = [
+    "chat-input-panel chat-input-panel--inline",
+    streaming ? "chat-input-panel--streaming" : "",
+    draftCompacted ? "chat-input-panel--draft-compact" : "",
+  ].filter(Boolean).join(" ");
   const primaryAction = trimmedValue || hasSelectedFiles
     ? "send"
     : streaming
@@ -79,6 +100,25 @@ export function ChatInput({
     }
   }, [activeModelSupportsReasoning, chatThinkingMode, onSelectThinkingMode]);
 
+  useEffect(() => {
+    if (!draftCompaction.shouldCompact && draftMode !== "expanded") {
+      setDraftMode("expanded");
+    }
+  }, [draftCompaction.shouldCompact, draftMode]);
+
+  useEffect(() => {
+    if (draftMode !== "expanded" || !focusExpandedDraftRef.current) {
+      return;
+    }
+    focusExpandedDraftRef.current = false;
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      return;
+    }
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+  }, [draftMode]);
+
   const submit = async () => {
     const nextValue = value.trim();
     const nextFiles = selectedFiles;
@@ -87,28 +127,49 @@ export function ChatInput({
     }
     setSubmitting(true);
     setValue("");
+    setDraftMode("expanded");
     setSelectedFiles([]);
     try {
       await onSend(nextValue, nextFiles.length ? { files: nextFiles } : undefined);
     } catch (error) {
       console.error("Failed to send chat message", error);
       setValue(nextValue);
+      setDraftMode((currentMode) => resolveLongTextCompactionMode({
+        content: nextValue,
+        currentMode,
+        intent: "restore",
+      }));
       setSelectedFiles(nextFiles);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const pasteImages = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+  const handleDraftChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const nextValue = event.target.value;
+    const intent = pendingDraftIntentRef.current ?? "type";
+    pendingDraftIntentRef.current = null;
+    setValue(nextValue);
+    setDraftMode((currentMode) => resolveLongTextCompactionMode({
+      content: nextValue,
+      currentMode,
+      intent,
+    }));
+  };
+
+  const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
     if (disabled || submitting || streaming) {
       return;
+    }
+    const pastedText = event.clipboardData.getData("text/plain");
+    if (pastedText) {
+      pendingDraftIntentRef.current = "paste";
     }
     const pastedImages = imageFilesFromClipboard(event.clipboardData);
     if (!pastedImages.length) {
       return;
     }
-    const pastedText = event.clipboardData.getData("text/plain").trim();
-    if (!pastedText) {
+    if (!pastedText.trim()) {
       event.preventDefault();
     }
     setSelectedFiles((current) => [...current, ...pastedImages].slice(0, 8));
@@ -122,24 +183,87 @@ export function ChatInput({
     await submit();
   };
 
+  const handleComposerShortcut = (event: React.KeyboardEvent) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      void runPrimaryAction();
+    }
+  };
+
+  const expandDraft = () => {
+    focusExpandedDraftRef.current = true;
+    setDraftMode((currentMode) => resolveLongTextCompactionMode({
+      content: value,
+      currentMode,
+      intent: "expand",
+    }));
+  };
+
   return (
     <div className={panelClassName}>
       <div className="chat-input-panel__composer">
-        <textarea
-          aria-label="输入消息"
-          className="chat-input-panel__textarea"
-          disabled={inputDisabled}
-          onChange={(event) => setValue(event.target.value)}
-          onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-              event.preventDefault();
-              void runPrimaryAction();
-            }
-          }}
-          onPaste={pasteImages}
-          placeholder="输入任务、修改或继续说明"
-          value={value}
-        />
+        {draftCompacted ? (
+          <div aria-label="已压缩的长输入" className="chat-input-panel__draft-compact" role="group">
+            <button
+              aria-label={`展开编辑完整输入，当前 ${draftCompaction.metricLabel}`}
+              className="chat-input-panel__draft-compact-main"
+              disabled={inputDisabled}
+              onClick={expandDraft}
+              onKeyDown={handleComposerShortcut}
+              title={`${draftCompaction.title}，点击展开编辑`}
+              type="button"
+            >
+              <FileText aria-hidden="true" size={15} />
+              <span className="chat-input-panel__draft-compact-preview">{draftCompaction.preview}</span>
+              <span className="chat-input-panel__draft-compact-count">{draftCompaction.metricLabel}</span>
+              <ChevronDown aria-hidden="true" size={15} />
+            </button>
+            <button
+              aria-label="清空输入"
+              className="chat-input-panel__draft-compact-clear"
+              disabled={inputDisabled}
+              onClick={() => {
+                setValue("");
+                setDraftMode("expanded");
+                pendingDraftIntentRef.current = null;
+              }}
+              title="清空输入"
+              type="button"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ) : (
+          <>
+            <textarea
+              aria-label="输入消息"
+              className="chat-input-panel__textarea"
+              disabled={inputDisabled}
+              onChange={handleDraftChange}
+              onKeyDown={handleComposerShortcut}
+              onPaste={handlePaste}
+              placeholder="输入任务、修改或继续说明"
+              ref={textareaRef}
+              value={value}
+            />
+            {draftCompaction.shouldCompact && draftMode === "expanded" ? (
+              <div className="chat-input-panel__draft-expanded-tools" aria-label="长输入操作">
+                <span>{draftCompaction.metricLabel}</span>
+                <button
+                  onClick={() => setDraftMode((currentMode) => resolveLongTextCompactionMode({
+                    content: value,
+                    currentMode,
+                    intent: "collapse",
+                  }))}
+                  type="button"
+                >
+                  <ChevronUp size={13} />
+                  收起预览
+                </button>
+              </div>
+            ) : null}
+          </>
+        )}
       </div>
       {selectedFiles.length ? (
         <div className="chat-attachment-strip" aria-label="已选择图片">

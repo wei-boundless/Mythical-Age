@@ -32,13 +32,13 @@ class AgentTodoStateStore:
 
 
 def agent_todo_state_store_from_backend_dir(base_dir: str | Path) -> AgentTodoStateStore:
-    from project_layout import ProjectLayout
+    from core.project_layout import ProjectLayout
 
     return AgentTodoStateStore(ProjectLayout.from_backend_dir(base_dir).runtime_state_dir)
 
 
 def agent_todo_state_store_from_root(root_dir: str | Path) -> AgentTodoStateStore:
-    from project_layout import ProjectLayout
+    from core.project_layout import ProjectLayout
 
     resolved = Path(root_dir).resolve()
     if resolved.name == "runtime_state" and resolved.parent.name == "storage":
@@ -191,3 +191,4 @@ def _copy_optional_string_field(target: dict[str, Any], source: dict[str, Any], 
 def _todo_id(content: str, index: int) -> str:
     digest = hashlib.sha1(f"{index}:{content}".encode("utf-8")).hexdigest()[:8]
     return f"todo:{index + 1}:{digest}"
+

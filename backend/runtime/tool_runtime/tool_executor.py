@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from capability_system.tools.contracts import ToolInvocationValidationDecision, ToolInvocationValidator
+from core.project_layout import ProjectLayout
 from runtime.environment import RuntimeEnvironment
 from runtime.memory.file_evidence_scope import normalize_file_evidence_scope, task_run_file_evidence_scope
 from runtime.memory.tool_memory_events import commit_tool_memory_events_from_envelope
@@ -1741,8 +1742,23 @@ def _absolute_storage_root(
         environment = dict(dict(runtime_assembly or {}).get("task_environment") or {})
         base = str(dict(environment.get("storage_space") or {}).get("workspace_root") or "").strip()
     if not base:
-        base = str(dict(runtime_assembly or {}).get("backend_dir") or ".").strip()
-    return str((Path(base).resolve() / path).resolve())
+        base = str(
+            ProjectLayout.from_runtime_root(
+                Path(str(dict(runtime_assembly or {}).get("backend_dir") or ".").strip())
+            ).project_root
+        )
+    return str(_resolve_runtime_owned_storage_path(path, base=Path(base), runtime_assembly=runtime_assembly))
+
+
+def _resolve_runtime_owned_storage_path(path: Path, *, base: Path, runtime_assembly: dict[str, Any]) -> Path:
+    normalized = path.as_posix().strip("/")
+    layout_anchor = Path(str(dict(runtime_assembly or {}).get("backend_dir") or base or ".").strip())
+    layout = ProjectLayout.from_runtime_root(layout_anchor)
+    if normalized == "storage":
+        return layout.storage_root.resolve()
+    if normalized.startswith("storage/"):
+        return (layout.storage_root / normalized.removeprefix("storage/")).resolve()
+    return (base.resolve() / path).resolve()
 
 
 async def _call_runtime_tool_with_control(
@@ -2027,3 +2043,4 @@ def _approval_fingerprint_from_policy(policy: dict[str, Any], *, fallback_policy
     if fallback_policy:
         return _approval_fingerprint_from_policy(dict(fallback_policy or {}))
     return ""
+

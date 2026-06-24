@@ -41,7 +41,7 @@ from orchestration import (
     build_base_unit_catalog,
     build_user_message_commit_decision,
 )
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from harness.entrypoint.models import HarnessRuntimeRequest
 from api.chat_direct_routes import run_direct_system_route
 from harness.task_run_status import is_stopped_or_terminal_task_run
@@ -3435,3 +3435,4 @@ def _first_contract_text(*values: Any) -> str:
         if text:
             return text
     return ""
+

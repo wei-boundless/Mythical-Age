@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from config import get_settings
+from core.config import get_settings
 from context_system.models.context_models import hash_context_section_package
 from prompting.long_term_context import _strip_leading_markdown_title, build_long_term_context_bundle
 from prompting.manifest import PromptManifest, build_prompt_manifest, prompt_section
@@ -473,5 +473,6 @@ def build_system_prompt_with_manifest(
 
 def _static_context_source(heading: str) -> str:
     return "memory.static_loader"
+
 
 

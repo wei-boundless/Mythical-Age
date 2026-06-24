@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -8,7 +10,7 @@ from agent_system.identity import normalize_agent_id_sequence
 from capability_system.skills.registry import SkillRegistry
 from capability_system.tools.authorization import build_authorized_tool_set
 from permissions.policy import normalize_permission_mode
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from harness.runtime.environment_storage import apply_session_scoped_environment_storage
 from task_system.contracts.runtime_contracts import SkillRuntimeView, skill_runtime_view_from_skill_definition
 from task_system.environments import build_task_environment_catalog, task_environment_registry_from_backend_dir
@@ -31,6 +33,7 @@ _DEFAULT_TOOL_GUIDANCE_PROMPT_DEFAULTS: dict[str, str] = {
     "tool.guidance.read_file": "tool.guidance.read_file",
     "tool.guidance.read_persisted_tool_result": "tool.guidance.read_persisted_tool_result",
     "tool.guidance.edit_file": "tool.guidance.edit_file",
+    "tool.guidance.batch_edit_file": "tool.guidance.batch_edit_file",
     "tool.guidance.write_file": "tool.guidance.write_file",
     "tool.guidance.terminal_powershell": "tool.guidance.terminal_powershell",
     "tool.guidance.git_read": "tool.guidance.git_read",
@@ -57,6 +60,10 @@ _BASE_RUNTIME_POLICY: dict[str, Any] = {
         "task_context": "available",
         "task_run_context": "enabled",
         "active_work_context": "available",
+        "system_groups": {
+            "evidence_alignment": {"enabled": True},
+            "reasoning_projection": {"enabled": True, "public_reasoning_default": False},
+        },
     },
     "memory_policy": {"read_scope": "agent_profile", "write_scope": "candidate_with_receipt"},
     "subagent_policy": {"enabled": True},
@@ -178,6 +185,103 @@ _TOOL_CAPABILITY_GROUP_BY_OPERATION: dict[str, str] = {
     "op.git_push": "source_control",
 }
 
+_CONTEXT_CAPABILITY_GROUPS = (
+    "static_identity",
+    "runtime_contracts",
+    "action_contracts",
+    "task_contracts",
+    "tool_context",
+    "context_memory",
+    "task_state_context",
+    "evidence_context",
+    "evidence_alignment",
+    "current_dynamic_control",
+    "lifecycle_control",
+    "repair_feedback",
+    "active_skill",
+    "memory_write",
+    "reasoning_projection",
+    "subagent_system",
+)
+
+_SYSTEM_GROUP_CAPABILITY_GROUPS: dict[str, tuple[str, ...]] = {
+    "task_contract_intake": ("task_contracts", "runtime_contracts", "lifecycle_control", "repair_feedback"),
+    "react_loop": ("action_contracts", "tool_context", "lifecycle_control", "repair_feedback", "current_dynamic_control"),
+    "tool_runtime": ("tool_context", "action_contracts", "repair_feedback"),
+    "skill_runtime": ("active_skill", "runtime_contracts", "tool_context"),
+    "subagent_delegation": ("subagent_system", "action_contracts", "tool_context", "lifecycle_control", "repair_feedback"),
+    "context_memory": ("context_memory", "task_state_context"),
+    "memory_governance": ("memory_write", "context_memory", "repair_feedback"),
+    "evidence_read": ("evidence_context", "tool_context", "repair_feedback"),
+    "evidence_alignment": ("evidence_alignment", "evidence_context", "action_contracts", "repair_feedback"),
+    "reasoning_projection": ("reasoning_projection", "runtime_contracts", "repair_feedback"),
+    "lifecycle_resume_steer": ("lifecycle_control", "current_dynamic_control", "context_memory", "repair_feedback"),
+    "output_projection": ("runtime_contracts", "repair_feedback"),
+    "recovery_closeout": ("repair_feedback", "lifecycle_control", "context_memory"),
+}
+
+_TOOL_CAPABILITY_SYSTEM_GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
+    "task_planning": {
+        "capability_groups": ("action_contracts", "task_state_context", "tool_context", "repair_feedback"),
+        "prompt_resources": ("tool.guidance.todo", "runtime.rule.plan_mode_boundary", "environment.general.lifecycle.plan_gate"),
+        "context_segments": ("task_plan_context", "tool_schema_catalog", "single_agent_turn_tool_call", "single_agent_turn_tool_observation"),
+        "feedback_channels": ("todo_update", "plan_repair"),
+    },
+    "file_work": {
+        "capability_groups": ("tool_context", "evidence_context", "repair_feedback"),
+        "prompt_resources": (
+            "runtime.rule.file_management.generic",
+            "tool.guidance.read_file",
+            "tool.guidance.read_persisted_tool_result",
+            "tool.guidance.local_search",
+        ),
+        "context_segments": ("tool_schema_catalog", "tool_index_stable", "read_evidence_context", "evidence_index_cursor", "editor_context_index"),
+        "feedback_channels": ("file_read_result", "file_search_result", "file_evidence_repair"),
+    },
+    "artifact_generation": {
+        "capability_groups": ("tool_context", "action_contracts", "repair_feedback"),
+        "prompt_resources": ("tool.guidance.edit_file", "tool.guidance.batch_edit_file", "tool.guidance.write_file"),
+        "context_segments": ("tool_schema_catalog", "tool_index_stable", "read_evidence_context", "single_agent_turn_tool_observation"),
+        "feedback_channels": ("artifact_write_result", "artifact_write_error", "edit_recovery"),
+    },
+    "shell_execution": {
+        "capability_groups": ("tool_context", "action_contracts", "repair_feedback"),
+        "prompt_resources": ("tool.guidance.terminal_powershell",),
+        "context_segments": ("tool_schema_catalog", "tool_index_stable", "single_agent_turn_tool_call", "single_agent_turn_tool_observation"),
+        "feedback_channels": ("shell_result", "shell_error", "shell_recovery"),
+    },
+    "source_control": {
+        "capability_groups": ("tool_context", "evidence_context", "repair_feedback"),
+        "prompt_resources": ("tool.guidance.git_read", "tool.guidance.git_write"),
+        "context_segments": ("tool_schema_catalog", "tool_index_stable", "read_evidence_context", "single_agent_turn_tool_observation"),
+        "feedback_channels": ("git_result", "git_error", "git_recovery"),
+    },
+    "web_research": {
+        "capability_groups": ("tool_context", "evidence_context", "repair_feedback"),
+        "prompt_resources": ("tool.guidance.web_fetch",),
+        "context_segments": ("tool_schema_catalog", "tool_index_stable", "read_evidence_context"),
+        "feedback_channels": ("web_fetch_result", "web_fetch_error", "source_recovery"),
+    },
+    "browser_use": {
+        "capability_groups": ("tool_context", "evidence_context", "current_dynamic_control", "repair_feedback"),
+        "prompt_resources": ("tool.guidance.browser",),
+        "context_segments": ("tool_schema_catalog", "tool_index_stable", "read_evidence_context", "dynamic_projection"),
+        "feedback_channels": ("browser_observation", "browser_error", "browser_recovery"),
+    },
+    "attachment_processing": {
+        "capability_groups": ("tool_context", "evidence_context", "repair_feedback"),
+        "prompt_resources": ("tool.guidance.attachment_extract_text",),
+        "context_segments": ("tool_schema_catalog", "tool_index_stable", "attachment_context_index", "read_evidence_context"),
+        "feedback_channels": ("attachment_extract_result", "attachment_extract_error", "attachment_recovery"),
+    },
+    "subagent_delegation": {
+        "capability_groups": ("action_contracts", "tool_context", "lifecycle_control", "repair_feedback"),
+        "prompt_resources": ("tool.guidance.subagent", "runtime.rule.subagent_delegation", "runtime.rule.subagent_invocation_protocol"),
+        "context_segments": ("tool_schema_catalog", "tool_index_stable", "single_agent_turn_tool_call", "single_agent_turn_tool_observation"),
+        "feedback_channels": ("subagent_result", "subagent_failure", "subagent_closeout"),
+    },
+}
+
 
 @dataclass(frozen=True, slots=True)
 class RuntimeAssemblyProfile:
@@ -244,6 +348,7 @@ class RuntimeAssembly:
     filtered_tools: tuple[dict[str, str], ...] = ()
     control_capabilities: dict[str, Any] = field(default_factory=dict)
     operation_authorization: dict[str, Any] = field(default_factory=dict)
+    system_wiring_manifest: dict[str, Any] = field(default_factory=dict)
     rejected_capabilities: tuple[dict[str, str], ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.runtime.assembly"
@@ -256,6 +361,7 @@ class RuntimeAssembly:
         payload["filtered_tools"] = [dict(item) for item in self.filtered_tools]
         payload["control_capabilities"] = dict(self.control_capabilities)
         payload["operation_authorization"] = dict(self.operation_authorization)
+        payload["system_wiring_manifest"] = dict(self.system_wiring_manifest)
         payload["engagement_contract"] = dict(self.engagement_contract)
         payload["execution_strategy"] = dict(self.execution_strategy)
         payload["agent_prompt_refs"] = list(self.agent_prompt_refs)
@@ -379,6 +485,25 @@ def assemble_runtime(
             ]
         ),
     )
+    system_wiring_manifest = _build_system_wiring_manifest(
+        agent_runtime_profile=agent_runtime_profile,
+        profile=profile,
+        runtime_contract=runtime_contract_payload,
+        task_environment=task_environment,
+        operation_authorization=operation_projection.to_dict(),
+        visible_tool_names=visible_tool_names,
+        available_tools=available_tools,
+        filtered_tools=tuple(
+            [
+                *_operation_filtered_tools(operation_projection.to_dict(), definitions_by_name=definitions_by_name),
+                *_drop_generic_operation_denials(tool_set.filtered_out),
+                *visibility_filtered,
+            ]
+        ),
+        skill_runtime_views=skill_runtime_views,
+        skill_activation=skill_activation,
+        control_capabilities=control_capabilities,
+    )
     return RuntimeAssembly(
         assembly_id=f"rtasm:{turn_id}:{profile.profile_ref or 'agent_profile'}",
         session_id=session_id,
@@ -415,6 +540,7 @@ def assemble_runtime(
         ),
         control_capabilities=control_capabilities,
         operation_authorization=operation_projection.to_dict(),
+        system_wiring_manifest=system_wiring_manifest,
         rejected_capabilities=(),
         diagnostics={
             "agent_profile_ref": str(getattr(agent_runtime_profile, "agent_profile_id", "") or ""),
@@ -434,6 +560,7 @@ def assemble_runtime(
                 "candidate_count": len(skill_runtime_views),
                 "skill_activation": dict(skill_activation),
             },
+            "system_wiring_manifest": system_wiring_manifest,
         },
     )
 
@@ -713,6 +840,568 @@ def _capability_directory_view(
     }
 
 
+def _build_system_wiring_manifest(
+    *,
+    agent_runtime_profile: Any | None,
+    profile: RuntimeAssemblyProfile,
+    runtime_contract: dict[str, Any],
+    task_environment: dict[str, Any],
+    operation_authorization: dict[str, Any],
+    visible_tool_names: tuple[str, ...],
+    available_tools: tuple[dict[str, Any], ...],
+    filtered_tools: tuple[dict[str, str], ...],
+    skill_runtime_views: tuple[dict[str, Any], ...],
+    skill_activation: dict[str, Any],
+    control_capabilities: dict[str, Any],
+) -> dict[str, Any]:
+    """Compile existing runtime profile/environment/task policy into wiring diagnostics.
+
+    This is not a new configuration authority. It is a structured projection of
+    the already-resolved runtime assembly, used by prompt/context gates.
+    """
+
+    profile_payload = profile.to_dict()
+    agent_profile_payload = (
+        agent_runtime_profile.to_dict()
+        if hasattr(agent_runtime_profile, "to_dict")
+        else dict(agent_runtime_profile or {})
+        if isinstance(agent_runtime_profile, dict)
+        else {}
+    )
+    allowed_operations = tuple(
+        str(item).strip()
+        for item in list(operation_authorization.get("allowed_operations") or profile_payload.get("allowed_operations") or [])
+        if str(item).strip()
+    )
+    allowed_memory_scopes = tuple(
+        str(item).strip()
+        for item in list(agent_profile_payload.get("allowed_memory_scopes") or [])
+        if str(item).strip()
+    )
+    allowed_context_sections = tuple(
+        str(item).strip()
+        for item in list(agent_profile_payload.get("allowed_context_sections") or [])
+        if str(item).strip()
+    )
+    memory_policy = dict(profile.memory_policy or {})
+    context_policy = dict(profile.context_policy or {})
+    task_lifecycle_policy = dict(profile.task_lifecycle_policy or {})
+    subagent_policy = dict(profile.subagent_policy or {})
+    environment_lifecycle = dict(task_environment.get("lifecycle_policy") or {})
+    environment_memory_space = dict(task_environment.get("memory_space") or {})
+    control = dict(control_capabilities or {})
+    selected_skill_ids = tuple(
+        str(item).strip()
+        for item in list(dict(skill_activation or {}).get("selected_skill_ids") or [])
+        if str(item).strip()
+    )
+    tools_by_capability_group = _tools_by_capability_group(available_tools)
+
+    may_call_tools = bool(control.get("may_call_tools") is True and visible_tool_names)
+    may_request_task_run = bool(control.get("may_request_task_run") is True)
+    may_control_active_work = bool(control.get("may_control_active_work") is True)
+    may_use_subagents = bool(control.get("may_use_subagents") is True)
+    memory_read_enabled = _system_memory_read_enabled(
+        memory_policy=memory_policy,
+        allowed_memory_scopes=allowed_memory_scopes,
+        environment_memory_space=environment_memory_space,
+    )
+    memory_write_candidate_enabled = _system_memory_write_candidate_enabled(
+        memory_policy=memory_policy,
+        allowed_operations=allowed_operations,
+        allowed_memory_scopes=allowed_memory_scopes,
+    )
+    allow_long_term_memory = _system_long_term_memory_allowed(
+        memory_policy=memory_policy,
+        allowed_memory_scopes=allowed_memory_scopes,
+    )
+    exact_evidence_enabled = bool(
+        may_call_tools
+        and any(
+            str(tool.get("operation_id") or "").strip()
+            in {"op.read_file", "op.search_files", "op.search_text", "op.read_persisted_tool_result"}
+            for tool in tuple(available_tools or ())
+        )
+    )
+    evidence_alignment_enabled = bool(
+        exact_evidence_enabled
+        and _system_group_enabled(context_policy, "evidence_alignment", default=True)
+    )
+    reasoning_projection_enabled = _system_group_enabled(context_policy, "reasoning_projection", default=True)
+
+    system_groups = {
+        "task_contract_intake": _system_group_manifest(
+            enabled=may_request_task_run,
+            capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["task_contract_intake"],
+            config={
+                "accept_task_contract": True,
+                "request_task_run_enabled": may_request_task_run,
+                "contract_strictness": "canonical_task_contract_seed",
+                "task_lifecycle_policy": task_lifecycle_policy,
+            },
+            prompt_resources=("runtime.rule.turn_decision_alignment", "environment.general.lifecycle.task_run_handoff"),
+            context_segments=("task_contract_stable", "task_prompt_contract"),
+            feedback_channels=("contract_gap_repair", "task_run_handoff_repair"),
+        ),
+        "react_loop": _system_group_manifest(
+            enabled=bool(may_call_tools or may_use_subagents or may_control_active_work),
+            capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["react_loop"],
+            config={
+                "mode": "tool_calling" if may_call_tools else "no_tool_action_control",
+                "supports_json_action_protocol": bool(control.get("supports_json_action_protocol") is True),
+                "requires_json_action_protocol": bool(control.get("requires_json_action_protocol") is True),
+            },
+            prompt_resources=("runtime.rule.tool_use", "runtime.rule.multi_tool_scheduling"),
+            context_segments=("single_agent_turn_tool_call", "single_agent_turn_tool_observation", "single_agent_turn_followup_action_contract"),
+            feedback_channels=("tool_result", "tool_error", "tool_permission_denial", "followup_prompt_payload"),
+        ),
+        "tool_runtime": _system_group_manifest(
+            enabled=may_call_tools,
+            capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["tool_runtime"],
+            config={
+                "visible_tool_names": list(visible_tool_names),
+                "tool_count": len(visible_tool_names),
+                "filtered_tool_count": len(filtered_tools),
+            },
+            prompt_resources=("tool.guidance.read_file", "tool.guidance.read_persisted_tool_result", "tool.guidance.edit_file", "tool.guidance.write_file", "tool.guidance.terminal_powershell"),
+            context_segments=("tool_schema_catalog", "tool_index_stable", "tool_observations"),
+            feedback_channels=("tool_result", "tool_error", "tool_permission_denial"),
+        ),
+        "skill_runtime": _system_group_manifest(
+            enabled=bool(skill_runtime_views),
+            capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["skill_runtime"],
+            config={
+                "visible_skill_count": len(skill_runtime_views),
+                "selected_skill_ids": list(selected_skill_ids),
+                "selection_source": str(dict(skill_activation or {}).get("selection_source") or ""),
+            },
+            prompt_resources=tuple(str(item.get("prompt_ref") or item.get("skill_id") or "") for item in tuple(skill_runtime_views or ())),
+            context_segments=("active_skills", "skill_candidates"),
+            feedback_channels=("skill_output_rule", "skill_failure_repair"),
+        ),
+        "subagent_delegation": _system_group_manifest(
+            enabled=may_use_subagents,
+            capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["subagent_delegation"],
+            config={
+                "allowed_subagent_ids": list(subagent_policy.get("allowed_subagent_ids") or []),
+                "max_subagent_runs_per_task": int(subagent_policy.get("max_subagent_runs_per_task") or 0),
+                "max_active_subagents": int(subagent_policy.get("max_active_subagents") or 0),
+                "context_policy": str(subagent_policy.get("context_policy") or "summary_and_refs_only"),
+                "result_policy": str(subagent_policy.get("result_policy") or "observation_refs_only"),
+                "allow_nested_subagents": bool(subagent_policy.get("allow_nested_subagents") is True),
+            },
+            prompt_resources=("tool.guidance.subagent", "environment.general.lifecycle.subagent_delegation", "environment.general.lifecycle.subagent_result_integration"),
+            context_segments=("single_agent_turn_tool_call", "single_agent_turn_tool_observation"),
+            feedback_channels=("subagent_result", "subagent_failure", "subagent_closeout"),
+        ),
+        "context_memory": _system_group_manifest(
+            enabled=memory_read_enabled,
+            capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["context_memory"],
+            config={
+                "allowed_memory_scopes": list(allowed_memory_scopes),
+                "allowed_context_sections": list(allowed_context_sections),
+                "history_scope": str(context_policy.get("history_scope") or ""),
+                "provider_visible_replay": True,
+            },
+            prompt_resources=("environment.general.lifecycle.memory_read_context",),
+            context_segments=("context_memory_prefix", "context_append", "runtime_memory_context", "session_history", "task_state_replay_entry"),
+            feedback_channels=("memory_read_recovery", "provider_visible_ledger_recovery"),
+        ),
+        "memory_governance": _system_group_manifest(
+            enabled=bool(memory_read_enabled or memory_write_candidate_enabled),
+            capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["memory_governance"],
+            config={
+                "read_enabled": memory_read_enabled,
+                "write_candidate_enabled": memory_write_candidate_enabled,
+                "allow_long_term_memory": allow_long_term_memory,
+                "write_scope": str(memory_policy.get("write_scope") or ""),
+                "writeback_policy": str(memory_policy.get("writeback_policy") or memory_policy.get("write_scope") or ""),
+            },
+            prompt_resources=("environment.general.lifecycle.memory_write_handoff",),
+            context_segments=("runtime_memory_context", "session_pinned_facts_context"),
+            feedback_channels=("memory_write_candidate", "memory_write_rejected", "memory_conflict"),
+        ),
+        "evidence_read": _system_group_manifest(
+            enabled=exact_evidence_enabled,
+            capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["evidence_read"],
+            config={"exact_read_evidence": exact_evidence_enabled},
+            prompt_resources=("tool.guidance.read_file", "environment.general.lifecycle.verification_gate"),
+            context_segments=("read_evidence_context", "evidence_index_cursor", "attachment_context_index", "editor_context_index"),
+            feedback_channels=("evidence_missing", "evidence_recovery"),
+        ),
+        "evidence_alignment": _system_group_manifest(
+            enabled=evidence_alignment_enabled,
+            capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["evidence_alignment"],
+            config={
+                "evidence_delta_summary": evidence_alignment_enabled,
+                "answer_contract": "answer_evidence_alignment_contract",
+                "source_authority": "runtime.memory.evidence_delta_summary",
+            },
+            prompt_resources=("runtime.rule.answer_evidence_alignment",),
+            context_segments=(
+                "evidence_delta_summary",
+                "evidence_semantic_summary",
+                "read_coverage_projection",
+                "execution_action_evidence",
+                "answer_evidence_alignment_contract",
+            ),
+            feedback_channels=("evidence_boundary", "answer_evidence_alignment", "answer_alignment_feedback"),
+        ),
+        "reasoning_projection": _system_group_manifest(
+            enabled=reasoning_projection_enabled,
+            capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["reasoning_projection"],
+            config={
+                "provider_protocol_reasoning_replay": True,
+                "public_reasoning_default": False,
+                "reasoning_full_text_requires_explicit_opt_in": True,
+            },
+            prompt_resources=("runtime.rule.reasoning_projection",),
+            context_segments=("reasoning_trace_projection", "provider_reasoning_projection"),
+            feedback_channels=("reasoning_trace_status", "reasoning_projection_state"),
+        ),
+        "lifecycle_resume_steer": _system_group_manifest(
+            enabled=bool(may_control_active_work or may_request_task_run or bool(environment_lifecycle)),
+            capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["lifecycle_resume_steer"],
+            config={
+                "may_control_active_work": may_control_active_work,
+                "steer_append_only": True,
+                "resume_replay_required": True,
+            },
+            prompt_resources=("environment.general.lifecycle.active_work_control", "environment.general.lifecycle.user_steer_contract_revision"),
+            context_segments=("single_agent_turn_user_steer_context", "user_steering_context_append", "runtime_control_signal_tail"),
+            feedback_channels=("resume_recovery", "user_steer_repair", "closeout_control"),
+        ),
+        "output_projection": _system_group_manifest(
+            enabled=True,
+            capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["output_projection"],
+            config={"final_commit_required": True, "activity_archive": True},
+            prompt_resources=("environment.general.lifecycle.finalization",),
+            context_segments=("dynamic_projection",),
+            feedback_channels=("final_answer_boundary", "projection_closeout"),
+        ),
+        "recovery_closeout": _system_group_manifest(
+            enabled=True,
+            capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["recovery_closeout"],
+            config={"structured_failure_required": True, "recovery_package_allowed": True},
+            prompt_resources=("environment.general.lifecycle.tool_observation_recovery", "environment.general.lifecycle.compaction_handoff"),
+            context_segments=("provider_visible_ledger_recovery_checkpoint", "recovery_context_package", "recent_work_outcome"),
+            feedback_channels=("structured_failure", "recovery_package", "closeout_control"),
+        ),
+    }
+    system_groups.update(
+        _tool_capability_system_group_manifests(
+            tools_by_capability_group=tools_by_capability_group,
+            may_call_tools=may_call_tools,
+        )
+    )
+    context_capability_groups = _compiled_context_capability_groups(system_groups)
+    disabled_context_capability_groups = [
+        group for group in _CONTEXT_CAPABILITY_GROUPS if not context_capability_groups.get(group)
+    ]
+    seed = {
+        "profile_ref": profile.profile_ref,
+        "environment_id": str(task_environment.get("environment_id") or task_environment.get("requested_environment_id") or ""),
+        "system_groups": {
+            key: {
+                "enabled": bool(value.get("enabled") is True),
+                "config": dict(value.get("config") or {}),
+            }
+            for key, value in system_groups.items()
+        },
+        "allowed_operations": list(allowed_operations),
+        "visible_tool_names": list(visible_tool_names),
+        "selected_skill_ids": list(selected_skill_ids),
+        "tool_capability_groups": sorted(tools_by_capability_group),
+    }
+    manifest_id = "syswire:" + _stable_payload_hash(seed)[:16]
+    return {
+        "manifest_id": manifest_id,
+        "authority": "harness.runtime.system_wiring_manifest",
+        "source_profile_ref": profile.profile_ref,
+        "agent_profile_ref": str(agent_profile_payload.get("agent_profile_id") or ""),
+        "environment_ref": str(task_environment.get("environment_id") or task_environment.get("requested_environment_id") or ""),
+        "provider_physical_model": "",
+        "system_groups": system_groups,
+        "compiled": {
+            "context_capability_groups": context_capability_groups,
+            "context_capability_profile": {
+                "profile_id": "ctxcap:syswire:" + _stable_payload_hash(
+                    {
+                        "manifest_seed": seed,
+                        "enabled_groups": [group for group in _CONTEXT_CAPABILITY_GROUPS if context_capability_groups.get(group)],
+                        "disabled_groups": disabled_context_capability_groups,
+                    }
+                )[:16],
+                "enabled_groups": [group for group in _CONTEXT_CAPABILITY_GROUPS if context_capability_groups.get(group)],
+                "disabled_groups": disabled_context_capability_groups,
+                "provider_physical_model": "",
+                "authority": "harness.runtime.system_wiring_manifest.context_capability_profile",
+            },
+            "prompt_resource_gates": _compiled_prompt_resource_gates(system_groups),
+            "context_segment_gates": _compiled_context_segment_gates(system_groups),
+            "tool_operation_gates": {
+                "allowed_operations": list(allowed_operations),
+                "visible_tool_names": list(visible_tool_names),
+                "tool_capability_groups": sorted(tools_by_capability_group),
+                "filtered_tools": [dict(item) for item in filtered_tools],
+            },
+            "skill_gates": {
+                "visible_skill_ids": [
+                    str(item.get("skill_id") or "").strip()
+                    for item in tuple(skill_runtime_views or ())
+                    if str(item.get("skill_id") or "").strip()
+                ],
+                "selected_skill_ids": list(selected_skill_ids),
+                "rejected_skill_ids": list(dict(skill_activation or {}).get("rejected_skill_ids") or []),
+            },
+            "feedback_channels": _compiled_feedback_channels(system_groups),
+        },
+        "source_refs": {
+            "agent_runtime_profile": str(agent_profile_payload.get("agent_profile_id") or profile.profile_ref),
+            "runtime_assembly_profile": profile.profile_ref,
+            "task_environment": str(task_environment.get("environment_id") or task_environment.get("requested_environment_id") or ""),
+            "operation_authorization": str(operation_authorization.get("authority") or "harness.runtime.operation_authorization"),
+        },
+    }
+
+
+def _system_group_manifest(
+    *,
+    enabled: bool,
+    capability_groups: tuple[str, ...],
+    config: dict[str, Any],
+    prompt_resources: tuple[str, ...],
+    context_segments: tuple[str, ...],
+    feedback_channels: tuple[str, ...],
+) -> dict[str, Any]:
+    return {
+        "enabled": bool(enabled),
+        "config": dict(config or {}),
+        "capability_groups": [str(item) for item in tuple(capability_groups or ()) if str(item)],
+        "prompt_resources": [str(item) for item in tuple(prompt_resources or ()) if str(item)],
+        "context_segments": [str(item) for item in tuple(context_segments or ()) if str(item)],
+        "feedback_channels": [str(item) for item in tuple(feedback_channels or ()) if str(item)],
+    }
+
+
+def _tools_by_capability_group(available_tools: tuple[dict[str, Any], ...]) -> dict[str, list[dict[str, Any]]]:
+    result: dict[str, list[dict[str, Any]]] = {}
+    for raw_tool in tuple(available_tools or ()):
+        if not isinstance(raw_tool, dict):
+            continue
+        tool = dict(raw_tool)
+        group_id = _capability_group_for_tool(tool)
+        if group_id not in _CAPABILITY_GROUP_CATALOG:
+            continue
+        result.setdefault(group_id, []).append(
+            {
+                "tool_name": str(tool.get("tool_name") or tool.get("name") or "").strip(),
+                "operation_id": str(tool.get("operation_id") or "").strip(),
+            }
+        )
+    return {key: value for key, value in result.items() if value}
+
+
+def _tool_capability_system_group_manifests(
+    *,
+    tools_by_capability_group: dict[str, list[dict[str, Any]]],
+    may_call_tools: bool,
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for capability_group, config in _TOOL_CAPABILITY_SYSTEM_GROUPS.items():
+        tools = [dict(item) for item in list(tools_by_capability_group.get(capability_group) or []) if isinstance(item, dict)]
+        group_id = f"tool_{capability_group}"
+        result[group_id] = _system_group_manifest(
+            enabled=bool(may_call_tools and tools),
+            capability_groups=tuple(config.get("capability_groups") or ()),
+            config={
+                "capability_group": capability_group,
+                "tool_count": len(tools),
+                "tool_names": [str(item.get("tool_name") or "") for item in tools if str(item.get("tool_name") or "")],
+                "operation_ids": [str(item.get("operation_id") or "") for item in tools if str(item.get("operation_id") or "")],
+            },
+            prompt_resources=tuple(config.get("prompt_resources") or ()),
+            context_segments=tuple(config.get("context_segments") or ()),
+            feedback_channels=tuple(config.get("feedback_channels") or ()),
+        )
+    return result
+
+
+def _compiled_context_capability_groups(system_groups: dict[str, dict[str, Any]]) -> dict[str, bool]:
+    enabled: set[str] = {"static_identity", "runtime_contracts"}
+    for group_payload in system_groups.values():
+        if not bool(dict(group_payload or {}).get("enabled") is True):
+            continue
+        enabled.update(
+            str(item)
+            for item in list(dict(group_payload or {}).get("capability_groups") or [])
+            if str(item)
+        )
+    return {group: group in enabled for group in _CONTEXT_CAPABILITY_GROUPS}
+
+
+def _system_group_enabled(context_policy: dict[str, Any], group_id: str, *, default: bool) -> bool:
+    group = str(group_id or "").strip()
+    if not group:
+        return default
+    policy = dict(context_policy or {})
+    for container_key in ("system_groups", "system_group_policy", "capability_systems"):
+        container = policy.get(container_key)
+        if not isinstance(container, dict):
+            continue
+        if group in container:
+            return _policy_switch_enabled(container.get(group), default=default)
+    for key in (group, f"{group}_enabled", f"include_{group}"):
+        if key in policy:
+            return _policy_switch_enabled(policy.get(key), default=default)
+    return default
+
+
+def _policy_switch_enabled(value: Any, *, default: bool) -> bool:
+    if isinstance(value, dict):
+        if "enabled" in value:
+            return _policy_switch_enabled(value.get("enabled"), default=default)
+        if "mode" in value:
+            return _policy_switch_enabled(value.get("mode"), default=default)
+        return default
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().lower()
+    if not normalized or normalized in {"default", "inherit"}:
+        return default
+    if normalized in {"disabled", "disable", "off", "false", "0", "none", "omit", "omitted", "hidden"}:
+        return False
+    if normalized in {"enabled", "enable", "on", "true", "1", "yes", "include", "included", "visible"}:
+        return True
+    return default
+
+
+def _compiled_prompt_resource_gates(system_groups: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for system_group, group_payload in system_groups.items():
+        enabled = bool(dict(group_payload or {}).get("enabled") is True)
+        for prompt_ref in list(dict(group_payload or {}).get("prompt_resources") or []):
+            ref = str(prompt_ref or "").strip()
+            if not ref:
+                continue
+            gate = result.setdefault(
+                ref,
+                {
+                    "enabled": False,
+                    "system_groups": [],
+                    "disabled_system_groups": [],
+                },
+            )
+            if enabled:
+                gate["enabled"] = True
+                gate["system_groups"] = _dedupe_strings([*list(gate.get("system_groups") or []), system_group])
+            else:
+                gate["disabled_system_groups"] = _dedupe_strings(
+                    [*list(gate.get("disabled_system_groups") or []), system_group]
+                )
+    return result
+
+
+def _compiled_context_segment_gates(system_groups: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for system_group, group_payload in system_groups.items():
+        enabled = bool(dict(group_payload or {}).get("enabled") is True)
+        for segment in list(dict(group_payload or {}).get("context_segments") or []):
+            key = str(segment or "").strip()
+            if not key:
+                continue
+            gate = result.setdefault(
+                key,
+                {
+                    "enabled": False,
+                    "system_groups": [],
+                    "disabled_system_groups": [],
+                },
+            )
+            if enabled:
+                gate["enabled"] = True
+                gate["system_groups"] = _dedupe_strings([*list(gate.get("system_groups") or []), system_group])
+            else:
+                gate["disabled_system_groups"] = _dedupe_strings(
+                    [*list(gate.get("disabled_system_groups") or []), system_group]
+                )
+    return result
+
+
+def _compiled_feedback_channels(system_groups: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for system_group, group_payload in system_groups.items():
+        enabled = bool(dict(group_payload or {}).get("enabled") is True)
+        for channel in list(dict(group_payload or {}).get("feedback_channels") or []):
+            key = str(channel or "").strip()
+            if not key:
+                continue
+            gate = result.setdefault(
+                key,
+                {
+                    "enabled": False,
+                    "system_groups": [],
+                    "disabled_system_groups": [],
+                },
+            )
+            if enabled:
+                gate["enabled"] = True
+                gate["system_groups"] = _dedupe_strings([*list(gate.get("system_groups") or []), system_group])
+            else:
+                gate["disabled_system_groups"] = _dedupe_strings(
+                    [*list(gate.get("disabled_system_groups") or []), system_group]
+                )
+    return result
+
+
+def _system_memory_read_enabled(
+    *,
+    memory_policy: dict[str, Any],
+    allowed_memory_scopes: tuple[str, ...],
+    environment_memory_space: dict[str, Any],
+) -> bool:
+    read_scope = str(memory_policy.get("read_scope") or memory_policy.get("enabled") or "").strip().lower()
+    if read_scope in {"disabled", "disable", "off", "false", "0", "none"}:
+        return False
+    return bool(
+        allowed_memory_scopes
+        or read_scope
+        or environment_memory_space.get("retrieval_index_refs")
+        or environment_memory_space.get("memory_refs")
+    )
+
+
+def _system_memory_write_candidate_enabled(
+    *,
+    memory_policy: dict[str, Any],
+    allowed_operations: tuple[str, ...],
+    allowed_memory_scopes: tuple[str, ...],
+) -> bool:
+    write_scope = str(memory_policy.get("write_scope") or memory_policy.get("write_enabled") or "").strip().lower()
+    if write_scope in {"disabled", "disable", "off", "false", "0", "none"}:
+        return False
+    return bool(
+        "op.memory_write_candidate" in set(allowed_operations)
+        or any(scope.endswith("_write_candidate") for scope in allowed_memory_scopes)
+    )
+
+
+def _system_long_term_memory_allowed(
+    *,
+    memory_policy: dict[str, Any],
+    allowed_memory_scopes: tuple[str, ...],
+) -> bool:
+    if bool(memory_policy.get("allow_long_term_memory") is True):
+        return True
+    long_term_scopes = {
+        "long_term_candidate",
+        "durable_memory_write_candidate",
+        "formal_memory_write_candidate",
+        "formal_memory_read",
+    }
+    return bool(long_term_scopes.intersection(set(allowed_memory_scopes)))
+
+
 def _capability_group_for_tool(tool: dict[str, Any]) -> str:
     operation_id = str(tool.get("operation_id") or "").strip()
     if operation_id in _TOOL_CAPABILITY_GROUP_BY_OPERATION:
@@ -729,6 +1418,21 @@ def _capability_group_for_tool(tool: dict[str, Any]) -> str:
     if "shell" in tool_name or "python_repl" in tool_name:
         return "shell_execution"
     return "general_task"
+
+
+def _stable_payload_hash(value: Any) -> str:
+    payload = json.dumps(_json_stable(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _json_stable(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_stable(value[key]) for key in sorted(value)}
+    if isinstance(value, (list, tuple)):
+        return [_json_stable(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return repr(value)
 
 
 def _dedupe_strings(values: list[str] | tuple[str, ...]) -> tuple[str, ...]:

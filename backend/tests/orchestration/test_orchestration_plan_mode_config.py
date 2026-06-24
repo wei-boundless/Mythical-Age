@@ -7,7 +7,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from config import RuntimeConfigManager
+from core.config import RuntimeConfigManager
 
 
 def test_orchestration_plan_mode_defaults_to_primary(tmp_path: Path) -> None:
@@ -34,5 +34,6 @@ def test_runtime_config_partial_updates_preserve_primary_orchestration_mode(tmp_
     assert saved["rag_mode"] is True
     assert saved["orchestration_plan_mode"] == "primary"
     assert manager.get_orchestration_plan_mode() == "primary"
+
 
 

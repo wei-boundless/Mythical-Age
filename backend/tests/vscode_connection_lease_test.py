@@ -17,7 +17,7 @@ from api import vscode as vscode_api
 from api.sessions import _get_session_history_coalesced
 from integrations.vscode_connection.context_store import VSCodeConnectionStore
 from integrations.vscode_connection.models import VSCodeConnectionLeaseConflict
-from project_workspaces import project_workspace_key
+from project_workspaces.service import project_workspace_key
 
 
 def test_vscode_connection_lease_rejects_duplicate_owner(tmp_path: Path) -> None:
@@ -226,3 +226,4 @@ class _HistoryManagerStub:
         self.read_count += 1
         time.sleep(0.05)
         return {"id": session_id, "messages": []}
+

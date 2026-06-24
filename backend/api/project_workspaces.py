@@ -12,7 +12,7 @@ from api.session_summary import enrich_session_summaries, enrich_session_summary
 from api.sessions import _select_project_directory_with_windows_dialog
 from code_environment.models import CodeEnvironmentWorkspaceTreeResponse
 from code_environment.workspace_tree import build_workspace_tree
-from project_workspaces import ProjectWorkspaceMissing, ProjectWorkspaceService
+from project_workspaces.service import ProjectWorkspaceMissing, ProjectWorkspaceService
 
 
 router = APIRouter()
@@ -173,3 +173,4 @@ async def project_workspace_tree(
 
 def _service(runtime: Any) -> ProjectWorkspaceService:
     return ProjectWorkspaceService(runtime.base_dir, runtime.session_manager)
+

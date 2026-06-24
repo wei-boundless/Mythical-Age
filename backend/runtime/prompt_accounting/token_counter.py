@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from token_accounting import count_text_tokens
+from core.token_accounting import count_text_tokens
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,3 +50,4 @@ class TokenCounterRegistry:
     def _local_exact(self, *, provider: str, model: str) -> bool:
         key = f"{str(provider or '').strip().lower()}:{str(model or '').strip().lower()}"
         return key in self.LOCAL_EXACT_ENCODINGS
+

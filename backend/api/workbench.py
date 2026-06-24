@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from api.deps import require_runtime
 from sessions import InvalidSessionId
 from task_system.session_scope import normalize_session_scope
-from workbench_state import WorkbenchStateStore
+from runtime.workbench_state import WorkbenchStateStore
 
 router = APIRouter()
 
@@ -65,3 +65,4 @@ async def clear_workbench_current_session(
 ) -> dict[str, Any]:
     runtime = require_runtime()
     return await asyncio.to_thread(WorkbenchStateStore(runtime.base_dir).clear_current_session, session_id=session_id or "")
+

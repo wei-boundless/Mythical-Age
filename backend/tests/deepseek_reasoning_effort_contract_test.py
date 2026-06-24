@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from config import _resolve_llm_reasoning_effort
+from core.config import _resolve_llm_reasoning_effort
 from runtime.model_gateway.providers.deepseek import DeepSeekProviderAdapter
 from runtime.model_gateway.providers.models import ProviderRequestProfile
 
@@ -37,7 +37,7 @@ def test_deepseek_adapter_normalizes_official_reasoning_effort_values() -> None:
 
 
 def test_settings_reasoning_effort_default_is_unset(monkeypatch) -> None:
-    import config as config_module
+    import core.config as config_module
 
     monkeypatch.setattr(config_module, "_runtime_system_value", lambda *_args, **_kwargs: "")
     monkeypatch.delenv("LLM_REASONING_EFFORT", raising=False)
@@ -52,3 +52,4 @@ def test_model_runtime_normalizes_auto_to_no_provider_reasoning_effort() -> None
     spec = ModelSpec(provider="deepseek", model="deepseek-v4-flash", api_key="test", base_url="https://api.deepseek.com", reasoning_effort=None)
 
     assert runtime._reasoning_effort_for_spec(spec) == ""
+

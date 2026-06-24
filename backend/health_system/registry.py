@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 from .command_builder import HealthCommandBuilder
 from .command_service import HealthCommandService
@@ -798,3 +798,4 @@ def _compact_graph_breakpoint_error(error: dict[str, Any]) -> dict[str, Any]:
         "validation_errors",
     }
     return {key: value for key, value in error.items() if key in allowed}
+

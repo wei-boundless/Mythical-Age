@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 class PdfAnalysisCatalog:
@@ -163,5 +163,6 @@ class PdfAnalysisCatalog:
         if normalized.lower().startswith("knowledge/"):
             return normalized.split("/", 1)[1]
         return normalized
+
 
 

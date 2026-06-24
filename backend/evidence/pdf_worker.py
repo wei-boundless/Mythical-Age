@@ -8,7 +8,7 @@ from typing import Any
 
 from capability_system.capabilities.document_processing.pdf.agent import PDFCanonicalResult, PDFReadAgentRuntime, PDFReadRequest
 from capability_system.capabilities.document_processing.pdf.analysis import PdfAnalysisCatalog
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from evidence.models import (
     DocumentCandidate,
     EvidenceArtifact,
@@ -398,5 +398,6 @@ def _typed_degraded_reason(canonical: PDFCanonicalResult) -> str:
     if "ocr" in reason:
         return "ocr_unstable"
     return "evidence_insufficient_for_synthesis"
+
 
 

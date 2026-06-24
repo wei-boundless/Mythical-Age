@@ -4,7 +4,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from token_accounting import count_text_tokens
+from core.token_accounting import count_text_tokens
 
 from .contracts import (
     MemoryContextCandidate,
@@ -370,6 +370,7 @@ def _safe_int(value: Any) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+
 
 
 

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from capability_system.capabilities.attachments import SUPPORTED_ATTACHMENT_IMAGE_SUFFIXES
-from config import runtime_config
+from core.config import runtime_config
 from evidence.models import BindingCandidate, EvidenceArtifact, EvidenceEnvelope, EvidenceItem, SourceObjectRef
 from .mcp_models import CanonicalResult, MCPRequest, MCPResult
 
@@ -285,3 +285,4 @@ class _ImageOCRError(Exception):
 
     def to_dict(self) -> dict[str, Any]:
         return {"code": self.code, "message": str(self)}
+

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from runtime.storage_policy import DEFAULT_RUNTIME_STORAGE_POLICY
 
 
@@ -290,3 +290,4 @@ def _assert_inside(path: Path, root: Path) -> None:
 
 def _normalized_path(path: Path) -> str:
     return Path(path).resolve().as_posix().lower()
+

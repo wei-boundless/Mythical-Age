@@ -14,7 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, AsyncIterator, Awaitable, Callable
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 from harness.loop.admission import AdmissionDecision
 from harness.loop.execution_kernel import (
     ActionLifecycleDecision,
@@ -44,7 +44,6 @@ from harness.runtime.environment_storage import ensure_environment_storage_dirs
 from harness.runtime.file_management_policy import compile_tool_file_management_policy
 from harness.runtime.incremental_context_frame import (
     build_prefix_lock_report,
-    build_tool_followup_incremental_context_frame_message,
     incremental_context_frame_segment_spec,
     is_incremental_context_frame_message,
     prefix_lock_violation_for_index,
@@ -108,6 +107,7 @@ from runtime.output_stream.public_contract import ASSISTANT_PUBLIC_FEEDBACK_EVEN
 from runtime.shared.models import TurnRun
 from runtime.shared.tool_identity import canonical_action_tool_call_id
 from runtime.tool_runtime import ToolInvocationRequest, ToolObservation, build_round_tool_call_options
+from runtime.memory.evidence_delta_summary import build_tool_followup_evidence_delta_summary
 from runtime.memory.file_evidence_scope import session_file_evidence_scope
 from runtime.tool_runtime.provider_tool_call_adapter import tool_calls_for_langchain_messages
 from permissions.policy import normalize_permission_mode
@@ -682,8 +682,10 @@ def _tool_followup_action_contract_messages(
     turn_id: str,
     allowed_action_types: tuple[str, ...],
     tool_iteration: int,
+    evidence_delta_summary: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     allowed = tuple(str(item) for item in tuple(allowed_action_types or ()) if str(item))
+    evidence_summary = _drop_empty_dict(dict(evidence_delta_summary or {}))
     payload = {
         "allowed_action_types": list(allowed),
         "required_fields": _agent_visible_action_fields(allowed),
@@ -695,10 +697,31 @@ def _tool_followup_action_contract_messages(
         },
         "tool_followup_iteration": int(tool_iteration or 0),
     }
+    if evidence_summary:
+        payload["evidence_delta_summary"] = evidence_summary
+        payload["answer_evidence_alignment_contract"] = {
+            "contract_ref": "answer_evidence_alignment_contract",
+            "required_agent_behavior": [
+                "only_claim_what_current_evidence_supports",
+                "disclose_coverage_boundary_when_partial",
+                "do_not_claim_full_file_review_from_window_evidence",
+                "continue_tool_use_or_ask_or_block_when_evidence_insufficient",
+                "do_not_claim_execution_without_receipt",
+            ],
+        }
+    evidence_instruction = (
+        "先用 evidence_delta_summary 校准证据边界：只把 usable_as 范围表述为已确认；"
+        "not_usable_as 里的内容不能扩张成结论。"
+        "如果证据不足，请继续调用允许的工具、询问用户或明确阻塞；"
+        "如果直接回答，请说明已确认范围和未确认边界。\n"
+        if evidence_summary
+        else ""
+    )
     instruction = (
         "你是正在根据刚才工具观察决定下一步的 coding agent。\n"
         "请选择一个下一步动作。\n"
         f"{json.dumps(payload, ensure_ascii=False, sort_keys=True)}\n\n"
+        f"{evidence_instruction}"
         "如果已经足够回答用户，直接写用户可见的最终回复；这会作为你的 respond 收口。\n"
         "如果需要用户补充，提交 action_type=ask_user，并填写 user_question。\n"
         "如果当前事实或权限不足，提交 action_type=block，并填写 blocking_reason。\n"
@@ -2225,6 +2248,20 @@ async def run_single_agent_turn(
                     tool_calls=assistant_tool_calls,
                     observations=round_observation_payloads,
                 )
+            evidence_alignment_enabled = _runtime_system_group_enabled(
+                runtime_assembly,
+                "evidence_alignment",
+                default=True,
+            )
+            evidence_delta_summary = (
+                build_tool_followup_evidence_delta_summary(
+                    current_observations=round_observation_payloads,
+                    accumulated_observations=tool_observation_payloads,
+                    tool_iteration=tool_iteration,
+                )
+                if evidence_alignment_enabled
+                else {}
+            )
             if consecutive_failure_rounds >= _CONSECUTIVE_TOOL_FAILURE_CLOSEOUT_THRESHOLD:
                 control_signal = _consecutive_tool_failure_closeout_control_signal(
                     turn_id=turn_id,
@@ -2427,26 +2464,7 @@ async def run_single_agent_turn(
             followup_invocation_messages = [dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)]
             if _tool_followup_requires_action_transport(current_allowed_action_types):
                 followup_context_messages = [
-                    *[dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)],
-                    build_tool_followup_incremental_context_frame_message(
-                        base_segment_plan=dict(followup_segment_plan or {}),
-                        model_messages=[],
-                        tool_iteration=tool_iteration,
-                        prefix_lock_report=dict(followup_segment_plan.get("prefix_lock") or {}),
-                        current_tool_round_indexed_messages=(
-                            round_tool_context_indexed_messages
-                            or _current_tool_round_indexed_messages(followup_context_messages)
-                        ),
-                        unchanged_refs=_unchanged_tool_refs_from_tool_context_ledger(
-                            tool_context_ledger_entries,
-                            current_entries=round_tool_context_entries,
-                        ),
-                        tool_context_delta=_tool_context_delta_from_ledger(
-                            tool_context_ledger_entries,
-                            current_entries=round_tool_context_entries,
-                            tool_iteration=tool_iteration,
-                        ),
-                    ),
+                    dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)
                 ]
                 followup_context_messages = _append_tool_followup_context_boundary(
                     followup_context_messages,
@@ -2458,14 +2476,21 @@ async def run_single_agent_turn(
                     turn_id=turn_id,
                     allowed_action_types=current_allowed_action_types,
                     tool_iteration=tool_iteration,
+                    evidence_delta_summary=evidence_delta_summary,
                 )
                 current_requires_json_action = True
                 followup_prompt_manifest = {
                     **dict(followup_prompt_manifest or {}),
                     "tool_followup_action_guidance": True,
+                    "evidence_alignment_system_group_enabled": evidence_alignment_enabled,
+                    "evidence_delta_summary_included": bool(evidence_delta_summary),
                     "assistant_body_transport": "plain_response_allowed",
                     "control_action_transport": "json_action",
                     "non_native_control_action_requires_json_action": True,
+                    "synthetic_incremental_context_frame": "omitted_from_provider_visible_messages",
+                    "synthetic_incremental_context_frame_reason": (
+                        "deepseek_prefix_cache_does_not_reliably_extend_after_mid_transcript_system_frames"
+                    ),
                 }
             else:
                 followup_context_messages = _append_tool_followup_context_boundary(
@@ -5357,6 +5382,15 @@ def _runtime_profile_payload(runtime_assembly: Any) -> dict[str, Any]:
     return dict(payload.get("profile") or {})
 
 
+def _runtime_system_group_enabled(runtime_assembly: Any, group_id: str, *, default: bool) -> bool:
+    payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+    manifest = dict(payload.get("system_wiring_manifest") or {})
+    group = dict(dict(manifest.get("system_groups") or {}).get(str(group_id or "").strip()) or {})
+    if not group:
+        return default
+    return bool(group.get("enabled") is True)
+
+
 def _turn_runtime_permission_mode(runtime_assembly: Any, *, runtime_host: Any | None = None) -> str:
     assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
     for candidate in (
@@ -6566,6 +6600,10 @@ def _single_agent_turn_followup_prompt_payload(
         invocation_kind="single_agent_turn_tool_followup",
         message_specs=specs,
     ).to_dict()
+    segment_plan = _with_followup_context_physical_diagnostics(
+        segment_plan,
+        base_segment_plan=base_segment_plan,
+    )
     segment_plan = _annotate_single_agent_followup_segment_plan(
         segment_plan,
         packet_id=str(packet_id or ""),
@@ -6899,21 +6937,7 @@ def _split_append_only_context_and_dynamic_tail(
     segment_plan: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     clean_messages = _copy_model_messages_without_rewriting(messages)
-    if not clean_messages:
-        return [], []
-    if not _uses_independent_dynamic_tail_physical_model(segment_plan):
-        return clean_messages, []
-    base_segments = _segment_plan_segments_by_message_index(dict(segment_plan or {}))
-    tail_start = len(clean_messages)
-    while tail_start > 0:
-        index = tail_start - 1
-        message = dict(clean_messages[index])
-        segment = dict(base_segments.get(index) or {})
-        if _is_tool_followup_current_dynamic_tail_segment(segment) or _is_current_control_tail_message(message):
-            tail_start -= 1
-            continue
-        break
-    return clean_messages[:tail_start], clean_messages[tail_start:]
+    return clean_messages, []
 
 
 def _uses_independent_dynamic_tail_physical_model(segment_plan: dict[str, Any] | None) -> bool:
@@ -6945,6 +6969,55 @@ def _uses_independent_dynamic_tail_physical_model(segment_plan: dict[str, Any] |
         )
     )
     return bool(physical_model_supports_tail and tail_enabled)
+
+
+def _with_followup_context_physical_diagnostics(
+    segment_plan: dict[str, Any],
+    *,
+    base_segment_plan: dict[str, Any],
+) -> dict[str, Any]:
+    payload = dict(segment_plan or {})
+    inherited = _context_physical_diagnostics_from_segment_plan(base_segment_plan)
+    if not inherited:
+        return payload
+    diagnostics = {
+        **dict(payload.get("diagnostics") or {}),
+        **inherited,
+        "context_physical_inherited_from_base_segment_plan": True,
+    }
+    payload["diagnostics"] = diagnostics
+    for key in (
+        "context_physical_model",
+        "provider_context_physical_model",
+        "dynamic_tail_supported",
+        "provider_dynamic_tail_supported",
+        "context_independent_dynamic_tail_enabled",
+        "provider_context_independent_dynamic_tail_enabled",
+    ):
+        if key in inherited:
+            payload[key] = inherited[key]
+    return payload
+
+
+def _context_physical_diagnostics_from_segment_plan(segment_plan: dict[str, Any] | None) -> dict[str, Any]:
+    plan = dict(segment_plan or {})
+    diagnostics = dict(plan.get("diagnostics") or {})
+    result: dict[str, Any] = {}
+    for key in (
+        "context_physical_model",
+        "provider_context_physical_model",
+        "provider_cache_policy_context_physical_model",
+        "dynamic_tail_supported",
+        "provider_dynamic_tail_supported",
+        "provider_cache_policy_dynamic_tail_supported",
+        "context_independent_dynamic_tail_enabled",
+        "provider_context_independent_dynamic_tail_enabled",
+    ):
+        value = plan.get(key, diagnostics.get(key))
+        if value in (None, ""):
+            continue
+        result[key] = value
+    return result
 
 
 def _is_current_control_tail_message(message: dict[str, Any]) -> bool:
@@ -7087,10 +7160,18 @@ def _single_agent_turn_followup_base_message_spec(
     cache_role = str(base.get("cache_role") or "volatile")
     prefix_tier = str(base.get("prefix_tier") or "volatile")
     if seal_provider_visible_history:
-        sealed = _sealed_followup_base_context_policy(
-            base,
-            message=message,
-            metadata=metadata,
+        sealed = (
+            _current_followup_append_context_policy(
+                base,
+                message=message,
+                metadata=metadata,
+            )
+            if is_current_tool_round
+            else _sealed_followup_base_context_policy(
+                base,
+                message=message,
+                metadata=metadata,
+            )
         )
         cache_scope = str(sealed.get("cache_scope") or cache_scope)
         cache_role = str(sealed.get("cache_role") or cache_role)
@@ -7133,6 +7214,53 @@ def _single_agent_turn_followup_base_message_spec(
         "model_message": dict(message),
     }
     return result
+
+
+def _current_followup_append_context_policy(
+    base: dict[str, Any],
+    *,
+    message: dict[str, Any],
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    append_metadata = {
+        **_without_context_classification_metadata(dict(metadata or {})),
+        "previous_context_structure": {
+            key: value
+            for key, value in dict(metadata or {}).items()
+            if str(key).startswith("context_")
+        },
+        "context_cache_section": CONTEXT_APPEND,
+        "context_assembly_section": CONTEXT_APPEND,
+        "context_physical_segment": CONTEXT_APPEND,
+        "context_semantic_slot": str(dict(metadata or {}).get("context_semantic_slot") or "tool_transcript"),
+        "context_commit_policy": "append_then_seal",
+        "context_replay_policy": "current_append_commit_on_provider_success_then_next_ledger_replay",
+        "provider_visible_history_status": "current_tool_round_pending_provider_success",
+        "provider_visible_history_authority": "harness.loop.single_agent_turn.followup_current_append",
+        "provider_visible_history_model_message_hash": stable_model_message_hash(dict(message or {})),
+        "cache_impact": "current_context_append_promotes_to_next_prefix",
+        "stability_rule": (
+            "this message belongs to the current tool round; it is provider-visible now, "
+            "but must not be counted as cache-readable until a provider success confirms it for later replay"
+        ),
+    }
+    append_spec = {
+        **dict(base or {}),
+        "cache_scope": "task",
+        "cache_role": "session_stable",
+        "prefix_tier": "task",
+        "metadata": append_metadata,
+    }
+    policy = context_segment_policy_for_spec(append_spec, default_section=CONTEXT_APPEND)
+    return {
+        "cache_scope": "task",
+        "cache_role": "session_stable",
+        "prefix_tier": "task",
+        "metadata": {
+            **append_metadata,
+            **context_segment_policy_metadata(policy),
+        },
+    }
 
 
 def _sealed_followup_base_context_policy(

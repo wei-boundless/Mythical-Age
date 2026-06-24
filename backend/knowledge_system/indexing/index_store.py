@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 
 class RetrievalLayout:
@@ -32,5 +32,6 @@ class RetrievalLayout:
 
     def units_path(self, name: str) -> Path:
         return self.collection_dir(name) / "units.json"
+
 
 

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from config import get_settings
+from core.config import get_settings
 from knowledge_system.indexing.index_store import RetrievalLayout
 
 from .collections import CollectionConfig, build_default_collections
@@ -54,5 +54,6 @@ class RAGIndexRegistry:
         if name not in self.collections:
             raise KeyError(f"Unknown collection: {name}")
         return self.collections[name]
+
 
 

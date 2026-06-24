@@ -5,7 +5,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from token_accounting import count_text_tokens
+from core.token_accounting import count_text_tokens
 
 from .contracts import MemoryContextCandidate
 from .working_memory_models import (
@@ -964,5 +964,6 @@ def _strings(values: Any) -> list[str]:
     if isinstance(values, str):
         return [values.strip()] if values.strip() else []
     return [str(item).strip() for item in list(values or []) if str(item).strip()]
+
 
 

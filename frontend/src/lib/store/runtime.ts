@@ -359,8 +359,8 @@ export class WorkspaceRuntime {
       openTaskGraphWorkspace: (target) => {
         this.openTaskGraphWorkspace(target);
       },
-      openWorkspaceFile: (path) => {
-        this.openWorkspaceFile(path);
+      openWorkspaceFile: (path, options) => {
+        this.openWorkspaceFile(path, options);
       },
       openFileChangeDiff: (target) => {
         this.openFileChangeDiff(target);
@@ -5390,11 +5390,12 @@ export class WorkspaceRuntime {
     }));
   }
 
-  private openWorkspaceFile(path: string) {
+  private openWorkspaceFile(path: string, options: { lineNumber?: number } = {}) {
     const filePath = String(path || "").trim();
     if (!filePath) {
       return;
     }
+    const lineNumber = normalizedWorkspaceLineNumber(options.lineNumber);
     const view = this.centerWorkspaceHostView(this.store.getState().activeWorkspaceView);
     this.syncWorkspaceViewUrl(view);
     this.store.setState((prev) => ({
@@ -5403,6 +5404,7 @@ export class WorkspaceRuntime {
       centerWorkspaceTarget: {
         layer: "file",
         file_path: filePath,
+        ...(lineNumber ? { line_number: lineNumber } : {}),
         requested_at: Date.now(),
       },
     }));
@@ -6263,6 +6265,11 @@ export class WorkspaceRuntime {
 function finiteNumber(value: unknown): number | undefined {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function normalizedWorkspaceLineNumber(value: unknown): number | undefined {
+  const numeric = Number(value);
+  return Number.isInteger(numeric) && numeric > 0 ? Math.min(numeric, 999999) : undefined;
 }
 
 function normalizeInspectorLogicalPath(path: string) {

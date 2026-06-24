@@ -43,6 +43,54 @@ export type WorkbenchDensityOption = {
   description: string;
 };
 
+export type WorkbenchColorTokenId =
+  | "console-bg"
+  | "console-bg-raised"
+  | "console-surface"
+  | "console-surface-muted"
+  | "console-surface-strong"
+  | "console-surface-soft"
+  | "console-hover"
+  | "console-selected"
+  | "console-line"
+  | "console-line-soft"
+  | "console-line-strong"
+  | "console-text"
+  | "console-text-soft"
+  | "console-muted"
+  | "console-faint"
+  | "console-accent"
+  | "console-accent-hover"
+  | "console-accent-soft"
+  | "console-success"
+  | "console-success-soft"
+  | "console-warning"
+  | "console-warning-soft"
+  | "console-danger"
+  | "console-danger-soft";
+
+export type WorkbenchTextTokenId = Extract<
+  WorkbenchColorTokenId,
+  "console-text" | "console-text-soft" | "console-muted" | "console-faint"
+>;
+
+export type WorkbenchColorToken = {
+  id: WorkbenchColorTokenId;
+  label: string;
+  description: string;
+};
+
+export type WorkbenchColorTokenGroup = {
+  id: string;
+  label: string;
+  tokens: readonly WorkbenchColorToken[];
+};
+
+export type WorkbenchTextStyleOverride = {
+  fontFamily?: string;
+  fontSizePx?: number;
+};
+
 export const WORKBENCH_THEME_STORAGE_KEY = "workbenchTheme";
 export const WORKBENCH_DENSITY_STORAGE_KEY = "workbenchDensity";
 export const WORKBENCH_THEME_CHANGE_EVENT = "workbench-theme-change";
@@ -229,6 +277,77 @@ export const WORKBENCH_DENSITY_OPTIONS: readonly WorkbenchDensityOption[] = [
   },
 ];
 
+export const WORKBENCH_COLOR_TOKEN_GROUPS: readonly WorkbenchColorTokenGroup[] = [
+  {
+    id: "surface",
+    label: "基础表面",
+    tokens: [
+      { id: "console-bg", label: "背景", description: "工作台底色和会话画布基色。" },
+      { id: "console-bg-raised", label: "抬升背景", description: "代码块、次级区域和弱面板底色。" },
+      { id: "console-surface", label: "面板", description: "卡片、输入区和主要面板底色。" },
+      { id: "console-surface-muted", label: "弱面板", description: "标签、按钮和辅助块底色。" },
+      { id: "console-surface-strong", label: "强面板", description: "悬停态、强调块和浮层边缘。" },
+      { id: "console-surface-soft", label: "柔和面板", description: "浅层 hover 与弱分组背景。" },
+    ],
+  },
+  {
+    id: "text",
+    label: "文字层级",
+    tokens: [
+      { id: "console-text", label: "正文", description: "主要正文、标题和高优先级信息。" },
+      { id: "console-text-soft", label: "次正文", description: "较弱的正文、说明和二级内容。" },
+      { id: "console-muted", label: "辅助文字", description: "提示、状态说明和元信息。" },
+      { id: "console-faint", label: "弱提示", description: "最低权重的标签和占位信息。" },
+    ],
+  },
+  {
+    id: "line",
+    label: "边线与选择",
+    tokens: [
+      { id: "console-line", label: "边线", description: "常规边框、分割线和表格线。" },
+      { id: "console-line-soft", label: "弱边线", description: "浅分割、内层边框和低对比边线。" },
+      { id: "console-line-strong", label: "强边线", description: "表格外框、聚焦边缘和强分割。" },
+      { id: "console-hover", label: "悬停", description: "列表、按钮和可点击元素 hover 底色。" },
+      { id: "console-selected", label: "选中", description: "当前项、选中态和激活行底色。" },
+    ],
+  },
+  {
+    id: "accent",
+    label: "强调与状态",
+    tokens: [
+      { id: "console-accent", label: "强调", description: "链接、主操作、图标和当前焦点色。" },
+      { id: "console-accent-hover", label: "强调悬停", description: "强调元素 hover 和高亮态。" },
+      { id: "console-accent-soft", label: "强调背景", description: "强调元素的柔和底色。" },
+      { id: "console-success", label: "成功", description: "成功状态、完成态和正向标识。" },
+      { id: "console-success-soft", label: "成功背景", description: "成功状态的柔和底色。" },
+      { id: "console-warning", label: "警告", description: "等待、注意和阈值风险。" },
+      { id: "console-warning-soft", label: "警告背景", description: "警告状态的柔和底色。" },
+      { id: "console-danger", label: "危险", description: "错误、失败和危险操作。" },
+      { id: "console-danger-soft", label: "危险背景", description: "错误状态的柔和底色。" },
+    ],
+  },
+];
+
+const WORKBENCH_COLOR_TOKEN_IDS = new Set(
+  WORKBENCH_COLOR_TOKEN_GROUPS.flatMap((group) => group.tokens.map((token) => token.id)),
+);
+
+export const WORKBENCH_TEXT_TOKEN_IDS: readonly WorkbenchTextTokenId[] = [
+  "console-text",
+  "console-text-soft",
+  "console-muted",
+  "console-faint",
+];
+
+const WORKBENCH_TEXT_TOKEN_ID_SET: ReadonlySet<string> = new Set(WORKBENCH_TEXT_TOKEN_IDS);
+
+const WORKBENCH_TEXT_STYLE_CSS_VARS: Record<WorkbenchTextTokenId, { font: string; size: string }> = {
+  "console-text": { font: "--console-text-font", size: "--console-text-size" },
+  "console-text-soft": { font: "--console-text-soft-font", size: "--console-text-soft-size" },
+  "console-muted": { font: "--console-muted-font", size: "--console-muted-size" },
+  "console-faint": { font: "--console-faint-font", size: "--console-faint-size" },
+};
+
 const WORKBENCH_THEME_IDS: ReadonlySet<string> = new Set(WORKBENCH_THEME_TEMPLATES.map((theme) => theme.id));
 const WORKBENCH_DENSITY_IDS: ReadonlySet<string> = new Set(WORKBENCH_DENSITY_OPTIONS.map((density) => density.id));
 
@@ -291,20 +410,40 @@ export type CustomAppearanceSettings = {
   fontOverride: WorkbenchFontId | null;
   fontSizeScale: number; // 0.8 ~ 1.3, 默认为 1
   customColorsEnabled: boolean;
+  colorOverrides: Partial<Record<WorkbenchColorTokenId, string>>;
+  textStyleOverrides: Partial<Record<WorkbenchTextTokenId, WorkbenchTextStyleOverride>>;
   bgColor: string | null;
   panelColor: string | null;
   accentSoftColor: string | null;
   bgImage: string | null;
+  bgImageMeta: WorkbenchBackgroundImageMeta | null;
+  chatCanvasVeil: number;
+  chatSurfaceOpacity: number;
+  closeoutMaxWidth: number;
+  textureIntensity: number;
+};
+
+export type WorkbenchBackgroundImageMeta = {
+  width: number;
+  height: number;
+  aspectRatio: number;
 };
 
 export const DEFAULT_CUSTOM_SETTINGS: CustomAppearanceSettings = {
   fontOverride: null,
   fontSizeScale: 1,
   customColorsEnabled: false,
+  colorOverrides: {},
+  textStyleOverrides: {},
   bgColor: null,
   panelColor: null,
   accentSoftColor: null,
   bgImage: null,
+  bgImageMeta: null,
+  chatCanvasVeil: 34,
+  chatSurfaceOpacity: 72,
+  closeoutMaxWidth: 1180,
+  textureIntensity: 100,
 };
 
 export const WORKBENCH_CUSTOM_SETTINGS_KEY = "workbenchCustomSettings";
@@ -312,16 +451,115 @@ export const WORKBENCH_CUSTOM_SETTINGS_CHANGE_EVENT = "workbench-custom-settings
 
 function normalizeCustomAppearanceSettings(settings: Partial<CustomAppearanceSettings> = {}): CustomAppearanceSettings {
   const next = { ...DEFAULT_CUSTOM_SETTINGS, ...settings };
-  const customColorsEnabled = next.customColorsEnabled === true && Boolean(next.bgColor || next.panelColor || next.accentSoftColor);
+  const explicitColorOverrides = normalizeColorOverrides(next.colorOverrides);
+  const hasExplicitColorOverrides = Object.keys(explicitColorOverrides).length > 0;
+  const migratedColorOverrides = hasExplicitColorOverrides
+    ? explicitColorOverrides
+    : normalizeColorOverrides({
+      "console-bg": next.bgColor,
+      "console-surface": next.panelColor,
+      "console-bg-raised": next.panelColor,
+      "console-accent-soft": next.accentSoftColor,
+    });
+  const customColorsEnabled = next.customColorsEnabled === true && Object.keys(migratedColorOverrides).length > 0;
 
   return {
-    ...next,
+    fontOverride: next.fontOverride,
     fontSizeScale: Number.isFinite(next.fontSizeScale) ? Math.min(1.3, Math.max(0.8, next.fontSizeScale)) : DEFAULT_CUSTOM_SETTINGS.fontSizeScale,
     customColorsEnabled,
-    bgColor: customColorsEnabled ? next.bgColor : null,
-    panelColor: customColorsEnabled ? next.panelColor : null,
-    accentSoftColor: customColorsEnabled ? next.accentSoftColor : null,
+    colorOverrides: customColorsEnabled ? migratedColorOverrides : {},
+    textStyleOverrides: normalizeTextStyleOverrides(next.textStyleOverrides),
+    bgColor: customColorsEnabled ? migratedColorOverrides["console-bg"] ?? null : null,
+    panelColor: customColorsEnabled ? migratedColorOverrides["console-surface"] ?? migratedColorOverrides["console-bg-raised"] ?? null : null,
+    accentSoftColor: customColorsEnabled ? migratedColorOverrides["console-accent-soft"] ?? null : null,
+    bgImage: typeof next.bgImage === "string" && next.bgImage.trim() ? next.bgImage : null,
+    bgImageMeta: typeof next.bgImage === "string" && next.bgImage.trim() ? normalizeBackgroundImageMeta(next.bgImageMeta) : null,
+    chatCanvasVeil: Number.isFinite(next.chatCanvasVeil) ? Math.min(90, Math.max(0, next.chatCanvasVeil)) : DEFAULT_CUSTOM_SETTINGS.chatCanvasVeil,
+    chatSurfaceOpacity: Number.isFinite(next.chatSurfaceOpacity) ? Math.min(100, Math.max(35, next.chatSurfaceOpacity)) : DEFAULT_CUSTOM_SETTINGS.chatSurfaceOpacity,
+    closeoutMaxWidth: Number.isFinite(next.closeoutMaxWidth) ? Math.min(1480, Math.max(860, next.closeoutMaxWidth)) : DEFAULT_CUSTOM_SETTINGS.closeoutMaxWidth,
+    textureIntensity: Number.isFinite(next.textureIntensity) ? Math.min(100, Math.max(0, next.textureIntensity)) : DEFAULT_CUSTOM_SETTINGS.textureIntensity,
   };
+}
+
+function normalizeBackgroundImageMeta(value: unknown): WorkbenchBackgroundImageMeta | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const source = value as Record<string, unknown>;
+  const width = Number(source.width);
+  const height = Number(source.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+  const roundedWidth = Math.round(width);
+  const roundedHeight = Math.round(height);
+  return {
+    width: roundedWidth,
+    height: roundedHeight,
+    aspectRatio: Number((roundedWidth / roundedHeight).toFixed(4)),
+  };
+}
+
+function normalizeColorOverrides(value: unknown): Partial<Record<WorkbenchColorTokenId, string>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const normalized: Partial<Record<WorkbenchColorTokenId, string>> = {};
+  Object.entries(value as Record<string, unknown>).forEach(([tokenId, color]) => {
+    if (!WORKBENCH_COLOR_TOKEN_IDS.has(tokenId as WorkbenchColorTokenId)) {
+      return;
+    }
+    const value = typeof color === "string" ? color.trim() : "";
+    if (/^#[0-9a-f]{6}$/i.test(value)) {
+      normalized[tokenId as WorkbenchColorTokenId] = value;
+    }
+  });
+  return normalized;
+}
+
+function normalizeTextStyleOverrides(value: unknown): Partial<Record<WorkbenchTextTokenId, WorkbenchTextStyleOverride>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const normalized: Partial<Record<WorkbenchTextTokenId, WorkbenchTextStyleOverride>> = {};
+  Object.entries(value as Record<string, unknown>).forEach(([tokenId, style]) => {
+    if (!WORKBENCH_TEXT_TOKEN_ID_SET.has(tokenId)) {
+      return;
+    }
+    if (!style || typeof style !== "object" || Array.isArray(style)) {
+      return;
+    }
+    const source = style as Record<string, unknown>;
+    const nextStyle: WorkbenchTextStyleOverride = {};
+    const fontFamily = normalizeFontFamily(source.fontFamily);
+    if (fontFamily) {
+      nextStyle.fontFamily = fontFamily;
+    }
+    const fontSizePx = normalizeTextFontSize(source.fontSizePx);
+    if (fontSizePx) {
+      nextStyle.fontSizePx = fontSizePx;
+    }
+    if (nextStyle.fontFamily || nextStyle.fontSizePx) {
+      normalized[tokenId as WorkbenchTextTokenId] = nextStyle;
+    }
+  });
+  return normalized;
+}
+
+function normalizeFontFamily(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().replace(/[;{}<>]/g, "").slice(0, 180);
+  return normalized || undefined;
+}
+
+function normalizeTextFontSize(value: unknown): number | undefined {
+  const size = Number(value);
+  if (!Number.isFinite(size)) return undefined;
+  return Math.min(32, Math.max(10, Math.round(size)));
+}
+
+function imageUrlCssValue(value: string) {
+  return `url(${JSON.stringify(value)})`;
 }
 
 export function getStoredCustomSettings(): CustomAppearanceSettings {
@@ -337,7 +575,11 @@ export function getStoredCustomSettings(): CustomAppearanceSettings {
 
 export function setStoredCustomSettings(settings: Partial<CustomAppearanceSettings>): CustomAppearanceSettings {
   const current = getStoredCustomSettings();
-  const next = normalizeCustomAppearanceSettings({ ...current, ...settings });
+  const merged: Partial<CustomAppearanceSettings> = { ...current, ...settings };
+  if ("bgImage" in settings && settings.bgImage !== current.bgImage && !("bgImageMeta" in settings)) {
+    merged.bgImageMeta = null;
+  }
+  const next = normalizeCustomAppearanceSettings(merged);
   if (typeof window === "undefined") return next;
   window.localStorage.setItem(WORKBENCH_CUSTOM_SETTINGS_KEY, JSON.stringify(next));
   applyAppearanceOverrides(next);
@@ -345,11 +587,114 @@ export function setStoredCustomSettings(settings: Partial<CustomAppearanceSettin
   return next;
 }
 
+type BackgroundImageLayoutVars = {
+  baseSize: string;
+  basePosition: string;
+  atmosphereSize: string;
+  atmospherePosition: string;
+  subjectSize: string;
+  subjectPosition: string;
+  subjectOpacity: string;
+  subjectMask: string;
+};
+
+const BACKGROUND_MASK_BALANCED = "linear-gradient(90deg, transparent 0%, black 18%, black 82%, transparent 100%)";
+const BACKGROUND_MASK_RIGHT_FOCUS = "linear-gradient(90deg, transparent 0%, black 34%, black 100%)";
+
+function resolveBackgroundImageLayout(hasImage: boolean, meta: WorkbenchBackgroundImageMeta | null): BackgroundImageLayoutVars {
+  if (!hasImage) {
+    return {
+      baseSize: "cover",
+      basePosition: "center center",
+      atmosphereSize: "cover",
+      atmospherePosition: "center center",
+      subjectSize: "contain",
+      subjectPosition: "center center",
+      subjectOpacity: "0",
+      subjectMask: BACKGROUND_MASK_BALANCED,
+    };
+  }
+  if (!meta) {
+    return {
+      baseSize: "auto 100%",
+      basePosition: "right center",
+      atmosphereSize: "cover",
+      atmospherePosition: "center center",
+      subjectSize: "auto min(92%, 960px)",
+      subjectPosition: "right center",
+      subjectOpacity: "0.32",
+      subjectMask: BACKGROUND_MASK_RIGHT_FOCUS,
+    };
+  }
+  const aspectRatio = meta.aspectRatio || meta.width / meta.height;
+  if (aspectRatio < 1) {
+    return {
+      baseSize: "auto 100%",
+      basePosition: "right center",
+      atmosphereSize: "cover",
+      atmospherePosition: "center center",
+      subjectSize: "auto min(94%, 980px)",
+      subjectPosition: "right center",
+      subjectOpacity: "0.34",
+      subjectMask: BACKGROUND_MASK_RIGHT_FOCUS,
+    };
+  }
+  if (aspectRatio < 1.35) {
+    return {
+      baseSize: "auto 100%",
+      basePosition: "right center",
+      atmosphereSize: "cover",
+      atmospherePosition: "center center",
+      subjectSize: "auto min(90%, 980px)",
+      subjectPosition: "right center",
+      subjectOpacity: "0.3",
+      subjectMask: BACKGROUND_MASK_RIGHT_FOCUS,
+    };
+  }
+  return {
+    baseSize: "cover",
+    basePosition: "center center",
+    atmosphereSize: "cover",
+    atmospherePosition: "center center",
+    subjectSize: "contain",
+    subjectPosition: "center center",
+    subjectOpacity: "0.24",
+    subjectMask: BACKGROUND_MASK_BALANCED,
+  };
+}
+
+let backgroundImageProbeId = 0;
+
+function probeLegacyBackgroundImageMeta(settings: CustomAppearanceSettings) {
+  if (typeof window === "undefined" || !settings.bgImage || settings.bgImageMeta) {
+    return;
+  }
+  const probeId = ++backgroundImageProbeId;
+  const image = new Image();
+  image.onload = () => {
+    if (probeId !== backgroundImageProbeId) return;
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    if (!width || !height) return;
+    const current = getStoredCustomSettings();
+    if (current.bgImage !== settings.bgImage || current.bgImageMeta) return;
+    setStoredCustomSettings({
+      bgImageMeta: {
+        width,
+        height,
+        aspectRatio: Number((width / height).toFixed(4)),
+      },
+    });
+  };
+  image.src = settings.bgImage;
+}
+
 export function clearCustomColorOverrides(): CustomAppearanceSettings {
   if (typeof window === "undefined") return { ...DEFAULT_CUSTOM_SETTINGS };
   const next = normalizeCustomAppearanceSettings({
     ...getStoredCustomSettings(),
     customColorsEnabled: false,
+    colorOverrides: {},
     bgColor: null,
     panelColor: null,
     accentSoftColor: null,
@@ -364,8 +709,9 @@ export function applyAppearanceOverrides(settings: CustomAppearanceSettings) {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
 
-  // Font
-  const font = WORKBENCH_FONT_OPTIONS.find((f) => f.id === settings.fontOverride);
+  // Font: theme templates provide the base face; user override wins when present.
+  const themeFontId = workbenchThemeById(getStoredWorkbenchTheme()).font;
+  const font = WORKBENCH_FONT_OPTIONS.find((f) => f.id === (settings.fontOverride ?? themeFontId));
   if (font) {
     root.style.setProperty("--font-display", font.fontDisplay);
     root.style.setProperty("--font-mono", font.fontMono);
@@ -388,54 +734,91 @@ export function applyAppearanceOverrides(settings: CustomAppearanceSettings) {
   root.style.setProperty("--console-font-size-body", `${Math.round(baseBody * scale)}px`);
   root.style.fontSize = `${Math.round(baseUi * scale)}px`;
 
-  root.style.removeProperty("--console-bg");
-  root.style.removeProperty("--console-surface");
-  root.style.removeProperty("--console-bg-raised");
-  root.style.removeProperty("--console-accent-soft");
+  WORKBENCH_COLOR_TOKEN_IDS.forEach((tokenId) => {
+    root.style.removeProperty(`--${tokenId}`);
+  });
+  Object.values(WORKBENCH_TEXT_STYLE_CSS_VARS).forEach((vars) => {
+    root.style.removeProperty(vars.font);
+    root.style.removeProperty(vars.size);
+  });
 
   if (settings.customColorsEnabled) {
-    if (settings.bgColor) {
-      root.style.setProperty("--console-bg", settings.bgColor);
-    }
-
-    if (settings.panelColor) {
-      root.style.setProperty("--console-surface", settings.panelColor);
-      root.style.setProperty("--console-bg-raised", settings.panelColor);
-    }
-
-    if (settings.accentSoftColor) {
-      root.style.setProperty("--console-accent-soft", settings.accentSoftColor);
-    }
+    Object.entries(settings.colorOverrides).forEach(([tokenId, color]) => {
+      if (color && WORKBENCH_COLOR_TOKEN_IDS.has(tokenId as WorkbenchColorTokenId)) {
+        root.style.setProperty(`--${tokenId}`, color);
+      }
+    });
   }
+  Object.entries(settings.textStyleOverrides).forEach(([tokenId, style]) => {
+    if (!WORKBENCH_TEXT_TOKEN_ID_SET.has(tokenId) || !style) return;
+    const vars = WORKBENCH_TEXT_STYLE_CSS_VARS[tokenId as WorkbenchTextTokenId];
+    if (style.fontFamily) {
+      root.style.setProperty(vars.font, style.fontFamily);
+    }
+    if (style.fontSizePx) {
+      root.style.setProperty(vars.size, `${style.fontSizePx}px`);
+    }
+  });
 
   // Background image
+  const backgroundLayout = resolveBackgroundImageLayout(Boolean(settings.bgImage), settings.bgImageMeta);
   if (settings.bgImage) {
-    root.style.setProperty("--workbench-bg-image", `url("${settings.bgImage}")`);
+    root.style.setProperty("--workbench-bg-image", imageUrlCssValue(settings.bgImage));
   } else {
     root.style.setProperty("--workbench-bg-image", "none");
   }
+  root.style.setProperty("--workbench-bg-size", backgroundLayout.baseSize);
+  root.style.setProperty("--workbench-bg-position", backgroundLayout.basePosition);
+  root.style.setProperty("--workbench-bg-atmosphere-size", backgroundLayout.atmosphereSize);
+  root.style.setProperty("--workbench-bg-atmosphere-position", backgroundLayout.atmospherePosition);
+  root.style.setProperty("--workbench-bg-subject-size", backgroundLayout.subjectSize);
+  root.style.setProperty("--workbench-bg-subject-position", backgroundLayout.subjectPosition);
+  root.style.setProperty("--workbench-bg-subject-opacity", backgroundLayout.subjectOpacity);
+  root.style.setProperty("--workbench-bg-subject-mask", backgroundLayout.subjectMask);
+  probeLegacyBackgroundImageMeta(settings);
+
+  root.style.setProperty("--chat-canvas-veil", `${Math.round(settings.chatCanvasVeil)}%`);
+  root.style.setProperty("--chat-canvas-veil-soft", `${Math.max(0, Math.round(settings.chatCanvasVeil) - 14)}%`);
+  root.style.setProperty("--chat-panel-surface-alpha", `${Math.round(settings.chatSurfaceOpacity)}%`);
+  root.style.setProperty("--chat-panel-surface-alpha-soft", `${Math.max(0, Math.round(settings.chatSurfaceOpacity) - 18)}%`);
+  root.style.setProperty("--workspace-bg-texture-opacity", `${Math.round(settings.textureIntensity) / 100}`);
+  root.style.setProperty("--closeout-content-max", `${Math.round(settings.closeoutMaxWidth)}px`);
 }
 
 export function clearCustomOverrides() {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
-  // Re-apply theme base
-  const themeId = getStoredWorkbenchTheme();
-  applyWorkbenchAppearance(themeId, getStoredWorkbenchDensity());
-  // Remove inline style overrides
+  window.localStorage.removeItem(WORKBENCH_CUSTOM_SETTINGS_KEY);
+  // Remove inline style overrides before applying the current template defaults.
   root.style.removeProperty("--font-display");
   root.style.removeProperty("--font-mono");
   root.style.removeProperty("--console-font-size-ui");
   root.style.removeProperty("--console-font-size-page");
   root.style.removeProperty("--console-font-size-body");
   root.style.removeProperty("font-size");
-  root.style.removeProperty("--console-bg");
-  root.style.removeProperty("--console-surface");
-  root.style.removeProperty("--console-bg-raised");
-  root.style.removeProperty("--console-accent-soft");
+  WORKBENCH_COLOR_TOKEN_IDS.forEach((tokenId) => {
+    root.style.removeProperty(`--${tokenId}`);
+  });
+  Object.values(WORKBENCH_TEXT_STYLE_CSS_VARS).forEach((vars) => {
+    root.style.removeProperty(vars.font);
+    root.style.removeProperty(vars.size);
+  });
   root.style.removeProperty("--workbench-bg-image");
-  // Reset stored custom
-  window.localStorage.removeItem(WORKBENCH_CUSTOM_SETTINGS_KEY);
+  root.style.removeProperty("--workbench-bg-size");
+  root.style.removeProperty("--workbench-bg-position");
+  root.style.removeProperty("--workbench-bg-atmosphere-size");
+  root.style.removeProperty("--workbench-bg-atmosphere-position");
+  root.style.removeProperty("--workbench-bg-subject-size");
+  root.style.removeProperty("--workbench-bg-subject-position");
+  root.style.removeProperty("--workbench-bg-subject-opacity");
+  root.style.removeProperty("--workbench-bg-subject-mask");
+  root.style.removeProperty("--chat-canvas-veil");
+  root.style.removeProperty("--chat-canvas-veil-soft");
+  root.style.removeProperty("--chat-panel-surface-alpha");
+  root.style.removeProperty("--chat-panel-surface-alpha-soft");
+  root.style.removeProperty("--workspace-bg-texture-opacity");
+  root.style.removeProperty("--closeout-content-max");
+  applyWorkbenchAppearance(getStoredWorkbenchTheme(), getStoredWorkbenchDensity());
 }
 
 export function setStoredWorkbenchDensity(density: string) {

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 from .models import HealthIssue
 
@@ -63,5 +63,6 @@ def get_health_issue_by_id(base_dir: Path, issue_id: str) -> HealthIssue | None:
             metadata=dict(payload.get("metadata") or {}),
         )
     return None
+
 
 

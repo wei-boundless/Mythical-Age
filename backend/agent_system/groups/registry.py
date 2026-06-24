@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from project_layout import ProjectLayout
+from core.project_layout import ProjectLayout
 
 from ..registry.agent_registry import AgentRegistry
 from .models import AgentGroup
@@ -185,5 +185,6 @@ class AgentGroupRegistry:
                 next_groups.append(group)
         if changed:
             _write_json(self.path, {"groups": [item.to_dict() for item in next_groups]})
+
 
 
