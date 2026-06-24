@@ -146,11 +146,6 @@ def build_prompt_assembly_plan(
         )
 
     diagnostics = _diagnostics(slots)
-    if diagnostics["segment_prefix_violations"]:
-        raise ValueError(
-            "prompt assembly prefix topology is invalid: "
-            + json.dumps(diagnostics["segment_prefix_violations"], ensure_ascii=False, sort_keys=True)
-        )
     seed = {
         "source_bundle_id": source_bundle.bundle_id,
         "slots": [
@@ -177,22 +172,14 @@ def build_prompt_assembly_plan(
             **diagnostics,
             "source_bundle_ref": source_bundle.bundle_id,
             "provider_profile": provider_profile_payload,
-            "assembly_order_policy": "context_assembly_section_prefix_locked",
+            "assembly_order_policy": "physical_source_order_append_only",
             "authority": "prompt_composition.assembly_plan.builder",
         },
     )
 
 
-def _assembly_order_key(slot: PromptAssemblySlot) -> tuple[int, int, int]:
-    metadata = dict(slot.metadata or {})
-    section = str(metadata.get("context_cache_section") or "").strip()
-    section_rank = {
-        "static_prefix": 10,
-        CONTEXT_MEMORY_PREFIX: 20,
-        "context_append": 30,
-        "dynamic_tail": 40,
-    }.get(section, 50)
-    return (section_rank, PREFIX_TIER_ORDER.get(str(slot.prefix_tier or ""), 999), int(slot.source_order or 0))
+def _assembly_order_key(slot: PromptAssemblySlot) -> tuple[int]:
+    return (int(slot.source_order or 0),)
 
 
 def _slot_from_source(source: PromptSource, *, provider_profile: dict[str, Any]) -> PromptAssemblySlot:
@@ -428,7 +415,7 @@ def _diagnostics(slots: list[PromptAssemblySlot]) -> dict[str, Any]:
     prefix_sequence = [slot.prefix_tier for slot in slots]
     cache_role_sequence = [slot.cache_role for slot in slots]
     layer_sequence = [slot.layer for slot in slots]
-    violations: list[dict[str, Any]] = []
+    cache_order_warnings: list[dict[str, Any]] = []
     previous_rank = 0
     previous_tier = ""
     volatile_seen = False
@@ -436,23 +423,25 @@ def _diagnostics(slots: list[PromptAssemblySlot]) -> dict[str, Any]:
         rank = PREFIX_TIER_ORDER.get(slot.prefix_tier, 999)
         stable = slot.cache_role in STABLE_CACHE_ROLES and slot.prefix_tier not in {"volatile", "none"}
         if volatile_seen and stable:
-            violations.append(
+            cache_order_warnings.append(
                 {
-                    "code": "stable_slot_after_volatile_boundary",
+                    "code": "stable_slot_after_volatile_cache_boundary",
                     "slot_id": slot.slot_id,
                     "kind": slot.slot_kind,
                     "prefix_tier": slot.prefix_tier,
                     "cache_role": slot.cache_role,
+                    "severity": "diagnostic_only",
                 }
             )
         if stable and previous_rank and rank < previous_rank:
-            violations.append(
+            cache_order_warnings.append(
                 {
-                    "code": "prefix_tier_order_regression",
+                    "code": "prefix_tier_cache_order_regression",
                     "slot_id": slot.slot_id,
                     "kind": slot.slot_kind,
                     "previous_prefix_tier": previous_tier,
                     "prefix_tier": slot.prefix_tier,
+                    "severity": "diagnostic_only",
                 }
             )
         if slot.prefix_tier in {"volatile", "none"} or slot.cache_role in VOLATILE_CACHE_ROLES:
@@ -461,7 +450,7 @@ def _diagnostics(slots: list[PromptAssemblySlot]) -> dict[str, Any]:
             previous_rank = rank
             previous_tier = slot.prefix_tier
     return {
-        "status": "ok" if not violations else "failed",
+        "status": "ok" if not cache_order_warnings else "warning",
         "slot_count": len(slots),
         "prefix_tier_sequence": prefix_sequence,
         "cache_role_sequence": cache_role_sequence,
@@ -470,7 +459,12 @@ def _diagnostics(slots: list[PromptAssemblySlot]) -> dict[str, Any]:
         "cache_role_counts": _count_by(slots, "cache_role"),
         "layer_counts": _count_by(slots, "layer"),
         "dynamic_tier_counts": _count_by(slots, "dynamic_tier"),
-        "segment_prefix_violations": violations,
+        "cache_order_warnings": cache_order_warnings,
+        "segment_prefix_violations": cache_order_warnings,
+        "physical_model_contract": (
+            "assembly order is fixed by source_order; cache_role, prefix_tier, provider policy, and "
+            "context_cache_section are diagnostics only and must not reorder provider-visible messages"
+        ),
         "assembly_reordered_slot_count": sum(1 for slot in slots if slot.assembly_order != slot.source_order),
     }
 

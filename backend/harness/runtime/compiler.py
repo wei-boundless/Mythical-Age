@@ -45,21 +45,6 @@ from harness.current_work_receipt import current_work_operation_availability_fro
 from harness.recovery_receipt import recovery_operation_availability_from_receipt
 from project_layout import ProjectLayout
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
-from runtime.model_gateway.provider_cache_policy import ProviderCachePolicyResolver
-from runtime.context_management import (
-    CONTEXT_APPEND,
-    CONTEXT_MEMORY_PREFIX,
-    DYNAMIC_TAIL,
-    STATIC_PREFIX,
-    apply_context_assembly_classification,
-    assemble_context_physical_message_specs,
-    assemble_provider_visible_context_specs,
-    classify_context_spec,
-    context_segment_policy_for_spec,
-    context_segment_policy_metadata,
-    is_sealable_context_spec,
-    provider_visible_context_replay_only_candidate_spec,
-)
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
 from .artifact_scope import runtime_artifact_scope_from_environment
@@ -800,6 +785,38 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
+                    title="Single agent turn runtime memory context",
+                    payload=runtime_memory_context_payload,
+                    kind="runtime_memory_context",
+                    source_ref=_runtime_memory_context_source_ref(runtime_memory_context_payload),
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="summarize",
+                    metadata={
+                        "authority_class": "runtime_memory_context",
+                        "content_source": "memory_system.runtime_memory_context",
+                        "stability_rule": "selected memory context is rememberable context; changed selections append as new context and the previous provider-visible package remains sealed",
+                        "cache_impact": "context_append_then_sealed_prefix",
+                    },
+                )
+                if runtime_memory_context_payload
+                else None,
+                _runtime_payload_spec(
+                    role="user",
+                    title="Single agent turn current request",
+                    payload=current_request_payload,
+                    kind="current_turn_user_context",
+                    source_ref="single_agent_turn_current_request",
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="summarize",
+                    metadata={
+                        **_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
+                        **_current_user_context_append_metadata(current_request_payload),
+                    },
+                ),
+                _runtime_payload_spec(
+                    role="system",
                     title="Task current exact read evidence",
                     payload=_read_evidence_current_prompt_payload(read_evidence_prompt_payload),
                     kind="read_evidence_injection",
@@ -886,38 +903,6 @@ class RuntimeCompiler:
                 )
                 if volatile_runtime_payload
                 else None,
-                _runtime_payload_spec(
-                    role="system",
-                    title="Single agent turn runtime memory context",
-                    payload=runtime_memory_context_payload,
-                    kind="runtime_memory_context",
-                    source_ref=_runtime_memory_context_source_ref(runtime_memory_context_payload),
-                    cache_scope="none",
-                    cache_role="volatile",
-                    compression_role="summarize",
-                    metadata={
-                        "authority_class": "runtime_memory_context",
-                        "content_source": "memory_system.runtime_memory_context",
-                        "stability_rule": "selected memory context is rememberable context; changed selections append as new context and the previous provider-visible package remains sealed",
-                        "cache_impact": "context_append_then_sealed_prefix",
-                    },
-                )
-                if runtime_memory_context_payload
-                else None,
-                _runtime_payload_spec(
-                    role="user",
-                    title="Single agent turn current request",
-                    payload=current_request_payload,
-                    kind="current_turn_user_context",
-                    source_ref="single_agent_turn_current_request",
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="summarize",
-                    metadata={
-                        **_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
-                        **_current_user_context_append_metadata(current_request_payload),
-                    },
-                ),
             ],
             enforce_dynamic_context_reports=True,
         )
@@ -4534,13 +4519,6 @@ def _model_messages_and_segment_plan(
         spec["content"] = str(model_message.get("content") or spec.get("content") or "")
         spec["model_message"] = model_message
         source_specs.append(spec)
-    source_specs = _fixed_context_package_message_specs(
-        source_specs,
-        invocation_kind=invocation_kind,
-        provider_visible_context_scope=provider_visible_context_scope or packet_id,
-        storage_root=storage_root,
-        provider_cache_policy=_provider_cache_policy_for_model_selection(model_selection),
-    )
     source_bundle = build_prompt_source_bundle(
         packet_id=packet_id,
         invocation_kind=invocation_kind,
@@ -4574,195 +4552,6 @@ def _model_messages_and_segment_plan(
         enforce_dynamic_context_reports=enforce_dynamic_context_reports,
     )
     return model_messages, segment_plan, tuple(clean_specs), source_manifest, slot_plan, load_plan
-
-
-def _provider_cache_policy_for_model_selection(model_selection: dict[str, Any] | None) -> Any:
-    selection = dict(model_selection or {})
-    if not any(str(selection.get(key) or "").strip() for key in ("provider", "model", "base_url")):
-        return None
-    return ProviderCachePolicyResolver().resolve(
-        provider=str(selection.get("provider") or ""),
-        model=str(selection.get("model") or ""),
-        base_url=str(selection.get("base_url") or ""),
-    )
-
-
-def _provider_cache_context_metadata(provider_cache_policy: Any | None) -> dict[str, Any]:
-    if provider_cache_policy is None:
-        return {
-            "context_physical_model": "static_context",
-            "context_dynamic_tail_participates": True,
-            "context_independent_dynamic_tail_enabled": False,
-            "context_physical_segment_order": [STATIC_PREFIX, "context_memory"],
-            "context_cache_section_order": [STATIC_PREFIX, CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND],
-            "context_physical_model_authority": "runtime.model_gateway.provider_cache_policy",
-            "context_physical_model_reason": "default_when_model_selection_absent",
-        }
-    payload = provider_cache_policy.to_dict() if hasattr(provider_cache_policy, "to_dict") else dict(provider_cache_policy or {})
-    diagnostics = dict(payload.get("diagnostics") or {})
-    return {
-        "context_physical_model": str(payload.get("context_physical_model") or "static_context"),
-        "context_dynamic_tail_participates": True,
-        "context_independent_dynamic_tail_enabled": bool(
-            payload.get("dynamic_tail_supported") is True
-            and str(payload.get("context_physical_model") or "") == "static_context_dynamic_tail"
-        ),
-        "context_physical_segment_order": list(
-            payload.get("context_physical_segment_order") or []
-        ),
-        "context_cache_section_order": list(payload.get("context_cache_section_order") or []),
-        "context_physical_model_authority": str(payload.get("authority") or "runtime.model_gateway.provider_cache_policy"),
-        "context_physical_model_reason": str(
-            diagnostics.get("context_physical_model_reason")
-            or payload.get("reason")
-            or ""
-        ),
-        "provider_cache_policy_mode": str(payload.get("mode") or ""),
-        "provider_cache_policy_reason": str(payload.get("reason") or ""),
-    }
-
-
-def _fixed_context_package_message_specs(
-    specs: list[dict[str, Any]],
-    *,
-    invocation_kind: str = "",
-    provider_visible_context_scope: str = "",
-    storage_root: Path | None = None,
-    provider_cache_policy: Any | None = None,
-) -> list[dict[str, Any]]:
-    static_prefix: list[tuple[int, dict[str, Any]]] = []
-    context_append: list[tuple[int, dict[str, Any]]] = []
-    noncommitted_context_memory: list[tuple[int, dict[str, Any]]] = []
-    dynamic_tail: list[tuple[int, dict[str, Any]]] = []
-    physical_metadata = _provider_cache_context_metadata(provider_cache_policy)
-    independent_dynamic_tail_enabled = bool(
-        physical_metadata.get("context_independent_dynamic_tail_enabled") is True
-    )
-    for index, raw_spec in enumerate(list(specs or []), start=1):
-        spec = apply_context_assembly_classification(dict(raw_spec or {}))
-        classification = classify_context_spec(spec)
-        policy = context_segment_policy_for_spec(spec)
-        section = classification.context_cache_section
-        metadata = {
-            **dict(spec.get("metadata") or {}),
-            **context_segment_policy_metadata(policy),
-            **physical_metadata,
-            "fixed_context_package": classification.fixed_context_package,
-            "fixed_context_original_order": index,
-            "context_assembly_section": section,
-        }
-        spec["metadata"] = metadata
-        if section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
-            if is_sealable_context_spec(spec):
-                context_append.append((index, spec))
-            else:
-                noncommitted_context_memory.append((index, spec))
-        elif section == DYNAMIC_TAIL:
-            if independent_dynamic_tail_enabled:
-                dynamic_tail.append((index, spec))
-            else:
-                context_append.append(
-                    (
-                        index,
-                        _provider_visible_replay_only_dynamic_tail_spec(
-                            spec,
-                            storage_root=storage_root,
-                            scope=_provider_visible_context_scope(
-                                invocation_kind=invocation_kind,
-                                context_scope=provider_visible_context_scope,
-                            ),
-                            provider_cache_policy=provider_cache_policy,
-                        ),
-                    )
-                )
-        else:
-            static_prefix.append((index, spec))
-    context_append = _provider_visible_context_memory_specs(
-        context_append,
-        invocation_kind=invocation_kind,
-        provider_visible_context_scope=provider_visible_context_scope,
-        storage_root=storage_root,
-    )
-    return assemble_context_physical_message_specs(
-        static_prefix=static_prefix,
-        context_memory=[*context_append, *noncommitted_context_memory],
-        dynamic_tail=dynamic_tail,
-        physical_order=list(physical_metadata.get("context_physical_segment_order") or []),
-    )
-
-def _provider_visible_context_memory_specs(
-    items: list[tuple[int, dict[str, Any]]],
-    *,
-    invocation_kind: str,
-    provider_visible_context_scope: str,
-    storage_root: Path | None,
-) -> list[tuple[int, dict[str, Any]]]:
-    if not items:
-        return []
-    scope = _provider_visible_context_scope(invocation_kind=invocation_kind, context_scope=provider_visible_context_scope)
-    return assemble_provider_visible_context_specs(
-        list(items or []),
-        storage_root=storage_root,
-        scope=scope,
-    )
-
-
-def _provider_visible_replay_only_dynamic_tail_spec(
-    spec: dict[str, Any],
-    *,
-    storage_root: Path | None,
-    scope: str,
-    provider_cache_policy: Any | None = None,
-) -> dict[str, Any]:
-    metadata = {
-        **dict(dict(spec or {}).get("metadata") or {}),
-        "context_dynamic_tail_folded_into_context_memory": True,
-        "context_physical_segment": "context_memory",
-        "context_physical_model": "static_context",
-        "provider_visible_runtime_tail_replay_only": True,
-        "semantic_memory_commit_policy": "never_commit",
-        "semantic_memory_visible": False,
-        "stability_rule": (
-            "current runtime tail is provider-visible append-only text after it is sent; "
-            "it is replayed byte-stably for cache but is not durable semantic memory"
-        ),
-    }
-    payload = {
-        **dict(spec or {}),
-        "metadata": metadata,
-        "cache_scope": "task",
-        "cache_role": "session_stable",
-        "prefix_tier": "task",
-    }
-    return provider_visible_context_replay_only_candidate_spec(
-        payload,
-        storage_root=storage_root,
-        scope=scope,
-        provider=_provider_cache_policy_value(provider_cache_policy, "provider"),
-        model=_provider_cache_policy_value(provider_cache_policy, "model"),
-        adapter_contract=_provider_cache_policy_value(provider_cache_policy, "provider_adapter_contract")
-        or "deepseek_v4_provider_visible_message_v1",
-        replay_reason="folded_dynamic_tail_participates_in_append_only_provider_visible_prefix",
-    )
-
-
-def _provider_cache_policy_value(provider_cache_policy: Any | None, key: str) -> str:
-    if provider_cache_policy is None:
-        return ""
-    payload = provider_cache_policy.to_dict() if hasattr(provider_cache_policy, "to_dict") else dict(provider_cache_policy or {})
-    return str(payload.get(key) or "")
-
-
-def _provider_visible_context_scope(*, invocation_kind: str, context_scope: str) -> str:
-    scope = str(context_scope or "").strip()
-    if not scope:
-        scope = "default"
-    invocation = str(invocation_kind or "runtime").strip() or "runtime"
-    if invocation == "tool_observation_followup":
-        invocation = "single_agent_turn"
-    if invocation == "memory.maintenance_after_commit":
-        invocation = "single_agent_turn"
-    return f"{invocation}:{scope}"
 
 
 def _model_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:

@@ -471,6 +471,8 @@ _DEBUG_ONLY_FINAL_TEXT_CHANNELS = {
     "orchestration_fail_closed",
     "runtime_control",
 }
+_PROGRESS_ONLY_FINAL_TEXT_CHANNELS = {"progress_text", "procedural_promise"}
+_UNCOMMITTABLE_FINAL_TEXT_CHANNELS = {"tool_claim_without_receipt", "tool_raw_output", "missing_answer"}
 
 
 def _meaningful_visible_final_text(text: str) -> bool:
@@ -484,42 +486,85 @@ def _meaningful_visible_final_text(text: str) -> bool:
     return any(ch.isalnum() or "\u4e00" <= ch <= "\u9fff" for ch in normalized)
 
 
-def _canonical_visible_final_text(
-    text: str,
+def _normal_final_text_decision(
+    visible_text: str,
     *,
+    normalized_channel: str,
+    normalized_source: str,
     route: str,
-    source: str,
     execution_posture: str,
     user_message: str,
     tool_name: str,
     retrieval_results: list[dict[str, object]] | None,
     has_tool_receipt: bool,
-) -> str:
-    visible_text = str(text or "").strip()
-    if not visible_text:
-        return ""
-    candidates: list[OutputCandidate] = []
+    terminal_reason: str,
+    completion_state: str,
+) -> CanonicalFinalTextDecision:
+    # Normal authored final text is already the content authority; classification
+    # may only veto progress/tool-noise, never crop the answer body.
     candidate = classify_output_candidate(
         text=visible_text,
         route=route,
-        source=source,
+        source=normalized_source,
         tool_name=tool_name,
         has_tool_receipt=has_tool_receipt,
     )
-    if candidate is not None:
-        candidates.append(candidate)
-    decision = build_output_decision(
-        candidates=candidates,
-        route=route,
-        execution_posture=execution_posture,
-        user_message=user_message,
-        tool_name=tool_name,
-        retrieval_results=retrieval_results,
+    if candidate is not None and candidate.channel in _PROGRESS_ONLY_FINAL_TEXT_CHANNELS:
+        return CanonicalFinalTextDecision(
+            content=candidate.text.strip(),
+            answer_channel=normalized_channel,
+            answer_source=normalized_source,
+            selected_channel=candidate.channel,
+            selected_source=candidate.source,
+            canonical_state="progress_only",
+            persist_policy="persist_debug_only",
+            finalization_policy="none",
+            fallback_reason=str(terminal_reason or completion_state or "progress_only").strip(),
+            leak_flags=[],
+        )
+    if candidate is not None and candidate.channel in _UNCOMMITTABLE_FINAL_TEXT_CHANNELS:
+        output_decision = build_output_decision(
+            candidates=[candidate],
+            route=route,
+            execution_posture=execution_posture,
+            user_message=user_message,
+            tool_name=tool_name,
+            retrieval_results=retrieval_results,
+            leak_flags=[],
+            has_tool_receipt=has_tool_receipt,
+        )
+        return CanonicalFinalTextDecision(
+            content="",
+            answer_channel=normalized_channel,
+            answer_source=normalized_source,
+            selected_channel=output_decision.selected_channel,
+            selected_source=output_decision.selected_source,
+            canonical_state=output_decision.canonical_state,
+            persist_policy=output_decision.persist_policy,
+            finalization_policy=output_decision.finalization_policy,
+            fallback_reason=str(
+                output_decision.fallback_reason
+                or terminal_reason
+                or completion_state
+                or "uncommittable_final_text"
+            ).strip(),
+            leak_flags=[],
+        )
+    selected_channel = candidate.channel if candidate is not None else "answer_candidate"
+    selected_source = candidate.source if candidate is not None else normalized_source
+    canonical_state: CanonicalState = "tool_summary" if selected_channel == "tool_visible_summary" else "stable_answer"
+    return CanonicalFinalTextDecision(
+        content=visible_text.strip(),
+        answer_channel=normalized_channel,
+        answer_source=normalized_source,
+        selected_channel=selected_channel,
+        selected_source=selected_source,
+        canonical_state=canonical_state,
+        persist_policy="persist_canonical",
+        finalization_policy="none",
+        fallback_reason=str(terminal_reason or completion_state or "").strip(),
         leak_flags=[],
-        has_tool_receipt=has_tool_receipt,
     )
-    canonical_content = sanitize_visible_assistant_content(decision.canonical_answer).strip()
-    return canonical_content or visible_text
 
 
 def canonical_output_decision_for_final_text(
@@ -637,70 +682,18 @@ def canonical_output_decision_for_final_text(
             leak_flags=hard_leak_flags,
         )
 
-    candidate = classify_output_candidate(
-        text=visible_text,
-        route=route,
-        source=normalized_source,
-        tool_name=tool_name,
-        has_tool_receipt=has_tool_receipt,
-    )
-    output_decision = build_output_decision(
-        candidates=[candidate] if candidate is not None else [],
+    return _normal_final_text_decision(
+        visible_text,
+        normalized_channel=normalized_channel,
+        normalized_source=normalized_source,
         route=route,
         execution_posture=execution_posture,
         user_message=user_message,
         tool_name=tool_name,
         retrieval_results=retrieval_results,
-        leak_flags=[],
         has_tool_receipt=has_tool_receipt,
-    )
-    canonical_content = sanitize_visible_assistant_content(output_decision.canonical_answer).strip()
-    if not canonical_content:
-        progress_candidate = next(
-            (
-                item
-                for item in output_decision.rejected_candidates
-                if item.channel in {"progress_text", "procedural_promise"}
-                and str(item.text or "").strip()
-            ),
-            None,
-        )
-        if progress_candidate is not None:
-            return CanonicalFinalTextDecision(
-                content=progress_candidate.text.strip(),
-                answer_channel=normalized_channel,
-                answer_source=normalized_source,
-                selected_channel=progress_candidate.channel,
-                selected_source=progress_candidate.source,
-                canonical_state="progress_only",
-                persist_policy="persist_debug_only",
-                finalization_policy="none",
-                fallback_reason=str(output_decision.fallback_reason or terminal_reason or completion_state or "progress_only").strip(),
-                leak_flags=[],
-            )
-        return CanonicalFinalTextDecision(
-            content="",
-            answer_channel=normalized_channel,
-            answer_source=normalized_source,
-            selected_channel="missing_answer",
-            selected_source="runtime.output_boundary.empty_final_text",
-            canonical_state="missing_answer",
-            persist_policy="do_not_persist",
-            finalization_policy="none",
-            fallback_reason=str(terminal_reason or completion_state or "empty_final_text").strip(),
-            leak_flags=[],
-        )
-    return CanonicalFinalTextDecision(
-        content=canonical_content,
-        answer_channel=normalized_channel,
-        answer_source=normalized_source,
-        selected_channel=output_decision.selected_channel,
-        selected_source=output_decision.selected_source,
-        canonical_state=output_decision.canonical_state,
-        persist_policy=output_decision.persist_policy,
-        finalization_policy=output_decision.finalization_policy,
-        fallback_reason=str(output_decision.fallback_reason or terminal_reason or completion_state or "").strip(),
-        leak_flags=[],
+        terminal_reason=terminal_reason,
+        completion_state=completion_state,
     )
 
 
@@ -846,6 +839,37 @@ class AssistantOutputBoundary:
             for flag in segment.debug_flags:
                 if flag not in leak_flags:
                     leak_flags.append(flag)
+        authored_visible_text = "\n\n".join(visible_parts).strip()
+        if authored_visible_text and not leak_flags:
+            authored_decision = _normal_final_text_decision(
+                authored_visible_text,
+                normalized_channel="answer_candidate",
+                normalized_source="assistant.visible_text",
+                route=route,
+                execution_posture=execution_posture,
+                user_message=user_message,
+                tool_name=tool_name,
+                retrieval_results=retrieval_results,
+                has_tool_receipt=has_tool_receipt,
+                terminal_reason="",
+                completion_state="",
+            )
+            if authored_decision.persist_policy == "persist_canonical":
+                return AssistantOutputResponse(
+                    visible_text=authored_visible_text,
+                    canonical_answer=authored_decision.content,
+                    selected_channel=authored_decision.selected_channel,
+                    selected_source=authored_decision.selected_source,
+                    canonical_state=authored_decision.canonical_state,
+                    persist_policy=authored_decision.persist_policy,
+                    finalization_policy=authored_decision.finalization_policy,
+                    segments=segments,
+                    tool_calls=all_tool_calls,
+                    tool_receipts=tool_receipts,
+                    raw_debug_text="\n\n".join(part for part in raw_parts if part.strip()).strip(),
+                    leak_flags=list(authored_decision.leak_flags),
+                    fallback_reason=authored_decision.fallback_reason,
+                )
         decision = build_output_decision(
             candidates=candidates,
             route=route,
@@ -892,4 +916,3 @@ class AssistantOutputBoundary:
             }
             receipts.append(receipt)
         return receipts
-

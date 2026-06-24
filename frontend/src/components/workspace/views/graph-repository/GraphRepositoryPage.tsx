@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   createGraphTaskInstance,
   getOrchestrationAgents,
@@ -18,9 +18,8 @@ import { buildTaskGraphUpsertPayload, resolveTaskGraphPublishCommit, type TaskGr
 import type { TaskGraphDraftV2 } from "../task-system/taskGraphDraftV2";
 import { GraphEditorContext } from "./contexts/GraphEditorContext";
 import { GraphLibraryContext } from "./contexts/GraphLibraryContext";
-import { InstanceWorkspaceContext } from "./contexts/InstanceWorkspaceContext";
-import { RuntimeProjectionContext } from "./contexts/RuntimeProjectionContext";
 import { TemplateLibraryContext } from "./contexts/TemplateLibraryContext";
+import { GraphInstanceWorkspace } from "./instance/GraphInstanceWorkspace";
 import {
   deleteUserGraphTemplate,
   findGraphTemplate,
@@ -113,10 +112,20 @@ export function GraphRepositoryPage({ requestedGraphId = "" }: { requestedGraphI
     void load();
   }, [load]);
 
-  const refreshInstances = useCallback(async (graphId = draft.graph_id) => {
+  const refreshInstances = useCallback(async (
+    graphId = draft.graph_id,
+    options: { allowMissingGraph?: boolean } = {},
+  ) => {
     const normalizedGraphId = String(graphId || "").trim();
     if (!normalizedGraphId) {
       setInstances([]);
+      setSelectedInstanceId("");
+      return;
+    }
+    const graphExists = graphs.some((graph) => graph.graph_id === normalizedGraphId);
+    if (!options.allowMissingGraph && !graphExists) {
+      setInstances([]);
+      setSelectedInstanceId("");
       return;
     }
     setInstancesLoading(true);
@@ -131,7 +140,7 @@ export function GraphRepositoryPage({ requestedGraphId = "" }: { requestedGraphI
     } finally {
       setInstancesLoading(false);
     }
-  }, [draft.graph_id]);
+  }, [draft.graph_id, graphs]);
 
   useEffect(() => {
     void refreshInstances(draft.graph_id);
@@ -300,8 +309,8 @@ export function GraphRepositoryPage({ requestedGraphId = "" }: { requestedGraphI
       setDraft(createDraftFromGraph(detail));
       setDirty(false);
       setSelectedInstanceId(result.instance.graph_task_instance_id);
-      await refreshInstances(graph.graph_id);
-      setActiveContext("instances");
+      await refreshInstances(graph.graph_id, { allowMissingGraph: true });
+      setActiveContext("monitor");
       setNotice("实例已创建。");
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "创建实例失败，请确认图已发布。");
@@ -320,9 +329,9 @@ export function GraphRepositoryPage({ requestedGraphId = "" }: { requestedGraphI
         title,
         metadata: { created_from: "graph_repository_editor" },
       });
-      await refreshInstances(graphId);
+      await refreshInstances(graphId, { allowMissingGraph: true });
       setSelectedInstanceId(result.instance.graph_task_instance_id);
-      setActiveContext("instances");
+      setActiveContext("monitor");
       setNotice("实例已创建。");
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "创建实例失败");
@@ -333,75 +342,96 @@ export function GraphRepositoryPage({ requestedGraphId = "" }: { requestedGraphI
 
   function changeContext(context: TaskGraphWorkbenchContext) {
     setActiveContext(context);
-    if (context === "instances" || context === "runtime") {
+    if (context === "monitor") {
       void refreshInstances();
     }
   }
 
   function renderWorkbenchContext() {
-    if (activeContext === "templates") {
-      return (
-        <TemplateLibraryContext
-          onCreateDraft={createDraft}
-          onDeleteTemplate={deleteTemplate}
-          onDuplicateTemplate={duplicateTemplate}
-          templates={templates}
+    const renderWorldCanvas = ({
+      overlay,
+      worldMode = "edit",
+      worldPanel = null,
+    }: {
+      overlay?: "templates" | "graphs";
+      worldMode?: "edit" | "monitor";
+      worldPanel?: ReactNode;
+    } = {}) => (
+      <section className="graph-world-surface" aria-label="任务图真实画布世界">
+        <GraphEditorContext
+          agentCatalog={agentCatalog}
+          dirty={dirty}
+          draft={draft}
+          notice={notice}
+          onCreateInstance={() => void createInstanceFromDraft()}
+          onDraftChange={updateDraft}
+          onDuplicate={duplicateCurrentDraft}
+          onPublish={() => void publishDraft()}
+          onSave={() => void saveDraft()}
+          onSaveTemplate={saveCurrentDraftAsTemplate}
+          saving={saving}
+          graphRunId={worldMode === "monitor" ? selectedInstance?.active_graph_run_id : undefined}
+          instanceId={worldMode === "monitor" ? selectedInstance?.graph_task_instance_id : undefined}
+          worldMode={worldMode}
+          worldPanel={worldPanel}
         />
-      );
+        {overlay === "templates" ? (
+          <aside className="graph-world-library-overlay graph-world-library-overlay--templates" aria-label="模板库覆盖层">
+            <TemplateLibraryContext
+              onCreateDraft={createDraft}
+              onDeleteTemplate={deleteTemplate}
+              onDuplicateTemplate={duplicateTemplate}
+              templates={templates}
+            />
+          </aside>
+        ) : null}
+        {overlay === "graphs" ? (
+          <aside className="graph-world-library-overlay graph-world-library-overlay--graphs" aria-label="图定义覆盖层">
+            <GraphLibraryContext
+              graphs={graphs}
+              loading={loading}
+              onCreateInstance={(graph) => void createInstanceFromGraph(graph)}
+              onDuplicateGraph={(graph) => void duplicateGraph(graph)}
+              onOpenGraph={(graph) => void openGraph(graph)}
+              selectedGraphId={draft.graph_id}
+            />
+          </aside>
+        ) : null}
+      </section>
+    );
+
+    if (activeContext === "templates") {
+      return renderWorldCanvas({ overlay: "templates" });
     }
     if (activeContext === "graphs") {
-      return (
-        <GraphLibraryContext
-          graphs={graphs}
-          loading={loading}
-          onCreateInstance={(graph) => void createInstanceFromGraph(graph)}
-          onDuplicateGraph={(graph) => void duplicateGraph(graph)}
-          onOpenGraph={(graph) => void openGraph(graph)}
-          selectedGraphId={draft.graph_id}
-        />
-      );
+      return renderWorldCanvas({ overlay: "graphs" });
     }
-    if (activeContext === "instances") {
-      return (
-        <InstanceWorkspaceContext
-          activeGraph={activeGraph}
-          extensions={workspaceExtensions}
-          instances={instances}
-          instancesLoading={instancesLoading}
-          onRefreshInstances={() => void refreshInstances()}
-          onSelectInstance={(instance) => setSelectedInstanceId(instance.graph_task_instance_id)}
-          selectedInstance={selectedInstance}
-          selectedInstanceId={selectedInstanceId}
-        />
-      );
+    if (activeContext === "monitor") {
+      return renderWorldCanvas({
+        worldMode: "monitor",
+        worldPanel: (
+          <GraphInstanceWorkspace
+            activeGraph={activeGraph}
+            extensions={workspaceExtensions}
+            graphMetadata={draft.metadata}
+            graphTitle={draft.title || activeGraph?.title || draft.graph_id}
+            instance={selectedInstance}
+            instances={instances}
+            instancesLoading={instancesLoading}
+            initialPanel="files"
+            onCreateInstance={() => void createInstanceFromDraft()}
+          onRefreshInstances={() => void refreshInstances(draft.graph_id, { allowMissingGraph: Boolean(selectedInstance) })}
+            onSelectInstance={(instance) => setSelectedInstanceId(instance.graph_task_instance_id)}
+            selectedInstanceId={selectedInstanceId}
+            variant="canvas"
+          />
+        ),
+      });
     }
-    if (activeContext === "runtime") {
-      return (
-        <RuntimeProjectionContext
-          instancesCount={instances.length}
-          selectedInstance={selectedInstance}
-        />
-      );
-    }
-    return (
-      <GraphEditorContext
-        agentCatalog={agentCatalog}
-        dirty={dirty}
-        draft={draft}
-        notice={notice}
-        onCreateInstance={() => void createInstanceFromDraft()}
-        onDraftChange={updateDraft}
-        onDuplicate={duplicateCurrentDraft}
-        onPublish={() => void publishDraft()}
-        onSave={() => void saveDraft()}
-        onSaveTemplate={saveCurrentDraftAsTemplate}
-        saving={saving}
-      />
-    );
+    return renderWorldCanvas();
   }
 
   const template = findGraphTemplate(String(draft.metadata?.template_id ?? ""));
-  const activeRunCount = instances.filter((instance) => instance.active_graph_run_id).length;
   const breadcrumb: TaskGraphBreadcrumbSegment[] = [
     { label: "模板", value: template?.title || String(draft.metadata?.template_id || "自定义") },
     { label: "草稿", value: draft.title || draft.graph_id || "未命名草稿" },
@@ -419,7 +449,6 @@ export function GraphRepositoryPage({ requestedGraphId = "" }: { requestedGraphI
           templates: templates.length,
           graphs: graphs.length,
           instances: instances.length,
-          runs: activeRunCount,
         }}
         dirty={dirty}
         error={error}

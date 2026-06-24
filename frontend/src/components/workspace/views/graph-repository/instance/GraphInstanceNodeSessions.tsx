@@ -23,7 +23,7 @@ export function GraphInstanceNodeSessions({
     <aside className="graph-instance-session-panel" aria-label="节点会话与人工控制">
       <header>
         <div>
-          <span>多 Agent 会话</span>
+          <span>Agent 节点会话</span>
           <strong>{instance.title || instance.graph_task_instance_id}</strong>
         </div>
         <MessageSquare size={16} />
@@ -41,7 +41,7 @@ export function GraphInstanceNodeSessions({
                 <MessageSquare size={14} />
                 <span>
                   <strong>{session.title || session.id}</strong>
-                  <small>{session.id}</small>
+                  <small>{sessionSubtitle(session)}</small>
                 </span>
                 <button onClick={() => onOpenSession(session)} type="button">投影</button>
               </article>
@@ -72,4 +72,11 @@ export function GraphInstanceNodeSessions({
       </section>
     </aside>
   );
+}
+
+function sessionSubtitle(session: SessionSummary) {
+  const binding = session.task_binding;
+  const graphRunId = binding?.graph_run_id ? `run: ${binding.graph_run_id}` : "";
+  const projectId = binding?.project_id ? `project: ${binding.project_id}` : "";
+  return [session.id, graphRunId, projectId].filter(Boolean).join(" / ");
 }

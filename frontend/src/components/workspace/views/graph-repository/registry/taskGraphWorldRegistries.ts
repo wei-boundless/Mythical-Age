@@ -109,7 +109,7 @@ export const defaultResourceWorldRegistrations: ResourceWorldRegistration[] = [
     resource_id: "resource.file_space",
     displayName: "实例文件空间",
     kind: "file_space",
-    description: "图实例拥有的通用文件空间，由模板文件角色决定结构。",
+    description: "任务图项目拥有的通用文件空间，由模板文件角色决定结构。",
     defaultNodePatch: {
       node_type: "artifact",
       title: "实例文件空间",

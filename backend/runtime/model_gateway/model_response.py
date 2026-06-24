@@ -509,7 +509,7 @@ class ModelResponseRuntimeExecutor:
         )
         raw_content = protocol_result.content
         tool_calls = [dict(item) for item in protocol_result.native_tool_calls]
-        reasoning_content = str(additional_kwargs.get("reasoning_content") or "").strip()
+        reasoning_content = str(protocol_result.reasoning_content or "").strip()
         stream_preview_text = ""
         if stream_enabled and public_delta_count <= 0 and not (assistant_normalizer is not None and assistant_normalizer.observed_content.strip()):
             stream_preview_text = raw_content.strip()

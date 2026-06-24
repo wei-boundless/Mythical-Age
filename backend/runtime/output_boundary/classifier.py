@@ -170,6 +170,8 @@ def looks_like_tool_claim_without_receipt(text: str) -> bool:
 
 
 def extract_explicit_answer(text: str) -> str:
+    # Candidate recovery helper only. Normal final-text commits must preserve the
+    # authored answer body instead of cropping around these labels.
     normalized = normalize_candidate_text(text)
     if not normalized:
         return ""
@@ -419,5 +421,4 @@ def _pdf_missing_answer_reason(rejected_candidates: list[OutputCandidate]) -> st
     metadata = dict(canonical_candidates[0].metadata or {})
     degraded_reason = str(metadata.get("pdf_degraded_reason", "") or "").strip()
     return degraded_reason or "pdf_missing_summary"
-
 

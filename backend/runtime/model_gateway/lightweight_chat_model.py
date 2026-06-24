@@ -178,10 +178,9 @@ class LightweightChatModel:
                     yield chunk
 
     def _request_body(self, messages: list[Any], *, stream: bool) -> dict[str, Any]:
+        tool_payloads = provider_tool_payloads(self.tools, strict=self.tool_bind_kwargs.get("strict"))
         body: dict[str, Any] = {
             "model": self.model,
-            "messages": [_message_to_provider_payload(message) for message in list(messages or [])],
-            "stream": bool(stream),
         }
         if self.max_output_tokens is not None:
             body[self.output_token_parameter] = max(1, int(self.max_output_tokens or 1))
@@ -193,15 +192,16 @@ class LightweightChatModel:
             body["response_format"] = dict(self.response_format)
         if self.extra_body:
             body.update(copy.deepcopy(self.extra_body))
+        body["stream"] = bool(stream)
         if stream:
             body["stream_options"] = {"include_usage": True}
 
-        tool_payloads = provider_tool_payloads(self.tools, strict=self.tool_bind_kwargs.get("strict"))
         if tool_payloads:
             body["tools"] = tool_payloads
             for key in ("tool_choice", "parallel_tool_calls"):
                 if key in self.tool_bind_kwargs and self.tool_bind_kwargs.get(key) is not None:
                     body[key] = self.tool_bind_kwargs[key]
+        body["messages"] = [_message_to_provider_payload(message) for message in list(messages or [])]
         return body
 
     def _headers(self) -> dict[str, str]:

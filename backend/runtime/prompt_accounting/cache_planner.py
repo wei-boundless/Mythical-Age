@@ -65,6 +65,8 @@ class PromptCachePlanner:
         collect_task = True
         collect_stable = True
         for segment in segment_map.segments:
+            if _is_provider_payload_tool_sidecar_segment(segment):
+                continue
             tier = str(getattr(segment, "prefix_tier", "") or "none")
             if collect_stable and is_cache_eligible_prefix(cache_role=segment.cache_role, prefix_tier=tier):
                 combined_stable_prefix.append(segment)
@@ -428,6 +430,8 @@ def _stable_segment_boundary_diagnostics(segment_map: PromptSegmentMap) -> dict[
     required: list[dict[str, Any]] = []
     cumulative = 0
     for segment in segment_map.segments:
+        if _is_provider_payload_tool_sidecar_segment(segment):
+            continue
         tokens = int(segment.predicted_tokens or 0)
         cumulative += tokens
         tier = str(segment.prefix_tier or "")

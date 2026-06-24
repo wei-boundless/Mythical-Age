@@ -61,17 +61,15 @@ from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_sc
 from runtime.cache_manager import DEFAULT_SANDBOX_CACHE_TTL_SECONDS, runtime_cache_manager_for_host
 from runtime.context_management import (
     CONTEXT_APPEND,
+    CONTEXT_MEMORY,
     CONTEXT_MEMORY_PREFIX,
     STATIC_PREFIX,
-    apply_context_assembly_classification,
     classify_context_spec,
     context_segment_policy_for_spec,
     context_segment_policy_metadata,
     DYNAMIC_TAIL,
     is_dynamic_tail_spec,
     is_sealable_context_spec,
-    provider_visible_context_append_candidate_spec,
-    provider_visible_context_replay_only_candidate_spec,
 )
 from runtime.prompt_accounting import ContextUsageMeter
 from runtime.model_gateway.assistant_stream_frame import (
@@ -1516,7 +1514,7 @@ async def run_single_agent_turn(
                     max_closeout_attempts=2,
                 )
                 closeout_messages, closeout_segment_plan = _single_agent_turn_followup_prompt_payload(
-                    base_segment_plan=dict(compilation.packet.segment_plan or {}),
+                    base_segment_plan=dict(model_messages_segment_plan or {}),
                     model_messages=closeout_messages,
                     packet_id=current_packet_ref,
                     tool_iteration=tool_iteration + attempt,
@@ -1774,11 +1772,12 @@ async def run_single_agent_turn(
                     yield dict(steer_event)
                 current_requires_json_action = True
                 model_messages, steer_segment_plan = _single_agent_turn_followup_prompt_payload(
-                    base_segment_plan=dict(compilation.packet.segment_plan or {}),
+                    base_segment_plan=dict(model_messages_segment_plan or {}),
                     model_messages=model_messages,
                     packet_id=current_packet_ref,
                     tool_iteration=tool_iteration + 1,
                 )
+                model_messages_segment_plan = dict(steer_segment_plan or {})
                 response = None
                 async for model_event in _invoke_single_turn_model_with_stream_events(
                     model_runtime=model_runtime,
@@ -1875,11 +1874,12 @@ async def run_single_agent_turn(
                 )
                 current_requires_json_action = True
                 model_messages, recovery_segment_plan = _single_agent_turn_followup_prompt_payload(
-                    base_segment_plan=dict(compilation.packet.segment_plan or {}),
+                    base_segment_plan=dict(model_messages_segment_plan or {}),
                     model_messages=model_messages,
                     packet_id=current_packet_ref,
                     tool_iteration=tool_iteration + 1,
                 )
+                model_messages_segment_plan = dict(recovery_segment_plan or {})
                 response = None
                 async for model_event in _invoke_single_turn_model_with_stream_events(
                     model_runtime=model_runtime,
@@ -2212,14 +2212,9 @@ async def run_single_agent_turn(
                 start_index=previous_accumulated_context_count,
                 messages=new_tool_transcript_messages,
             )
-            sanitized_tool_transcript_messages = _sanitize_model_messages(
-                new_tool_transcript_messages,
-                turn_id=turn_id,
-                source="harness.loop.single_agent_turn.tool_followup.new_append",
-            )
             model_messages = _append_tool_transcript_to_accumulated_context(
                 model_messages,
-                sanitized_tool_transcript_messages,
+                _copy_model_messages_without_rewriting(new_tool_transcript_messages),
                 segment_plan=model_messages_segment_plan,
             )
             if assistant_tool_calls:
@@ -2261,6 +2256,8 @@ async def run_single_agent_turn(
             model_messages, followup_segment_plan, followup_prompt_manifest, followup_packet_ref = _single_agent_turn_followup_prompt_context(
                 compilation=compilation,
                 model_messages=model_messages,
+                base_segment_plan=model_messages_segment_plan,
+                packet_id=current_packet_ref,
                 tool_iteration=tool_iteration,
             )
             model_messages_segment_plan = dict(followup_segment_plan or {})
@@ -2412,6 +2409,8 @@ async def run_single_agent_turn(
                 model_messages, followup_segment_plan, followup_prompt_manifest, followup_packet_ref = _single_agent_turn_followup_prompt_context(
                     compilation=compilation,
                     model_messages=model_messages,
+                    base_segment_plan=model_messages_segment_plan,
+                    packet_id=current_packet_ref,
                     tool_iteration=tool_iteration,
                 )
                 model_messages_segment_plan = dict(followup_segment_plan or {})
@@ -2600,11 +2599,12 @@ async def run_single_agent_turn(
                 current_available_tools = ()
                 current_requires_json_action = True
                 model_messages, recovery_segment_plan = _single_agent_turn_followup_prompt_payload(
-                    base_segment_plan=dict(compilation.packet.segment_plan or {}),
+                    base_segment_plan=dict(model_messages_segment_plan or {}),
                     model_messages=model_messages,
                     packet_id=current_packet_ref,
                     tool_iteration=tool_iteration + 1,
                 )
+                model_messages_segment_plan = dict(recovery_segment_plan or {})
                 response = None
                 async for model_event in _invoke_single_turn_model_with_stream_events(
                     model_runtime=model_runtime,
@@ -2710,7 +2710,7 @@ async def run_single_agent_turn(
                         "turn_id": turn_id,
                         "packet_ref": current_packet_ref,
                         "source": "harness.single_agent_turn.admission_repair",
-                        "segment_plan": dict(compilation.packet.segment_plan or {}),
+                        "segment_plan": dict(model_messages_segment_plan or {}),
                         "prompt_manifest": dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
                     },
                     request_id=f"model-response:{current_packet_ref}:final:admission-repair",
@@ -3377,7 +3377,13 @@ async def _invoke_single_turn_model_with_stream_events(
     )
     tool_streamer = getattr(model_runtime, "astream_messages_with_tools", None)
     plain_streamer = getattr(model_runtime, "astream_messages", None)
-    emit_assistant_text_delta = bool(stream_policy.get("emit_assistant_text_delta", True) is not False) and bool(allow_assistant_text_delta)
+    # Native tool responses can carry both a public preamble and tool calls.
+    # Keep that preamble on the explicit public_progress_note -> assistant_public_feedback path.
+    emit_assistant_text_delta = (
+        bool(stream_policy.get("emit_assistant_text_delta", True) is not False)
+        and bool(allow_assistant_text_delta)
+        and not native_tools
+    )
     stream_ref = str(accounting_context.get("request_id") or "")
     assistant_normalizer = AssistantStreamNormalizer.from_policy(
         stream_ref=stream_ref,
@@ -3741,7 +3747,24 @@ def _merge_model_stream_chunk(current: Any, chunk: Any) -> Any:
     except Exception:
         current_text = stringify_content(getattr(current, "content", current))
         chunk_text = stringify_content(getattr(chunk, "content", chunk))
-        return SimpleNamespace(content=current_text + chunk_text)
+        reasoning_content = _reasoning_content_from_response(current) + _reasoning_content_from_response(chunk)
+        additional_kwargs = {}
+        if reasoning_content:
+            additional_kwargs["reasoning_content"] = reasoning_content
+        raw_tool_call_chunks = [
+            *list(getattr(current, "raw_tool_call_chunks", []) or []),
+            *list(getattr(chunk, "raw_tool_call_chunks", []) or []),
+        ]
+        return SimpleNamespace(
+            content=current_text + chunk_text,
+            additional_kwargs=additional_kwargs,
+            raw_tool_call_chunks=raw_tool_call_chunks,
+            tool_calls=[
+                *list(getattr(current, "tool_calls", []) or []),
+                *list(getattr(chunk, "tool_calls", []) or []),
+            ],
+            raw_response=dict(getattr(chunk, "raw_response", None) or getattr(current, "raw_response", None) or {}),
+        )
 
 
 def _model_stream_chunk_text(chunk: Any) -> str:
@@ -6189,6 +6212,24 @@ def _reasoning_content_from_response(response: Any) -> str:
         reasoning_content = str(additional_kwargs.get("reasoning_content") or "").strip()
         if reasoning_content:
             return reasoning_content
+    raw_response = getattr(response, "raw_response", None)
+    if not isinstance(raw_response, dict):
+        raw_response = getattr(response, "raw", None)
+    if isinstance(raw_response, dict):
+        for choice in list(raw_response.get("choices") or []):
+            if not isinstance(choice, dict):
+                continue
+            message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
+            delta = choice.get("delta") if isinstance(choice.get("delta"), dict) else {}
+            reasoning_content = str(
+                dict(message).get("reasoning_content")
+                or dict(message).get("reasoning")
+                or dict(delta).get("reasoning_content")
+                or dict(delta).get("reasoning")
+                or ""
+            ).strip()
+            if reasoning_content:
+                return reasoning_content
     if isinstance(response, dict):
         reasoning_content = str(response.get("reasoning_content") or "").strip()
         if reasoning_content:
@@ -6423,12 +6464,15 @@ def _single_agent_turn_followup_prompt_context(
     *,
     compilation: Any,
     model_messages: list[dict[str, Any]],
+    base_segment_plan: dict[str, Any] | None = None,
+    packet_id: str = "",
     tool_iteration: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], str]:
+    resolved_packet_id = str(packet_id or compilation.packet.packet_id)
     followup_messages, followup_segment_plan = _single_agent_turn_followup_prompt_payload(
-        base_segment_plan=dict(compilation.packet.segment_plan or {}),
+        base_segment_plan=dict(base_segment_plan or compilation.packet.segment_plan or {}),
         model_messages=model_messages,
-        packet_id=compilation.packet.packet_id,
+        packet_id=resolved_packet_id,
         tool_iteration=tool_iteration,
     )
     followup_prompt_manifest = {
@@ -6437,7 +6481,7 @@ def _single_agent_turn_followup_prompt_context(
         "segment_plan_ref": str(followup_segment_plan.get("segment_plan_id") or ""),
         "followup_iteration": tool_iteration,
     }
-    return followup_messages, followup_segment_plan, followup_prompt_manifest, str(compilation.packet.packet_id)
+    return followup_messages, followup_segment_plan, followup_prompt_manifest, resolved_packet_id
 
 
 def _mid_turn_context_snapshot(
@@ -6527,7 +6571,6 @@ def _single_agent_turn_followup_prompt_payload(
         packet_id=str(packet_id or ""),
         message_specs=specs,
     )
-    _validate_single_agent_followup_tail_order(segment_plan)
     segment_plan["prefix_lock"] = prefix_lock_report
     if str(prefix_lock_report.get("status") or "") != "preserved":
         raise RuntimeError(
@@ -6589,6 +6632,10 @@ def _single_agent_turn_append_only_followup_message_specs(
                 message=provider_message,
                 prefix_lock_violation=prefix_lock_violation,
                 is_current_tool_round=index in current_tool_round_indexes,
+                seal_provider_visible_history=not (
+                    independent_dynamic_tail and _is_tool_followup_current_dynamic_tail_segment(base)
+                ),
+                packet_id=packet_id,
             )
         else:
             spec = _single_agent_turn_followup_message_spec(
@@ -6596,29 +6643,8 @@ def _single_agent_turn_append_only_followup_message_specs(
                 tool_iteration=tool_iteration,
                 is_current_tool_round=index in current_tool_round_indexes,
             )
-            spec = _provider_visible_followup_append_candidate_spec(spec, packet_id=packet_id)
         specs.append(spec)
     return specs, prefix_lock_report
-
-
-def _provider_visible_followup_append_candidate_spec(spec: dict[str, Any], *, packet_id: str = "") -> dict[str, Any]:
-    payload = dict(spec or {})
-    storage_root = Path(__file__).resolve().parents[2]
-    scope = _single_agent_provider_visible_context_scope(packet_id)
-    if is_sealable_context_spec(payload):
-        return provider_visible_context_append_candidate_spec(
-            payload,
-            storage_root=storage_root,
-            scope=scope,
-        )
-    if is_dynamic_tail_spec(payload):
-        return provider_visible_context_replay_only_candidate_spec(
-            payload,
-            storage_root=storage_root,
-            scope=scope,
-            replay_reason="single_agent_followup_dynamic_tail_participates_in_append_only_provider_visible_prefix",
-        )
-    return payload
 
 
 def _with_provider_payload_hashes(
@@ -6650,37 +6676,6 @@ def _with_provider_payload_hashes(
     return result
 
 
-def _validate_single_agent_followup_tail_order(segment_plan: dict[str, Any]) -> None:
-    if not _uses_independent_dynamic_tail_physical_model(segment_plan):
-        return
-    dynamic_tail_seen = False
-    violations: list[dict[str, Any]] = []
-    for segment in sorted(
-        [dict(item) for item in list(dict(segment_plan or {}).get("segments") or []) if isinstance(item, dict)],
-        key=lambda item: _safe_int_value(item.get("ordinal")),
-    ):
-        classification = classify_context_spec(segment)
-        section = classification.context_cache_section
-        if section == DYNAMIC_TAIL:
-            dynamic_tail_seen = True
-            continue
-        if dynamic_tail_seen and section in {STATIC_PREFIX, CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
-            violations.append(
-                {
-                    "kind": str(segment.get("kind") or ""),
-                    "ordinal": _safe_int_value(segment.get("ordinal")),
-                    "context_cache_section": section,
-                    "cache_role": str(segment.get("cache_role") or ""),
-                    "prefix_tier": str(segment.get("prefix_tier") or ""),
-                }
-            )
-    if violations:
-        raise RuntimeError(
-            "single_agent_followup_context_after_dynamic_tail:"
-            + json.dumps(violations, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        )
-
-
 def _single_agent_followup_prefix_lock_report(
     *,
     base_segment_plan: dict[str, Any],
@@ -6693,29 +6688,13 @@ def _single_agent_followup_prefix_lock_report(
     violations = [dict(item) for item in list(dict(report or {}).get("violations") or []) if isinstance(item, dict)]
     if not violations:
         return dict(report or {})
-    independent_dynamic_tail = _uses_independent_dynamic_tail_physical_model(base_segment_plan)
-    base_segments = _segment_plan_segments_by_message_index(dict(base_segment_plan or {}))
-    kept: list[dict[str, Any]] = []
-    suppressed: list[dict[str, Any]] = []
-    for violation in violations:
-        base = base_segments.get(_safe_int_value(violation.get("model_message_index")))
-        if independent_dynamic_tail and _is_tool_followup_current_dynamic_tail_segment(dict(base or {})):
-            suppressed.append(
-                {
-                    **violation,
-                    "suppressed_reason": "dynamic_tail_reordered_after_append_only_context",
-                    "suppressed_authority": "runtime.context_management.context_assembly.dynamic_tail",
-                }
-            )
-            continue
-        kept.append(violation)
     return {
         **dict(report or {}),
-        "status": "violated" if kept else "preserved",
-        "violation_count": len(kept),
-        "violations": kept[:20],
-        "suppressed_violation_count": len(suppressed),
-        "suppressed_violations": suppressed[:20],
+        "status": "violated",
+        "violation_count": len(violations),
+        "violations": violations[:20],
+        "suppressed_violation_count": 0,
+        "suppressed_violations": [],
         "authority": "harness.loop.single_agent_turn.followup_prefix_lock",
     }
 
@@ -6783,18 +6762,6 @@ def _provider_visible_metadata_by_followup_ordinal(
         if provider_keys:
             result[int(ordinal or 0)] = provider_keys
     return result
-
-
-def _single_agent_provider_visible_context_scope(packet_id: str) -> str:
-    text = str(packet_id or "").strip()
-    session_id = ""
-    marker = "session-"
-    if marker in text:
-        suffix = text.split(marker, 1)[1]
-        session_id = marker + suffix.split(":", 1)[0]
-    if not session_id:
-        session_id = "default"
-    return f"single_agent_turn:{session_id}"
 
 
 def _followup_provider_visible_messages_by_ordinal(
@@ -6952,17 +6919,6 @@ def _split_append_only_context_and_dynamic_tail(
 def _uses_independent_dynamic_tail_physical_model(segment_plan: dict[str, Any] | None) -> bool:
     plan = dict(segment_plan or {})
     diagnostics = dict(plan.get("diagnostics") or {})
-    explicit_enabled = any(
-        value is True
-        for value in (
-            plan.get("context_independent_dynamic_tail_enabled"),
-            plan.get("provider_context_independent_dynamic_tail_enabled"),
-            diagnostics.get("context_independent_dynamic_tail_enabled"),
-            diagnostics.get("provider_context_independent_dynamic_tail_enabled"),
-        )
-    )
-    if not explicit_enabled:
-        return False
     physical_model_values = (
         plan.get("context_physical_model"),
         plan.get("provider_context_physical_model"),
@@ -6974,17 +6930,21 @@ def _uses_independent_dynamic_tail_physical_model(segment_plan: dict[str, Any] |
         str(value or "").strip() == "static_context_dynamic_tail"
         for value in physical_model_values
     )
-    tail_support_declared = any(
+    tail_enabled = any(
         value is True
         for value in (
+            plan.get("context_independent_dynamic_tail_enabled"),
+            plan.get("provider_context_independent_dynamic_tail_enabled"),
             plan.get("dynamic_tail_supported"),
             plan.get("provider_dynamic_tail_supported"),
+            diagnostics.get("context_independent_dynamic_tail_enabled"),
+            diagnostics.get("provider_context_independent_dynamic_tail_enabled"),
             diagnostics.get("dynamic_tail_supported"),
             diagnostics.get("provider_dynamic_tail_supported"),
             diagnostics.get("provider_cache_policy_dynamic_tail_supported"),
         )
     )
-    return bool(physical_model_supports_tail and tail_support_declared)
+    return bool(physical_model_supports_tail and tail_enabled)
 
 
 def _is_current_control_tail_message(message: dict[str, Any]) -> bool:
@@ -7118,12 +7078,24 @@ def _single_agent_turn_followup_base_message_spec(
     message: dict[str, Any],
     prefix_lock_violation: dict[str, Any] | None = None,
     is_current_tool_round: bool = False,
+    seal_provider_visible_history: bool = True,
+    packet_id: str = "",
 ) -> dict[str, Any]:
     metadata = dict(base.get("metadata") or {})
     kind = str(base.get("kind") or "single_agent_turn_base")
     cache_scope = str(base.get("cache_scope") or "none")
     cache_role = str(base.get("cache_role") or "volatile")
     prefix_tier = str(base.get("prefix_tier") or "volatile")
+    if seal_provider_visible_history:
+        sealed = _sealed_followup_base_context_policy(
+            base,
+            message=message,
+            metadata=metadata,
+        )
+        cache_scope = str(sealed.get("cache_scope") or cache_scope)
+        cache_role = str(sealed.get("cache_role") or cache_role)
+        prefix_tier = str(sealed.get("prefix_tier") or prefix_tier)
+        metadata = dict(sealed.get("metadata") or metadata)
     if prefix_lock_violation:
         metadata = {
             **metadata,
@@ -7133,61 +7105,18 @@ def _single_agent_turn_followup_base_message_spec(
             "prefix_lock_cache_policy": "preserve_context_assembly_classification",
         }
     if _is_tool_followup_current_dynamic_tail_segment(base):
-        if kind == "single_agent_turn_followup_action_contract":
-            cache_scope = "task"
-            cache_role = "session_stable"
-            prefix_tier = "task"
-            metadata = {
-                **_without_context_classification_metadata(metadata),
-                "cache_impact": "append_only_task_prefix",
-                "stability_rule": (
-                    "previously sent action contracts are sealed provider-visible context; "
-                    "only the next action contract is newly appended"
-                ),
-                "cache_policy_rebased": "historical_action_contract_promoted_from_dynamic_tail",
-                "context_cache_section": CONTEXT_APPEND,
-                "context_assembly_section": CONTEXT_APPEND,
-            }
-        else:
-            metadata = {
-                **metadata,
-                "cache_impact": "append_only_context_tail",
-                "stability_rule": (
-                    "dynamic-tail-classified content participates in append-only physical context unless the "
-                    "provider strategy explicitly enables an independent dynamic-tail segment"
-                ),
-            }
+        metadata = {
+            **metadata,
+            "cache_impact": "append_only_provider_visible_history",
+            "stability_rule": "previously sent tail text remains in the physical message stream byte-stably; cache eligibility is decided by the provider from the unchanged prefix",
+            "cache_policy_rebased": "disabled_physical_source_order_append_only",
+        }
     else:
-        already_prefix_stable = cache_role in {"cacheable_prefix", "session_stable"} and prefix_tier not in {"volatile", "none"}
-        rebased = (
-            {}
-            if already_prefix_stable
-            else _rebased_followup_base_cache_policy(
-                kind=kind,
-                message=message,
-                is_current_tool_round=is_current_tool_round,
-            )
-        )
-        if rebased:
-            cache_scope = rebased["cache_scope"]
-            cache_role = rebased["cache_role"]
-            prefix_tier = rebased["prefix_tier"]
-            metadata = {**metadata, **dict(rebased.get("metadata") or {})}
-        classified = apply_context_assembly_classification(
-            {
-                "kind": kind,
-                "cache_scope": cache_scope,
-                "cache_role": cache_role,
-                "prefix_tier": prefix_tier,
-                "metadata": metadata,
-                "model_message": dict(message),
-            }
-        )
-        cache_scope = str(classified.get("cache_scope") or cache_scope)
-        cache_role = str(classified.get("cache_role") or cache_role)
-        prefix_tier = str(classified.get("prefix_tier") or prefix_tier)
-        metadata = dict(classified.get("metadata") or metadata)
-    return {
+        metadata = {
+            **metadata,
+            "cache_policy_rebased": "disabled_physical_source_order_append_only",
+        }
+    result = {
         "role": str(message.get("role") or "user"),
         "content": str(message.get("content") or ""),
         "kind": kind,
@@ -7202,6 +7131,70 @@ def _single_agent_turn_followup_base_message_spec(
         "compression_role": str(base.get("compression_role") or "summarize"),
         "metadata": metadata,
         "model_message": dict(message),
+    }
+    return result
+
+
+def _sealed_followup_base_context_policy(
+    base: dict[str, Any],
+    *,
+    message: dict[str, Any],
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    original_policy = context_segment_policy_for_spec(base)
+    if original_policy.section == STATIC_PREFIX:
+        policy = original_policy
+        return {
+            "cache_scope": str(base.get("cache_scope") or policy.prefix_cache_scope or "session"),
+            "cache_role": str(base.get("cache_role") or policy.prefix_cache_role or "session_stable"),
+            "prefix_tier": str(base.get("prefix_tier") or policy.prefix_tier or "session"),
+            "metadata": {
+                **dict(metadata or {}),
+                **context_segment_policy_metadata(policy),
+                "provider_visible_history_status": "static_context",
+                "provider_visible_history_authority": "harness.loop.single_agent_turn.followup_base_replay",
+            },
+        }
+
+    original_context = {
+        key: value
+        for key, value in dict(metadata or {}).items()
+        if str(key).startswith("context_")
+    }
+    sealed_metadata = {
+        **_without_context_classification_metadata(dict(metadata or {})),
+        "previous_context_structure": original_context,
+        "context_cache_section": CONTEXT_MEMORY_PREFIX,
+        "context_assembly_section": CONTEXT_MEMORY_PREFIX,
+        "context_physical_segment": CONTEXT_MEMORY,
+        "context_semantic_slot": str(dict(metadata or {}).get("context_semantic_slot") or "provider_visible_history"),
+        "context_commit_policy": "replay_only_already_materialized",
+        "context_replay_policy": "provider_visible_history_replay",
+        "provider_visible_history_status": "sealed_from_prior_model_request",
+        "provider_visible_history_authority": "harness.loop.single_agent_turn.followup_base_replay",
+        "provider_visible_history_model_message_hash": stable_model_message_hash(dict(message or {})),
+        "cache_impact": "sealed_provider_visible_history",
+        "stability_rule": (
+            "this message was already sent to the provider in an earlier request; "
+            "the follow-up path must replay the exact provider-visible bytes and treat it as sealed context history"
+        ),
+    }
+    sealed_spec = {
+        **dict(base or {}),
+        "cache_scope": "task",
+        "cache_role": "session_stable",
+        "prefix_tier": "task",
+        "metadata": sealed_metadata,
+    }
+    policy = context_segment_policy_for_spec(sealed_spec, default_section=CONTEXT_MEMORY_PREFIX)
+    return {
+        "cache_scope": "task",
+        "cache_role": "session_stable",
+        "prefix_tier": "task",
+        "metadata": {
+            **sealed_metadata,
+            **context_segment_policy_metadata(policy),
+        },
     }
 
 
@@ -7307,9 +7300,9 @@ def _single_agent_turn_followup_message_spec(
         kind = "single_agent_turn_followup_message"
         source_ref = f"single_agent_turn.followup:{tool_iteration}"
         compression_role = "summarize"
-    cache_scope = "none" if is_runtime_control_tail else "task"
-    cache_role = "volatile" if is_runtime_control_tail else "session_stable"
-    prefix_tier = "volatile" if is_runtime_control_tail else "task"
+    cache_scope = "none"
+    cache_role = "volatile"
+    prefix_tier = "volatile"
     metadata = {"followup_iteration": max(1, int(tool_iteration or 1))}
     if is_runtime_control_tail:
         authority_class = "runtime_control_tail"
@@ -7334,10 +7327,10 @@ def _single_agent_turn_followup_message_spec(
         metadata.update(
             {
                 "authority_class": authority_class,
-                "cache_impact": "current_append_then_next_prefix",
+                "cache_impact": "append_only_provider_visible_history",
                 "stability_rule": (
-                    "the current follow-up action contract is appended as the user-input boundary; "
-                    "after provider success it is replayed byte-stably as historical context"
+                    "the current follow-up action contract is appended to the physical message stream; "
+                    "future cache reuse depends on preserving the exact prior message bytes and order"
                 ),
                 "provider_cache_boundary": "deepseek_user_input_prefix_unit",
             }
@@ -7346,24 +7339,11 @@ def _single_agent_turn_followup_message_spec(
         metadata.update(
             {
                 "authority_class": authority_class,
-                "cache_impact": "append_only_task_prefix",
-                "stability_rule": "follow-up context is appended as immutable context after it has been sent to the model",
+                "cache_impact": "append_only_provider_visible_history",
+                "stability_rule": "follow-up context is appended physically; local cache annotations must not reorder or promote it",
             }
         )
-    classified = apply_context_assembly_classification(
-        {
-            "kind": kind,
-            "cache_scope": cache_scope,
-            "cache_role": cache_role,
-            "prefix_tier": prefix_tier,
-            "metadata": metadata,
-            "model_message": dict(message),
-        }
-    )
-    cache_scope = str(classified.get("cache_scope") or cache_scope)
-    cache_role = str(classified.get("cache_role") or cache_role)
-    prefix_tier = str(classified.get("prefix_tier") or prefix_tier)
-    metadata = dict(classified.get("metadata") or metadata)
+    metadata["cache_policy_rebased"] = "disabled_physical_source_order_append_only"
     return {
         "role": role,
         "content": str(message.get("content") or ""),
@@ -7421,56 +7401,6 @@ def _tool_followup_context_boundary_payload(message: dict[str, Any]) -> dict[str
             continue
         if isinstance(payload, dict) and str(payload.get("frame_type") or "") == "accumulated_context_boundary":
             return dict(payload)
-    return {}
-
-
-def _rebased_followup_base_cache_policy(
-    *,
-    kind: str,
-    message: dict[str, Any],
-    is_current_tool_round: bool,
-) -> dict[str, Any]:
-    role = str(message.get("role") or "")
-    if kind == "incremental_context_frame" or is_incremental_context_frame_message(message):
-        return {
-            "cache_scope": "task",
-            "cache_role": "session_stable",
-            "prefix_tier": "task",
-            "metadata": {
-                "authority_class": "append_only_incremental_context",
-                "cache_impact": "append_only_task_prefix",
-                "stability_rule": "historical incremental context frames are immutable append-only context",
-                "cache_policy_rebased": "historical_incremental_context_promoted_from_base_plan",
-            },
-        }
-    is_tool_transcript = (
-        kind in {"single_agent_turn_tool_call", "single_agent_turn_tool_observation"}
-        or role == "tool"
-        or (role == "assistant" and bool(message.get("tool_calls")))
-    )
-    if is_tool_transcript:
-        return {
-            "cache_scope": "task",
-            "cache_role": "session_stable",
-            "prefix_tier": "task",
-            "metadata": {
-                "authority_class": "append_only_tool_transcript",
-                "cache_impact": "append_only_task_prefix",
-                "stability_rule": "tool transcript is appended to the model-visible context and is immutable after assembly",
-                "cache_policy_rebased": "historical_tool_transcript_promoted_from_base_plan",
-            },
-        }
-    if kind in _FOLLOWUP_BASE_ACCUMULATED_CONTEXT_KINDS:
-        return {
-            "cache_scope": "task",
-            "cache_role": "session_stable",
-            "prefix_tier": "task",
-            "metadata": {
-                "cache_impact": "append_only_task_prefix",
-                "stability_rule": "preserved accumulated context is append-only; replaceable runtime tail remains volatile",
-                "cache_policy_rebased": "preserved_accumulated_context_promoted_from_base_plan",
-            },
-        }
     return {}
 
 

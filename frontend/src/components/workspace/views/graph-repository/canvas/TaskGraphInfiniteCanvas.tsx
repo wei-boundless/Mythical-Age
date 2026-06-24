@@ -41,6 +41,7 @@ type TaskGraphFlowNode = Node<TaskGraphCanvasNodeData>;
 type TaskGraphFlowEdge = Edge<TaskGraphCanvasEdgeData>;
 
 export function TaskGraphInfiniteCanvas({
+  editable = true,
   nodes,
   edges,
   layout,
@@ -50,6 +51,7 @@ export function TaskGraphInfiniteCanvas({
   onLayoutChange,
   onSelectionChange,
 }: {
+  editable?: boolean;
   nodes: TaskGraphNodeRecord[];
   edges: TaskGraphEdgeRecord[];
   layout: GraphEditorLayout;
@@ -87,13 +89,15 @@ export function TaskGraphInfiniteCanvas({
           .map((change) => String(change.id)),
       );
       if (removedIds.size) {
+        if (!editable) return current;
         onEdgesChange(edges.filter((edge) => !removedIds.has(edge.edge_id)));
       }
       return next;
     });
-  }, [edges, onEdgesChange, setFlowEdges]);
+  }, [editable, edges, onEdgesChange, setFlowEdges]);
 
   const connectNodes = useCallback((connection: Connection) => {
+    if (!editable) return;
     if (!connection.source || !connection.target || connection.source === connection.target) return;
     const relation = taskGraphEdgeRelationRegistrations[0];
     const graphEdge = createEdgeFromRelation(relation, connection.source, connection.target, edges.length);
@@ -113,7 +117,7 @@ export function TaskGraphInfiniteCanvas({
     };
     setFlowEdges((current) => [...current, flowEdge]);
     onSelectionChange({ edgeId: graphEdge.edge_id });
-  }, [edges, onEdgesChange, onSelectionChange, setFlowEdges]);
+  }, [editable, edges, onEdgesChange, onSelectionChange, setFlowEdges]);
 
   return (
     <div className="graph-repository-canvas-shell">
@@ -123,11 +127,15 @@ export function TaskGraphInfiniteCanvas({
         maxZoom={1.6}
         minZoom={0.35}
         nodes={flowNodes}
+        nodesConnectable={editable}
+        nodesDraggable={editable}
         nodeTypes={nodeTypes}
         onConnect={connectNodes}
         onEdgesChange={commitEdgeChanges}
         onEdgeClick={(_, edge) => onSelectionChange({ edgeId: edge.id })}
-        onNodeDragStop={(_, __, currentNodes) => onLayoutChange(reactFlowNodesToLayout(layout, currentNodes))}
+        onNodeDragStop={(_, __, currentNodes) => {
+          if (editable) onLayoutChange(reactFlowNodesToLayout(layout, currentNodes));
+        }}
         onNodeClick={(_, node) => onSelectionChange({ nodeId: node.id })}
         onNodesChange={commitNodeChanges}
         onPaneClick={() => onSelectionChange({})}

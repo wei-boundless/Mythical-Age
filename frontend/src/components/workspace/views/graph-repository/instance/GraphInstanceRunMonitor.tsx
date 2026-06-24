@@ -32,10 +32,10 @@ export function GraphInstanceRunMonitor({
   const eventCount = monitor?.graph_monitor?.event_count ?? 0;
   const pendingHuman = monitor?.human_controls?.pending?.length ?? 0;
   return (
-    <aside className="graph-instance-run-monitor" aria-label="实例运行控制">
+    <aside className="graph-instance-run-monitor" aria-label="项目运行控制">
       <header>
         <div>
-          <span>运行控制</span>
+          <span>项目运行控制</span>
           <strong>{statusLabel(status)}</strong>
         </div>
         <Activity size={16} />
@@ -51,6 +51,7 @@ export function GraphInstanceRunMonitor({
         </button>
       </div>
       <div className="graph-instance-facts">
+        <p><span>项目</span><strong>{instance.graph_task_instance_id}</strong></p>
         <p><span>活跃运行</span><strong>{activeRunId || "无"}</strong></p>
         <p><span>节点会话</span><strong>{nodeSessionCount}</strong></p>
         <p><span>文件</span><strong>{fileCount}</strong></p>

@@ -58,7 +58,7 @@ export function TaskGraphWorkbenchShell({
         </div>
       </div>
       {error ? <p className="graph-os-error">{error}</p> : null}
-      <main className={`graph-os-context-host graph-os-context-host--${activeContext}`}>
+      <main className={`graph-os-context-host graph-os-context-host--${activeContext} graph-os-context-host--world`}>
         {children}
       </main>
     </section>

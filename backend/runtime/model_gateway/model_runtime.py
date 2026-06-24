@@ -32,6 +32,7 @@ from runtime.tool_runtime.tool_call_policy import ToolCallBindingOptions
 
 from .lightweight_chat_model import LightweightChatModel, LightweightConversationAgent, provider_message_payloads
 from .model_request import ModelRequestBuilder
+from .provider_cache_policy import provider_cache_policy_override_from_payload
 from .providers import ProviderRequestProfile, build_provider_adapter_result
 
 if TYPE_CHECKING:
@@ -1513,6 +1514,14 @@ class ModelRuntime:
         tool_call_options: ToolCallBindingOptions | dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         adapter_result = self._provider_adapter_result_for_spec(spec)
+        context_cache_policy = provider_cache_policy_override_from_payload(
+            {"provider_extensions": dict(spec.provider_extensions or {})}
+        )
+        context_cache_policy_payload = (
+            {"context_cache_policy": context_cache_policy}
+            if _has_context_cache_policy_override(context_cache_policy)
+            else {}
+        )
         return {
             "provider": str(spec.provider or ""),
             "model": str(spec.model or ""),
@@ -1534,6 +1543,7 @@ class ModelRuntime:
             "reasoning_effort": self._reasoning_effort_for_spec(spec),
             "chat_openai_reasoning_effort": self._chat_openai_reasoning_effort_for_spec(spec) or "",
             "stream_policy": dict(spec.stream_policy or {}),
+            **context_cache_policy_payload,
             **dict(adapter_result.request_params_for_accounting or {}),
         }
 
@@ -1933,6 +1943,15 @@ def _cache_relevant_base_url(value: Any) -> str:
     if "api.openai.azure.com" in text:
         return "https://api.openai.azure.com"
     return text
+
+
+def _has_context_cache_policy_override(payload: dict[str, Any] | None) -> bool:
+    value = dict(payload or {})
+    return bool(
+        str(value.get("context_physical_model") or "").strip()
+        or value.get("dynamic_tail_supported") is not None
+        or str(value.get("reason") or "").strip()
+    )
 
 
 def _cache_relevant_tool_call_options(

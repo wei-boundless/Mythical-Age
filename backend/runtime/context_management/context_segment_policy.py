@@ -312,6 +312,7 @@ def context_append_order_key(item: tuple[int, dict[str, Any]]) -> tuple[int, flo
 
 
 def context_segment_policy_metadata(policy: ContextSegmentPolicy) -> dict[str, Any]:
+    provider_visible_boundary = _provider_visible_boundary_for_policy(policy)
     return {
         "context_segment_policy": policy.to_dict(),
         "context_cache_section": policy.section,
@@ -323,6 +324,9 @@ def context_segment_policy_metadata(policy: ContextSegmentPolicy) -> dict[str, A
         "context_prefix_cache_scope": policy.prefix_cache_scope,
         "context_prefix_cache_role": policy.prefix_cache_role,
         "context_prefix_tier": policy.prefix_tier,
+        "context_provider_visible_segment": policy.physical_segment,
+        "context_provider_visible_boundary": provider_visible_boundary,
+        "context_provider_visible_state": _provider_visible_state_for_policy(policy),
         "context_semantic_slot": policy.semantic_slot,
         "context_semantic_slot_rank": policy.semantic_slot_rank,
         "context_commit_policy": policy.commit_policy,
@@ -333,6 +337,32 @@ def context_segment_policy_metadata(policy: ContextSegmentPolicy) -> dict[str, A
         "context_contract_ref": policy.contract_ref,
         "context_repair_feedback_slot": policy.repair_feedback_slot,
     }
+
+
+def _provider_visible_boundary_for_policy(policy: ContextSegmentPolicy) -> str:
+    section = str(policy.section or "").strip()
+    if section == STATIC_PREFIX:
+        return "static_provider_context"
+    if section == CONTEXT_MEMORY_PREFIX:
+        return "sealed_provider_visible_context"
+    if section == CONTEXT_APPEND:
+        return "current_append_context"
+    if section == DYNAMIC_TAIL:
+        return "current_dynamic_tail"
+    return "provider_visible_boundary_unknown"
+
+
+def _provider_visible_state_for_policy(policy: ContextSegmentPolicy) -> str:
+    section = str(policy.section or "").strip()
+    if section == STATIC_PREFIX:
+        return "static_context"
+    if section == CONTEXT_MEMORY_PREFIX:
+        return "replayed_context_memory"
+    if section == CONTEXT_APPEND:
+        return "current_context_append"
+    if section == DYNAMIC_TAIL:
+        return "current_control_tail"
+    return "provider_visible_state_unknown"
 
 
 def _semantic_slot(payload: dict[str, Any], *, metadata: dict[str, Any]) -> str:

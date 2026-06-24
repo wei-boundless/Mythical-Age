@@ -142,6 +142,7 @@ class CanonicalPromptSerializer:
             )
             tool_schema_inserted = True
 
+        append_tool_schema_segment()
         for index, message in enumerate(normalized_messages):
             segment_payload = canonical_json(message)
             planned = planned_by_index.get(index)

@@ -23,8 +23,8 @@ export function GraphInstanceFileManager({
     <section className="graph-instance-resource-panel" aria-label="实例文件空间">
       <header>
         <div>
-          <span>文件空间</span>
-          <strong>{fileTree?.path || "实例根目录"}</strong>
+          <span>项目文件空间</span>
+          <strong>{fileTree?.path || "项目根目录"}</strong>
         </div>
         <em>{loading ? "加载中" : `${fileTree?.total_entries ?? entries.length} 项`}</em>
       </header>
@@ -49,7 +49,7 @@ export function GraphInstanceFileManager({
           })}
         </div>
       ) : (
-        <div className="graph-instance-empty">{loading ? "正在读取文件空间..." : "这个实例还没有文件。"}</div>
+        <div className="graph-instance-empty">{loading ? "正在读取文件空间..." : "这个项目还没有文件。"}</div>
       )}
       {fileTree?.truncated ? <p className="graph-instance-note">文件较多，当前只显示前 {entries.length} 项。</p> : null}
     </section>

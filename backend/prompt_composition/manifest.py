@@ -253,7 +253,7 @@ def _cache_boundary_diagnostics(
     segments: tuple[dict[str, Any], ...],
 ) -> dict[str, Any]:
     layer_violations = _layer_cache_policy_violations(plan.slots)
-    segment_violations = _segment_prefix_violations(segments)
+    segment_warnings = _segment_cache_order_warnings(segments)
     prefix_counts: dict[str, int] = {}
     cache_role_counts: dict[str, int] = {}
     for segment in segments:
@@ -262,7 +262,7 @@ def _cache_boundary_diagnostics(
         prefix_counts[prefix_tier] = prefix_counts.get(prefix_tier, 0) + 1
         cache_role_counts[cache_role] = cache_role_counts.get(cache_role, 0) + 1
     return {
-        "status": "warning" if layer_violations or segment_violations else "ok",
+        "status": "warning" if layer_violations or segment_warnings else "ok",
         "prefix_tier_counts": prefix_counts,
         "cache_role_counts": cache_role_counts,
         "prefix_tier_sequence": [
@@ -270,10 +270,14 @@ def _cache_boundary_diagnostics(
             for segment in segments
         ],
         "layer_cache_policy_violations": layer_violations,
-        "segment_prefix_violations": segment_violations,
+        "segment_cache_order_warnings": segment_warnings,
+        "segment_prefix_violations": segment_warnings,
         "deepseek_prefix_principle": (
-            "provider payload cache is prefix based; stable provider_global/session/task "
-            "segments must remain contiguous and byte stable before volatile content"
+            "provider payload cache is prefix based; physical order is fixed by the runtime packet, "
+            "while cache_role and prefix_tier only diagnose whether that fixed order exposes a stable prefix"
+        ),
+        "physical_model_contract": (
+            "cache diagnostics must not reorder, promote, or reject provider-visible messages"
         ),
         "authority": "prompt_composition.cache_boundary_diagnostics",
     }
@@ -312,8 +316,8 @@ def _layer_cache_policy_violations(slots: tuple[PromptCompositionSlot, ...]) -> 
     return violations
 
 
-def _segment_prefix_violations(segments: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
-    violations: list[dict[str, Any]] = []
+def _segment_cache_order_warnings(segments: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+    warnings: list[dict[str, Any]] = []
     previous_rank = 0
     previous_tier = ""
     volatile_seen = False
@@ -323,23 +327,25 @@ def _segment_prefix_violations(segments: tuple[dict[str, Any], ...]) -> list[dic
         rank = _PREFIX_TIER_ORDER.get(prefix_tier, 99)
         stable = cache_role in {"cacheable_prefix", "session_stable"} and prefix_tier not in {"volatile", "none"}
         if volatile_seen and stable:
-            violations.append(
+            warnings.append(
                 {
-                    "code": "stable_segment_after_volatile_boundary",
+                    "code": "stable_segment_after_volatile_cache_boundary",
                     "segment_id": str(segment.get("segment_id") or ""),
                     "kind": str(segment.get("kind") or ""),
                     "prefix_tier": prefix_tier,
                     "cache_role": cache_role,
+                    "severity": "diagnostic_only",
                 }
             )
         if stable and previous_rank and rank < previous_rank:
-            violations.append(
+            warnings.append(
                 {
-                    "code": "prefix_tier_order_regression",
+                    "code": "prefix_tier_cache_order_regression",
                     "segment_id": str(segment.get("segment_id") or ""),
                     "kind": str(segment.get("kind") or ""),
                     "previous_prefix_tier": previous_tier,
                     "prefix_tier": prefix_tier,
+                    "severity": "diagnostic_only",
                 }
             )
         if prefix_tier in {"volatile", "none"} or cache_role in {"volatile", "never_cache"}:
@@ -347,4 +353,4 @@ def _segment_prefix_violations(segments: tuple[dict[str, Any], ...]) -> list[dic
         if stable:
             previous_rank = rank
             previous_tier = prefix_tier
-    return violations
+    return warnings

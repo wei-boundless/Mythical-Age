@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import {
   AlertTriangle,
   Bot,
@@ -54,6 +55,8 @@ export function GraphCanvasEditorPage({
   onSave,
   onSaveTemplate,
   saving,
+  worldMode = "edit",
+  worldPanel = null,
 }: {
   agentCatalog: OrchestrationAgentRuntimeCatalog | null;
   dirty: boolean;
@@ -68,6 +71,8 @@ export function GraphCanvasEditorPage({
   onDuplicate: () => void;
   onSaveTemplate: () => void;
   onCreateInstance: () => void;
+  worldMode?: "edit" | "monitor";
+  worldPanel?: ReactNode;
 }) {
   const [selectedNodeId, setSelectedNodeId] = useState(draft.ui_state.selected_node_id || "");
   const [selectedEdgeId, setSelectedEdgeId] = useState(draft.ui_state.selected_edge_id || "");
@@ -76,6 +81,7 @@ export function GraphCanvasEditorPage({
   const [bottomTab, setBottomTab] = useState<GraphBottomTab>("conversation");
   const layout = useMemo(() => draftEditorLayout(draft), [draft]);
   const diagnostics = useMemo(() => buildGraphDiagnostics(draft, layout), [draft, layout]);
+  const isMonitorMode = worldMode === "monitor";
 
   useEffect(() => {
     setSelectedNodeId(draft.ui_state.selected_node_id || "");
@@ -210,9 +216,10 @@ export function GraphCanvasEditorPage({
   }
 
   return (
-    <section className={`graph-repository-editor graph-repository-editor--${viewMode}`} aria-label="任务图画布编辑器">
+    <section className={`graph-repository-editor graph-repository-editor--${viewMode} graph-repository-editor--world-${worldMode}`} aria-label="任务图画布编辑器">
       <main className="graph-repository-canvas-region">
         <TaskGraphInfiniteCanvas
+          editable={!isMonitorMode}
           edges={draft.edges}
           layout={layout}
           nodes={draft.nodes}
@@ -230,82 +237,99 @@ export function GraphCanvasEditorPage({
         />
       </main>
       <div className="graph-editor-frame">
-        <div className="graph-editor-top-dock">
-        <GraphTaskEditorToolbar
-          graphTitle={draft.title}
-          onAutoLayout={autoLayout}
-          onCreateInstance={onCreateInstance}
-          onDuplicate={onDuplicate}
-          onPublish={onPublish}
-          onSave={onSave}
-          onSaveTemplate={onSaveTemplate}
-          saving={saving}
-        />
-          <GraphEditorViewModeSwitch value={viewMode} onChange={setViewMode} />
-        </div>
-
-        <aside className="graph-editor-left-dock" aria-label="图世界对象库">
-          <header className="graph-editor-dock-head">
-            <div>
-              <span>对象装配</span>
-              <strong>节点、Agent 与资源</strong>
-            </div>
-            <PanelLeft size={15} />
-          </header>
-          <GraphTaskToolPanel
-            agentCatalog={agentCatalog}
-            onAddAgent={addAgent}
-            onAddNode={addNode}
-            onAddResource={addResource}
-          />
-        </aside>
-
-        <div className="graph-editor-canvas-brief" aria-label="画布关系说明">
-          <div>
-            <span>自由坐标世界</span>
-            <strong>关系只来自显式节点、边和契约</strong>
+        {!isMonitorMode ? (
+          <div className="graph-editor-top-dock">
+            <GraphTaskEditorToolbar
+              graphTitle={draft.title}
+              onAutoLayout={autoLayout}
+              onCreateInstance={onCreateInstance}
+              onDuplicate={onDuplicate}
+              onPublish={onPublish}
+              onSave={onSave}
+              onSaveTemplate={onSaveTemplate}
+              saving={saving}
+            />
+            <GraphEditorViewModeSwitch value={viewMode} onChange={setViewMode} />
           </div>
-          <button disabled={!selectedNodeId || draft.nodes.length < 2} onClick={addExplicitEdgeFromSelection} type="button">
-            添加显式边
-          </button>
+        ) : null}
+
+        {!isMonitorMode ? (
+          <aside className="graph-editor-left-dock" aria-label="图世界对象库">
+            <header className="graph-editor-dock-head">
+              <div>
+                <span>对象装配</span>
+                <strong>节点、Agent 与资源</strong>
+              </div>
+              <PanelLeft size={15} />
+            </header>
+            <GraphTaskToolPanel
+              agentCatalog={agentCatalog}
+              onAddAgent={addAgent}
+              onAddNode={addNode}
+              onAddResource={addResource}
+            />
+          </aside>
+        ) : null}
+
+        <div className={isMonitorMode ? "graph-editor-canvas-brief graph-editor-canvas-brief--monitor" : "graph-editor-canvas-brief"} aria-label="画布关系说明">
+          <div>
+            <span>{isMonitorMode ? "监控态" : "自由坐标世界"}</span>
+            <strong>{isMonitorMode ? "已封装任务图项目在同一张画布上运行" : "关系只来自显式节点、边和契约"}</strong>
+          </div>
+          {!isMonitorMode ? (
+            <button disabled={!selectedNodeId || draft.nodes.length < 2} onClick={addExplicitEdgeFromSelection} type="button">
+              添加显式边
+            </button>
+          ) : null}
         </div>
 
-        <aside className="graph-editor-right-dock" aria-label="图对象检查器">
-          <GraphEditorInspectorDock
-            activeTab={inspectorTab}
-            diagnostics={diagnostics}
-            draft={draft}
-            edges={draft.edges}
-            graphId={draft.graph_id}
-            layout={layout}
-            nodes={draft.nodes}
-            onEdgeChange={updateEdge}
-            onGraphChange={(patch) => onDraftChange({ ...draft, ...patch })}
-            onLayoutChange={commitLayout}
-            onNodeChange={updateNode}
-            onTabChange={setInspectorTab}
-            selectedEdgeId={selectedEdgeId}
-            selectedNodeId={selectedNodeId}
-            title={draft.title}
-          />
-        </aside>
+        {!isMonitorMode ? (
+          <aside className="graph-editor-right-dock" aria-label="图对象检查器">
+            <GraphEditorInspectorDock
+              activeTab={inspectorTab}
+              diagnostics={diagnostics}
+              draft={draft}
+              edges={draft.edges}
+              graphId={draft.graph_id}
+              layout={layout}
+              nodes={draft.nodes}
+              onEdgeChange={updateEdge}
+              onGraphChange={(patch) => onDraftChange({ ...draft, ...patch })}
+              onLayoutChange={commitLayout}
+              onNodeChange={updateNode}
+              onTabChange={setInspectorTab}
+              selectedEdgeId={selectedEdgeId}
+              selectedNodeId={selectedNodeId}
+              title={draft.title}
+            />
+          </aside>
+        ) : null}
 
-        <section className="graph-editor-bottom-dock" aria-label="节点会话与运行信息">
-          <GraphEditorBottomDock
-            activeTab={bottomTab}
-            diagnostics={diagnostics}
-            draft={draft}
-            graphRunId={graphRunId}
-            instanceId={instanceId}
-            onTabChange={setBottomTab}
-            selectedEdgeId={selectedEdgeId}
-            selectedNodeId={selectedNodeId}
-          />
-        </section>
+        {!isMonitorMode ? (
+          <section className="graph-editor-bottom-dock" aria-label="节点会话与运行信息">
+            <GraphEditorBottomDock
+              activeTab={bottomTab}
+              diagnostics={diagnostics}
+              draft={draft}
+              graphRunId={graphRunId}
+              instanceId={instanceId}
+              onTabChange={setBottomTab}
+              selectedEdgeId={selectedEdgeId}
+              selectedNodeId={selectedNodeId}
+            />
+          </section>
+        ) : null}
 
-        <footer className="graph-editor-status-dock">
-          <GraphTaskStatusBar dirty={dirty} draft={draft} notice={notice} />
-        </footer>
+        {!isMonitorMode ? (
+          <footer className="graph-editor-status-dock">
+            <GraphTaskStatusBar dirty={dirty} draft={draft} notice={notice} />
+          </footer>
+        ) : null}
+        {worldPanel ? (
+          <aside className="graph-world-plugin-panel" aria-label="任务图世界插件面板">
+            {worldPanel}
+          </aside>
+        ) : null}
       </div>
     </section>
   );
@@ -482,14 +506,14 @@ function GraphEditorBottomDock({
       <div className="graph-editor-bottom-body">
         {activeTab === "conversation" ? (
           <NodeConversationDock
-          edges={draft.edges}
-          graphId={draft.graph_id}
-          graphRunId={graphRunId}
-          instanceId={instanceId}
-          nodes={draft.nodes}
-          selectedEdgeId={selectedEdgeId}
-          selectedNodeId={selectedNodeId}
-        />
+            edges={draft.edges}
+            graphId={draft.graph_id}
+            graphRunId={graphRunId}
+            instanceId={instanceId}
+            nodes={draft.nodes}
+            selectedEdgeId={selectedEdgeId}
+            selectedNodeId={selectedNodeId}
+          />
         ) : null}
         {activeTab === "problems" ? <GraphEditorDiagnosticsPanel diagnostics={diagnostics} compact /> : null}
         {activeTab === "run" ? <GraphEditorRunPreview draft={draft} graphRunId={graphRunId} instanceId={instanceId} /> : null}
@@ -511,7 +535,7 @@ function GraphEditorFileRolesPanel({ draft }: { draft: TaskGraphDraftV2 }) {
           { label: "工作台插件", value: extensions.length ? `${extensions.length} 个` : "使用模板默认配置" },
         ]}
       />
-      <p>文件和产物属于实例空间。模板只定义默认角色，用户可以在实例工作台里查看、打开和投影。</p>
+      <p>文件和产物属于监控态项目空间。模板只定义默认角色，用户可以在项目监控里查看、打开和投影。</p>
     </section>
   );
 }
@@ -544,24 +568,45 @@ function GraphEditorDiagnosticsPanel({
 }) {
   if (!diagnostics.length) {
     return (
-      <section className="graph-editor-empty-panel">
-        <CheckCircle2 size={18} />
-        <strong>结构预检通过</strong>
-        <p>当前图没有发现会阻碍编辑和发布的明显问题。</p>
+      <section className="graph-editor-port-panel graph-editor-port-panel--empty">
+        <div className="graph-editor-port-panel__header">
+          <span><CheckCircle2 size={14} />预检</span>
+          <strong>结构预检通过</strong>
+        </div>
+        <div className="graph-node-port-dock__facts graph-editor-port-panel__facts">
+          <span>
+            <em>错误</em>
+            <strong>0</strong>
+          </span>
+          <span>
+            <em>警告</em>
+            <strong>0</strong>
+          </span>
+          <span>
+            <em>状态</em>
+            <strong>可继续</strong>
+          </span>
+        </div>
       </section>
     );
   }
   return (
-    <section className={compact ? "graph-editor-diagnostics graph-editor-diagnostics--compact" : "graph-editor-diagnostics"}>
-      {diagnostics.map((item, index) => (
-        <article className={`graph-editor-diagnostic graph-editor-diagnostic--${item.severity}`} key={`${item.severity}.${item.title}.${index}`}>
-          <AlertTriangle size={14} />
-          <div>
-            <strong>{item.title}</strong>
-            <span>{item.detail}</span>
-          </div>
-        </article>
-      ))}
+    <section className={compact ? "graph-editor-port-panel graph-editor-diagnostics graph-editor-diagnostics--compact" : "graph-editor-port-panel graph-editor-diagnostics"}>
+      <div className="graph-editor-port-panel__header">
+        <span><AlertTriangle size={14} />预检</span>
+        <strong>{diagnostics.length} 个问题</strong>
+      </div>
+      <div className="graph-editor-diagnostics__list">
+        {diagnostics.map((item, index) => (
+          <article className={`graph-editor-diagnostic graph-editor-diagnostic--${item.severity}`} key={`${item.severity}.${item.title}.${index}`}>
+            <AlertTriangle size={14} />
+            <div>
+              <strong>{item.title}</strong>
+              <span>{item.detail}</span>
+            </div>
+          </article>
+        ))}
+      </div>
     </section>
   );
 }
@@ -575,17 +620,27 @@ function GraphEditorRunPreview({
   instanceId?: string;
   graphRunId?: string;
 }) {
+  const publishReady = draft.publish_state === "published" || draft.publish_state === "run_bound";
   return (
-    <section className="graph-editor-info-panel graph-editor-run-preview">
-      <GraphEditorInfoList
-        items={[
+    <section className="graph-editor-port-panel graph-editor-run-preview">
+      <div className="graph-editor-port-panel__header">
+        <span><PanelBottom size={14} />运行预览</span>
+        <strong>{publishReady ? "可创建实例" : "需发布"}</strong>
+      </div>
+      <div className="graph-node-port-dock__facts graph-editor-port-panel__facts">
+        {[
           { label: "实例", value: instanceId || "未连接实例" },
           { label: "运行", value: graphRunId || "未启动" },
           { label: "节点", value: `${draft.nodes.length} 个` },
           { label: "关系", value: `${draft.edges.length} 条` },
-          { label: "状态", value: draft.publish_state === "published" || draft.publish_state === "run_bound" ? "可运行" : "需发布" },
-        ]}
-      />
+          { label: "状态", value: publishReady ? "可运行" : "草稿" },
+        ].map((item) => (
+          <span key={item.label} title={item.value}>
+            <em>{item.label}</em>
+            <strong>{item.value}</strong>
+          </span>
+        ))}
+      </div>
     </section>
   );
 }

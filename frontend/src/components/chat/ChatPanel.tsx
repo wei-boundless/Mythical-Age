@@ -66,7 +66,9 @@ export function ChatPanel() {
     setSelectedChatModel,
   } = useAppStoreActions();
   const endRef = useRef<HTMLDivElement | null>(null);
+  const footerRef = useRef<HTMLDivElement | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
+  const [footerHeight, setFooterHeight] = useState(220);
   const currentSession = useMemo(
     () => sessions.find((session) => session.id === currentSessionId) ?? null,
     [currentSessionId, sessions],
@@ -141,8 +143,40 @@ export function ChatPanel() {
     };
   }, [projectedMessages, currentSessionReceivingStream]);
 
+  useEffect(() => {
+    const footer = footerRef.current;
+    if (!footer) {
+      return;
+    }
+    const updateFooterHeight = () => {
+      const nextHeight = Math.ceil(footer.getBoundingClientRect().height);
+      setFooterHeight((currentHeight) => (Math.abs(currentHeight - nextHeight) > 1 ? nextHeight : currentHeight));
+    };
+    updateFooterHeight();
+    window.addEventListener("resize", updateFooterHeight);
+    if (typeof ResizeObserver === "undefined") {
+      return () => {
+        window.removeEventListener("resize", updateFooterHeight);
+      };
+    }
+    const observer = new ResizeObserver(updateFooterHeight);
+    observer.observe(footer);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateFooterHeight);
+    };
+  }, []);
+
+  const panelStyle = useMemo(
+    () => ({ "--chat-footer-height": `${footerHeight}px` } as CSSProperties),
+    [footerHeight],
+  );
+
   return (
-    <section className="chat-panel-shell grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden">
+    <section
+      className="chat-panel-shell grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden"
+      style={panelStyle}
+    >
       <div className="chat-thread flex min-h-0 min-w-0 flex-col overflow-hidden">
         <div className="chat-thread__messages flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
           {!projectedMessages.length ? (
@@ -184,7 +218,7 @@ export function ChatPanel() {
         </div>
       </div>
 
-      <div className="chat-panel-footer min-w-0">
+      <div className="chat-panel-footer min-w-0" ref={footerRef}>
         <div className="chat-panel-status-row">
           <div className="chat-panel-status-row__left">
             <WorkspaceModeSwitcher ariaLabel="切换当前会话任务环境" className="chat-environment-switcher" />

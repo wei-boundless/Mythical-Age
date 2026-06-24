@@ -520,7 +520,7 @@ def _cache_boundary(
 def _contiguous_stable_message_prefix(segments: tuple[ProviderPayloadSegment, ...]) -> list[ProviderPayloadSegment]:
     result: list[ProviderPayloadSegment] = []
     for segment in [item for item in segments if item.transport_location == "messages"]:
-        if is_cache_eligible_prefix(cache_role=segment.cache_role, prefix_tier=segment.prefix_tier):
+        if _is_provider_visible_structural_prefix_segment(segment):
             result.append(segment)
             continue
         break
@@ -561,13 +561,56 @@ def _provider_prefix_segments_for_tier(
 ) -> list[ProviderPayloadSegment]:
     if not tier or tier == "none":
         return []
+    if str(tier or "").strip() == "task":
+        return _provider_visible_structural_prefix_segments(segments)
     result: list[ProviderPayloadSegment] = []
     for segment in sorted(segments, key=lambda item: item.ordinal):
+        if segment.transport_location != "messages":
+            if is_prefix_eligible_for_tier(cache_role=segment.cache_role, prefix_tier=segment.prefix_tier, tier=tier):
+                result.append(segment)
+            continue
         if is_prefix_eligible_for_tier(cache_role=segment.cache_role, prefix_tier=segment.prefix_tier, tier=tier):
             result.append(segment)
             continue
         break
     return result
+
+
+def _provider_visible_structural_prefix_segments(
+    segments: tuple[ProviderPayloadSegment, ...],
+) -> list[ProviderPayloadSegment]:
+    result: list[ProviderPayloadSegment] = []
+    for segment in sorted(tuple(segments or ()), key=lambda item: item.ordinal):
+        if segment.transport_location != "messages":
+            continue
+        if _is_provider_visible_structural_prefix_segment(segment):
+            result.append(segment)
+            continue
+        break
+    return result
+
+
+def _is_provider_visible_structural_prefix_segment(segment: ProviderPayloadSegment) -> bool:
+    metadata = dict(segment.metadata or {})
+    boundary = str(
+        metadata.get("context_provider_visible_boundary")
+        or metadata.get("context_prefix_boundary")
+        or ""
+    ).strip()
+    if boundary in {
+        "static_provider_context",
+        "sealed_provider_visible_context",
+        "cacheable_prefix",
+    }:
+        return True
+    if boundary in {
+        "current_append_context",
+        "current_dynamic_tail",
+        "materialize_then_cache_on_next_request",
+        "never_cache",
+    }:
+        return False
+    return is_cache_eligible_prefix(cache_role=segment.cache_role, prefix_tier=segment.prefix_tier)
 
 
 def _tier_prefix_diagnostics(
@@ -599,6 +642,11 @@ def _tier_prefix_diagnostics(
         "boundary_kind": boundary.kind if boundary is not None else "",
         "boundary_ordinal": boundary.ordinal if boundary is not None else 0,
         "boundary_content_hash": boundary.content_hash if boundary is not None else "",
+        "provider_visible_boundary_source": "context_structure" if str(tier or "").strip() == "task" else "prefix_tier",
+        "provider_visible_boundaries": [
+            str(dict(segment.metadata or {}).get("context_provider_visible_boundary") or "")
+            for segment in message_segments
+        ],
     }
 
 
@@ -615,7 +663,7 @@ def _ordered_provider_payload_segments(
     request_id: str,
     segments: list[ProviderPayloadSegment],
 ) -> tuple[ProviderPayloadSegment, ...]:
-    ordered = sorted(list(segments or []), key=lambda item: item.ordinal)
+    ordered = sorted(list(segments or []), key=_provider_payload_physical_sort_key)
     return tuple(
         _with_provider_payload_ordinal(
             request_id=request_id,
@@ -624,6 +672,15 @@ def _ordered_provider_payload_segments(
         )
         for index, segment in enumerate(ordered)
     )
+
+
+def _provider_payload_physical_sort_key(segment: ProviderPayloadSegment) -> tuple[int, int]:
+    location = str(segment.transport_location or "")
+    if location in {"tools", "tool_call_options", "response_format", "request_params"}:
+        return (0, int(segment.ordinal or 0))
+    if location == "messages":
+        return (1, int(segment.ordinal or 0))
+    return (2, int(segment.ordinal or 0))
 
 
 def _with_provider_payload_ordinal(

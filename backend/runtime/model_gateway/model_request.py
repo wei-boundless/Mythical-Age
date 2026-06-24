@@ -7,7 +7,11 @@ from runtime.prompt_accounting.serializer import canonical_json
 from prompt_composition.provider_payload_plan import build_provider_payload_plan
 
 from .lightweight_chat_model import provider_message_payloads, provider_tool_payloads
-from .provider_cache_policy import ProviderCachePolicy, ProviderCachePolicyResolver
+from .provider_cache_policy import (
+    ProviderCachePolicy,
+    ProviderCachePolicyResolver,
+    provider_cache_policy_override_from_payload,
+)
 from .provider_payload import ProviderPayloadManifest
 
 
@@ -130,7 +134,15 @@ class ModelRequestBuilder:
                 "tools": list(provider_transport_tools),
             }
         )
-        cache_policy = self.cache_policy_resolver.resolve(provider=provider, model=model, base_url=base_url)
+        cache_policy_override = provider_cache_policy_override_from_payload(cache_relevant_params)
+        cache_policy = self.cache_policy_resolver.resolve(
+            provider=provider,
+            model=model,
+            base_url=base_url,
+            context_physical_model=str(cache_policy_override.get("context_physical_model") or ""),
+            dynamic_tail_supported=cache_policy_override.get("dynamic_tail_supported"),
+            override_reason=str(cache_policy_override.get("reason") or ""),
+        )
         provider_payload_plan = build_provider_payload_plan(
             request_id=str(request_id or ""),
             provider=str(provider or ""),

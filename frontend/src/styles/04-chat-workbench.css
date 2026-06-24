@@ -945,7 +945,8 @@
   width: min(100%, 1480px);
   margin: 0 auto;
   gap: 24px;
-  padding: 32px 24px 48px;
+  padding: 32px 24px calc(var(--chat-footer-height, 220px) + 72px);
+  scroll-padding-bottom: calc(var(--chat-footer-height, 220px) + 72px);
 }
 
 .agent-workbench .chat-thread__empty {
@@ -1023,22 +1024,27 @@
 }
 
 .agent-workbench .message-copy-button {
-  position: sticky;
-  top: 8px;
-  float: right;
+  position: absolute;
+  top: 2px;
+  right: 0;
   z-index: 2;
   display: inline-grid;
   width: 28px;
   height: 28px;
   place-items: center;
-  margin: 0 0 8px 12px;
+  margin: 0;
   border: 0;
   border-radius: var(--console-radius-sm);
   background: var(--console-surface-muted);
   color: var(--console-muted);
-  opacity: 0.9;
+  opacity: 0;
   padding: 0;
   transition: background 140ms ease, color 140ms ease, opacity 140ms ease;
+}
+
+.agent-workbench .chat-message-shell:hover .message-copy-button,
+.agent-workbench .message-copy-button:focus-visible {
+  opacity: 0.92;
 }
 
 .agent-workbench .chat-message-shell__content,
@@ -1219,6 +1225,382 @@
 .agent-workbench .chat-message-shell__content.markdown strong {
   color: var(--console-text);
   font-weight: 680;
+}
+
+.agent-workbench .markdown--assistant-closeout {
+  --closeout-reader-width: clamp(880px, 78%, 1060px);
+  --closeout-wide-width: clamp(1040px, 94%, 1260px);
+  --closeout-line: color-mix(in srgb, var(--console-line) 86%, transparent);
+  --closeout-line-strong: color-mix(in srgb, var(--console-line-strong) 74%, var(--console-line));
+  --closeout-band: color-mix(in srgb, var(--console-bg-raised) 78%, var(--console-surface));
+  --closeout-code-bg: color-mix(in srgb, var(--console-bg-raised) 88%, var(--console-surface));
+  width: min(100%, var(--closeout-wide-width));
+  max-width: min(100%, var(--closeout-wide-width));
+  color: var(--console-text);
+  font-size: 16px;
+  font-weight: 470;
+  line-height: 1.78;
+  overflow-wrap: break-word;
+  text-rendering: optimizeLegibility;
+}
+
+.agent-workbench .chat-message-shell__content.markdown.markdown--assistant-closeout {
+  color: var(--console-text);
+  font-size: 16px;
+  line-height: 1.78;
+  padding-right: 40px;
+}
+
+.agent-workbench .markdown--assistant-closeout > *:first-child {
+  margin-top: 0;
+}
+
+.agent-workbench .markdown--assistant-closeout > *:last-child {
+  margin-bottom: 0;
+}
+
+.agent-workbench .markdown--assistant-closeout > p,
+.agent-workbench .markdown--assistant-closeout > ul,
+.agent-workbench .markdown--assistant-closeout > ol,
+.agent-workbench .markdown--assistant-closeout > blockquote,
+.agent-workbench .markdown--assistant-closeout > h1,
+.agent-workbench .markdown--assistant-closeout > h2,
+.agent-workbench .markdown--assistant-closeout > h3,
+.agent-workbench .markdown--assistant-closeout > h4,
+.agent-workbench .markdown--assistant-closeout > hr {
+  max-width: var(--closeout-reader-width);
+}
+
+.agent-workbench .markdown--assistant-closeout h1,
+.agent-workbench .markdown--assistant-closeout h2,
+.agent-workbench .markdown--assistant-closeout h3,
+.agent-workbench .markdown--assistant-closeout h4 {
+  color: var(--console-text);
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 1.28;
+}
+
+.agent-workbench .markdown--assistant-closeout h1 {
+  margin: 0 0 16px;
+  font-size: 25px;
+}
+
+.agent-workbench .markdown--assistant-closeout h2 {
+  margin: 30px 0 11px;
+  font-size: 21px;
+}
+
+.agent-workbench .markdown--assistant-closeout h3 {
+  margin: 24px 0 9px;
+  font-size: 17px;
+  font-weight: 740;
+}
+
+.agent-workbench .markdown--assistant-closeout h4 {
+  margin: 20px 0 8px;
+  color: var(--console-text-soft);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.agent-workbench .markdown--assistant-closeout p {
+  color: var(--console-text);
+  font-size: inherit;
+  line-height: 1.82;
+  margin: 0 0 15px;
+}
+
+.agent-workbench .chat-message-shell__content.markdown.markdown--assistant-closeout p {
+  font-size: inherit;
+  line-height: 1.78;
+}
+
+.agent-workbench .markdown--assistant-closeout strong {
+  color: var(--console-text);
+  font-weight: 760;
+}
+
+.agent-workbench .markdown--assistant-closeout hr {
+  height: 1px;
+  border: 0;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--console-line) 70%, transparent), transparent);
+  margin: 24px 0;
+}
+
+.agent-workbench .markdown--assistant-closeout hr + hr {
+  display: none;
+}
+
+.agent-workbench .markdown--assistant-closeout ul,
+.agent-workbench .markdown--assistant-closeout ol {
+  display: grid;
+  gap: 7px;
+  color: var(--console-text);
+  font-size: inherit;
+  line-height: 1.72;
+  margin: 0 0 16px;
+  padding-left: 1.45rem;
+}
+
+.agent-workbench .chat-message-shell__content.markdown.markdown--assistant-closeout ul,
+.agent-workbench .chat-message-shell__content.markdown.markdown--assistant-closeout ol {
+  font-size: inherit;
+}
+
+.agent-workbench .markdown--assistant-closeout li {
+  padding-left: 0.08rem;
+}
+
+.agent-workbench .markdown--assistant-closeout li > p {
+  margin: 0 0 6px;
+}
+
+.agent-workbench .markdown--assistant-closeout li > ul,
+.agent-workbench .markdown--assistant-closeout li > ol {
+  margin: 8px 0 2px;
+}
+
+.agent-workbench .markdown--assistant-closeout li.task-list-item {
+  list-style: none;
+}
+
+.agent-workbench .markdown--assistant-closeout input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0 8px 0 -1.45rem;
+  accent-color: var(--console-accent);
+  transform: translateY(2px);
+}
+
+.agent-workbench .markdown--assistant-closeout li::marker {
+  color: var(--console-accent);
+  font-weight: 780;
+}
+
+.agent-workbench .markdown--assistant-closeout blockquote {
+  margin: 16px 0 18px;
+  border-left: 4px solid var(--console-accent);
+  border-radius: 0 8px 8px 0;
+  background: var(--closeout-band);
+  color: color-mix(in srgb, var(--console-text) 78%, var(--console-text-soft));
+  padding: 12px 16px;
+}
+
+.agent-workbench .markdown--assistant-closeout blockquote p {
+  color: inherit;
+  margin-bottom: 8px;
+}
+
+.agent-workbench .markdown--assistant-closeout blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+.agent-workbench .markdown--assistant-closeout a {
+  color: var(--console-accent);
+  font-weight: 660;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--console-accent) 40%, transparent);
+  text-underline-offset: 3px;
+}
+
+.agent-workbench .markdown--assistant-closeout a:hover {
+  color: var(--console-accent-hover);
+  text-decoration-color: currentColor;
+}
+
+.agent-workbench .markdown--assistant-closeout del {
+  color: var(--console-muted);
+  text-decoration-color: color-mix(in srgb, var(--console-muted) 62%, transparent);
+}
+
+.agent-workbench .markdown--assistant-closeout :not(pre) > code {
+  border: 1px solid var(--closeout-line);
+  border-radius: 6px;
+  background: var(--closeout-code-bg);
+  color: color-mix(in srgb, var(--console-text) 86%, var(--console-accent));
+  font-family: var(--console-mono);
+  font-size: 0.92em;
+  padding: 0.08rem 0.32rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.agent-workbench .markdown--assistant-closeout pre {
+  width: min(100%, var(--closeout-wide-width));
+  max-width: 100%;
+  margin: 16px 0 20px;
+  border: 1px solid color-mix(in srgb, var(--console-line-strong) 72%, transparent);
+  border-radius: 8px;
+  background: #101828;
+  color: #f8fafc;
+  box-shadow: none;
+  overflow: auto;
+  padding: 15px 17px;
+}
+
+.agent-workbench .markdown--assistant-closeout pre:has(code.language-text) {
+  border-color: var(--closeout-line-strong);
+  background: color-mix(in srgb, var(--console-bg-raised) 72%, var(--console-surface));
+  color: var(--console-text);
+}
+
+.agent-workbench .markdown--assistant-closeout pre code {
+  display: block;
+  background: transparent;
+  color: inherit;
+  font-family: var(--console-mono);
+  font-size: 13px;
+  line-height: 1.68;
+  white-space: pre;
+}
+
+.agent-workbench .markdown--assistant-closeout pre:has(code.language-text) code {
+  color: color-mix(in srgb, var(--console-text) 88%, var(--console-text-soft));
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+
+.agent-workbench .markdown--assistant-closeout .markdown-table-frame {
+  width: min(100%, var(--closeout-wide-width));
+  max-width: 100%;
+  margin: 18px 0 22px;
+  border: 1px solid var(--closeout-line-strong);
+  border-radius: 8px;
+  background: var(--console-surface);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
+}
+
+.agent-workbench .markdown--assistant-closeout table {
+  width: 100%;
+  min-width: 640px;
+  margin: 0;
+  border: 0;
+  border-spacing: 0;
+  border-collapse: separate;
+  background: var(--console-surface);
+  font-size: 14px;
+  line-height: 1.66;
+  table-layout: auto;
+}
+
+.agent-workbench .markdown--assistant-closeout thead {
+  background: color-mix(in srgb, var(--console-bg-raised) 84%, var(--console-surface));
+}
+
+.agent-workbench .markdown--assistant-closeout th,
+.agent-workbench .markdown--assistant-closeout td {
+  border-right: 1px solid color-mix(in srgb, var(--console-line) 84%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--console-line) 84%, transparent);
+  padding: 12px 15px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.agent-workbench .markdown--assistant-closeout th {
+  color: var(--console-text);
+  font-size: 13px;
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+.agent-workbench .markdown--assistant-closeout td {
+  color: color-mix(in srgb, var(--console-text) 84%, var(--console-text-soft));
+  font-weight: 500;
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+
+.agent-workbench .markdown--assistant-closeout table:has(th:nth-child(3)) th:first-child,
+.agent-workbench .markdown--assistant-closeout table:has(th:nth-child(3)) td:first-child {
+  width: 28%;
+}
+
+.agent-workbench .markdown--assistant-closeout table:has(th:nth-child(3)) th:nth-child(2),
+.agent-workbench .markdown--assistant-closeout table:has(th:nth-child(3)) td:nth-child(2) {
+  width: 18%;
+}
+
+.agent-workbench .markdown--assistant-closeout td:first-child {
+  color: var(--console-text);
+  font-weight: 720;
+}
+
+.agent-workbench .markdown--assistant-closeout table:has(th:nth-child(3)) td:nth-child(2) {
+  color: var(--console-text);
+  font-weight: 620;
+  white-space: nowrap;
+}
+
+.agent-workbench .markdown--assistant-closeout th:last-child,
+.agent-workbench .markdown--assistant-closeout td:last-child {
+  border-right: 0;
+}
+
+.agent-workbench .markdown--assistant-closeout tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.agent-workbench .markdown--assistant-closeout tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--console-bg-raised) 70%, transparent);
+}
+
+.agent-workbench .markdown--assistant-closeout table code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.agent-workbench .markdown--assistant-closeout img {
+  max-width: min(100%, var(--closeout-wide-width));
+  height: auto;
+  margin: 14px 0 18px;
+  border-radius: 8px;
+}
+
+@media (max-width: 760px) {
+  .agent-workbench .chat-thread__messages {
+    padding: 24px 14px calc(var(--chat-footer-height, 220px) + 58px);
+    scroll-padding-bottom: calc(var(--chat-footer-height, 220px) + 58px);
+  }
+
+  .agent-workbench .markdown--assistant-closeout,
+  .agent-workbench .chat-message-shell__content.markdown.markdown--assistant-closeout {
+    width: 100%;
+    font-size: 15px;
+  }
+
+  .agent-workbench .chat-message-shell__content.markdown.markdown--assistant-closeout {
+    padding-right: 0;
+  }
+
+  .agent-workbench .markdown--assistant-closeout h1 {
+    font-size: 22px;
+  }
+
+  .agent-workbench .markdown--assistant-closeout h2 {
+    margin-top: 28px;
+    padding-top: 14px;
+    font-size: 18px;
+  }
+
+  .agent-workbench .markdown--assistant-closeout pre {
+    padding: 13px 14px;
+  }
+
+  .agent-workbench .markdown--assistant-closeout .markdown-table-frame {
+    width: 100%;
+  }
+
+  .agent-workbench .markdown--assistant-closeout table {
+    min-width: 620px;
+  }
+
+  .agent-workbench .markdown--assistant-closeout th,
+  .agent-workbench .markdown--assistant-closeout td {
+    padding: 10px 12px;
+  }
 }
 
 .agent-workbench .chat-panel-footer {

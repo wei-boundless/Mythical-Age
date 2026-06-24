@@ -1,15 +1,14 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { Boxes, FolderGit2, LayoutTemplate, PlaySquare, RadioTower } from "lucide-react";
+import { Boxes, FolderGit2, LayoutTemplate, RadioTower } from "lucide-react";
 
-export type TaskGraphWorkbenchContext = "templates" | "graphs" | "editor" | "instances" | "runtime";
+export type TaskGraphWorkbenchContext = "templates" | "graphs" | "editor" | "monitor";
 
 export type TaskGraphWorkbenchCounts = {
   templates: number;
   graphs: number;
   instances: number;
-  runs: number;
 };
 
 export type TaskGraphWorkbenchTab = {
@@ -17,15 +16,15 @@ export type TaskGraphWorkbenchTab = {
   label: string;
   detail: string;
   icon: LucideIcon;
+  kind: "resource" | "mode";
   countKey?: keyof TaskGraphWorkbenchCounts;
 };
 
 export const taskGraphWorkbenchTabs: TaskGraphWorkbenchTab[] = [
-  { context: "templates", label: "模板库", detail: "配置种子", icon: LayoutTemplate, countKey: "templates" },
-  { context: "graphs", label: "图定义", detail: "保存与发布", icon: FolderGit2, countKey: "graphs" },
-  { context: "editor", label: "编辑器", detail: "画布底板", icon: Boxes },
-  { context: "instances", label: "实例", detail: "运行空间", icon: PlaySquare, countKey: "instances" },
-  { context: "runtime", label: "运行投影", detail: "多 Agent 观察", icon: RadioTower, countKey: "runs" },
+  { context: "templates", label: "模板库", detail: "资源入口", icon: LayoutTemplate, kind: "resource", countKey: "templates" },
+  { context: "graphs", label: "图定义", detail: "定义管理", icon: FolderGit2, kind: "resource", countKey: "graphs" },
+  { context: "editor", label: "编辑态", detail: "配置任务图", icon: Boxes, kind: "mode" },
+  { context: "monitor", label: "监控态", detail: "运行项目", icon: RadioTower, kind: "mode", countKey: "instances" },
 ];
 
 export type TaskGraphBreadcrumbSegment = {
