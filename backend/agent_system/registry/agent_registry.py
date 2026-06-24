@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -260,15 +259,6 @@ class AgentRegistry:
         while f"agent:worker:{candidate}" in occupied_ids:
             candidate += 1
         return f"agent:worker:{candidate}"
-
-    def set_agent_enabled(self, agent_id: str, enabled: bool) -> AgentDescriptor:
-        current = self.get_agent(agent_id)
-        if current is None:
-            raise KeyError(agent_id)
-        updated = replace(current, enabled=bool(enabled), updated_at=time.time())
-        agents = [updated if item.agent_id == updated.agent_id else item for item in self.list_agents()]
-        _write_json(self.agents_path, {"agents": [item.to_dict() for item in agents]})
-        return updated
 
     def upsert_agent(
         self,

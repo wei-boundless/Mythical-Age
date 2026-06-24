@@ -150,6 +150,8 @@ tool_runtime
 skill_runtime
 subagent_delegation
 evidence_read
+evidence_alignment
+reasoning_projection
 lifecycle_resume_steer
 output_projection
 recovery_closeout

@@ -558,8 +558,64 @@ function normalizeTextFontSize(value: unknown): number | undefined {
   return Math.min(32, Math.max(10, Math.round(size)));
 }
 
+type WorkbenchAppearanceWindow = Window & {
+  __workbenchBackgroundObjectUrl?: {
+    source: string;
+    url: string;
+  };
+};
+
 function imageUrlCssValue(value: string) {
   return `url(${JSON.stringify(value)})`;
+}
+
+function releaseBackgroundObjectUrl() {
+  if (typeof window === "undefined") return;
+  const target = window as WorkbenchAppearanceWindow;
+  const current = target.__workbenchBackgroundObjectUrl;
+  if (!current) return;
+  URL.revokeObjectURL(current.url);
+  target.__workbenchBackgroundObjectUrl = undefined;
+}
+
+function dataUrlToBlob(value: string): Blob | null {
+  const commaIndex = value.indexOf(",");
+  if (!value.startsWith("data:") || commaIndex < 0) {
+    return null;
+  }
+  const header = value.slice(0, commaIndex);
+  const body = value.slice(commaIndex + 1);
+  const mimeType = header.match(/^data:([^;,]+)/i)?.[1] || "application/octet-stream";
+  const isBase64 = /;base64/i.test(header);
+  const binary = isBase64 ? window.atob(body) : decodeURIComponent(body);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new Blob([bytes], { type: mimeType });
+}
+
+function resolveBackgroundImagePaintUrl(value: string) {
+  if (typeof window === "undefined" || !value.startsWith("data:")) {
+    return value;
+  }
+  const target = window as WorkbenchAppearanceWindow;
+  const current = target.__workbenchBackgroundObjectUrl;
+  if (current?.source === value) {
+    return current.url;
+  }
+  releaseBackgroundObjectUrl();
+  try {
+    const blob = dataUrlToBlob(value);
+    if (!blob) {
+      return value;
+    }
+    const url = URL.createObjectURL(blob);
+    target.__workbenchBackgroundObjectUrl = { source: value, url };
+    return url;
+  } catch {
+    return value;
+  }
 }
 
 export function getStoredCustomSettings(): CustomAppearanceSettings {
@@ -590,76 +646,40 @@ export function setStoredCustomSettings(settings: Partial<CustomAppearanceSettin
 type BackgroundImageLayoutVars = {
   baseSize: string;
   basePosition: string;
-  atmosphereSize: string;
-  atmospherePosition: string;
-  subjectSize: string;
-  subjectPosition: string;
-  subjectOpacity: string;
-  subjectMask: string;
+  baseRepeat: string;
 };
 
-const BACKGROUND_MASK_BALANCED = "linear-gradient(90deg, transparent 0%, black 18%, black 82%, transparent 100%)";
-const BACKGROUND_MASK_RIGHT_FOCUS = "linear-gradient(90deg, transparent 0%, black 34%, black 100%)";
-
-function resolveBackgroundImageLayout(hasImage: boolean, meta: WorkbenchBackgroundImageMeta | null): BackgroundImageLayoutVars {
+function resolveBackgroundImageLayout(hasImage: boolean): BackgroundImageLayoutVars {
   if (!hasImage) {
     return {
       baseSize: "cover",
       basePosition: "center center",
-      atmosphereSize: "cover",
-      atmospherePosition: "center center",
-      subjectSize: "contain",
-      subjectPosition: "center center",
-      subjectOpacity: "0",
-      subjectMask: BACKGROUND_MASK_BALANCED,
+      baseRepeat: "no-repeat",
     };
   }
-  if (!meta) {
+
+  return {
+    baseSize: "cover",
+    basePosition: "center top",
+    baseRepeat: "no-repeat",
+  };
+}
+
+function backgroundVeilVars(hasImage: boolean, veil: number) {
+  const value = Math.round(Number.isFinite(veil) ? veil : DEFAULT_CUSTOM_SETTINGS.chatCanvasVeil);
+  if (!hasImage) {
     return {
-      baseSize: "auto 100%",
-      basePosition: "right center",
-      atmosphereSize: "cover",
-      atmospherePosition: "center center",
-      subjectSize: "auto min(92%, 960px)",
-      subjectPosition: "right center",
-      subjectOpacity: "0.32",
-      subjectMask: BACKGROUND_MASK_RIGHT_FOCUS,
-    };
-  }
-  const aspectRatio = meta.aspectRatio || meta.width / meta.height;
-  if (aspectRatio < 1) {
-    return {
-      baseSize: "auto 100%",
-      basePosition: "right center",
-      atmosphereSize: "cover",
-      atmospherePosition: "center center",
-      subjectSize: "auto min(94%, 980px)",
-      subjectPosition: "right center",
-      subjectOpacity: "0.34",
-      subjectMask: BACKGROUND_MASK_RIGHT_FOCUS,
-    };
-  }
-  if (aspectRatio < 1.35) {
-    return {
-      baseSize: "auto 100%",
-      basePosition: "right center",
-      atmosphereSize: "cover",
-      atmospherePosition: "center center",
-      subjectSize: "auto min(90%, 980px)",
-      subjectPosition: "right center",
-      subjectOpacity: "0.3",
-      subjectMask: BACKGROUND_MASK_RIGHT_FOCUS,
+      center: `${value}%`,
+      edge: `${value}%`,
+      top: `${value}%`,
+      bottom: `${value}%`,
     };
   }
   return {
-    baseSize: "cover",
-    basePosition: "center center",
-    atmosphereSize: "cover",
-    atmospherePosition: "center center",
-    subjectSize: "contain",
-    subjectPosition: "center center",
-    subjectOpacity: "0.24",
-    subjectMask: BACKGROUND_MASK_BALANCED,
+    center: `${Math.min(76, Math.max(0, value))}%`,
+    edge: `${Math.min(90, Math.max(0, value + 22))}%`,
+    top: `${Math.min(84, Math.max(0, value + 12))}%`,
+    bottom: `${Math.min(96, Math.max(0, value + 40))}%`,
   };
 }
 
@@ -760,21 +780,23 @@ export function applyAppearanceOverrides(settings: CustomAppearanceSettings) {
     }
   });
 
-  // Background image
-  const backgroundLayout = resolveBackgroundImageLayout(Boolean(settings.bgImage), settings.bgImageMeta);
+  // Background image: one layout authority computes variables; CSS decides where to paint them.
+  const hasBackgroundImage = Boolean(settings.bgImage);
+  const backgroundLayout = resolveBackgroundImageLayout(hasBackgroundImage);
+  const backgroundVeil = backgroundVeilVars(hasBackgroundImage, settings.chatCanvasVeil);
   if (settings.bgImage) {
-    root.style.setProperty("--workbench-bg-image", imageUrlCssValue(settings.bgImage));
+    root.style.setProperty("--workbench-bg-image", imageUrlCssValue(resolveBackgroundImagePaintUrl(settings.bgImage)));
   } else {
+    releaseBackgroundObjectUrl();
     root.style.setProperty("--workbench-bg-image", "none");
   }
   root.style.setProperty("--workbench-bg-size", backgroundLayout.baseSize);
   root.style.setProperty("--workbench-bg-position", backgroundLayout.basePosition);
-  root.style.setProperty("--workbench-bg-atmosphere-size", backgroundLayout.atmosphereSize);
-  root.style.setProperty("--workbench-bg-atmosphere-position", backgroundLayout.atmospherePosition);
-  root.style.setProperty("--workbench-bg-subject-size", backgroundLayout.subjectSize);
-  root.style.setProperty("--workbench-bg-subject-position", backgroundLayout.subjectPosition);
-  root.style.setProperty("--workbench-bg-subject-opacity", backgroundLayout.subjectOpacity);
-  root.style.setProperty("--workbench-bg-subject-mask", backgroundLayout.subjectMask);
+  root.style.setProperty("--workbench-bg-repeat", backgroundLayout.baseRepeat);
+  root.style.setProperty("--workbench-bg-veil-center", backgroundVeil.center);
+  root.style.setProperty("--workbench-bg-veil-edge", backgroundVeil.edge);
+  root.style.setProperty("--workbench-bg-veil-top", backgroundVeil.top);
+  root.style.setProperty("--workbench-bg-veil-bottom", backgroundVeil.bottom);
   probeLegacyBackgroundImageMeta(settings);
 
   root.style.setProperty("--chat-canvas-veil", `${Math.round(settings.chatCanvasVeil)}%`);
@@ -804,14 +826,14 @@ export function clearCustomOverrides() {
     root.style.removeProperty(vars.size);
   });
   root.style.removeProperty("--workbench-bg-image");
+  releaseBackgroundObjectUrl();
   root.style.removeProperty("--workbench-bg-size");
   root.style.removeProperty("--workbench-bg-position");
-  root.style.removeProperty("--workbench-bg-atmosphere-size");
-  root.style.removeProperty("--workbench-bg-atmosphere-position");
-  root.style.removeProperty("--workbench-bg-subject-size");
-  root.style.removeProperty("--workbench-bg-subject-position");
-  root.style.removeProperty("--workbench-bg-subject-opacity");
-  root.style.removeProperty("--workbench-bg-subject-mask");
+  root.style.removeProperty("--workbench-bg-repeat");
+  root.style.removeProperty("--workbench-bg-veil-center");
+  root.style.removeProperty("--workbench-bg-veil-edge");
+  root.style.removeProperty("--workbench-bg-veil-top");
+  root.style.removeProperty("--workbench-bg-veil-bottom");
   root.style.removeProperty("--chat-canvas-veil");
   root.style.removeProperty("--chat-canvas-veil-soft");
   root.style.removeProperty("--chat-panel-surface-alpha");

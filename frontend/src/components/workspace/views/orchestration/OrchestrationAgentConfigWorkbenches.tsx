@@ -12,6 +12,10 @@ import {
 } from "@/components/workspace/views/orchestration/OrchestrationWorkbenchUi";
 import type { OrchestrationCapabilityItem, ToolPackageDefinition, ToolPackageSelection } from "@/lib/api";
 import { Notice } from "@/ui/Notice";
+import {
+  runtimeMetadataWithContextSystemGroups,
+  selectedContextSystemGroups,
+} from "./orchestrationAssemblyModel";
 
 type RuntimeDraftLike = {
   agent_profile_id?: string;
@@ -985,9 +989,12 @@ export function OrchestrationContextMemoryWorkbench({
   contextSectionOptions,
   memoryScopeOptionItems,
   contextSectionOptionItems,
+  systemGroupOptions,
+  systemGroupOptionItems,
   displayId,
   memorySummary,
   contextSummary,
+  systemGroupSummary,
 }: {
   runtimeDraft: RuntimeDraftLike;
   patchRuntimeDraft: (patch: Partial<RuntimeDraftLike>) => void;
@@ -995,12 +1002,16 @@ export function OrchestrationContextMemoryWorkbench({
   contextSectionOptions: string[];
   memoryScopeOptionItems: OrchestrationOption[];
   contextSectionOptionItems: OrchestrationOption[];
+  systemGroupOptions: string[];
+  systemGroupOptionItems: OrchestrationOption[];
   displayId: (value: unknown, fallback?: string) => string;
   memorySummary: string;
   contextSummary: string;
+  systemGroupSummary: string;
 }) {
   const selectedMemoryScopes = dedupe(runtimeDraft.allowed_memory_scopes ?? []);
   const selectedContextSections = dedupe(runtimeDraft.allowed_context_sections ?? []);
+  const selectedSystemGroups = selectedContextSystemGroups(runtimeDraft.metadata, systemGroupOptionItems);
   const selectedMemoryScopeSet = new Set(selectedMemoryScopes);
   const selectedContextSectionSet = new Set(selectedContextSections);
   const hasConversationReadonly = selectedMemoryScopeSet.has("conversation_readonly");
@@ -1033,6 +1044,16 @@ export function OrchestrationContextMemoryWorkbench({
     });
   }
 
+  function patchContextSystemGroups(values: string[]) {
+    patchRuntimeDraft({
+      metadata: runtimeMetadataWithContextSystemGroups(
+        runtimeDraft.metadata,
+        values,
+        systemGroupOptionItems,
+      ),
+    });
+  }
+
   return (
     <section className="orchestration-context-workbench">
       <div className="boundary-card orchestration-context-config-card">
@@ -1056,6 +1077,14 @@ export function OrchestrationContextMemoryWorkbench({
           onChange={(values) => patchRuntimeDraft({ allowed_context_sections: dedupe(values) })}
           options={contextSectionOptionItems}
           selectedValues={selectedContextSections}
+        />
+        <OrchestrationOptionSelection
+          displayId={displayId}
+          fallbackOptions={systemGroupOptions}
+          label="上下文系统组"
+          onChange={(values) => patchContextSystemGroups(dedupe(values))}
+          options={systemGroupOptionItems}
+          selectedValues={selectedSystemGroups}
         />
       </div>
 
@@ -1117,6 +1146,7 @@ export function OrchestrationContextMemoryWorkbench({
         <div className="boundary-kv">
           <p><span>记忆</span><strong>{memorySummary}</strong></p>
           <p><span>上下文</span><strong>{contextSummary}</strong></p>
+          <p><span>系统组</span><strong>{systemGroupSummary}</strong></p>
           <p><span>写入治理</span><strong>{hasSessionMaintenance || hasDurableCandidate ? "由记忆管理 Agent 接管" : "当前未开放写入"}</strong></p>
         </div>
       </aside>

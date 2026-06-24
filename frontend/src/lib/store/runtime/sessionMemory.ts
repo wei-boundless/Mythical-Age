@@ -1,7 +1,7 @@
 import type { WorkbenchSessionRef } from "@/lib/api";
 
 import type { SessionPoolKey, SessionRef } from "../types";
-import { CHAT_STREAM_DISPLAY_ENABLED_KEY, LAST_ACTIVE_SESSION_REF_KEY, MAIN_CHAT_POOL_KEY } from "./constants";
+import { CHAT_STREAM_DISPLAY_ENABLED_KEY, LAST_ACTIVE_SESSION_REF_KEY, MAIN_CHAT_POOL_KEY, THINKING_PROJECTION_ENABLED_KEY } from "./constants";
 import { sessionPoolKeyForScope } from "./sessionModels";
 import { errorDetailMessage } from "./text";
 
@@ -47,6 +47,17 @@ export function readRememberedChatStreamDisplayEnabled() {
 
 export function rememberChatStreamDisplayEnabled(enabled: boolean) {
   storageSet(CHAT_STREAM_DISPLAY_ENABLED_KEY, enabled ? "1" : "0");
+}
+
+export function readRememberedThinkingProjectionEnabled() {
+  const raw = storageGet(THINKING_PROJECTION_ENABLED_KEY).toLowerCase();
+  if (["1", "true", "enabled", "on"].includes(raw)) return true;
+  if (["0", "false", "disabled", "off"].includes(raw)) return false;
+  return null;
+}
+
+export function rememberThinkingProjectionEnabled(enabled: boolean) {
+  storageSet(THINKING_PROJECTION_ENABLED_KEY, enabled ? "1" : "0");
 }
 
 export function sessionRefFromStoredValue(raw: unknown): SessionRef | null {

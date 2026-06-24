@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, BrainCircuit, ChevronDown, ChevronUp, FileText, ImagePlus, ShieldCheck, Square, X, Zap } from "lucide-react";
+import { ArrowUp, BrainCircuit, ChevronDown, ChevronUp, Eye, EyeOff, FileText, ImagePlus, ShieldCheck, Square, X, Zap } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ModelProviderConfig, ImageAssetConfig } from "@/lib/api";
@@ -24,7 +24,9 @@ export function ChatInput({
   onSelectChatModel,
   onSelectPermissionMode,
   onSelectThinkingMode,
+  onSelectThinkingProjectionEnabled = () => undefined,
   chatThinkingMode,
+  thinkingProjectionEnabled = true,
   permissionMode,
   supportedPermissionModes,
   selectedChatModelId,
@@ -38,7 +40,9 @@ export function ChatInput({
   onSelectChatModel: (selectionId: string) => void;
   onSelectPermissionMode: (mode: string) => Promise<void> | void;
   onSelectThinkingMode: (mode: ChatThinkingMode) => void;
+  onSelectThinkingProjectionEnabled?: (enabled: boolean) => void;
   chatThinkingMode: ChatThinkingMode;
+  thinkingProjectionEnabled?: boolean;
   permissionMode: string;
   supportedPermissionModes: string[];
   selectedChatModelId: string;
@@ -66,6 +70,13 @@ export function ChatInput({
   const activeModel = resolveActiveChatModel(activeModelId, modelProviderConfig);
   const activeModelSupportsReasoning = Boolean(activeModel && supportsHiddenReasoning(activeModel.provider, activeModel.model, modelProviderConfig));
   const activeThinkingMode = activeModelSupportsReasoning ? chatThinkingMode : "normal";
+  const activeThinkingProjectionEnabled = activeModelSupportsReasoning && thinkingProjectionEnabled;
+  const thinkingProjectionToggleDisabled = inputDisabled || !activeModelSupportsReasoning;
+  const thinkingProjectionToggleTitle = !activeModelSupportsReasoning
+    ? "当前模型不支持 Thinking 投影"
+    : activeThinkingProjectionEnabled
+      ? "关闭 Thinking 投影"
+      : "开启 Thinking 投影";
   const permissionOptions = useMemo(
     () => buildPermissionModeOptions(supportedPermissionModes),
     [supportedPermissionModes]
@@ -78,11 +89,7 @@ export function ChatInput({
     streaming ? "chat-input-panel--streaming" : "",
     draftCompacted ? "chat-input-panel--draft-compact" : "",
   ].filter(Boolean).join(" ");
-  const primaryAction = trimmedValue || hasSelectedFiles
-    ? "send"
-    : streaming
-      ? "stop_stream"
-      : "send";
+  const primaryAction = streaming ? "stop_stream" : "send";
   const primaryDisabled = primaryAction === "stop_stream"
     ? false
     : inputDisabled || (!trimmedValue && !hasSelectedFiles);
@@ -323,6 +330,17 @@ export function ChatInput({
                 ))}
               </select>
             </label>
+            <button
+              aria-label={activeThinkingProjectionEnabled ? "关闭 Thinking 投影" : "开启 Thinking 投影"}
+              aria-pressed={activeThinkingProjectionEnabled}
+              className={`chat-thinking-projection-toggle${activeThinkingProjectionEnabled ? " chat-thinking-projection-toggle--on" : ""}`}
+              disabled={thinkingProjectionToggleDisabled}
+              onClick={() => onSelectThinkingProjectionEnabled(!thinkingProjectionEnabled)}
+              title={thinkingProjectionToggleTitle}
+              type="button"
+            >
+              {activeThinkingProjectionEnabled ? <Eye size={14} /> : <EyeOff size={14} />}
+            </button>
           </div>
           <div className="chat-control-cluster chat-control-cluster--permission">
             <label className="chat-model-select chat-model-select--permission">

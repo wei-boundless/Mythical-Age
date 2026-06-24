@@ -4,11 +4,14 @@ from typing import Any
 
 from .event_query import list_runtime_events, runtime_event_count
 from .session_output_commit_projection import project_session_output_commit_state
-from runtime.shared.stream_replay import canonical_public_projection_frame
+from runtime.shared.stream_replay import canonical_public_projection_frame, sanitize_public_stream_event_data_for_replay
 from runtime.output_stream.public_contract import (
     SESSION_OUTPUT_COMMIT_ACK_EVENT,
     SESSION_OUTPUT_COMMIT_FAILED_EVENT,
     SESSION_OUTPUT_COMMIT_SKIPPED_EVENT,
+    TOOL_ITEM_COMPLETED_EVENT,
+    TOOL_ITEM_STARTED_EVENT,
+    TOOL_PERMISSION_DECIDED_EVENT,
 )
 
 _TASK_ANCHOR_PUBLIC_EVENTS = {"task_bridge_started", "task_bridge_terminal"}
@@ -17,6 +20,23 @@ _BODY_ONLY_SURFACE = "body_only"
 _LIVE_TIMELINE_SURFACE = "live_timeline"
 _CLOSEOUT_SUMMARY_SURFACE = "closeout_summary"
 _LOG_ONLY_SURFACE = "log_only"
+_MAIN_VISIBLE_PROJECTION_VISIBILITIES = frozenset({"visible_live", "visible_final", "pinned"})
+_SEMANTIC_COMMIT_PROJECTION_EVENTS = frozenset(
+    {
+        SESSION_OUTPUT_COMMIT_ACK_EVENT,
+        SESSION_OUTPUT_COMMIT_FAILED_EVENT,
+        SESSION_OUTPUT_COMMIT_SKIPPED_EVENT,
+    }
+)
+_MAIN_CHAT_ACTIVITY_STATUS_KINDS = frozenset({"todo_plan", "status_event", "recovery_event", "terminal_event"})
+_MAIN_VISIBLE_STATUS_PROJECTION_KINDS = frozenset({"todo_plan", "recovery_event", "terminal_event"})
+_TOOL_LIFECYCLE_FOLLOWUP_EVENTS = frozenset(
+    {
+        TOOL_PERMISSION_DECIDED_EVENT,
+        TOOL_ITEM_STARTED_EVENT,
+        TOOL_ITEM_COMPLETED_EVENT,
+    }
+)
 
 
 def build_session_runtime_timeline(
@@ -259,13 +279,142 @@ def _tail_limit(items: list[Any], limit: int | None) -> list[Any]:
 
 
 def _bounded_projection_frames(frames: list[dict[str, Any]], max_frames: int) -> list[dict[str, Any]]:
+    """Bound live projection frames without breaking body, tool, or commit closures."""
     limit = max(0, int(max_frames or 0))
-    if not limit or len(frames) <= limit:
-        return frames
-    return sorted(
-        frames[-limit:],
-        key=lambda item: (_int_value(item.get("event_offset"), fallback=0), str(item.get("frame_id") or item.get("projection_id") or "")),
+    ordered_frames = sorted(
+        [frame for frame in frames if isinstance(frame, dict)],
+        key=_projection_frame_sort_key,
     )
+    if not limit or len(ordered_frames) <= limit:
+        return ordered_frames
+
+    selected: dict[str, dict[str, Any]] = {}
+    visible_tool_refs: set[str] = set()
+
+    for frame in ordered_frames:
+        if not _projection_frame_is_semantic_root(frame):
+            continue
+        _select_projection_frame(selected, frame)
+        tool_ref = _projection_frame_primary_tool_ref(frame)
+        if tool_ref:
+            visible_tool_refs.add(tool_ref)
+
+    if visible_tool_refs:
+        _select_projection_tool_lifecycle_closures(selected, ordered_frames, visible_tool_refs)
+
+    if len(selected) < limit:
+        remaining_budget = limit - len(selected)
+        tail_frames = [
+            frame
+            for frame in ordered_frames[-limit:]
+            if _projection_frame_identity(frame) not in selected
+        ]
+        for frame in tail_frames[-remaining_budget:]:
+            _select_projection_frame(selected, frame)
+
+    return sorted(selected.values(), key=_projection_frame_sort_key)
+
+
+def _select_projection_frame(selected: dict[str, dict[str, Any]], frame: dict[str, Any]) -> None:
+    selected[_projection_frame_identity(frame)] = frame
+
+
+def _select_projection_tool_lifecycle_closures(
+    selected: dict[str, dict[str, Any]],
+    frames: list[dict[str, Any]],
+    tool_refs: set[str],
+) -> None:
+    for tool_ref in sorted(ref for ref in tool_refs if ref):
+        lifecycle_frames = [
+            frame
+            for frame in frames
+            if _projection_frame_primary_tool_ref(frame) == tool_ref
+        ]
+        if not lifecycle_frames:
+            continue
+        completed = [frame for frame in lifecycle_frames if _projection_frame_is_tool_completion(frame)]
+        if completed:
+            _select_projection_frame(selected, completed[-1])
+            continue
+        followups = [frame for frame in lifecycle_frames if _projection_frame_is_tool_followup(frame)]
+        if followups:
+            _select_projection_frame(selected, followups[-1])
+
+
+def _projection_frame_sort_key(frame: dict[str, Any]) -> tuple[int, str]:
+    return (
+        _int_value(frame.get("event_offset"), fallback=0),
+        str(frame.get("frame_id") or frame.get("projection_id") or ""),
+    )
+
+
+def _projection_frame_identity(frame: dict[str, Any]) -> str:
+    frame_id = str(frame.get("frame_id") or frame.get("projection_id") or "").strip()
+    source_event_id = str(frame.get("source_event_id") or "").strip()
+    return ":".join(
+        [
+            str(_int_value(frame.get("event_offset"), fallback=0)),
+            frame_id,
+            source_event_id,
+        ]
+    )
+
+
+def _projection_frame_is_semantic_root(frame: dict[str, Any]) -> bool:
+    op = str(frame.get("op") or "").strip()
+    source_event_type = str(frame.get("source_event_type") or "").strip()
+    visibility = str(frame.get("main_visibility") or "").strip()
+    if op in {"commit_ack", "scope_retire"}:
+        return True
+    if source_event_type in _SEMANTIC_COMMIT_PROJECTION_EVENTS:
+        return True
+    if str(frame.get("slot") or "").strip() == "body" and _projection_frame_is_main_visible(frame):
+        return True
+    if visibility == "pinned":
+        return True
+    if _projection_frame_is_tool(frame) and _projection_frame_is_main_visible(frame):
+        return True
+    if _projection_frame_is_main_visible_status(frame):
+        return True
+    return False
+
+
+def _projection_frame_is_main_visible(frame: dict[str, Any]) -> bool:
+    return str(frame.get("main_visibility") or "").strip() in _MAIN_VISIBLE_PROJECTION_VISIBILITIES
+
+
+def _projection_frame_is_tool(frame: dict[str, Any]) -> bool:
+    return (
+        str(frame.get("event_family") or "").strip() == "tool_control"
+        or bool(str(frame.get("tool_call_id") or "").strip())
+        or bool(str(frame.get("tool_lifecycle_id") or "").strip())
+        or bool(str(frame.get("tool_name") or "").strip())
+    )
+
+
+def _projection_frame_is_main_visible_status(frame: dict[str, Any]) -> bool:
+    if not _projection_frame_is_main_visible(frame):
+        return False
+    status_kind = str(frame.get("status_kind") or "").strip()
+    return status_kind in _MAIN_VISIBLE_STATUS_PROJECTION_KINDS
+
+
+def _projection_frame_primary_tool_ref(frame: dict[str, Any]) -> str:
+    if not _projection_frame_is_tool(frame):
+        return ""
+    for key in ("tool_call_id", "tool_lifecycle_id", "source_item_id", "item_id"):
+        value = str(frame.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _projection_frame_is_tool_completion(frame: dict[str, Any]) -> bool:
+    return str(frame.get("source_event_type") or "").strip() == TOOL_ITEM_COMPLETED_EVENT
+
+
+def _projection_frame_is_tool_followup(frame: dict[str, Any]) -> bool:
+    return str(frame.get("source_event_type") or "").strip() in _TOOL_LIFECYCLE_FOLLOWUP_EVENTS
 
 
 def _projection_slices(
@@ -409,13 +558,8 @@ def _public_event_records_for_run(runtime_host: Any, run: Any) -> list[dict[str,
             continue
         payload = dict(getattr(event, "payload", {}) or {})
         data = dict(payload.get("data") or {})
-        data_frame = data.get("public_projection_frame")
-        if isinstance(data_frame, dict):
-            canonical_frame = canonical_public_projection_frame(data_frame)
-            if canonical_frame:
-                data = {**data, "public_projection_frame": canonical_frame}
-            else:
-                data.pop("public_projection_frame", None)
+        public_event_type = str(payload.get("public_event_type") or "").strip()
+        data = sanitize_public_stream_event_data_for_replay(public_event_type, data)
         records.append(
             {
                 "stream_run_id": str(getattr(run, "stream_run_id", "") or ""),
@@ -423,7 +567,7 @@ def _public_event_records_for_run(runtime_host: Any, run: Any) -> list[dict[str,
                 "event_id": str(getattr(event, "event_id", "") or ""),
                 "event_offset": int(getattr(event, "offset", 0) or 0),
                 "created_at": float(getattr(event, "created_at", 0.0) or 0.0),
-                "public_event_type": str(payload.get("public_event_type") or "").strip(),
+                "public_event_type": public_event_type,
                 "terminal": bool(payload.get("terminal") is True),
                 "data": data,
                 "public_projection_frame": canonical_public_projection_frame(data.get("public_projection_frame"))
@@ -556,9 +700,9 @@ def _frame_has_main_chat_activity(frame: dict[str, Any]) -> bool:
     if str(frame.get("event_family") or "") == "tool_control":
         return True
     visibility = str(frame.get("main_visibility") or "").strip()
-    if visibility not in {"visible_live", "visible_final", "pinned"}:
+    if visibility not in _MAIN_VISIBLE_PROJECTION_VISIBILITIES:
         return False
-    return str(frame.get("status_kind") or "") in {"todo_plan", "status_event", "recovery_event", "terminal_event"}
+    return str(frame.get("status_kind") or "") in _MAIN_CHAT_ACTIVITY_STATUS_KINDS
 
 
 def _tool_event_count(frames: list[dict[str, Any]]) -> int:

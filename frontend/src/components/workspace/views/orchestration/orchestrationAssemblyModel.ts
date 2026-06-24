@@ -311,6 +311,67 @@ export function optionLabelMap(options: OrchestrationOption[] = []) {
   return new Map(options.map((item) => [item.value || item.id, item.label || item.value || item.id]));
 }
 
+function optionValue(option: OrchestrationOption) {
+  return String(option.value || option.id || "").trim();
+}
+
+function optionDefaultEnabled(option: OrchestrationOption) {
+  return recordOf(option.metadata).default_enabled !== false;
+}
+
+function contextSystemGroupSwitch(value: unknown, fallback: boolean) {
+  if (typeof value === "boolean") return value;
+  const raw = recordOf(value);
+  if ("enabled" in raw) return contextSystemGroupSwitch(raw.enabled, fallback);
+  if ("mode" in raw) return !["off", "disabled", "false", "0"].includes(String(raw.mode || "").trim().toLowerCase());
+  return fallback;
+}
+
+export function selectedContextSystemGroups(metadata: Record<string, unknown> | undefined, options: OrchestrationOption[] = []) {
+  const runtimePolicy = recordOf(metadata?.runtime_policy);
+  const contextPolicy = recordOf(runtimePolicy.context_policy);
+  const explicitGroups = recordOf(contextPolicy.system_groups);
+  return options
+    .map(optionValue)
+    .filter(Boolean)
+    .filter((value) => {
+      const option = options.find((item) => optionValue(item) === value);
+      const defaultEnabled = option ? optionDefaultEnabled(option) : false;
+      return contextSystemGroupSwitch(explicitGroups[value], defaultEnabled);
+    });
+}
+
+export function runtimeMetadataWithContextSystemGroups(
+  metadata: Record<string, unknown> | undefined,
+  selectedGroups: string[],
+  options: OrchestrationOption[] = [],
+) {
+  const baseMetadata = recordOf(metadata);
+  const runtimePolicy = recordOf(baseMetadata.runtime_policy);
+  const contextPolicy = recordOf(runtimePolicy.context_policy);
+  const currentGroups = recordOf(contextPolicy.system_groups);
+  const selected = new Set(uniqueList(selectedGroups));
+  const optionValues = options.map(optionValue).filter(Boolean);
+  const nextGroups = { ...currentGroups };
+  for (const value of optionValues) {
+    nextGroups[value] = {
+      ...recordOf(currentGroups[value]),
+      enabled: selected.has(value),
+    };
+  }
+  return {
+    ...baseMetadata,
+    runtime_policy: {
+      ...runtimePolicy,
+      context_policy: {
+        ...contextPolicy,
+        system_groups: nextGroups,
+      },
+    },
+    managed_by: String(baseMetadata.managed_by || "orchestration_console"),
+  };
+}
+
 export function displayOptionList(values: string[], labels: Map<string, string>, fallback = "未配置") {
   return values.length ? values.map((item) => labels.get(item) || displayAssemblyId(item)).join(" / ") : fallback;
 }

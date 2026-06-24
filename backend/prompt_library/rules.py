@@ -49,6 +49,17 @@ RUNTIME_OUTPUT_BOUNDARY_RULE = """
 """.strip()
 
 
+RUNTIME_REASONING_PROJECTION_RULE = """
+如果本轮开启“模型思考”可见投影，你可以用它让用户看到你正在怎样推进当前问题。
+这部分内容是写给用户看的运行观察，不是写给系统看的记录。
+请使用中文表达，保持短句和自然分段；只有专有名词、代码标识、文件路径、错误原文或必要引用可以保留英文。
+优先说明当前判断、正在核对的证据、发现的缺口、下一步准备做什么，避免空泛地说“我在思考”。
+不要写系统控制信息、运行编号、校验串、缓存细节、工具参数、日志片段或调试占位内容。
+不要写成代码块、表格或压缩的英文片段；如果必须引用英文证据，先用中文说明它的含义，再保留必要原文。
+如果当前边界没有开启可见思考投影，不要在最终回答正文中补写隐藏思考过程。
+""".strip()
+
+
 RUNTIME_ERROR_RECOVERY_RULE = """
 遇到失败时，先判断失败属于参数错误、路径错误、权限不足、工具不可用、外部服务缺失、材料缺失还是合同矛盾。
 合同允许继续时，应修正事实基础后继续推进；同一失败原因未被修正前，不要重复执行相同动作。
@@ -305,6 +316,16 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             allowed_invocation_kinds=("single_agent_turn", "task_execution", "tool_observation_followup"),
             enforcement_mode="compiler_validated",
             version="2026-06-08",
+        ),
+        _rule_resource(
+            prompt_id="runtime.rule.reasoning_projection",
+            title="Runtime reasoning projection rule",
+            content=RUNTIME_REASONING_PROJECTION_RULE,
+            rule_kind="runtime.reasoning_projection",
+            applies_to=("single_agent_turn", "task_execution", "tool_observation_followup"),
+            allowed_invocation_kinds=("single_agent_turn", "task_execution", "tool_observation_followup"),
+            enforcement_mode="prompt_only",
+            version="2026-06-25",
         ),
         _rule_resource(
             prompt_id="runtime.rule.error_recovery",

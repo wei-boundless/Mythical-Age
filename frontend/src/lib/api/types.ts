@@ -314,6 +314,12 @@ export type PublicProjectionFrame = {
   detail?: string;
   state?: "running" | "done" | "failed" | "blocked" | "waiting" | "stopped" | string;
   status_kind?: string;
+  status_subkind?: string;
+  reasoning_content?: string;
+  reasoning_content_chars?: number;
+  reasoning_content_estimated_tokens?: number;
+  reasoning_content_sha256?: string;
+  reasoning_projection_policy?: string;
   plan_id?: string;
   todo_items?: PublicTodoItem[];
   active_item_id?: string;
@@ -333,6 +339,7 @@ export type PublicProjectionFrame = {
     message_id?: string;
     content_sha256?: string;
   };
+  diagnostics?: Record<string, unknown>;
 };
 
 export type PublicChatTimelineDelta = {
@@ -1848,12 +1855,6 @@ export type TaskSystemOverview = {
   diagnostics?: Record<string, unknown>;
 };
 
-export type CapabilitySystemAgentCatalog = {
-  authority: string;
-  agents: Array<Record<string, unknown>>;
-  summary: Record<string, number>;
-};
-
 export type ToolPackageSelection = {
   package_id: string;
   enabled: boolean;
@@ -1983,12 +1984,14 @@ export type OrchestrationAgentRuntimeCatalog = {
     task_graphs: string[];
     memory_scopes: string[];
     context_sections: string[];
+    system_groups?: string[];
     approval_policies: string[];
     trace_policies: string[];
     operation_options?: OrchestrationOption[];
     task_graph_options?: OrchestrationOption[];
     memory_scope_options?: OrchestrationOption[];
     context_section_options?: OrchestrationOption[];
+    system_group_options?: OrchestrationOption[];
     approval_policy_options?: OrchestrationOption[];
     trace_policy_options?: OrchestrationOption[];
     worker_blueprints?: Array<Record<string, unknown>>;

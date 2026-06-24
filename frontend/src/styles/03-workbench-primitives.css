@@ -776,12 +776,11 @@
   --radius-inner: 7px;
   --radius-control: 7px;
   background:
-    var(--workbench-bg-image),
     var(--workbench-texture),
     var(--workbench-bg);
-  background-position: var(--workbench-bg-position), center, center;
+  background-position: center, center;
   background-repeat: no-repeat;
-  background-size: var(--workbench-bg-size), auto, auto;
+  background-size: auto, auto;
   color: var(--console-text);
   font-size: var(--console-font-size-ui);
   font-weight: 450;
@@ -2601,12 +2600,11 @@ select:focus-visible {
 
 .agent-workbench {
   background:
-    var(--workbench-bg-image),
     var(--workbench-texture),
     var(--workbench-bg);
-  background-position: var(--workbench-bg-position), center, center;
+  background-position: center, center;
   background-repeat: no-repeat;
-  background-size: var(--workbench-bg-size), auto, auto;
+  background-size: auto, auto;
   color: var(--console-text);
 }
 
@@ -3910,6 +3908,15 @@ body {
   box-shadow: none;
 }
 
+.agent-workbench .public-run-activity__reasoning-window {
+  min-width: 0;
+  overflow: visible;
+  border: 1px solid var(--console-line-soft);
+  border-radius: var(--console-radius-lg);
+  background: var(--console-surface);
+  box-shadow: var(--console-shadow-soft);
+}
+
 .agent-workbench .public-run-activity__tool-window--nested {
   border: 0;
   border-radius: 0;
@@ -3918,7 +3925,8 @@ body {
 }
 
 .agent-workbench .public-run-activity__tool-round > summary,
-.agent-workbench .public-run-activity__tool-window > summary {
+.agent-workbench .public-run-activity__tool-window > summary,
+.agent-workbench .public-run-activity__reasoning-window > summary {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr) 16px;
   align-items: center;
@@ -3943,17 +3951,20 @@ body {
 }
 
 .agent-workbench .public-run-activity__tool-round > summary:hover,
-.agent-workbench .public-run-activity__tool-window > summary:hover {
+.agent-workbench .public-run-activity__tool-window > summary:hover,
+.agent-workbench .public-run-activity__reasoning-window > summary:hover {
   color: var(--console-text);
 }
 
 .agent-workbench .public-run-activity__tool-round > summary::-webkit-details-marker,
-.agent-workbench .public-run-activity__tool-window > summary::-webkit-details-marker {
+.agent-workbench .public-run-activity__tool-window > summary::-webkit-details-marker,
+.agent-workbench .public-run-activity__reasoning-window > summary::-webkit-details-marker {
   display: none;
 }
 
 .agent-workbench .public-run-activity__tool-window-icon,
-.agent-workbench .public-run-activity__tool-round-icon {
+.agent-workbench .public-run-activity__tool-round-icon,
+.agent-workbench .public-run-activity__reasoning-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3963,6 +3974,10 @@ body {
   background: transparent;
   color: var(--console-accent);
   opacity: 0.9;
+}
+
+.agent-workbench .public-run-activity__reasoning-icon {
+  color: var(--console-text);
 }
 
 .agent-workbench .public-run-activity__tool-window--nested .public-run-activity__tool-window-icon {
@@ -4001,14 +4016,16 @@ body {
 }
 
 .agent-workbench .public-run-activity__tool-window-copy,
-.agent-workbench .public-run-activity__tool-round-copy {
+.agent-workbench .public-run-activity__tool-round-copy,
+.agent-workbench .public-run-activity__reasoning-copy {
   display: grid;
   gap: 1px;
   min-width: 0;
 }
 
 .agent-workbench .public-run-activity__tool-window-title,
-.agent-workbench .public-run-activity__tool-round-preview {
+.agent-workbench .public-run-activity__tool-round-preview,
+.agent-workbench .public-run-activity__reasoning-title {
   display: flex;
   align-items: baseline;
   gap: 8px;
@@ -4064,8 +4081,22 @@ body {
   transition: transform 140ms ease;
 }
 
+.agent-workbench .public-run-activity__reasoning-caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--console-muted);
+  transition: transform 140ms ease, color 140ms ease;
+}
+
 .agent-workbench .public-run-activity__tool-window[open] > summary .public-run-activity__tool-caret,
 .agent-workbench .public-run-activity__tool-round[open] > summary .public-run-activity__tool-caret {
+  transform: rotate(180deg);
+}
+
+.agent-workbench .public-run-activity__reasoning-window[open] > summary .public-run-activity__reasoning-caret {
   transform: rotate(180deg);
 }
 
@@ -4183,6 +4214,36 @@ body {
   border-radius: var(--console-radius-lg);
   background: var(--console-surface);
   padding: 10px;
+}
+
+.agent-workbench .public-run-activity__reasoning-body {
+  min-width: 0;
+  width: min(100% - 40px, 980px);
+  max-height: min(42vh, 420px);
+  margin: 0 0 14px 42px;
+  overflow: auto;
+  border: 1px solid var(--console-line-soft);
+  border-radius: var(--console-radius-lg);
+  background: var(--console-bg);
+  padding: 12px;
+}
+
+.agent-workbench .public-run-activity__reasoning-text {
+  min-width: 0;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--console-text);
+  font-family: var(--console-font);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.agent-workbench .public-run-activity__reasoning-body p {
+  margin: 0;
+  color: var(--console-muted);
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .agent-workbench .public-run-activity__tool-meta {
@@ -4305,6 +4366,18 @@ body {
   color: var(--console-text);
   font-size: 13px;
   font-weight: 760;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-workbench .public-run-activity__reasoning-meta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--console-muted);
+  font-family: var(--console-font);
+  font-size: 12px;
+  font-weight: 620;
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -4462,8 +4535,9 @@ body {
 
 @container (max-width: 560px) {
   .agent-workbench .public-run-activity__tool-round > summary,
-  .agent-workbench .public-run-activity__tool-window > summary {
-    grid-template-columns: 24px minmax(0, 1fr);
+  .agent-workbench .public-run-activity__tool-window > summary,
+  .agent-workbench .public-run-activity__reasoning-window > summary {
+    grid-template-columns: 24px minmax(0, 1fr) 16px;
   }
 
   .agent-workbench .public-run-activity__tool-round-meta {
@@ -4472,8 +4546,10 @@ body {
   }
 
   .agent-workbench .public-run-activity__tool-round-body,
-  .agent-workbench .public-run-activity__tool-window-body {
+  .agent-workbench .public-run-activity__tool-window-body,
+  .agent-workbench .public-run-activity__reasoning-body {
     margin-left: 28px;
+    width: calc(100% - 28px);
   }
 
   .agent-workbench .public-run-activity__tool-meta-item,

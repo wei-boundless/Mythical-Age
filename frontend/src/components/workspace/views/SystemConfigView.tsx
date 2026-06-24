@@ -766,7 +766,7 @@ export function SystemConfigView() {
       const next = setStoredCustomSettings({
         bgImage: prepared.dataUrl,
         bgImageMeta: prepared.meta,
-        chatCanvasVeil: current.bgImage ? current.chatCanvasVeil : Math.min(current.chatCanvasVeil, 24),
+        chatCanvasVeil: current.bgImage ? current.chatCanvasVeil : Math.min(current.chatCanvasVeil, 18),
       });
       setCustomSettings(next);
       setNotice(prepared.compressed
@@ -1270,8 +1270,8 @@ export function SystemConfigView() {
                 <strong>{customSettings.bgImage ? "已上传背景图片" : "未设置背景图片"}</strong>
                 <small>
                   {customSettings.bgImage
-                    ? `已应用到会话画布 / ${backgroundImageDetailLabel(customSettings)} / 自动适配`
-                    : "上传后会应用到会话画布背景。"}
+                    ? `已应用为单张会话背景 / ${backgroundImageDetailLabel(customSettings)}`
+                    : "上传后会作为单张会话背景应用。"}
                 </small>
               </span>
               <div className="system-config-bg-status__actions">

@@ -55,14 +55,21 @@ export function projectionViewFromLedger(ledger: ChronologicalProjectionLedger |
   const statusBlocks = (ledger.statusEvents ?? []).map((event): StatusProjectionBlock => ({
     kind: event.kind,
     id: event.id,
+    statusKind: event.statusKind,
     title: event.title,
     detail: event.detail,
     state: event.state,
+    reasoningContent: event.reasoningContent,
+    reasoningContentChars: event.reasoningContentChars,
+    reasoningContentEstimatedTokens: event.reasoningContentEstimatedTokens,
+    reasoningContentSha256: event.reasoningContentSha256,
+    reasoningProjectionPolicy: event.reasoningProjectionPolicy,
     offset: event.offset,
     sourceEventType: event.sourceEventType,
     sourceEventId: event.sourceEventId,
     logRef: event.logRef,
   }));
+  const otherStatusBlocks = statusBlocks.filter((block) => !isReasoningStatusBlock(block));
   const bodyBlocks = ledger.bodySegments.map((segment): BodyProjectionBlock => ({
     kind: "body_segment" as const,
     id: segment.id,
@@ -74,11 +81,13 @@ export function projectionViewFromLedger(ledger: ChronologicalProjectionLedger |
     retention: segment.retention,
     mainVisibility: segment.mainVisibility,
   }));
-  const activityBlocks: ActivityArchiveChildBlock[] = [...todoBlocks, ...toolBlocks, ...statusBlocks];
+  const activityBlocks: ActivityArchiveChildBlock[] = [...todoBlocks, ...toolBlocks, ...otherStatusBlocks];
   const finalBodyBoundaryOffset = finalBodyBoundaryOffsetFrom(bodyBlocks);
   const hasFinalBodyBoundary = finalBodyBoundaryOffset !== undefined;
   const closeoutMode = displayMode === "committed" || displayMode === "closeout";
   const closeoutViewMode = closeoutMode || hasFinalBodyBoundary;
+  const showLiveReasoning = displayMode === "live" && !hasFinalBodyBoundary;
+  const reasoningBlocks = showLiveReasoning ? statusBlocks.filter(isReasoningStatusBlock) : [];
   const visibleBodyBlocks = visibleTimelineBodyBlocks(bodyBlocks, finalBodyBoundaryOffset, closeoutViewMode);
   const archivedBodyBlocks = closeoutViewMode
     ? bodyBlocks.filter((block) => isArchivedBodyBlock(block, finalBodyBoundaryOffset))
@@ -92,7 +101,7 @@ export function projectionViewFromLedger(ledger: ChronologicalProjectionLedger |
         ],
       )
     : activityBlocks;
-  const recoveryOrTerminalBlocks = statusBlocks.filter((block) => block.kind === "recovery_event" || block.kind === "terminal_event");
+  const recoveryOrTerminalBlocks = otherStatusBlocks.filter((block) => block.kind === "recovery_event" || block.kind === "terminal_event");
   const logBlocks: LogProjectionBlock[] = (displayMode === "committed" || displayMode === "closeout" || displayMode === "recovery")
     && (toolBlocks.length || recoveryOrTerminalBlocks.length)
     ? [{
@@ -103,6 +112,7 @@ export function projectionViewFromLedger(ledger: ChronologicalProjectionLedger |
       }]
     : [];
   const blocks = [
+    ...reasoningBlocks,
     ...visibleBodyBlocks,
     ...lifecycleBlocks,
     ...logBlocks,
@@ -168,10 +178,26 @@ function archiveState(blocks: ActivityArchiveChildBlock[]) {
 }
 
 function compareBlocks(left: ProjectionRenderBlock, right: ProjectionRenderBlock) {
+  const leftRank = blockDisplayRank(left);
+  const rightRank = blockDisplayRank(right);
+  if (leftRank !== rightRank) return leftRank - rightRank;
   const leftOffset = blockOffset(left);
   const rightOffset = blockOffset(right);
   if (leftOffset !== rightOffset) return leftOffset - rightOffset;
   return blockId(left).localeCompare(blockId(right));
+}
+
+function blockDisplayRank(block: ProjectionRenderBlock) {
+  if (block.kind === "status_event" && isReasoningStatusBlock(block)) return 0;
+  if (block.kind === "body_segment") return 1;
+  if (block.kind === "activity_archive") return 2;
+  if (block.kind === "todo_plan" || block.kind === "tool_event" || block.kind === "status_event" || block.kind === "recovery_event" || block.kind === "terminal_event") return 3;
+  if (block.kind === "log_entry") return 4;
+  return 5;
+}
+
+function isReasoningStatusBlock(block: StatusProjectionBlock) {
+  return String(block.statusKind ?? "").trim() === "reasoning_projection_state";
 }
 
 function blockOffset(block: ProjectionRenderBlock) {

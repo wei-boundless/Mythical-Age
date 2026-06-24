@@ -34,6 +34,7 @@ export function ChatPanel() {
     permissionMode,
     supportedPermissionModes,
     chatThinkingMode,
+    thinkingProjectionEnabled,
     selectedChatModelId,
     sessions,
     tokenStats,
@@ -54,6 +55,7 @@ export function ChatPanel() {
     permissionMode: state.permissionMode,
     supportedPermissionModes: state.supportedPermissionModes,
     chatThinkingMode: state.chatThinkingMode,
+    thinkingProjectionEnabled: state.thinkingProjectionEnabled,
     selectedChatModelId: state.selectedChatModelId,
     sessions: state.sessions,
     tokenStats: state.tokenStats,
@@ -69,6 +71,7 @@ export function ChatPanel() {
     resendEditedMessage,
     setPermissionMode,
     setChatThinkingMode,
+    setThinkingProjectionEnabled,
     setSelectedChatModel,
     openWorkspaceFile,
   } = useAppStoreActions();
@@ -273,6 +276,8 @@ export function ChatPanel() {
           selectedChatModelId={selectedChatModelId}
           chatThinkingMode={chatThinkingMode}
           onSelectThinkingMode={setChatThinkingMode}
+          thinkingProjectionEnabled={thinkingProjectionEnabled}
+          onSelectThinkingProjectionEnabled={setThinkingProjectionEnabled}
         />
       </div>
     </section>

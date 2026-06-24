@@ -478,6 +478,7 @@ export type StoreState = {
   selectedChatModelId: string;
   selectedChatMode: ChatMode;
   chatThinkingMode: ChatThinkingMode;
+  thinkingProjectionEnabled: boolean;
   chatStreamDisplayEnabled: boolean;
   skills: SkillSummary[];
   inspectorPath: string;
@@ -544,6 +545,7 @@ export type StoreActions = {
   setSelectedChatModel: (selectionId: string) => void;
   setSelectedChatMode: (mode: ChatMode) => void;
   setChatThinkingMode: (mode: ChatThinkingMode) => void;
+  setThinkingProjectionEnabled: (enabled: boolean) => void;
   setChatStreamDisplayEnabled: (enabled: boolean) => void;
   renameCurrentSession: (title: string) => Promise<void>;
   removeSession: (ref: SessionRef) => Promise<void>;

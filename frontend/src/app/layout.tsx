@@ -28,9 +28,12 @@ var textVars={"console-text":["--console-text-font","--console-text-size"],"cons
 function num(value,min,max,fallback){value=Number(value);return Number.isFinite(value)?Math.min(max,Math.max(min,value)):fallback}
 function hex(value){return typeof value==="string"&&/^#[0-9a-f]{6}$/i.test(value.trim())?value.trim():""}
 function family(value){return typeof value==="string"?value.trim().replace(/[;{}<>]/g,"").slice(0,180):""}
-function imageMeta(value){if(!value||typeof value!=="object")return null;var w=Number(value.width),h=Number(value.height);if(!Number.isFinite(w)||!Number.isFinite(h)||w<=0||h<=0)return null;return{width:Math.round(w),height:Math.round(h),aspectRatio:Number((w/h).toFixed(4))}}
-function bgLayout(hasImage,meta){var balanced="linear-gradient(90deg, transparent 0%, black 18%, black 82%, transparent 100%)";var right="linear-gradient(90deg, transparent 0%, black 34%, black 100%)";if(!hasImage)return["cover","center center","cover","center center","contain","center center","0",balanced];if(!meta)return["auto 100%","right center","cover","center center","auto min(92%, 960px)","right center","0.32",right];var ratio=meta.aspectRatio||meta.width/meta.height;if(ratio<1)return["auto 100%","right center","cover","center center","auto min(94%, 980px)","right center","0.34",right];if(ratio<1.35)return["auto 100%","right center","cover","center center","auto min(90%, 980px)","right center","0.3",right];return["cover","center center","cover","center center","contain","center center","0.24",balanced]}
-function setBgVars(hasImage,meta){var l=bgLayout(hasImage,meta);root.style.setProperty("--workbench-bg-size",l[0]);root.style.setProperty("--workbench-bg-position",l[1]);root.style.setProperty("--workbench-bg-atmosphere-size",l[2]);root.style.setProperty("--workbench-bg-atmosphere-position",l[3]);root.style.setProperty("--workbench-bg-subject-size",l[4]);root.style.setProperty("--workbench-bg-subject-position",l[5]);root.style.setProperty("--workbench-bg-subject-opacity",l[6]);root.style.setProperty("--workbench-bg-subject-mask",l[7])}
+function bgLayout(hasImage){if(!hasImage)return["cover","center center","no-repeat"];return["cover","center top","no-repeat"]}
+function setBgVars(hasImage){var l=bgLayout(hasImage);root.style.setProperty("--workbench-bg-size",l[0]);root.style.setProperty("--workbench-bg-position",l[1]);root.style.setProperty("--workbench-bg-repeat",l[2])}
+function setBgVeilVars(hasImage,veil){var center=hasImage?Math.min(76,Math.max(0,veil)):veil;root.style.setProperty("--workbench-bg-veil-center",center+"%");root.style.setProperty("--workbench-bg-veil-edge",(hasImage?Math.min(90,Math.max(0,veil+22)):veil)+"%");root.style.setProperty("--workbench-bg-veil-top",(hasImage?Math.min(84,Math.max(0,veil+12)):veil)+"%");root.style.setProperty("--workbench-bg-veil-bottom",(hasImage?Math.min(96,Math.max(0,veil+40)):veil)+"%")}
+function releaseBgObjectUrl(){var current=window.__workbenchBackgroundObjectUrl;if(!current)return;URL.revokeObjectURL(current.url);window.__workbenchBackgroundObjectUrl=undefined}
+function dataUrlToBlob(value){var comma=value.indexOf(",");if(value.indexOf("data:")!==0||comma<0)return null;var head=value.slice(0,comma);var body=value.slice(comma+1);var mime=(head.match(/^data:([^;,]+)/i)||[])[1]||"application/octet-stream";var binary=/;base64/i.test(head)?atob(body):decodeURIComponent(body);var bytes=new Uint8Array(binary.length);for(var i=0;i<binary.length;i+=1){bytes[i]=binary.charCodeAt(i)}return new Blob([bytes],{type:mime})}
+function bgPaintUrl(value){if(!(typeof value==="string"&&value.indexOf("data:")===0))return value;var current=window.__workbenchBackgroundObjectUrl;if(current&&current.source===value)return current.url;releaseBgObjectUrl();try{var blob=dataUrlToBlob(value);if(!blob)return value;var url=URL.createObjectURL(blob);window.__workbenchBackgroundObjectUrl={source:value,url:url};return url}catch(e){return value}}
 var t=localStorage.getItem("workbenchTheme")||localStorage.getItem("workbench-theme")||"clean-light";
 if(valid.indexOf(t)<0)t="clean-light";
 root.setAttribute("data-workbench-theme",t);
@@ -46,8 +49,8 @@ root.style.setProperty("--console-font-size-page",Math.round(16*scale)+"px");
 root.style.setProperty("--console-font-size-body",Math.round(17*scale)+"px");
 root.style.fontSize=Math.round(15*scale)+"px";
 var bgImage=typeof o.bgImage==="string"&&o.bgImage.trim()?o.bgImage.trim():"";
-root.style.setProperty("--workbench-bg-image",bgImage?"url("+JSON.stringify(bgImage)+")":"none");
-setBgVars(!!bgImage,imageMeta(o.bgImageMeta));
+if(bgImage){root.style.setProperty("--workbench-bg-image","url("+JSON.stringify(bgPaintUrl(bgImage))+")")}else{releaseBgObjectUrl();root.style.setProperty("--workbench-bg-image","none")}
+setBgVars(!!bgImage);
 if(o.customColorsEnabled===true){var overrides=o.colorOverrides&&typeof o.colorOverrides==="object"?o.colorOverrides:null;if(overrides){tokens.forEach(function(token){var color=hex(overrides[token]);if(color)root.style.setProperty("--"+token,color)})}else{if(hex(o.bgColor))root.style.setProperty("--console-bg",hex(o.bgColor));if(hex(o.panelColor)){root.style.setProperty("--console-surface",hex(o.panelColor));root.style.setProperty("--console-bg-raised",hex(o.panelColor))}if(hex(o.accentSoftColor))root.style.setProperty("--console-accent-soft",hex(o.accentSoftColor))}}
 var textOverrides=o.textStyleOverrides&&typeof o.textStyleOverrides==="object"?o.textStyleOverrides:{};
 Object.keys(textVars).forEach(function(token){var style=textOverrides[token];if(!style||typeof style!=="object")return;var vars=textVars[token];var f=family(style.fontFamily);var size=num(style.fontSizePx,10,32,0);if(f)root.style.setProperty(vars[0],f);if(size)root.style.setProperty(vars[1],Math.round(size)+"px")});
@@ -55,6 +58,7 @@ var veil=Math.round(num(o.chatCanvasVeil,0,90,34));
 var surface=Math.round(num(o.chatSurfaceOpacity,35,100,72));
 root.style.setProperty("--chat-canvas-veil",veil+"%");
 root.style.setProperty("--chat-canvas-veil-soft",Math.max(0,veil-14)+"%");
+setBgVeilVars(!!bgImage,veil);
 root.style.setProperty("--chat-panel-surface-alpha",surface+"%");
 root.style.setProperty("--chat-panel-surface-alpha-soft",Math.max(0,surface-18)+"%");
 root.style.setProperty("--workspace-bg-texture-opacity",String(Math.round(num(o.textureIntensity,0,100,100))/100));

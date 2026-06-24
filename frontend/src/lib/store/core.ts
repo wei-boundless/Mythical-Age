@@ -79,6 +79,7 @@ export function getDefaultState(): StoreState {
     selectedChatModelId: "system-default",
     selectedChatMode: "chat",
     chatThinkingMode: "normal",
+    thinkingProjectionEnabled: true,
     chatStreamDisplayEnabled: true,
     skills: [],
     inspectorPath: "durable_memory/index/MEMORY.md",

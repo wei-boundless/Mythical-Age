@@ -107,7 +107,6 @@ INTERNAL_STREAM_EVENTS = {
     "runtime_control_signal_published",
     "runtime_control_signal_observed",
     "runtime_control_signal_consumed",
-    "runtime_evidence_projection_published",
 }
 INTERNAL_PUBLIC_DATA_KEYS = {
     "runtime_assembly",
@@ -194,6 +193,14 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "state",
         "status_kind",
         "phase",
+        "reasoning_content_present",
+        "reasoning_content",
+        "reasoning_content_chars",
+        "reasoning_content_estimated_tokens",
+        "reasoning_content_sha256",
+        "reasoning_projection_policy",
+        "answer_channel",
+        "answer_source",
         "runtime_task_run_id",
         "task_run_id",
         "runtime_event_id",
@@ -2090,8 +2097,12 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list
         return []
     if normalized in {"model_action_request", "agent_turn_terminal"}:
         return []
+    if normalized == "runtime_evidence_projection_published":
+        data = _runtime_evidence_projection_public_data(raw_data)
+        return [(normalized, data)] if data else []
     if normalized == "agent_contract_feedback_required":
-        return []
+        data = _agent_contract_feedback_status_public_data(raw_data)
+        return [("runtime_status", data)] if data else []
     if normalized == "harness_run_started" and _is_turn_trace_only_harness_start(event):
         return []
     if normalized in {"step_summary_recorded", "runtime_step_summary"}:
@@ -2200,6 +2211,74 @@ def _stream_recovery_public_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     data["reason"] = str(data.get("reason") or payload.get("reason") or "partial_stream_error")
     data["runtime_event_id"] = str(raw_event.get("event_id") or raw_data.get("event_id") or "")
     return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
+
+
+def _agent_contract_feedback_status_public_data(raw_data: dict[str, Any]) -> dict[str, Any]:
+    raw_event = _record(raw_data.get("event"))
+    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
+    refs = _record(raw_event.get("refs"))
+    feedback = _record(payload.get("agent_contract_feedback") or raw_data.get("agent_contract_feedback"))
+    if not feedback:
+        return {}
+    failure = _record(feedback.get("contract_failure"))
+    reason = str(feedback.get("reason") or failure.get("reason") or "").strip()
+    detail = _safe_public_action_text(feedback.get("agent_feedback") or reason)
+    if not detail:
+        detail = "需要 agent 根据执行契约重新选择下一步动作。"
+    data = {
+        "title": "动作契约需要修正",
+        "detail": detail[:260],
+        "state": "waiting",
+        "status_kind": "agent_contract_feedback",
+        "phase": str(feedback.get("phase") or ""),
+        "turn_id": str(payload.get("turn_id") or feedback.get("turn_id") or refs.get("turn_ref") or ""),
+        "active_turn_id": str(payload.get("turn_id") or feedback.get("turn_id") or refs.get("turn_ref") or ""),
+        "turn_run_id": str(refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
+        "task_run_id": str(refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
+        "runtime_event_id": str(raw_event.get("event_id") or raw_data.get("event_id") or ""),
+    }
+    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
+
+
+def _runtime_evidence_projection_public_data(raw_data: dict[str, Any]) -> dict[str, Any]:
+    raw_event = _record(raw_data.get("event"))
+    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
+    refs = _record(raw_event.get("refs"))
+    projection = _record(payload.get("evidence_projection") or raw_data.get("evidence_projection"))
+    if not projection:
+        return {}
+    evidence_summary = _record(projection.get("evidence_projection"))
+    file_summary = _record(projection.get("file_state_summary"))
+    read_payload = _record(projection.get("read_evidence_payload"))
+    file_state_count = file_summary.get("file_count")
+    if file_state_count in ("", None):
+        file_state_count = evidence_summary.get("file_state_count")
+    read_evidence_ref_count = evidence_summary.get("read_evidence_ref_count")
+    if read_evidence_ref_count in ("", None):
+        read_evidence_refs = read_payload.get("read_evidence_refs")
+        read_evidence_ref_count = len(read_evidence_refs) if isinstance(read_evidence_refs, list) else ""
+    compact_projection = {
+        "projection_ref": str(projection.get("projection_ref") or refs.get("evidence_projection_ref") or ""),
+        "packet_id": str(projection.get("packet_id") or evidence_summary.get("read_evidence_packet_id") or refs.get("runtime_invocation_packet_ref") or ""),
+        "file_state_summary": {
+            "file_count": file_state_count,
+            "truncated": bool(file_summary.get("truncated") is True),
+        },
+        "read_evidence_payload": {
+            "read_evidence_injection_count": read_payload.get("read_evidence_injection_count"),
+            "read_evidence_ref_count": read_evidence_ref_count,
+            "read_evidence_injections_redacted": bool(read_payload.get("read_evidence_injections_redacted") is True),
+        },
+    }
+    data = {
+        "evidence_projection": compact_projection,
+        "turn_id": str(projection.get("turn_id") or raw_data.get("turn_id") or ""),
+        "active_turn_id": str(projection.get("turn_id") or raw_data.get("active_turn_id") or raw_data.get("turn_id") or ""),
+        "turn_run_id": str(refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
+        "task_run_id": str(projection.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
+        "runtime_event_id": str(raw_event.get("event_id") or raw_data.get("event_id") or ""),
+    }
+    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None, [], {})})
 
 
 def _turn_completed_data(source_event_type: str, raw_data: dict[str, Any]) -> dict[str, Any]:

@@ -8,7 +8,6 @@ import type {
   ArtifactRepositoryRecord,
   ArtifactRequirement,
   CapabilityEndpoint,
-  CapabilitySystemAgentCatalog,
   CapabilitySystemCatalog,
   CapabilityUnit,
   ChatAttachment,

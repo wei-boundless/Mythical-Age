@@ -95,8 +95,10 @@ import {
   clearRememberedSessionRef,
   isProjectDirectorySelectionCancelled,
   readRememberedChatStreamDisplayEnabled,
+  readRememberedThinkingProjectionEnabled,
   readRememberedSessionRef,
   rememberChatStreamDisplayEnabled,
+  rememberThinkingProjectionEnabled,
   rememberSessionRef,
   sessionRefFromStoredValue,
   shouldClearRememberedSessionAfterError,
@@ -193,6 +195,13 @@ export class WorkspaceRuntime {
         chatStreamDisplayEnabled: rememberedChatStreamDisplayEnabled,
       }));
     }
+    const rememberedThinkingProjectionEnabled = readRememberedThinkingProjectionEnabled();
+    if (rememberedThinkingProjectionEnabled !== null) {
+      this.store.setState((prev) => ({
+        ...prev,
+        thinkingProjectionEnabled: rememberedThinkingProjectionEnabled,
+      }));
+    }
     this.runMonitorController = new RunMonitorController(this.store, {
       applySelectedSessionShell: (sessionId, scope) => this.applySelectedSessionShell(sessionId, scope ? { scope, poolKey: sessionPoolKeyForScope(scope) } : undefined),
       bindTaskEnvironmentContext: (taskEnvironmentId, options) => this.bindTaskEnvironmentContext(taskEnvironmentId, options),
@@ -265,6 +274,9 @@ export class WorkspaceRuntime {
       },
       setChatThinkingMode: (mode) => {
         this.setChatThinkingMode(mode);
+      },
+      setThinkingProjectionEnabled: (enabled) => {
+        this.setThinkingProjectionEnabled(enabled);
       },
       setChatStreamDisplayEnabled: (enabled) => {
         this.setChatStreamDisplayEnabled(enabled);
@@ -1741,6 +1753,7 @@ export class WorkspaceRuntime {
         client_message_id: messageId,
         session_scope: this.sessionScopeForSession(sessionId),
         environment_binding: this.chatEnvironmentBindingPayload(requestState),
+        runtime_contract: this.chatRuntimeContractPayload(requestState),
         model_selection: this.chatModelSelectionPayload(requestState),
         permission_mode: this.permissionModeForSession(sessionId, requestState),
         editor_context: this.chatEditorContextPayload(requestState, sessionId),
@@ -3585,6 +3598,7 @@ export class WorkspaceRuntime {
           session_id: sessionId,
           session_scope: this.sessionScopeForSession(sessionId),
           environment_binding: this.chatEnvironmentBindingPayload(requestState),
+          runtime_contract: this.chatRuntimeContractPayload(requestState),
           model_selection: this.chatModelSelectionPayload(requestState),
           permission_mode: permissionMode,
           expected_active_turn_id: "",
@@ -3809,18 +3823,20 @@ export class WorkspaceRuntime {
     const stoppedTaskRunId = String(options.taskRunId ?? "").trim() || String(streamBinding?.taskRunId ?? "").trim();
     const stoppedTurnId = String(options.turnId ?? "").trim() || String(streamBinding?.turnId ?? "").trim();
     this.activeChatStreamBindings.delete(normalizedSessionId);
-    this.store.setState((prev) => ({
-      ...this.releaseActiveTurnGateForStoppedStream(
-        this.removeActiveStreamSession(prev, normalizedSessionId),
-        stoppedTaskRunId,
-        stoppedTurnId,
-      ),
-      chatStreamConnectionStatus: {
-        state: options.connectionState,
-        reason,
-        updatedAt: Date.now(),
-      },
-    }));
+    this.store.setState((prev) => {
+      const detached = this.removeActiveStreamSession(prev, normalizedSessionId);
+      const nextState = options.connectionState === "stopped"
+        ? this.releaseActiveTurnGateForStoppedStream(detached, stoppedTaskRunId, stoppedTurnId)
+        : detached;
+      return {
+        ...nextState,
+        chatStreamConnectionStatus: {
+          state: options.connectionState,
+          reason,
+          updatedAt: Date.now(),
+        },
+      };
+    });
     return true;
   }
 
@@ -4366,6 +4382,14 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => ({ ...prev, chatThinkingMode: normalizeChatThinkingMode(mode) }));
   }
 
+  private setThinkingProjectionEnabled(enabled: boolean) {
+    rememberThinkingProjectionEnabled(enabled);
+    this.store.setState((prev) => ({
+      ...prev,
+      thinkingProjectionEnabled: Boolean(enabled),
+    }));
+  }
+
   private setChatStreamDisplayEnabled(enabled: boolean) {
     rememberChatStreamDisplayEnabled(enabled);
     this.store.setState((prev) => ({
@@ -4387,6 +4411,19 @@ export class WorkspaceRuntime {
       binding_kind: "conversation_active_task_environment",
       binding_source: activeEnvironment.source || "conversation",
       bound_at: activeEnvironment.updated_at,
+    };
+  }
+
+  private chatRuntimeContractPayload(state: StoreState): Record<string, unknown> {
+    const publicVisible = Boolean(state.thinkingProjectionEnabled);
+    return {
+      reasoning_projection_enabled: publicVisible,
+      reasoning_projection: {
+        enabled: true,
+        public_visible: publicVisible,
+        visibility: publicVisible ? "public_collapsible_trace" : "hidden_trace_only",
+        source: "frontend.thinking_projection_toggle",
+      },
     };
   }
 

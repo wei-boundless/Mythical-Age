@@ -901,6 +901,10 @@ def _build_system_wiring_manifest(
     may_request_task_run = bool(control.get("may_request_task_run") is True)
     may_control_active_work = bool(control.get("may_control_active_work") is True)
     may_use_subagents = bool(control.get("may_use_subagents") is True)
+
+    def system_group_allowed(group_id: str) -> bool:
+        return _system_group_enabled(context_policy, group_id, default=True)
+
     memory_read_enabled = _system_memory_read_enabled(
         memory_policy=memory_policy,
         allowed_memory_scopes=allowed_memory_scopes,
@@ -915,7 +919,7 @@ def _build_system_wiring_manifest(
         memory_policy=memory_policy,
         allowed_memory_scopes=allowed_memory_scopes,
     )
-    exact_evidence_enabled = bool(
+    exact_evidence_available = bool(
         may_call_tools
         and any(
             str(tool.get("operation_id") or "").strip()
@@ -923,15 +927,35 @@ def _build_system_wiring_manifest(
             for tool in tuple(available_tools or ())
         )
     )
-    evidence_alignment_enabled = bool(
-        exact_evidence_enabled
-        and _system_group_enabled(context_policy, "evidence_alignment", default=True)
+    task_contract_intake_enabled = bool(may_request_task_run and system_group_allowed("task_contract_intake"))
+    react_loop_enabled = bool(
+        (may_call_tools or may_use_subagents or may_control_active_work)
+        and system_group_allowed("react_loop")
     )
-    reasoning_projection_enabled = _system_group_enabled(context_policy, "reasoning_projection", default=True)
+    tool_runtime_enabled = bool(may_call_tools and system_group_allowed("tool_runtime"))
+    skill_runtime_enabled = bool(skill_runtime_views and system_group_allowed("skill_runtime"))
+    subagent_delegation_enabled = bool(may_use_subagents and system_group_allowed("subagent_delegation"))
+    context_memory_enabled = bool(memory_read_enabled and system_group_allowed("context_memory"))
+    memory_governance_enabled = bool(
+        (memory_read_enabled or memory_write_candidate_enabled)
+        and system_group_allowed("memory_governance")
+    )
+    evidence_read_enabled = bool(exact_evidence_available and system_group_allowed("evidence_read"))
+    evidence_alignment_enabled = bool(
+        (may_call_tools or may_use_subagents)
+        and system_group_allowed("evidence_alignment")
+    )
+    reasoning_projection_enabled = system_group_allowed("reasoning_projection")
+    lifecycle_resume_steer_enabled = bool(
+        (may_control_active_work or may_request_task_run or bool(environment_lifecycle))
+        and system_group_allowed("lifecycle_resume_steer")
+    )
+    output_projection_enabled = system_group_allowed("output_projection")
+    recovery_closeout_enabled = system_group_allowed("recovery_closeout")
 
     system_groups = {
         "task_contract_intake": _system_group_manifest(
-            enabled=may_request_task_run,
+            enabled=task_contract_intake_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["task_contract_intake"],
             config={
                 "accept_task_contract": True,
@@ -944,7 +968,7 @@ def _build_system_wiring_manifest(
             feedback_channels=("contract_gap_repair", "task_run_handoff_repair"),
         ),
         "react_loop": _system_group_manifest(
-            enabled=bool(may_call_tools or may_use_subagents or may_control_active_work),
+            enabled=react_loop_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["react_loop"],
             config={
                 "mode": "tool_calling" if may_call_tools else "no_tool_action_control",
@@ -956,7 +980,7 @@ def _build_system_wiring_manifest(
             feedback_channels=("tool_result", "tool_error", "tool_permission_denial", "followup_prompt_payload"),
         ),
         "tool_runtime": _system_group_manifest(
-            enabled=may_call_tools,
+            enabled=tool_runtime_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["tool_runtime"],
             config={
                 "visible_tool_names": list(visible_tool_names),
@@ -968,7 +992,7 @@ def _build_system_wiring_manifest(
             feedback_channels=("tool_result", "tool_error", "tool_permission_denial"),
         ),
         "skill_runtime": _system_group_manifest(
-            enabled=bool(skill_runtime_views),
+            enabled=skill_runtime_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["skill_runtime"],
             config={
                 "visible_skill_count": len(skill_runtime_views),
@@ -980,7 +1004,7 @@ def _build_system_wiring_manifest(
             feedback_channels=("skill_output_rule", "skill_failure_repair"),
         ),
         "subagent_delegation": _system_group_manifest(
-            enabled=may_use_subagents,
+            enabled=subagent_delegation_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["subagent_delegation"],
             config={
                 "allowed_subagent_ids": list(subagent_policy.get("allowed_subagent_ids") or []),
@@ -995,7 +1019,7 @@ def _build_system_wiring_manifest(
             feedback_channels=("subagent_result", "subagent_failure", "subagent_closeout"),
         ),
         "context_memory": _system_group_manifest(
-            enabled=memory_read_enabled,
+            enabled=context_memory_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["context_memory"],
             config={
                 "allowed_memory_scopes": list(allowed_memory_scopes),
@@ -1008,7 +1032,7 @@ def _build_system_wiring_manifest(
             feedback_channels=("memory_read_recovery", "provider_visible_ledger_recovery"),
         ),
         "memory_governance": _system_group_manifest(
-            enabled=bool(memory_read_enabled or memory_write_candidate_enabled),
+            enabled=memory_governance_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["memory_governance"],
             config={
                 "read_enabled": memory_read_enabled,
@@ -1022,9 +1046,9 @@ def _build_system_wiring_manifest(
             feedback_channels=("memory_write_candidate", "memory_write_rejected", "memory_conflict"),
         ),
         "evidence_read": _system_group_manifest(
-            enabled=exact_evidence_enabled,
+            enabled=evidence_read_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["evidence_read"],
-            config={"exact_read_evidence": exact_evidence_enabled},
+            config={"exact_read_evidence": evidence_read_enabled},
             prompt_resources=("tool.guidance.read_file", "environment.general.lifecycle.verification_gate"),
             context_segments=("read_evidence_context", "evidence_index_cursor", "attachment_context_index", "editor_context_index"),
             feedback_channels=("evidence_missing", "evidence_recovery"),
@@ -1034,6 +1058,7 @@ def _build_system_wiring_manifest(
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["evidence_alignment"],
             config={
                 "evidence_delta_summary": evidence_alignment_enabled,
+                "exact_read_evidence": evidence_read_enabled,
                 "answer_contract": "answer_evidence_alignment_contract",
                 "source_authority": "runtime.memory.evidence_delta_summary",
             },
@@ -1060,7 +1085,7 @@ def _build_system_wiring_manifest(
             feedback_channels=("reasoning_trace_status", "reasoning_projection_state"),
         ),
         "lifecycle_resume_steer": _system_group_manifest(
-            enabled=bool(may_control_active_work or may_request_task_run or bool(environment_lifecycle)),
+            enabled=lifecycle_resume_steer_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["lifecycle_resume_steer"],
             config={
                 "may_control_active_work": may_control_active_work,
@@ -1072,7 +1097,7 @@ def _build_system_wiring_manifest(
             feedback_channels=("resume_recovery", "user_steer_repair", "closeout_control"),
         ),
         "output_projection": _system_group_manifest(
-            enabled=True,
+            enabled=output_projection_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["output_projection"],
             config={"final_commit_required": True, "activity_archive": True},
             prompt_resources=("environment.general.lifecycle.finalization",),
@@ -1080,7 +1105,7 @@ def _build_system_wiring_manifest(
             feedback_channels=("final_answer_boundary", "projection_closeout"),
         ),
         "recovery_closeout": _system_group_manifest(
-            enabled=True,
+            enabled=recovery_closeout_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["recovery_closeout"],
             config={"structured_failure_required": True, "recovery_package_allowed": True},
             prompt_resources=("environment.general.lifecycle.tool_observation_recovery", "environment.general.lifecycle.compaction_handoff"),
@@ -1091,7 +1116,7 @@ def _build_system_wiring_manifest(
     system_groups.update(
         _tool_capability_system_group_manifests(
             tools_by_capability_group=tools_by_capability_group,
-            may_call_tools=may_call_tools,
+            may_call_tools=tool_runtime_enabled,
         )
     )
     context_capability_groups = _compiled_context_capability_groups(system_groups)

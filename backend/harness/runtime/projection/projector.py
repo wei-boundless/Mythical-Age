@@ -39,6 +39,11 @@ _TRACE_ONLY_RUNTIME_STEP_SOURCES = {
     "system.tool_call_status",
     "tool_observation.summary",
 }
+_VISIBLE_RUNTIME_STATUS_KINDS = {
+    "agent_contract_feedback",
+    "evidence_boundary_status",
+    "reasoning_projection_state",
+}
 _TOOL_FAILURE_FEEDBACK_RE = re.compile(
     r"^(?:[A-Za-z][A-Za-z0-9 _./-]{0,80}\s+failed|tool_policy_rejection):",
     flags=re.IGNORECASE,
@@ -283,7 +288,9 @@ def projection_spec_for_event(public_event_type: str, data: dict[str, Any]) -> d
     if event_type in {CHAT_TURN_BOUND_EVENT, TASK_BRIDGE_STARTED_EVENT, TASK_BRIDGE_TERMINAL_EVENT}:
         return _hidden_trace_spec(event_type, data)
     if event_type == "runtime_status":
-        return _hidden_trace_spec(event_type, data)
+        return _runtime_status_spec(data)
+    if event_type == "runtime_evidence_projection_published":
+        return _runtime_evidence_projection_status_spec(data)
     if event_type == "agent_contract_feedback_required":
         return _hidden_trace_spec(event_type, data)
     if event_type == "runtime_step_summary":
@@ -927,6 +934,122 @@ def _active_task_steer_status_spec(data: dict[str, Any]) -> dict[str, Any]:
         ),
         retention="transient",
     )
+
+
+def _runtime_status_spec(data: dict[str, Any]) -> dict[str, Any]:
+    status_kind = text(data.get("status_kind"))
+    if status_kind not in _VISIBLE_RUNTIME_STATUS_KINDS:
+        return _hidden_trace_spec("runtime_status", data)
+    state = text(data.get("state")) or "done"
+    title = public_text(data.get("title") or data.get("text"), limit=120) or "运行状态已更新"
+    detail = public_text(data.get("detail"), limit=260)
+    if status_kind == "reasoning_projection_state":
+        item_identity: tuple[Any, ...] = (
+            status_kind,
+            data.get("turn_run_id"),
+            data.get("task_run_id"),
+            data.get("turn_id"),
+        )
+    else:
+        item_identity = (
+            status_kind,
+            data.get("runtime_event_id"),
+            data.get("turn_run_id"),
+            data.get("task_run_id"),
+            data.get("phase"),
+        )
+    result = _typed_status_spec(
+        data,
+        kind="status_event",
+        state=state,
+        title=title,
+        detail=detail,
+        item_id=stable_id("runtime-status", *item_identity),
+        retention="transient",
+    )
+    result["status_subkind"] = status_kind
+    if status_kind == "reasoning_projection_state":
+        reasoning_content = str(data.get("reasoning_content") or "").strip()
+        if reasoning_content and _reasoning_projection_policy_allows_public_text(data):
+            result["reasoning_content"] = reasoning_content
+            result["collapsed"] = False
+        for key in (
+            "reasoning_content_chars",
+            "reasoning_content_estimated_tokens",
+            "reasoning_content_sha256",
+            "reasoning_projection_policy",
+        ):
+            value = data.get(key)
+            if value not in ("", None, [], {}):
+                result[key] = value
+    diagnostics = _runtime_status_projection_diagnostics(data)
+    if diagnostics:
+        result["diagnostics"] = diagnostics
+    return result
+
+
+def _reasoning_projection_policy_allows_public_text(data: dict[str, Any]) -> bool:
+    return str(data.get("reasoning_projection_policy") or "").strip() in {
+        "public_collapsible_trace",
+        "public_visible_trace",
+        "public_reasoning_trace",
+    }
+
+
+def _runtime_evidence_projection_status_spec(data: dict[str, Any]) -> dict[str, Any]:
+    projection = record(data.get("evidence_projection") or data)
+    if not projection:
+        return _hidden_trace_spec("runtime_evidence_projection_published", data)
+    file_summary = record(projection.get("file_state_summary"))
+    read_payload = record(projection.get("read_evidence_payload"))
+    file_count = text(file_summary.get("file_count"))
+    injection_count = text(read_payload.get("read_evidence_injection_count"))
+    read_ref_count = text(read_payload.get("read_evidence_ref_count"))
+    details = []
+    if file_count:
+        details.append(f"{file_count} 个文件证据状态")
+    if injection_count:
+        details.append(f"{injection_count} 个精确读取注入")
+    if read_ref_count:
+        details.append(f"{read_ref_count} 个读取证据引用")
+    detail = "，".join(details) or "证据边界已写入运行投影。"
+    result = _typed_status_spec(
+        data,
+        kind="status_event",
+        state="done",
+        title="证据边界已更新",
+        detail=detail,
+        item_id=stable_id(
+            "runtime-evidence-boundary",
+            projection.get("projection_ref"),
+            projection.get("packet_id"),
+            data.get("runtime_event_id"),
+        ),
+        retention="transient",
+    )
+    result["status_subkind"] = "evidence_boundary_status"
+    result["diagnostics"] = {
+        "projection_ref": text(projection.get("projection_ref")),
+        "packet_id": text(projection.get("packet_id")),
+        "file_count": text(file_summary.get("file_count")),
+        "read_evidence_injection_count": text(read_payload.get("read_evidence_injection_count")),
+        "read_evidence_ref_count": text(read_payload.get("read_evidence_ref_count")),
+    }
+    return result
+
+
+def _runtime_status_projection_diagnostics(data: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(data or {})
+    keys = (
+        "reasoning_content_present",
+        "reasoning_content_chars",
+        "reasoning_content_estimated_tokens",
+        "reasoning_content_sha256",
+        "reasoning_projection_policy",
+        "answer_channel",
+        "answer_source",
+    )
+    return {key: payload.get(key) for key in keys if payload.get(key) not in ("", None, [], {})}
 
 
 def _turn_terminal_spec(data: dict[str, Any]) -> dict[str, Any]:

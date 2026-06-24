@@ -401,12 +401,14 @@ def _group_for_rule_kind(rule_kind: str) -> str:
         return CONTEXT_MEMORY
     if "error_recovery" in value or "output_boundary" in value:
         return REPAIR_FEEDBACK
-    if "tool" in value or "subagent" in value or "multi_tool" in value:
-        return TOOL_CONTEXT
     if "evidence_alignment" in value or "answer_evidence" in value:
         return EVIDENCE_ALIGNMENT
     if "reasoning_projection" in value:
         return REASONING_PROJECTION
+    if "subagent" in value:
+        return SUBAGENT_SYSTEM
+    if "tool" in value or "multi_tool" in value:
+        return TOOL_CONTEXT
     if "permission" in value or "system_call" in value or "turn_decision" in value or "plan_mode" in value:
         return ACTION_CONTRACTS
     if "lifecycle" in value:
@@ -422,7 +424,9 @@ def _group_for_lifecycle_slot(slot: str) -> str:
         return CONTEXT_MEMORY
     if value in {"memory_write_handoff"}:
         return MEMORY_WRITE
-    if value in {"tool_dispatch", "subagent_delegation", "subagent_result_integration"}:
+    if value in {"subagent_delegation", "subagent_result_integration"}:
+        return SUBAGENT_SYSTEM
+    if value in {"tool_dispatch"}:
         return TOOL_CONTEXT
     if value in {"tool_observation_recovery", "verification_gate", "compaction_handoff", "finalization"}:
         return REPAIR_FEEDBACK

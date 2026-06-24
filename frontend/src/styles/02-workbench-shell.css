@@ -617,12 +617,11 @@ html *::after {
   --workbench-bg-image: none;
   --workbench-bg-size: cover;
   --workbench-bg-position: center center;
-  --workbench-bg-atmosphere-size: cover;
-  --workbench-bg-atmosphere-position: center center;
-  --workbench-bg-subject-size: contain;
-  --workbench-bg-subject-position: center center;
-  --workbench-bg-subject-opacity: 0;
-  --workbench-bg-subject-mask: linear-gradient(90deg, transparent 0%, black 18%, black 82%, transparent 100%);
+  --workbench-bg-repeat: no-repeat;
+  --workbench-bg-veil-center: var(--chat-canvas-veil);
+  --workbench-bg-veil-edge: var(--chat-canvas-veil);
+  --workbench-bg-veil-top: var(--chat-canvas-veil);
+  --workbench-bg-veil-bottom: var(--chat-canvas-veil);
   --chat-canvas-veil: 34%;
   --chat-canvas-veil-soft: 20%;
   --chat-panel-surface-alpha: 72%;
@@ -689,11 +688,10 @@ button:hover {
   min-width: 0;
   overflow: hidden;
   background:
-    var(--workbench-bg-image),
     var(--workbench-texture),
     var(--workbench-bg);
-  background-size: var(--workbench-bg-size), auto, auto;
-  background-position: var(--workbench-bg-position), center, center;
+  background-size: auto, auto;
+  background-position: center, center;
   background-repeat: no-repeat;
   color: var(--workbench-text);
   font-family: var(--workbench-font);

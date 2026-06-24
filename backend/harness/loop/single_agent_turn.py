@@ -1399,6 +1399,7 @@ async def run_single_agent_turn(
         tool_observation_payloads: list[dict[str, Any]] = []
         tool_context_ledger_entries: list[dict[str, Any]] = []
         model_messages_segment_plan = dict(compilation.packet.segment_plan or {})
+        reasoning_projection_public_visible = _turn_reasoning_projection_public_enabled(runtime_assembly)
 
         def memory_maintenance_main_context_for_commit() -> dict[str, Any]:
             return _memory_maintenance_main_context_payload(
@@ -1455,6 +1456,7 @@ async def run_single_agent_turn(
             has_tool_receipt: bool = False,
             terminal_payload: dict[str, Any] | None = None,
             commit_decision: FinalMessageCommit | CanonicalFinalTextDecision | None = None,
+            reasoning_content: str = "",
         ) -> AsyncIterator[dict[str, Any]]:
             nonlocal terminal_recorded, assistant_stream_normalizer
             commit_result = commit_decision if isinstance(commit_decision, FinalMessageCommit) else None
@@ -1468,6 +1470,20 @@ async def run_single_agent_turn(
                     terminal_reason=terminal_reason,
                 )
             )
+            reasoning_projection = (
+                _reasoning_projection_status_event(
+                    reasoning_content,
+                    turn_id=turn_id,
+                    turn_run_id=turn_run.turn_run_id if turn_run is not None else "",
+                    task_run_id=str(dict(active_work_payload or {}).get("task_run_id") or ""),
+                    answer_channel=decision.answer_channel,
+                    answer_source=decision.answer_source,
+                )
+                if _turn_reasoning_projection_public_enabled(runtime_assembly)
+                else {}
+            )
+            if reasoning_projection:
+                yield reasoning_projection
             for frame_event in assistant_final_stream_events(
                 assistant_stream_normalizer,
                 content=decision.content,
@@ -1556,6 +1572,7 @@ async def run_single_agent_turn(
                         "source": _AGENT_CLOSEOUT_SOURCE,
                         "segment_plan": closeout_segment_plan,
                         "provider_visible_append_only_context": True,
+                        "reasoning_projection_public_visible": reasoning_projection_public_visible,
                         "prompt_manifest": {
                             **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
                             "invocation_kind": "single_agent_turn_agent_authored_closeout",
@@ -1633,6 +1650,7 @@ async def run_single_agent_turn(
                             **({"protocol_error": dict(protocol_error or {})} if protocol_error else {}),
                         },
                         commit_decision=commit_decision,
+                        reasoning_content=_reasoning_content_from_response(closeout_response),
                     ):
                         yield event
                     return
@@ -1765,6 +1783,7 @@ async def run_single_agent_turn(
                 "source": "harness.single_agent_turn",
                 "segment_plan": dict(compilation.packet.segment_plan or {}),
                 "provider_visible_append_only_context": True,
+                "reasoning_projection_public_visible": reasoning_projection_public_visible,
                 "prompt_manifest": dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
             },
             native_tools=_native_tools_for_packet(compilation.packet.allowed_action_types, available_tools=compilation.packet.available_tools),
@@ -1815,6 +1834,7 @@ async def run_single_agent_turn(
                         "source": "harness.single_agent_turn.active_turn_steer",
                         "segment_plan": steer_segment_plan,
                         "provider_visible_append_only_context": True,
+                        "reasoning_projection_public_visible": reasoning_projection_public_visible,
                         "prompt_manifest": {
                             **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
                             "invocation_kind": "single_agent_turn_active_turn_steer",
@@ -1925,6 +1945,7 @@ async def run_single_agent_turn(
                         ),
                         "segment_plan": recovery_segment_plan,
                         "provider_visible_append_only_context": True,
+                        "reasoning_projection_public_visible": reasoning_projection_public_visible,
                         "prompt_manifest": {
                             **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
                             "invocation_kind": (
@@ -2528,6 +2549,7 @@ async def run_single_agent_turn(
                     "source": "harness.single_agent_turn.tool_followup",
                     "segment_plan": followup_segment_plan,
                     "provider_visible_append_only_context": True,
+                    "reasoning_projection_public_visible": reasoning_projection_public_visible,
                     "prompt_manifest": followup_prompt_manifest,
                 },
                 native_tools=_native_tools_for_packet(current_allowed_action_types, available_tools=current_available_tools),
@@ -2652,6 +2674,7 @@ async def run_single_agent_turn(
                         ),
                         "segment_plan": recovery_segment_plan,
                         "provider_visible_append_only_context": True,
+                        "reasoning_projection_public_visible": reasoning_projection_public_visible,
                         "prompt_manifest": {
                             **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
                             "invocation_kind": (
@@ -2864,6 +2887,7 @@ async def run_single_agent_turn(
                     terminal_reason="respond",
                     final_extra={"runtime_branch": dict(runtime_branch or {})},
                     commit_decision=commit_decision,
+                    reasoning_content=_reasoning_content_from_response(response),
                 ):
                     yield event
                 return
@@ -2963,6 +2987,7 @@ async def run_single_agent_turn(
                     terminal_reason="blocked",
                     final_extra={"runtime_branch": dict(runtime_branch or {})},
                     commit_decision=commit_decision,
+                    reasoning_content=_reasoning_content_from_response(response),
                 ):
                     yield event
                 return
@@ -3019,6 +3044,7 @@ async def run_single_agent_turn(
                     terminal_reason="ask_user",
                     final_extra={"runtime_branch": dict(runtime_branch or {})},
                     commit_decision=commit_decision,
+                    reasoning_content=_reasoning_content_from_response(response),
                 ):
                     yield event
                 return
@@ -3194,6 +3220,7 @@ async def run_single_agent_turn(
             terminal_reason="assistant_message",
             final_extra={"runtime_branch": dict(runtime_branch or {})},
             commit_decision=commit_decision,
+            reasoning_content=_reasoning_content_from_response(response),
         ):
             yield event
         return
@@ -3410,6 +3437,29 @@ async def _invoke_single_turn_model_with_stream_events(
         and not native_tools
     )
     stream_ref = str(accounting_context.get("request_id") or "")
+    reasoning_projection_public_visible = bool(accounting_context.get("reasoning_projection_public_visible") is True)
+    reasoning_projection_last_content = ""
+
+    def live_reasoning_projection_event(response: Any, *, phase: str, state: str) -> dict[str, Any]:
+        nonlocal reasoning_projection_last_content
+        if not reasoning_projection_public_visible:
+            return {}
+        reasoning_content = _reasoning_content_from_response(response)
+        if not reasoning_content or reasoning_content == reasoning_projection_last_content:
+            return {}
+        reasoning_projection_last_content = reasoning_content
+        return _reasoning_projection_status_event(
+            reasoning_content,
+            turn_id=str(accounting_context.get("turn_id") or ""),
+            turn_run_id=str(accounting_context.get("run_id") or accounting_context.get("turn_run_id") or ""),
+            task_run_id=str(accounting_context.get("task_run_id") or ""),
+            answer_channel="runtime",
+            answer_source=str(accounting_context.get("source") or "harness.single_agent_turn"),
+            phase=phase,
+            state=state,
+            model_request_id=stream_ref,
+        )
+
     assistant_normalizer = AssistantStreamNormalizer.from_policy(
         stream_ref=stream_ref,
         message_ref=assistant_message_ref(turn_id=str(accounting_context.get("turn_id") or ""), stream_ref=stream_ref),
@@ -3440,6 +3490,9 @@ async def _invoke_single_turn_model_with_stream_events(
                             yield frame_event
                     continue
                 aggregated_response = _merge_model_stream_chunk(aggregated_response, chunk)
+                reasoning_event = live_reasoning_projection_event(aggregated_response, phase="model_stream", state="running")
+                if reasoning_event:
+                    yield reasoning_event
                 delta_text = _model_stream_chunk_text(chunk)
                 if not delta_text:
                     continue
@@ -3463,6 +3516,9 @@ async def _invoke_single_turn_model_with_stream_events(
                             yield frame_event
                     continue
                 aggregated_response = _merge_model_stream_chunk(aggregated_response, chunk)
+                reasoning_event = live_reasoning_projection_event(aggregated_response, phase="model_stream", state="running")
+                if reasoning_event:
+                    yield reasoning_event
                 delta_text = _model_stream_chunk_text(chunk)
                 if not delta_text:
                     continue
@@ -5391,6 +5447,34 @@ def _runtime_system_group_enabled(runtime_assembly: Any, group_id: str, *, defau
     return bool(group.get("enabled") is True)
 
 
+def _turn_reasoning_projection_public_enabled(runtime_assembly: Any) -> bool:
+    payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+    runtime_contract = dict(payload.get("runtime_contract") or {})
+    reasoning_projection = dict(runtime_contract.get("reasoning_projection") or {})
+    for candidate in (
+        reasoning_projection.get("public_visible"),
+        reasoning_projection.get("public_enabled"),
+        runtime_contract.get("reasoning_projection_enabled"),
+    ):
+        parsed = _optional_bool(candidate)
+        if parsed is not None:
+            return parsed
+    return _runtime_system_group_enabled(runtime_assembly, "reasoning_projection", default=True)
+
+
+def _optional_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if value in ("", None):
+        return None
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on", "enabled", "enable"}:
+        return True
+    if normalized in {"0", "false", "no", "off", "disabled", "disable"}:
+        return False
+    return None
+
+
 def _turn_runtime_permission_mode(runtime_assembly: Any, *, runtime_host: Any | None = None) -> str:
     assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
     for candidate in (
@@ -6272,6 +6356,51 @@ def _reasoning_content_from_response(response: Any) -> str:
         if isinstance(response_additional_kwargs, dict):
             return str(response_additional_kwargs.get("reasoning_content") or "").strip()
     return ""
+
+
+def _reasoning_projection_status_event(
+    reasoning_content: str,
+    *,
+    turn_id: str,
+    turn_run_id: str,
+    task_run_id: str,
+    answer_channel: str,
+    answer_source: str,
+    phase: str = "model_finalization",
+    state: str = "done",
+    model_request_id: str = "",
+) -> dict[str, Any]:
+    content = str(reasoning_content or "").strip()
+    if not content:
+        return {}
+    char_count = len(content)
+    estimated_tokens = max(1, (char_count + 3) // 4)
+    digest = hashlib.sha256(content.encode("utf-8", errors="ignore")).hexdigest()
+    normalized_state = str(state or "done").strip() or "done"
+    return {
+        "type": "runtime_status",
+        "title": "模型思考",
+        "detail": (
+            f"provider 返回 reasoning_content，约 {estimated_tokens} tokens。"
+            "系统已按公开推理投影策略展示，可折叠查看。"
+        ),
+        "state": normalized_state,
+        "status_kind": "reasoning_projection_state",
+        "phase": str(phase or "model_finalization"),
+        "turn_id": str(turn_id or ""),
+        "active_turn_id": str(turn_id or ""),
+        "turn_run_id": str(turn_run_id or ""),
+        "task_run_id": str(task_run_id or ""),
+        "model_request_id": str(model_request_id or ""),
+        "reasoning_content_present": True,
+        "reasoning_content": content,
+        "reasoning_content_chars": char_count,
+        "reasoning_content_estimated_tokens": estimated_tokens,
+        "reasoning_content_sha256": "sha256:" + digest,
+        "reasoning_projection_policy": "public_collapsible_trace",
+        "answer_channel": str(answer_channel or ""),
+        "answer_source": str(answer_source or ""),
+    }
 
 
 def _tool_observation_message(observation: Any, *, tool_call_id: str) -> dict[str, Any]:

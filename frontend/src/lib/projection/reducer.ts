@@ -230,7 +230,8 @@ function frameCreatesVisibleMessage(frame: PublicProjectionFrame) {
   if (!frameIsMainVisible(frame)) return false;
   return (frame.slot === "body" && Boolean(text(frame.text)))
     || frameIsToolProjection(frame)
-    || frameIsTodoPlanProjection(frame);
+    || frameIsTodoPlanProjection(frame)
+    || frameIsStatusProjection(frame);
 }
 
 function frameIsMainVisible(frame: PublicProjectionFrame) {
@@ -245,7 +246,7 @@ function frameCanPatchMainChatProjection(frame: PublicProjectionFrame) {
     return true;
   }
   return frameIsToolProjection(frame)
-    || (frameIsTodoPlanProjection(frame) && frameIsMainVisible(frame));
+    || ((frameIsTodoPlanProjection(frame) || frameIsStatusProjection(frame)) && frameIsMainVisible(frame));
 }
 
 function frameIsToolProjection(frame: PublicProjectionFrame) {
@@ -254,6 +255,10 @@ function frameIsToolProjection(frame: PublicProjectionFrame) {
 
 function frameIsTodoPlanProjection(frame: PublicProjectionFrame) {
   return text(frame.status_kind) === "todo_plan" && Array.isArray(frame.todo_items);
+}
+
+function frameIsStatusProjection(frame: PublicProjectionFrame) {
+  return ["status_event", "recovery_event", "terminal_event"].includes(text(frame.status_kind));
 }
 
 function streamAnchorMatchesFrame(anchor: ProjectionStreamAnchor | undefined, frame: PublicProjectionFrame) {

@@ -44,6 +44,7 @@ import {
   runtimeDraftFrom,
   runtimePayloadFromDraft,
   searchText,
+  selectedContextSystemGroups,
   splitList,
   uniqueList,
   type AgentDirectorySection,
@@ -207,6 +208,7 @@ export function useOrchestrationAssemblyController() {
   const toolPackageOptions = useMemo(() => catalog?.options.tool_packages ?? [], [catalog]);
   const memoryScopeOptionItems = useMemo(() => catalog?.options.memory_scope_options ?? [], [catalog]);
   const contextSectionOptionItems = useMemo(() => catalog?.options.context_section_options ?? [], [catalog]);
+  const systemGroupOptionItems = useMemo(() => catalog?.options.system_group_options ?? [], [catalog]);
   const approvalPolicyOptions = useMemo(() => catalog?.options.approval_policy_options ?? [], [catalog]);
   const tracePolicyOptions = useMemo(() => catalog?.options.trace_policy_options ?? [], [catalog]);
   const runtimeOptionLabels = useMemo(
@@ -214,6 +216,7 @@ export function useOrchestrationAssemblyController() {
       ...optionLabelMap(operationOptionItems),
       ...optionLabelMap(memoryScopeOptionItems),
       ...optionLabelMap(contextSectionOptionItems),
+      ...optionLabelMap(systemGroupOptionItems),
       ...optionLabelMap(approvalPolicyOptions),
       ...optionLabelMap(tracePolicyOptions),
     ]),
@@ -222,6 +225,7 @@ export function useOrchestrationAssemblyController() {
       contextSectionOptionItems,
       memoryScopeOptionItems,
       operationOptionItems,
+      systemGroupOptionItems,
       tracePolicyOptions,
     ],
   );
@@ -373,6 +377,10 @@ export function useOrchestrationAssemblyController() {
   );
   const memorySummary = displayOptionList(uniqueList(runtimeDraft.allowed_memory_scopes), runtimeOptionLabels);
   const contextSummary = displayOptionList(uniqueList(runtimeDraft.allowed_context_sections), runtimeOptionLabels);
+  const systemGroupSummary = displayOptionList(
+    selectedContextSystemGroups(runtimeDraft.metadata, systemGroupOptionItems),
+    runtimeOptionLabels,
+  );
   const overlapSummary = displayOptionList(overlapOps, runtimeOptionLabels, "无");
   const operationSummary = `${allowedOps.length} 允许 / ${blockedOps.length} 阻断`;
   const collaborationSummary = runtimeDraft.subagent_policy.enabled
@@ -708,6 +716,8 @@ export function useOrchestrationAssemblyController() {
     startBlankAgentDraft,
     startBlankGroupDraft,
     subagentOptions,
+    systemGroupOptionItems,
+    systemGroupSummary,
     toolPackageOptions,
     tracePolicyOptions,
     toggleGroupMember,

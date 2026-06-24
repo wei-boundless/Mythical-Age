@@ -40,17 +40,17 @@ function projectionSliceCanHydrate(
   slice: NonNullable<SessionRuntimeAttachment["projection_slices"]>[number],
 ) {
   const frames = Array.isArray(slice.frames) ? slice.frames : [];
-  if (!sliceRequiresCommittedIntegrity(slice)) {
-    return true;
-  }
   if (String(slice.integrity ?? "").trim() === "incomplete") {
-    return false;
-  }
-  if (String(slice.integrity ?? "").trim() === "bounded") {
     return false;
   }
   const cursorFrameCount = Number(slice.cursor?.frame_count);
   if (Number.isFinite(cursorFrameCount) && cursorFrameCount !== frames.length) {
+    return false;
+  }
+  if (!sliceRequiresCommittedIntegrity(slice)) {
+    return true;
+  }
+  if (String(slice.integrity ?? "").trim() === "bounded") {
     return false;
   }
   return frames.some((frame) =>

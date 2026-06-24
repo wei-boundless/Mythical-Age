@@ -105,6 +105,19 @@ OPTION_LABELS: dict[str, str] = {
     "session_memory_maintenance": "会话记忆维护",
     "durable_memory_extraction": "长期记忆提取",
     "memory_candidate_review": "记忆候选审核",
+    "task_contract_intake": "任务契约接入",
+    "react_loop": "ReAct 工具循环",
+    "tool_runtime": "工具运行时",
+    "skill_runtime": "Skill 运行时",
+    "subagent_delegation": "子 Agent 委派",
+    "context_memory": "上下文记忆",
+    "memory_governance": "记忆治理",
+    "evidence_read": "证据读取",
+    "evidence_alignment": "证据对齐",
+    "reasoning_projection": "思考投影",
+    "lifecycle_resume_steer": "生命周期接续",
+    "output_projection": "输出投影",
+    "recovery_closeout": "恢复收口",
     "op.model_response": "模型响应",
     "op.read_file": "读取文件",
     "op.read_persisted_tool_result": "读取持久化工具输出",
@@ -181,7 +194,7 @@ def _option_label(value: str, fallback: str = "") -> str:
     return fallback or normalized
 
 
-def _option(value: str, *, label: str = "", description: str = "") -> dict[str, str]:
+def _option(value: str, *, label: str = "", description: str = "") -> dict[str, Any]:
     normalized = str(value or "").strip()
     return {
         "id": normalized,
@@ -191,7 +204,7 @@ def _option(value: str, *, label: str = "", description: str = "") -> dict[str, 
     }
 
 
-def _operation_option(operation: Any) -> dict[str, str]:
+def _operation_option(operation: Any) -> dict[str, Any]:
     operation_id = str(getattr(operation, "operation_id", "") or "").strip()
     return {
         **_option(
@@ -203,7 +216,7 @@ def _operation_option(operation: Any) -> dict[str, str]:
     }
 
 
-def _memory_scope_option(value: str) -> dict[str, str]:
+def _memory_scope_option(value: str) -> dict[str, Any]:
     descriptions = {
         "conversation_readonly": "只读取会话连续性候选；普通主回答不直接读取 Session Memory 热摘要。",
         "state_readonly": "只读取 process_state.json 派生的状态快照和恢复候选。",
@@ -291,7 +304,54 @@ DEFAULT_ORCHESTRATION_MEMORY_SCOPES = (
     "health_trace_readonly",
 )
 
+DEFAULT_CONTEXT_SYSTEM_GROUPS = (
+    "task_contract_intake",
+    "react_loop",
+    "tool_runtime",
+    "skill_runtime",
+    "subagent_delegation",
+    "context_memory",
+    "memory_governance",
+    "evidence_read",
+    "evidence_alignment",
+    "reasoning_projection",
+    "lifecycle_resume_steer",
+    "output_projection",
+    "recovery_closeout",
+)
+
+DEFAULT_ENABLED_CONTEXT_SYSTEM_GROUPS = frozenset(DEFAULT_CONTEXT_SYSTEM_GROUPS)
+
+CONTEXT_SYSTEM_GROUP_DESCRIPTIONS = {
+    "task_contract_intake": "接收任务契约、任务启动和任务生命周期修复反馈。",
+    "react_loop": "接入 reason-act-observe 循环、工具动作契约和观察反馈。",
+    "tool_runtime": "暴露工具 schema、工具指引和操作权限投影。",
+    "skill_runtime": "装载 skill body、skill 契约和 skill 失败反馈。",
+    "subagent_delegation": "开放子 Agent 委派、结果整合和子 Agent 收口反馈。",
+    "context_memory": "读取并回放上下文记忆、任务状态和 provider-visible ledger 恢复点。",
+    "memory_governance": "控制记忆读取、候选写入和长期记忆治理边界。",
+    "evidence_read": "注入当前精确读取证据、证据索引和缺失证据恢复提示。",
+    "evidence_alignment": "对齐回答与已读证据，投影证据边界状态。",
+    "reasoning_projection": "保留 provider reasoning 协议字段，并默认只公开状态投影。",
+    "lifecycle_resume_steer": "接入 pause/resume/steer/retry 的追加式生命周期上下文。",
+    "output_projection": "控制最终回答、活动归档和公开投影收口。",
+    "recovery_closeout": "接入结构化失败、恢复包和 closeout 控制。",
+}
+
 DISCONNECTED_ORCHESTRATION_CONTEXT_SECTIONS = frozenset({"task_durable_memory"})
+
+
+def _context_system_group_option(value: str) -> dict[str, Any]:
+    normalized = str(value or "").strip()
+    option = _option(
+        normalized,
+        description=CONTEXT_SYSTEM_GROUP_DESCRIPTIONS.get(normalized, ""),
+    )
+    option["metadata"] = {
+        "default_enabled": normalized in DEFAULT_ENABLED_CONTEXT_SYSTEM_GROUPS,
+        "config_path": "metadata.runtime_policy.context_policy.system_groups",
+    }
+    return option
 
 
 def _build_runtime_profile_option_values(
@@ -391,6 +451,7 @@ def _empty_orchestration_runtime_options() -> dict[str, Any]:
         "task_graphs": [],
         "memory_scopes": [],
         "context_sections": [],
+        "system_groups": [],
         "approval_policies": [],
         "trace_policies": [],
         "operation_options": [],
@@ -398,6 +459,7 @@ def _empty_orchestration_runtime_options() -> dict[str, Any]:
         "task_graph_options": [],
         "memory_scope_options": [],
         "context_section_options": [],
+        "system_group_options": [],
         "approval_policy_options": [],
         "trace_policy_options": [],
         "worker_blueprints": [],
@@ -432,6 +494,7 @@ async def orchestration_runtime_options() -> dict[str, Any]:
             "task_graphs": task_graph_refs,
             "memory_scopes": memory_scopes,
             "context_sections": context_sections,
+            "system_groups": list(DEFAULT_CONTEXT_SYSTEM_GROUPS),
             "approval_policies": approval_policies,
             "trace_policies": trace_policies,
             "operation_options": [_operation_option(item) for item in operations],
@@ -439,6 +502,7 @@ async def orchestration_runtime_options() -> dict[str, Any]:
             "task_graph_options": task_graph_options,
             "memory_scope_options": [_memory_scope_option(item) for item in memory_scopes],
             "context_section_options": [_option(item) for item in context_sections],
+            "system_group_options": [_context_system_group_option(item) for item in DEFAULT_CONTEXT_SYSTEM_GROUPS],
             "approval_policy_options": [_option(item) for item in approval_policies],
             "trace_policy_options": [_option(item) for item in trace_policies],
             "worker_blueprints": [item.to_dict() for item in default_worker_agent_blueprints()],
@@ -660,6 +724,4 @@ async def set_orchestration_plan_mode(payload: OrchestrationModeRequest) -> dict
         "mode": str(config.get("orchestration_plan_mode", "primary") or "primary"),
         "supported_modes": ["primary"],
     }
-
-
 

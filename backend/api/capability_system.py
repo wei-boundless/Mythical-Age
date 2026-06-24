@@ -17,7 +17,6 @@ from capability_system import (
     build_capability_catalog,
 )
 from core.config import runtime_config
-from agent_system.registry.agent_registry import AgentRegistry
 from capability_system.supply import build_capability_supply_package, build_capability_supply_package_from_base_dir
 from orchestration import (
     RuntimeApprovalContext,
@@ -74,10 +73,6 @@ class ResourcePolicyCandidateRequest(BaseModel):
     review_policy: str = Field(default="optional")
     reason: str = ""
     approval_context: ApprovalContextRequest = Field(default_factory=ApprovalContextRequest)
-
-
-class AgentEnabledRequest(BaseModel):
-    enabled: bool = True
 
 
 def _capability_config() -> dict[str, Any]:
@@ -186,35 +181,6 @@ def build_capability_catalog_payload() -> dict[str, Any]:
 @router.get("/capability-system/catalog")
 async def capability_catalog() -> dict[str, Any]:
     return build_capability_catalog_payload()
-
-
-@router.get("/capability-system/agents")
-async def capability_agents() -> dict[str, Any]:
-    runtime = require_runtime()
-    return AgentRegistry(runtime.base_dir).build_catalog()
-
-
-@router.get("/capability-system/agents/{agent_id}")
-async def capability_agent_detail(agent_id: str) -> dict[str, Any]:
-    runtime = require_runtime()
-    registry = AgentRegistry(runtime.base_dir)
-    agent = registry.get_agent(agent_id)
-    if agent is None:
-        raise HTTPException(status_code=404, detail="Unknown agent")
-    return {"agent": agent.to_dict()}
-
-
-@router.put("/capability-system/agents/{agent_id}/enabled")
-async def update_capability_agent_enabled(agent_id: str, payload: AgentEnabledRequest) -> dict[str, Any]:
-    runtime = require_runtime()
-    registry = AgentRegistry(runtime.base_dir)
-    try:
-        registry.set_agent_enabled(agent_id, payload.enabled)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Unknown agent") from exc
-    except PermissionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return registry.build_catalog()
 
 
 @router.post("/capability-system/resource-policy/candidate")

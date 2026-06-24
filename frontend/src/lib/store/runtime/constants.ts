@@ -14,6 +14,7 @@ export const TOKEN_STATS_MONITOR_REFRESH_INTERVAL_MS = 10_000;
 export const LAST_ACTIVE_TASK_ENVIRONMENT_KEY = "agentWorkbench.lastActiveTaskEnvironment";
 export const LAST_ACTIVE_SESSION_REF_KEY = "agentWorkbench.lastActiveSessionRef";
 export const CHAT_STREAM_DISPLAY_ENABLED_KEY = "agentWorkbench.chatStreamDisplayEnabled";
+export const THINKING_PROJECTION_ENABLED_KEY = "agentWorkbench.thinkingProjectionEnabled";
 export const GRAPH_ONLY_TASK_ENVIRONMENT_IDS = new Set<string>();
 export const CODE_TASK_ENVIRONMENT_IDS = new Set([CODING_TASK_ENVIRONMENT_ID]);
 export const ACTIVE_TURN_STATES = new Set<ActiveTurnState | string>([

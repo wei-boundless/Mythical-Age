@@ -272,15 +272,28 @@ function upsertStatusEvent(ledger: ChronologicalProjectionLedger, incoming: Stat
 function statusEventFromFrame(normalized: NormalizedProjectionFrame): StatusProjectionEvent | null {
   const statusKind = typedStatusKind(normalized);
   if (!statusKind || !projectionFrameIsVisible(normalized)) return null;
-  if (normalized.sourceAuthority === "runtime" || normalized.sourceAuthority === "system") return null;
   const frame = normalized.frame;
+  const statusSubkind = text(frame.status_subkind || frame.status_kind);
+  const diagnostics = record(frame.diagnostics);
   const id = text(frame.item_id || frame.source_item_id || frame.frame_id || frame.projection_id) || `${statusKind}:${normalized.offset}`;
   return {
     id,
     kind: statusKind,
+    statusKind: statusSubkind,
     title: statusTitleFromFrame(statusKind, normalized),
     detail: statusDetailFromFrame(statusKind, normalized),
     state: text(frame.state) || defaultStatusState(statusKind),
+    ...(statusSubkind === "reasoning_projection_state"
+      ? {
+          reasoningContent: publicReasoningTextFromFrame(frame, diagnostics),
+          reasoningContentChars: numericValue(frame.reasoning_content_chars ?? diagnostics.reasoning_content_chars),
+          reasoningContentEstimatedTokens: numericValue(
+            frame.reasoning_content_estimated_tokens ?? diagnostics.reasoning_content_estimated_tokens,
+          ),
+          reasoningContentSha256: text(frame.reasoning_content_sha256 ?? diagnostics.reasoning_content_sha256),
+          reasoningProjectionPolicy: text(frame.reasoning_projection_policy ?? diagnostics.reasoning_projection_policy),
+        }
+      : {}),
     sourceEventType: normalized.sourceEventType,
     sourceEventId: text(frame.source_event_id),
     offset: normalized.offset,
@@ -684,6 +697,23 @@ function quote(value: string) {
 
 function rawText(value: unknown) {
   return typeof value === "string" ? value : "";
+}
+
+function numericValue(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function publicReasoningTextFromFrame(frame: PublicProjectionFrame, diagnostics: Record<string, unknown>) {
+  const policy = text(frame.reasoning_projection_policy ?? diagnostics.reasoning_projection_policy);
+  if (!["public_collapsible_trace", "public_visible_trace", "public_reasoning_trace"].includes(policy)) {
+    return "";
+  }
+  return rawText(frame.reasoning_content);
 }
 
 function sameCompactText(left: string, right: string) {

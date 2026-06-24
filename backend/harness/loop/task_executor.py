@@ -679,10 +679,27 @@ def resume_paused_task_run(
     return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "control": _runtime_control_payload(updated, runtime_host=runtime_host)}
 
 
-def stop_task_run(runtime_host: Any, task_run_id: str, *, reason: str = "", requested_by: str = "user") -> dict[str, Any]:
+def stop_task_run(
+    runtime_host: Any,
+    task_run_id: str,
+    *,
+    reason: str = "",
+    requested_by: str = "user",
+    _visited_task_run_ids: set[str] | None = None,
+) -> dict[str, Any]:
     task_run = runtime_host.state_index.get_task_run(task_run_id)
     if task_run is None:
         return _not_found(task_run_id)
+    visited_task_run_ids = set(_visited_task_run_ids or set())
+    if task_run_id in visited_task_run_ids:
+        return {
+            "ok": True,
+            "accepted": False,
+            "task_run": task_run.to_dict(),
+            "control": _runtime_control_payload(task_run, runtime_host=runtime_host),
+            "reason": "task_run_stop_cycle_already_seen",
+        }
+    visited_task_run_ids.add(task_run_id)
     if not _is_single_agent_task_run(task_run):
         return _conflict(task_run_id, "not_single_agent_task_run")
     if _origin_kind(task_run) == "graph_node_assigned":
@@ -701,8 +718,6 @@ def stop_task_run(runtime_host: Any, task_run_id: str, *, reason: str = "", requ
             reason=reason,
             requested_by=requested_by,
         )
-        if control_signal is None:
-            return _conflict(task_run_id, "runtime_gateway_control_signal_unavailable")
     event = runtime_host.event_log.append(
         task_run_id,
         "task_run_stop_requested",
@@ -715,31 +730,15 @@ def stop_task_run(runtime_host: Any, task_run_id: str, *, reason: str = "", requ
         refs={"task_run_ref": task_run_id, **_executor_control_signal_trace_refs(control_signal)},
     )
     if executor_claimed:
-        updated = replace(
-            task_run,
-            updated_at=event.created_at or now,
-            latest_event_offset=event.offset,
-            diagnostics=_diagnostics_with_runtime_control(
-                dict(task_run.diagnostics or {}),
-                state=_TASK_RUN_STOP_REQUESTED,
-                requested_by=requested_by,
-                requested_at=event.created_at or now,
-                reason=reason,
-                latest_step="task_run_stop_requested",
-                latest_step_status="running",
-                latest_step_summary="停止请求已记录；当前步骤收口后任务会结束。",
-                control_signal=control_signal,
-            ),
-        )
-        runtime_host.state_index.upsert_task_run(updated)
-        _record_task_step_summary(
+        return _hard_stop_claimed_task_run(
             runtime_host,
-            task_run_id=task_run_id,
-            step="task_run_stop_requested",
-            status="running",
-            summary="停止请求已记录；当前步骤收口后任务会结束。",
+            task_run=task_run,
+            event=event,
+            reason=reason,
+            requested_by=requested_by,
+            control_signal=control_signal,
+            visited_task_run_ids=visited_task_run_ids,
         )
-        return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "control": _runtime_control_payload(updated, runtime_host=runtime_host)}
     updated, lifecycle, finished_event = _finish_user_stopped_task(
         runtime_host,
         task_run=replace(
@@ -774,6 +773,272 @@ def stop_task_run(runtime_host: Any, task_run_id: str, *, reason: str = "", requ
         "event": finished_event,
         "control": _runtime_control_payload(updated, runtime_host=runtime_host),
     }
+
+
+def _hard_stop_claimed_task_run(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    event: Any,
+    reason: str,
+    requested_by: str,
+    control_signal: ExecutorControlSignal | None,
+    visited_task_run_ids: set[str],
+) -> dict[str, Any]:
+    now = time.time()
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "")
+    stopped_at = float(getattr(event, "created_at", 0.0) or now)
+    stop_reason = str(reason or "").strip()
+    cell_cancel = _cancel_task_run_runtime_cell(
+        runtime_host,
+        task_run=task_run,
+        reason=stop_reason or "user_stop_from_task_run_control",
+    )
+    child_stops = _stop_active_child_task_runs(
+        runtime_host,
+        parent_task_run_id=task_run_id,
+        reason=stop_reason or "parent_task_hard_stopped",
+        requested_by="parent_task_stop",
+        visited_task_run_ids=visited_task_run_ids,
+    )
+    latest_task = runtime_host.state_index.get_task_run(task_run_id) or task_run
+    if is_stopped_or_terminal_task_run(latest_task, runtime_host=runtime_host):
+        stopped_task = latest_task
+        lifecycle = _load_lifecycle(runtime_host, stopped_task)
+        finished_event: dict[str, Any] = {}
+    else:
+        stopped_task, lifecycle, finished_event = _finish_user_stopped_task(
+            runtime_host,
+            task_run=replace(
+                latest_task,
+                updated_at=stopped_at,
+                latest_event_offset=_event_offset(event),
+                diagnostics={
+                    **_diagnostics_with_runtime_control(
+                        _strip_runtime_lease_diagnostics(dict(latest_task.diagnostics or {})),
+                        state=_TASK_RUN_STOPPED,
+                        requested_by=requested_by,
+                        requested_at=stopped_at,
+                        reason=stop_reason,
+                        latest_step="task_run_stopped",
+                        latest_step_status="aborted",
+                        latest_step_summary="任务已按用户要求停止。",
+                        control_signal=control_signal,
+                    ),
+                    "executor_status": "stopped",
+                    "hard_stop": {
+                        "authority": "harness.loop.task_executor.stop_task_run",
+                        "control_signal_requested": control_signal is not None,
+                        "cell_cancel": cell_cancel,
+                        "child_stops": child_stops,
+                    },
+                },
+            ),
+            reason=stop_reason,
+        )
+    _mark_task_agent_run_killed(
+        runtime_host,
+        task_run=stopped_task,
+        reason=stop_reason or "user_aborted",
+    )
+    _record_task_step_summary(
+        runtime_host,
+        task_run_id=task_run_id,
+        step="task_run_stopped",
+        status="aborted",
+        summary="任务已按用户要求停止。",
+        refs={
+            "task_run_ref": task_run_id,
+            **_executor_control_signal_trace_refs(control_signal),
+        },
+    )
+    return {
+        "ok": True,
+        "accepted": True,
+        "task_run": stopped_task.to_dict(),
+        "lifecycle": lifecycle.to_dict(),
+        "event": finished_event,
+        "control": _runtime_control_payload(stopped_task, runtime_host=runtime_host),
+        "cell_cancel": cell_cancel,
+        "child_stops": child_stops,
+    }
+
+
+def _cancel_task_run_runtime_cell(runtime_host: Any, *, task_run: Any, reason: str) -> dict[str, Any]:
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
+    session_id = str(getattr(task_run, "session_id", "") or "").strip()
+    cancel_cells = getattr(runtime_host, "cancel_task_run_cells", None)
+    if callable(cancel_cells):
+        try:
+            return dict(cancel_cells(task_run_sessions={task_run_id: session_id}, reason=reason) or {})
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "authority": "single_agent_runtime_host.cancel_task_run_cells",
+                "requested_task_run_ids": [task_run_id] if task_run_id else [],
+                "cancelled_count": 0,
+                "error": str(exc) or exc.__class__.__name__,
+            }
+    supervisor = getattr(runtime_host, "agent_run_supervisor", None)
+    cancel_task_run = getattr(supervisor, "cancel_task_run", None)
+    if callable(cancel_task_run) and task_run_id and session_id:
+        try:
+            cancelled = bool(cancel_task_run(task_run_id, session_id=session_id, reason=reason))
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "authority": "harness.runtime.agent_run_supervisor.cancel_task_run",
+                "requested_task_run_ids": [task_run_id],
+                "cancelled_count": 0,
+                "error": str(exc) or exc.__class__.__name__,
+            }
+        return {
+            "authority": "harness.runtime.agent_run_supervisor.cancel_task_run",
+            "requested_task_run_ids": [task_run_id],
+            "cancelled_count": 1 if cancelled else 0,
+            "cancelled_task_run_ids": [task_run_id] if cancelled else [],
+            "reason": reason,
+        }
+    return {
+        "authority": "harness.loop.task_executor.stop_task_run",
+        "requested_task_run_ids": [task_run_id] if task_run_id else [],
+        "cancelled_count": 0,
+        "rejected": [{"task_run_id": task_run_id, "reason": "runtime_cell_cancel_unavailable"}] if task_run_id else [],
+        "missing_scope_task_run_ids": [task_run_id] if task_run_id and not session_id else [],
+        "reason": reason,
+    }
+
+
+def _stop_active_child_task_runs(
+    runtime_host: Any,
+    *,
+    parent_task_run_id: str,
+    reason: str,
+    requested_by: str,
+    visited_task_run_ids: set[str],
+) -> dict[str, Any]:
+    child_task_run_ids = _active_child_task_run_ids(runtime_host, parent_task_run_id=parent_task_run_id)
+    results: list[dict[str, Any]] = []
+    for child_task_run_id in child_task_run_ids:
+        if child_task_run_id in visited_task_run_ids:
+            results.append({"ok": True, "accepted": False, "task_run_id": child_task_run_id, "reason": "task_run_stop_cycle_already_seen"})
+            continue
+        try:
+            result = stop_task_run(
+                runtime_host,
+                child_task_run_id,
+                reason=reason,
+                requested_by=requested_by,
+                _visited_task_run_ids=visited_task_run_ids,
+            )
+        except Exception as exc:  # noqa: BLE001
+            result = {"ok": False, "task_run_id": child_task_run_id, "error": str(exc) or exc.__class__.__name__}
+        results.append(_child_stop_result_summary(dict(result or {"ok": False, "task_run_id": child_task_run_id, "error": "empty_stop_result"})))
+    return {
+        "authority": "harness.loop.task_executor.stop_active_child_task_runs",
+        "parent_task_run_id": str(parent_task_run_id or ""),
+        "requested_count": len(child_task_run_ids),
+        "results": results,
+    }
+
+
+def _active_child_task_run_ids(runtime_host: Any, *, parent_task_run_id: str) -> list[str]:
+    normalized_parent_task_run_id = str(parent_task_run_id or "").strip()
+    if not normalized_parent_task_run_id:
+        return []
+    state_index = getattr(runtime_host, "state_index", None)
+    snapshot_reader = getattr(state_index, "read_snapshot", None)
+    if not callable(snapshot_reader):
+        return []
+    try:
+        snapshot = dict(snapshot_reader() or {})
+    except Exception:
+        return []
+    task_run_ids: list[str] = []
+    seen: set[str] = set()
+    for value in dict(snapshot.get("agent_runs") or {}).values():
+        if not isinstance(value, dict):
+            continue
+        status = str(value.get("status") or "").strip()
+        if status not in {"pending", "running"}:
+            continue
+        raw_diagnostics = value.get("diagnostics")
+        diagnostics = dict(raw_diagnostics or {}) if isinstance(raw_diagnostics, dict) else {}
+        raw_control = diagnostics.get("subagent_control")
+        control = dict(raw_control or {}) if isinstance(raw_control, dict) else {}
+        if str(control.get("parent_task_run_id") or "") != normalized_parent_task_run_id:
+            continue
+        child_task_run_id = str(value.get("task_run_id") or "").strip()
+        if not child_task_run_id or child_task_run_id == normalized_parent_task_run_id or child_task_run_id in seen:
+            continue
+        child_task_run = state_index.get_task_run(child_task_run_id) if state_index is not None else None
+        if child_task_run is None or is_stopped_or_terminal_task_run(child_task_run, runtime_host=runtime_host):
+            continue
+        seen.add(child_task_run_id)
+        task_run_ids.append(child_task_run_id)
+    return task_run_ids
+
+
+def _mark_task_agent_run_killed(runtime_host: Any, *, task_run: Any, reason: str) -> None:
+    agent_run = _current_task_agent_run(runtime_host, task_run=task_run)
+    if agent_run is None:
+        return
+    status = str(getattr(agent_run, "status", "") or "").strip()
+    if status == "killed":
+        return
+    runtime_host.state_index.upsert_agent_run(
+        replace(
+            agent_run,
+            status="killed",
+            updated_at=time.time(),
+            diagnostics={
+                **dict(agent_run.diagnostics or {}),
+                "terminal_reason": "user_aborted",
+                "stop_reason": str(reason or ""),
+                "runtime_control": _runtime_control_payload(task_run, runtime_host=runtime_host),
+            },
+        )
+    )
+
+
+def _child_stop_result_summary(result: dict[str, Any]) -> dict[str, Any]:
+    task_run = dict(result.get("task_run") or {}) if isinstance(result.get("task_run"), dict) else {}
+    cell_cancel = dict(result.get("cell_cancel") or {}) if isinstance(result.get("cell_cancel"), dict) else {}
+    child_stops = dict(result.get("child_stops") or {}) if isinstance(result.get("child_stops"), dict) else {}
+    return {
+        key: value
+        for key, value in {
+            "ok": result.get("ok"),
+            "accepted": result.get("accepted"),
+            "task_run_id": result.get("task_run_id") or task_run.get("task_run_id"),
+            "status": task_run.get("status"),
+            "terminal_reason": task_run.get("terminal_reason"),
+            "error": result.get("error"),
+            "reason": result.get("reason"),
+            "cell_cancelled_count": cell_cancel.get("cancelled_count"),
+            "child_stop_count": child_stops.get("requested_count"),
+        }.items()
+        if value not in (None, "", [], {})
+    }
+
+
+def _current_task_agent_run(runtime_host: Any, *, task_run: Any) -> Any | None:
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
+    if not task_run_id:
+        return None
+    list_runs = getattr(getattr(runtime_host, "state_index", None), "list_task_agent_runs", None)
+    if not callable(list_runs):
+        return None
+    try:
+        runs = list(list_runs(task_run_id) or [])
+    except Exception:
+        return None
+    if not runs:
+        return None
+    expected_id = f"agrun:{task_run_id}:main"
+    for item in runs:
+        if str(getattr(item, "agent_run_id", "") or "") == expected_id:
+            return item
+    live_runs = [item for item in runs if str(getattr(item, "status", "") or "").strip() in {"pending", "running"}]
+    return live_runs[-1] if live_runs else runs[-1]
 
 
 def append_user_work_instruction(
@@ -2921,6 +3186,21 @@ def _record_pending_runtime_control_signal_for_agent(
         )
     if signal is None:
         return None
+    if str(signal.kind or "").strip() == "stop":
+        return _record_hard_stop_runtime_control_signal(
+            runtime_host,
+            current_task=latest_task,
+            signal=signal,
+            packet_ref=packet_ref,
+            boundary=boundary,
+            raw_observations=raw_observations,
+            observations=observations,
+            execution_state=execution_state,
+            artifact_refs=artifact_refs,
+            runtime_fingerprint=runtime_fingerprint,
+            step_index=step_index,
+            event_offset=event_offset,
+        )
     fingerprint = _runtime_control_signal_fingerprint(latest_task, signal=signal, runtime_host=runtime_host)
     if _runtime_control_signal_already_delivered(latest_task, signal=signal, fingerprint=fingerprint):
         clear_executor_signal(
@@ -3054,6 +3334,179 @@ def _record_pending_runtime_control_signal_for_agent(
         "execution_state": dict(observation_context["execution_state"]),
         "artifact_refs": dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs]),
         "recorded": True,
+    }
+
+
+def _record_hard_stop_runtime_control_signal(
+    runtime_host: Any,
+    *,
+    current_task: Any,
+    signal: ExecutorControlSignal,
+    packet_ref: str,
+    boundary: str,
+    raw_observations: list[dict[str, Any]],
+    observations: list[dict[str, Any]],
+    execution_state: dict[str, Any],
+    artifact_refs: list[dict[str, Any]],
+    runtime_fingerprint: dict[str, Any],
+    step_index: int,
+    event_offset: int | float = 0,
+) -> dict[str, Any]:
+    latest_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
+    fingerprint = _runtime_control_signal_fingerprint(latest_task, signal=signal, runtime_host=runtime_host)
+    observation = _hard_stop_runtime_control_signal_observation(
+        runtime_host=runtime_host,
+        task_run=latest_task,
+        signal=signal,
+        packet_ref=packet_ref,
+        boundary=boundary,
+        step_index=step_index,
+        fingerprint=fingerprint,
+    )
+    runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
+    observed_event = _mark_runtime_control_signal_gateway_observed(
+        runtime_host,
+        task_run=latest_task,
+        signal=signal,
+        observation=observation,
+        packet_ref=packet_ref,
+        boundary=boundary,
+        fingerprint=fingerprint,
+    )
+    event = runtime_host.event_log.append(
+        latest_task.task_run_id,
+        "task_runtime_control_stop_observed",
+        payload={
+            "observation": observation,
+            "control": _runtime_control_payload(latest_task, runtime_host=runtime_host),
+            "model_visible": False,
+        },
+        refs={
+            "task_run_ref": latest_task.task_run_id,
+            "observation_ref": observation["observation_id"],
+            "runtime_invocation_packet_ref": packet_ref,
+            **_executor_control_signal_trace_refs(signal),
+        },
+    )
+    clear_executor_signal(
+        runtime_host,
+        task_run_id=latest_task.task_run_id,
+        executor_epoch=int(signal.executor_epoch or 0),
+        signal=signal,
+    )
+    lifecycle_event: dict[str, Any] = {}
+    if is_stopped_or_terminal_task_run(latest_task, runtime_host=runtime_host):
+        stopped_task = latest_task
+    else:
+        stopped_task, _lifecycle, lifecycle_event = _finish_user_stopped_task(
+            runtime_host,
+            task_run=replace(
+                latest_task,
+                updated_at=float(event.created_at or time.time()),
+                latest_event_offset=max(_event_offset(event), int(event_offset or 0)),
+                diagnostics={
+                    **_diagnostics_with_runtime_control(
+                        _strip_runtime_lease_diagnostics(dict(latest_task.diagnostics or {})),
+                        state=_TASK_RUN_STOPPED,
+                        requested_by=str(signal.requested_by or "user"),
+                        requested_at=float(signal.requested_at or getattr(event, "created_at", 0.0) or time.time()),
+                        reason=str(signal.reason or ""),
+                        latest_step="task_run_stopped",
+                        latest_step_status="aborted",
+                        latest_step_summary="任务已按用户要求停止。",
+                        control_signal=signal,
+                    ),
+                    "executor_status": "stopped",
+                    "hard_stop": {
+                        "authority": "harness.loop.task_executor.runtime_control_signal",
+                        "control_signal_requested": True,
+                        "observed_event_ref": str(getattr(observed_event, "event_id", "") or ""),
+                    },
+                },
+            ),
+            reason=str(signal.reason or ""),
+        )
+    if str(getattr(stopped_task, "status", "") or "") == "aborted" and str(getattr(stopped_task, "terminal_reason", "") or "") == "user_aborted":
+        _mark_task_agent_run_killed(
+            runtime_host,
+            task_run=stopped_task,
+            reason=str(signal.reason or "user_aborted"),
+        )
+    _mark_runtime_control_signal_gateway_consumed(
+        runtime_host,
+        task_run=stopped_task,
+        control_observation=observation,
+        lifecycle_status=str(getattr(stopped_task, "status", "") or ""),
+        terminal_reason=str(getattr(stopped_task, "terminal_reason", "") or ""),
+        output_commit={},
+        lifecycle_event=lifecycle_event,
+    )
+    _record_task_step_summary(
+        runtime_host,
+        task_run_id=stopped_task.task_run_id,
+        step=f"runtime_control_stop_hard_stopped:{step_index}",
+        status=str(getattr(stopped_task, "status", "") or "aborted"),
+        summary="收到停止信号，已由系统硬终止本轮运行。",
+        refs={
+            "observation_ref": observation["observation_id"],
+            **_executor_control_signal_trace_refs(signal),
+        },
+    )
+    observation_context = _observations_for_packet(
+        runtime_host,
+        stopped_task.task_run_id,
+        current_fingerprint=runtime_fingerprint,
+        pending_observations=raw_observations,
+    )
+    return {
+        "current_task": runtime_host.state_index.get_task_run(stopped_task.task_run_id) or stopped_task,
+        "raw_observations": list(observation_context["raw_observations"]),
+        "observations": list(observation_context["packet_observations"]),
+        "execution_state": dict(observation_context["execution_state"] or execution_state),
+        "artifact_refs": dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs]),
+        "recorded": True,
+        "stopped": True,
+    }
+
+
+def _hard_stop_runtime_control_signal_observation(
+    *,
+    runtime_host: Any | None = None,
+    task_run: Any,
+    signal: ExecutorControlSignal,
+    packet_ref: str,
+    boundary: str,
+    step_index: int,
+    fingerprint: str,
+) -> dict[str, Any]:
+    control = _runtime_control_payload(task_run, runtime_host=runtime_host)
+    summary = "停止信号已由系统硬终止处理。"
+    return {
+        "observation_id": f"rtobs:{task_run.task_run_id}:runtime-stop:{uuid.uuid4().hex[:8]}",
+        "task_run_id": task_run.task_run_id,
+        "observation_type": "runtime_control_signal",
+        "source": "system:runtime_control_stop",
+        "request_ref": f"runtime-control-stop:{task_run.task_run_id}:invocation:{step_index}",
+        "directive_ref": packet_ref,
+        "content_chars": 0,
+        "summary": summary,
+        "payload": {
+            "signal_kind": "stop",
+            "runtime_control_state": _TASK_RUN_STOPPED,
+            "requested_by": str(control.get("requested_by") or signal.requested_by or "system"),
+            "requested_at": float(control.get("requested_at") or signal.requested_at or time.time()),
+            "reason": str(control.get("reason") or signal.reason or ""),
+            "runtime_control_signal_ref": str(getattr(signal, "signal_id", "") or ""),
+            "runtime_control_event_ref": str(getattr(signal, "control_event_ref", "") or ""),
+            "boundary": str(boundary or ""),
+            "runtime_control_signal_fingerprint": fingerprint,
+            "model_visible": False,
+            "agent_closeout_required": False,
+            "authority": "harness.loop.task_executor.runtime_control_signal",
+        },
+        "needs_model_followup": False,
+        "created_at": time.time(),
+        "authority": "orchestration.runtime_observation",
     }
 
 

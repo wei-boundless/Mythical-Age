@@ -20,6 +20,7 @@ _DIRECT_PROMPT_REFS = (
     "runtime.rule.turn_decision_alignment",
     "runtime.rule.tool_use",
     "runtime.rule.output_boundary",
+    "runtime.rule.reasoning_projection",
     "runtime.rule.error_recovery",
     "runtime.rule.context_memory",
     "runtime.rule.permission_denial",

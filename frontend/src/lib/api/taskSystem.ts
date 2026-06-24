@@ -1,6 +1,5 @@
 import { request, sessionScopeQuery } from "./shared";
 import type {
-  CapabilitySystemAgentCatalog,
   ContractSpecUpsertPayload,
   ConversationEntryPolicyUpsertPayload,
   EngagementPlanDetailResponse,
@@ -44,10 +43,6 @@ import type {
   TaskWorkflowCatalog,
   TaskWorkflowUpsertPayload,
 } from "./types";
-
-export async function getCapabilitySystemAgents() {
-  return request<CapabilitySystemAgentCatalog>("/capability-system/agents");
-}
 
 export async function getTaskWorkflows() {
   return request<TaskWorkflowCatalog>("/tasks/workflows");

@@ -3595,48 +3595,23 @@
   align-items: start;
   border: 1px solid color-mix(in srgb, var(--console-line) 70%, transparent);
   border-radius: var(--console-radius-lg);
+  --appearance-preview-canvas-background:
+    linear-gradient(90deg, color-mix(in srgb, var(--console-bg) var(--workbench-bg-veil-edge), transparent) 0%, color-mix(in srgb, var(--console-bg) var(--workbench-bg-veil-center), transparent) 28%, color-mix(in srgb, var(--console-bg) var(--workbench-bg-veil-center), transparent) 74%, color-mix(in srgb, var(--console-bg) var(--workbench-bg-veil-edge), transparent) 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--console-bg) var(--workbench-bg-veil-top), transparent), color-mix(in srgb, var(--console-bg) var(--workbench-bg-veil-bottom), transparent)),
+    var(--workbench-bg-image),
+    var(--workbench-bg);
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--console-bg) 28%, transparent), color-mix(in srgb, var(--console-bg) 46%, transparent)),
-    var(--console-bg);
-  background-position: center, center;
-  background-repeat: no-repeat;
-  background-size: auto, auto;
+    var(--appearance-preview-canvas-background);
+  background-position: center, center, var(--workbench-bg-position), center;
+  background-repeat: no-repeat, no-repeat, var(--workbench-bg-repeat), no-repeat;
+  background-size: auto, auto, var(--workbench-bg-size), auto;
   overflow: hidden;
   padding: 22px;
 }
 
 .system-config-appearance-preview__canvas::before,
 .system-config-appearance-preview__canvas::after {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  content: "";
-  pointer-events: none;
-}
-
-.system-config-appearance-preview__canvas::before {
-  inset: -28px;
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--console-bg) 86%, transparent) 0%, color-mix(in srgb, var(--console-bg) 64%, transparent) 24%, color-mix(in srgb, var(--console-bg) 64%, transparent) 76%, color-mix(in srgb, var(--console-bg) 88%, transparent) 100%),
-    linear-gradient(180deg, color-mix(in srgb, var(--console-bg) 44%, transparent), color-mix(in srgb, var(--console-bg) 68%, transparent)),
-    var(--workbench-bg-image),
-    var(--console-bg);
-  background-position: center, center, var(--workbench-bg-atmosphere-position), center;
-  background-repeat: no-repeat;
-  background-size: auto, auto, var(--workbench-bg-atmosphere-size), auto;
-  filter: blur(18px) saturate(0.95);
-  opacity: 0.82;
-}
-
-.system-config-appearance-preview__canvas::after {
-  background: var(--workbench-bg-image);
-  background-position: var(--workbench-bg-subject-position);
-  background-repeat: no-repeat;
-  background-size: var(--workbench-bg-subject-size);
-  filter: saturate(0.9) contrast(0.96);
-  -webkit-mask-image: var(--workbench-bg-subject-mask);
-  mask-image: var(--workbench-bg-subject-mask);
-  opacity: var(--workbench-bg-subject-opacity);
+  display: none;
 }
 
 .system-config-appearance-preview__canvas > * {

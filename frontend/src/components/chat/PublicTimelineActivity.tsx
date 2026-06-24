@@ -1,5 +1,6 @@
 "use client";
 
+import { BrainCircuit, ChevronDown } from "lucide-react";
 import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -35,8 +36,10 @@ export type ActivityEntry = {
   consoleLabel?: string;
   detail?: string;
   id: string;
-  kind: "activity_archive" | "body_note" | "status_line" | "todo_plan" | "tool_window";
+  kind: "activity_archive" | "body_note" | "reasoning_window" | "status_line" | "todo_plan" | "tool_window";
   outputText?: string;
+  reasoningContent?: string;
+  reasoningMeta?: string;
   sections: Array<{ label: string; text: string }>;
   statusKind?: string;
   state?: string;
@@ -167,6 +170,9 @@ function renderActivityRow(row: ActivityRenderUnit): React.ReactNode {
   if (entry.kind === "body_note") {
     return <BodyNote entry={entry} key={entry.id} />;
   }
+  if (entry.kind === "reasoning_window") {
+    return <ReasoningWindow entry={entry} key={entry.id} />;
+  }
   if (entry.kind === "tool_window") {
     return <ToolWindow entry={entry} key={entry.id} />;
   }
@@ -227,6 +233,53 @@ function BodyNote({ entry }: { entry: ActivityEntry }) {
         </ReactMarkdown>
       </div>
     </div>
+  );
+}
+
+function ReasoningWindow({ entry }: { entry: ActivityEntry }) {
+  const [open, setOpen] = React.useState(false);
+  const statusTone = entry.statusTone ?? "done";
+  const reasoningContent = entry.reasoningContent || entry.detail || "";
+
+  React.useEffect(() => {
+    setOpen(false);
+  }, [entry.id]);
+
+  return (
+    <details
+      className={`public-run-activity__reasoning-window public-run-activity__reasoning-window--${statusTone}`}
+      data-activity-id={entry.id}
+      data-activity-kind={entry.statusKind || entry.kind}
+      data-status-tone={statusTone}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      open={open}
+    >
+      <summary>
+        <span className="public-run-activity__reasoning-icon" aria-hidden="true">
+          <BrainCircuit size={15} />
+        </span>
+        <span className="public-run-activity__reasoning-copy">
+          <span className="public-run-activity__reasoning-title">
+            <span>{entry.text || "模型思考"}</span>
+            <span className={`public-run-activity__tool-window-status public-run-activity__tool-window-status--${statusTone}`}>
+              <span className="public-run-activity__tool-status-dot" aria-hidden="true" />
+              <span className="public-run-activity__tool-status-text">{entry.statusLabel || "已记录"}</span>
+            </span>
+          </span>
+          {entry.reasoningMeta ? <span className="public-run-activity__reasoning-meta">{entry.reasoningMeta}</span> : null}
+        </span>
+        <span className="public-run-activity__reasoning-caret" aria-hidden="true">
+          <ChevronDown size={14} />
+        </span>
+      </summary>
+      <div className="public-run-activity__reasoning-body" role="region" aria-label="运行中的模型思考观察">
+        {reasoningContent ? (
+          <div className="public-run-activity__reasoning-text">{reasoningContent}</div>
+        ) : (
+          <p>暂无可见思考内容。</p>
+        )}
+      </div>
+    </details>
   );
 }
 
@@ -412,6 +465,9 @@ function todoEntryFromBlock(block: TodoPlanProjectionBlock, index: number): Acti
 }
 
 function statusEntryFromBlock(block: StatusProjectionBlock, index: number): ActivityEntry | null {
+  if (cleanText(block.statusKind) === "reasoning_projection_state") {
+    return reasoningEntryFromBlock(block, index);
+  }
   const title = firstText(block.title) || statusKindLabel(block.kind);
   const detail = firstDifferentText(title, block.detail);
   const stableId = cleanText(block.id) || cleanText(block.sourceEventId) || `status:${index}`;
@@ -422,11 +478,43 @@ function statusEntryFromBlock(block: StatusProjectionBlock, index: number): Acti
     kind: "status_line",
     sections: [],
     state: cleanText(block.state).toLowerCase(),
-    statusKind: block.kind,
+    statusKind: cleanText(block.statusKind) || block.kind,
     statusLabel: statusBlockLabel(block, statusTone),
     statusTone,
     text: title,
   };
+}
+
+function reasoningEntryFromBlock(block: StatusProjectionBlock, index: number): ActivityEntry | null {
+  const reasoningContent = typeof block.reasoningContent === "string" ? block.reasoningContent : "";
+  const detail = firstDifferentText("模型思考", block.detail);
+  const stableId = cleanText(block.id) || cleanText(block.sourceEventId) || `reasoning:${index}`;
+  const statusTone = statusBlockTone(block);
+  const meta = reasoningMetaFromBlock(block);
+  return {
+    detail,
+    id: `reasoning-window:${stableId}`,
+    kind: "reasoning_window",
+    reasoningContent,
+    reasoningMeta: meta,
+    sections: [],
+    state: cleanText(block.state).toLowerCase(),
+    statusKind: cleanText(block.statusKind) || block.kind,
+    statusLabel: statusBlockLabel(block, statusTone),
+    statusTone,
+    text: "模型思考",
+  };
+}
+
+function reasoningMetaFromBlock(block: StatusProjectionBlock) {
+  const parts = [];
+  if (typeof block.reasoningContentEstimatedTokens === "number" && block.reasoningContentEstimatedTokens > 0) {
+    parts.push(`约 ${Math.round(block.reasoningContentEstimatedTokens).toLocaleString()} tokens`);
+  }
+  if (typeof block.reasoningContentChars === "number" && block.reasoningContentChars > 0) {
+    parts.push(`${Math.round(block.reasoningContentChars).toLocaleString()} 字符`);
+  }
+  return parts.join(" · ");
 }
 
 function publicTimelineTone(entries: ActivityEntry[]): PublicTimelineActivityTone {

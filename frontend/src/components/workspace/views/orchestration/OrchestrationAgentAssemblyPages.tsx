@@ -125,6 +125,9 @@ export function OrchestrationAgentAssemblyPages({
               memorySummary={controller.memorySummary}
               patchRuntimeDraft={controller.patchRuntimeDraft}
               runtimeDraft={controller.runtimeDraft}
+              systemGroupOptionItems={controller.systemGroupOptionItems}
+              systemGroupOptions={controller.catalog?.options.system_groups ?? []}
+              systemGroupSummary={controller.systemGroupSummary}
             />
           ) : null}
 

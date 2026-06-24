@@ -96,9 +96,15 @@ export type TodoPlanEvent = {
 export type StatusProjectionEvent = {
   id: string;
   kind: "status_event" | "recovery_event" | "terminal_event";
+  statusKind?: string;
   title: string;
   detail: string;
   state: string;
+  reasoningContent?: string;
+  reasoningContentChars?: number;
+  reasoningContentEstimatedTokens?: number;
+  reasoningContentSha256?: string;
+  reasoningProjectionPolicy?: string;
   sourceEventType: string;
   sourceEventId: string;
   offset: number;
@@ -210,9 +216,15 @@ export type ActivityArchiveProjectionBlock = {
 export type StatusProjectionBlock = {
   kind: "status_event" | "recovery_event" | "terminal_event";
   id: string;
+  statusKind?: string;
   title: string;
   detail: string;
   state: string;
+  reasoningContent?: string;
+  reasoningContentChars?: number;
+  reasoningContentEstimatedTokens?: number;
+  reasoningContentSha256?: string;
+  reasoningProjectionPolicy?: string;
   offset: number;
   sourceEventType?: string;
   sourceEventId?: string;

@@ -322,7 +322,7 @@ def _chunk_from_stream_response(
         "usage": usage,
     }
     additional_kwargs: dict[str, Any] = {"provider": provider}
-    reasoning_content = _first_text(delta.get("reasoning_content"), delta.get("reasoning"))
+    reasoning_content = _first_text_preserving_whitespace(delta.get("reasoning_content"), delta.get("reasoning"))
     if reasoning_content:
         additional_kwargs["reasoning_content"] = reasoning_content
     raw_tool_call_chunks = _provider_tool_call_chunks(delta.get("tool_calls"))
@@ -727,6 +727,16 @@ def _first_text(*values: Any) -> str:
     for value in values:
         text = _stringify_content(value).strip()
         if text:
+            return text
+    return ""
+
+
+def _first_text_preserving_whitespace(*values: Any) -> str:
+    for value in values:
+        if value is None:
+            continue
+        text = _stringify_content(value)
+        if text != "":
             return text
     return ""
 
