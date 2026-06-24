@@ -102,11 +102,12 @@ class ContextUsageMeter:
         session_pressure_tokens: int | None = None,
         session_pressure_source: str = "",
         session_pressure_diagnostics: dict[str, Any] | None = None,
+        session_pressure_as_current: bool = True,
         context_fingerprint: str = "",
         previous_context_fingerprint: str = "",
     ) -> ContextUsageSnapshot:
         pressure_tokens_supplied = session_pressure_tokens is not None
-        session_pressure_is_current_source = pressure_tokens_supplied and pending_messages is None
+        session_pressure_is_current_source = bool(session_pressure_as_current) and pressure_tokens_supplied and pending_messages is None
         records = (
             []
             if session_pressure_is_current_source

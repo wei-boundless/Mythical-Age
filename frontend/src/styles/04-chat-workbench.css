@@ -1015,6 +1015,7 @@
 }
 
 .agent-workbench .workbench-view-host--chat .chat-thread {
+  position: relative;
   width: 100%;
   max-width: 100%;
   padding: 0;
@@ -1037,6 +1038,38 @@
   max-width: 100%;
   padding-left: clamp(8px, 3%, 24px);
   padding-right: clamp(8px, 3%, 24px);
+}
+
+.agent-workbench .chat-scroll-follow-button {
+  position: absolute;
+  right: clamp(18px, 5vw, 78px);
+  bottom: 18px;
+  z-index: 8;
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--console-line) 76%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--console-surface) 92%, transparent);
+  color: var(--console-text-soft);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--console-text) 10%, transparent);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 680;
+  padding: 0 12px;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+.agent-workbench .chat-scroll-follow-button:hover {
+  border-color: color-mix(in srgb, var(--console-accent) 34%, var(--console-line));
+  background: var(--console-surface);
+  color: var(--console-accent);
+  transform: translateY(-1px);
+}
+
+.agent-workbench .chat-scroll-follow-button svg {
+  flex: 0 0 auto;
 }
 
 .agent-workbench .chat-thread__empty {

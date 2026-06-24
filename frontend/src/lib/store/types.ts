@@ -270,6 +270,7 @@ export type ChatModelSelection = {
   thinking_mode?: "enabled" | "disabled";
   reasoning_effort?: "auto" | "high" | "max";
   stream_policy?: Record<string, unknown>;
+  provider_extensions?: Record<string, unknown>;
 };
 
 export type ChatMode = "chat" | "image";

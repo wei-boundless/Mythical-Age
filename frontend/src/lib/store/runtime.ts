@@ -4187,15 +4187,43 @@ export class WorkspaceRuntime {
     }
     const visibleMessageIndex = state.messages.findIndex((message) => message.id === messageId);
     const truncateIndex = this.truncateMessageIndexForResend(targetMessage);
-    await truncateSessionMessages(sessionId, truncateIndex, this.sessionScopeForSession(sessionId));
+    const previousMessages = state.messages;
+    const previousOrchestrationSnapshot = state.orchestrationSnapshot;
+    const previousTaskGraphLiveMonitor = state.taskGraphLiveMonitor;
+    const previousTokenStats = state.tokenStats;
     this.store.setState((prev) => ({
       ...prev,
-      messages: visibleMessageIndex > -1 ? prev.messages.slice(0, visibleMessageIndex) : prev.messages,
-      orchestrationSnapshot: null,
-      taskGraphLiveMonitor: null,
-      tokenStats: null
+      messages: prev.currentSessionId === sessionId && visibleMessageIndex > -1
+        ? prev.messages.slice(0, visibleMessageIndex)
+        : prev.messages,
+      orchestrationSnapshot: prev.currentSessionId === sessionId ? null : prev.orchestrationSnapshot,
+      taskGraphLiveMonitor: prev.currentSessionId === sessionId ? null : prev.taskGraphLiveMonitor,
+      tokenStats: prev.currentSessionId === sessionId ? null : prev.tokenStats,
     }));
-    await this.sendMessage(nextValue);
+    let truncateCommitted = false;
+    try {
+      await truncateSessionMessages(sessionId, truncateIndex, this.sessionScopeForSession(sessionId));
+      truncateCommitted = true;
+      if (this.store.getState().currentSessionId !== sessionId) {
+        void this.refreshSessionDetails(sessionId).catch(() => undefined);
+        return;
+      }
+      await this.sendMessage(nextValue);
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        messages: prev.currentSessionId === sessionId && !truncateCommitted ? previousMessages : prev.messages,
+        orchestrationSnapshot: prev.currentSessionId === sessionId && !truncateCommitted
+          ? previousOrchestrationSnapshot
+          : prev.orchestrationSnapshot,
+        taskGraphLiveMonitor: prev.currentSessionId === sessionId && !truncateCommitted
+          ? previousTaskGraphLiveMonitor
+          : prev.taskGraphLiveMonitor,
+        tokenStats: prev.currentSessionId === sessionId && !truncateCommitted ? previousTokenStats : prev.tokenStats,
+      }));
+      void this.refreshSessionDetails(sessionId).catch(() => undefined);
+      throw error;
+    }
   }
 
   private nextMessageSourceIndex(messages: StoreState["messages"]) {

@@ -1080,7 +1080,7 @@ def _build_system_wiring_manifest(
                 "public_reasoning_default": False,
                 "reasoning_full_text_requires_explicit_opt_in": True,
             },
-            prompt_resources=("runtime.rule.reasoning_projection",),
+            prompt_resources=(),
             context_segments=("reasoning_trace_projection", "provider_reasoning_projection"),
             feedback_channels=("reasoning_trace_status", "reasoning_projection_state"),
         ),

@@ -178,12 +178,12 @@ function archiveState(blocks: ActivityArchiveChildBlock[]) {
 }
 
 function compareBlocks(left: ProjectionRenderBlock, right: ProjectionRenderBlock) {
-  const leftRank = blockDisplayRank(left);
-  const rightRank = blockDisplayRank(right);
-  if (leftRank !== rightRank) return leftRank - rightRank;
   const leftOffset = blockOffset(left);
   const rightOffset = blockOffset(right);
   if (leftOffset !== rightOffset) return leftOffset - rightOffset;
+  const leftRank = blockDisplayRank(left);
+  const rightRank = blockDisplayRank(right);
+  if (leftRank !== rightRank) return leftRank - rightRank;
   return blockId(left).localeCompare(blockId(right));
 }
 

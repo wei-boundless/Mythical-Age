@@ -5,6 +5,7 @@ import hashlib
 import inspect
 import logging
 import os
+import string
 import time
 import uuid
 from dataclasses import dataclass, is_dataclass, replace
@@ -221,7 +222,10 @@ class ModelRuntime:
         candidates = self._candidate_specs(model_spec=model_spec)
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
-                effective_spec = _spec_with_chat_prefix_endpoint(spec)
+                effective_spec = _spec_with_provider_request_scope(
+                    _spec_with_chat_prefix_endpoint(spec),
+                    accounting_context=accounting_context,
+                )
                 effective_messages = _messages_with_chat_prefix_protocol(messages, spec=effective_spec)
                 effective_messages, effective_accounting_context = self._provider_visible_append_only_passthrough(
                     effective_messages,
@@ -298,7 +302,10 @@ class ModelRuntime:
         candidates = self._candidate_specs(model_spec=model_spec)
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
-                effective_spec = _spec_with_chat_prefix_endpoint(spec)
+                effective_spec = _spec_with_provider_request_scope(
+                    _spec_with_chat_prefix_endpoint(spec),
+                    accounting_context=accounting_context,
+                )
                 effective_messages = _messages_with_chat_prefix_protocol(messages, spec=effective_spec)
                 effective_messages, effective_accounting_context = self._provider_visible_append_only_passthrough(
                     effective_messages,
@@ -386,7 +393,10 @@ class ModelRuntime:
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 emitted = False
-                effective_spec = _spec_with_chat_prefix_endpoint(spec)
+                effective_spec = _spec_with_provider_request_scope(
+                    _spec_with_chat_prefix_endpoint(spec),
+                    accounting_context=accounting_context,
+                )
                 effective_messages = _messages_with_chat_prefix_protocol(messages, spec=effective_spec)
                 effective_messages, effective_accounting_context = self._provider_visible_append_only_passthrough(
                     effective_messages,
@@ -471,7 +481,10 @@ class ModelRuntime:
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 emitted = False
-                effective_spec = _spec_with_chat_prefix_endpoint(spec)
+                effective_spec = _spec_with_provider_request_scope(
+                    _spec_with_chat_prefix_endpoint(spec),
+                    accounting_context=accounting_context,
+                )
                 effective_messages = _messages_with_chat_prefix_protocol(messages, spec=effective_spec)
                 effective_messages, effective_accounting_context = self._provider_visible_append_only_passthrough(
                     effective_messages,
@@ -570,7 +583,8 @@ class ModelRuntime:
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 emitted = False
-                model = self._get_chat_model_for_spec(spec)
+                effective_spec = _spec_with_provider_request_scope(spec, accounting_context=accounting_context)
+                model = self._get_chat_model_for_spec(effective_spec)
                 accounting_messages = [
                     {"role": "system", "content": system_prompt},
                     *list(dict(payload or {}).get("messages") or []),
@@ -578,7 +592,7 @@ class ModelRuntime:
                 accounting = self._begin_prompt_accounting(
                     accounting_messages,
                     tools=tools,
-                    spec=spec,
+                    spec=effective_spec,
                     accounting_context=accounting_context,
                     attempt=attempt,
                     call_kind="astream_conversation",
@@ -592,7 +606,7 @@ class ModelRuntime:
                 )
                 try:
                     stream = agent.astream(payload, stream_mode=stream_mode)
-                    async for item in self._iterate_with_timeout(stream, spec=spec):
+                    async for item in self._iterate_with_timeout(stream, spec=effective_spec):
                         emitted = True
                         last_item = item
                         yield item
@@ -603,8 +617,8 @@ class ModelRuntime:
                     raise
                 except Exception as exc:
                     self._finish_prompt_accounting(accounting, response=None, error=exc)
-                    last_error = self._map_error(exc, spec)
-                    await self._invalidate_chat_model_for_spec(spec)
+                    last_error = self._map_error(exc, effective_spec)
+                    await self._invalidate_chat_model_for_spec(effective_spec)
                     if emitted:
                         raise last_error from exc
                     if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
@@ -1060,6 +1074,11 @@ class ModelRuntime:
                 },
             )
             ledger.record_token_usage(prediction)
+            ledger.record_context_usage_snapshot(
+                prediction,
+                request_started_at=created_at,
+                observed_at=created_at,
+            )
             cache_record = self._prompt_cache_planner.plan(
                 segment_map,
                 provider=spec.provider,
@@ -1242,6 +1261,11 @@ class ModelRuntime:
                     },
                 )
             ledger.record_token_usage(provider_usage)
+            ledger.record_context_usage_snapshot(
+                provider_usage,
+                request_started_at=started_at,
+                observed_at=finished_at,
+            )
             if cache_record is not None:
                 updated_cache_record = self._prompt_cache_planner.with_provider_usage(cache_record, provider_usage)
                 stable_prefix_predicted_tokens = int(
@@ -1301,6 +1325,9 @@ class ModelRuntime:
         candidates = _provider_visible_context_commit_candidates_from_accounting(accounting)
         if not candidates:
             return {}
+        model_request = dict(accounting or {}).get("model_request")
+        model_request_diagnostics = dict(getattr(model_request, "diagnostics", {}) or {})
+        provider_transport_payload = dict(model_request_diagnostics.get("provider_transport_payload") or {})
         try:
             return confirm_provider_visible_context_entries(
                 candidates,
@@ -1308,6 +1335,15 @@ class ModelRuntime:
                 model=str(dict(accounting or {}).get("model") or ""),
                 request_id=str(dict(accounting or {}).get("request_id") or ""),
                 response_ref=_provider_response_ref(response),
+                provider_payload_prefix_hash=str(getattr(model_request, "provider_payload_prefix_hash", "") or ""),
+                provider_payload_messages_hash=str(
+                    provider_transport_payload.get("messages_hash")
+                    or getattr(model_request, "canonical_hash", "")
+                    or ""
+                ),
+                provider_payload_message_prefix_hash=str(getattr(model_request, "provider_payload_message_prefix_hash", "") or ""),
+                transport_contract_hash=str(getattr(model_request, "transport_contract_hash", "") or ""),
+                request_message_count=len(tuple(getattr(model_request, "messages", ()) or ())),
             )
         except Exception:
             logger.debug("Failed to confirm provider-visible context ledger entries", exc_info=True)
@@ -2184,6 +2220,37 @@ def _spec_with_chat_prefix_endpoint(spec: ModelSpec | Any) -> ModelSpec | Any:
     return _copy_spec_with_base_url(spec, f"{base_url}/beta")
 
 
+def _spec_with_provider_request_scope(
+    spec: ModelSpec | Any,
+    *,
+    accounting_context: dict[str, Any] | None,
+) -> ModelSpec | Any:
+    if str(_spec_attr(spec, "provider") or "").strip().lower() != "deepseek":
+        return spec
+    extensions = dict(_spec_attr(spec, "provider_extensions") or {})
+    explicit_user_id = _deepseek_user_id_from_extensions(extensions)
+    if explicit_user_id:
+        return _copy_spec_with_provider_extensions(
+            spec,
+            _provider_extensions_with_deepseek_user_id(
+                extensions,
+                user_id=explicit_user_id,
+                source="provider_extensions.explicit_user_id",
+            ),
+        )
+    session_id = str(dict(accounting_context or {}).get("session_id") or "").strip()
+    if not session_id:
+        return spec
+    return _copy_spec_with_provider_extensions(
+        spec,
+        _provider_extensions_with_deepseek_user_id(
+            extensions,
+            user_id=_deepseek_session_user_id(session_id),
+            source="session_id_hash",
+        ),
+    )
+
+
 def _copy_spec_with_base_url(spec: Any, base_url: str) -> Any:
     if is_dataclass(spec):
         try:
@@ -2219,10 +2286,84 @@ def _copy_spec_with_base_url(spec: Any, base_url: str) -> Any:
     return SimpleNamespace(**payload)
 
 
+def _copy_spec_with_provider_extensions(spec: Any, provider_extensions: dict[str, Any]) -> Any:
+    extensions = dict(provider_extensions or {})
+    if is_dataclass(spec):
+        try:
+            return replace(spec, provider_extensions=extensions)
+        except TypeError:
+            pass
+    if isinstance(spec, dict):
+        return {**spec, "provider_extensions": extensions}
+    payload = {
+        key: getattr(spec, key)
+        for key in (
+            "provider",
+            "model",
+            "api_key",
+            "base_url",
+            "max_output_tokens",
+            "timeout_seconds",
+            "long_output_timeout_seconds",
+            "max_retries",
+            "temperature",
+            "thinking_mode",
+            "reasoning_effort",
+            "stream_policy",
+            "response_format",
+            "structured_output",
+            "provider_extensions",
+            "completion_profile",
+            "diagnostics",
+        )
+        if hasattr(spec, key)
+    }
+    payload["provider_extensions"] = extensions
+    return SimpleNamespace(**payload)
+
+
 def _spec_attr(spec: Any, key: str) -> Any:
     if isinstance(spec, dict):
         return spec.get(key)
     return getattr(spec, key, None)
+
+
+def _deepseek_user_id_from_extensions(extensions: dict[str, Any] | None) -> str:
+    payload = dict(extensions or {})
+    nested = dict(payload.get("deepseek") or {}) if isinstance(payload.get("deepseek"), dict) else {}
+    for value in (nested.get("user_id"), payload.get("deepseek_user_id"), payload.get("user_id")):
+        user_id = _normalize_deepseek_user_id(value)
+        if user_id:
+            return user_id
+    return ""
+
+
+def _provider_extensions_with_deepseek_user_id(
+    extensions: dict[str, Any] | None,
+    *,
+    user_id: str,
+    source: str,
+) -> dict[str, Any]:
+    payload = dict(extensions or {})
+    nested = dict(payload.get("deepseek") or {}) if isinstance(payload.get("deepseek"), dict) else {}
+    nested["user_id"] = _normalize_deepseek_user_id(user_id)
+    nested["user_id_source"] = str(source or "").strip()
+    payload["deepseek"] = nested
+    return payload
+
+
+def _deepseek_session_user_id(session_id: str) -> str:
+    digest = hashlib.sha256(str(session_id or "").strip().encode("utf-8")).hexdigest()[:32]
+    return f"session_{digest}" if digest else ""
+
+
+def _normalize_deepseek_user_id(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    allowed = set(string.ascii_letters + string.digits + "-_")
+    sanitized = "".join(char if char in allowed else "_" for char in text)
+    return sanitized[:512]
 
 
 def _messages_with_chat_prefix_protocol(messages: list[Any], *, spec: ModelSpec | Any) -> list[Any]:

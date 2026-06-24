@@ -49,6 +49,8 @@ class PromptAccountingLedger:
         self.summary_index_dir = self.ledger_dir / "summary_index" / "by_key"
         self.summary_index_dir.mkdir(parents=True, exist_ok=True)
         self.summary_index_manifest_path = self.ledger_dir / "summary_index" / "manifest.json"
+        self.context_usage_latest_dir = self.ledger_dir / "context_usage" / "latest_by_session"
+        self.context_usage_latest_dir.mkdir(parents=True, exist_ok=True)
         self.retention_dir = self.ledger_dir / "retention"
         self.retention_dir.mkdir(parents=True, exist_ok=True)
         self.retained_token_stats_path = self.retention_dir / "token_stats.json"
@@ -63,6 +65,7 @@ class PromptAccountingLedger:
         self._recent_prompt_cache: list[PromptCacheRecord] = []
         self._recent_prompt_cache_baselines: list[PromptCacheBaselineRecord] = []
         self._recent_prompt_stability: list[PromptStabilityReport] = []
+        self._bootstrap_context_usage_latest_from_summary_index()
 
     def record_segment_map(self, segment_map: PromptSegmentMap) -> None:
         self._append_jsonl("segment_maps.jsonl", segment_map.to_dict())
@@ -76,6 +79,41 @@ class PromptAccountingLedger:
         self._append_jsonl("token_usage.jsonl", record.to_dict())
         self._remember_recent(self._recent_token_usage, record)
         self._upsert_usage_summary(record)
+
+    def record_context_usage_snapshot(
+        self,
+        record: ModelTokenUsageRecord,
+        *,
+        request_started_at: float | None = None,
+        observed_at: float | None = None,
+    ) -> None:
+        session_id = str(getattr(record, "session_id", "") or "").strip()
+        if not session_id:
+            return
+        payload = _context_usage_snapshot_from_record(
+            record,
+            request_started_at=request_started_at,
+            observed_at=observed_at,
+        )
+        if int(payload.get("current_context_tokens") or 0) <= 0:
+            return
+        path = self._context_usage_snapshot_path(session_id)
+        with self._lock:
+            current = self._read_context_usage_snapshot_path(path)
+            if current is not None and not _context_usage_snapshot_should_replace(current, payload):
+                return
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = path.with_suffix(f"{path.suffix}.{threading.get_ident()}.tmp")
+            tmp_path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+            tmp_path.replace(path)
+
+    def read_latest_context_usage_snapshot(self, session_id: str) -> dict[str, Any]:
+        normalized = str(session_id or "").strip()
+        if not normalized:
+            return {}
+        with self._lock:
+            payload = self._read_context_usage_snapshot_path(self._context_usage_snapshot_path(normalized))
+        return dict(payload or {})
 
     def record_prompt_cache(self, record: PromptCacheRecord) -> None:
         self._append_jsonl("prompt_cache.jsonl", record.to_dict())
@@ -260,11 +298,24 @@ class PromptAccountingLedger:
         diagnostics: dict[str, Any] | None = None,
         created_at: float | None = None,
     ) -> PromptCacheBaselineRecord:
-        previous = self.list_prompt_cache_baselines(
-            run_id=run_id,
-            task_run_id=task_run_id,
-            session_id=session_id,
-        )
+        if self.scoped_reads_are_expensive():
+            previous = self.list_recent_prompt_cache_baselines(
+                run_id=run_id,
+                task_run_id=task_run_id,
+                session_id=session_id,
+                limit=self.RECENT_RECORD_LIMIT,
+            )
+            previous_records_source = "recent"
+        else:
+            previous = self.list_prompt_cache_baselines(
+                run_id=run_id,
+                task_run_id=task_run_id,
+                session_id=session_id,
+            )
+            previous_records_source = "ledger"
+        next_diagnostics = dict(diagnostics or {})
+        next_diagnostics.setdefault("previous_records_source", previous_records_source)
+        next_diagnostics.setdefault("previous_record_count", len(previous))
         record = PromptCacheBaselineTracker().build_invalidation_record(
             previous_records=previous,
             request_id=request_id,
@@ -276,7 +327,7 @@ class PromptAccountingLedger:
             model=model,
             reason=reason,
             reset_ref=reset_ref,
-            diagnostics=diagnostics,
+            diagnostics=next_diagnostics,
             created_at=created_at,
         )
         self.record_prompt_cache_baseline(record)
@@ -606,6 +657,7 @@ class PromptAccountingLedger:
             "prompt_cache_breaks": self._rewrite_without_session_or_tasks("prompt_cache_breaks.jsonl", normalized, targets),
             "prompt_stability": self._rewrite_without_session_or_tasks("prompt_stability.jsonl", normalized, targets),
             "summary_index": self._delete_summary_session_or_tasks(normalized, targets),
+            "context_usage_latest": self._delete_context_usage_snapshot(normalized),
         }
         return {
             "authority": "runtime.prompt_accounting.ledger.prune_session",
@@ -1443,6 +1495,36 @@ class PromptAccountingLedger:
         if update_manifest:
             self._upsert_summary_manifest_entry(payload)
 
+    def _bootstrap_context_usage_latest_from_summary_index(self) -> None:
+        try:
+            payloads = self.list_run_summary_payloads(limit=2000)
+        except Exception:
+            return
+        records: list[ModelTokenUsageRecord] = []
+        for payload in list(payloads or []):
+            usage_records = dict(dict(payload or {}).get("usage_records") or {})
+            for item in usage_records.values():
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    record = ModelTokenUsageRecord.from_dict(dict(item))
+                except Exception:
+                    continue
+                if not str(record.session_id or "").strip():
+                    continue
+                if int(record.prompt_tokens or record.total_tokens or 0) <= 0:
+                    continue
+                records.append(record)
+        for record in sorted(records, key=lambda item: float(item.created_at or 0.0)):
+            try:
+                self.record_context_usage_snapshot(
+                    record,
+                    request_started_at=float(record.created_at or 0.0),
+                    observed_at=float(record.created_at or 0.0),
+                )
+            except Exception:
+                continue
+
     def _read_summary_payload(self, key: str) -> dict[str, Any] | None:
         path = self._summary_index_path(key)
         if not path.exists():
@@ -1508,6 +1590,37 @@ class PromptAccountingLedger:
     def _summary_index_path(self, key: str) -> Path:
         digest = hashlib.sha256(str(key or "").encode("utf-8")).hexdigest()
         return self.summary_index_dir / f"{digest}.json"
+
+    def _context_usage_snapshot_path(self, session_id: str) -> Path:
+        digest = hashlib.sha256(str(session_id or "").encode("utf-8")).hexdigest()
+        return self.context_usage_latest_dir / f"{digest}.json"
+
+    def _delete_context_usage_snapshot(self, session_id: str) -> int:
+        normalized = str(session_id or "").strip()
+        if not normalized:
+            return 0
+        path = self._context_usage_snapshot_path(normalized)
+        if not path.exists():
+            return 0
+        try:
+            path.unlink()
+        except OSError:
+            return 0
+        return 1
+
+    @staticmethod
+    def _read_context_usage_snapshot_path(path: Path) -> dict[str, Any] | None:
+        if not path.exists():
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, JSONDecodeError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        if str(payload.get("authority") or "") != "runtime.prompt_accounting.latest_context_usage_snapshot":
+            return None
+        return payload
 
     def _summary_scan_allowed(self) -> bool:
         total = 0
@@ -1889,6 +2002,91 @@ def _compact_cache_record(record: PromptCacheRecord) -> dict[str, Any]:
         "created_at": float(record.created_at or 0.0),
         "authority": record.authority,
     }
+
+
+def _context_usage_snapshot_from_record(
+    record: ModelTokenUsageRecord,
+    *,
+    request_started_at: float | None,
+    observed_at: float | None,
+) -> dict[str, Any]:
+    current_context_tokens = _context_tokens_from_usage_record(record)
+    request_started = _positive_float(request_started_at, float(record.created_at or 0.0))
+    observed = _positive_float(observed_at, time.time())
+    return {
+        "authority": "runtime.prompt_accounting.latest_context_usage_snapshot",
+        "version": 1,
+        "session_id": str(record.session_id or ""),
+        "run_id": str(record.run_id or record.task_run_id or ""),
+        "task_run_id": str(record.task_run_id or ""),
+        "request_id": str(record.request_id or ""),
+        "usage_id": str(record.usage_id or ""),
+        "provider": str(record.provider or ""),
+        "model": str(record.model or ""),
+        "source": str(record.source or ""),
+        "current_context_tokens": int(current_context_tokens),
+        "prompt_tokens": int(record.prompt_tokens or 0),
+        "completion_tokens": int(record.completion_tokens or 0),
+        "reasoning_tokens": int(record.reasoning_tokens or 0),
+        "cached_tokens": int(record.cached_tokens or 0),
+        "cache_creation_tokens": int(record.cache_creation_tokens or 0),
+        "cache_read_tokens": int(record.cache_read_tokens or 0),
+        "cache_miss_tokens": int(record.cache_miss_tokens or 0),
+        "total_tokens": int(record.total_tokens or 0),
+        "record_created_at": float(record.created_at or 0.0),
+        "request_started_at": request_started,
+        "observed_at": observed,
+        "diagnostics": {
+            "usage_record_authority": str(record.authority or ""),
+            "usage_record_source": str(record.source or ""),
+        },
+    }
+
+
+def _context_tokens_from_usage_record(record: ModelTokenUsageRecord) -> int:
+    prompt_tokens = int(record.prompt_tokens or 0)
+    if prompt_tokens > 0:
+        return prompt_tokens
+    total_tokens = int(record.total_tokens or 0)
+    if total_tokens <= 0:
+        return 0
+    generated_tokens = int(record.completion_tokens or 0) + int(record.reasoning_tokens or 0)
+    return max(0, total_tokens - generated_tokens)
+
+
+def _context_usage_snapshot_should_replace(current: dict[str, Any], candidate: dict[str, Any]) -> bool:
+    current_request = str(current.get("request_id") or "")
+    candidate_request = str(candidate.get("request_id") or "")
+    current_started = _positive_float(current.get("request_started_at"), 0.0)
+    candidate_started = _positive_float(candidate.get("request_started_at"), 0.0)
+    if current_request and candidate_request and current_request == candidate_request:
+        current_priority = _usage_source_priority(current.get("source"))
+        candidate_priority = _usage_source_priority(candidate.get("source"))
+        if candidate_priority != current_priority:
+            return candidate_priority > current_priority
+        return _positive_float(candidate.get("observed_at"), 0.0) >= _positive_float(current.get("observed_at"), 0.0)
+    if current_started > 0 and candidate_started > 0 and candidate_started != current_started:
+        return candidate_started > current_started
+    return _positive_float(candidate.get("observed_at"), 0.0) >= _positive_float(current.get("observed_at"), 0.0)
+
+
+def _usage_source_priority(value: Any) -> int:
+    source = str(value or "")
+    if source == "provider_usage":
+        return 3
+    if source == "local_prediction":
+        return 2
+    if source == "trace_estimate":
+        return 1
+    return 0
+
+
+def _positive_float(value: Any, fallback: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = 0.0
+    return parsed if parsed > 0 else float(fallback or 0.0)
 
 
 def _summary_manifest_entry(payload: dict[str, Any]) -> dict[str, Any]:

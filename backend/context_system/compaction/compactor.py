@@ -902,18 +902,45 @@ class ContextCompactor:
                 )
             tokens_after = self._conversation_tokens(compacted)
 
+        summary_quality_diagnostics = self._summary_quality_diagnostics(
+            request_id=request_id,
+            session_id=session_id,
+            summary_source=compaction_source,
+            before_messages=working,
+            after_messages=compacted,
+            summary_content=str(getattr(summary_message, "content", "") or resolved_summary_content or ""),
+            semantic_worker_result=semantic_worker_result,
+        )
         full_compact_diagnostics = {
             **full_compact_diagnostics,
-            **self._summary_quality_diagnostics(
+            **summary_quality_diagnostics,
+        }
+        summary_quality = dict(summary_quality_diagnostics.get("summary_quality") or {})
+        if str(summary_quality.get("status") or "") == "unpass":
+            missing_fields = [
+                str(item)
+                for item in list(summary_quality.get("missing_fields") or [])
+                if str(item)
+            ]
+            return self._blocked_result(
+                working,
+                pressure_level=pressure_level,
+                strategy="blocked_by_summary_quality",
+                tokens_before=tokens_before,
                 request_id=request_id,
                 session_id=session_id,
-                summary_source=compaction_source,
-                before_messages=working,
-                after_messages=compacted,
-                summary_content=str(getattr(summary_message, "content", "") or resolved_summary_content or ""),
-                semantic_worker_result=semantic_worker_result,
-            ),
-        }
+                turn_id=turn_id,
+                task_run_id=task_run_id,
+                task_environment_id=task_environment_id,
+                trigger=trigger,
+                reason=reason,
+                planned_strategy=planned_strategy,
+                block_reason="summary_quality_unpass" + (":" + ",".join(missing_fields) if missing_fields else ""),
+                prompt_diagnostics={
+                    **full_compact_diagnostics,
+                    "pre_compact_hook": pre_hook_decision.to_dict(),
+                },
+            )
         result = CompactResult(
             did_compact=True,
             messages=compacted,

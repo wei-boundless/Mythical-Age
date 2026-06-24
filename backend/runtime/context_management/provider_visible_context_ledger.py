@@ -263,6 +263,11 @@ def confirm_provider_visible_context_entries(
     model: str = "",
     request_id: str = "",
     response_ref: str = "",
+    provider_payload_prefix_hash: str = "",
+    provider_payload_messages_hash: str = "",
+    provider_payload_message_prefix_hash: str = "",
+    transport_contract_hash: str = "",
+    request_message_count: int = 0,
 ) -> dict[str, Any]:
     """Append provider-visible context candidates after provider success.
 
@@ -288,8 +293,10 @@ def confirm_provider_visible_context_entries(
 
     confirmations: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
+    anchors: list[dict[str, Any]] = []
     changed_groups = 0
     confirmed_count = 0
+    anchor_update_count = 0
 
     for (storage_value, scope), refs in grouped.items():
         storage_root = Path(storage_value) if storage_value else (Path(default_storage_root) if default_storage_root else None)
@@ -311,6 +318,8 @@ def confirm_provider_visible_context_entries(
         )
         entries_by_key = _entries_by_key({"entries": _confirmed_ledger_entries(ledger)})
         changed = False
+        group_failed = False
+        group_confirmations: list[dict[str, Any]] = []
         for ref in refs:
             item_key = str(ref.get("provider_visible_context_ledger_item_key") or "").strip()
             expected_hash = str(ref.get("provider_visible_hash") or "").strip()
@@ -331,6 +340,7 @@ def confirm_provider_visible_context_entries(
                 ledger = _record_recovery_event(ledger, failure)
                 failures.append(failure)
                 changed = True
+                group_failed = True
                 continue
             computed_hash = _stable_json_hash(provider_message)
             if computed_hash != expected_hash:
@@ -348,6 +358,7 @@ def confirm_provider_visible_context_entries(
                 ledger = _record_recovery_event(ledger, failure)
                 failures.append(failure)
                 changed = True
+                group_failed = True
                 continue
             candidate_adapter = str(ref.get("provider_adapter_contract") or ledger.get("adapter_contract") or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT)
             ledger_adapter = str(ledger.get("adapter_contract") or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT)
@@ -367,6 +378,7 @@ def confirm_provider_visible_context_entries(
                 ledger = _record_recovery_event(ledger, failure)
                 failures.append(failure)
                 changed = True
+                group_failed = True
                 continue
             existing = dict(entries_by_key.get(item_key) or {})
             if existing:
@@ -387,16 +399,17 @@ def confirm_provider_visible_context_entries(
                     ledger = _record_recovery_event(ledger, failure)
                     failures.append(failure)
                     changed = True
+                    group_failed = True
                     continue
-                confirmations.append(
-                    {
-                        "scope": scope,
-                        "entry_index": _safe_int(existing.get("entry_index")),
-                        "item_key": item_key,
-                        "status": str(existing.get("commit_status") or ""),
-                        "already_confirmed": True,
-                    }
-                )
+                confirmation = {
+                    "scope": scope,
+                    "entry_index": _safe_int(existing.get("entry_index")),
+                    "item_key": item_key,
+                    "status": str(existing.get("commit_status") or ""),
+                    "already_confirmed": True,
+                }
+                confirmations.append(confirmation)
+                group_confirmations.append(confirmation)
                 continue
             entries_by_index = _entries_by_index(ledger)
             next_index = _next_entry_index(ledger, entries_by_index=entries_by_index)
@@ -426,17 +439,40 @@ def confirm_provider_visible_context_entries(
             }
             ledger["next_entry_index"] = next_index + 1
             entries_by_key[item_key] = entry
-            confirmations.append(
-                {
-                    "scope": scope,
-                    "entry_index": next_index,
-                    "item_key": item_key,
-                    "status": PROVIDER_VISIBLE_CONTEXT_LEDGER_CONFIRMED_STATUS,
-                    "already_confirmed": False,
-                }
-            )
+            confirmation = {
+                "scope": scope,
+                "entry_index": next_index,
+                "item_key": item_key,
+                "status": PROVIDER_VISIBLE_CONTEXT_LEDGER_CONFIRMED_STATUS,
+                "already_confirmed": False,
+            }
+            confirmations.append(confirmation)
+            group_confirmations.append(confirmation)
             confirmed_count += 1
             changed = True
+        if group_confirmations and not group_failed:
+            ledger, anchor = _record_provider_success_anchor(
+                ledger,
+                scope=scope,
+                provider=provider,
+                model=model,
+                request_id=request_id,
+                response_ref=response_ref,
+                provider_payload_prefix_hash=provider_payload_prefix_hash,
+                provider_payload_messages_hash=provider_payload_messages_hash,
+                provider_payload_message_prefix_hash=provider_payload_message_prefix_hash,
+                transport_contract_hash=transport_contract_hash,
+                request_message_count=request_message_count,
+                request_entry_indexes=[
+                    _safe_int(item.get("entry_index"))
+                    for item in group_confirmations
+                    if _safe_int(item.get("entry_index")) > 0
+                ],
+            )
+            if anchor:
+                anchors.append(anchor)
+                anchor_update_count += 1
+                changed = True
         if changed:
             changed_groups += 1
             ledger = _finalize_ledger(
@@ -453,10 +489,20 @@ def confirm_provider_visible_context_entries(
         "confirmed_count": confirmed_count,
         "confirmation_count": len(confirmations),
         "changed_group_count": changed_groups,
+        "anchor_update_count": anchor_update_count,
         "confirmations": confirmations,
+        "provider_success_anchors": anchors,
         "failures": failures,
         "authority": "runtime.context_management.provider_visible_context_ledger.confirm",
     }
+
+
+def latest_provider_visible_context_success_anchor(*, storage_root: Path | str | None, scope: str) -> dict[str, Any]:
+    ledger = load_provider_visible_context_ledger(
+        storage_root=Path(storage_root) if storage_root else None,
+        scope=scope,
+    )
+    return dict(ledger.get("last_provider_success_anchor") or {})
 
 
 def load_provider_visible_context_ledger(*, storage_root: Path | None, scope: str) -> dict[str, Any]:
@@ -617,6 +663,78 @@ def _record_recovery_event(ledger: dict[str, Any], failure: dict[str, Any]) -> d
     payload["recovery_events"] = events
     payload["status"] = "recovery_required"
     return payload
+
+
+def _record_provider_success_anchor(
+    ledger: dict[str, Any],
+    *,
+    scope: str,
+    provider: str,
+    model: str,
+    request_id: str,
+    response_ref: str,
+    provider_payload_prefix_hash: str,
+    provider_payload_messages_hash: str,
+    provider_payload_message_prefix_hash: str,
+    transport_contract_hash: str,
+    request_message_count: int,
+    request_entry_indexes: list[int] | tuple[int, ...],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    normalized_request_id = str(request_id or "").strip()
+    if not normalized_request_id:
+        return dict(ledger or {}), {}
+    payload = dict(ledger or {})
+    entries = sorted(
+        _confirmed_ledger_entries(payload),
+        key=lambda item: (_safe_int(item.get("entry_index")), str(item.get("item_key") or "")),
+    )
+    if not entries:
+        return payload, {}
+    entry_indexes = [_safe_int(item.get("entry_index")) for item in entries if _safe_int(item.get("entry_index")) > 0]
+    if not entry_indexes:
+        return payload, {}
+    request_indexes = sorted({int(item) for item in list(request_entry_indexes or []) if int(item or 0) > 0})
+    last_entry = dict(entries[-1])
+    anchor_seed = {
+        "scope": str(scope or "default"),
+        "request_id": normalized_request_id,
+        "response_ref": str(response_ref or ""),
+        "entry_count": len(entry_indexes),
+        "terminal_entry_index": entry_indexes[-1],
+        "terminal_entry_hash": str(last_entry.get("entry_hash") or ""),
+        "provider_payload_messages_hash": str(provider_payload_messages_hash or ""),
+    }
+    anchor = {
+        "anchor_id": "provider-success-anchor:" + _stable_json_hash(anchor_seed).split(":", 1)[-1][:16],
+        "request_id": normalized_request_id,
+        "response_ref": str(response_ref or ""),
+        "scope": str(scope or "default"),
+        "provider": str(provider or payload.get("provider") or ""),
+        "model": str(model or payload.get("model") or ""),
+        "confirmed_ledger_entry_range": [entry_indexes[0], entry_indexes[-1]],
+        "confirmed_ledger_entry_count": len(entry_indexes),
+        "request_confirmed_entry_indexes": request_indexes,
+        "terminal_entry_index": entry_indexes[-1],
+        "terminal_entry_hash": str(last_entry.get("entry_hash") or ""),
+        "terminal_cumulative_prefix_hash": str(last_entry.get("cumulative_prefix_hash") or ""),
+        "provider_payload_prefix_hash": str(provider_payload_prefix_hash or ""),
+        "provider_payload_messages_hash": str(provider_payload_messages_hash or ""),
+        "provider_payload_message_prefix_hash": str(provider_payload_message_prefix_hash or ""),
+        "transport_contract_hash": str(transport_contract_hash or ""),
+        "request_message_count": _safe_int(request_message_count),
+        "created_at": time.time(),
+        "authority": "runtime.context_management.provider_visible_context_ledger.provider_success_anchor",
+    }
+    existing = [
+        dict(item)
+        for item in list(payload.get("provider_success_anchors") or [])
+        if isinstance(item, dict)
+        and str(item.get("anchor_id") or "") != str(anchor.get("anchor_id") or "")
+    ]
+    payload["provider_success_anchors"] = [*existing, anchor][-32:]
+    payload["last_provider_success_anchor"] = anchor
+    payload["last_success_anchor_id"] = str(anchor.get("anchor_id") or "")
+    return payload, anchor
 
 
 def _finalize_ledger(

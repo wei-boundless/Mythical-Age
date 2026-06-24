@@ -204,6 +204,9 @@ class SessionManager:
 
     def get_history(self, session_id: str) -> dict[str, Any]:
         payload = self._read_payload(session_id)
+        return self._history_from_payload(session_id, payload)
+
+    def _history_from_payload(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return {
             "id": str(payload.get("id") or session_id),
             "title": str(payload.get("title") or "New Session"),
@@ -484,7 +487,7 @@ class SessionManager:
                 payload["provider_protocol_compaction_created_at"] = time.time() if str(compressed_context or "").strip() else 0.0
             payload["updated_at"] = time.time()
             self._write_payload(session_id, payload)
-            return self.get_history(session_id)
+            return self._history_from_payload(session_id, payload)
 
     def truncate_messages_from(self, session_id: str, message_index: int) -> dict[str, Any]:
         with self._session_lock(session_id):
@@ -506,7 +509,7 @@ class SessionManager:
             )
             payload["updated_at"] = time.time()
             self._write_payload(session_id, payload)
-            return self.get_history(session_id)
+            return self._history_from_payload(session_id, payload)
 
     def _load_all(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -778,7 +781,7 @@ def _normalize_chat_model_selection(payload: dict[str, Any] | None) -> dict[str,
         model = model or selected_model.strip()
     if selection_id != "system-default" and (not provider or not model):
         return {}
-    return {
+    selection = {
         "selection_id": selection_id,
         "provider": provider,
         "model": model,
@@ -786,6 +789,15 @@ def _normalize_chat_model_selection(payload: dict[str, Any] | None) -> dict[str,
         "updated_at": _float(raw.get("updated_at")) or time.time(),
         "authority": "sessions.chat_model_selection",
     }
+    for key in ("base_url", "credential_ref", "thinking_mode", "reasoning_effort"):
+        value = str(raw.get(key) or "").strip()
+        if value:
+            selection[key] = value
+    for key in ("stream_policy", "provider_extensions"):
+        value = raw.get(key)
+        if isinstance(value, dict) and value:
+            selection[key] = dict(value)
+    return selection
 
 
 def _normalize_project_binding(

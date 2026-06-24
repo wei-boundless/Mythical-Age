@@ -2846,19 +2846,54 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
             "respond 必须把用户可见最终回复写在顶层 final_answer；不要写 payload.final_answer、payload.content、action.final_answer 或 action.content。",
             "ask_user 必须把用户要回答的问题写在顶层 user_question；不要使用 provider-native ask_user 工具调用。",
             "block 必须把真实阻塞原因写在顶层 blocking_reason。",
-            "tool_call 使用顶层 tool_call: {tool_name, args}；普通工具可以使用 provider-native tool_call；控制动作可以使用 JSON action 或 provider-native canonical control signal，但同一轮不要混入其它动作来源。",
+            "tool_call 使用顶层 tool_call: {tool_name, args}；普通工具可以使用 provider-native tool_call；控制动作使用 JSON action 或 provider-native canonical control signal，但同一轮不要混入其它动作来源。",
+            "公开反馈必须与 action_type 对齐：如果 public_progress_note、current_judgment 或 next_action 宣称要开启、申请、进入或创建持续任务生命周期，action_type 必须是 request_task_run。",
         ],
         "action_selection_rules": [
             "先识别用户当前输入本身要你回应什么：提问、质疑、状态追问、纠错、继续执行、修改目标、请求交付或闲聊。任何 action 都不能绕过这个输入意图。",
-            "默认优先在当前 turn 内完成用户请求；复杂、跨文件或需要审查不自动等于 Task。",
-            "只有当当前 turn 的自然边界不足以承载目标、计划、状态、恢复、验收、审计、用户可追踪阶段反馈或资源隔离时，才申请 request_task_run。",
-            "先判断目标是否需要持久工作生命周期：跨 turn 状态记录、暂停/恢复/停止/replan、明确完成证据、长期执行、工具/上下文预算恢复、独立验收或资源隔离。",
-            "审查、评估、排查、review、audit、架构梳理或多文件链路检查可以留在普通 ReAct/tool_call，只要当前 turn 能通过有限工具调用形成可靠结论、验证并收口。",
-            "当工作范围、状态、验收或恢复需求已经超过当前 turn 能稳定保存和交付的边界时，先形成足够的 task_contract_seed，再申请 request_task_run。",
+            "你需要自己判断是否进入持续任务生命周期；口头承诺不等于动作，只有结构化 request_task_run 才表示你选择启动 Task。",
+            "先判断目标是否需要持久工作生命周期：跨 turn 状态记录、暂停/恢复/停止/replan、明确完成证据、长期执行、工具或上下文预算恢复、独立验收、阶段投影、资源隔离或失败收口。",
+            "如果你判断当前工作需要持续任务生命周期，并且目标、范围、验收或计划证据足够形成 task_contract_seed，下一步必须提交 request_task_run；不要先用普通 tool_call 代替任务启动。",
+            "如果你判断需要 Task 但 task_contract_seed 缺少目标、范围、完成证据或关键约束，必须 ask_user 补齐；不要假装已经进入 Task。",
+            "如果你判断当前 turn 能直接完成、验证并收口，可以使用普通 tool_call 或 respond；此时公开反馈必须表明这是当前 turn 内的直接处理，不能宣称开启长任务或进入持续任务生命周期。",
             "如果用户当前输入是问题、质疑、追问、状态询问、纠错或询问为什么，必须先对这个输入给出公开回应；只有用户明确要求继续/执行/恢复当前任务时，才允许 active_work_control 只承接执行。",
-            "如果需要 Task 但目标、范围、计划或验收标准不足以形成 task_contract_seed，必须选择 ask_user 补齐关键缺口。",
-            "普通 tool_call 是合法路径，只要当前 turn 仍能保住目标、证据、反馈和收口；在状态控制、验收或恢复需求越过 turn 边界前升级 Task。",
+            "如果公开反馈说要进入持续任务生命周期，结构化动作必须同步提交 request_task_run；如果你选择 tool_call，就把公开反馈改成真实的工具前置判断。",
         ],
+        "task_lifecycle_decision_contract": {
+            "authority": "harness.runtime.model_decision_contract",
+            "role": "你负责选择本轮动作，并让公开反馈与动作保持一致。",
+            "task_start_rule": "只有 action_type=request_task_run 且 task_contract_seed 合格时，才表示你选择启动持续任务生命周期。",
+            "task_mode_definition": {
+                "identity": "任务模式是持续工作生命周期，不是更大的工具调用。你选择它，是为了把目标、计划、证据、阶段状态、恢复点、验收和收口放进同一个可追踪工作单元。",
+                "what_it_gives_you": [
+                    "stable_task_identity: 后续工具、阶段反馈、停止、恢复和最终收口都绑定到同一个 task_run_id。",
+                    "durable_work_state: 目标、范围、已完成项、未完成项和恢复点可以跨 turn 保留。",
+                    "stage_projection: 用户能看到阶段性进展、当前动作、阻塞和完成状态，而不只是一串普通工具调用。",
+                    "control_surface: 当任务运行中，暂停、停止、恢复、继续和 replan 有明确对象。",
+                    "acceptance_boundary: 完成标准、交付物、验证结果和失败原因有统一收口位置。",
+                    "failure_recovery: 工具失败、预算耗尽、上下文中断或验证失败时，先说明原因和已保留状态，再决定停止、恢复或询问用户。",
+                ],
+                "use_when_you_need": [
+                    "工作目标需要跨 turn 或跨多批工具稳定推进。",
+                    "用户需要能追踪阶段、停止、恢复或继续同一个工作单元。",
+                    "完成必须依赖明确验收标准、交付物、验证结果或失败收口。",
+                    "任务可能遇到工具失败、上下文预算、长时间执行、计划偏离或需要 replan。",
+                    "普通 turn 无法可靠保存目标、证据、恢复点和最终状态。",
+                ],
+                "do_not_use_when": [
+                    "当前 turn 能直接查证、修改、验证并收口。",
+                    "只是短链路读取、单次工具调用或一次性回答。",
+                    "目标、范围或完成证据不足以写成 task_contract_seed；这种情况先 ask_user。",
+                ],
+            },
+            "decision_options": {
+                "request_task_run": "你判断需要持续任务生命周期，且 task_contract_seed 足够启动。",
+                "ask_user": "你判断需要持续任务生命周期，但目标、范围、约束或完成证据不足。",
+                "tool_call_or_respond": "你判断当前 turn 可以直接完成、验证并收口。",
+                "block": "你判断当前条件不能安全启动或继续，并需要说明真实阻塞。",
+            },
+            "feedback_action_consistency": "公开反馈、public_action_state 和 action_type 必须描述同一个下一步。宣称开启 Task 时必须提交 request_task_run；选择普通工具时不得宣称已开启或即将开启持续任务。",
+        },
         "public_response_obligation": {
             "authority": "model_semantic_response",
             "rule": "你必须回应用户当前输入本身。回应可以是直接回答、解释你的公开判断、说明需要查证哪个事实才能判断、指出当前不能回答的原因，或说明会把用户的新要求并入本轮处理范围。内部工具、长期任务和结构化 action 只能服务这个回应，不能替代这个回应。",
@@ -2905,12 +2940,31 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
         "tool_call": {"tool_name": "", "args": {}},
         "request_task_run_shape_rules": [
             "request_task_run 必须是单个结构化控制信号；可以使用 JSON action，也可以使用 provider-native canonical request_task_run；如果文本里带代码块或简短说明，只提取唯一 action-like 对象执行。",
-            "开启 Task 前先按 request_task_run_required_skeleton 自检；缺少任一必填路径时不要申请 Task，改用 ask_user 补齐或继续当前 turn 查证。",
+            "request_task_run 是启动持续任务生命周期的合同，不是普通工具调用；同一动作里不要同时请求普通 tool_call。",
+            "开启 Task 前先按 request_task_run_required_skeleton 自检；缺少任一必填路径时不要申请 Task，改用 ask_user 补齐关键合同缺口，或明确选择当前 turn 内处理。",
             "不要使用 payload 包裹任务字段；顶层只能放 action_type、authority、public_progress_note、public_action_state、task_contract_seed、completion_contract、permission_request、diagnostics 等动作控制字段。",
-            "task_contract_seed 的最小必填是 user_visible_goal、task_run_goal、working_scope.target_objects 和完成证据。",
+            "task_contract_seed 的最小必填是 user_visible_goal、task_run_goal、working_scope.target_objects 和完成证据；可选分层合同用于让执行生命周期顺畅推进。",
+            "public_progress_note 要说明为什么你判断需要持续任务生命周期；public_action_state.next_action 应写进入任务执行流程，而不是普通工具动作。",
         ],
+        "task_mode_contract": {
+            "definition": "任务模式把一次持续工作绑定成可追踪生命周期。你选择它，是为了获得稳定任务身份、跨 turn 状态、阶段投影、停止/恢复控制、验收边界和失败恢复。",
+            "start_action": "如果你选择进入任务模式，提交 action_type=request_task_run；不要同时调用普通工具。",
+            "minimum_decision": [
+                "为什么当前 turn 不足以稳定承载这项工作。",
+                "任务目标和执行目标分别是什么。",
+                "工作范围包含哪些对象，排除哪些对象。",
+                "完成时要交付或验证什么证据。",
+                "失败、中断或计划偏离时如何反馈并收口。",
+            ],
+            "benefits_for_you": [
+                "后续动作绑定同一个 task_run_id，避免会话续接时丢失工作身份。",
+                "可以把阶段进展、阻塞、验证和完成状态投影给用户。",
+                "暂停、停止、恢复、继续和 replan 有明确控制对象。",
+                "失败时可以保留已完成证据和恢复点，而不是空白收口。",
+            ],
+        },
         "request_task_run_required_skeleton": {
-            "instruction": "这是开启持续任务的最小必填骨架。用当前用户目标和已观察事实替换占位内容；不要删除这些键，不要把它们放到 JSON 顶层。",
+            "instruction": "这是开启持续任务生命周期的最小必填骨架。用当前用户目标和已观察事实替换占位内容；不要删除这些键，不要把它们放到 JSON 顶层。口头承诺不会启动 Task；只有这份结构化 request_task_run 才是启动动作。",
             "required_top_level": ["authority", "action_type", "public_progress_note", "public_action_state", "task_contract_seed"],
             "required_task_contract_seed_paths": [
                 "user_visible_goal",
@@ -2918,12 +2972,19 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                 "working_scope.target_objects",
                 "completion_criteria",
             ],
+            "recommended_task_contract_seed_paths": [
+                "goal_contract.success_definition",
+                "plan_contract.major_steps",
+                "lifecycle_contract.failure_recovery_policy",
+                "feedback_contract.feedback_sources",
+                "acceptance_contract.final_answer_requirements",
+            ],
             "minimal_action": {
                 "authority": "harness.loop.model_action_request",
                 "action_type": "request_task_run",
-                "public_progress_note": "说明为什么当前工作需要进入持续任务生命周期。",
+                "public_progress_note": "说明为什么你判断当前工作需要进入持续任务生命周期。",
                 "public_action_state": {
-                    "current_judgment": "说明当前 turn 无法稳定承载的边界。",
+                    "current_judgment": "说明当前 turn 无法稳定承载的目标、恢复、验收或反馈边界。",
                     "next_action": "进入持续任务执行流程。",
                 },
                 "task_contract_seed": {
@@ -2936,6 +2997,26 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                         "known_constraints": ["用户明确约束、质量要求或排除项"],
                     },
                     "completion_criteria": ["可验收完成标准"],
+                    "goal_contract": {
+                        "success_definition": "任务成功时用户能看到或验证的结果。",
+                        "completion_evidence": ["证明任务完成的证据类型"],
+                    },
+                    "lifecycle_contract": {
+                        "pause_policy": {"allowed": True, "state_to_preserve": ["current_goal", "completed_steps", "open_risks", "next_resume_step"]},
+                        "resume_policy": {"resume_from": "latest_preserved_state_and_user_steer"},
+                        "stop_policy": {"on_stop": "停止后说明已完成内容、未完成内容和可恢复状态。"},
+                        "replan_policy": {"when": "目标、风险、证据或验证结果显著偏离原计划时先反馈。"},
+                        "failure_recovery_policy": {
+                            "on_tool_failure": "说明失败后要反馈原因、保留已完成证据并停止或请求用户裁决。",
+                        },
+                        "terminal_policy": {"final_report_required": True, "include_unfinished_work": True},
+                    },
+                    "feedback_contract": {
+                        "feedback_sources": ["tool_observation", "runtime_observation", "lifecycle_signal", "verification_signal"],
+                    },
+                    "acceptance_contract": {
+                        "final_answer_requirements": ["说明完成内容、验证结果、未完成项和风险"],
+                    },
                 },
             },
         },
@@ -2977,6 +3058,30 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                     "known_constraints": ["用户明确的质量标准和边界"],
                 },
                 "completion_criteria": ["读取关键证据", "形成问题清单和结论", "交付报告或修复建议"],
+                "goal_contract": {
+                    "success_definition": "用户能看到完整结论、证据范围、风险和下一步建议。",
+                    "completion_evidence": ["关键文件证据", "链路判断", "最终报告"],
+                },
+                "plan_contract": {
+                    "major_steps": ["读取入口和契约", "核对事件链路", "形成修复或报告"],
+                    "replan_policy": {"when": "发现目标结构或风险显著偏离时先反馈用户"},
+                },
+            "lifecycle_contract": {
+                "pause_policy": {"allowed": True, "state_to_preserve": ["current_goal", "completed_steps", "open_risks", "next_resume_step"]},
+                "resume_policy": {"resume_from": "latest_preserved_state_and_user_steer"},
+                "stop_policy": {"on_stop": "停止后说明已完成内容、未完成内容和可恢复状态。"},
+                "replan_policy": {"when": "目标、风险、证据或验证结果显著偏离原计划时先反馈"},
+                "failure_recovery_policy": {"on_tool_failure": "公开说明失败原因和已完成范围，不输出空收口"},
+                "terminal_policy": {"final_report_required": True, "include_unfinished_work": True},
+            },
+                "feedback_contract": {
+                    "feedback_sources": ["tool_observation", "runtime_observation", "lifecycle_signal", "verification_signal"],
+                    "verification_feedback_policy": {"report_failed_verification": True},
+                },
+                "acceptance_contract": {
+                    "final_answer_requirements": ["说明完成项", "说明验证结果", "列出剩余风险"],
+                    "evidence_refs_required": True,
+                },
             },
         },
         "task_contract_seed": {
@@ -3017,6 +3122,30 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                 "status": "approved|locked|implementation_locked",
                 "approved": False,
                 "deviation_policy": "ask_user_or_block_before_changing_approved_plan"
+            },
+            "goal_contract": {
+                "success_definition": "可选；任务成功的用户可见定义",
+                "completion_evidence": ["可选；完成时必须能交付或引用的证据"]
+            },
+            "plan_contract": {
+                "major_steps": ["可选；agent 计划中的主要阶段"],
+                "replan_policy": {"when": "可选；偏离计划时如何处理"}
+            },
+            "lifecycle_contract": {
+                "pause_policy": {"allowed": True, "state_to_preserve": ["暂停时要保留的状态"]},
+                "resume_policy": {"resume_from": "恢复时依据的状态或用户指令"},
+                "stop_policy": {"on_stop": "停止时如何说明已完成、未完成和可恢复状态"},
+                "replan_policy": {"when": "计划偏离、风险扩大或证据推翻预期时如何处理"},
+                "failure_recovery_policy": {"on_failure": "失败时如何反馈、停止、恢复或请求用户裁决"},
+                "terminal_policy": {"final_report_required": True, "include_unfinished_work": True}
+            },
+            "feedback_contract": {
+                "feedback_sources": ["tool_observation", "runtime_observation", "lifecycle_signal", "verification_signal"],
+                "verification_feedback_policy": {"report_failed_verification": True}
+            },
+            "acceptance_contract": {
+                "final_answer_requirements": ["可选；最终收口必须说明的内容"],
+                "evidence_refs_required": True
             },
             "acceptance_policy": {},
             "recovery_policy": {}
@@ -3436,18 +3565,18 @@ def _single_agent_turn_output_contract(
     if "active_work_control" not in allowed_actions:
         forbidden.append("active_work_control")
     action_selection_rules = [
-        "默认优先在当前 turn 内完成用户请求；复杂、跨文件或需要审查不自动等于 Task。",
-        "只有当当前 turn 的自然边界不足以承载目标、计划、状态、恢复、验收、审计、用户可追踪阶段反馈或资源隔离时，才升级到 request_task_run。",
-        "先判断目标是否需要持久工作生命周期：跨 turn 状态记录、暂停/恢复/停止/replan、明确完成证据、长期执行、工具/上下文预算恢复、独立验收或资源隔离。",
-        "普通 tool_call 是合法路径，只要当前 turn 能保住目标、证据、反馈和收口；审查、评估、排查或多文件链路检查也可以在 turn 内完成。",
-        "当工作范围、状态、验收或恢复需求越过 turn 边界时，先确认足以形成 task_contract_seed 的目标、范围、计划和验收标准，再申请 Task。",
+        "由你判断当前目标是否需要持续任务生命周期；口头承诺不等于动作，只有结构化 request_task_run 才表示你选择启动 Task。",
+        "先判断当前 turn 是否能稳定承载目标、计划、状态、恢复、验收、审计、用户可追踪阶段反馈、资源隔离和失败收口。",
+        "如果你判断需要持久工作生命周期，并且 task_contract_seed 足够，下一步提交 request_task_run；不要先用普通 tool_call 代替任务启动。",
+        "普通 tool_call 只适用于你判断当前 turn 能直接完成、验证并收口的场景；此时公开反馈必须说明这是当前 turn 内的直接处理。",
+        "公开反馈和动作必须一致：宣称要开启、申请、进入或创建持续任务生命周期时，action_type 必须是 request_task_run。",
     ]
     if "request_task_run" in allowed_actions:
         action_selection_rules.extend(
             [
-                "如果需要 Task 但目标、范围、计划或验收标准不足以形成 task_contract_seed，必须选择 ask_user 补齐关键缺口。",
-                "不要把 Task 当作普通工具调用；Task 是持续工作生命周期容器，只在 turn 边界不足时申请。",
-                "如果当前 turn 可以通过有限工具调用完成、验证并收口，应继续使用 respond 或普通 tool_call。",
+                "如果需要 Task 但目标、范围、计划、约束或完成证据不足以形成 task_contract_seed，必须选择 ask_user 补齐关键缺口。",
+                "request_task_run 是持续工作生命周期容器的启动合同，不是普通工具调用；工具执行发生在 Task 被接受并绑定 task_run_id 之后。",
+                "如果当前 turn 可以通过有限工具调用完成、验证并收口，应继续使用 respond 或普通 tool_call，但不能把公开反馈写成任务启动。",
             ]
         )
     else:
@@ -3532,6 +3661,8 @@ def _single_agent_turn_output_contract(
             "public_feedback_contract": {
                 "feedback_must_be_model_authored": True,
                 "system_must_not_synthesize_user_semantic_text": True,
+                "feedback_must_match_action_type": True,
+                "task_lifecycle_claim_requires_request_task_run": "如果公开反馈宣称开启、申请、进入或创建持续任务生命周期，本轮动作必须是 request_task_run。",
                 "json_action_feedback_fields": [
                     "public_progress_note",
                     "public_action_state.current_judgment",
@@ -3547,6 +3678,7 @@ def _single_agent_turn_output_contract(
                 "missing_preamble_policy": "record_contract_gap_without_synthesizing_body",
                 "low_level_tool_calls_may_omit_feedback": True,
                 "stage_change_or_failure_should_emit_feedback": True,
+                "task_lifecycle_claim_with_native_tool_call": "invalid_repairable_protocol_shape",
             },
         },
         "planning_protocol": dict(planning_protocol or {}),
@@ -4687,6 +4819,7 @@ def _model_messages_and_segment_plan(
 
 _PROVIDER_VISIBLE_CONTEXT_LEDGER_INVOCATIONS = {
     "single_agent_turn",
+    "single_agent_turn_tool_followup",
     "task_execution",
     "tool_observation_followup",
 }
@@ -6254,7 +6387,7 @@ def _model_decision_contract_payload(
     ]
     return {
         "authority": "harness.runtime.model_decision_contract",
-        "prompt_authority": "developer_prompt_contract",
+        "prompt_authority": "runtime_action_contract",
         "invocation_kind": str(invocation_kind or ""),
         "semantic_actions": semantic_actions,
         "control_actions": control_actions,
@@ -6275,25 +6408,38 @@ def _model_decision_contract_payload(
         },
         "task_entry_rule": {
             "request_task_run_allowed": bool(task_run_allowed),
-            "upgrade_to_task_when_turn_boundary_insufficient": bool(task_run_allowed),
+            "you_choose_task_lifecycle_when_turn_boundary_is_insufficient": bool(task_run_allowed),
             "ask_user_when_contract_gaps_exist": True,
-            "turn_first_policy": (
-                "默认在当前 turn 内完成、验证并收口；复杂、跨文件或需要审查不自动等于 Task。"
-            ),
+            "task_start_requires_structured_request_task_run": True,
             "task_upgrade_conditions": [
                 "当前 turn 无法稳定承载目标、计划、状态、恢复、验收、审计、用户可追踪阶段反馈或资源隔离。",
                 "工作需要跨 turn 状态记录、暂停/恢复/停止/replan、明确完成证据、长期执行、独立验收或资源隔离。",
                 "工具/上下文预算触发 closeout/recover，需要保存证据、未完成项和恢复点后继续。",
             ],
-            "single_turn_tool_call_boundary": (
-                "普通 tool_call 是有效路径，只要当前 turn 能保住目标、证据、反馈和收口；"
-                "在状态控制、验收或恢复需求越过 turn 边界前升级 Task。"
+            "request_task_run_required_when_agent_decides_lifecycle": (
+                "如果你判断需要持续任务生命周期，并且 task_contract_seed 足够，提交 action_type=request_task_run；"
+                "不要先用普通工具调用替代任务启动。"
             ),
+            "ask_user_required_when_lifecycle_contract_incomplete": (
+                "如果你判断需要持续任务生命周期但目标、范围、约束或完成证据不足，提交 ask_user 补齐。"
+            ),
+            "single_turn_tool_call_boundary": (
+                "普通 tool_call 是有效路径，仅当你判断当前 turn 能保住目标、证据、反馈和收口；"
+                "选择普通工具时，公开反馈不得宣称开启持续任务生命周期。"
+            ),
+            "request_task_run_minimum_contract": [
+                "task_contract_seed.user_visible_goal",
+                "task_contract_seed.task_run_goal",
+                "task_contract_seed.working_scope.target_objects",
+                "task_contract_seed.completion_criteria 或 required_artifacts/required_verifications",
+            ],
         },
         "feedback_obligation": {
             "agent_must_give_user_feedback": True,
             "pure_control_feedback_is_carried_by_control_payload_and_projection": True,
             "do_not_emit_detached_assistant_body_for_pure_control": True,
+            "public_feedback_must_match_action_type": True,
+            "task_lifecycle_claim_requires_request_task_run": True,
         },
     }
 

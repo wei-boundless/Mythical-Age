@@ -5,7 +5,7 @@ import json
 from typing import Any, Literal
 
 from memory_system.storage.models import Message
-from runtime.prompt_accounting import ContextUsageMeter, TokenCounterRegistry
+from runtime.prompt_accounting import ContextUsageMeter, ModelTokenUsageRecord, TokenCounterRegistry
 
 
 TOKEN_COUNTER = TokenCounterRegistry()
@@ -17,6 +17,32 @@ PressureSource = Literal["context", "history"]
 class _EmptyPromptAccountingLedger:
     def list_token_usage(self, **_kwargs: Any) -> list[Any]:
         return []
+
+    def list_prompt_cache(self, **_kwargs: Any) -> list[Any]:
+        return []
+
+    def summarize_session(self, _session_id: str) -> dict[str, Any]:
+        return {}
+
+    def read_latest_context_usage_snapshot(self, _session_id: str) -> dict[str, Any]:
+        return {}
+
+
+class _LatestContextUsageLedger:
+    def __init__(self, snapshot: dict[str, Any]) -> None:
+        self.snapshot = dict(snapshot or {})
+
+    def list_token_usage(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[ModelTokenUsageRecord]:
+        record = _model_usage_record_from_context_snapshot(self.snapshot)
+        if record is None:
+            return []
+        if session_id and str(record.session_id or "") != str(session_id or ""):
+            return []
+        if task_run_id and str(record.task_run_id or "") != str(task_run_id or ""):
+            return []
+        if run_id and str(record.run_id or record.task_run_id or "") != str(run_id or ""):
+            return []
+        return [record]
 
     def list_prompt_cache(self, **_kwargs: Any) -> list[Any]:
         return []
@@ -49,7 +75,8 @@ def build_context_usage_snapshot(
     session_record: dict[str, Any] | None = None,
 ) -> Any:
     ledger = prompt_accounting_ledger(runtime)
-    observation_ledger = _context_observation_ledger(ledger)
+    latest_context_snapshot = _latest_context_usage_snapshot(ledger, session_id=session_id)
+    observation_ledger = _context_observation_ledger(latest_context_snapshot)
     static = _runtime_static_settings(runtime)
     provider = str(getattr(static, "llm_provider", "") or "")
     model = str(getattr(static, "llm_model", "") or "")
@@ -73,29 +100,90 @@ def build_context_usage_snapshot(
         provider=provider,
         model=model,
         reserved_output_tokens=reserved_output_tokens,
+        fallback_messages=raw_messages,
         session_pressure_tokens=int(pressure.get("tokens") or 0),
         session_pressure_source="runtime.context_management.session_pressure",
         session_pressure_diagnostics={
+            "latest_context_usage_snapshot": _context_snapshot_diagnostics(latest_context_snapshot),
             "session_pressure": {
                 key: value
                 for key, value in pressure.items()
                 if key != "tokens"
             }
         },
+        session_pressure_as_current=not bool(latest_context_snapshot),
         context_fingerprint=context_fingerprint,
         previous_context_fingerprint=previous_context_fingerprint,
     )
 
 
-def _context_observation_ledger(ledger: Any) -> Any:
-    scoped_reads_are_expensive = getattr(ledger, "scoped_reads_are_expensive", None)
-    if callable(scoped_reads_are_expensive):
-        try:
-            if bool(scoped_reads_are_expensive()):
-                return _EmptyPromptAccountingLedger()
-        except Exception:
-            return _EmptyPromptAccountingLedger()
-    return ledger
+def _context_observation_ledger(latest_context_snapshot: dict[str, Any]) -> Any:
+    if latest_context_snapshot:
+        return _LatestContextUsageLedger(latest_context_snapshot)
+    return _EmptyPromptAccountingLedger()
+
+
+def _latest_context_usage_snapshot(ledger: Any, *, session_id: str) -> dict[str, Any]:
+    reader = getattr(ledger, "read_latest_context_usage_snapshot", None)
+    if not callable(reader):
+        return {}
+    try:
+        payload = reader(session_id)
+    except Exception:
+        return {}
+    return dict(payload or {}) if isinstance(payload, dict) else {}
+
+
+def _model_usage_record_from_context_snapshot(snapshot: dict[str, Any]) -> ModelTokenUsageRecord | None:
+    payload = dict(snapshot or {})
+    current_context_tokens = int(payload.get("current_context_tokens") or payload.get("prompt_tokens") or 0)
+    if current_context_tokens <= 0:
+        return None
+    source = str(payload.get("source") or "local_prediction")
+    prompt_tokens = int(payload.get("prompt_tokens") or current_context_tokens)
+    total_tokens = int(payload.get("total_tokens") or current_context_tokens)
+    return ModelTokenUsageRecord(
+        usage_id=str(payload.get("usage_id") or f"tokuse:{payload.get('request_id')}:latest_context_snapshot"),
+        request_id=str(payload.get("request_id") or ""),
+        run_id=str(payload.get("run_id") or payload.get("task_run_id") or ""),
+        task_run_id=str(payload.get("task_run_id") or ""),
+        session_id=str(payload.get("session_id") or ""),
+        provider=str(payload.get("provider") or ""),
+        model=str(payload.get("model") or ""),
+        source="provider_usage" if source == "provider_usage" else "local_prediction",
+        prompt_tokens=prompt_tokens,
+        completion_tokens=int(payload.get("completion_tokens") or 0),
+        reasoning_tokens=int(payload.get("reasoning_tokens") or 0),
+        cached_tokens=int(payload.get("cached_tokens") or 0),
+        cache_creation_tokens=int(payload.get("cache_creation_tokens") or 0),
+        cache_read_tokens=int(payload.get("cache_read_tokens") or 0),
+        cache_miss_tokens=int(payload.get("cache_miss_tokens") or 0),
+        total_tokens=total_tokens,
+        created_at=_safe_float(payload.get("record_created_at") or payload.get("observed_at")),
+        diagnostics={
+            **dict(payload.get("diagnostics") or {}),
+            "latest_context_usage_snapshot": _context_snapshot_diagnostics(payload),
+        },
+    )
+
+
+def _context_snapshot_diagnostics(snapshot: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(snapshot or {})
+    if not payload:
+        return {
+            "present": False,
+            "authority": "runtime.prompt_accounting.latest_context_usage_snapshot",
+        }
+    return {
+        "present": True,
+        "authority": str(payload.get("authority") or ""),
+        "request_id": str(payload.get("request_id") or ""),
+        "source": str(payload.get("source") or ""),
+        "current_context_tokens": int(payload.get("current_context_tokens") or 0),
+        "prompt_tokens": int(payload.get("prompt_tokens") or 0),
+        "request_started_at": _safe_float(payload.get("request_started_at")),
+        "observed_at": _safe_float(payload.get("observed_at")),
+    }
 
 
 def _runtime_static_settings(runtime: Any) -> Any:

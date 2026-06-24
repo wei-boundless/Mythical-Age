@@ -168,6 +168,11 @@ def model_action_request_from_payload(
         user_question=user_question,
         blocking_reason=blocking_reason,
     )
+    if _public_feedback_claims_task_lifecycle(
+        public_progress_note=public_progress_note,
+        public_action_state=public_action_state,
+    ) and action_type != "request_task_run":
+        errors.append("public_task_lifecycle_claim_requires_request_task_run")
     if public_response_required and not has_model_public_response:
         errors.append("public_response_required")
     if require_public_progress_note and not public_progress_note:
@@ -205,6 +210,13 @@ def model_action_request_from_payload(
         tool_call = _ensure_tool_call_id(dict(tool_call), request_id=request_id)
     if action_type == "request_task_run" and not task_contract_seed:
         errors.append("task_contract_seed_required_for_request_task_run")
+    if action_type == "request_task_run":
+        if not public_progress_note:
+            errors.append("public_progress_note_required_for_request_task_run")
+        if not _has_public_action_state(public_action_state):
+            errors.append("public_action_state_required_for_request_task_run")
+        if _has_non_empty_value(tool_call):
+            errors.append("tool_call_not_allowed_for_request_task_run")
     if action_type == "active_work_control":
         from harness.loop.active_work import active_work_action_from_payload, active_work_action_is_allowed
 
@@ -704,6 +716,56 @@ def _has_model_public_response(
     if action_type == "block":
         return bool(str(blocking_reason or "").strip())
     return False
+
+
+_TASK_LIFECYCLE_CLAIM_PHRASES = (
+    "我会开启长任务",
+    "我要开启长任务",
+    "我将开启长任务",
+    "让我开启长任务",
+    "准备开启长任务",
+    "开始一个长任务",
+    "开启一个长任务",
+    "启动长任务",
+    "进入长任务",
+    "我会开启一个长任务",
+    "我要开启一个长任务",
+    "我将开启一个长任务",
+    "让我开启一个长任务",
+    "准备开启一个长任务",
+    "我会申请进入持续任务",
+    "我要申请进入持续任务",
+    "我将申请进入持续任务",
+    "申请进入持续任务",
+    "进入持续任务生命周期",
+    "启动持续任务生命周期",
+    "开启持续任务生命周期",
+    "创建持续任务",
+    "创建 task",
+    "start task",
+    "start a task",
+    "create task",
+    "create a task",
+    "request task run",
+)
+
+
+def _public_feedback_claims_task_lifecycle(
+    *,
+    public_progress_note: str,
+    public_action_state: dict[str, Any],
+) -> bool:
+    texts = [
+        public_progress_note,
+        str(dict(public_action_state or {}).get("current_judgment") or ""),
+        str(dict(public_action_state or {}).get("next_action") or ""),
+    ]
+    normalized = " ".join(" ".join(str(text or "").split()).lower() for text in texts if str(text or "").strip())
+    if not normalized:
+        return False
+    if any(phrase in normalized for phrase in ("不进入持续任务", "不开启长任务", "不启动长任务", "不创建 task")):
+        return False
+    return any(phrase.lower() in normalized for phrase in _TASK_LIFECYCLE_CLAIM_PHRASES)
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:

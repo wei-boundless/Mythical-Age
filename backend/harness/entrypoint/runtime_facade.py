@@ -226,7 +226,12 @@ class HarnessRuntimeFacade:
             "project_id": str(scope.get("project_id") or "").strip(),
         }
 
-    def _context_recovery_package_for_session(self, session_id: str) -> dict[str, Any]:
+    def _context_recovery_package_for_session(
+        self,
+        session_id: str,
+        *,
+        raw_messages: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+    ) -> dict[str, Any]:
         session_memory = getattr(getattr(self, "memory_facade", None), "session_memory", None)
         manager_factory = getattr(session_memory, "manager", None)
         if not callable(manager_factory):
@@ -240,7 +245,18 @@ class HarnessRuntimeFacade:
         except Exception:
             logger.debug("failed to load context recovery package for session", exc_info=True)
             return {}
-        return dict(payload) if isinstance(payload, dict) and payload else {}
+        if not isinstance(payload, dict) or not payload:
+            return {}
+        validator = getattr(manager, "validate_compaction_state", None)
+        if callable(validator):
+            try:
+                validation = validator(list(raw_messages or []))
+            except Exception:
+                logger.debug("failed to validate context recovery package freshness", exc_info=True)
+                return {}
+            if not bool(dict(validation or {}).get("ok")):
+                return {}
+        return dict(payload)
 
     def _context_recovery_package_allowed_for_record(self, history_record: dict[str, Any]) -> bool:
         record = dict(history_record or {})
@@ -280,7 +296,10 @@ class HarnessRuntimeFacade:
             if isinstance(item, dict)
         ]
         context_recovery_package = (
-            self._context_recovery_package_for_session(session_id)
+            self._context_recovery_package_for_session(
+                session_id,
+                raw_messages=list(history_record.get("messages") or []),
+            )
             if self._context_recovery_package_allowed_for_record(history_record)
             else {}
         )
@@ -471,7 +490,10 @@ class HarnessRuntimeFacade:
             "api_transcript": [dict(item) for item in list(api_transcript or []) if isinstance(item, dict)],
         }
         context_recovery_package = (
-            self._context_recovery_package_for_session(request.session_id)
+            self._context_recovery_package_for_session(
+                request.session_id,
+                raw_messages=list(history_record.get("messages") or []),
+            )
             if self._context_recovery_package_allowed_for_record(history_record)
             else {}
         )

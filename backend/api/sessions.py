@@ -67,6 +67,12 @@ class SessionChatModelSelectionRequest(BaseModel):
     selection_id: str = Field(..., min_length=1, max_length=240)
     provider: str = Field(default="", max_length=120)
     model: str = Field(default="", max_length=240)
+    base_url: str = Field(default="", max_length=1000)
+    credential_ref: str = Field(default="", max_length=240)
+    thinking_mode: str = Field(default="", max_length=40)
+    reasoning_effort: str = Field(default="", max_length=40)
+    stream_policy: dict[str, Any] = Field(default_factory=dict)
+    provider_extensions: dict[str, Any] = Field(default_factory=dict)
     source: str = Field(default="user", max_length=80)
 
 
@@ -363,6 +369,12 @@ async def set_session_chat_model_selection(
             "selection_id": payload.selection_id,
             "provider": payload.provider,
             "model": payload.model,
+            "base_url": payload.base_url,
+            "credential_ref": payload.credential_ref,
+            "thinking_mode": payload.thinking_mode,
+            "reasoning_effort": payload.reasoning_effort,
+            "stream_policy": payload.stream_policy,
+            "provider_extensions": payload.provider_extensions,
             "source": payload.source or "user",
         },
     )
@@ -680,7 +692,7 @@ async def truncate_session_messages(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    _queue_session_truncate_memory_maintenance(runtime, session_id=session_id, record=record)
+    _queue_session_truncate_maintenance(runtime, session_id=session_id, message_index=payload.message_index, record=record)
     return record
 
 
@@ -859,19 +871,27 @@ def _truncate_session_messages_payload(
         expected_scope,
     )
     record = runtime.session_manager.truncate_messages_from(session_id, message_index)
-    _reset_prompt_cache_baseline_after_session_truncate(runtime, session_id=session_id, message_index=message_index)
     return record
 
 
-def _queue_session_truncate_memory_maintenance(runtime: Any, *, session_id: str, record: dict[str, Any]) -> None:
+def _queue_session_truncate_maintenance(runtime: Any, *, session_id: str, message_index: int, record: dict[str, Any]) -> None:
     messages = [
         dict(item)
         for item in list(record.get("messages") or [])
         if isinstance(item, dict)
     ]
-    task_name = f"session-truncate-memory-maintenance:{session_id}"
+    task_name = f"session-truncate-maintenance:{session_id}:{message_index}"
 
-    async def _enqueue() -> None:
+    async def _maintain() -> None:
+        try:
+            await asyncio.to_thread(
+                _reset_prompt_cache_baseline_after_session_truncate,
+                runtime,
+                session_id=session_id,
+                message_index=message_index,
+            )
+        except Exception:
+            logger.exception("Session truncate prompt cache baseline reset failed for %s", session_id)
         try:
             await asyncio.to_thread(
                 runtime.memory_facade.enqueue_memory_maintenance_after_commit,
@@ -882,30 +902,27 @@ def _queue_session_truncate_memory_maintenance(runtime: Any, *, session_id: str,
         except Exception:
             logger.exception("Session truncate memory maintenance enqueue failed for %s", session_id)
 
-    coro = _enqueue()
+    coro = _maintain()
     try:
         runtime.harness_runtime.single_agent_runtime_host.spawn_background_task(coro, name=task_name)
     except Exception:
         close = getattr(coro, "close", None)
         if callable(close):
             close()
-        logger.exception("Failed to schedule session truncate memory maintenance for %s", session_id)
+        logger.exception("Failed to schedule session truncate maintenance for %s", session_id)
 
 
 def _reset_prompt_cache_baseline_after_session_truncate(runtime: Any, *, session_id: str, message_index: int) -> None:
-    try:
-        ledger = runtime.harness_runtime.single_agent_runtime_host.prompt_accounting_ledger
-        reset = getattr(ledger, "reset_prompt_cache_baseline", None)
-        if callable(reset):
-            reset(
-                request_id=f"pcachebaseline-reset:session-truncate:{session_id}:{message_index}",
-                session_id=session_id,
-                reason="session_history_truncated",
-                reset_ref=f"session:{session_id}:message_index:{message_index}",
-                diagnostics={"message_index": message_index},
-            )
-    except Exception:
-        pass
+    ledger = runtime.harness_runtime.single_agent_runtime_host.prompt_accounting_ledger
+    reset = getattr(ledger, "reset_prompt_cache_baseline", None)
+    if callable(reset):
+        reset(
+            request_id=f"pcachebaseline-reset:session-truncate:{session_id}:{message_index}",
+            session_id=session_id,
+            reason="session_history_truncated",
+            reset_ref=f"session:{session_id}:message_index:{message_index}",
+            diagnostics={"message_index": message_index},
+        )
 
 
 def _latest_prompt_manifest_summary(runtime: Any, session_id: str) -> dict[str, Any]:

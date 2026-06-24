@@ -970,7 +970,7 @@ def _runtime_status_spec(data: dict[str, Any]) -> dict[str, Any]:
     result["status_subkind"] = status_kind
     if status_kind == "reasoning_projection_state":
         reasoning_content = str(data.get("reasoning_content") or "").strip()
-        if reasoning_content and _reasoning_projection_policy_allows_public_text(data):
+        if reasoning_content:
             result["reasoning_content"] = reasoning_content
             result["collapsed"] = False
         for key in (
@@ -986,14 +986,6 @@ def _runtime_status_spec(data: dict[str, Any]) -> dict[str, Any]:
     if diagnostics:
         result["diagnostics"] = diagnostics
     return result
-
-
-def _reasoning_projection_policy_allows_public_text(data: dict[str, Any]) -> bool:
-    return str(data.get("reasoning_projection_policy") or "").strip() in {
-        "public_collapsible_trace",
-        "public_visible_trace",
-        "public_reasoning_trace",
-    }
 
 
 def _runtime_evidence_projection_status_spec(data: dict[str, Any]) -> dict[str, Any]:

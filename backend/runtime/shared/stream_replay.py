@@ -15,8 +15,6 @@ PUBLIC_STREAM_EVENT_TYPE = "chat_stream_event"
 AGENT_LIVE_PROTOCOL = "agent-live.v1"
 _PUBLIC_PROJECTION_AUTHORITY = "harness.public_projection"
 _REQUIRED_PROJECTION_FRAME_KEYS = ("op", "slot", "main_visibility", "retention")
-_NON_PUBLIC_PROJECTION_FRAME_KEYS = {"reasoning_content"}
-_NON_PUBLIC_RUNTIME_STATUS_KEYS = {"reasoning_content"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,15 +209,11 @@ def canonical_public_projection_frame(frame: dict[str, Any] | None) -> dict[str,
         return {}
     if any(not str(payload.get(key) or "").strip() for key in _REQUIRED_PROJECTION_FRAME_KEYS):
         return {}
-    if not _reasoning_projection_policy_allows_public_text(payload):
-        for key in _NON_PUBLIC_PROJECTION_FRAME_KEYS:
-            payload.pop(key, None)
     return payload
 
 
 def sanitize_public_stream_event_data_for_replay(public_event_type: str, data: dict[str, Any]) -> dict[str, Any]:
     payload = _data_with_canonical_public_projection_frame(dict(data or {}))
-    payload = _data_without_non_public_runtime_status(public_event_type, payload)
     return _data_with_sanitized_runtime_control_signal(public_event_type, payload)
 
 
@@ -233,25 +227,6 @@ def _data_with_canonical_public_projection_frame(data: dict[str, Any]) -> dict[s
     payload = dict(data)
     payload.pop("public_projection_frame", None)
     return payload
-
-
-def _data_without_non_public_runtime_status(event_name: str, data: dict[str, Any]) -> dict[str, Any]:
-    if str(event_name or "").strip() != "runtime_status":
-        return data
-    if _reasoning_projection_policy_allows_public_text(data):
-        return data
-    payload = dict(data)
-    for key in _NON_PUBLIC_RUNTIME_STATUS_KEYS:
-        payload.pop(key, None)
-    return payload
-
-
-def _reasoning_projection_policy_allows_public_text(data: dict[str, Any]) -> bool:
-    return str(data.get("reasoning_projection_policy") or "").strip() in {
-        "public_collapsible_trace",
-        "public_visible_trace",
-        "public_reasoning_trace",
-    }
 
 
 def _data_with_sanitized_runtime_control_signal(event_name: str, data: dict[str, Any]) -> dict[str, Any]:

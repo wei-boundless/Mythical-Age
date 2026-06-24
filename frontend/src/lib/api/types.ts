@@ -44,6 +44,12 @@ export type ConversationChatModelSelection = {
   selection_id?: string;
   provider?: string;
   model?: string;
+  base_url?: string;
+  credential_ref?: string;
+  thinking_mode?: string;
+  reasoning_effort?: string;
+  stream_policy?: Record<string, unknown>;
+  provider_extensions?: Record<string, unknown>;
   source?: string;
   updated_at?: number;
   authority?: string;

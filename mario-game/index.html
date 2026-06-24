@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>超级马里奥 - HTML5 小游戏</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    font-family: 'Courier New', monospace;
+    overflow: hidden;
+  }
+  .game-wrapper {
+    background: #000;
+    border: 4px solid #e94560;
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: 0 0 40px rgba(233, 69, 96, 0.3);
+  }
+  canvas {
+    display: block;
+    background: #5c94fc;
+    image-rendering: pixelated;
+  }
+  .controls-info {
+    color: #aaa;
+    text-align: center;
+    margin-top: 12px;
+    font-size: 14px;
+    letter-spacing: 1px;
+  }
+  .controls-info span {
+    color: #e94560;
+    font-weight: bold;
+  }
+  .title {
+    color: #f8d210;
+    text-align: center;
+    font-size: 24px;
+    font-weight: bold;
+    margin-bottom: 8px;
+    text-shadow: 2px 2px 0 #e94560;
+    letter-spacing: 4px;
+  }
+</style>
+</head>
+<body>
+<div>
+  <div class="title">★ 超级马里奥 ★</div>
+  <div class="game-wrapper">
+    <canvas id="gameCanvas" width="800" height="450"></canvas>
+  </div>
+  <div class="controls-info">
+    <span>← →</span> 移动 &nbsp;|&nbsp; <span>空格</span> 跳跃 &nbsp;|&nbsp; <span>S</span> 发射火球 &nbsp;|&nbsp; <span>R</span> 重新开始
+  </div>
+</div>
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const W = 800, H = 450;
+
+// ============ 游戏常量 ============
+const GRAVITY = 0.6;
+const JUMP_FORCE = -14;
+const MOVE_SPEED = 3.5;
+const FRICTION = 0.85;
+const TILE = 32;
+
+// ============ 关卡系统 ============
+let currentWorld = 1;
+let score = 0;
+let coins = 0;
+let gameState = 'playing';
+let particles = [];
+let camera = { x: 0 };
+
+// ============ 按键状态 ============
+const keys = {};
+document.addEventListener('keydown', e => { keys[e.code] = true; if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault(); });
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// ============ 工具函数 ============
+function rectCollide(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x &&
+         a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+// ============ 马里奥 ============
+const mario = {
+  x: 50, y: 300, w: 24, h: 32,
+  vx: 0, vy: 0,
+  onGround: false,
+  facing: 1,
+  frame: 0,
+  frameTimer: 0,
+  lives: 3,
+  invincible: 0,
+  dead: false,
+  win: false,
+  big: false,
+  fire: false,
+  fireballs: [],
+  shootCooldown: 0,
+
+  reset(x, y) {
+    this.x = x; this.y = y;
+    this.vx = 0; this.vy = 0;
+    this.onGround = false;
+    this.dead = false;
+    this.win = false;
+    this.invincible = 60;
+    this.big = false;
+    this.fire = false;
+    this.fireballs = [];
+    this.shootCooldown = 0;
+    this.h = 32;
+  },
+
+  grow() {
+    if (this.big) {
+      if (!this.fire) {
+        this.fire = true;
+        score += 300;
+        for (let i = 0; i < 8; i++) {
+          particles.push({ x: this.x + this.w/2, y: this.y, vx: (Math.random()-0.5)*5, vy: -Math.random()*4-2, life: 25, color: '#ff6b35' });
+        }
+      }
+    } else {
+      this.big = true;
+      this.h = 48;
+      this.y -= 16;
+      score += 200;
+      for (let i = 0; i < 8; i++) {
+        particles.push({ x: this.x + this.w/2, y: this.y + this.h/2, vx: (Math.random()-0.5)*4, vy: -Math.random()*4-2, life: 25, color: '#f8d210' });
+      }
+    }
+  },
+
+  shrink() {
+    if (this.big) {
+      this.big = false;
+      this.fire = false;
+      this.h = 32;
+      this.y += 16;
+      this.invincible = 60;
+      for (let i = 0; i < 6; i++) {
+        particles.push({ x: this.x + this.w/2, y: this.y + this.h, vx: (Math.random()-0.5)*3, vy: -2, life: 20, color: '#fff' });
+      }
+    } else {
+      this.die();
+    }
+  },
+
+  shoot() {
+    if (!this.fire || this.shootCooldown > 0) return;
+    this.shootCooldown = 15;
+    this.fireballs.push({
+      x: this.x + (this.facing > 0 ? this.w : -8),
+      y: this.y + 12,
+      w: 10, h: 10,
+      vx: this.facing * 6,
+      vy: 0,
+      life: 120,
+      bounce: 0
+    });
+  },
+
+  update() {
+    if (this.dead) return;
+
+    if (this.shootCooldown > 0) this.shootCooldown--;
+
+    if (keys['ArrowLeft'] || keys['KeyA']) {
+      this.vx = -MOVE_SPEED;
+      this.facing = -1;
+    } else if (keys['ArrowRight'] || keys['KeyD']) {
+      this.vx = MOVE_SPEED;
+      this.facing = 1;
+    } else {
+      this.vx *= FRICTION;
+      if (Math.abs(this.vx) < 0.1) this.vx = 0;
+    }
+
+    if ((keys['Space'] || keys['ArrowUp'] || keys['KeyW']) && this.onGround) {
+      this.vy = JUMP_FORCE;
+      this.onGround = false;
+    }
+
+    if (keys['KeyS']) { this.shoot(); }
+
+    this.vy += GRAVITY;
+    if (this.vy > 12) this.vy = 12;
+
+    if (Math.abs(this.vx) > 0.5 && this.onGround) {
+      this.frameTimer++;
+      if (this.frameTimer > 6) { this.frame = (this.frame + 1) % 3; this.frameTimer = 0; }
+    } else if (this.onGround) {
+      this.frame = 0;
+    }
+
+    // X轴碰撞 - 跳过已销毁的砖块（修复幽灵墙）
+    this.x += this.vx;
+    for (let tile of level.tiles) {
+      if (tile.dead) continue;
+      if (!rectCollide(this, tile)) continue;
+      if (this.vx > 0) { this.x = tile.x - this.w; }
+      else if (this.vx < 0) { this.x = tile.x + tile.w; }
+      this.vx = 0;
+    }
+
+    // Y轴碰撞 - 跳过已销毁的砖块（修复幽灵墙）
+    this.onGround = false;
+    this.y += this.vy;
+    for (let tile of level.tiles) {
+      if (tile.dead) continue;
+      if (!rectCollide(this, tile)) continue;
+      if (this.vy > 0) {
+        this.y = tile.y - this.h;
+        this.vy = 0;
+        this.onGround = true;
+      } else if (this.vy < 0) {
+        this.y = tile.y + tile.h;
+        this.vy = 0;
+        if (tile.type === 'question' && tile.used !== true) {
+          tile.used = true;
+          tile.bounceTimer = 8;
+          if (tile.contains === 'mushroom') {
+            level.items.push({
+              x: tile.x, y: tile.y - TILE,
+              w: 28, h: 28,
+              vx: 2, vy: -3,
+              type: 'mushroom', alive: true, onGround: false
+            });
+          } else if (tile.contains === 'flower') {
+            level.items.push({
+              x: tile.x, y: tile.y - TILE,
+              w: 28, h: 28,
+              vx: 0, vy: 0,
+              type: 'flower', alive: true, timer: 0
+            });
+          } else {
+            coins += 1;
+            score += 100;
+            for (let i = 0; i < 4; i++) {
+              particles.push({ x: tile.x + tile.w/2, y: tile.y, vx: (Math.random()-0.5)*3, vy: -Math.random()*5-2, life: 30, color: '#f8d210' });
+            }
+          }
+        }
+        if (tile.type === 'brick' && this.big) {
+          tile.dead = true;
+          for (let i = 0; i < 6; i++) {
+            particles.push({ x: tile.x + TILE/2, y: tile.y + TILE/2, vx: (Math.random()-0.5)*6, vy: -Math.random()*5-2, life: 25, color: '#c67b3d' });
+          }
+        }
+      }
+    }
+
+    if (this.x < 0) this.x = 0;
+    if (this.y > H + 50) { this.die(); }
+    if (this.invincible > 0) this.invincible--;
+
+    // 金币收集
+    for (let i = level.coins.length - 1; i >= 0; i--) {
+      const c = level.coins[i];
+      if (rectCollide(this, {x: c.x-6, y: c.y-6, w: 12, h: 12})) {
+        coins++; score += 50;
+        particles.push({ x: c.x, y: c.y, vx: (Math.random()-0.5)*2, vy: -3, life: 20, color: '#f8d210' });
+        level.coins.splice(i, 1);
+      }
+    }
+
+    // 道具碰撞
+    for (let item of level.items) {
+      if (!item.alive) continue;
+      if (rectCollide(this, item)) {
+        item.alive = false;
+        if (item.type === 'mushroom' || item.type === 'flower') this.grow();
+      }
+    }
+
+    // 敌人碰撞
+    for (let enemy of level.enemies) {
+      if (enemy.dead) continue;
+      if (rectCollide(this, enemy)) {
+        if (this.vy > 0 && this.y + this.h - enemy.y < 24) {
+          if (enemy.type === 'koopa') {
+            if (enemy.shellMoving) {
+              enemy.dead = true;
+              enemy.squishTimer = 20;
+              score += 200;
+            } else if (enemy.shell) {
+              enemy.shellMoving = true;
+              enemy.vx = this.facing * 8;
+              score += 200;
+            } else {
+              enemy.shell = true;
+              enemy.vx = 0;
+              enemy.h = 28;
+            }
+          } else {
+            enemy.dead = true;
+            enemy.squishTimer = 20;
+          }
+          this.vy = -7;
+          score += 200;
+          particles.push({ x: enemy.x + enemy.w/2, y: enemy.y, vx: 0, vy: -3, life: 20, color: '#e94560' });
+        } else if (this.invincible <= 0) {
+          this.shrink();
+        }
+      }
+    }
+
+    // 火球
+    for (let i = this.fireballs.length - 1; i >= 0; i--) {
+      const fb = this.fireballs[i];
+      fb.x += fb.vx;
+      fb.vy += 0.3;
+      fb.y += fb.vy;
+      fb.life--;
+      for (let tile of level.tiles) {
+        if (tile.dead) continue;
+        if (rectCollide(fb, tile)) {
+          if (fb.vy > 0 && fb.y + fb.h - tile.y < 12) {
+            fb.vy = -4; fb.y = tile.y - fb.h; fb.bounce++;
+            if (fb.bounce > 3) fb.life = 0;
+          } else { fb.life = 0; }
+        }
+      }
+      for (let enemy of level.enemies) {
+        if (enemy.dead) continue;
+        if (rectCollide(fb, enemy)) {
+          enemy.dead = true; enemy.squishTimer = 20;
+          score += 300; fb.life = 0;
+          for (let j = 0; j < 8; j++) {
+            particles.push({ x: enemy.x + enemy.w/2, y: enemy.y + enemy.h/2, vx: (Math.random()-0.5)*5, vy: (Math.random()-0.5)*5, life: 25, color: '#ff6b35' });
+          }
+        }
+      }
+      if (fb.life <= 0 || fb.x < -20 || fb.x > level.width + 20) {
+        this.fireballs.splice(i, 1);
+      }
+    }
+
+    // 旗杆检测
+    if (level.flag && rectCollide(this, {x: level.flag.x-10, y: level.flag.y, w: 20, h: level.flag.h})) {
+      this.win = true;
+    }
+  },
+
+  die() {
+    if (this.dead) return;
+    this.lives--;
+    if (this.lives <= 0) {
+      this.dead = true;
+      gameState = 'gameover';
+    } else {
+      this.reset(50, 200);
+    }
+  },
+
+  draw(ctx, offsetX) {
+    if (this.dead) return;
+    if (this.invincible > 0 && Math.floor(this.invincible / 4) % 2 === 0) return;
+    const sx = this.x - offsetX;
+    const sy = this.y;
+    ctx.save();
+    if (this.big) this.drawBig(sx, sy);
+    else this.drawSmall(sx, sy);
+    ctx.restore();
+  },
+
+  drawSmall(sx, sy) {
+    // FC原版精确像素风 - 小马里奥（24x32）
+    const f = this.facing;
+    // === 帽子（红色宽帽）===
+    ctx.fillStyle = '#e03030';
+    ctx.fillRect(sx + 2, sy - 2, 20, 4);
+    ctx.fillRect(sx, sy + 2, 24, 6);
+    // 帽檐（左侧突出）
+    ctx.fillStyle = '#c02020';
+    ctx.fillRect(sx - 1, sy + 3, 26, 3);
+    // === 脸 ===
+    ctx.fillStyle = '#f5c89a';
+    ctx.fillRect(sx + 2, sy + 8, 20, 8);
+    // 眼睛（白色底色）
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(sx + (f>0?15:4), sy + 9, 5, 5);
+    // 瞳孔
+    ctx.fillStyle = '#222';
+    ctx.fillRect(sx + (f>0?17:6), sy + 10, 3, 4);
+    // === 胡子 ===
+    ctx.fillStyle = '#6a3a1a';
+    ctx.fillRect(sx + 1, sy + 13, 22, 3);
+    // === 身体（红色衬衫）===
+    ctx.fillStyle = '#e03030';
+    ctx.fillRect(sx + 2, sy + 16, 20, 8);
+    // 纽扣
+    ctx.fillStyle = '#f8d210';
+    ctx.fillRect(sx + 9, sy + 18, 6, 3);
+    // === 工装裤（蓝色，分腿设计）===
+    ctx.fillStyle = '#1a4a9e';
+    ctx.fillRect(sx + 1, sy + 24, 9, 5);
+    ctx.fillRect(sx + 14, sy + 24, 9, 5);
+    // 吊带
+    ctx.fillRect(sx + 3, sy + 21, 4, 4);
+    ctx.fillRect(sx + 17, sy + 21, 4, 4);
+    // === 鞋子 ===
+    ctx.fillStyle = '#6a3a1a';
+    if (!this.onGround) {
+      ctx.fillRect(sx + 1, sy + 29, 9, 3);
+      ctx.fillRect(sx + 14, sy + 29, 9, 3);
+    } else if (this.frame === 1) {
+      ctx.fillRect(sx - 1, sy + 29, 10, 3);
+      ctx.fillRect(sx + 14, sy + 29, 10, 3);
+    } else if (this.frame === 2) {
+      ctx.fillRect(sx + 4, sy + 29, 9, 3);
+      ctx.fillRect(sx + 19, sy + 29, 9, 3);
+    } else {
+      ctx.fillRect(sx + 2, sy + 29, 9, 3);
+      ctx.fillRect(sx + 13, sy + 29, 9, 3);
+    }
+  },
+
+  drawBig(sx, sy) {
+    const bc = this.fire ? '#fff' : '#e03030';
+    const f = this.facing;
+    // === 大马里奥（24x44）===
+    // 帽子
+    ctx.fillStyle = bc;
+    ctx.fillRect(sx + 2, sy - 4, 20, 6);
+    ctx.fillRect(sx, sy + 2, 24, 8);
+    ctx.fillStyle = '#c02020';
+    ctx.fillRect(sx - 1, sy + 4, 26, 4);
+    // 脸
+    ctx.fillStyle = '#f5c89a';
+    ctx.fillRect(sx + 2, sy + 10, 20, 12);
+    // 眼睛
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(sx + (f>0?15:4), sy + 11, 6, 6);
+    ctx.fillStyle = '#222';
+    ctx.fillRect(sx + (f>0?17:6), sy + 12, 4, 5);
+    // 胡子
+    ctx.fillStyle = '#6a3a1a';
+    ctx.fillRect(sx + 1, sy + 17, 22, 4);
+    // 身体
+    ctx.fillStyle = bc;
+    ctx.fillRect(sx + 2, sy + 22, 20, 12);
+    if (this.fire) {
+      ctx.fillStyle = '#ff6b35';
+      ctx.fillRect(sx + 4, sy + 26, 5, 4);
+      ctx.fillRect(sx + 15, sy + 28, 5, 4);
+    } else {
+      ctx.fillStyle = '#f8d210';
+      ctx.fillRect(sx + 9, sy + 26, 6, 4);
+    }
+    // 裤子
+    ctx.fillStyle = '#1a4a9e';
+    ctx.fillRect(sx + 1, sy + 34, 10, 6);
+    ctx.fillRect(sx + 13, sy + 34, 10, 6);
+    ctx.fillRect(sx + 4, sy + 30, 4, 4);
+    ctx.fillRect(sx + 16, sy + 30, 4, 4);
+    // 鞋
+    ctx.fillStyle = '#6a3a1a';
+    if (!this.onGround) {
+      ctx.fillRect(sx + 1, sy + 40, 10, 4);
+      ctx.fillRect(sx + 13, sy + 40, 10, 4);
+    } else if (this.frame === 1) {
+      ctx.fillRect(sx - 1, sy + 40, 11, 4);
+      ctx.fillRect(sx + 13, sy + 40, 11, 4);
+    } else if (this.frame === 2) {
+      ctx.fillRect(sx + 5, sy + 40, 10, 4);
+      ctx.fillRect(sx + 19, sy + 40, 10, 4);
+    } else {
+      ctx.fillRect(sx + 2, sy + 40, 10, 4);
+      ctx.fillRect(sx + 12, sy + 40, 10, 4);
+    }
+  }
+};
+
+// ============ 关卡 ============
+const level = {
+  tiles: [], enemies: [], coins: [], items: [], flag: null, width: 0,
+
+  build(world) {
+    this.tiles = []; this.enemies = []; this.coins = []; this.items = [];
+    this.flag = null; currentWorld = world;
+
+    if (world === 1) this.buildWorld1();
+    else this.buildWorld2();
+  },
+
+  buildWorld1() {
+    const S = this;
+    // 地面
+    for (let x = 0; x < 4800; x += TILE) {
+      S.tiles.push({ x, y: H - TILE, w: TILE, h: TILE, type: 'ground' });
+      S.tiles.push({ x, y: H - TILE*2, w: TILE, h: TILE, type: 'dirt' });
+    }
+    // 草皮
+    for (let x = 0; x < 4800; x += TILE) {
+      S.tiles.push({ x, y: H - TILE*2, w: TILE, h: 5, type: 'grass' });
+    }
+    // 装饰：灌木
+    S.tiles.push({ x: 200, y: H - TILE*2, w: 64, h: 4, type: 'bush' });
+    S.tiles.push({ x: 800, y: H - TILE*2, w: 96, h: 4, type: 'bush' });
+    S.tiles.push({ x: 2200, y: H - TILE*2, w: 80, h: 4, type: 'bush' });
+    S.tiles.push({ x: 3600, y: H - TILE*2, w: 64, h: 4, type: 'bush' });
+
+    // 第一段
+    S.addBrickRow(300, H - 160, 3);
+    S.tiles.push({ x: 400, y: H - 160, w: TILE, h: TILE, type: 'question', contains: 'mushroom' });
+    S.tiles.push({ x: 432, y: H - 160, w: TILE, h: TILE, type: 'question', contains: 'coin' });
+    S.addBrickRow(600, H - 160, 4);
+    S.tiles.push({ x: 742, y: H - 160, w: TILE, h: TILE, type: 'question', contains: 'coin' });
+    S.addPipe(900, TILE * 2);
+    // 第二段
+    S.addBrickRow(1100, H - 190, 3);
+    S.tiles.push({ x: 1200, y: H - 190, w: TILE, h: TILE, type: 'question', contains: 'flower' });
+    S.addGoomba(1300); S.addGoomba(1450);
+    S.addPipe(1600, TILE * 2);
+    // 第三段
+    for (let i = 0; i < 4; i++)
+      for (let j = 0; j <= i; j++)
+        S.tiles.push({ x: 1900 + i * TILE, y: H - TILE - j * TILE, w: TILE, h: TILE, type: 'brick' });
+    S.addBrickRow(2100, H - 200, 3);
+    S.addBrickRow(2300, H - 260, 2);
+    S.addBrickRow(2450, H - 200, 3);
+    S.tiles.push({ x: 2364, y: H - 260, w: TILE, h: TILE, type: 'question', contains: 'mushroom' });
+    S.addGoomba(2200); S.addGoomba(2400);
+    // 第四段
+    S.addPipe(2700, TILE * 2.5);
+    S.addPipe(2850, TILE * 2);
+    S.addGoomba(2800);
+    // 第五段
+    S.addBrickRow(3100, H - 190, 4);
+    S.tiles.push({ x: 3240, y: H - 190, w: TILE, h: TILE, type: 'question', contains: 'flower' });
+    S.tiles.push({ x: 3290, y: H - 190, w: TILE, h: TILE, type: 'question', contains: 'coin' });
+    for (let i = 0; i < 6; i++)
+      for (let j = 0; j <= i; j++)
+        S.tiles.push({ x: 3500 + i * TILE, y: H - TILE - j * TILE, w: TILE, h: TILE, type: 'brick' });
+    S.addGoomba(3350);
+    S.addKoopa(3450);
+    // 旗杆（加高到7个tile）
+    this.flag = { x: 4200, y: H - TILE * 7, w: 8, h: TILE * 7 };
+    for (let x = 4150; x < 4250; x += TILE)
+      S.tiles.push({ x, y: H - TILE, w: TILE, h: TILE, type: 'ground' });
+    this.width = 4800;
+    // 金币
+    const cp = [[380,H-210],[500,H-210],[650,H-210],[1150,H-240],[1250,H-240],[2150,H-250],[2250,H-250],[2380,H-310],[3150,H-240],[3250,H-240],[3650,H-160],[3750,H-160],[3850,H-160]];
+    for (let [cx, cy] of cp) this.coins.push({ x: cx, y: cy });
+  },
+
+  buildWorld2() {
+    const S = this;
+    // 地下背景 - 暗色地面
+    for (let x = 0; x < 3600; x += TILE) {
+      S.tiles.push({ x, y: H - TILE, w: TILE, h: TILE, type: 'underground_floor' });
+      S.tiles.push({ x, y: H - TILE*2, w: TILE, h: TILE, type: 'underground_dirt' });
+    }
+    // 第二段阶梯（开场就有砖块）
+    S.addBrickRow(200, H - 160, 4);
+    S.addBrickRow(500, H - 190, 3);
+    S.tiles.push({ x: 600, y: H - 190, w: TILE, h: TILE, type: 'question', contains: 'mushroom' });
+    S.addGoomba(700); S.addGoomba(850);
+    // 浮空砖块
+    S.addBrickRow(1000, H - 230, 2);
+    S.addPipe(1200, TILE * 2);
+    // 阶梯跳跃
+    for (let i = 0; i < 5; i++)
+      for (let j = 0; j <= i; j++)
+        S.tiles.push({ x: 1400 + i * TILE, y: H - TILE - j * TILE, w: TILE, h: TILE, type: 'brick' });
+    // 中间区域
+    S.addBrickRow(1700, H - 200, 4);
+    S.tiles.push({ x: 1800, y: H - 200, w: TILE, h: TILE, type: 'question', contains: 'flower' });
+    S.addGoomba(1900); S.addGoomba(2050);
+    // 底部凹坑挑战
+    for (let x = 2150; x < 2350; x += TILE) {
+      S.tiles.pop(); S.tiles.pop(); // 移除底部砖块，形成坑
+    }
+    // 坑后平台
+    S.addBrickRow(2400, H - 130, 3);
+    S.addBrickRow(2600, H - 190, 2);
+    S.tiles.push({ x: 2700, y: H - 190, w: TILE, h: TILE, type: 'question', contains: 'coin' });
+    S.addGoomba(2750);
+    // 最终阶梯
+    for (let i = 0; i < 6; i++)
+      for (let j = 0; j <= i; j++)
+        S.tiles.push({ x: 2900 + i * TILE, y: H - TILE - j * TILE, w: TILE, h: TILE, type: 'brick' });
+    S.addGoomba(3050);
+    S.addKoopa(3150);
+    // 旗杆
+    this.flag = { x: 3400, y: H - TILE * 6, w: 8, h: TILE * 6 };
+    for (let x = 3350; x < 3450; x += TILE)
+      S.tiles.push({ x, y: H - TILE, w: TILE, h: TILE, type: 'underground_floor' });
+    this.width = 3600;
+    // 金币
+    const cp = [[350,H-210],[450,H-210],[550,H-240],[650,H-240],[1050,H-280],[1150,H-280],[1750,H-250],[1850,H-250],[2450,H-180],[2550,H-180],[2650,H-240]];
+    for (let [cx, cy] of cp) this.coins.push({ x: cx, y: cy });
+  },
+
+  addBrickRow(x, y, count) {
+    for (let i = 0; i < count; i++)
+      this.tiles.push({ x: x + i * TILE, y, w: TILE, h: TILE, type: 'brick' });
+  },
+
+  addPipe(x, height) {
+    const pw = TILE * 2, ph = height, py = H - TILE * 2 - ph;
+    for (let i = 0; i < ph / TILE; i++)
+      this.tiles.push({ x, y: py + i * TILE, w: pw, h: TILE, type: 'pipe' });
+    this.tiles.push({ x: x - 4, y: py, w: pw + 8, h: TILE, type: 'pipe_top' });
+  },
+
+  addGoomba(x) {
+    this.enemies.push({ x, y: H - TILE*2 - 28, w: 28, h: 28, vx: -1, dead: false, squishTimer: 0, type: 'goomba' });
+  },
+
+  addKoopa(x) {
+    this.enemies.push({ x, y: H - TILE*2 - 32, w: 28, h: 32, vx: -1, dead: false, squishTimer: 0, type: 'koopa', shell: false, shellMoving: false });
+  },
+
+  drawKoopa(ctx, ex, enemy) {
+    if (enemy.shell || enemy.shellMoving) {
+      ctx.fillStyle = '#2d8a2d';
+      ctx.fillRect(ex + 2, enemy.y + 4, enemy.w - 4, 24);
+      ctx.fillStyle = '#3aaa3a';
+      ctx.fillRect(ex + 4, enemy.y + 6, enemy.w - 8, 8);
+      ctx.fillRect(ex + 4, enemy.y + 18, enemy.w - 8, 6);
+      ctx.strokeStyle = '#1a6a1a';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(ex + 2, enemy.y + 4, enemy.w - 4, 24);
+      return;
+    }
+    ctx.fillStyle = '#f5e6c8';
+    ctx.fillRect(ex + 4, enemy.y, 20, 10);
+    ctx.fillStyle = '#111';
+    ctx.fillRect(ex + (enemy.vx>0?16:7), enemy.y + 3, 5, 5);
+    ctx.fillStyle = '#2d8a2d';
+    ctx.fillRect(ex + 2, enemy.y + 10, 24, 14);
+    ctx.fillStyle = '#3aaa3a';
+    ctx.fillRect(ex + 4, enemy.y + 12, 20, 8);
+    ctx.strokeStyle = '#1a6a1a';
+    ctx.strokeRect(ex + 2, enemy.y + 10, 24, 14);
+    // 脚
+    const fo = Math.sin(Date.now() / 150 + enemy.x) * 2;
+    ctx.fillStyle = '#d4a060';
+    ctx.fillRect(ex + 2, enemy.y + 24, 8, 4);
+    ctx.fillRect(ex + 18, enemy.y + 24 + fo, 8, 4);
+    ctx.fillStyle = '#8B4513';
+    ctx.fillRect(ex + 1, enemy.y + 27, 10, 5);
+    ctx.fillRect(ex + 17, enemy.y + 27 + fo, 10, 5);
+  },
+
+  update() {
+    for (let enemy of this.enemies) {
+      if (enemy.dead) { if (enemy.squishTimer > 0) enemy.squishTimer--; continue; }
+      enemy.x += enemy.vx;
+      for (let tile of this.tiles) {
+        if (tile.dead) continue;
+        if (rectCollide(enemy, tile)) {
+          if (enemy.shellMoving) {
+            if (enemy.vx > 0) { enemy.x = tile.x - enemy.w; enemy.vx = 0; enemy.shellMoving = false; }
+            else { enemy.x = tile.x + tile.w; enemy.vx = 0; enemy.shellMoving = false; }
+          } else {
+            if (enemy.vx > 0) { enemy.x = tile.x - enemy.w; enemy.vx = enemy.type === 'koopa' && enemy.shell ? 0 : -1; }
+            else { enemy.x = tile.x + tile.w; enemy.vx = enemy.type === 'koopa' && enemy.shell ? 0 : 1; }
+          }
+        }
+      }
+      if (!enemy.shellMoving && !enemy.shell) {
+        if (enemy.x < 0) enemy.vx = 1;
+        if (enemy.x + enemy.w > this.width) enemy.vx = -1;
+      }
+    }
+    for (let item of this.items) {
+      if (!item.alive) continue;
+      if (item.type === 'mushroom') {
+        item.vy += 0.4;
+        item.x += item.vx;
+        item.y += item.vy;
+        for (let tile of this.tiles) {
+          if (tile.dead) continue;
+          if (rectCollide(item, tile)) {
+            if (item.vy > 0) { item.y = tile.y - item.h; item.vy = 0; item.onGround = true; }
+            else if (item.vy < 0) { item.y = tile.y + tile.h; item.vy = 0; }
+            if (item.vx > 0 && item.x + item.w > tile.x && item.x < tile.x) {
+              item.x = tile.x - item.w; item.vx = -2;
+            } else if (item.vx < 0 && item.x < tile.x + tile.w && item.x + item.w > tile.x + tile.w) {
+              item.x = tile.x + tile.w; item.vx = 2;
+            }
+          }
+        }
+        if (item.y > H + 50) item.alive = false;
+      } else if (item.type === 'flower') { item.timer++; }
+    }
+    for (let tile of this.tiles) { if (tile.bounceTimer > 0) tile.bounceTimer--; }
+  },
+
+  draw(ctx, offsetX) {
+    const isUnderground = currentWorld === 2;
+    // 背景
+    if (isUnderground) {
+      ctx.fillStyle = '#111';
+      ctx.fillRect(0, 0, W, H);
+      // 地下岩壁纹理
+      for (let y = 0; y < H; y += TILE*2) {
+        for (let x = 0; x < W; x += TILE*2) {
+          ctx.fillStyle = (x/TILE + y/TILE) % 4 === 0 ? '#1a1a1a' : '#151515';
+          ctx.fillRect(x, y, TILE*2, TILE*2);
+        }
+      }
+      // 小亮点
+      ctx.fillStyle = 'rgba(255,255,200,0.03)';
+      for (let i = 0; i < 30; i++) {
+        const sx = (i * 137 + 50) % W, sy = (i * 97 + 30) % H;
+        ctx.fillRect(sx, sy, 2, 2);
+      }
+    } else {
+      const grad = ctx.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, '#3a6cf7');
+      grad.addColorStop(0.5, '#5a8cf7');
+      grad.addColorStop(1, '#7aaaff');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    if (!isUnderground) {
+      // 云朵
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      const cloudData = [[80,35,55,22],[320,55,75,28],[680,28,65,25],[1080,50,85,30],[1480,32,60,24],[1880,48,80,28],[2280,38,70,26],[2780,50,75,30],[3280,32,65,25],[3780,45,85,28]];
+      for (let c of cloudData) {
+        const cx = c[0] - offsetX * 0.06 - c[2]/2;
+        if (cx < -c[2] || cx > W + c[2]) continue;
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.fillRect(cx, c[1], c[2], c[3]);
+        ctx.fillRect(cx + c[2]*0.15, c[1]-6, c[2]*0.7, c[3]+6);
+        ctx.fillRect(cx + c[2]*0.35, c[1]-10, c[2]*0.3, c[3]+10);
+      }
+      // 远山
+      ctx.fillStyle = '#3a7a3a';
+      const mtData = [[80,130,70],[380,180,100],[780,160,90],[1280,140,80],[1780,200,110],[2280,150,85],[2780,170,95],[3280,190,100]];
+      for (let m of mtData) {
+        const mx = m[0] - offsetX * 0.12;
+        if (mx < -m[2] || mx > W + m[2]) continue;
+        ctx.beginPath();
+        ctx.moveTo(mx, m[1] + m[2]);
+        ctx.lineTo(mx + m[2]*0.25, m[1] - m[2]*0.4);
+        ctx.lineTo(mx + m[2]*0.5, m[1]);
+        ctx.lineTo(mx + m[2]*0.75, m[1] - m[2]*0.4);
+        ctx.lineTo(mx + m[2], m[1] + m[2]);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    // 绘制所有tile
+    for (let tile of this.tiles) {
+      if (tile.dead) continue;
+      const tx = tile.x - offsetX;
+      if (tx < -TILE || tx > W + TILE) continue;
+      let ty = tile.y;
+      if (tile.bounceTimer > 0) ty -= Math.sin(tile.bounceTimer * Math.PI / 8) * 4;
+
+      const t = tile.type;
+      if (t === 'ground') {
+        // 经典棕色地面砖纹
+        ctx.fillStyle = '#c67b3d';
+        ctx.fillRect(tx, ty, tile.w, tile.h);
+        ctx.strokeStyle = '#6a3a1a';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(tx, ty, tile.w, tile.h);
+        ctx.fillStyle = '#b06a2d';
+        ctx.fillRect(tx + 1, ty + 1, 14, 14);
+        ctx.fillRect(tx + 17, ty + 17, 14, 14);
+      } else if (t === 'dirt') {
+        ctx.fillStyle = '#8a5a2a';
+        ctx.fillRect(tx, ty, tile.w, tile.h);
+        ctx.fillStyle = '#7a4a1a';
+        for (let d = 0; d < 4; d++) {
+          ctx.fillRect(tx + 4 + d * 8, ty + 4 + (d%2)*12, 3, 3);
+        }
+      } else if (t === 'grass') {
+        ctx.fillStyle = '#3aaa3a';
+        ctx.fillRect(tx, ty, tile.w, tile.h);
+        ctx.fillStyle = '#2d8a2d';
+        for (let gx = 0; gx < tile.w; gx += 8)
+          ctx.fillRect(tx + gx, ty, 4, tile.h);
+      } else if (t === 'bush') {
+        ctx.fillStyle = '#2d8a2d';
+        ctx.fillRect(tx, ty, tile.w, tile.h);
+        ctx.fillStyle = '#3aaa3a';
+        ctx.beginPath();
+        ctx.ellipse(tx + tile.w/2, ty + 2, tile.w/2, 6, 0, Math.PI, 0);
+        ctx.fill();
+      } else if (t === 'brick') {
+        ctx.fillStyle = '#c67b3d';
+        ctx.fillRect(tx, ty, tile.w, tile.h);
+        ctx.strokeStyle = '#8a5a2a';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(tx, ty, tile.w, tile.h);
+        // 经典砖纹
+        ctx.strokeStyle = '#8a5a2a';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(tx + tile.w/2, ty); ctx.lineTo(tx + tile.w/2, ty + tile.h);
+        ctx.moveTo(tx, ty + tile.h/2); ctx.lineTo(tx + tile.w, ty + tile.h/2);
+        ctx.moveTo(tx + tile.w/4, ty + tile.h/2); ctx.lineTo(tx + tile.w/4, ty + tile.h);
+        ctx.moveTo(tx + tile.w*3/4, ty); ctx.lineTo(tx + tile.w*3/4, ty + tile.h/2);
+        ctx.stroke();
+        // 高光
+        ctx.fillStyle = 'rgba(255,200,100,0.2)';
+        ctx.fillRect(tx + 1, ty + 1, tile.w-2, 3);
+      } else if (t === 'question') {
+        const bounce = tile.bounceTimer > 0 ? -Math.sin(tile.bounceTimer * Math.PI / 8) * 4 : 0;
+        if (tile.used) {
+          ctx.fillStyle = '#7a6a4a';
+          ctx.fillRect(tx, ty + bounce, tile.w, tile.h);
+          ctx.strokeStyle = '#5a4a2a';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(tx, ty + bounce, tile.w, tile.h);
+        } else {
+          ctx.fillStyle = '#f8d210';
+          ctx.fillRect(tx, ty + bounce, tile.w, tile.h);
+          ctx.strokeStyle = '#c89a00';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(tx + 1, ty + 1 + bounce, tile.w-2, tile.h-2);
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 20px Arial';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('?', tx + tile.w/2, ty + tile.h/2 + bounce);
+        }
+      } else if (t === 'pipe' || t === 'pipe_top') {
+        ctx.fillStyle = '#1a8a1a';
+        ctx.fillRect(tx, ty, tile.w, tile.h);
+        ctx.fillStyle = '#2d8a2d';
+        ctx.fillRect(tx + 2, ty, tile.w-4, tile.h);
+        ctx.strokeStyle = '#0a5a0a';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(tx, ty, tile.w, tile.h);
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fillRect(tx + 3, ty + 2, 6, tile.h - 4);
+        if (t === 'pipe_top') {
+          ctx.fillStyle = '#2d8a2d';
+          ctx.fillRect(tx + 2, ty, tile.w-4, 8);
+          ctx.fillStyle = '#1a8a1a';
+          ctx.fillRect(tx, ty, tile.w, 4);
+        }
+      } else if (t === 'underground_floor') {
+        ctx.fillStyle = '#4a3a2a';
+        ctx.fillRect(tx, ty, tile.w, tile.h);
+        ctx.strokeStyle = '#3a2a1a';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(tx, ty, tile.w, tile.h);
+      } else if (t === 'underground_dirt') {
+        ctx.fillStyle = '#3a2a1a';
+        ctx.fillRect(tx, ty, tile.w, tile.h);
+      }
+    }
+
+    // 道具
+    for (let item of this.items) {
+      if (!item.alive) continue;
+      const ix = item.x - offsetX;
+      if (ix < -TILE || ix > W + TILE) continue;
+      if (item.type === 'mushroom') {
+        ctx.fillStyle = '#e03030';
+        ctx.beginPath();
+        ctx.arc(ix + item.w/2, item.y + item.h/2 - 2, item.w/2, Math.PI, 0);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(ix + 8, item.y + 6, 4, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(ix + item.w - 8, item.y + 6, 4, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#f5e6c8';
+        ctx.fillRect(ix + 6, item.y + item.h/2 - 2, item.w - 12, item.h/2 + 2);
+        ctx.fillStyle = '#222';
+        ctx.fillRect(ix + 7, item.y + 14, 4, 4);
+        ctx.fillRect(ix + item.w - 11, item.y + 14, 4, 4);
+      } else if (item.type === 'flower') {
+        const glow = Math.sin(item.timer * 0.08) * 3;
+        ctx.fillStyle = '#2d8a2d';
+        ctx.fillRect(ix + 12, item.y + 14, 4, 14);
+        ctx.fillStyle = '#ff6b35';
+        ctx.beginPath();
+        ctx.arc(ix + item.w/2, item.y + 10 + glow, 12, 0, Math.PI*2);
+        ctx.fill();
+        ctx.fillStyle = '#f8d210';
+        ctx.beginPath();
+        ctx.arc(ix + item.w/2, item.y + 10 + glow, 6, 0, Math.PI*2);
+        ctx.fill();
+        ctx.fillStyle = '#ff9a4a';
+        for (let a = 0; a < 6; a++) {
+          const angle = a * Math.PI / 3 + item.timer * 0.02;
+          ctx.beginPath();
+          ctx.arc(ix + item.w/2 + Math.cos(angle)*10, item.y + 10 + glow + Math.sin(angle)*10, 5, 0, Math.PI*2);
+          ctx.fill();
+        }
+      }
+    }
+
+    // 金币
+    for (let coin of this.coins) {
+      const cx = coin.x - offsetX;
+      if (cx < -20 || cx > W + 20) continue;
+      const pulse = Math.sin(Date.now() / 200 + coin.x) * 3;
+      ctx.fillStyle = '#f8d210';
+      ctx.beginPath(); ctx.arc(cx, coin.y + pulse, 7, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#fff8a0';
+      ctx.beginPath(); ctx.arc(cx - 2, coin.y + pulse - 2, 3, 0, Math.PI*2); ctx.fill();
+    }
+
+    // 敌人 - 改进的板栗仔
+    for (let enemy of this.enemies) {
+      const ex = enemy.x - offsetX;
+      if (ex < -TILE || ex > W + TILE) continue;
+      if (enemy.dead && enemy.squishTimer > 0) {
+        if (enemy.type === 'koopa') {
+          ctx.fillStyle = '#2d8a2d';
+          ctx.fillRect(ex, enemy.y + enemy.h - 6, enemy.w, 6);
+        } else {
+          ctx.fillStyle = '#8B4513';
+          ctx.fillRect(ex, enemy.y + enemy.h - 6, enemy.w, 6);
+        }
+        continue;
+      }
+      if (enemy.dead) continue;
+      if (enemy.type === 'koopa') { this.drawKoopa(ctx, ex, enemy); continue; }
+
+      // 板栗仔 - 原版像素风
+      ctx.fillStyle = '#8B4513';
+      ctx.fillRect(ex + 2, enemy.y + 6, 24, 18);
+      ctx.fillStyle = '#6a3410';
+      ctx.fillRect(ex + 2, enemy.y + 20, 24, 6);
+      // 头部圆顶
+      ctx.fillStyle = '#8B4513';
+      ctx.fillRect(ex + 4, enemy.y, 20, 8);
+      // 脚
+      const fo = Math.sin(Date.now() / 150 + enemy.x) * 2;
+      ctx.fillStyle = '#3a1a00';
+      ctx.fillRect(ex + 2, enemy.y + 24, 10, 4);
+      ctx.fillRect(ex + 16, enemy.y + 24 + fo, 10, 4);
+      // 眼睛 - 愤怒斜眼
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(ex + 6, enemy.y + 8, 6, 6);
+      ctx.fillRect(ex + 16, enemy.y + 8, 6, 6);
+      ctx.fillStyle = '#111';
+      ctx.fillRect(ex + 8, enemy.y + 9, 4, 5);
+      ctx.fillRect(ex + 18, enemy.y + 9, 4, 5);
+      // 怒眉
+      ctx.fillStyle = '#3a1a00';
+      ctx.fillRect(ex + 4, enemy.y + 6, 9, 2);
+      ctx.fillRect(ex + 15, enemy.y + 6, 9, 2);
+    }
+
+    // 旗杆（加高版）
+    if (this.flag) {
+      const fx = this.flag.x - offsetX;
+      if (fx > -20 && fx < W + 20) {
+        ctx.fillStyle = '#888';
+        ctx.fillRect(fx, this.flag.y - 16, 4, this.flag.h + 16);
+        // 球顶
+        ctx.fillStyle = '#4caf50';
+        ctx.beginPath(); ctx.arc(fx + 2, this.flag.y - 16, 8, 0, Math.PI*2); ctx.fill();
+        // 旗帜
+        ctx.fillStyle = '#4caf50';
+        ctx.beginPath();
+        ctx.moveTo(fx + 4, this.flag.y);
+        ctx.lineTo(fx + 36, this.flag.y + 12);
+        ctx.lineTo(fx + 4, this.flag.y + 24);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('★', fx + 20, this.flag.y + 16);
+        // 旗杆底座
+        ctx.fillStyle = '#666';
+        ctx.fillRect(fx - 2, this.flag.y + this.flag.h - 4, 8, 6);
+      }
+    }
+
+    // 火球
+    for (let fb of mario.fireballs) {
+      const fbx = fb.x - offsetX;
+      if (fbx < -20 || fbx > W + 20) continue;
+      const fp = Math.sin(Date.now() / 80 + fb.x) * 2;
+      ctx.fillStyle = '#ff6b35';
+      ctx.beginPath(); ctx.arc(fbx + fb.w/2, fb.y + fb.h/2 + fp, 7, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#ffd700';
+      ctx.beginPath(); ctx.arc(fbx + fb.w/2, fb.y + fb.h/2 + fp, 4, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(fbx + fb.w/2 - 1, fb.y + fb.h/2 - 1 + fp, 2, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,107,53,0.3)';
+      ctx.beginPath(); ctx.arc(fbx + fb.w/2 - fb.vx*0.5, fb.y + fb.h/2 + fp, 5, 0, Math.PI*2); ctx.fill();
+    }
+
+    // 粒子
+    for (let p of particles) {
+      const px = p.x - offsetX;
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = p.life / 30;
+      ctx.fillRect(px - 2, p.y - 2, 4, 4);
+      ctx.globalAlpha = 1;
+    }
+  }
+};
+
+// ============ 游戏主循环 ============
+function resetGame() {
+  score = 0; coins = 0; gameState = 'playing';
+  particles = []; level.build(1);
+  mario.reset(50, 200); camera.x = 0;
+}
+
+function update() {
+  if (gameState === 'playing') {
+    mario.update();
+    level.update();
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx; p.y += p.vy; p.vy += 0.1; p.life--;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+    let targetCam = mario.x - W / 3;
+    targetCam = Math.max(0, Math.min(targetCam, level.width - W));
+    camera.x += (targetCam - camera.x) * 0.1;
+    if (mario.win) {
+      if (currentWorld === 1) {
+        // 进入第二关
+        gameState = 'transition';
+        setTimeout(() => {
+          level.build(2);
+          mario.reset(50, 200);
+          camera.x = 0;
+          gameState = 'playing';
+        }, 1500);
+      } else {
+        gameState = 'win';
+      }
+    }
+  }
+  if (keys['KeyR']) resetGame();
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  const offsetX = Math.round(camera.x);
+  level.draw(ctx, offsetX);
+  mario.draw(ctx, offsetX);
+  for (let p of particles) {
+    const px = p.x - offsetX;
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = p.life / 30;
+    ctx.fillRect(px - 2, p.y - 2, 4, 4);
+    ctx.globalAlpha = 1;
+  }
+  drawHUD();
+  if (gameState === 'gameover') {
+    drawOverlay('游戏结束', '#e94560', '按 R 重新开始');
+  } else if (gameState === 'transition') {
+    drawOverlay('🌍 WORLD 1-2', '#f8d210', '进入地下关卡...');
+  } else if (gameState === 'win') {
+    drawOverlay('🎉 恭喜通关！', '#f8d210', '得分: ' + score + '  按 R 重新开始');
+  }
+}
+
+function drawHUD() {
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 0, W, 40);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 16px "Courier New", monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+
+  if (mario.fire) {
+    ctx.fillStyle = '#ff6b35';
+    ctx.fillRect(16, 10, 18, 20);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(19, 13, 12, 14);
+  } else if (mario.big) {
+    ctx.fillStyle = '#e03030';
+    ctx.fillRect(16, 10, 18, 20);
+  } else {
+    ctx.fillStyle = '#e03030';
+    ctx.fillRect(18, 14, 14, 14);
+  }
+  ctx.fillStyle = '#fff';
+  ctx.fillText('× ' + mario.lives, 40, 20);
+
+  ctx.fillStyle = '#f8d210';
+  ctx.beginPath(); ctx.arc(170, 20, 7, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.fillText('× ' + coins, 186, 20);
+
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'right';
+  ctx.fillText('SCORE: ' + score, W - 20, 20);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#aaa';
+  ctx.font = '12px "Courier New", monospace';
+  ctx.fillText(currentWorld === 1 ? 'WORLD 1-1' : 'WORLD 1-2', W / 2, 20);
+}
+
+function drawOverlay(title, titleColor, subtitle) {
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = titleColor;
+  ctx.font = 'bold 48px "Courier New", monospace';
+  ctx.fillText(title, W / 2, H / 2 - 30);
+  ctx.fillStyle = '#fff';
+  ctx.font = '18px "Courier New", monospace';
+  ctx.fillText(subtitle, W / 2, H / 2 + 30);
+}
+
+// ============ 启动 ============
+resetGame();
+function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
+gameLoop();
+</script>
+</body>
+</html>

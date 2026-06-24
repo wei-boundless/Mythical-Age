@@ -3909,12 +3909,30 @@ body {
 }
 
 .agent-workbench .public-run-activity__reasoning-window {
+  --reasoning-panel-bg: color-mix(in srgb, var(--console-surface) 94%, var(--console-bg-raised));
+  --reasoning-panel-hover: color-mix(in srgb, var(--console-surface-muted) 58%, var(--console-surface));
+  --reasoning-panel-line: color-mix(in srgb, var(--console-line) 78%, transparent);
+  --reasoning-panel-line-strong: color-mix(in srgb, var(--console-line-strong) 52%, var(--console-line));
+  --reasoning-reader-bg: color-mix(in srgb, var(--console-bg-raised) 72%, var(--console-surface));
   min-width: 0;
-  overflow: visible;
-  border: 1px solid var(--console-line-soft);
+  overflow: hidden;
+  border: 1px solid var(--reasoning-panel-line);
   border-radius: var(--console-radius-lg);
-  background: var(--console-surface);
-  box-shadow: var(--console-shadow-soft);
+  background: var(--reasoning-panel-bg);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--console-surface) 80%, transparent);
+}
+
+.agent-workbench .public-run-activity__reasoning-window--running {
+  border-color: color-mix(in srgb, var(--console-accent) 34%, var(--reasoning-panel-line));
+}
+
+.agent-workbench .public-run-activity__reasoning-window--waiting {
+  border-color: color-mix(in srgb, var(--console-warning) 34%, var(--reasoning-panel-line));
+}
+
+.agent-workbench .public-run-activity__reasoning-window--soft_error,
+.agent-workbench .public-run-activity__reasoning-window--stopped {
+  border-color: color-mix(in srgb, var(--console-danger) 28%, var(--reasoning-panel-line));
 }
 
 .agent-workbench .public-run-activity__tool-window--nested {
@@ -3925,8 +3943,7 @@ body {
 }
 
 .agent-workbench .public-run-activity__tool-round > summary,
-.agent-workbench .public-run-activity__tool-window > summary,
-.agent-workbench .public-run-activity__reasoning-window > summary {
+.agent-workbench .public-run-activity__tool-window > summary {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr) 16px;
   align-items: center;
@@ -3951,20 +3968,52 @@ body {
 }
 
 .agent-workbench .public-run-activity__tool-round > summary:hover,
-.agent-workbench .public-run-activity__tool-window > summary:hover,
-.agent-workbench .public-run-activity__reasoning-window > summary:hover {
+.agent-workbench .public-run-activity__tool-window > summary:hover {
   color: var(--console-text);
 }
 
 .agent-workbench .public-run-activity__tool-round > summary::-webkit-details-marker,
-.agent-workbench .public-run-activity__tool-window > summary::-webkit-details-marker,
+.agent-workbench .public-run-activity__tool-window > summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-workbench .public-run-activity__reasoning-window > summary {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  border-radius: calc(var(--console-radius-lg) - 1px);
+  padding: 10px 12px;
+  color: var(--console-text-soft);
+  cursor: pointer;
+  font-size: 13px;
+  list-style: none;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.agent-workbench .public-run-activity__reasoning-window > summary:hover {
+  background: var(--reasoning-panel-hover);
+  color: var(--console-text);
+}
+
 .agent-workbench .public-run-activity__reasoning-window > summary::-webkit-details-marker {
   display: none;
 }
 
+.agent-workbench .public-run-activity__reasoning-window > summary:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--console-accent) 44%, transparent);
+  outline-offset: -2px;
+}
+
+.agent-workbench .public-run-activity__reasoning-window[open] > summary {
+  border-bottom: 1px solid var(--reasoning-panel-line);
+  border-radius: calc(var(--console-radius-lg) - 1px) calc(var(--console-radius-lg) - 1px) 0 0;
+  background: color-mix(in srgb, var(--console-surface) 72%, var(--console-bg-raised));
+}
+
 .agent-workbench .public-run-activity__tool-window-icon,
-.agent-workbench .public-run-activity__tool-round-icon,
-.agent-workbench .public-run-activity__reasoning-icon {
+.agent-workbench .public-run-activity__tool-round-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3977,7 +4026,16 @@ body {
 }
 
 .agent-workbench .public-run-activity__reasoning-icon {
-  color: var(--console-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--console-accent) 26%, var(--reasoning-panel-line));
+  border-radius: var(--console-radius-sm);
+  background: color-mix(in srgb, var(--console-accent-soft) 74%, var(--console-surface));
+  color: var(--console-accent);
+  opacity: 1;
 }
 
 .agent-workbench .public-run-activity__tool-window--nested .public-run-activity__tool-window-icon {
@@ -4016,16 +4074,20 @@ body {
 }
 
 .agent-workbench .public-run-activity__tool-window-copy,
-.agent-workbench .public-run-activity__tool-round-copy,
-.agent-workbench .public-run-activity__reasoning-copy {
+.agent-workbench .public-run-activity__tool-round-copy {
   display: grid;
   gap: 1px;
   min-width: 0;
 }
 
+.agent-workbench .public-run-activity__reasoning-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
 .agent-workbench .public-run-activity__tool-window-title,
-.agent-workbench .public-run-activity__tool-round-preview,
-.agent-workbench .public-run-activity__reasoning-title {
+.agent-workbench .public-run-activity__tool-round-preview {
   display: flex;
   align-items: baseline;
   gap: 8px;
@@ -4054,6 +4116,37 @@ body {
   font-weight: 620;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.agent-workbench .public-run-activity__reasoning-title {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  color: var(--console-text);
+  font-weight: 760;
+  flex-wrap: wrap;
+  gap: 7px;
+  overflow: visible;
+  font-size: 13.5px;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.agent-workbench .public-run-activity__reasoning-title > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--console-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-workbench .public-run-activity__reasoning-title .public-run-activity__tool-window-status {
+  min-height: 20px;
+  border: 1px solid color-mix(in srgb, var(--console-line) 76%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--console-surface) 78%, transparent);
+  padding: 0 7px;
+  font-size: 11px;
 }
 
 .agent-workbench .public-run-activity__tool-window-subtitle {
@@ -4085,10 +4178,16 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--console-radius-sm);
   color: var(--console-muted);
-  transition: transform 140ms ease, color 140ms ease;
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+.agent-workbench .public-run-activity__reasoning-window > summary:hover .public-run-activity__reasoning-caret {
+  background: color-mix(in srgb, var(--console-surface) 86%, transparent);
+  color: var(--console-text);
 }
 
 .agent-workbench .public-run-activity__tool-window[open] > summary .public-run-activity__tool-caret,
@@ -4217,29 +4316,149 @@ body {
 }
 
 .agent-workbench .public-run-activity__reasoning-body {
+  box-sizing: border-box;
   min-width: 0;
-  width: min(100% - 40px, 980px);
-  max-height: min(42vh, 420px);
-  margin: 0 0 14px 42px;
+  width: auto;
+  max-height: clamp(220px, 38vh, 460px);
+  margin: 12px;
   overflow: auto;
-  border: 1px solid var(--console-line-soft);
-  border-radius: var(--console-radius-lg);
-  background: var(--console-bg);
-  padding: 12px;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--reasoning-panel-line-strong) transparent;
+  border: 1px solid var(--reasoning-panel-line);
+  border-radius: var(--console-radius-md);
+  background: var(--reasoning-reader-bg);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--console-surface) 82%, transparent);
+  padding: 14px 16px;
 }
 
 .agent-workbench .public-run-activity__reasoning-text {
   min-width: 0;
   margin: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
   color: var(--console-text);
-  font-family: var(--console-font);
+  font-family: var(--console-text-font);
   font-size: 13px;
-  line-height: 1.7;
+  font-weight: 480;
+  line-height: 1.68;
+  overflow-wrap: break-word;
+  white-space: normal;
 }
 
-.agent-workbench .public-run-activity__reasoning-body p {
+.agent-workbench .markdown--reasoning-projection > *:first-child {
+  margin-top: 0;
+}
+
+.agent-workbench .markdown--reasoning-projection > *:last-child {
+  margin-bottom: 0;
+}
+
+.agent-workbench .markdown--reasoning-projection p,
+.agent-workbench .markdown--reasoning-projection li {
+  color: color-mix(in srgb, var(--console-text) 88%, var(--console-text-soft));
+  font-family: var(--console-text-font);
+  font-size: 13px;
+  line-height: 1.68;
+}
+
+.agent-workbench .markdown--reasoning-projection p {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.agent-workbench .markdown--reasoning-projection ul,
+.agent-workbench .markdown--reasoning-projection ol {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 10px;
+  padding-left: 1.25rem;
+}
+
+.agent-workbench .markdown--reasoning-projection li > p {
+  margin-bottom: 4px;
+}
+
+.agent-workbench .markdown--reasoning-projection h1,
+.agent-workbench .markdown--reasoning-projection h2,
+.agent-workbench .markdown--reasoning-projection h3,
+.agent-workbench .markdown--reasoning-projection h4 {
+  margin: 12px 0 7px;
+  color: var(--console-text);
+  font-family: var(--console-text-font);
+  font-size: 13.5px;
+  font-weight: 760;
+  line-height: 1.38;
+}
+
+.agent-workbench .markdown--reasoning-projection blockquote {
+  margin: 8px 0 10px;
+  border-left: 2px solid color-mix(in srgb, var(--console-accent) 48%, var(--console-line));
+  padding: 2px 0 2px 10px;
+  color: var(--console-text-soft);
+}
+
+.agent-workbench .markdown--reasoning-projection :not(pre) > code {
+  border: 1px solid color-mix(in srgb, var(--console-line) 72%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--console-surface) 86%, transparent);
+  color: color-mix(in srgb, var(--console-text) 82%, var(--console-accent));
+  font-family: var(--console-mono);
+  font-size: 0.92em;
+  padding: 0.08rem 0.28rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.agent-workbench .markdown--reasoning-projection pre {
+  max-width: 100%;
+  margin: 9px 0 10px;
+  overflow-x: auto;
+  border: 1px solid color-mix(in srgb, var(--console-line) 76%, transparent);
+  border-radius: var(--console-radius-sm);
+  background: color-mix(in srgb, var(--console-surface) 74%, var(--console-bg));
+  color: var(--console-text);
+  padding: 10px 12px;
+  white-space: pre-wrap;
+}
+
+.agent-workbench .markdown--reasoning-projection pre code {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: var(--console-mono);
+  font-size: 12px;
+  line-height: 1.58;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agent-workbench .markdown--reasoning-projection table {
+  width: 100%;
+  margin: 10px 0;
+  border: 1px solid color-mix(in srgb, var(--console-line) 78%, transparent);
+  border-spacing: 0;
+  border-collapse: separate;
+  border-radius: var(--console-radius-sm);
+  background: var(--console-surface);
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.agent-workbench .markdown--reasoning-projection th,
+.agent-workbench .markdown--reasoning-projection td {
+  border-right: 1px solid color-mix(in srgb, var(--console-line) 78%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--console-line) 78%, transparent);
+  padding: 7px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.agent-workbench .markdown--reasoning-projection th {
+  background: color-mix(in srgb, var(--console-bg-raised) 78%, var(--console-surface));
+  color: var(--console-text);
+  font-weight: 720;
+}
+
+.agent-workbench .public-run-activity__reasoning-body > p {
   margin: 0;
   color: var(--console-muted);
   font-size: 13px;
@@ -4374,10 +4593,10 @@ body {
 .agent-workbench .public-run-activity__reasoning-meta {
   min-width: 0;
   overflow: hidden;
-  color: var(--console-muted);
-  font-family: var(--console-font);
-  font-size: 12px;
-  font-weight: 620;
+  color: color-mix(in srgb, var(--console-muted) 88%, var(--console-text-soft));
+  font-family: var(--console-muted-font);
+  font-size: var(--console-muted-size);
+  font-weight: 560;
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -4535,8 +4754,7 @@ body {
 
 @container (max-width: 560px) {
   .agent-workbench .public-run-activity__tool-round > summary,
-  .agent-workbench .public-run-activity__tool-window > summary,
-  .agent-workbench .public-run-activity__reasoning-window > summary {
+  .agent-workbench .public-run-activity__tool-window > summary {
     grid-template-columns: 24px minmax(0, 1fr) 16px;
   }
 
@@ -4546,10 +4764,22 @@ body {
   }
 
   .agent-workbench .public-run-activity__tool-round-body,
-  .agent-workbench .public-run-activity__tool-window-body,
-  .agent-workbench .public-run-activity__reasoning-body {
+  .agent-workbench .public-run-activity__tool-window-body {
     margin-left: 28px;
     width: calc(100% - 28px);
+  }
+
+  .agent-workbench .public-run-activity__reasoning-window > summary {
+    grid-template-columns: 28px minmax(0, 1fr) 28px;
+    min-height: 50px;
+    padding: 9px 10px;
+  }
+
+  .agent-workbench .public-run-activity__reasoning-body {
+    width: auto;
+    max-height: clamp(200px, 42vh, 420px);
+    margin: 10px;
+    padding: 12px;
   }
 
   .agent-workbench .public-run-activity__tool-meta-item,

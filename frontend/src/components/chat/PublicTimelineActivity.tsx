@@ -272,13 +272,17 @@ function ReasoningWindow({ entry }: { entry: ActivityEntry }) {
           <ChevronDown size={14} />
         </span>
       </summary>
-      <div className="public-run-activity__reasoning-body" role="region" aria-label="运行中的模型思考观察">
-        {reasoningContent ? (
-          <div className="public-run-activity__reasoning-text">{reasoningContent}</div>
-        ) : (
-          <p>暂无可见思考内容。</p>
-        )}
-      </div>
+      {open ? (
+        <div className="public-run-activity__reasoning-body" role="region" aria-label="运行中的模型思考观察">
+          {reasoningContent ? (
+            <div className="public-run-activity__reasoning-text markdown markdown--reasoning-projection">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{reasoningContent}</ReactMarkdown>
+            </div>
+          ) : (
+            <p>暂无可见思考内容。</p>
+          )}
+        </div>
+      ) : null}
     </details>
   );
 }

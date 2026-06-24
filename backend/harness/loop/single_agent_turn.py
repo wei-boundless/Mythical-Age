@@ -62,6 +62,7 @@ from runtime.context_management import (
     CONTEXT_APPEND,
     CONTEXT_MEMORY,
     CONTEXT_MEMORY_PREFIX,
+    PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT,
     STATIC_PREFIX,
     classify_context_spec,
     context_segment_policy_for_spec,
@@ -69,6 +70,7 @@ from runtime.context_management import (
     DYNAMIC_TAIL,
     is_dynamic_tail_spec,
     is_sealable_context_spec,
+    provider_visible_context_append_candidate_spec,
 )
 from runtime.prompt_accounting import ContextUsageMeter
 from runtime.model_gateway.assistant_stream_frame import (
@@ -130,6 +132,8 @@ _MAX_CONFIGURED_SINGLE_TURN_TOOL_ITERATIONS = 100
 _DEFAULT_INTERACTIVE_TOOL_BATCH_TIMEOUT_SECONDS = 45.0
 _TOOL_BATCH_CANCEL_DRAIN_SECONDS = 1.0
 _ASSISTANT_VISIBLE_STREAM_CONTEXT_MAX_CHARS = 12000
+_REASONING_STATUS_MIN_INTERVAL_SECONDS = 0.4
+_REASONING_STATUS_MIN_CHAR_DELTA = 160
 
 
 def _configured_single_turn_tool_iterations() -> int:
@@ -690,6 +694,11 @@ def _tool_followup_action_contract_messages(
         "allowed_action_types": list(allowed),
         "required_fields": _agent_visible_action_fields(allowed),
         "tool_call_allowed": "tool_call" in set(allowed),
+        "task_mode_boundary": {
+            "definition": "任务模式用于承载可追踪的持续工作生命周期：稳定任务身份、跨 turn 状态、阶段反馈、停止/恢复控制、验收边界和失败恢复。",
+            "request_task_run_when": "如果新的观察让你判断当前 turn 无法稳定保存目标、证据、恢复点、验收或失败收口，就提交 request_task_run。",
+            "tool_call_when": "如果当前 turn 仍能直接查证、修改、验证并收口，可以继续普通工具；公开反馈不要宣称启动 Task。",
+        },
         "output": {
             "assistant_message": "事实已经足够回答用户时，直接输出用户可见的自然语言正文。",
             "control_action": "需要 ask_user、block、request_task_run、active_work_control 或 JSON tool_call 时，输出一个可识别 action-like 对象。",
@@ -725,10 +734,10 @@ def _tool_followup_action_contract_messages(
         "如果已经足够回答用户，直接写用户可见的最终回复；这会作为你的 respond 收口。\n"
         "如果需要用户补充，提交 action_type=ask_user，并填写 user_question。\n"
         "如果当前事实或权限不足，提交 action_type=block，并填写 blocking_reason。\n"
-        "如果你决定启动持续任务，提交 action_type=request_task_run；调度只以这个结构化动作生效。\n"
-        "task_contract_seed 只需要写清 user_visible_goal、task_run_goal、working_scope.target_objects 和完成证据。"
+        "如果你判断需要任务模式提供的稳定任务身份、跨 turn 状态、阶段反馈、停止/恢复控制、验收边界或失败恢复，提交 action_type=request_task_run。\n"
+        "task_contract_seed 至少写清 user_visible_goal、task_run_goal、working_scope.target_objects 和完成证据；可以补充 lifecycle_contract、feedback_contract 和 acceptance_contract。"
         "如果仍需普通工具且工具通道可用，可以发起 provider-native tool_call 或 JSON tool_call；"
-        "工具前置说明可以作为公开进展，但 task_contract_seed 必须留在动作对象内。\n"
+        "工具前置说明可以作为公开进展，但不能宣称已经或即将启动 Task；task_contract_seed 必须留在 request_task_run 动作对象内。\n"
         "只有控制动作和工具动作需要动作对象；不要为了最终回答把自然语言正文塞进 JSON。"
     )
     return _append_model_messages_without_rewriting_context(
@@ -860,6 +869,186 @@ def _agent_contract_feedback_required_lifecycle(
         },
         "authority": "harness.loop.single_agent_turn.agent_contract_feedback_lifecycle",
     }
+
+
+def _agent_contract_feedback_safe_closeout_content(
+    *,
+    contract_feedback: dict[str, Any],
+    protocol_error: dict[str, Any],
+    control_signal: dict[str, Any],
+    closeout_signal: dict[str, Any],
+    previous_invalid_response: str = "",
+) -> str:
+    del previous_invalid_response
+    protocol = dict(protocol_error or {})
+    primary_reason = _public_protocol_failure_reason(protocol)
+    feedback_reasons = _public_contract_feedback_reasons(contract_feedback)
+    control_reason = _public_control_signal_failure_reason(control_signal)
+    closeout_reason = _public_control_signal_failure_reason(closeout_signal)
+    reasons = _unique_public_reasons(
+        [
+            primary_reason,
+            *feedback_reasons,
+            control_reason,
+            closeout_reason,
+        ]
+    )
+    if not reasons:
+        reasons = ["动作合同没有形成可执行、可发布的下一步"]
+    if _protocol_error_mentions_request_task_run(protocol):
+        opening = "本轮已经停止，任务没有成功进入持续执行。"
+    else:
+        opening = "本轮已经停止，当前动作没有通过执行合同。"
+    return "\n".join(
+        [
+            opening,
+            f"原因：{'；'.join(reasons[:3])}。",
+            "我没有展示被拒绝的内部动作内容；本轮会话上下文、失败事实和已确认目标仍然保留，后续可以基于这些信息继续重试。",
+        ]
+    )
+
+
+def _public_protocol_failure_reason(protocol_error: dict[str, Any]) -> str:
+    protocol = dict(protocol_error or {})
+    validation_reasons = _public_validation_error_reasons(_protocol_validation_errors(protocol))
+    if validation_reasons:
+        subject = "任务启动合同" if _protocol_error_mentions_request_task_run(protocol) else "动作合同"
+        return f"{subject}没有通过校验，{'、'.join(validation_reasons)}"
+    code = str(protocol.get("code") or "").strip()
+    reason = str(protocol.get("reason") or "").strip()
+    if _protocol_error_mentions_request_task_run(protocol):
+        if code == "single_agent_turn_invalid_native_action" or "invalid_native_control_action" in reason:
+            return "任务启动请求的合同参数没有被后端接受"
+        return "任务启动请求没有通过当前动作边界"
+    if code or reason:
+        return "上一条动作没有通过当前动作边界"
+    return ""
+
+
+def _protocol_validation_errors(protocol_error: dict[str, Any]) -> list[str]:
+    protocol = dict(protocol_error or {})
+    diagnostics = dict(protocol.get("diagnostics") or {})
+    errors: list[str] = []
+    errors.extend(str(item) for item in str(protocol.get("reason") or "").split(";") if str(item).strip())
+    errors.extend(str(item) for item in list(diagnostics.get("validation_errors") or []) if str(item).strip())
+    for native_error in list(diagnostics.get("native_action_errors") or []):
+        if not isinstance(native_error, dict):
+            continue
+        errors.extend(str(item) for item in str(native_error.get("reason") or "").split(";") if str(item).strip())
+        action_diagnostics = dict(native_error.get("model_action_diagnostics") or {})
+        errors.extend(str(item) for item in list(action_diagnostics.get("validation_errors") or []) if str(item).strip())
+    return _unique_public_reasons(errors)
+
+
+def _public_validation_error_reasons(errors: list[str]) -> list[str]:
+    normalized = {str(item).strip() for item in list(errors or []) if str(item).strip()}
+    reasons: list[str] = []
+    if {
+        "task_contract_seed_required_for_request_task_run",
+        "task_contract_seed_must_be_object",
+    }.intersection(normalized):
+        reasons.append("任务合同缺失或不是对象")
+    if {
+        "user_visible_goal_required_for_request_task_run",
+        "task_run_goal_required_for_request_task_run",
+    }.intersection(normalized):
+        reasons.append("任务目标不完整")
+    if {
+        "working_scope_required_for_request_task_run",
+        "working_scope.target_objects_required_for_request_task_run",
+    }.intersection(normalized):
+        reasons.append("工作范围不完整")
+    if "completion_evidence_required_for_request_task_run" in normalized:
+        reasons.append("缺少完成标准或验收证据")
+    if {
+        "public_response_required",
+        "public_progress_note_required",
+        "public_action_state_required",
+    }.intersection(normalized):
+        reasons.append("缺少用户可见的启动说明")
+    if not reasons and normalized:
+        reasons.append("动作参数形状不符合当前合同")
+    return reasons
+
+
+def _protocol_error_mentions_request_task_run(protocol_error: dict[str, Any]) -> bool:
+    protocol = dict(protocol_error or {})
+    diagnostics = dict(protocol.get("diagnostics") or {})
+    values: list[str] = []
+    values.extend(str(item) for item in list(diagnostics.get("tool_names") or []) if str(item))
+    action_issue = dict(diagnostics.get("action_issue") or protocol.get("action_issue") or {})
+    values.append(str(action_issue.get("requested_action_type") or ""))
+    values.append(str(action_issue.get("requested_tool_name") or ""))
+    for native_error in list(diagnostics.get("native_action_errors") or []):
+        if not isinstance(native_error, dict):
+            continue
+        native_issue = dict(native_error.get("action_issue") or {})
+        native_call = dict(native_error.get("native_tool_call") or {})
+        values.append(str(native_issue.get("requested_action_type") or ""))
+        values.append(str(native_issue.get("requested_tool_name") or ""))
+        values.append(str(native_call.get("name") or ""))
+    return any(value == "request_task_run" for value in values)
+
+
+def _public_contract_feedback_reasons(contract_feedback: dict[str, Any]) -> list[str]:
+    feedback = dict(contract_feedback or {})
+    failure = dict(feedback.get("contract_failure") or {})
+    reasons: list[str] = []
+    for item in list(failure.get("specific_feedback") or []):
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("code") or "").strip()
+        if code == "answer_leak_not_committable":
+            reasons.append("候选收口混入内部动作或协议内容，不能作为用户回复展示")
+        elif code == "invalid_native_control_action":
+            reasons.append("动作参数没有通过合同校验")
+        elif code:
+            situation = str(item.get("situation_feedback") or "").strip()
+            if situation and not _public_reason_contains_internal_terms(situation):
+                reasons.append(situation.rstrip("。"))
+    return _unique_public_reasons(reasons)
+
+
+def _public_control_signal_failure_reason(control_signal: dict[str, Any]) -> str:
+    signal = dict(control_signal or {})
+    commit_reason = str(signal.get("commit_reason") or "").strip()
+    if not commit_reason:
+        return ""
+    leak_flags = [str(item) for item in list(signal.get("answer_leak_flags") or []) if str(item)]
+    if commit_reason == "answer_leak_not_committable" or any(
+        "runtime_protocol" in flag or "internal_protocol" in flag for flag in leak_flags
+    ):
+        return "候选收口混入内部动作或协议内容，输出门禁拒绝展示"
+    if commit_reason in {"empty_final_text", "missing_answer"}:
+        return "候选收口为空，没有形成可展示反馈"
+    return "候选收口没有通过会话输出门禁"
+
+
+def _public_reason_contains_internal_terms(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return any(
+        token in lowered
+        for token in (
+            "model_action_request",
+            "tool_call",
+            "provider-native",
+            "canonical native",
+            "runtime_control_signal",
+            "json action",
+        )
+    )
+
+
+def _unique_public_reasons(values: list[str] | tuple[str, ...]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        text = str(value or "").strip().strip("。")
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
 
 
 def _agent_contract_feedback_message(
@@ -1396,9 +1585,16 @@ async def run_single_agent_turn(
         current_available_tools = tuple(compilation.packet.available_tools or ())
         current_requires_json_action = single_agent_requires_json_action
         protocol_recovery_attempts = 0
+        latest_protocol_error: dict[str, Any] = {}
+        latest_protocol_control_signal: dict[str, Any] = {}
         tool_observation_payloads: list[dict[str, Any]] = []
         tool_context_ledger_entries: list[dict[str, Any]] = []
         model_messages_segment_plan = dict(compilation.packet.segment_plan or {})
+        provider_visible_followup_ledger = _provider_visible_followup_ledger_kwargs(
+            compiler=compiler,
+            session_id=session_id,
+            model_selection=dict(model_selection or {}),
+        )
         reasoning_projection_public_visible = _turn_reasoning_projection_public_enabled(runtime_assembly)
 
         def memory_maintenance_main_context_for_commit() -> dict[str, Any]:
@@ -1557,6 +1753,7 @@ async def run_single_agent_turn(
                     model_messages=closeout_messages,
                     packet_id=current_packet_ref,
                     tool_iteration=tool_iteration + attempt,
+                    **provider_visible_followup_ledger,
                 )
                 closeout_response = None
                 async for model_event in _invoke_single_turn_model_with_stream_events(
@@ -1582,7 +1779,7 @@ async def run_single_agent_turn(
                             "segment_plan_ref": str(closeout_segment_plan.get("segment_plan_id") or ""),
                         },
                     },
-                    native_tools=_native_tools_for_packet(current_allowed_action_types, available_tools=current_available_tools),
+                    native_tools=[],
                     allow_assistant_text_delta=False,
                     require_json_action=True,
                 ):
@@ -1655,13 +1852,15 @@ async def run_single_agent_turn(
                         yield event
                     return
                 previous_invalid_response = content[:1200]
+            feedback_protocol_error = dict(protocol_error or latest_protocol_error or {})
+            feedback_control_signal = dict(control_signal or latest_protocol_control_signal or {})
             contract_feedback = _agent_contract_feedback_required_lifecycle(
                 reason=reason,
                 phase=phase,
                 turn_id=turn_id,
                 packet_ref=current_packet_ref,
-                control_signal=control_signal,
-                protocol_error=protocol_error,
+                control_signal=feedback_control_signal,
+                protocol_error=feedback_protocol_error,
                 observations=tool_observation_payloads,
                 previous_invalid_response=previous_invalid_response,
                 closeout_attempts=2,
@@ -1675,9 +1874,31 @@ async def run_single_agent_turn(
                     contract_feedback=contract_feedback,
                 )
                 yield {"type": "agent_contract_feedback_required", "event": lifecycle_event}
+            safe_closeout = _agent_contract_feedback_safe_closeout_content(
+                contract_feedback=contract_feedback,
+                protocol_error=feedback_protocol_error,
+                control_signal=feedback_control_signal,
+                closeout_signal=dict(control_signal or {}),
+                previous_invalid_response=previous_invalid_response,
+            )
+            commit_decision = await _commit_final_message(
+                commit_assistant_message,
+                runtime_host=runtime_host,
+                turn_run=turn_run,
+                session_id=session_id,
+                turn_id=turn_id,
+                content=safe_closeout,
+                answer_channel="conversation",
+                answer_source=_AGENT_CONTRACT_FEEDBACK_SOURCE,
+                api_protocol_messages=[
+                    *api_protocol_messages,
+                    _assistant_protocol_message_from_content(safe_closeout, turn_id=turn_id),
+                ],
+                main_context=memory_maintenance_main_context_for_commit(),
+            )
             async for event in emit_terminal_then_final(
-                content="",
-                answer_channel="runtime_control",
+                content=safe_closeout,
+                answer_channel="conversation",
                 answer_source=_AGENT_CONTRACT_FEEDBACK_SOURCE,
                 terminal_status="failed",
                 terminal_reason="agent_contract_feedback_required",
@@ -1686,14 +1907,17 @@ async def run_single_agent_turn(
                     "completion_state": "agent_contract_feedback_required",
                     "agent_closeout_attempts": 2,
                     "agent_contract_feedback": contract_feedback,
+                    "safe_user_closeout": True,
                 },
                 terminal_payload={
                     "completion_state": "agent_contract_feedback_required",
                     "agent_closeout_attempts": 2,
                     "agent_contract_feedback": contract_feedback,
-                    **({"runtime_control_signal": dict(control_signal or {})} if control_signal else {}),
-                    **({"protocol_error": dict(protocol_error or {})} if protocol_error else {}),
+                    "safe_user_closeout": True,
+                    **({"runtime_control_signal": feedback_control_signal} if feedback_control_signal else {}),
+                    **({"protocol_error": feedback_protocol_error} if feedback_protocol_error else {}),
                 },
+                commit_decision=commit_decision,
             ):
                 yield event
 
@@ -1818,6 +2042,7 @@ async def run_single_agent_turn(
                     model_messages=model_messages,
                     packet_id=current_packet_ref,
                     tool_iteration=tool_iteration + 1,
+                    **provider_visible_followup_ledger,
                 )
                 model_messages_segment_plan = dict(steer_segment_plan or {})
                 response = None
@@ -1882,6 +2107,8 @@ async def run_single_agent_turn(
                     public_response_required=require_model_feedback,
                     response_preview=stringify_content(getattr(response, "content", response)),
                 )
+                latest_protocol_error = dict(action_parse.error or {})
+                latest_protocol_control_signal = dict(protocol_control_signal or {})
                 if runtime_host is not None and turn_run is not None:
                     event = _record_turn_runtime_control_signal(
                         runtime_host,
@@ -1921,6 +2148,7 @@ async def run_single_agent_turn(
                     model_messages=model_messages,
                     packet_id=current_packet_ref,
                     tool_iteration=tool_iteration + 1,
+                    **provider_visible_followup_ledger,
                 )
                 model_messages_segment_plan = dict(recovery_segment_plan or {})
                 response = None
@@ -2317,6 +2545,7 @@ async def run_single_agent_turn(
                 base_segment_plan=model_messages_segment_plan,
                 packet_id=current_packet_ref,
                 tool_iteration=tool_iteration,
+                **provider_visible_followup_ledger,
             )
             model_messages_segment_plan = dict(followup_segment_plan or {})
             mid_turn_snapshot = _mid_turn_context_snapshot(
@@ -2470,6 +2699,7 @@ async def run_single_agent_turn(
                     base_segment_plan=model_messages_segment_plan,
                     packet_id=current_packet_ref,
                     tool_iteration=tool_iteration,
+                    **provider_visible_followup_ledger,
                 )
                 model_messages_segment_plan = dict(followup_segment_plan or {})
                 followup_prompt_manifest = {
@@ -2527,6 +2757,7 @@ async def run_single_agent_turn(
                 model_messages=followup_invocation_messages,
                 packet_id=str(followup_packet_ref or current_packet_ref),
                 tool_iteration=tool_iteration,
+                **provider_visible_followup_ledger,
             )
             model_messages_segment_plan = dict(followup_segment_plan or {})
             followup_prompt_manifest = {
@@ -2549,6 +2780,8 @@ async def run_single_agent_turn(
                     "source": "harness.single_agent_turn.tool_followup",
                     "segment_plan": followup_segment_plan,
                     "provider_visible_append_only_context": True,
+                    "provider_visible_context_ledger_storage_root": str(provider_visible_followup_ledger.get("storage_root") or ""),
+                    "provider_visible_context_scope": str(provider_visible_followup_ledger.get("provider_visible_context_scope") or ""),
                     "reasoning_projection_public_visible": reasoning_projection_public_visible,
                     "prompt_manifest": followup_prompt_manifest,
                 },
@@ -2609,6 +2842,8 @@ async def run_single_agent_turn(
                     public_response_required=False,
                     response_preview=stringify_content(getattr(response, "content", response)),
                 )
+                latest_protocol_error = dict(action_parse.error or {})
+                latest_protocol_control_signal = dict(protocol_control_signal or {})
                 if runtime_host is not None and turn_run is not None:
                     event = _record_turn_runtime_control_signal(
                         runtime_host,
@@ -2650,6 +2885,7 @@ async def run_single_agent_turn(
                     model_messages=model_messages,
                     packet_id=current_packet_ref,
                     tool_iteration=tool_iteration + 1,
+                    **provider_visible_followup_ledger,
                 )
                 model_messages_segment_plan = dict(recovery_segment_plan or {})
                 response = None
@@ -2760,6 +2996,8 @@ async def run_single_agent_turn(
                         "source": "harness.single_agent_turn.admission_repair",
                         "segment_plan": dict(model_messages_segment_plan or {}),
                         "prompt_manifest": dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
+                        "provider_visible_context_ledger_storage_root": str(provider_visible_followup_ledger.get("storage_root") or ""),
+                        "provider_visible_context_scope": str(provider_visible_followup_ledger.get("provider_visible_context_scope") or ""),
                     },
                     request_id=f"model-response:{current_packet_ref}:final:admission-repair",
                     turn_id=turn_id,
@@ -3439,15 +3677,25 @@ async def _invoke_single_turn_model_with_stream_events(
     stream_ref = str(accounting_context.get("request_id") or "")
     reasoning_projection_public_visible = bool(accounting_context.get("reasoning_projection_public_visible") is True)
     reasoning_projection_last_content = ""
+    reasoning_projection_last_emit_at = 0.0
 
     def live_reasoning_projection_event(response: Any, *, phase: str, state: str) -> dict[str, Any]:
-        nonlocal reasoning_projection_last_content
+        nonlocal reasoning_projection_last_content, reasoning_projection_last_emit_at
         if not reasoning_projection_public_visible:
             return {}
         reasoning_content = _reasoning_content_from_response(response)
         if not reasoning_content or reasoning_content == reasoning_projection_last_content:
             return {}
+        now = time.monotonic()
+        if reasoning_projection_last_content:
+            char_delta = abs(len(reasoning_content) - len(reasoning_projection_last_content))
+            if (
+                now - reasoning_projection_last_emit_at < _REASONING_STATUS_MIN_INTERVAL_SECONDS
+                and char_delta < _REASONING_STATUS_MIN_CHAR_DELTA
+            ):
+                return {}
         reasoning_projection_last_content = reasoning_content
+        reasoning_projection_last_emit_at = now
         return _reasoning_projection_status_event(
             reasoning_content,
             turn_id=str(accounting_context.get("turn_id") or ""),
@@ -3880,6 +4128,10 @@ async def _repair_single_agent_admission_failure(
         model_messages=repair_messages,
         packet_id=packet_ref,
         tool_iteration=iteration + 1,
+        **_provider_visible_followup_ledger_kwargs_from_accounting(
+            accounting_context,
+            model_selection=dict(model_selection or {}),
+        ),
     )
     repair_response = await _invoke_single_turn_model(
         model_runtime=model_runtime,
@@ -4773,13 +5025,32 @@ def _model_action_payload_from_native_control_args(
         return payload
     if action_type == "request_task_run":
         seed = args.get("task_contract_seed")
-        payload["task_contract_seed"] = (
-            _native_request_task_contract_seed(dict(seed))
-            if isinstance(seed, dict)
-            else _native_request_task_contract_seed(args)
-        )
+        if isinstance(seed, dict):
+            payload["task_contract_seed"] = _native_request_task_contract_seed(dict(seed))
+        elif isinstance(seed, str) and seed.strip():
+            parsed_seed = _native_json_object_arg(seed)
+            payload["task_contract_seed"] = (
+                _native_request_task_contract_seed(parsed_seed)
+                if parsed_seed is not None
+                else seed
+            )
+        elif "task_contract_seed" in args:
+            payload["task_contract_seed"] = seed
+        else:
+            payload["task_contract_seed"] = _native_request_task_contract_seed(args)
         return payload
     return payload
+
+
+def _native_json_object_arg(value: Any) -> dict[str, Any] | None:
+    text = str(value or "").strip()
+    if not text or not text.startswith("{"):
+        return None
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return None
+    return dict(parsed) if isinstance(parsed, dict) else None
 
 
 def _native_request_task_contract_seed(args: dict[str, Any]) -> dict[str, Any]:
@@ -5111,9 +5382,9 @@ def _request_task_run_minimal_repair_action() -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "request_task_run",
-        "public_progress_note": "说明为什么当前工作需要进入持续任务生命周期。",
+        "public_progress_note": "说明为什么你判断当前工作需要进入持续任务生命周期。",
         "public_action_state": {
-            "current_judgment": "说明当前 turn 无法稳定承载的边界。",
+            "current_judgment": "说明当前 turn 无法稳定承载的目标、恢复、验收或反馈边界。",
             "next_action": "进入持续任务执行流程。",
         },
         "task_contract_seed": {
@@ -5126,6 +5397,24 @@ def _request_task_run_minimal_repair_action() -> dict[str, Any]:
                 "known_constraints": ["用户明确约束、质量要求或排除项"],
             },
             "completion_criteria": ["可验收完成标准"],
+            "goal_contract": {
+                "success_definition": "任务成功时用户能看到或验证的结果。",
+                "completion_evidence": ["证明任务完成的证据类型"],
+            },
+            "lifecycle_contract": {
+                "pause_policy": {"allowed": True, "state_to_preserve": ["current_goal", "completed_steps", "open_risks", "next_resume_step"]},
+                "resume_policy": {"resume_from": "latest_preserved_state_and_user_steer"},
+                "stop_policy": {"on_stop": "停止后说明已完成内容、未完成内容和可恢复状态。"},
+                "replan_policy": {"when": "目标、风险、证据或验证结果显著偏离原计划时先反馈。"},
+                "failure_recovery_policy": {"on_tool_failure": "说明失败原因、保留已完成证据并停止或请求用户裁决。"},
+                "terminal_policy": {"final_report_required": True, "include_unfinished_work": True},
+            },
+            "feedback_contract": {
+                "feedback_sources": ["tool_observation", "runtime_observation", "lifecycle_signal", "verification_signal"],
+            },
+            "acceptance_contract": {
+                "final_answer_requirements": ["说明完成内容、验证结果、未完成项和风险"],
+            },
         },
     }
 
@@ -5157,7 +5446,8 @@ def _protocol_error_requested_action_type(protocol_error: dict[str, Any]) -> str
 def _with_request_task_run_repair_template(prefix: str) -> str:
     return (
         f"{str(prefix or '').strip()} "
-        "最小合法骨架如下；用你的当前任务目标、范围和证据替换占位文本，但保留这些键和层级：\n"
+        "任务模式用于承载可追踪的持续工作生命周期：稳定任务身份、跨 turn 状态、阶段反馈、停止/恢复控制、验收边界和失败恢复。"
+        "最小合法骨架如下；用你的当前任务目标、范围、完成证据和生命周期边界替换占位文本，但保留这些键和层级：\n"
         f"{_request_task_run_repair_template_text()}"
     ).strip()
 
@@ -5172,8 +5462,14 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
     default = "请按本轮 model_decision_contract 和 action schema 重新提交一个合法 JSON action。"
     payload = dict(json_payload or {})
     action_type = str(payload.get("action_type") or "").strip()
+    errors = {str(item) for item in list(dict(diagnostics or {}).get("validation_errors") or [])}
+    if "public_task_lifecycle_claim_requires_request_task_run" in errors:
+        return (
+            "你的公开反馈宣称要开启或进入持续任务生命周期，但结构化动作不是 request_task_run。"
+            "请重新选择一个一致动作：如果你确实判断需要任务模式，提交 action_type=request_task_run 并填写 task_contract_seed；"
+            "如果你只是要在当前 turn 内继续工具处理，请保留 tool_call 但改写公开反馈，不要宣称启动 Task。"
+        )
     if action_type == "resume_recoverable_work":
-        errors = {str(item) for item in list(dict(diagnostics or {}).get("validation_errors") or [])}
         recovery_resume = payload.get("recovery_resume")
         recovery_resume_obj = dict(recovery_resume or {}) if isinstance(recovery_resume, dict) else {}
         misplaced_top_level = [field for field in _RECOVERY_RESUME_NESTED_FIELDS if field in payload]
@@ -5204,7 +5500,6 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
         return default
     if action_type != "request_task_run":
         return default
-    errors = {str(item) for item in list(dict(diagnostics or {}).get("validation_errors") or [])}
     task_seed = payload.get("task_contract_seed")
     task_seed_obj = dict(task_seed or {}) if isinstance(task_seed, dict) else {}
     misplaced_top_level = [field for field in _REQUEST_TASK_RUN_TASK_CONTRACT_FIELDS if field in payload]
@@ -5254,6 +5549,19 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
             "request_task_run 必须声明完成证据。请在 task_contract_seed 内提供 "
             "completion_criteria、required_artifacts 或 required_verifications；"
             "只有可验收标准明确时，持续任务才能启动。"
+        )
+    if (
+        "public_progress_note_required_for_request_task_run" in errors
+        or "public_action_state_required_for_request_task_run" in errors
+    ):
+        return _with_request_task_run_repair_template(
+            "request_task_run 必须带有公开启动说明。请在 public_progress_note 说明为什么需要任务模式，"
+            "并在 public_action_state.current_judgment/next_action 写清当前边界和下一步。"
+        )
+    if "tool_call_not_allowed_for_request_task_run" in errors:
+        return _with_request_task_run_repair_template(
+            "request_task_run 是任务生命周期启动动作，不能和普通 tool_call 放在同一个动作里。"
+            "请先提交任务启动合同；任务接受后再在任务生命周期内执行工具。"
         )
     return default
 
@@ -6377,13 +6685,11 @@ def _reasoning_projection_status_event(
     estimated_tokens = max(1, (char_count + 3) // 4)
     digest = hashlib.sha256(content.encode("utf-8", errors="ignore")).hexdigest()
     normalized_state = str(state or "done").strip() or "done"
+    detail = "正在整理当前思路，可折叠查看。" if normalized_state == "running" else "当前思路已记录，可折叠查看。"
     return {
         "type": "runtime_status",
         "title": "模型思考",
-        "detail": (
-            f"provider 返回 reasoning_content，约 {estimated_tokens} tokens。"
-            "系统已按公开推理投影策略展示，可折叠查看。"
-        ),
+        "detail": detail,
         "state": normalized_state,
         "status_kind": "reasoning_projection_state",
         "phase": str(phase or "model_finalization"),
@@ -6630,6 +6936,9 @@ def _single_agent_turn_followup_prompt_context(
     base_segment_plan: dict[str, Any] | None = None,
     packet_id: str = "",
     tool_iteration: int,
+    storage_root: Path | None = None,
+    provider_visible_context_scope: str = "",
+    model_selection: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], str]:
     resolved_packet_id = str(packet_id or compilation.packet.packet_id)
     followup_messages, followup_segment_plan = _single_agent_turn_followup_prompt_payload(
@@ -6637,6 +6946,9 @@ def _single_agent_turn_followup_prompt_context(
         model_messages=model_messages,
         packet_id=resolved_packet_id,
         tool_iteration=tool_iteration,
+        storage_root=storage_root,
+        provider_visible_context_scope=provider_visible_context_scope,
+        model_selection=model_selection,
     )
     followup_prompt_manifest = {
         **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
@@ -6715,6 +7027,9 @@ def _single_agent_turn_followup_prompt_payload(
     model_messages: list[dict[str, Any]],
     packet_id: str,
     tool_iteration: int,
+    storage_root: Path | None = None,
+    provider_visible_context_scope: str = "",
+    model_selection: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     append_only_messages = _copy_model_messages_without_rewriting(model_messages)
     specs, prefix_lock_report = _single_agent_turn_append_only_followup_message_specs(
@@ -6722,6 +7037,12 @@ def _single_agent_turn_followup_prompt_payload(
         model_messages=append_only_messages,
         tool_iteration=tool_iteration,
         packet_id=packet_id,
+    )
+    specs = _with_provider_visible_followup_commit_candidates(
+        specs,
+        storage_root=storage_root,
+        scope=provider_visible_context_scope,
+        model_selection=model_selection,
     )
     specs = _with_provider_payload_hashes(specs)
     segment_plan = build_prompt_segment_plan(
@@ -6812,6 +7133,203 @@ def _single_agent_turn_append_only_followup_message_specs(
             )
         specs.append(spec)
     return specs, prefix_lock_report
+
+
+def _provider_visible_followup_ledger_kwargs(
+    *,
+    compiler: Any,
+    session_id: str,
+    model_selection: dict[str, Any] | None,
+) -> dict[str, Any]:
+    storage_root = _path_value(getattr(compiler, "base_dir", None))
+    return {
+        "storage_root": storage_root,
+        "provider_visible_context_scope": str(session_id or "").strip(),
+        "model_selection": dict(model_selection or {}),
+    }
+
+
+def _provider_visible_followup_ledger_kwargs_from_accounting(
+    accounting_context: dict[str, Any] | None,
+    *,
+    model_selection: dict[str, Any] | None,
+) -> dict[str, Any]:
+    payload = dict(accounting_context or {})
+    storage_root = _path_value(
+        payload.get("provider_visible_context_ledger_storage_root")
+        or payload.get("storage_root")
+    )
+    return {
+        "storage_root": storage_root,
+        "provider_visible_context_scope": str(
+            payload.get("provider_visible_context_scope")
+            or payload.get("session_id")
+            or ""
+        ).strip(),
+        "model_selection": dict(model_selection or {}),
+    }
+
+
+def _path_value(value: Any) -> Path | None:
+    if isinstance(value, Path):
+        return value
+    text = str(value or "").strip()
+    if not text:
+        return None
+    return Path(text)
+
+
+def _with_provider_visible_followup_commit_candidates(
+    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    storage_root: Path | None,
+    scope: str,
+    model_selection: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if storage_root is None or not str(scope or "").strip():
+        return [dict(item) for item in list(specs or []) if isinstance(item, dict)]
+    provider, model = _provider_model_from_selection(model_selection)
+    result: list[dict[str, Any]] = []
+    for raw_spec in list(specs or []):
+        if not isinstance(raw_spec, dict):
+            continue
+        spec = dict(raw_spec)
+        candidate = _followup_provider_visible_candidate_source_spec(spec)
+        if not candidate:
+            result.append(spec)
+            continue
+        result.append(
+            provider_visible_context_append_candidate_spec(
+                candidate,
+                storage_root=storage_root,
+                scope=scope,
+                provider=provider,
+                model=model,
+                adapter_contract=PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT,
+            )
+        )
+    return result
+
+
+def _followup_provider_visible_candidate_source_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(spec or {})
+    kind = str(payload.get("kind") or "").strip()
+    metadata = dict(payload.get("metadata") or {})
+    if kind in {"accumulated_context_boundary"}:
+        return {}
+    if not _followup_provider_visible_message_from_spec(payload):
+        return {}
+    policy = context_segment_policy_for_spec(payload)
+    if policy.section == STATIC_PREFIX:
+        return {}
+    if _is_followup_provider_visible_replayed_prefix(policy=policy, metadata=metadata):
+        return {}
+    if _is_followup_provider_visible_current_append(policy=policy, metadata=metadata):
+        return payload
+    if not _is_followup_provider_visible_append_only_kind(kind, payload):
+        return {}
+    metadata = {
+        **metadata,
+        "context_cache_section": CONTEXT_APPEND,
+        "context_assembly_section": CONTEXT_APPEND,
+        "fixed_context_package": "context_memory_append",
+        "context_commit_policy": "append_then_seal",
+        "context_replay_policy": "current_append_commit_on_provider_success_then_next_ledger_replay",
+        "context_identity_policy": "content_addressed_when_unkeyed",
+        "semantic_commit_class": _followup_provider_visible_replay_only_class(kind),
+        "provider_visible_replay_only": True,
+        "semantic_memory_visible": False,
+        "semantic_memory_commit_policy": "never_commit",
+        "provider_visible_history_authority": "harness.loop.single_agent_turn.followup_provider_visible_commit_candidate",
+    }
+    candidate = {
+        **payload,
+        "cache_scope": "task",
+        "cache_role": "session_stable",
+        "prefix_tier": "task",
+        "compression_role": str(payload.get("compression_role") or "preserve"),
+        "metadata": metadata,
+    }
+    policy = context_segment_policy_for_spec(candidate, default_section=CONTEXT_APPEND)
+    candidate["metadata"] = {
+        **metadata,
+        **context_segment_policy_metadata(policy),
+        "semantic_commit_class": metadata["semantic_commit_class"],
+        "provider_visible_replay_only": True,
+        "semantic_memory_visible": False,
+        "semantic_memory_commit_policy": "never_commit",
+    }
+    return candidate
+
+
+def _is_followup_provider_visible_replayed_prefix(
+    *,
+    policy: Any,
+    metadata: dict[str, Any],
+) -> bool:
+    if str(getattr(policy, "section", "") or "") == CONTEXT_MEMORY_PREFIX:
+        return True
+    commit_policy = str(metadata.get("context_commit_policy") or getattr(policy, "commit_policy", "") or "").strip()
+    replay_policy = str(metadata.get("context_replay_policy") or getattr(policy, "replay_policy", "") or "").strip()
+    payload_authority = str(metadata.get("provider_visible_payload_authority") or "").strip()
+    history_status = str(metadata.get("provider_visible_history_status") or "").strip()
+    if commit_policy.startswith("replay_only"):
+        return True
+    if replay_policy in {"provider_visible_history_replay", "provider_visible_ledger_replay"}:
+        return True
+    if payload_authority == "runtime.context_management.provider_visible_context_ledger.replay":
+        return True
+    return history_status in {"sealed_from_prior_model_request", "static_context"}
+
+
+def _is_followup_provider_visible_current_append(
+    *,
+    policy: Any,
+    metadata: dict[str, Any],
+) -> bool:
+    if str(getattr(policy, "section", "") or "") != CONTEXT_APPEND:
+        return False
+    commit_policy = str(metadata.get("context_commit_policy") or getattr(policy, "commit_policy", "") or "").strip()
+    history_status = str(metadata.get("provider_visible_history_status") or "").strip()
+    commit_stage = str(metadata.get("provider_visible_context_ledger_commit_stage") or "").strip()
+    if commit_stage == "provider_success_required":
+        return True
+    if history_status == "current_tool_round_pending_provider_success":
+        return True
+    return commit_policy == "append_then_seal"
+
+
+def _is_followup_provider_visible_append_only_kind(kind: str, spec: dict[str, Any]) -> bool:
+    if kind in {
+        "single_agent_turn_tool_call",
+        "single_agent_turn_tool_observation",
+        "single_agent_turn_user_steer_context",
+        "single_agent_turn_followup_action_contract",
+        "single_agent_turn_followup_message",
+        "runtime_control_signal_tail",
+        "tool_observations",
+    }:
+        return True
+    role = str(dict(spec or {}).get("role") or "")
+    return role in {"assistant", "tool", "user", "system"}
+
+
+def _followup_provider_visible_replay_only_class(kind: str) -> str:
+    if kind in {"runtime_control_signal_tail", "single_agent_turn_followup_action_contract"}:
+        return "provider_visible_replay_only_runtime_tail"
+    if kind in {"single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"}:
+        return "provider_visible_replay_only_tool_transcript"
+    if kind == "single_agent_turn_user_steer_context":
+        return "provider_visible_replay_only_user_steer"
+    return "provider_visible_replay_only_followup_context"
+
+
+def _provider_model_from_selection(model_selection: dict[str, Any] | None) -> tuple[str, str]:
+    selection = dict(model_selection or {})
+    return (
+        str(selection.get("provider") or selection.get("llm_provider") or "").strip(),
+        str(selection.get("model") or selection.get("llm_model") or "").strip(),
+    )
 
 
 def _with_provider_payload_hashes(

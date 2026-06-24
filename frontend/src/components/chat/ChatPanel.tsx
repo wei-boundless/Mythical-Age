@@ -1,7 +1,7 @@
 "use client";
 
-import { ExternalLink } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { ArrowDown, ExternalLink } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
@@ -22,6 +22,7 @@ import type { ActiveTurnSnapshot, Message, StoreState, TokenStats } from "@/lib/
 export function ChatPanel() {
   const [openingVSCode, setOpeningVSCode] = useState(false);
   const [vscodeOpenError, setVSCodeOpenError] = useState("");
+  const [autoFollowPaused, setAutoFollowPaused] = useState(false);
   const {
     messages,
     activeProjectionsByKey,
@@ -77,6 +78,8 @@ export function ChatPanel() {
   } = useAppStoreActions();
   const endRef = useRef<HTMLDivElement | null>(null);
   const footerRef = useRef<HTMLDivElement | null>(null);
+  const messagesScrollRef = useRef<HTMLDivElement | null>(null);
+  const autoFollowRef = useRef(true);
   const scrollFrameRef = useRef<number | null>(null);
   const [footerHeight, setFooterHeight] = useState(220);
   const currentSession = useMemo(
@@ -133,30 +136,55 @@ export function ChatPanel() {
     }
   }
 
-  useEffect(() => {
+  const scrollToConversationEnd = useCallback((behavior: ScrollBehavior = "smooth") => {
     if (typeof window === "undefined") {
       return;
     }
-    const scheduleFrame = typeof window.requestAnimationFrame === "function"
-      ? window.requestAnimationFrame.bind(window)
-      : (callback: FrameRequestCallback) => window.setTimeout(() => callback(Date.now()), 16);
-    const cancelFrame = typeof window.cancelAnimationFrame === "function"
-      ? window.cancelAnimationFrame.bind(window)
-      : window.clearTimeout.bind(window);
     if (scrollFrameRef.current !== null) {
-      cancelFrame(scrollFrameRef.current);
+      cancelChatScrollFrame(scrollFrameRef.current);
     }
-    scrollFrameRef.current = scheduleFrame(() => {
+    autoFollowRef.current = true;
+    setAutoFollowPaused(false);
+    scrollFrameRef.current = scheduleChatScrollFrame(() => {
       scrollFrameRef.current = null;
-      endRef.current?.scrollIntoView({ behavior: currentSessionReceivingStream ? "auto" : "smooth" });
+      endRef.current?.scrollIntoView({ behavior, block: "end" });
     });
+  }, []);
+
+  const updateAutoFollowFromScroll = useCallback(() => {
+    const scroller = messagesScrollRef.current;
+    if (!scroller) {
+      return;
+    }
+    const shouldFollow = chatScrollerIsNearBottom(scroller);
+    autoFollowRef.current = shouldFollow;
+    setAutoFollowPaused(!shouldFollow);
+  }, []);
+
+  const handleSendMessage = useCallback(async (value: string, options?: { files?: File[] }) => {
+    scrollToConversationEnd("auto");
+    await sendMessage(value, options);
+  }, [scrollToConversationEnd, sendMessage]);
+
+  useEffect(() => {
+    autoFollowRef.current = true;
+    setAutoFollowPaused(false);
+  }, [currentSessionId]);
+
+  useEffect(() => {
+    if (autoFollowRef.current) {
+      scrollToConversationEnd(currentSessionReceivingStream ? "auto" : "smooth");
+    }
+  }, [projectedMessages, currentSessionReceivingStream, scrollToConversationEnd]);
+
+  useEffect(() => {
     return () => {
       if (scrollFrameRef.current !== null) {
-        cancelFrame(scrollFrameRef.current);
+        cancelChatScrollFrame(scrollFrameRef.current);
         scrollFrameRef.current = null;
       }
     };
-  }, [projectedMessages, currentSessionReceivingStream]);
+  }, []);
 
   useEffect(() => {
     const footer = footerRef.current;
@@ -193,7 +221,11 @@ export function ChatPanel() {
       style={panelStyle}
     >
       <div className="chat-thread flex min-h-0 min-w-0 flex-col overflow-hidden">
-        <div className="chat-thread__messages flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
+        <div
+          className="chat-thread__messages flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto"
+          onScroll={updateAutoFollowFromScroll}
+          ref={messagesScrollRef}
+        >
           {!projectedMessages.length ? (
             <div className="chat-thread__empty">
               <div>
@@ -236,6 +268,16 @@ export function ChatPanel() {
           <div ref={endRef} />
         </div>
         <SessionTodoPanel active={currentTaskIsRunning} messages={projectedMessages} />
+        {autoFollowPaused ? (
+          <button
+            className="chat-scroll-follow-button"
+            onClick={() => scrollToConversationEnd("smooth")}
+            type="button"
+          >
+            <ArrowDown size={14} />
+            <span>回到底部</span>
+          </button>
+        ) : null}
       </div>
 
       <div className="chat-panel-footer min-w-0" ref={footerRef}>
@@ -265,7 +307,7 @@ export function ChatPanel() {
         <ChatInput
           disabled={workspaceInitializing}
           streaming={currentSessionReceivingStream}
-          onSend={sendMessage}
+          onSend={handleSendMessage}
           onStop={stopCurrentStream}
           modelProviderConfig={modelProviderConfig}
           imageAssetConfig={imageAssetConfig}
@@ -282,6 +324,26 @@ export function ChatPanel() {
       </div>
     </section>
   );
+}
+
+function scheduleChatScrollFrame(callback: FrameRequestCallback) {
+  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+    return window.requestAnimationFrame(callback);
+  }
+  return window.setTimeout(() => callback(Date.now()), 16);
+}
+
+function cancelChatScrollFrame(frameId: number) {
+  if (typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function") {
+    window.cancelAnimationFrame(frameId);
+    return;
+  }
+  window.clearTimeout(frameId);
+}
+
+function chatScrollerIsNearBottom(scroller: HTMLElement) {
+  const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+  return distanceFromBottom <= 96;
 }
 
 function messagesWithActiveProjectionViews(
