@@ -63,6 +63,23 @@ describe("apiRequest", () => {
     await pending;
   });
 
+  it("gives edit-resend session truncation enough time to commit", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+    })));
+
+    const path = "/sessions/session-0079aa9a75bc43ff/messages/truncate?workspace_view=chat";
+    const pending = expect(apiRequest(path, { method: "POST", body: "{}" })).rejects.toMatchObject({
+      name: "RequestTimeoutError",
+      message: `Request timed out after 60000ms: ${path}`,
+    });
+    await vi.advanceTimersByTimeAsync(60000);
+
+    await pending;
+  });
+
   it("returns null for 204 no-content responses", async () => {
     vi.stubGlobal("window", {});
     vi.stubGlobal("fetch", vi.fn(async () => ({

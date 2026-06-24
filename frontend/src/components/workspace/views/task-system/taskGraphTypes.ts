@@ -1,18 +1,7 @@
 import type {
-  ReactNode,
-} from "react";
-
-import type {
-  ContractSpec,
-  OrchestrationAgentRuntimeCatalog,
   SpecificTaskRecord,
-  TaskGraphRecord,
-  TaskGraphStandardView,
   TaskSystemOverview,
 } from "@/lib/api";
-import type { TaskGraphDraftV2, TaskGraphPublishStateV2 } from "./taskGraphDraftV2";
-import type { TaskGraphEditorSelection } from "./taskGraphEditorSelection";
-import type { TaskGraphSemanticRelationPreset } from "./taskGraphSemanticRelations";
 
 export type TaskGraphKind = "single_agent" | "multi_agent" | "coordination";
 
@@ -57,64 +46,4 @@ export type TaskGraphDomainRecordLike = {
   task_modes: string[];
   tasks: SpecificTaskRecord[];
   entry_policy: TaskSystemOverview["task_management"]["entry_policies"][number] | null;
-};
-
-export type TaskGraphWorkbenchAgentCatalog = NonNullable<NonNullable<TaskSystemOverview["task_graph_management"]>["a2a"]>;
-
-export type TaskGraphAgentCardCatalog = TaskGraphWorkbenchAgentCatalog & {
-  agent_cards: Array<Record<string, unknown>>;
-};
-
-export type TaskGraphWorkbenchProps = {
-  selectedDomain: TaskGraphDomainRecordLike | null;
-  workspaceSlot?: ReactNode;
-  taskGraphs: TaskGraphRecord[];
-  selectedTaskGraphId: string;
-  setSelectedTaskGraphId: (value: string) => void;
-  taskGraphDraftV2: TaskGraphDraftV2;
-  selectedTaskGraph: TaskGraphRecord | null;
-  saving: string;
-  saveTaskGraphStack: (nextPublished?: boolean, nextEditorPublishState?: TaskGraphPublishStateV2) => Promise<void>;
-  editorValid: boolean;
-  editorIssueCount: number;
-  taskGraphDirty: boolean;
-  activeGraphNodes: Array<Record<string, unknown>>;
-  activeGraphEdges: Array<Record<string, unknown>>;
-  selectedDomainTasks: SpecificTaskRecord[];
-  boundTaskGraphTaskIds: Set<string>;
-  addTaskGraphTaskNode: (task: SpecificTaskRecord, role?: string) => void;
-  addTaskGraphRoleNode: (role: string) => void;
-  addTaskGraphNode: () => void;
-  linkingFromNodeId: string;
-  setLinkingFromNodeId: (value: string) => void;
-  taskGraphEditorSelection: TaskGraphEditorSelection;
-  setTaskGraphEditorSelection: (updater: (current: TaskGraphEditorSelection) => TaskGraphEditorSelection) => void;
-  selectedGraphNodeId: string;
-  selectedGraphEdgeId: string;
-  setSelectedGraphEdgeId: (value: string) => void;
-  setSelectedGraphNodeId: (value: string) => void;
-  handleTopologyNodeClick: (nodeId: string) => void;
-  reverseTaskGraphEdge: (edgeId: string) => void;
-  removeTaskGraphEdge: (edgeId: string) => void;
-  addTaskGraphSuccessorNode: (nodeId: string) => void;
-  removeTaskGraphNode: (nodeId: string) => void;
-  selectedGraphNode: Record<string, unknown> | null;
-  selectedGraphEdge: Record<string, unknown> | null;
-  agentGroupOptions: string[];
-  domainTaskOptions: Array<{ value: string; label: string }>;
-  updateTaskGraphDraft: (patch: Partial<TaskGraphDraftV2>) => void;
-  updateTaskGraphMetadata: (patch: Record<string, unknown>) => void;
-  updateTaskGraphRuntimePolicy: (patch: Partial<TaskGraphDraftV2["runtime_policy"]>) => void;
-  updateTaskGraphPublishState: (state: TaskGraphPublishStateV2) => void;
-  updateTaskGraphNode: (nodeId: string, patch: Record<string, unknown>) => void;
-  updateTaskGraphEdge: (edgeId: string, patch: Record<string, unknown>) => void;
-  taskGraphStandardView: TaskGraphStandardView | null;
-  taskGraphStandardViewStale: boolean;
-  taskGraphStandardViewLoading: boolean;
-  taskGraphStandardViewError: string;
-  refreshTaskGraphStandardView: () => Promise<void>;
-  a2aCatalog: TaskGraphAgentCardCatalog | null;
-  orchestrationAgentCatalog: OrchestrationAgentRuntimeCatalog | null;
-  contractSpecs: ContractSpec[];
-  semanticRelationPresets: TaskGraphSemanticRelationPreset[];
 };

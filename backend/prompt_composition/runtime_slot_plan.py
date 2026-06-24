@@ -6,7 +6,7 @@ from typing import Any
 
 from .models import PromptCompositionSlot, RuntimePromptSlot, RuntimePromptSlotPlan
 from .tracing import runtime_source_kind_for_segment
-from runtime.context_management.context_assembly import classify_context_spec
+from runtime.context_management.context_assembly import CONTEXT_APPEND, CONTEXT_MEMORY_PREFIX, DYNAMIC_TAIL, classify_context_spec
 
 
 def build_runtime_prompt_slot_plan(
@@ -24,9 +24,9 @@ def build_runtime_prompt_slot_plan(
         source_kind = runtime_source_kind_for_segment(spec)
         classification = classify_context_spec(spec)
         layer = _layer_for_source_kind(source_kind)
-        if classification.context_cache_section in {"sealed_context_prefix", "context_append"}:
+        if classification.context_cache_section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
             layer = "context_memory"
-        elif classification.context_cache_section == "dynamic_tail":
+        elif classification.context_cache_section == DYNAMIC_TAIL:
             layer = "runtime_dynamic"
         metadata = dict(spec.get("metadata") or {})
         prompt_source_manifest_id = str(metadata.get("runtime_prompt_source_manifest_id") or "")
@@ -230,7 +230,7 @@ def _authority_class_for_source_kind(source_kind: str) -> str:
 def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str, classification: dict[str, Any] | None = None) -> str:
     assembly = dict(classification or {})
     section = str(assembly.get("context_cache_section") or "")
-    if section in {"sealed_context_prefix", "context_append"}:
+    if section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
         if kind == "runtime_memory_context":
             return "runtime_memory_context"
         if kind in {"current_turn_user_context", "single_agent_turn_user_steer_context", "user_steering_context_append"}:
@@ -238,7 +238,7 @@ def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str, classificatio
         if kind in {"provider_protocol_history", "single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"}:
             return "append_only_task_evidence"
         return "context_memory_append"
-    if section == "dynamic_tail":
+    if section == DYNAMIC_TAIL:
         if kind == "read_evidence_injection":
             return "current_exact_evidence"
         if kind in {"active_skills", "skill_candidates"}:

@@ -26,9 +26,11 @@ from runtime.prompt_accounting import (
     PromptStabilityReporter,
     extract_provider_usage,
 )
+from runtime.prompt_accounting.serializer import canonical_json
+from runtime.context_management.provider_visible_context_ledger import confirm_provider_visible_context_entries
 from runtime.tool_runtime.tool_call_policy import ToolCallBindingOptions
 
-from .lightweight_chat_model import LightweightChatModel, LightweightConversationAgent
+from .lightweight_chat_model import LightweightChatModel, LightweightConversationAgent, provider_message_payloads
 from .model_request import ModelRequestBuilder
 from .providers import ProviderRequestProfile, build_provider_adapter_result
 
@@ -220,12 +222,18 @@ class ModelRuntime:
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 effective_spec = _spec_with_chat_prefix_endpoint(spec)
                 effective_messages = _messages_with_chat_prefix_protocol(messages, spec=effective_spec)
+                effective_messages, effective_accounting_context = self._provider_visible_append_only_passthrough(
+                    effective_messages,
+                    spec=effective_spec,
+                    accounting_context=accounting_context,
+                    call_kind="invoke_messages",
+                )
                 model = self._get_chat_model_for_spec(effective_spec)
                 accounting = self._begin_prompt_accounting(
                     effective_messages,
                     tools=None,
                     spec=effective_spec,
-                    accounting_context=accounting_context,
+                    accounting_context=effective_accounting_context,
                     attempt=attempt,
                     call_kind="invoke_messages",
                 )
@@ -291,12 +299,18 @@ class ModelRuntime:
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 effective_spec = _spec_with_chat_prefix_endpoint(spec)
                 effective_messages = _messages_with_chat_prefix_protocol(messages, spec=effective_spec)
+                effective_messages, effective_accounting_context = self._provider_visible_append_only_passthrough(
+                    effective_messages,
+                    spec=effective_spec,
+                    accounting_context=accounting_context,
+                    call_kind="invoke_messages_with_tools",
+                )
                 model = self._get_chat_model_for_spec(effective_spec)
                 accounting = self._begin_prompt_accounting(
                     effective_messages,
                     tools=tools,
                     spec=effective_spec,
-                    accounting_context=accounting_context,
+                    accounting_context=effective_accounting_context,
                     attempt=attempt,
                     call_kind="invoke_messages_with_tools",
                     tool_call_options=tool_call_options,
@@ -373,12 +387,18 @@ class ModelRuntime:
                 emitted = False
                 effective_spec = _spec_with_chat_prefix_endpoint(spec)
                 effective_messages = _messages_with_chat_prefix_protocol(messages, spec=effective_spec)
+                effective_messages, effective_accounting_context = self._provider_visible_append_only_passthrough(
+                    effective_messages,
+                    spec=effective_spec,
+                    accounting_context=accounting_context,
+                    call_kind="astream_messages",
+                )
                 model = self._get_chat_model_for_spec(effective_spec)
                 accounting = self._begin_prompt_accounting(
                     effective_messages,
                     tools=None,
                     spec=effective_spec,
-                    accounting_context=accounting_context,
+                    accounting_context=effective_accounting_context,
                     attempt=attempt,
                     call_kind="astream_messages",
                 )
@@ -452,12 +472,18 @@ class ModelRuntime:
                 emitted = False
                 effective_spec = _spec_with_chat_prefix_endpoint(spec)
                 effective_messages = _messages_with_chat_prefix_protocol(messages, spec=effective_spec)
+                effective_messages, effective_accounting_context = self._provider_visible_append_only_passthrough(
+                    effective_messages,
+                    spec=effective_spec,
+                    accounting_context=accounting_context,
+                    call_kind="astream_messages_with_tools",
+                )
                 model = self._get_chat_model_for_spec(effective_spec)
                 accounting = self._begin_prompt_accounting(
                     effective_messages,
                     tools=tools,
                     spec=effective_spec,
-                    accounting_context=accounting_context,
+                    accounting_context=effective_accounting_context,
                     attempt=attempt,
                     call_kind="astream_messages_with_tools",
                     tool_call_options=tool_call_options,
@@ -1159,6 +1185,7 @@ class ModelRuntime:
         if error is not None:
             self._finish_model_trace_span(accounting, provider_usage=None, error=error)
             return
+        self._confirm_provider_visible_context_success(accounting, response=response)
         if ledger is None or not request_id:
             self._finish_model_trace_span(accounting, provider_usage=None, error=None)
             return
@@ -1263,6 +1290,22 @@ class ModelRuntime:
             logger.debug("Failed to record provider token usage", exc_info=True)
         finally:
             self._finish_model_trace_span(accounting, provider_usage=provider_usage, error=None)
+
+    def _confirm_provider_visible_context_success(self, accounting: dict[str, Any], *, response: Any) -> dict[str, Any]:
+        candidates = _provider_visible_context_commit_candidates_from_accounting(accounting)
+        if not candidates:
+            return {}
+        try:
+            return confirm_provider_visible_context_entries(
+                candidates,
+                provider=str(dict(accounting or {}).get("provider") or ""),
+                model=str(dict(accounting or {}).get("model") or ""),
+                request_id=str(dict(accounting or {}).get("request_id") or ""),
+                response_ref=_provider_response_ref(response),
+            )
+        except Exception:
+            logger.debug("Failed to confirm provider-visible context ledger entries", exc_info=True)
+            return {"status": "failed", "authority": "runtime.model_gateway.model_runtime.provider_visible_context_confirm"}
 
     def _start_model_trace_span(
         self,
@@ -1494,6 +1537,28 @@ class ModelRuntime:
             **dict(adapter_result.request_params_for_accounting or {}),
         }
 
+    def _provider_visible_append_only_passthrough(
+        self,
+        messages: list[Any],
+        *,
+        spec: ModelSpec,
+        accounting_context: dict[str, Any] | None,
+        call_kind: str,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+        context = dict(accounting_context or {})
+        provider_messages = [dict(item) for item in provider_message_payloads(list(messages or []))]
+        if context.get("provider_visible_append_only_context") is not True:
+            return provider_messages, accounting_context
+        prompt_manifest = dict(context.get("prompt_manifest") or {})
+        prompt_manifest["provider_visible_append_only_transport"] = {
+            "status": "not_applied",
+            "message_count": len(provider_messages),
+            "rule": "provider_gateway_preserves_upstream_append_only_message_order",
+            "authority": "runtime.model_gateway.model_runtime.append_only_passthrough",
+        }
+        context["prompt_manifest"] = prompt_manifest
+        return provider_messages, context
+
     def _record_model_candidate_switch(
         self,
         *,
@@ -1646,6 +1711,12 @@ class ModelRuntime:
             user_message="模型调用失败，请稍后重试。",
         )
 
+def _int(value: Any, *, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
 
 def _compact_error_detail(detail: str, *, limit: int = 500) -> str:
     normalized = " ".join(str(detail or "").split())
@@ -1748,6 +1819,93 @@ def _normalize_tool_call_options(
             ),
         )
     return None
+
+
+def _provider_visible_context_commit_candidates_from_accounting(accounting: dict[str, Any]) -> list[dict[str, Any]]:
+    model_request = dict(accounting or {}).get("model_request")
+    candidates: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for segment in _provider_visible_context_ref_segments(model_request):
+        metadata = dict(segment.get("metadata") or {})
+        if str(metadata.get("provider_visible_context_ledger_commit_stage") or "") != "provider_success_required":
+            continue
+        scope = str(metadata.get("provider_visible_context_ledger_scope") or "").strip()
+        item_key = str(metadata.get("provider_visible_context_ledger_item_key") or "").strip()
+        provider_hash = str(metadata.get("provider_visible_hash") or "").strip()
+        storage_root = str(metadata.get("provider_visible_context_ledger_storage_root") or "").strip()
+        provider_message = dict(metadata.get("provider_visible_context_candidate_message") or {})
+        if not scope or not item_key or not provider_hash or not provider_message:
+            continue
+        identity = (storage_root, scope, item_key, provider_hash)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        candidates.append(
+            {
+                "provider_visible_context_ledger_storage_root": storage_root,
+                "provider_visible_context_ledger_scope": scope,
+                "provider_visible_context_ledger_item_key": item_key,
+                "provider_visible_hash": provider_hash,
+                "provider_visible_context_candidate_message": provider_message,
+                "provider_visible_context_candidate_kind": str(metadata.get("provider_visible_context_candidate_kind") or ""),
+                "provider_visible_context_candidate_source_ref": str(metadata.get("provider_visible_context_candidate_source_ref") or ""),
+                "provider_visible_context_candidate_semantic_commit_class": str(metadata.get("provider_visible_context_candidate_semantic_commit_class") or ""),
+                "provider_visible_context_candidate_provider": str(metadata.get("provider_visible_context_candidate_provider") or ""),
+                "provider_visible_context_candidate_model": str(metadata.get("provider_visible_context_candidate_model") or ""),
+                "provider_adapter_contract": str(metadata.get("provider_adapter_contract") or ""),
+            }
+        )
+    return candidates
+
+
+def _provider_visible_context_ref_segments(model_request: Any) -> list[dict[str, Any]]:
+    segments: list[dict[str, Any]] = []
+    manifest = getattr(model_request, "provider_payload_manifest", None)
+    if isinstance(model_request, dict):
+        manifest = model_request.get("provider_payload_manifest", manifest)
+    manifest_payload = manifest.to_dict() if hasattr(manifest, "to_dict") else dict(manifest or {}) if isinstance(manifest, dict) else {}
+    for item in list(manifest_payload.get("segments") or []):
+        if isinstance(item, dict):
+            segments.append(dict(item))
+    if segments:
+        return segments
+    bindings = getattr(model_request, "segment_bindings", None)
+    if isinstance(model_request, dict):
+        bindings = model_request.get("segment_bindings", bindings)
+    for item in list(bindings or []):
+        if hasattr(item, "to_dict"):
+            segments.append(dict(item.to_dict()))
+        elif isinstance(item, dict):
+            segments.append(dict(item))
+    if segments:
+        return segments
+    segment_plan = getattr(model_request, "segment_plan", None)
+    if isinstance(model_request, dict):
+        segment_plan = model_request.get("segment_plan", segment_plan)
+    for item in list(dict(segment_plan or {}).get("segments") or []):
+        if isinstance(item, dict):
+            segments.append(dict(item))
+    return segments
+
+
+def _provider_response_ref(response: Any) -> str:
+    for attr_name in ("id", "response_id", "request_id"):
+        value = getattr(response, attr_name, "")
+        text = str(value or "").strip()
+        if text:
+            return text
+    if isinstance(response, dict):
+        for key in ("id", "response_id", "request_id"):
+            text = str(response.get(key) or "").strip()
+            if text:
+                return text
+    response_metadata = getattr(response, "response_metadata", None)
+    if isinstance(response_metadata, dict):
+        for key in ("id", "response_id", "request_id"):
+            text = str(response_metadata.get(key) or "").strip()
+            if text:
+                return text
+    return ""
 
 
 def _optional_int(value: Any) -> int | None:

@@ -232,7 +232,7 @@ def build_task_execution_incremental_context_frame_payload(
             "frame_scope": "task_execution",
             "task_run_id": str(task_run_id or ""),
             "invocation_index": max(1, int(invocation_index or 1)),
-            "sealed_context_cursor": _drop_empty(
+            "context_memory_cursor": _drop_empty(
                 {
                     "status": "preserved",
                     "append_context_status": "facts_before_tail",
@@ -248,7 +248,7 @@ def build_task_execution_incremental_context_frame_payload(
                 }
             ),
             "execution_contract": {
-                "memory_source": "sealed_context_prefix+context_append",
+                "memory_source": "static_prefix+context_memory",
                 "action_contract_ref": "action_schema_static",
                 "tail_scope": "current_invocation_control_only",
             },

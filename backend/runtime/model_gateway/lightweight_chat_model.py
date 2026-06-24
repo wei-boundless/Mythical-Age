@@ -343,6 +343,9 @@ def _chunk_from_stream_response(
 
 def _message_to_provider_payload(message: Any) -> dict[str, Any]:
     item = dict(message) if isinstance(message, dict) else _object_message_payload(message)
+    passthrough = _provider_payload_passthrough(item)
+    if passthrough is not None:
+        return passthrough
     role = _provider_role(item.get("role") or item.get("type") or item.get("message_type") or "")
     payload: dict[str, Any] = {
         "role": role,
@@ -369,6 +372,55 @@ def _message_to_provider_payload(message: Any) -> dict[str, Any]:
         if provider_calls:
             payload["tool_calls"] = provider_calls
     return payload
+
+
+def _provider_payload_passthrough(item: dict[str, Any]) -> dict[str, Any] | None:
+    role = str(item.get("role") or "").strip()
+    if role not in {"system", "user", "assistant", "tool"}:
+        return None
+    if isinstance(item.get("additional_kwargs"), dict) and dict(item.get("additional_kwargs") or {}):
+        return None
+    tool_calls = item.get("tool_calls")
+    if tool_calls and not _provider_shaped_tool_calls(tool_calls):
+        return None
+    payload: dict[str, Any] = {
+        "role": role,
+        "content": _serializable_content(item.get("content")),
+    }
+    for key in ("name", "tool_call_id"):
+        value = str(item.get(key) or "").strip()
+        if value:
+            payload[key] = value
+    if role == "assistant":
+        reasoning_content = _first_text(item.get("reasoning_content"))
+        if reasoning_content:
+            payload["reasoning_content"] = reasoning_content
+        if item.get("prefix") is True or str(item.get("prefix") or "").strip().lower() == "true":
+            payload["prefix"] = True
+        if tool_calls:
+            payload["tool_calls"] = [copy.deepcopy(dict(call)) for call in tool_calls if isinstance(call, dict)]
+    return payload
+
+
+def _provider_shaped_tool_calls(value: Any) -> bool:
+    calls = _as_list(value)
+    if not calls:
+        return False
+    for raw in calls:
+        if not isinstance(raw, dict):
+            return False
+        item = dict(raw)
+        function = item.get("function")
+        if str(item.get("type") or "") != "function" or not isinstance(function, dict):
+            return False
+        if not str(item.get("id") or "").strip():
+            return False
+        if not str(function.get("name") or "").strip():
+            return False
+        arguments = function.get("arguments")
+        if not isinstance(arguments, str):
+            return False
+    return True
 
 
 def _object_message_payload(message: Any) -> dict[str, Any]:

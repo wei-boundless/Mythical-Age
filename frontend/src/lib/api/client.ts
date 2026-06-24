@@ -43,6 +43,9 @@ function requestTimeoutMs(path: string) {
   if (path === "/sessions") {
     return 15000;
   }
+  if (isSessionMessagesTruncatePath(path)) {
+    return 60000;
+  }
   if (isSessionRuntimeProjectionPath(path)) {
     return 8000;
   }
@@ -102,6 +105,11 @@ function isNonRetriableSessionObservationPath(path: string) {
 function isSessionTimelinePath(path: string) {
   const pathname = String(path || "").split("?")[0];
   return /^\/sessions\/[^/]+\/timeline$/.test(pathname);
+}
+
+function isSessionMessagesTruncatePath(path: string) {
+  const pathname = String(path || "").split("?")[0];
+  return /^\/sessions\/[^/]+\/messages\/truncate$/.test(pathname);
 }
 
 function isSessionRuntimeProjectionPath(path: string) {

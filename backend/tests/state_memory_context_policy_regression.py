@@ -349,7 +349,7 @@ def test_context_policy_sealed_receipt_allows_only_included_candidate_content() 
     assert result.to_dict()["sealed_receipt"]["included_candidate_ids"] == ["allowed-state"]
 
 
-def test_sealed_context_receipt_rejects_tampered_model_visible_sections() -> None:
+def test_context_package_receipt_rejects_tampered_model_visible_sections() -> None:
     candidate = MemoryContextCandidate(
         candidate_id="sealed-state",
         memory_layer="state",
@@ -372,7 +372,7 @@ def test_sealed_context_receipt_rejects_tampered_model_visible_sections() -> Non
     try:
         _render_context_package_block(result.package, include_durable_context=True)
     except ValueError as exc:
-        assert "sealed receipt" in str(exc)
+        assert "ContextPackage receipt" in str(exc)
     else:
         raise AssertionError("Prompt builder rendered a tampered sealed context package")
 

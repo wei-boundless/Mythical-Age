@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from runtime.prompt_accounting.serializer import canonical_json, normalize_messages, normalize_tools
+from runtime.prompt_accounting.serializer import canonical_json
 from prompt_composition.provider_payload_plan import build_provider_payload_plan
 
 from .lightweight_chat_model import provider_message_payloads, provider_tool_payloads
@@ -102,19 +102,17 @@ class ModelRequestBuilder:
     ) -> ModelRequestPacket:
         raw_messages = list(messages or [])
         raw_tools = list(tools or [])
-        normalized_messages = tuple(normalize_messages(raw_messages))
-        normalized_tools = tuple(normalize_tools(raw_tools))
         plan = dict(segment_plan or {})
-        bindings = tuple(_bindings_from_plan(plan, normalized_messages))
-        stable_prefix_hash = _stable_prefix_hash(bindings)
-        tier_hashes = _prefix_tier_hashes(bindings)
-        binding_diagnostics = _binding_diagnostics(bindings, normalized_messages)
         metadata_payload = dict(metadata or {})
         cache_relevant_params = dict(metadata_payload.get("cache_relevant_params") or {})
         provider_transport_messages = tuple(provider_message_payloads(raw_messages))
         provider_transport_tools = tuple(
             provider_tool_payloads(raw_tools, strict=_transport_tool_strict(cache_relevant_params))
         )
+        bindings = tuple(_bindings_from_plan(plan, provider_transport_messages))
+        stable_prefix_hash = _stable_prefix_hash(bindings)
+        tier_hashes = _prefix_tier_hashes(bindings)
+        binding_diagnostics = _binding_diagnostics(bindings, provider_transport_messages)
         provider_transport_message_hashes = tuple(
             _stable_text_hash(canonical_json(message)) for message in provider_transport_messages
         )
@@ -159,8 +157,8 @@ class ModelRequestBuilder:
             provider=str(provider or ""),
             model=str(model or ""),
             base_url=str(base_url or ""),
-            messages=normalized_messages,
-            tools=normalized_tools,
+            messages=provider_transport_messages,
+            tools=provider_transport_tools,
             segment_plan=plan,
             segment_bindings=bindings,
             canonical_hash=_stable_text_hash(canonical),
@@ -205,7 +203,7 @@ class ModelRequestBuilder:
                     ),
                 },
                 "provider_reasoning_contract": provider_reasoning_contract,
-                "unplanned_message_count": max(0, len(normalized_messages) - len(bindings)),
+                "unplanned_message_count": max(0, len(provider_transport_messages) - len(bindings)),
                 **binding_diagnostics,
                 "prefix_tier_hashes": tier_hashes,
                 **metadata_payload,

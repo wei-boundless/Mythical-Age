@@ -54,13 +54,22 @@ export const WORKSPACE_REGISTRY: Record<WorkspaceView, WorkspaceViewDefinition> 
     view: "chat",
   },
   creative: {
-    label: "图任务",
+    label: "任务图系统",
     render: () => (
-      <SystemPageShell label="图任务" view="creative">
+      <SystemPageShell label="任务图系统" view="creative">
         <LazyView><GraphTaskSystemView /></LazyView>
       </SystemPageShell>
     ),
     view: "creative",
+  },
+  "graph-repository": {
+    label: "任务图系统",
+    render: () => (
+      <SystemPageShell label="任务图系统" view="graph-repository">
+        <LazyView><GraphTaskSystemView /></LazyView>
+      </SystemPageShell>
+    ),
+    view: "graph-repository",
   },
   "task-system": {
     label: "任务系统",

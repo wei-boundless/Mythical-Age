@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from harness.runtime import RuntimeCompiler
+from runtime.context_management import confirm_provider_visible_context_entries
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
 
 
@@ -142,6 +143,7 @@ def test_runtime_compiler_uses_provider_protocol_as_single_append_only_history_p
             "task_environment": {"environment_id": "env.general.workspace"},
         },
     )
+    _confirm_segment_commit_candidates(first.packet.segment_plan.get("segments") or [])
     second = compiler.compile_single_agent_turn_packet(
         session_id="session:protocol-prefix-lock",
         turn_id="turn:protocol-prefix-lock:2",
@@ -177,12 +179,27 @@ def test_runtime_compiler_uses_provider_protocol_as_single_append_only_history_p
     assert dict(first_current["metadata"])["append_only_context_stream"] == "current_user_context"
     assert dict(second_current["metadata"])["append_only_context_stream"] == "current_user_context"
     assert len(second_current_segments) >= 2
-    assert dict(second_current_segments[0]["metadata"])["context_cache_section"] == "sealed_context_prefix"
+    assert dict(second_current_segments[0]["metadata"])["context_cache_section"] == "context_memory_prefix"
     assert dict(second_current["metadata"])["context_cache_section"] == "context_append"
     assert _last_history_segment_index(first_segments) < first_segments.index(first_current)
     assert _last_history_segment_index(second_segments) < second_segments.index(second_current)
     assert first_segments.index(first_current) < _first_dynamic_tail_segment_index(first_segments)
     assert second_segments.index(second_current) < _first_dynamic_tail_segment_index(second_segments)
+
+
+def _confirm_segment_commit_candidates(segments: list[dict]) -> None:
+    candidates = [
+        dict(dict(segment).get("metadata") or {})
+        for segment in list(segments or [])
+        if str(dict(dict(segment).get("metadata") or {}).get("provider_visible_context_ledger_commit_stage") or "")
+        == "provider_success_required"
+    ]
+    if candidates:
+        confirm_provider_visible_context_entries(
+            candidates,
+            request_id="modelreq:test:protocol-prefix-lock:first",
+            response_ref="resp:test:protocol-prefix-lock:first",
+        )
 
 
 def _stable_prefix_signature(segments: list[dict], *, exclude_kinds: set[str] | None = None) -> list[tuple[str, str]]:

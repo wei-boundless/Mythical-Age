@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { GraphTaskForegroundView } from "@/components/workspace/views/task-graph-foreground/GraphTaskForegroundView";
+import { GraphRepositoryPage } from "@/components/workspace/views/graph-repository/GraphRepositoryPage";
 import { useAppStore } from "@/lib/store";
 
 export function GraphTaskSystemView() {
@@ -16,8 +16,8 @@ export function GraphTaskSystemView() {
   }, [clearTaskGraphWorkspaceTarget, taskGraphWorkspaceTarget]);
 
   return (
-    <section className="graph-task-system-page" aria-label="图任务系统">
-      <GraphTaskForegroundView requestedGraphId={requestedGraphId} />
+    <section className="graph-task-system-page" aria-label="任务图系统">
+      <GraphRepositoryPage requestedGraphId={requestedGraphId} />
     </section>
   );
 }

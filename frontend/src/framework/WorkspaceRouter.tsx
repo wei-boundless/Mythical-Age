@@ -2,14 +2,12 @@
 
 import { useEffect, useState } from "react";
 
-import { TaskGraphRunInteractionDock } from "@/components/workspace/views/task-system/TaskGraphRunInteractionDock";
 import { useAppStore } from "@/lib/store";
 
 import { WorkspaceRegistry } from "./WorkspaceRegistry";
 import {
   isWorkspaceQueryView,
   isWorkspaceView,
-  shouldShowTaskGraphRunInteractionDock,
 } from "./workspaceViews";
 import { applyWorkbenchAppearance } from "./workbenchThemes";
 
@@ -18,18 +16,6 @@ export function WorkspaceRouter() {
     activeWorkspaceView,
     setWorkspaceView,
     conversationActiveEnvironment,
-    clearTaskGraphMonitorRun,
-    continueBoundTaskGraphRun,
-    evaluateBoundTaskGraphMonitor,
-    pauseBoundTaskGraphRun,
-    setTaskGraphRunInteractionOpen,
-    stopBoundTaskGraphRun,
-    taskGraphBoundRunMonitor,
-    taskGraphMonitorActionLoading,
-    taskGraphMonitorBinding,
-    taskGraphMonitorError,
-    taskGraphMonitorLoading,
-    taskGraphRunInteractionOpen,
   } = useAppStore();
   const [locationSearch, setLocationSearch] = useState("");
 
@@ -71,22 +57,6 @@ export function WorkspaceRouter() {
   return (
     <>
       <WorkspaceRegistry centerTaskEnvironmentId={centerTaskEnvironmentId} view={activeWorkspaceView} />
-      {shouldShowTaskGraphRunInteractionDock(activeWorkspaceView) ? (
-        <TaskGraphRunInteractionDock
-          actionLoading={taskGraphMonitorActionLoading}
-          binding={taskGraphMonitorBinding}
-          error={taskGraphMonitorError}
-          monitor={taskGraphBoundRunMonitor}
-          monitorLoading={taskGraphMonitorLoading}
-          onClear={clearTaskGraphMonitorRun}
-          onContinue={() => void continueBoundTaskGraphRun()}
-          onEvaluate={() => void evaluateBoundTaskGraphMonitor()}
-          onOpenChange={setTaskGraphRunInteractionOpen}
-          onPause={() => void pauseBoundTaskGraphRun()}
-          onStop={() => void stopBoundTaskGraphRun()}
-          open={taskGraphRunInteractionOpen}
-        />
-      ) : null}
     </>
   );
 }

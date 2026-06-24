@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { AlertTriangle, Code2, ExternalLink, FileText, GitCompare, Loader2, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, RefreshCw, Save, Sparkles, Terminal, Workflow, X } from "lucide-react";
+import { AlertTriangle, Code2, ExternalLink, FileText, GitCompare, Loader2, MessageSquare, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, RefreshCw, Save, Sparkles, Terminal, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -9,12 +9,13 @@ import remarkGfm from "remark-gfm";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { RuntimeLogPanel, type RuntimeLogTarget } from "@/components/layout/RuntimeLogPanel";
 import { useWorkbenchShellControls } from "@/components/layout/WorkbenchShell";
+import { SessionProjectionPanel, sessionProjectionPageKey, sessionProjectionPageTitle, type SessionProjectionTarget } from "@/components/workspace/projections/SessionProjectionPanel";
 import { getFileChangeDiff, openManagedFileInVSCode, type FileChangeDiffPayload } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/ui/classNames";
 import { TabButton, Tabs } from "@/ui/Tabs";
 
-type CenterWorkspaceLayer = "chat" | "resource-launcher" | "file" | "file-change-diff" | "runtime-log";
+type CenterWorkspaceLayer = "chat" | "resource-launcher" | "file" | "file-change-diff" | "runtime-log" | "session-projection";
 type CenterWorkspaceAuxLayer = Exclude<CenterWorkspaceLayer, "chat" | "resource-launcher">;
 const GENERAL_TASK_ENVIRONMENT_ID = "env.general.workspace";
 const CENTER_PAGE_WIDTH_STORAGE_KEY = "center-workspace:right-page-width";
@@ -773,7 +774,6 @@ export function CenterWorkspaceView({
     selectWorkspaceFile,
     sessionEditorContexts,
     setSessionEditorPageState,
-    setWorkspaceView,
   } = useAppStore();
   const shellControls = useWorkbenchShellControls();
   const [layer, setLayer] = useState<CenterWorkspaceLayer>("chat");
@@ -786,6 +786,8 @@ export function CenterWorkspaceView({
   const [openDiffPages, setOpenDiffPages] = useState<FileChangeDiffPage[]>([]);
   const [activeRuntimeLogKey, setActiveRuntimeLogKey] = useState("");
   const [openRuntimeLogPages, setOpenRuntimeLogPages] = useState<RuntimeLogTarget[]>([]);
+  const [activeSessionProjectionKey, setActiveSessionProjectionKey] = useState("");
+  const [openSessionProjectionPages, setOpenSessionProjectionPages] = useState<SessionProjectionTarget[]>([]);
   const [pageWidth, setPageWidth] = useState(() => {
     if (typeof window === "undefined") {
       return CENTER_PAGE_DEFAULT_WIDTH;
@@ -859,14 +861,16 @@ export function CenterWorkspaceView({
           ? "file-change-diff"
           : activeRuntimeLogKey
             ? "runtime-log"
-            : "chat";
+            : activeSessionProjectionKey
+              ? "session-projection"
+              : "chat";
       setLayer(nextLayer);
       if (nextLayer === "chat") {
         setPageLayerOpen(false);
       }
     }
     setSessionEditorPageState({ activeFilePath: nextActiveFilePath, openFilePaths: nextOpenFilePaths });
-  }, [activeDiffKey, activeFilePath, activeRuntimeLogKey, inspectorDirty, openFilePaths, setSessionEditorPageState]);
+  }, [activeDiffKey, activeFilePath, activeRuntimeLogKey, activeSessionProjectionKey, inspectorDirty, openFilePaths, setSessionEditorPageState]);
 
   const openRuntimeLogPage = useCallback((target: RuntimeLogTarget) => {
     const runId = String(target.runId || "").trim();
@@ -887,6 +891,29 @@ export function CenterWorkspaceView({
     });
     setActiveRuntimeLogKey(key);
     setLayer("runtime-log");
+    setPageLayerOpen(true);
+  }, []);
+
+  const openSessionProjectionPage = useCallback((target: SessionProjectionTarget) => {
+    const sessionId = String(target.sessionId || "").trim();
+    if (!sessionId) return;
+    const normalized: SessionProjectionTarget = {
+      sessionId,
+      scope: target.scope,
+      title: String(target.title || "").trim() || undefined,
+      subtitle: String(target.subtitle || "").trim() || sessionId,
+      source: String(target.source || "").trim() || undefined,
+    };
+    const key = sessionProjectionPageKey(normalized);
+    setOpenSessionProjectionPages((pages) => {
+      const existing = pages.find((page) => sessionProjectionPageKey(page) === key);
+      if (existing) {
+        return pages.map((page) => sessionProjectionPageKey(page) === key ? { ...page, ...normalized } : page);
+      }
+      return [...pages, normalized];
+    });
+    setActiveSessionProjectionKey(key);
+    setLayer("session-projection");
     setPageLayerOpen(true);
   }, []);
 
@@ -920,7 +947,7 @@ export function CenterWorkspaceView({
       const nextPages = pages.filter((page) => fileChangeDiffPageKey(page) !== key);
       if (key === activeDiffKey) {
         const nextPage = nextPages[Math.min(Math.max(index, 0), nextPages.length - 1)] ?? null;
-        const nextLayer: CenterWorkspaceLayer = nextPage ? "file-change-diff" : activeFilePath ? "file" : activeRuntimeLogKey ? "runtime-log" : "chat";
+        const nextLayer: CenterWorkspaceLayer = nextPage ? "file-change-diff" : activeFilePath ? "file" : activeRuntimeLogKey ? "runtime-log" : activeSessionProjectionKey ? "session-projection" : "chat";
         setActiveDiffKey(nextPage ? fileChangeDiffPageKey(nextPage) : "");
         setLayer(nextLayer);
         if (nextLayer === "chat") {
@@ -929,7 +956,7 @@ export function CenterWorkspaceView({
       }
       return nextPages;
     });
-  }, [activeDiffKey, activeFilePath, activeRuntimeLogKey]);
+  }, [activeDiffKey, activeFilePath, activeRuntimeLogKey, activeSessionProjectionKey]);
 
   const closeRuntimeLogPage = useCallback((key: string) => {
     setOpenRuntimeLogPages((pages) => {
@@ -937,7 +964,7 @@ export function CenterWorkspaceView({
       const nextPages = pages.filter((page) => runtimeLogPageKey(page) !== key);
       if (key === activeRuntimeLogKey) {
         const nextPage = nextPages[Math.min(Math.max(index, 0), nextPages.length - 1)] ?? null;
-        const nextLayer: CenterWorkspaceLayer = nextPage ? "runtime-log" : activeDiffKey ? "file-change-diff" : activeFilePath ? "file" : "chat";
+        const nextLayer: CenterWorkspaceLayer = nextPage ? "runtime-log" : activeDiffKey ? "file-change-diff" : activeFilePath ? "file" : activeSessionProjectionKey ? "session-projection" : "chat";
         setActiveRuntimeLogKey(nextPage ? runtimeLogPageKey(nextPage) : "");
         setLayer(nextLayer);
         if (nextLayer === "chat") {
@@ -946,7 +973,24 @@ export function CenterWorkspaceView({
       }
       return nextPages;
     });
-  }, [activeDiffKey, activeFilePath, activeRuntimeLogKey]);
+  }, [activeDiffKey, activeFilePath, activeRuntimeLogKey, activeSessionProjectionKey]);
+
+  const closeSessionProjectionPage = useCallback((key: string) => {
+    setOpenSessionProjectionPages((pages) => {
+      const index = pages.findIndex((page) => sessionProjectionPageKey(page) === key);
+      const nextPages = pages.filter((page) => sessionProjectionPageKey(page) !== key);
+      if (key === activeSessionProjectionKey) {
+        const nextPage = nextPages[Math.min(Math.max(index, 0), nextPages.length - 1)] ?? null;
+        const nextLayer: CenterWorkspaceLayer = nextPage ? "session-projection" : activeRuntimeLogKey ? "runtime-log" : activeDiffKey ? "file-change-diff" : activeFilePath ? "file" : "chat";
+        setActiveSessionProjectionKey(nextPage ? sessionProjectionPageKey(nextPage) : "");
+        setLayer(nextLayer);
+        if (nextLayer === "chat") {
+          setPageLayerOpen(false);
+        }
+      }
+      return nextPages;
+    });
+  }, [activeDiffKey, activeFilePath, activeRuntimeLogKey, activeSessionProjectionKey]);
 
   const closeResourcePage = useCallback((pageId: string) => {
     const targetPageId = pageId.trim();
@@ -971,6 +1015,9 @@ export function CenterWorkspaceView({
         } else if (activeRuntimeLogKey) {
           setLayer("runtime-log");
           setPageLayerOpen(true);
+        } else if (activeSessionProjectionKey) {
+          setLayer("session-projection");
+          setPageLayerOpen(true);
         } else {
           setLayer("chat");
           setPageLayerOpen(false);
@@ -978,7 +1025,7 @@ export function CenterWorkspaceView({
       }
       return nextPages;
     });
-  }, [activeDiffKey, activeFilePath, activeResourcePageId, activeRuntimeLogKey]);
+  }, [activeDiffKey, activeFilePath, activeResourcePageId, activeRuntimeLogKey, activeSessionProjectionKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1095,9 +1142,17 @@ export function CenterWorkspaceView({
         title: centerWorkspaceTarget.title,
         subtitle: centerWorkspaceTarget.subtitle,
       });
+    } else if (centerWorkspaceTarget.layer === "session-projection") {
+      openSessionProjectionPage({
+        sessionId: centerWorkspaceTarget.session_id,
+        scope: centerWorkspaceTarget.scope,
+        title: centerWorkspaceTarget.title,
+        subtitle: centerWorkspaceTarget.subtitle,
+        source: centerWorkspaceTarget.source,
+      });
     }
     clearCenterWorkspaceTarget();
-  }, [centerWorkspaceTarget, clearCenterWorkspaceTarget, openFileChangeDiffPage, openFilePage, openRuntimeLogPage]);
+  }, [centerWorkspaceTarget, clearCenterWorkspaceTarget, openFileChangeDiffPage, openFilePage, openRuntimeLogPage, openSessionProjectionPage]);
 
   function closeFileLayer() {
     closeFilePage(activeFilePath);
@@ -1105,6 +1160,7 @@ export function CenterWorkspaceView({
 
   const activeRuntimeLogPage = openRuntimeLogPages.find((page) => runtimeLogPageKey(page) === activeRuntimeLogKey) ?? null;
   const activeDiffPage = openDiffPages.find((page) => fileChangeDiffPageKey(page) === activeDiffKey) ?? null;
+  const activeSessionProjectionPage = openSessionProjectionPages.find((page) => sessionProjectionPageKey(page) === activeSessionProjectionKey) ?? null;
   const activeAuxLayer: CenterWorkspaceAuxLayer | null =
     layer === "file" && activeFilePath
       ? "file"
@@ -1112,6 +1168,8 @@ export function CenterWorkspaceView({
         ? "file-change-diff"
         : layer === "runtime-log" && activeRuntimeLogPage
           ? "runtime-log"
+          : layer === "session-projection" && activeSessionProjectionPage
+            ? "session-projection"
           : layer === "resource-launcher"
             ? null
             : activeFilePath
@@ -1120,7 +1178,9 @@ export function CenterWorkspaceView({
                 ? "file-change-diff"
                 : activeRuntimeLogPage
                   ? "runtime-log"
-                  : null;
+                  : activeSessionProjectionPage
+                    ? "session-projection"
+                    : null;
   const activeAuxLabel = layer === "resource-launcher" || !activeAuxLayer
     ? "新建文件"
     : activeAuxLayer === "file"
@@ -1129,8 +1189,10 @@ export function CenterWorkspaceView({
       ? fileChangeDiffPageTitle(activeDiffPage)
       : activeAuxLayer === "runtime-log" && activeRuntimeLogPage
         ? runtimeLogPageTitle(activeRuntimeLogPage)
+        : activeAuxLayer === "session-projection" && activeSessionProjectionPage
+          ? sessionProjectionPageTitle(activeSessionProjectionPage)
         : "文件";
-  const openPanelCount = openResourcePageIds.length + openFilePaths.length + openRuntimeLogPages.length + openDiffPages.length;
+  const openPanelCount = openResourcePageIds.length + openFilePaths.length + openRuntimeLogPages.length + openDiffPages.length + openSessionProjectionPages.length;
 
   function renderAuxPanel() {
     if (activeAuxLayer === "file") {
@@ -1153,6 +1215,16 @@ export function CenterWorkspaceView({
       return (
         <section className="center-workspace__runtime-log-layer" aria-label="运行日志页">
           <RuntimeLogPanel target={activeRuntimeLogPage} onClose={() => closeRuntimeLogPage(runtimeLogPageKey(activeRuntimeLogPage))} />
+        </section>
+      );
+    }
+    if (activeAuxLayer === "session-projection" && activeSessionProjectionPage) {
+      return (
+        <section className="center-workspace__session-projection-layer" aria-label="Session 投影页">
+          <SessionProjectionPanel
+            target={activeSessionProjectionPage}
+            onClose={() => closeSessionProjectionPage(sessionProjectionPageKey(activeSessionProjectionPage))}
+          />
         </section>
       );
     }
@@ -1289,6 +1361,41 @@ export function CenterWorkspaceView({
             </div>
           );
         })}
+        {openSessionProjectionPages.map((target) => {
+          const key = sessionProjectionPageKey(target);
+          const active = layer === "session-projection" && key === activeSessionProjectionKey;
+          const label = sessionProjectionPageTitle(target);
+          return (
+            <div
+              className={cn("chat-page-tabs__item", active && "chat-page-tabs__item--active", "center-workspace-file-tab")}
+              key={key}
+              title={target.subtitle || target.sessionId}
+            >
+              <button
+                aria-current={active ? "page" : undefined}
+                className="center-workspace-file-tab__main"
+                onClick={() => {
+                  setActiveSessionProjectionKey(key);
+                  setLayer("session-projection");
+                  setPageLayerOpen(true);
+                }}
+                type="button"
+              >
+                <MessageSquare size={14} />
+                <span>{label}</span>
+              </button>
+              <button
+                aria-label={`关闭投影页 ${label}`}
+                className="center-workspace-file-tab__close"
+                onClick={() => closeSessionProjectionPage(key)}
+                title="关闭投影页"
+                type="button"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          );
+        })}
         {openDiffPages.map((target) => {
           const key = fileChangeDiffPageKey(target);
           const active = layer === "file-change-diff" && key === activeDiffKey;
@@ -1368,13 +1475,6 @@ export function CenterWorkspaceView({
               >
                 <Sparkles size={14} />
                 <span>会话页</span>
-              </TabButton>
-              <TabButton
-                className="center-workspace__tool-button"
-                onClick={() => setWorkspaceView("creative")}
-              >
-                <Workflow size={14} />
-                <span>图任务</span>
               </TabButton>
             </Tabs>
           </div>

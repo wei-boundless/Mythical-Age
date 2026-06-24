@@ -107,7 +107,7 @@ import {
 import { streamEventStopsActiveWork } from "./runtime/streamEvents";
 import { isCatalogEnvironmentVisible, taskEnvironmentIdOf, taskEnvironmentLabelOf } from "./runtime/taskEnvironmentCatalog";
 import { errorDetailMessage, runtimeText } from "./runtime/text";
-import type { ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, FileChangeDiffCenterWorkspaceTarget, Message, PermissionMode, RuntimeLogCenterWorkspaceTarget, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionRef, StoreActions, StoreState, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
+import type { ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, FileChangeDiffCenterWorkspaceTarget, Message, PermissionMode, RuntimeLogCenterWorkspaceTarget, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionProjectionCenterWorkspaceTarget, SessionRef, StoreActions, StoreState, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
 
 type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
@@ -367,6 +367,9 @@ export class WorkspaceRuntime {
       },
       openRuntimeLog: (target) => {
         this.openRuntimeLog(target);
+      },
+      openSessionProjection: (target) => {
+        this.openSessionProjection(target);
       },
       clearTaskGraphWorkspaceTarget: () => {
         this.clearTaskGraphWorkspaceTarget();
@@ -5262,7 +5265,7 @@ export class WorkspaceRuntime {
     const view = activeEnvironmentId
       ? this.workspaceViewForTaskEnvironment(activeEnvironmentId)
       : "chat";
-    const workspaceView = view === "creative" ? "chat" : view;
+    const workspaceView = view === "creative" ? "graph-repository" : view;
     this.syncWorkspaceViewUrl(workspaceView);
     this.store.setState((prev) => ({
       ...prev,
@@ -5273,7 +5276,7 @@ export class WorkspaceRuntime {
   private workspaceViewForTaskEnvironment(taskEnvironmentId: string): WorkspaceView {
     const normalized = String(taskEnvironmentId || "").trim();
     if (GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(normalized)) {
-      return "creative";
+      return "graph-repository";
     }
     return "chat";
   }
@@ -5296,11 +5299,11 @@ export class WorkspaceRuntime {
       return;
     }
     const view = this.workspaceViewForTaskEnvironment(taskEnvironmentId);
-    if (view === "creative" || GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(taskEnvironmentId)) {
-      this.syncWorkspaceViewUrl("creative");
+    if (view === "graph-repository" || view === "creative" || GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(taskEnvironmentId)) {
+      this.syncWorkspaceViewUrl("graph-repository");
       this.store.setState((prev) => ({
         ...prev,
-        activeWorkspaceView: "creative",
+        activeWorkspaceView: "graph-repository",
         chatTaskEnvironmentBinding: null,
       }));
       return;
@@ -5343,10 +5346,10 @@ export class WorkspaceRuntime {
       return;
     }
     if (GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(normalized)) {
-      this.syncWorkspaceViewUrl("creative");
+      this.syncWorkspaceViewUrl("graph-repository");
       this.store.setState((prev) => ({
         ...prev,
-        activeWorkspaceView: "creative",
+        activeWorkspaceView: "graph-repository",
         chatTaskEnvironmentBinding: null,
       }));
       return;
@@ -5368,7 +5371,7 @@ export class WorkspaceRuntime {
 
   private openTaskGraphWorkspace(target: Omit<TaskGraphWorkspaceTarget, "layer" | "requested_at"> = {}) {
     const mode = target.mode ?? "monitor";
-    const workspaceView: WorkspaceView = mode === "editor" ? "task-system" : "creative";
+    const workspaceView: WorkspaceView = "graph-repository";
     this.syncWorkspaceViewUrl(workspaceView);
     this.store.setState((prev) => ({
       ...prev,
@@ -5445,6 +5448,28 @@ export class WorkspaceRuntime {
         run_id: runId,
         title: String(target.title || "").trim() || undefined,
         subtitle: String(target.subtitle || "").trim() || undefined,
+        requested_at: Date.now(),
+      },
+    }));
+  }
+
+  private openSessionProjection(target: Omit<SessionProjectionCenterWorkspaceTarget, "layer" | "requested_at">) {
+    const sessionId = String(target?.session_id || "").trim();
+    if (!sessionId) {
+      return;
+    }
+    const view = this.centerWorkspaceHostView(this.store.getState().activeWorkspaceView);
+    this.syncWorkspaceViewUrl(view);
+    this.store.setState((prev) => ({
+      ...prev,
+      activeWorkspaceView: view,
+      centerWorkspaceTarget: {
+        layer: "session-projection",
+        session_id: sessionId,
+        scope: target.scope,
+        title: String(target.title || "").trim() || undefined,
+        subtitle: String(target.subtitle || "").trim() || undefined,
+        source: String(target.source || "").trim() || undefined,
         requested_at: Date.now(),
       },
     }));
@@ -5803,10 +5828,10 @@ export class WorkspaceRuntime {
       return;
     }
     if (GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(taskEnvironmentId)) {
-      this.syncWorkspaceViewUrl("creative");
+      this.syncWorkspaceViewUrl("graph-repository");
       this.store.setState((prev) => ({
         ...prev,
-        activeWorkspaceView: "creative",
+        activeWorkspaceView: "graph-repository",
         chatTaskEnvironmentBinding: null,
       }));
       return;

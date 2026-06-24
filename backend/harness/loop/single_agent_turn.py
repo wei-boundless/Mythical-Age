@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import inspect
 import json
@@ -60,16 +61,18 @@ from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_sc
 from runtime.cache_manager import DEFAULT_SANDBOX_CACHE_TTL_SECONDS, runtime_cache_manager_for_host
 from runtime.context_management import (
     CONTEXT_APPEND,
-    SEALED_CONTEXT_PREFIX,
+    CONTEXT_MEMORY_PREFIX,
     STATIC_PREFIX,
     apply_context_assembly_classification,
-    assign_sealed_append_order,
     classify_context_spec,
+    context_segment_policy_for_spec,
+    context_segment_policy_metadata,
     DYNAMIC_TAIL,
     is_dynamic_tail_spec,
     is_sealable_context_spec,
+    provider_visible_context_append_candidate_spec,
+    provider_visible_context_replay_only_candidate_spec,
 )
-from runtime.prompt_accounting.serializer import normalize_messages
 from runtime.prompt_accounting import ContextUsageMeter
 from runtime.model_gateway.assistant_stream_frame import (
     ASSISTANT_STREAM_REPAIR_EVENT,
@@ -81,6 +84,7 @@ from runtime.model_gateway.assistant_stream_normalizer import AssistantStreamNor
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
 from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_content
+from runtime.model_gateway.lightweight_chat_model import provider_message_payloads
 from runtime.model_gateway.stream_iteration import iterate_stream_with_due_ticks
 from runtime.output_boundary import (
     CanonicalFinalTextDecision,
@@ -652,11 +656,9 @@ def _runtime_control_signal_recovery_messages(
         "如果上一轮动作仍然正确，修正字段后重新提交。"
         "整段输出只能包含一个 action-like 对象。"
     )
-    return _sanitize_model_messages(
-        [
-            *[dict(item) for item in list(model_messages or []) if isinstance(item, dict)],
-            {"role": "system", "content": instruction, "turn_id": turn_id},
-        ],
+    return _append_model_messages_without_rewriting_context(
+        model_messages,
+        [{"role": "system", "content": instruction, "turn_id": turn_id}],
         turn_id=turn_id,
         source="harness.loop.single_agent_turn.runtime_control_signal_recovery",
     )
@@ -708,15 +710,15 @@ def _tool_followup_action_contract_messages(
         "工具前置说明可以作为公开进展，但 task_contract_seed 必须留在动作对象内。\n"
         "只有控制动作和工具动作需要动作对象；不要为了最终回答把自然语言正文塞进 JSON。"
     )
-    return _sanitize_model_messages(
+    return _append_model_messages_without_rewriting_context(
+        model_messages,
         [
-            *[dict(item) for item in list(model_messages or []) if isinstance(item, dict)],
             {
-                "role": "system",
+                "role": "user",
                 "content": instruction,
                 "turn_id": turn_id,
                 "source_ref": "single_agent_turn_tool_followup_action_contract",
-            },
+            }
         ],
         turn_id=turn_id,
         source="harness.loop.single_agent_turn.tool_followup_action_contract",
@@ -762,11 +764,9 @@ def _agent_authored_closeout_messages(
         "收口生命周期如下，只用于你理解收口原因和边界，不要逐字泄露内部字段：\n"
         f"{json.dumps({'closeout_lifecycle': closeout_lifecycle}, ensure_ascii=False, sort_keys=True)}"
     )
-    return _sanitize_model_messages(
-        [
-            *[dict(item) for item in list(model_messages or []) if isinstance(item, dict)],
-            {"role": "system", "content": instruction, "turn_id": turn_id},
-        ],
+    return _append_model_messages_without_rewriting_context(
+        model_messages,
+        [{"role": "system", "content": instruction, "turn_id": turn_id}],
         turn_id=turn_id,
         source="harness.loop.single_agent_turn.agent_authored_closeout",
     )
@@ -1366,11 +1366,7 @@ async def run_single_agent_turn(
             tool_definitions_by_name=tool_definitions_by_name,
         )
         runtime_permission_mode = _turn_runtime_permission_mode(runtime_assembly, runtime_host=runtime_host)
-        model_messages = _sanitize_model_messages(
-            list(compilation.packet.model_messages),
-            turn_id=turn_id,
-            source="harness.loop.single_agent_turn.initial",
-        )
+        model_messages = _copy_model_messages_without_rewriting(list(compilation.packet.model_messages))
         api_protocol_messages: list[dict[str, Any]] = []
         assistant_stream_normalizer: AssistantStreamNormalizer | None = None
         assistant_visible_stream_continuity = {}
@@ -1416,13 +1412,15 @@ async def run_single_agent_turn(
             nonlocal model_messages
             if not batch.items or not batch.model_message:
                 return
-            model_messages = _sanitize_model_messages(
-                [
-                    *[dict(item) for item in list(model_messages or []) if isinstance(item, dict)],
-                    dict(batch.model_message),
-                ],
+            sanitized_steer_messages = _sanitize_model_messages(
+                [dict(batch.model_message)],
                 turn_id=turn_id,
-                source=source,
+                source=f"{source}.new_append",
+            )
+            model_messages = _append_messages_to_accumulated_context(
+                model_messages,
+                sanitized_steer_messages,
+                segment_plan=model_messages_segment_plan,
             )
 
         async def emit_terminal_then_final(
@@ -1517,7 +1515,7 @@ async def run_single_agent_turn(
                     closeout_attempt=attempt,
                     max_closeout_attempts=2,
                 )
-                closeout_segment_plan = _single_agent_turn_followup_segment_plan(
+                closeout_messages, closeout_segment_plan = _single_agent_turn_followup_prompt_payload(
                     base_segment_plan=dict(compilation.packet.segment_plan or {}),
                     model_messages=closeout_messages,
                     packet_id=current_packet_ref,
@@ -1536,6 +1534,7 @@ async def run_single_agent_turn(
                         "packet_ref": current_packet_ref,
                         "source": _AGENT_CLOSEOUT_SOURCE,
                         "segment_plan": closeout_segment_plan,
+                        "provider_visible_append_only_context": True,
                         "prompt_manifest": {
                             **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
                             "invocation_kind": "single_agent_turn_agent_authored_closeout",
@@ -1744,6 +1743,7 @@ async def run_single_agent_turn(
                 "packet_ref": compilation.packet.packet_id,
                 "source": "harness.single_agent_turn",
                 "segment_plan": dict(compilation.packet.segment_plan or {}),
+                "provider_visible_append_only_context": True,
                 "prompt_manifest": dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
             },
             native_tools=_native_tools_for_packet(compilation.packet.allowed_action_types, available_tools=compilation.packet.available_tools),
@@ -1773,7 +1773,7 @@ async def run_single_agent_turn(
                 for steer_event in active_turn_steer_batch.events:
                     yield dict(steer_event)
                 current_requires_json_action = True
-                steer_segment_plan = _single_agent_turn_followup_segment_plan(
+                model_messages, steer_segment_plan = _single_agent_turn_followup_prompt_payload(
                     base_segment_plan=dict(compilation.packet.segment_plan or {}),
                     model_messages=model_messages,
                     packet_id=current_packet_ref,
@@ -1792,6 +1792,7 @@ async def run_single_agent_turn(
                         "packet_ref": current_packet_ref,
                         "source": "harness.single_agent_turn.active_turn_steer",
                         "segment_plan": steer_segment_plan,
+                        "provider_visible_append_only_context": True,
                         "prompt_manifest": {
                             **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
                             "invocation_kind": "single_agent_turn_active_turn_steer",
@@ -1873,7 +1874,7 @@ async def run_single_agent_turn(
                     recovery_exhausted=recovery_exhausted,
                 )
                 current_requires_json_action = True
-                recovery_segment_plan = _single_agent_turn_followup_segment_plan(
+                model_messages, recovery_segment_plan = _single_agent_turn_followup_prompt_payload(
                     base_segment_plan=dict(compilation.packet.segment_plan or {}),
                     model_messages=model_messages,
                     packet_id=current_packet_ref,
@@ -1900,6 +1901,7 @@ async def run_single_agent_turn(
                             else "harness.single_agent_turn.runtime_control_signal_recovery"
                         ),
                         "segment_plan": recovery_segment_plan,
+                        "provider_visible_append_only_context": True,
                         "prompt_manifest": {
                             **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
                             "invocation_kind": (
@@ -2210,14 +2212,15 @@ async def run_single_agent_turn(
                 start_index=previous_accumulated_context_count,
                 messages=new_tool_transcript_messages,
             )
-            model_messages = _sanitize_model_messages(
-                _append_tool_transcript_to_accumulated_context(
-                    model_messages,
-                    new_tool_transcript_messages,
-                    segment_plan=model_messages_segment_plan,
-                ),
+            sanitized_tool_transcript_messages = _sanitize_model_messages(
+                new_tool_transcript_messages,
                 turn_id=turn_id,
-                source="harness.loop.single_agent_turn.tool_followup",
+                source="harness.loop.single_agent_turn.tool_followup.new_append",
+            )
+            model_messages = _append_tool_transcript_to_accumulated_context(
+                model_messages,
+                sanitized_tool_transcript_messages,
+                segment_plan=model_messages_segment_plan,
             )
             if assistant_tool_calls:
                 round_tool_context_entries = _append_tool_context_ledger_entries(
@@ -2255,7 +2258,7 @@ async def run_single_agent_turn(
                 ):
                     yield event
                 return
-            followup_segment_plan, followup_prompt_manifest, followup_packet_ref = _single_agent_turn_followup_prompt_context(
+            model_messages, followup_segment_plan, followup_prompt_manifest, followup_packet_ref = _single_agent_turn_followup_prompt_context(
                 compilation=compilation,
                 model_messages=model_messages,
                 tool_iteration=tool_iteration,
@@ -2339,24 +2342,20 @@ async def run_single_agent_turn(
                             history = refreshed_history
                         if refreshed_session_context:
                             session_context = refreshed_session_context
-                followup_compilation = compiler.compile_observation_followup_packet(
+                followup_compilation = compiler.compile_single_agent_turn_packet(
                     session_id=session_id,
                     turn_id=turn_id,
                     agent_invocation_id=agent_invocation_id,
                     user_message=user_message,
                     history=history,
                     session_context=session_context,
-                    observations=tool_observation_payloads,
+                    active_work_context=active_work_for_turn,
+                    current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
                     agent_profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
                     model_selection=dict(model_selection or {}),
-                    available_tools=list(current_available_tools or []),
                     runtime_assembly=runtime_assembly,
                 )
-                model_messages = _sanitize_model_messages(
-                    list(followup_compilation.packet.model_messages),
-                    turn_id=turn_id,
-                    source="harness.loop.single_agent_turn.mid_turn_context_recovery_followup",
-                )
+                model_messages = _copy_model_messages_without_rewriting(list(followup_compilation.packet.model_messages))
                 round_tool_context_indexed_messages = []
                 followup_segment_plan = dict(followup_compilation.packet.segment_plan or {})
                 model_messages_segment_plan = dict(followup_segment_plan or {})
@@ -2389,7 +2388,7 @@ async def run_single_agent_turn(
                             "turn_id": turn_id,
                             "trigger": "mid_turn_tool_observation_followup",
                             "applied": bool(compaction_payload.get("applied")),
-                            "strategy": str(compaction_payload.get("strategy") or "observation_followup_recompile"),
+                            "strategy": str(compaction_payload.get("strategy") or "single_agent_turn_context_recompile"),
                             "skipped_reason": str(compaction_payload.get("skipped_reason") or ""),
                             "blocked_reason": str(compaction_payload.get("blocked_reason") or ""),
                             "packet_ref": followup_packet_ref,
@@ -2410,7 +2409,7 @@ async def run_single_agent_turn(
                 )
                 for steer_event in active_turn_steer_batch.events:
                     yield dict(steer_event)
-                followup_segment_plan, followup_prompt_manifest, followup_packet_ref = _single_agent_turn_followup_prompt_context(
+                model_messages, followup_segment_plan, followup_prompt_manifest, followup_packet_ref = _single_agent_turn_followup_prompt_context(
                     compilation=compilation,
                     model_messages=model_messages,
                     tool_iteration=tool_iteration,
@@ -2421,15 +2420,12 @@ async def run_single_agent_turn(
                     "active_turn_user_steer_included": True,
                     "queued_user_steer_count": len(active_turn_steer_batch.items),
                 }
-            followup_accumulated_messages, followup_dynamic_tail_messages = _tool_followup_context_layers(
+            followup_accumulated_messages, _previous_dynamic_tail_messages = _tool_followup_context_layers(
                 [dict(item) for item in list(model_messages or []) if isinstance(item, dict)],
                 segment_plan=model_messages_segment_plan,
             )
             followup_context_messages = [dict(item) for item in list(followup_accumulated_messages or []) if isinstance(item, dict)]
-            followup_invocation_messages = [
-                *[dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)],
-                *[dict(item) for item in list(followup_dynamic_tail_messages or []) if isinstance(item, dict)],
-            ]
+            followup_invocation_messages = [dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)]
             if _tool_followup_requires_action_transport(current_allowed_action_types):
                 followup_context_messages = [
                     *[dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)],
@@ -2459,10 +2455,7 @@ async def run_single_agent_turn(
                     turn_id=turn_id,
                 )
                 followup_invocation_messages = _tool_followup_action_contract_messages(
-                    [
-                        *[dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)],
-                        *[dict(item) for item in list(followup_dynamic_tail_messages or []) if isinstance(item, dict)],
-                    ],
+                    [dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)],
                     turn_id=turn_id,
                     allowed_action_types=current_allowed_action_types,
                     tool_iteration=tool_iteration,
@@ -2483,9 +2476,8 @@ async def run_single_agent_turn(
                 )
                 followup_invocation_messages = [
                     *[dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)],
-                    *[dict(item) for item in list(followup_dynamic_tail_messages or []) if isinstance(item, dict)],
                 ]
-            followup_segment_plan = _single_agent_turn_followup_segment_plan(
+            followup_invocation_messages, followup_segment_plan = _single_agent_turn_followup_prompt_payload(
                 base_segment_plan=dict(followup_segment_plan or {}),
                 model_messages=followup_invocation_messages,
                 packet_id=str(followup_packet_ref or current_packet_ref),
@@ -2496,7 +2488,7 @@ async def run_single_agent_turn(
                 **dict(followup_prompt_manifest or {}),
                 "segment_plan_ref": str(followup_segment_plan.get("segment_plan_id") or ""),
                 "append_only_followup_order": True,
-                "physical_message_order": "stable_append_only_context_then_dynamic_tail",
+                "physical_message_order": "append_only_context_including_dynamic_tail",
             }
             response = None
             async for model_event in _invoke_single_turn_model_with_stream_events(
@@ -2511,6 +2503,7 @@ async def run_single_agent_turn(
                     "packet_ref": followup_packet_ref,
                     "source": "harness.single_agent_turn.tool_followup",
                     "segment_plan": followup_segment_plan,
+                    "provider_visible_append_only_context": True,
                     "prompt_manifest": followup_prompt_manifest,
                 },
                 native_tools=_native_tools_for_packet(current_allowed_action_types, available_tools=current_available_tools),
@@ -2523,11 +2516,7 @@ async def run_single_agent_turn(
                     continue
                 capture_assistant_stream_event(model_event)
                 yield model_event
-            model_messages = _sanitize_model_messages(
-                followup_invocation_messages,
-                turn_id=turn_id,
-                source="harness.loop.single_agent_turn.tool_followup_full_invocation_context",
-            )
+            model_messages = _copy_model_messages_without_rewriting(followup_invocation_messages)
         if isinstance(response, dict) and response.get("type") == "error":
             if runtime_host is not None and turn_run is not None:
                 terminal = _record_turn_terminal(
@@ -2610,7 +2599,7 @@ async def run_single_agent_turn(
                 current_allowed_action_types = final_allowed_action_types
                 current_available_tools = ()
                 current_requires_json_action = True
-                recovery_segment_plan = _single_agent_turn_followup_segment_plan(
+                model_messages, recovery_segment_plan = _single_agent_turn_followup_prompt_payload(
                     base_segment_plan=dict(compilation.packet.segment_plan or {}),
                     model_messages=model_messages,
                     packet_id=current_packet_ref,
@@ -2637,6 +2626,7 @@ async def run_single_agent_turn(
                             else "harness.single_agent_turn.runtime_control_signal_recovery"
                         ),
                         "segment_plan": recovery_segment_plan,
+                        "provider_visible_append_only_context": True,
                         "prompt_manifest": {
                             **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
                             "invocation_kind": (
@@ -3196,6 +3186,10 @@ async def run_single_agent_turn(
         raise
 
 
+def _uses_provider_visible_append_only_context(accounting_context: dict[str, Any] | None) -> bool:
+    return bool(dict(accounting_context or {}).get("provider_visible_append_only_context") is True)
+
+
 async def _invoke_single_turn_model(
     *,
     model_runtime: Any,
@@ -3204,10 +3198,18 @@ async def _invoke_single_turn_model(
     accounting_context: dict[str, Any],
     native_tools: list[dict[str, Any]],
 ) -> Any:
-    model_messages = _sanitize_model_messages(
+    if _uses_provider_visible_append_only_context(accounting_context):
+        model_messages = _copy_model_messages_without_rewriting(model_messages)
+    else:
+        model_messages = _sanitize_model_messages(
+            model_messages,
+            turn_id=str(accounting_context.get("turn_id") or ""),
+            source=str(accounting_context.get("source") or "harness.loop.single_agent_turn.invoke"),
+        )
+    _assert_model_messages_match_segment_plan(
         model_messages,
-        turn_id=str(accounting_context.get("turn_id") or ""),
-        source=str(accounting_context.get("source") or "harness.loop.single_agent_turn.invoke"),
+        accounting_context=accounting_context,
+        source="harness.loop.single_agent_turn.invoke",
     )
     tool_invoker = getattr(model_runtime, "invoke_messages_with_tools", None)
     plain_invoker = getattr(model_runtime, "invoke_messages", None)
@@ -3360,10 +3362,18 @@ async def _invoke_single_turn_model_with_stream_events(
         yield {"type": _INTERNAL_MODEL_RESPONSE_EVENT, "response": response, "assistant_stream_normalizer": None}
         return
 
-    model_messages = _sanitize_model_messages(
+    if _uses_provider_visible_append_only_context(accounting_context):
+        model_messages = _copy_model_messages_without_rewriting(model_messages)
+    else:
+        model_messages = _sanitize_model_messages(
+            model_messages,
+            turn_id=str(accounting_context.get("turn_id") or ""),
+            source=str(accounting_context.get("source") or "harness.loop.single_agent_turn.invoke_stream"),
+        )
+    _assert_model_messages_match_segment_plan(
         model_messages,
-        turn_id=str(accounting_context.get("turn_id") or ""),
-        source=str(accounting_context.get("source") or "harness.loop.single_agent_turn.invoke_stream"),
+        accounting_context=accounting_context,
+        source="harness.loop.single_agent_turn.invoke_stream",
     )
     tool_streamer = getattr(model_runtime, "astream_messages_with_tools", None)
     plain_streamer = getattr(model_runtime, "astream_messages", None)
@@ -3761,6 +3771,12 @@ async def _repair_single_agent_admission_failure(
         allowed_action_types=allowed_action_types,
         phase=phase,
     )
+    repair_messages, repair_segment_plan = _single_agent_turn_followup_prompt_payload(
+        base_segment_plan=dict(dict(accounting_context or {}).get("segment_plan") or {}),
+        model_messages=repair_messages,
+        packet_id=packet_ref,
+        tool_iteration=iteration + 1,
+    )
     repair_response = await _invoke_single_turn_model(
         model_runtime=model_runtime,
         model_messages=repair_messages,
@@ -3769,12 +3785,15 @@ async def _repair_single_agent_admission_failure(
             **dict(accounting_context or {}),
             "request_id": request_id,
             "source": "harness.single_agent_turn.admission_repair",
+            "segment_plan": repair_segment_plan,
+            "provider_visible_append_only_context": True,
             "prompt_manifest": {
                 **dict(dict(accounting_context or {}).get("prompt_manifest") or {}),
                 "invocation_kind": "single_agent_turn_admission_repair",
                 "repair_phase": phase,
                 "original_admission_decision": admission.decision,
                 "original_admission_reason": admission.system_reason,
+                "segment_plan_ref": str(repair_segment_plan.get("segment_plan_id") or ""),
             },
         },
         native_tools=[],
@@ -3860,11 +3879,9 @@ def _single_agent_admission_repair_messages(
         "修复输入：\n"
         f"{json.dumps(repair_payload, ensure_ascii=False, sort_keys=True)}"
     )
-    return _sanitize_model_messages(
-        [
-            *[dict(item) for item in list(model_messages or []) if isinstance(item, dict)],
-            {"role": "user", "content": repair_instruction, "turn_id": turn_id},
-        ],
+    return _append_model_messages_without_rewriting_context(
+        model_messages,
+        [{"role": "user", "content": repair_instruction, "turn_id": turn_id}],
         turn_id=turn_id,
         source="harness.loop.single_agent_turn.admission_repair",
     )
@@ -6056,12 +6073,114 @@ def _assistant_tool_call_message(response: Any, tool_calls: list[dict[str, Any]]
     message = {
         "role": "assistant",
         "content": stringify_content(getattr(response, "content", response)),
-        "tool_calls": tool_calls_for_langchain_messages(tool_calls),
+        "tool_calls": _provider_visible_tool_calls_from_response(response, fallback_tool_calls=tool_calls),
     }
     reasoning_content = _reasoning_content_from_response(response)
     if reasoning_content:
         message["reasoning_content"] = reasoning_content
     return message
+
+
+def _provider_visible_tool_calls_from_response(
+    response: Any,
+    *,
+    fallback_tool_calls: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    for raw_calls in _response_provider_tool_call_candidates(response):
+        provider_calls = _provider_shaped_tool_calls(raw_calls)
+        if provider_calls:
+            return provider_calls
+        provider_calls = _provider_calls_from_stream_chunks(raw_calls)
+        if provider_calls:
+            return provider_calls
+    return _provider_visible_tool_calls_from_normalized(fallback_tool_calls)
+
+
+def _response_provider_tool_call_candidates(response: Any) -> list[Any]:
+    candidates: list[Any] = []
+    additional_kwargs = getattr(response, "additional_kwargs", None)
+    if isinstance(additional_kwargs, dict):
+        candidates.append(additional_kwargs.get("tool_calls"))
+    raw_tool_call_chunks = getattr(response, "raw_tool_call_chunks", None)
+    if raw_tool_call_chunks:
+        candidates.append(raw_tool_call_chunks)
+    raw_response = getattr(response, "raw_response", None)
+    if not isinstance(raw_response, dict):
+        raw_response = getattr(response, "raw", None)
+    if isinstance(raw_response, dict):
+        choices = list(raw_response.get("choices") or [])
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
+            delta = choice.get("delta") if isinstance(choice.get("delta"), dict) else {}
+            candidates.append(dict(message).get("tool_calls"))
+            candidates.append(dict(delta).get("tool_calls"))
+    if isinstance(response, dict):
+        candidates.append(response.get("tool_calls"))
+        nested_kwargs = response.get("additional_kwargs")
+        if isinstance(nested_kwargs, dict):
+            candidates.append(nested_kwargs.get("tool_calls"))
+    return [item for item in candidates if item not in (None, [], {})]
+
+
+def _provider_shaped_tool_calls(value: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for raw in list(value or []) if isinstance(value, (list, tuple)) else []:
+        if not isinstance(raw, dict):
+            return []
+        item = dict(raw)
+        function = item.get("function")
+        if str(item.get("type") or "") != "function" or not isinstance(function, dict):
+            return []
+        if not str(item.get("id") or "").strip():
+            return []
+        if not str(function.get("name") or "").strip():
+            return []
+        if not isinstance(function.get("arguments"), str):
+            return []
+        result.append(copy.deepcopy(item))
+    return result
+
+
+def _provider_calls_from_stream_chunks(value: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for raw in list(value or []) if isinstance(value, (list, tuple)) else []:
+        if not isinstance(raw, dict):
+            return []
+        item = dict(raw)
+        call_id = str(item.get("id") or "").strip()
+        name = str(item.get("name") or "").strip()
+        arguments = item.get("arguments")
+        if not call_id or not name or not isinstance(arguments, str):
+            return []
+        result.append(
+            {
+                "id": call_id,
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "arguments": arguments,
+                },
+            }
+        )
+    return result
+
+
+def _provider_visible_tool_calls_from_normalized(tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    provider_message = provider_message_payloads(
+        [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [dict(item) for item in list(tool_calls or []) if isinstance(item, dict)],
+            }
+        ]
+    )
+    if not provider_message:
+        return []
+    calls = dict(provider_message[0]).get("tool_calls")
+    return [dict(item) for item in list(calls or []) if isinstance(item, dict)]
 
 
 def _reasoning_content_from_response(response: Any) -> str:
@@ -6120,7 +6239,7 @@ def _native_action_protocol_messages(
     calls = tool_calls_for_langchain_messages(tool_calls)
     if not calls:
         return []
-    messages = [_with_turn_id(_assistant_tool_call_message(response, calls), turn_id)]
+    messages = [_with_turn_id(_assistant_tool_call_message(response, tool_calls), turn_id)]
     for call in calls:
         messages.append(
             {
@@ -6177,6 +6296,25 @@ def _with_turn_id(message: dict[str, Any], turn_id: str) -> dict[str, Any]:
     return {**dict(message or {}), "turn_id": turn_id}
 
 
+def _copy_model_messages_without_rewriting(messages: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+    return [dict(item) for item in list(messages or []) if isinstance(item, dict) and item]
+
+
+def _append_model_messages_without_rewriting_context(
+    model_messages: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    new_messages: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    turn_id: str = "",
+    source: str = "harness.loop.single_agent_turn.append_only_context",
+) -> list[dict[str, Any]]:
+    sealed_prefix = _copy_model_messages_without_rewriting(model_messages)
+    clean_new = [dict(item) for item in list(new_messages or []) if isinstance(item, dict) and item]
+    if not clean_new:
+        return sealed_prefix
+    sanitized_new = _sanitize_model_messages(clean_new, turn_id=turn_id, source=source)
+    return [*sealed_prefix, *sanitized_new]
+
+
 def _sanitize_model_messages(
     messages: list[dict[str, Any]],
     *,
@@ -6193,6 +6331,87 @@ def _sanitize_model_messages(
     ]
 
 
+def _assert_model_messages_match_segment_plan(
+    model_messages: list[dict[str, Any]],
+    *,
+    accounting_context: dict[str, Any],
+    source: str,
+) -> None:
+    segment_plan = dict(dict(accounting_context or {}).get("segment_plan") or {})
+    segments = [
+        dict(item)
+        for item in list(segment_plan.get("segments") or [])
+        if isinstance(item, dict) and _safe_int_value(item.get("model_message_index")) >= 0
+    ]
+    if not segments:
+        return
+    provider_messages = provider_message_payloads(
+        [dict(item) for item in list(model_messages or []) if isinstance(item, dict)]
+    )
+    violations: list[dict[str, Any]] = []
+    if len(provider_messages) != len(segments):
+        violations.append(
+            {
+                "reason": "message_count_mismatch",
+                "provider_message_count": len(provider_messages),
+                "segment_count": len(segments),
+            }
+        )
+    for segment in sorted(segments, key=lambda item: _safe_int_value(item.get("model_message_index"))):
+        index = _safe_int_value(segment.get("model_message_index"))
+        if index >= len(provider_messages):
+            violations.append(
+                {
+                    "reason": "segment_index_out_of_range",
+                    "model_message_index": index,
+                    "kind": str(segment.get("kind") or ""),
+                }
+            )
+            continue
+        message = dict(provider_messages[index])
+        metadata = dict(segment.get("metadata") or {})
+        provider_hash = _stable_payload_hash(message)
+        expected_provider_hash = str(metadata.get("provider_payload_hash") or metadata.get("provider_visible_hash") or "").strip()
+        if expected_provider_hash and expected_provider_hash != provider_hash:
+            violations.append(
+                {
+                    "reason": "provider_payload_hash_mismatch",
+                    "model_message_index": index,
+                    "kind": str(segment.get("kind") or ""),
+                    "expected_provider_payload_hash": expected_provider_hash,
+                    "actual_provider_payload_hash": provider_hash,
+                }
+            )
+            continue
+        expected_model_hash = str(segment.get("model_message_hash") or "").strip()
+        actual_model_hash = stable_model_message_hash(message)
+        if expected_model_hash and expected_model_hash != actual_model_hash:
+            violations.append(
+                {
+                    "reason": "model_message_hash_mismatch",
+                    "model_message_index": index,
+                    "kind": str(segment.get("kind") or ""),
+                    "expected_model_message_hash": expected_model_hash,
+                    "actual_model_message_hash": actual_model_hash,
+                }
+            )
+    if violations:
+        raise RuntimeError(
+            "single_agent_provider_payload_segment_plan_mismatch:"
+            + json.dumps(
+                {
+                    "source": str(source or ""),
+                    "request_id": str(dict(accounting_context or {}).get("request_id") or ""),
+                    "packet_ref": str(dict(accounting_context or {}).get("packet_ref") or ""),
+                    "violations": violations[:20],
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+
+
 def _compact_text(value: Any, *, limit: int = 500) -> str:
     text = " ".join(str(value or "").split())
     if limit <= 0 or len(text) <= limit:
@@ -6205,8 +6424,8 @@ def _single_agent_turn_followup_prompt_context(
     compilation: Any,
     model_messages: list[dict[str, Any]],
     tool_iteration: int,
-) -> tuple[dict[str, Any], dict[str, Any], str]:
-    followup_segment_plan = _single_agent_turn_followup_segment_plan(
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], str]:
+    followup_messages, followup_segment_plan = _single_agent_turn_followup_prompt_payload(
         base_segment_plan=dict(compilation.packet.segment_plan or {}),
         model_messages=model_messages,
         packet_id=compilation.packet.packet_id,
@@ -6218,7 +6437,7 @@ def _single_agent_turn_followup_prompt_context(
         "segment_plan_ref": str(followup_segment_plan.get("segment_plan_id") or ""),
         "followup_iteration": tool_iteration,
     }
-    return followup_segment_plan, followup_prompt_manifest, str(compilation.packet.packet_id)
+    return followup_messages, followup_segment_plan, followup_prompt_manifest, str(compilation.packet.packet_id)
 
 
 def _mid_turn_context_snapshot(
@@ -6283,40 +6502,157 @@ class _EmptyPromptAccountingLedger:
         return {}
 
 
-def _single_agent_turn_followup_segment_plan(
+def _single_agent_turn_followup_prompt_payload(
     *,
     base_segment_plan: dict[str, Any],
     model_messages: list[dict[str, Any]],
     packet_id: str,
     tool_iteration: int,
-) -> dict[str, Any]:
-    _normalized_messages, specs, prefix_lock_report = _single_agent_turn_followup_message_specs(
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    append_only_messages = _copy_model_messages_without_rewriting(model_messages)
+    specs, prefix_lock_report = _single_agent_turn_append_only_followup_message_specs(
         base_segment_plan=base_segment_plan,
-        model_messages=model_messages,
+        model_messages=append_only_messages,
         tool_iteration=tool_iteration,
+        packet_id=packet_id,
     )
+    specs = _with_provider_payload_hashes(specs)
     segment_plan = build_prompt_segment_plan(
         packet_id=f"{packet_id}:tool-followup:{max(1, int(tool_iteration or 1))}",
         invocation_kind="single_agent_turn_tool_followup",
         message_specs=specs,
     ).to_dict()
-    segment_plan = _seal_single_agent_followup_segment_plan(
+    segment_plan = _annotate_single_agent_followup_segment_plan(
         segment_plan,
         packet_id=str(packet_id or ""),
+        message_specs=specs,
     )
     _validate_single_agent_followup_tail_order(segment_plan)
     segment_plan["prefix_lock"] = prefix_lock_report
     if str(prefix_lock_report.get("status") or "") != "preserved":
-        logger.warning(
-            "single agent follow-up prefix lock violation: packet_id=%s tool_iteration=%s violation_count=%s",
-            packet_id,
-            tool_iteration,
-            prefix_lock_report.get("violation_count"),
+        raise RuntimeError(
+            "single_agent_followup_provider_prefix_mutated:"
+            + json.dumps(
+                {
+                    "packet_id": str(packet_id or ""),
+                    "tool_iteration": int(tool_iteration or 0),
+                    "prefix_lock": dict(prefix_lock_report or {}),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
         )
-    return segment_plan
+    return append_only_messages, segment_plan
+
+
+def _single_agent_turn_append_only_followup_message_specs(
+    *,
+    base_segment_plan: dict[str, Any],
+    model_messages: list[dict[str, Any]],
+    tool_iteration: int,
+    packet_id: str = "",
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    prefix_locked_base_plan = dict(base_segment_plan or {})
+    ordered_input_messages = _copy_model_messages_without_rewriting(model_messages)
+    base_segments = _segment_plan_segments_by_message_index(prefix_locked_base_plan)
+    provider_messages = provider_message_payloads(ordered_input_messages)
+    prefix_lock_report = _single_agent_followup_prefix_lock_report(
+        base_segment_plan=prefix_locked_base_plan,
+        model_messages=list(provider_messages or []),
+    )
+    independent_dynamic_tail = _uses_independent_dynamic_tail_physical_model(prefix_locked_base_plan)
+    dynamic_tail_segments_by_hash = (
+        _dynamic_tail_segments_by_hash(prefix_locked_base_plan)
+        if independent_dynamic_tail
+        else {}
+    )
+    current_tool_round_indexes = _current_tool_round_message_indexes(ordered_input_messages)
+    specs: list[dict[str, Any]] = []
+    for index, message in enumerate(ordered_input_messages):
+        provider_message = dict(provider_messages[index]) if index < len(provider_messages) else dict(message)
+        base = dict(base_segments.get(index) or {})
+        base_from_hash = False
+        if base and _followup_base_segment_conflicts_with_message_shape(base, provider_message):
+            base = {}
+        if not base and independent_dynamic_tail:
+            base = _pop_matching_dynamic_tail_segment(dynamic_tail_segments_by_hash, message=provider_message)
+            base_from_hash = bool(base)
+        if base:
+            prefix_lock_violation = (
+                {}
+                if base_from_hash and _is_tool_followup_current_dynamic_tail_segment(base)
+                else prefix_lock_violation_for_index(prefix_lock_report, index)
+            )
+            spec = _single_agent_turn_followup_base_message_spec(
+                base,
+                message=provider_message,
+                prefix_lock_violation=prefix_lock_violation,
+                is_current_tool_round=index in current_tool_round_indexes,
+            )
+        else:
+            spec = _single_agent_turn_followup_message_spec(
+                provider_message,
+                tool_iteration=tool_iteration,
+                is_current_tool_round=index in current_tool_round_indexes,
+            )
+            spec = _provider_visible_followup_append_candidate_spec(spec, packet_id=packet_id)
+        specs.append(spec)
+    return specs, prefix_lock_report
+
+
+def _provider_visible_followup_append_candidate_spec(spec: dict[str, Any], *, packet_id: str = "") -> dict[str, Any]:
+    payload = dict(spec or {})
+    storage_root = Path(__file__).resolve().parents[2]
+    scope = _single_agent_provider_visible_context_scope(packet_id)
+    if is_sealable_context_spec(payload):
+        return provider_visible_context_append_candidate_spec(
+            payload,
+            storage_root=storage_root,
+            scope=scope,
+        )
+    if is_dynamic_tail_spec(payload):
+        return provider_visible_context_replay_only_candidate_spec(
+            payload,
+            storage_root=storage_root,
+            scope=scope,
+            replay_reason="single_agent_followup_dynamic_tail_participates_in_append_only_provider_visible_prefix",
+        )
+    return payload
+
+
+def _with_provider_payload_hashes(
+    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for raw_spec in list(specs or []):
+        if not isinstance(raw_spec, dict):
+            continue
+        spec = dict(raw_spec)
+        message = dict(spec.get("model_message") or {})
+        if not message:
+            message = {
+                "role": str(spec.get("role") or "user"),
+                "content": str(spec.get("content") or ""),
+            }
+        provider_messages = provider_message_payloads([message])
+        provider_message = dict(provider_messages[0]) if provider_messages else message
+        metadata = {
+            **dict(spec.get("metadata") or {}),
+            "provider_payload_hash": _stable_payload_hash(provider_message),
+            "provider_payload_hash_authority": "harness.loop.single_agent_turn.followup_prompt_payload",
+        }
+        spec["role"] = str(provider_message.get("role") or spec.get("role") or "user")
+        spec["content"] = str(provider_message.get("content") if provider_message.get("content") is not None else "")
+        spec["model_message"] = provider_message
+        spec["metadata"] = metadata
+        result.append(spec)
+    return result
 
 
 def _validate_single_agent_followup_tail_order(segment_plan: dict[str, Any]) -> None:
+    if not _uses_independent_dynamic_tail_physical_model(segment_plan):
+        return
     dynamic_tail_seen = False
     violations: list[dict[str, Any]] = []
     for segment in sorted(
@@ -6328,7 +6664,7 @@ def _validate_single_agent_followup_tail_order(segment_plan: dict[str, Any]) -> 
         if section == DYNAMIC_TAIL:
             dynamic_tail_seen = True
             continue
-        if dynamic_tail_seen and section in {STATIC_PREFIX, SEALED_CONTEXT_PREFIX, CONTEXT_APPEND}:
+        if dynamic_tail_seen and section in {STATIC_PREFIX, CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
             violations.append(
                 {
                     "kind": str(segment.get("kind") or ""),
@@ -6345,115 +6681,111 @@ def _validate_single_agent_followup_tail_order(segment_plan: dict[str, Any]) -> 
         )
 
 
-def _single_agent_turn_followup_message_specs(
+def _single_agent_followup_prefix_lock_report(
     *,
     base_segment_plan: dict[str, Any],
     model_messages: list[dict[str, Any]],
-    tool_iteration: int,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-    prefix_locked_base_plan = dict(base_segment_plan or {})
-    base_segments = _segment_plan_segments_by_message_index(prefix_locked_base_plan)
-    normalized_messages = normalize_messages(
-        _sanitize_model_messages(
-            model_messages,
-            turn_id="",
-            source="harness.loop.single_agent_turn.followup_segment_plan",
-        )
+) -> dict[str, Any]:
+    report = build_prefix_lock_report(
+        base_segment_plan=base_segment_plan,
+        model_messages=model_messages,
     )
-    prefix_lock_report = build_prefix_lock_report(
-        base_segment_plan=prefix_locked_base_plan,
-        model_messages=list(normalized_messages or []),
-    )
-    dynamic_tail_segments_by_hash = _dynamic_tail_segments_by_hash(prefix_locked_base_plan)
-    current_tool_round_indexes = _current_tool_round_message_indexes(normalized_messages)
-    specs: list[dict[str, Any]] = []
-    for index, message in enumerate(normalized_messages):
-        base = dict(base_segments.get(index) or {})
-        base_from_hash = False
-        if base and _followup_base_segment_conflicts_with_message_shape(base, message):
-            base = {}
-        if not base:
-            base = _pop_matching_dynamic_tail_segment(dynamic_tail_segments_by_hash, message=message)
-            base_from_hash = bool(base)
-        if base:
-            prefix_lock_violation = (
-                {}
-                if base_from_hash and _is_tool_followup_current_dynamic_tail_segment(base)
-                else prefix_lock_violation_for_index(prefix_lock_report, index)
-            )
-            specs.append(
-                _single_agent_turn_followup_base_message_spec(
-                    base,
-                    message=message,
-                    prefix_lock_violation=prefix_lock_violation,
-                    is_current_tool_round=index in current_tool_round_indexes,
-                )
+    violations = [dict(item) for item in list(dict(report or {}).get("violations") or []) if isinstance(item, dict)]
+    if not violations:
+        return dict(report or {})
+    independent_dynamic_tail = _uses_independent_dynamic_tail_physical_model(base_segment_plan)
+    base_segments = _segment_plan_segments_by_message_index(dict(base_segment_plan or {}))
+    kept: list[dict[str, Any]] = []
+    suppressed: list[dict[str, Any]] = []
+    for violation in violations:
+        base = base_segments.get(_safe_int_value(violation.get("model_message_index")))
+        if independent_dynamic_tail and _is_tool_followup_current_dynamic_tail_segment(dict(base or {})):
+            suppressed.append(
+                {
+                    **violation,
+                    "suppressed_reason": "dynamic_tail_reordered_after_append_only_context",
+                    "suppressed_authority": "runtime.context_management.context_assembly.dynamic_tail",
+                }
             )
             continue
-        specs.append(
-            _single_agent_turn_followup_message_spec(
-                message,
-                tool_iteration=tool_iteration,
-                is_current_tool_round=index in current_tool_round_indexes,
-            )
-    )
-    return list(normalized_messages or []), specs, prefix_lock_report
+        kept.append(violation)
+    return {
+        **dict(report or {}),
+        "status": "violated" if kept else "preserved",
+        "violation_count": len(kept),
+        "violations": kept[:20],
+        "suppressed_violation_count": len(suppressed),
+        "suppressed_violations": suppressed[:20],
+        "authority": "harness.loop.single_agent_turn.followup_prefix_lock",
+    }
 
 
-def _seal_single_agent_followup_segment_plan(segment_plan: dict[str, Any], *, packet_id: str) -> dict[str, Any]:
+def _annotate_single_agent_followup_segment_plan(
+    segment_plan: dict[str, Any],
+    *,
+    packet_id: str,
+    message_specs: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
+) -> dict[str, Any]:
     payload = dict(segment_plan or {})
     segments = [dict(item) for item in list(payload.get("segments") or []) if isinstance(item, dict)]
     if not segments:
         return payload
-    scope = _single_agent_sealed_context_scope(packet_id)
-    storage_root = Path(__file__).resolve().parents[2]
-    sealed_segments: list[dict[str, Any]] = []
+    ledger_metadata_by_ordinal = _provider_visible_metadata_by_followup_ordinal(message_specs)
+    provider_messages_by_ordinal = _followup_provider_visible_messages_by_ordinal(message_specs)
+    annotated_segments: list[dict[str, Any]] = []
     for segment in segments:
         metadata = dict(segment.get("metadata") or {})
+        policy = context_segment_policy_for_spec(segment)
+        metadata = {
+            **metadata,
+            **context_segment_policy_metadata(policy),
+            "context_contract_mapping_authority": "runtime.context_management.context_segment_policy",
+        }
         if not _is_followup_sealable_segment(segment):
-            sealed_segments.append(segment)
+            segment["metadata"] = metadata
+            annotated_segments.append(segment)
             continue
-        if _safe_int_value(metadata.get("sealed_accumulated_context_order")) > 0:
-            sealed_segments.append(segment)
-            continue
-        key = _single_agent_sealed_segment_key(segment)
-        assignment = assign_sealed_append_order(
-            storage_root=storage_root,
-            scope=scope,
-            item_key=key,
-            receipt_authority="harness.loop.single_agent_turn.sealed_append_only_context",
-            provider_visible_hash=str(segment.get("model_message_hash") or segment.get("content_hash") or ""),
-            kind=str(segment.get("kind") or ""),
-            source_ref=str(segment.get("source_ref") or ""),
+        provider_visible_message = provider_messages_by_ordinal.get(_safe_int_value(segment.get("ordinal")), {})
+        provider_visible_hash = (
+            _stable_payload_hash(provider_visible_message)
+            if provider_visible_message
+            else str(segment.get("model_message_hash") or segment.get("content_hash") or "")
         )
-        existing_order = _safe_int_value(assignment.get("order"))
-        order_source = str(assignment.get("order_source") or "receipt")
+        ordinal = _safe_int_value(segment.get("ordinal"))
+        ledger_metadata = dict(ledger_metadata_by_ordinal.get(ordinal) or {})
         segment["metadata"] = {
             **metadata,
-            "sealed_accumulated_context_package": "append_only_context",
-            "sealed_accumulated_context_scope": scope,
-            "sealed_accumulated_context_item_key": key,
-            "sealed_accumulated_context_order": existing_order,
-            "sealed_accumulated_context_order_source": order_source,
-            "sealed_accumulated_context_authority": str(assignment.get("authority") or ""),
-            "sealed_accumulated_context_integrity_status": str(assignment.get("integrity_status") or ""),
-            "sealed_accumulated_context_recovery_required": bool(assignment.get("recovery_required") is True),
-            "sealed_accumulated_context_structured_failure": dict(assignment.get("structured_failure") or {}),
+            **ledger_metadata,
+            "provider_visible_context_authority": "runtime.context_management.provider_visible_context_ledger",
+            "provider_visible_context_stage": "current_append_or_existing_ledger_replay",
+            "provider_visible_context_packet_ref": str(packet_id or ""),
+            "provider_visible_hash": provider_visible_hash,
         }
-        sealed_segments.append(segment)
-    payload["segments"] = sealed_segments
+        annotated_segments.append(segment)
+    payload["segments"] = annotated_segments
     return payload
 
 
-def _is_followup_sealable_segment(segment: dict[str, Any]) -> bool:
-    if not is_sealable_context_spec(dict(segment or {})):
-        return False
-    cache_role = str(dict(segment or {}).get("cache_role") or "").strip()
-    prefix_tier = str(dict(segment or {}).get("prefix_tier") or "").strip()
-    return cache_role in {"cacheable_prefix", "session_stable"} and prefix_tier not in {"volatile", "none"}
+def _provider_visible_metadata_by_followup_ordinal(
+    message_specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> dict[int, dict[str, Any]]:
+    result: dict[int, dict[str, Any]] = {}
+    for ordinal, raw_spec in enumerate(list(message_specs or []), start=1):
+        if not isinstance(raw_spec, dict):
+            continue
+        metadata = dict(raw_spec.get("metadata") or {})
+        provider_keys = {
+            key: value
+            for key, value in metadata.items()
+            if str(key).startswith("provider_visible_context_ledger_")
+            or str(key) in {"provider_visible_hash", "provider_visible_payload_form", "provider_visible_payload_authority"}
+        }
+        if provider_keys:
+            result[int(ordinal or 0)] = provider_keys
+    return result
 
 
-def _single_agent_sealed_context_scope(packet_id: str) -> str:
+def _single_agent_provider_visible_context_scope(packet_id: str) -> str:
     text = str(packet_id or "").strip()
     session_id = ""
     marker = "session-"
@@ -6465,13 +6797,36 @@ def _single_agent_sealed_context_scope(packet_id: str) -> str:
     return f"single_agent_turn:{session_id}"
 
 
-def _single_agent_sealed_segment_key(segment: dict[str, Any]) -> str:
-    return _stable_payload_hash(
-        {
-            "normalization": "provider_visible_message_v1",
-            "model_message_hash": str(segment.get("model_message_hash") or segment.get("content_hash") or ""),
+def _followup_provider_visible_messages_by_ordinal(
+    message_specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> dict[int, dict[str, Any]]:
+    result: dict[int, dict[str, Any]] = {}
+    for ordinal, raw_spec in enumerate(list(message_specs or []), start=1):
+        spec = dict(raw_spec or {})
+        message = _followup_provider_visible_message_from_spec(spec)
+        if message:
+            result[ordinal] = message
+    return result
+
+
+def _followup_provider_visible_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    raw_message = spec.get("model_message") if isinstance(spec.get("model_message"), dict) else {}
+    message = dict(raw_message or {})
+    if not message:
+        message = {
+            "role": str(spec.get("role") or "user"),
+            "content": str(spec.get("content") or ""),
         }
-    )
+    provider_messages = provider_message_payloads([message])
+    return dict(provider_messages[0]) if provider_messages else {}
+
+
+def _is_followup_sealable_segment(segment: dict[str, Any]) -> bool:
+    if not is_sealable_context_spec(dict(segment or {})):
+        return False
+    cache_role = str(dict(segment or {}).get("cache_role") or "").strip()
+    prefix_tier = str(dict(segment or {}).get("prefix_tier") or "").strip()
+    return cache_role in {"cacheable_prefix", "session_stable"} and prefix_tier not in {"volatile", "none"}
 
 
 def _safe_int_value(value: Any) -> int:
@@ -6525,28 +6880,22 @@ def _tool_followup_context_layers(
     *,
     segment_plan: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    base_segments = _segment_plan_segments_by_message_index(dict(segment_plan or {}))
-    dynamic_tail_segments_by_hash = _dynamic_tail_segments_by_hash(dict(segment_plan or {}))
-    accumulated: list[dict[str, Any]] = []
-    dynamic_tail: list[dict[str, Any]] = []
-    for index, message in enumerate([dict(item) for item in list(messages or []) if isinstance(item, dict)]):
-        if _is_tool_followup_action_contract_message(message):
-            continue
-        if _is_tool_followup_context_boundary_message(message):
-            continue
-        if _is_tool_followup_accumulated_message_by_shape(message):
-            accumulated.append(message)
-            continue
-        segment = dict(base_segments.get(index) or {})
-        if segment and _followup_base_segment_conflicts_with_message_shape(segment, message):
-            segment = {}
-        if not segment:
-            segment = _pop_matching_dynamic_tail_segment(dynamic_tail_segments_by_hash, message=message)
-        if _is_tool_followup_current_dynamic_tail_segment(segment):
-            dynamic_tail.append(message)
-            continue
-        accumulated.append(message)
-    return accumulated, dynamic_tail
+    return _split_append_only_context_and_dynamic_tail(
+        [dict(item) for item in list(messages or []) if isinstance(item, dict) and item],
+        segment_plan=segment_plan,
+    )
+
+
+def _ordered_tool_followup_prompt_messages(
+    messages: list[dict[str, Any]],
+    *,
+    segment_plan: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    accumulated, dynamic_tail = _split_append_only_context_and_dynamic_tail(
+        [dict(item) for item in list(messages or []) if isinstance(item, dict) and item],
+        segment_plan=segment_plan,
+    )
+    return [*accumulated, *dynamic_tail]
 
 
 def _append_tool_transcript_to_accumulated_context(
@@ -6555,13 +6904,112 @@ def _append_tool_transcript_to_accumulated_context(
     *,
     segment_plan: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    accumulated, dynamic_tail = _tool_followup_context_layers(messages, segment_plan=segment_plan)
-    new_messages = [
+    return _append_messages_to_accumulated_context(
+        messages,
+        new_tool_transcript_messages,
+        segment_plan=segment_plan,
+    )
+
+
+def _append_messages_to_accumulated_context(
+    messages: list[dict[str, Any]],
+    new_messages: list[dict[str, Any]],
+    *,
+    segment_plan: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    accumulated, dynamic_tail = _split_append_only_context_and_dynamic_tail(messages, segment_plan=segment_plan)
+    clean_new_messages = [
         dict(item)
-        for item in list(new_tool_transcript_messages or [])
+        for item in list(new_messages or [])
         if isinstance(item, dict) and item
     ]
-    return [*accumulated, *new_messages, *dynamic_tail]
+    return [*accumulated, *clean_new_messages, *dynamic_tail]
+
+
+def _split_append_only_context_and_dynamic_tail(
+    messages: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    segment_plan: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    clean_messages = _copy_model_messages_without_rewriting(messages)
+    if not clean_messages:
+        return [], []
+    if not _uses_independent_dynamic_tail_physical_model(segment_plan):
+        return clean_messages, []
+    base_segments = _segment_plan_segments_by_message_index(dict(segment_plan or {}))
+    tail_start = len(clean_messages)
+    while tail_start > 0:
+        index = tail_start - 1
+        message = dict(clean_messages[index])
+        segment = dict(base_segments.get(index) or {})
+        if _is_tool_followup_current_dynamic_tail_segment(segment) or _is_current_control_tail_message(message):
+            tail_start -= 1
+            continue
+        break
+    return clean_messages[:tail_start], clean_messages[tail_start:]
+
+
+def _uses_independent_dynamic_tail_physical_model(segment_plan: dict[str, Any] | None) -> bool:
+    plan = dict(segment_plan or {})
+    diagnostics = dict(plan.get("diagnostics") or {})
+    explicit_enabled = any(
+        value is True
+        for value in (
+            plan.get("context_independent_dynamic_tail_enabled"),
+            plan.get("provider_context_independent_dynamic_tail_enabled"),
+            diagnostics.get("context_independent_dynamic_tail_enabled"),
+            diagnostics.get("provider_context_independent_dynamic_tail_enabled"),
+        )
+    )
+    if not explicit_enabled:
+        return False
+    physical_model_values = (
+        plan.get("context_physical_model"),
+        plan.get("provider_context_physical_model"),
+        diagnostics.get("context_physical_model"),
+        diagnostics.get("provider_context_physical_model"),
+        diagnostics.get("provider_cache_policy_context_physical_model"),
+    )
+    physical_model_supports_tail = any(
+        str(value or "").strip() == "static_context_dynamic_tail"
+        for value in physical_model_values
+    )
+    tail_support_declared = any(
+        value is True
+        for value in (
+            plan.get("dynamic_tail_supported"),
+            plan.get("provider_dynamic_tail_supported"),
+            diagnostics.get("dynamic_tail_supported"),
+            diagnostics.get("provider_dynamic_tail_supported"),
+            diagnostics.get("provider_cache_policy_dynamic_tail_supported"),
+        )
+    )
+    return bool(physical_model_supports_tail and tail_support_declared)
+
+
+def _is_current_control_tail_message(message: dict[str, Any]) -> bool:
+    return (
+        _is_tool_followup_action_contract_message(message)
+        or _is_tool_followup_context_boundary_message(message)
+        or _is_runtime_control_signal_recovery_message(message)
+        or _is_agent_authored_closeout_message(message)
+        or _is_admission_repair_message(message)
+    )
+
+
+def _is_runtime_control_signal_recovery_message(message: dict[str, Any]) -> bool:
+    content = str(dict(message or {}).get("content") or "")
+    return "请根据以下事实选择下一步动作。" in content and "allowed_action_types" in content
+
+
+def _is_agent_authored_closeout_message(message: dict[str, Any]) -> bool:
+    content = str(dict(message or {}).get("content") or "")
+    return "你是一名正在收口的 coding agent。" in content
+
+
+def _is_admission_repair_message(message: dict[str, Any]) -> bool:
+    content = str(dict(message or {}).get("content") or "")
+    return "修复输入：" in content and "rejected_action_request" in content and "admission" in content
 
 
 def _segment_plan_segments_by_message_index(segment_plan: dict[str, Any]) -> dict[int, dict[str, Any]]:
@@ -6642,32 +7090,7 @@ def _append_tool_followup_context_boundary(
     turn_id: str,
 ) -> list[dict[str, Any]]:
     accumulated = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
-    if not accumulated:
-        return accumulated
-    payload = {
-        "frame_type": "accumulated_context_boundary",
-        "boundary_iteration": max(1, int(tool_iteration or 1)),
-        "accumulated_message_count": len(accumulated),
-        "accumulated_context_hash": _stable_payload_hash(
-            [stable_model_message_hash(message) for message in accumulated]
-        ),
-        "stability_rule": "messages before this boundary are append-only accumulated context; later follow-up contracts are appended instead of replacing history",
-        "authority": "harness.loop.single_agent_turn.accumulated_context_boundary",
-    }
-    content = (
-        "你正在继续同一轮工具执行。\n"
-        "以上内容是已经固定的历史上下文、工具调用和工具观察；这条消息只标记累计上下文边界，不是新的用户需求。\n"
-        "请继续读取后面的最新执行契约，并基于这些固定事实决定下一步。\n"
-        f"{json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))}"
-    )
-    return [
-        *accumulated,
-        {
-            "role": "user",
-            "content": content,
-            "turn_id": turn_id,
-        },
-    ]
+    return accumulated
 
 
 def _is_tool_followup_context_boundary_message(message: dict[str, Any]) -> bool:
@@ -6702,22 +7125,38 @@ def _single_agent_turn_followup_base_message_spec(
     cache_role = str(base.get("cache_role") or "volatile")
     prefix_tier = str(base.get("prefix_tier") or "volatile")
     if prefix_lock_violation:
-        cache_scope = "none"
-        cache_role = "volatile"
-        prefix_tier = "volatile"
         metadata = {
             **metadata,
             "prefix_lock_status": "violated",
             "prefix_lock_violation": dict(prefix_lock_violation),
-            "volatility_reason": "previously planned message changed at the same model_message_index",
-            "cache_impact": "cache_break_diagnostic",
+            "prefix_lock_authority": "diagnostic_only",
+            "prefix_lock_cache_policy": "preserve_context_assembly_classification",
         }
-    elif _is_tool_followup_current_dynamic_tail_segment(base):
-        metadata = {
-            **metadata,
-            "cache_impact": "volatile_suffix_only",
-            "stability_rule": "current dynamic tail remains after the append-only context prefix and is not promoted into the cached prefix",
-        }
+    if _is_tool_followup_current_dynamic_tail_segment(base):
+        if kind == "single_agent_turn_followup_action_contract":
+            cache_scope = "task"
+            cache_role = "session_stable"
+            prefix_tier = "task"
+            metadata = {
+                **_without_context_classification_metadata(metadata),
+                "cache_impact": "append_only_task_prefix",
+                "stability_rule": (
+                    "previously sent action contracts are sealed provider-visible context; "
+                    "only the next action contract is newly appended"
+                ),
+                "cache_policy_rebased": "historical_action_contract_promoted_from_dynamic_tail",
+                "context_cache_section": CONTEXT_APPEND,
+                "context_assembly_section": CONTEXT_APPEND,
+            }
+        else:
+            metadata = {
+                **metadata,
+                "cache_impact": "append_only_context_tail",
+                "stability_rule": (
+                    "dynamic-tail-classified content participates in append-only physical context unless the "
+                    "provider strategy explicitly enables an independent dynamic-tail segment"
+                ),
+            }
     else:
         already_prefix_stable = cache_role in {"cacheable_prefix", "session_stable"} and prefix_tier not in {"volatile", "none"}
         rebased = (
@@ -6766,6 +7205,41 @@ def _single_agent_turn_followup_base_message_spec(
     }
 
 
+def _without_context_classification_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(metadata or {})
+    for key in (
+        "authority",
+        "cache_role",
+        "cache_scope",
+        "context_assembly_section",
+        "context_cache_section",
+        "context_commit_policy",
+        "context_contract_mapping_authority",
+        "context_contract_ref",
+        "context_contract_slot",
+        "context_identity_policy",
+        "context_physical_segment",
+        "context_physical_segment_rank",
+        "context_prefix_boundary",
+        "context_prefix_cache_role",
+        "context_prefix_cache_scope",
+        "context_prefix_state",
+        "context_prefix_tier",
+        "context_repair_feedback_slot",
+        "context_replay_policy",
+        "context_segment_policy",
+        "context_semantic_slot",
+        "context_semantic_slot_rank",
+        "fixed_context_package",
+        "memory_commit_policy",
+        "prefix_tier",
+        "reason",
+        "semantic_commit_class",
+    ):
+        payload.pop(key, None)
+    return payload
+
+
 def _single_agent_turn_followup_message_spec(
     message: dict[str, Any],
     *,
@@ -6800,9 +7274,22 @@ def _single_agent_turn_followup_message_spec(
         return incremental_context_frame_segment_spec(message, tool_iteration=tool_iteration)
     role = str(message.get("role") or "user")
     is_action_contract = _is_tool_followup_action_contract_message(message)
+    is_runtime_control_tail = _is_current_control_tail_message(message) and not is_action_contract
     if is_action_contract:
         kind = "single_agent_turn_followup_action_contract"
         source_ref = f"single_agent_turn.followup_action_contract:{tool_iteration}"
+        compression_role = "preserve"
+    elif _is_runtime_control_signal_recovery_message(message):
+        kind = "runtime_control_signal_tail"
+        source_ref = f"single_agent_turn.runtime_control_recovery:{tool_iteration}"
+        compression_role = "preserve"
+    elif _is_agent_authored_closeout_message(message):
+        kind = "runtime_control_signal_tail"
+        source_ref = f"single_agent_turn.agent_authored_closeout:{tool_iteration}"
+        compression_role = "preserve"
+    elif _is_admission_repair_message(message):
+        kind = "runtime_control_signal_tail"
+        source_ref = f"single_agent_turn.admission_repair:{tool_iteration}"
         compression_role = "preserve"
     elif role == "assistant" and message.get("tool_calls"):
         kind = "single_agent_turn_tool_call"
@@ -6820,22 +7307,39 @@ def _single_agent_turn_followup_message_spec(
         kind = "single_agent_turn_followup_message"
         source_ref = f"single_agent_turn.followup:{tool_iteration}"
         compression_role = "summarize"
-    cache_scope = "none" if is_action_contract else "task"
-    cache_role = "volatile" if is_action_contract else "session_stable"
-    prefix_tier = "volatile" if is_action_contract else "task"
+    cache_scope = "none" if is_runtime_control_tail else "task"
+    cache_role = "volatile" if is_runtime_control_tail else "session_stable"
+    prefix_tier = "volatile" if is_runtime_control_tail else "task"
     metadata = {"followup_iteration": max(1, int(tool_iteration or 1))}
-    authority_class = (
-        "tool_followup_action_contract"
-        if is_action_contract
-        else "append_only_tool_transcript"
-    )
-    if is_action_contract:
+    if is_runtime_control_tail:
+        authority_class = "runtime_control_tail"
+    elif is_action_contract:
+        authority_class = "tool_followup_action_contract"
+    else:
+        authority_class = "append_only_tool_transcript"
+    if is_runtime_control_tail:
         metadata.update(
             {
                 "authority_class": authority_class,
-                "cache_impact": "volatile_suffix_only",
-                "stability_rule": "the latest follow-up action contract is current-invocation control and stays behind the cacheable context prefix",
-                "volatility_reason": "tool follow-up control can change every tool round",
+                "cache_impact": "current_append_context_tail",
+                "stability_rule": (
+                    "current invocation control is appended in the provider-visible message sequence; "
+                    "it is not expected to hit cache in the current request, but provider-visible frame commit "
+                    "locks the exact sent message for future replay"
+                ),
+                "volatility_reason": "runtime control tail can change before it is sent in the current model call",
+            }
+        )
+    elif is_action_contract:
+        metadata.update(
+            {
+                "authority_class": authority_class,
+                "cache_impact": "current_append_then_next_prefix",
+                "stability_rule": (
+                    "the current follow-up action contract is appended as the user-input boundary; "
+                    "after provider success it is replayed byte-stably as historical context"
+                ),
+                "provider_cache_boundary": "deepseek_user_input_prefix_unit",
             }
         )
     else:

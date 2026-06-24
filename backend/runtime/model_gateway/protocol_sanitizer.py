@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -74,6 +76,15 @@ class ProtocolSanitizer:
                     diagnostics["injected_aborted_tool_outputs"] += 1
                 pending.clear()
             if role == "assistant":
+                provider_tool_calls = _provider_shaped_tool_calls(message.get("tool_calls"))
+                if provider_tool_calls:
+                    diagnostics["assistant_tool_call_count"] += len(provider_tool_calls)
+                    for call in provider_tool_calls:
+                        call_id = str(call.get("id") or "").strip()
+                        if call_id:
+                            pending[call_id] = call
+                    sanitized.append(message)
+                    continue
                 tool_calls = _tool_calls(message.get("tool_calls"))
                 if tool_calls:
                     message["tool_calls"] = tool_calls
@@ -112,6 +123,9 @@ def _normalize_message(raw: Any) -> dict[str, Any] | None:
     role = str(item.get("role") or item.get("type") or "").strip()
     if role not in {"system", "user", "assistant", "tool"}:
         return None
+    provider_payload = _provider_payload_message(item, role=role)
+    if provider_payload is not None:
+        return provider_payload
     message: dict[str, Any] = {
         "role": role,
         "content": _string_content(item.get("content")),
@@ -149,16 +163,71 @@ def _tool_calls(value: Any) -> list[dict[str, Any]]:
             args = item.get("arguments")
         if not isinstance(args, dict):
             args = function.get("arguments")
+        if isinstance(args, str):
+            try:
+                parsed_args = json.loads(args)
+            except json.JSONDecodeError:
+                parsed_args = {}
+            args = parsed_args if isinstance(parsed_args, dict) else {}
         if not isinstance(args, dict):
             args = {}
         calls.append({"id": call_id, "name": name, "args": dict(args), "type": "tool_call"})
     return calls
 
 
+def _provider_payload_message(item: dict[str, Any], *, role: str) -> dict[str, Any] | None:
+    if isinstance(item.get("additional_kwargs"), dict) and dict(item.get("additional_kwargs") or {}):
+        return None
+    tool_calls = item.get("tool_calls")
+    if tool_calls and not _provider_shaped_tool_calls(tool_calls):
+        return None
+    message: dict[str, Any] = {
+        "role": role,
+        "content": copy.deepcopy(item.get("content")) if item.get("content") is not None else "",
+    }
+    for key in ("name", "tool_call_id", "turn_id"):
+        value = str(item.get(key) or "").strip()
+        if value:
+            message[key] = value
+    if role == "assistant":
+        reasoning_content = str(item.get("reasoning_content") or "").strip()
+        if reasoning_content:
+            message["reasoning_content"] = reasoning_content
+        if item.get("prefix") is True or str(item.get("prefix") or "").strip().lower() == "true":
+            message["prefix"] = True
+        provider_tool_calls = _provider_shaped_tool_calls(tool_calls)
+        if provider_tool_calls:
+            message["tool_calls"] = provider_tool_calls
+    return message
+
+
+def _provider_shaped_tool_calls(value: Any) -> list[dict[str, Any]]:
+    raw_calls = list(value or []) if isinstance(value, (list, tuple)) else []
+    if not raw_calls:
+        return []
+    result: list[dict[str, Any]] = []
+    for raw in raw_calls:
+        if not isinstance(raw, dict):
+            return []
+        item = dict(raw)
+        function = item.get("function")
+        if str(item.get("type") or "") != "function" or not isinstance(function, dict):
+            return []
+        if not str(item.get("id") or "").strip():
+            return []
+        if not str(function.get("name") or "").strip():
+            return []
+        if not isinstance(function.get("arguments"), str):
+            return []
+        result.append(copy.deepcopy(item))
+    return result
+
+
 def _aborted_tool_output(*, call_id: str, call: dict[str, Any], turn_id: str) -> dict[str, Any]:
+    function = call.get("function") if isinstance(call.get("function"), dict) else {}
     message = {
         "role": "tool",
-        "name": str(call.get("name") or ""),
+        "name": str(call.get("name") or function.get("name") or ""),
         "tool_call_id": str(call_id or ""),
         "content": "Tool call was aborted before an observation was recorded.",
         "protocol_status": "aborted",

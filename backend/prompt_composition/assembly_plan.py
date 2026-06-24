@@ -8,8 +8,8 @@ from typing import Any
 from .source_bundle import PromptSource, PromptSourceBundle
 from runtime.context_management.context_assembly import (
     CONTEXT_APPEND,
+    CONTEXT_MEMORY_PREFIX,
     DYNAMIC_TAIL,
-    SEALED_CONTEXT_PREFIX,
     STATIC_PREFIX,
     classify_context_spec,
 )
@@ -188,7 +188,7 @@ def _assembly_order_key(slot: PromptAssemblySlot) -> tuple[int, int, int]:
     section = str(metadata.get("context_cache_section") or "").strip()
     section_rank = {
         "static_prefix": 10,
-        "sealed_context_prefix": 20,
+        CONTEXT_MEMORY_PREFIX: 20,
         "context_append": 30,
         "dynamic_tail": 40,
     }.get(section, 50)
@@ -209,7 +209,7 @@ def _slot_from_source(source: PromptSource, *, provider_profile: dict[str, Any])
     prefix_tier = classification.prefix_tier
     source_cache_scope = classification.cache_scope
     layer = _layer_for_source(source, cache_role=cache_role, prefix_tier=prefix_tier)
-    if classification.context_cache_section in {SEALED_CONTEXT_PREFIX, CONTEXT_APPEND}:
+    if classification.context_cache_section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
         layer = _context_append_layer(layer)
     elif classification.context_cache_section == DYNAMIC_TAIL:
         layer = "dynamic_context_tail"

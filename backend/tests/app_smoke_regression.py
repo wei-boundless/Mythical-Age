@@ -500,6 +500,52 @@ def test_session_truncate_does_not_block_health_while_reset_waits() -> None:
         assert getattr(truncate_response, "status_code", None) == 200
 
 
+def test_session_truncate_does_not_wait_for_memory_maintenance_enqueue(monkeypatch) -> None:
+    with isolated_app_client(app) as client:
+        runtime = app_runtime.require_ready()
+        created = client.post("/api/sessions", json={"title": "Edit resend fast maintenance"})
+        assert created.status_code == 200
+        session_id = created.json()["id"]
+
+        runtime.session_manager.append_messages(
+            session_id,
+            [
+                {"role": "user", "content": "old question"},
+                {"role": "assistant", "content": "old answer"},
+            ],
+        )
+
+        maintenance_started = threading.Event()
+        release_maintenance = threading.Event()
+        captured: dict[str, object] = {}
+
+        def waiting_enqueue(**kwargs):
+            captured.update(kwargs)
+            maintenance_started.set()
+            if not release_maintenance.wait(2.0):
+                raise AssertionError("truncate response waited for memory maintenance enqueue")
+            return {"status": "queued"}
+
+        monkeypatch.setattr(runtime.memory_facade, "enqueue_memory_maintenance_after_commit", waiting_enqueue)
+        try:
+            started_at = time.perf_counter()
+            response = client.post(
+                f"/api/sessions/{session_id}/messages/truncate",
+                json={"message_index": 0},
+            )
+            elapsed = time.perf_counter() - started_at
+
+            assert response.status_code == 200
+            assert response.json()["messages"] == []
+            assert elapsed < 1.0
+            assert maintenance_started.wait(2.0)
+            assert captured["session_id"] == session_id
+            assert captured["messages"] == []
+            assert captured["durable_lane_enabled"] is False
+        finally:
+            release_maintenance.set()
+
+
 def test_removed_agent_control_plane_routes_stay_absent() -> None:
     with isolated_app_client(app) as client:
         response = client.get("/api/agents/catalog")

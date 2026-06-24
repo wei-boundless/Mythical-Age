@@ -5,6 +5,7 @@ import type { WorkspaceView } from "@/lib/store/types";
 export const WORKSPACE_VIEW_VALUES = [
   "chat",
   "creative",
+  "graph-repository",
   "memory",
   "health-system",
   "capability-system",
@@ -27,7 +28,7 @@ export type SystemNavItem = {
 
 export const SYSTEM_NAV_ITEMS = [
   { view: "chat", label: "工作台", icon: MessageSquare },
-  { view: "creative", label: "图任务", icon: Workflow },
+  { view: "graph-repository", label: "任务图系统", icon: Workflow },
   { view: "memory", label: "记忆", icon: Database },
   { view: "task-system", label: "任务系统", icon: Workflow },
   { view: "orchestration", label: "Agent", icon: Network },
@@ -42,8 +43,4 @@ export function isWorkspaceView(value: string | null | undefined): value is Work
 
 export function isWorkspaceQueryView(value: string | null | undefined): value is WorkspaceView {
   return isWorkspaceView(value);
-}
-
-export function shouldShowTaskGraphRunInteractionDock(view: WorkspaceView) {
-  return view === "task-system" || view === "creative";
 }

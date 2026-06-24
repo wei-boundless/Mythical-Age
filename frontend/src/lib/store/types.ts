@@ -253,6 +253,7 @@ export type SkillSummary = {
 export type WorkspaceView =
   | "chat"
   | "creative"
+  | "graph-repository"
   | "memory"
   | "health-system"
   | "capability-system"
@@ -318,7 +319,7 @@ export type ConversationTaskEnvironment = ConversationActiveEnvironment;
 export type ChatTaskEnvironmentBinding = {
   task_environment_id: string;
   environment_label: string;
-  source: "task-system" | "task-graph-workbench" | "center-workspace" | "workspace-mode";
+  source: "task-system" | "center-workspace" | "workspace-mode";
   bound_at: number;
 };
 
@@ -406,7 +407,21 @@ export type RuntimeLogCenterWorkspaceTarget = {
   requested_at: number;
 };
 
-export type CenterWorkspaceTarget = FileCenterWorkspaceTarget | FileChangeDiffCenterWorkspaceTarget | RuntimeLogCenterWorkspaceTarget;
+export type SessionProjectionCenterWorkspaceTarget = {
+  layer: "session-projection";
+  session_id: string;
+  scope?: Partial<SessionScope>;
+  title?: string;
+  subtitle?: string;
+  source?: string;
+  requested_at: number;
+};
+
+export type CenterWorkspaceTarget =
+  | FileCenterWorkspaceTarget
+  | FileChangeDiffCenterWorkspaceTarget
+  | RuntimeLogCenterWorkspaceTarget
+  | SessionProjectionCenterWorkspaceTarget;
 
 export type SessionEditorContext = {
   activeFilePath: string;
@@ -564,6 +579,7 @@ export type StoreActions = {
   openWorkspaceFile: (path: string) => void;
   openFileChangeDiff: (target: Omit<FileChangeDiffCenterWorkspaceTarget, "layer" | "requested_at">) => void;
   openRuntimeLog: (target: Omit<RuntimeLogCenterWorkspaceTarget, "layer" | "requested_at">) => void;
+  openSessionProjection: (target: Omit<SessionProjectionCenterWorkspaceTarget, "layer" | "requested_at">) => void;
   clearTaskGraphWorkspaceTarget: () => void;
   clearCenterWorkspaceTarget: () => void;
 };

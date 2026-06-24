@@ -139,7 +139,7 @@ def _assert_context_package_receipt_valid(
     expected = str(getattr(receipt, "package_sha256", "") or "")
     actual = hash_context_section_package(sections)
     if expected and expected != actual:
-        raise ValueError("ContextPackage sealed receipt does not match model-visible sections")
+        raise ValueError("ContextPackage receipt does not match model-visible sections")
 
 
 def build_static_prompt(

@@ -3753,8 +3753,8 @@ body {
 }
 
 .agent-workbench .chat-message-shell__content.markdown code {
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .agent-workbench .chat-message-shell__content.markdown pre,
@@ -3865,7 +3865,7 @@ body {
   display: grid;
   gap: 8px;
   margin: 10px 0 12px;
-  color: var(--console-text-soft, #334155);
+  color: var(--console-text-soft);
 }
 
 .agent-workbench .public-run-activity::before {
@@ -3881,13 +3881,13 @@ body {
 
 .agent-workbench .public-run-activity__line p,
 .agent-workbench .public-run-activity__todo-head p {
-  color: var(--console-text, #1f2937);
+  color: var(--console-text);
   font-size: 14px;
 }
 
 .agent-workbench .public-run-activity__line-detail,
 .agent-workbench .public-run-activity__body-note .public-run-activity__body {
-  color: var(--console-text-soft, #3f4b5d);
+  color: var(--console-text-soft);
   font-size: 13px;
 }
 
@@ -3908,38 +3908,38 @@ body {
   box-shadow: none;
 }
 
-.agent-workbench .public-run-activity__tool-round summary,
-.agent-workbench .public-run-activity__tool-window summary {
+.agent-workbench .public-run-activity__tool-round > summary,
+.agent-workbench .public-run-activity__tool-window > summary {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr) 16px;
   align-items: center;
   gap: 12px;
   min-height: 44px;
   padding: 8px 6px;
-  color: var(--console-text-soft, #3f4b5d);
+  color: var(--console-text-soft);
   cursor: pointer;
   font-size: 13px;
   list-style: none;
   transition: color 140ms ease, transform 140ms ease;
 }
 
-.agent-workbench .public-run-activity__tool-round summary {
+.agent-workbench .public-run-activity__tool-round > summary {
   grid-template-columns: 24px minmax(0, 1fr) auto 16px;
   min-height: 46px;
 }
 
-.agent-workbench .public-run-activity__tool-window--nested summary {
+.agent-workbench .public-run-activity__tool-window--nested > summary {
   min-height: 38px;
   padding: 7px 4px;
 }
 
-.agent-workbench .public-run-activity__tool-round summary:hover,
-.agent-workbench .public-run-activity__tool-window summary:hover {
+.agent-workbench .public-run-activity__tool-round > summary:hover,
+.agent-workbench .public-run-activity__tool-window > summary:hover {
   color: var(--console-text);
 }
 
-.agent-workbench .public-run-activity__tool-round summary::-webkit-details-marker,
-.agent-workbench .public-run-activity__tool-window summary::-webkit-details-marker {
+.agent-workbench .public-run-activity__tool-round > summary::-webkit-details-marker,
+.agent-workbench .public-run-activity__tool-window > summary::-webkit-details-marker {
   display: none;
 }
 
@@ -4005,7 +4005,7 @@ body {
   gap: 8px;
   min-width: 0;
   overflow: hidden;
-  color: var(--console-text, #111827);
+  color: var(--console-text);
   font-size: 14px;
   font-weight: 760;
   line-height: 1.45;
@@ -4023,7 +4023,7 @@ body {
   max-width: min(56vw, 620px);
   overflow: hidden;
   color: var(--console-muted);
-  font-family: var(--console-mono, "Cascadia Code", monospace);
+  font-family: var(--console-font);
   font-size: 12px;
   font-weight: 620;
   text-overflow: ellipsis;
@@ -4032,7 +4032,7 @@ body {
 
 .agent-workbench .public-run-activity__tool-window-subtitle {
   overflow: hidden;
-  color: var(--console-muted, #64748b);
+  color: var(--console-muted);
   font-size: 12px;
   line-height: 1.3;
   text-overflow: ellipsis;
@@ -4136,7 +4136,7 @@ body {
 
 .agent-workbench .public-run-activity__tool-round--soft_error .public-run-activity__tool-round-icon,
 .agent-workbench .public-run-activity__tool-window--soft_error .public-run-activity__tool-window-icon {
-  color: #8a613b;
+  color: var(--console-warning);
 }
 
 .agent-workbench .public-run-activity__tool-round-count {
@@ -4146,78 +4146,241 @@ body {
 .agent-workbench .public-run-activity__tool-round-body,
 .agent-workbench .public-run-activity__tool-window-body {
   display: grid;
-  gap: 13px;
-  border-top: 0;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--console-line);
   width: min(100% - 40px, 980px);
   margin: 4px 0 14px 42px;
-  border-radius: 18px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--console-surface) 72%, transparent), color-mix(in srgb, var(--console-surface) 52%, transparent));
-  padding: 16px 18px 18px;
+  border-radius: var(--console-radius-lg);
+  background: var(--console-surface);
+  box-shadow: var(--console-shadow-soft);
+  padding: 12px;
 }
 
 .agent-workbench .public-run-activity__tool-round-body {
   gap: 9px;
-  border-top: 0;
   width: auto;
   margin: 2px 0 14px 38px;
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--console-surface) 48%, transparent);
-  padding: 12px 14px;
+  border-color: var(--console-line-soft);
+  border-radius: var(--console-radius-lg);
+  background: var(--console-surface);
+  padding: 10px;
 }
 
 .agent-workbench .public-run-activity__tool-window--nested .public-run-activity__tool-window-body {
-  border-top: 0;
+  border-color: var(--console-line-soft);
   width: min(100% - 32px, 940px);
   margin: 2px 0 13px 32px;
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--console-surface) 50%, transparent);
-  padding: 14px 16px 16px;
+  border-radius: var(--console-radius-lg);
+  background: var(--console-surface);
+  padding: 10px;
 }
 
 .agent-workbench .public-run-activity__tool-meta {
   display: grid;
-  gap: 9px;
+  gap: 8px;
   margin: 0;
   padding: 0;
 }
 
 .agent-workbench .public-run-activity__tool-meta-item {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-columns: 72px minmax(0, 1fr);
   align-items: start;
-  gap: 14px;
+  gap: 10px;
   min-width: 0;
-  border-radius: 999px;
-  background: transparent;
+  border-radius: var(--console-radius-md);
   padding: 0;
 }
 
 .agent-workbench .public-run-activity__tool-meta-item dt {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
   color: var(--console-muted);
+  font-family: var(--console-font);
   font-size: 12px;
   font-weight: 720;
-  line-height: 1.55;
+  line-height: 1.35;
 }
 
 .agent-workbench .public-run-activity__tool-meta-item dd {
   min-width: 0;
   margin: 0;
+  border: 1px solid var(--console-line-soft);
+  border-radius: var(--console-radius-md);
+  background: var(--console-bg);
+  padding: 6px 8px;
   color: var(--console-text);
-  font-family: var(--console-mono, "Cascadia Code", monospace);
-  font-size: 12.5px;
+  font-family: var(--console-font);
+  font-size: 13px;
   line-height: 1.55;
   overflow-wrap: anywhere;
 }
 
+.agent-workbench .public-run-activity__tool-meta-item dd[data-value-kind="code"] {
+  font-family: var(--console-mono);
+}
+
+.agent-workbench .public-run-activity__tool-result {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid var(--console-line-soft);
+  border-radius: var(--console-radius-lg);
+  background: var(--console-bg);
+  padding: 8px;
+  color: var(--console-text);
+  font-family: var(--console-font);
+}
+
+.agent-workbench .public-run-activity__tool-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  border-bottom: 1px solid var(--console-line-soft);
+  padding: 0 2px 8px;
+  color: var(--console-muted);
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.35;
+}
+
+.agent-workbench .public-run-activity__tool-result-list {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-workbench .public-run-activity__tool-result-item {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 2px;
+}
+
+.agent-workbench .public-run-activity__tool-result-item + .public-run-activity__tool-result-item {
+  border-top: 1px solid var(--console-line-soft);
+}
+
+.agent-workbench .public-run-activity__tool-result-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--console-line);
+  border-radius: 999px;
+  background: var(--console-surface);
+  color: var(--console-muted);
+  font-size: 11px;
+  font-weight: 780;
+  line-height: 1;
+}
+
+.agent-workbench .public-run-activity__tool-result-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.agent-workbench .public-run-activity__tool-result-title {
+  overflow: hidden;
+  color: var(--console-text);
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-workbench .public-run-activity__tool-result-path,
+.agent-workbench .public-run-activity__tool-result-snippet {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--console-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agent-workbench .public-run-activity__tool-result-snippet {
+  color: var(--console-text-soft);
+}
+
+.agent-workbench .public-run-activity__tool-result-note {
+  margin: 0;
+  border-top: 1px solid var(--console-line-soft);
+  padding: 8px 2px 0;
+  color: var(--console-text-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.agent-workbench .public-run-activity__tool-raw {
+  min-width: 0;
+  border-top: 1px solid var(--console-line-soft);
+  padding-top: 7px;
+}
+
+.agent-workbench .public-run-activity__tool-raw > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  color: var(--console-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 720;
+  line-height: 1.35;
+  list-style: none;
+}
+
+.agent-workbench .public-run-activity__tool-raw > summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-workbench .public-run-activity__tool-raw > pre {
+  max-height: 260px;
+  margin: 8px 0 0;
+  overflow: auto;
+  border: 1px solid var(--console-line-soft);
+  border-radius: var(--console-radius-md);
+  background: var(--console-surface);
+  padding: 8px;
+  color: var(--console-text-soft);
+  font-family: var(--console-font);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agent-workbench .public-run-activity__tool-raw code {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+}
+
 .agent-workbench .public-run-activity__tool-console {
   display: grid;
-  gap: 13px;
+  gap: 8px;
+  min-width: 0;
   overflow: visible;
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: var(--console-text, #111827);
+  color: var(--console-text);
 }
 
 .agent-workbench .public-run-activity__tool-console-row + .public-run-activity__tool-console-row {
@@ -4226,13 +4389,13 @@ body {
 
 .agent-workbench .public-run-activity__tool-console-row {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-columns: 72px minmax(0, 1fr);
   align-items: start;
-  gap: 14px;
+  gap: 10px;
   overflow: visible;
   border: 0;
   border-left-width: 0;
-  border-radius: 0;
+  border-radius: var(--console-radius-md);
   background: transparent;
 }
 
@@ -4241,36 +4404,56 @@ body {
 }
 
 .agent-workbench .public-run-activity__tool-console-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
   padding: 0;
   color: var(--console-muted);
+  font-family: var(--console-font);
   font-size: 12px;
   font-weight: 760;
-  line-height: 1.7;
+  line-height: 1.35;
   letter-spacing: 0;
 }
 
-.agent-workbench .public-run-activity__tool-console-command,
-.agent-workbench .public-run-activity__tool-console-output {
+.agent-workbench .public-run-activity__tool-window .public-run-activity__tool-console-command,
+.agent-workbench .public-run-activity__tool-window .public-run-activity__tool-console-output {
   margin: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  padding: 0;
-  color: var(--console-text, #1f2937);
-  font-family: var(--console-mono, "Cascadia Code", monospace);
-  font-size: 12.5px;
-  line-height: 1.7;
+  border: 1px solid var(--console-line-soft);
+  border-radius: var(--console-radius-md);
+  background: var(--console-bg);
+  padding: 6px 8px;
+  color: var(--console-text);
+  font-family: var(--console-font);
+  font-size: 13px;
+  line-height: 1.55;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
-.agent-workbench .public-run-activity__tool-console-output {
-  color: var(--console-muted);
+.agent-workbench .public-run-activity__tool-window .public-run-activity__tool-console-command code,
+.agent-workbench .public-run-activity__tool-window .public-run-activity__tool-console-output code {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.agent-workbench .public-run-activity__tool-window[data-tool-family="command"] .public-run-activity__tool-target,
+.agent-workbench .public-run-activity__tool-window[data-tool-family="command"] .public-run-activity__tool-console-command,
+.agent-workbench .public-run-activity__tool-window[data-tool-family="command"] .public-run-activity__tool-console-output {
+  font-family: var(--console-mono);
+}
+
+.agent-workbench .public-run-activity__tool-window .public-run-activity__tool-console-output {
+  color: var(--console-text-soft);
 }
 
 @container (max-width: 560px) {
-  .agent-workbench .public-run-activity__tool-round summary,
-  .agent-workbench .public-run-activity__tool-window summary {
+  .agent-workbench .public-run-activity__tool-round > summary,
+  .agent-workbench .public-run-activity__tool-window > summary {
     grid-template-columns: 24px minmax(0, 1fr);
   }
 
@@ -4282,6 +4465,22 @@ body {
   .agent-workbench .public-run-activity__tool-round-body,
   .agent-workbench .public-run-activity__tool-window-body {
     margin-left: 28px;
+  }
+
+  .agent-workbench .public-run-activity__tool-meta-item,
+  .agent-workbench .public-run-activity__tool-console-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .agent-workbench .public-run-activity__tool-result-item {
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .agent-workbench .public-run-activity__tool-meta-item dt,
+  .agent-workbench .public-run-activity__tool-console-label {
+    min-height: 0;
   }
 }
 
@@ -6546,6 +6745,217 @@ body {
   .agent-workbench .center-workspace__runtime-log-layer .runtime-log-panel__events {
     border-right: 0;
     border-bottom: 1px solid var(--console-line-soft);
+  }
+}
+
+.agent-workbench .center-workspace__session-projection-layer {
+  container-type: inline-size;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 14px;
+  background: var(--console-surface);
+}
+
+.agent-workbench .session-projection-panel {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  gap: 10px;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 14px;
+  background: var(--console-surface);
+  color: var(--console-text);
+  padding: 12px;
+}
+
+.agent-workbench .session-projection-panel__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.agent-workbench .session-projection-panel__title {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.agent-workbench .session-projection-panel__title span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--console-muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.agent-workbench .session-projection-panel__title span svg {
+  color: var(--console-accent);
+}
+
+.agent-workbench .session-projection-panel__title em {
+  min-width: 0;
+  overflow: hidden;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-workbench .session-projection-panel__title strong,
+.agent-workbench .session-projection-panel__title small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-workbench .session-projection-panel__title strong {
+  color: var(--console-text);
+  font-size: 15px;
+  font-weight: 760;
+  line-height: 1.2;
+}
+
+.agent-workbench .session-projection-panel__title small {
+  color: var(--console-muted);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.agent-workbench .session-projection-panel__actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.agent-workbench .session-projection-panel__actions button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: 11px;
+  background: var(--console-surface);
+  color: var(--console-muted);
+  box-shadow: inset 0 0 0 1px var(--console-line-soft);
+  padding: 0;
+}
+
+.agent-workbench .session-projection-panel__actions button:hover:not(:disabled) {
+  background: var(--console-accent-soft);
+  color: var(--console-accent);
+  box-shadow: inset 0 0 0 1px var(--console-active-ring);
+}
+
+.agent-workbench .session-projection-panel__status,
+.agent-workbench .session-projection-panel__meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--console-bg-raised);
+  color: var(--console-muted);
+  box-shadow: inset 0 0 0 1px var(--console-line-soft);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0 9px;
+}
+
+.agent-workbench .session-projection-panel__status--active {
+  background: var(--console-accent-soft);
+  color: var(--console-accent);
+}
+
+.agent-workbench .session-projection-panel__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.agent-workbench .session-projection-panel__notice,
+.agent-workbench .session-projection-panel__error {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  border-radius: 12px;
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1.35;
+  padding: 8px 10px;
+}
+
+.agent-workbench .session-projection-panel__notice {
+  background: var(--console-warning-soft);
+  color: var(--console-warning);
+}
+
+.agent-workbench .session-projection-panel__error {
+  background: var(--console-danger-soft);
+  color: var(--console-danger);
+}
+
+.agent-workbench .session-projection-panel__body {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--console-line-soft);
+  border-radius: 13px;
+  background: var(--console-bg);
+}
+
+.agent-workbench .session-projection-panel__messages {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+  padding: 12px;
+}
+
+.agent-workbench .session-projection-panel__messages .message-shell {
+  max-width: 100%;
+}
+
+.agent-workbench .session-projection-panel__empty {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 6px;
+  min-height: 180px;
+  height: 100%;
+  color: var(--console-muted);
+  text-align: center;
+}
+
+.agent-workbench .session-projection-panel__spin {
+  animation: center-file-open-spin 0.8s linear infinite;
+}
+
+@container (max-width: 700px) {
+  .agent-workbench .session-projection-panel__head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .agent-workbench .session-projection-panel__actions {
+    justify-content: flex-start;
   }
 }
 

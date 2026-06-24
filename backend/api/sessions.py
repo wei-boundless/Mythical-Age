@@ -680,14 +680,7 @@ async def truncate_session_messages(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    try:
-        await runtime.memory_facade.arun_memory_maintenance_after_commit(
-            session_id=session_id,
-            messages=list(record.get("messages", []) or []),
-            durable_lane_enabled=False,
-        )
-    except Exception:
-        pass
+    _queue_session_truncate_memory_maintenance(runtime, session_id=session_id, record=record)
     return record
 
 
@@ -868,6 +861,35 @@ def _truncate_session_messages_payload(
     record = runtime.session_manager.truncate_messages_from(session_id, message_index)
     _reset_prompt_cache_baseline_after_session_truncate(runtime, session_id=session_id, message_index=message_index)
     return record
+
+
+def _queue_session_truncate_memory_maintenance(runtime: Any, *, session_id: str, record: dict[str, Any]) -> None:
+    messages = [
+        dict(item)
+        for item in list(record.get("messages") or [])
+        if isinstance(item, dict)
+    ]
+    task_name = f"session-truncate-memory-maintenance:{session_id}"
+
+    async def _enqueue() -> None:
+        try:
+            await asyncio.to_thread(
+                runtime.memory_facade.enqueue_memory_maintenance_after_commit,
+                session_id=session_id,
+                messages=messages,
+                durable_lane_enabled=False,
+            )
+        except Exception:
+            logger.exception("Session truncate memory maintenance enqueue failed for %s", session_id)
+
+    coro = _enqueue()
+    try:
+        runtime.harness_runtime.single_agent_runtime_host.spawn_background_task(coro, name=task_name)
+    except Exception:
+        close = getattr(coro, "close", None)
+        if callable(close):
+            close()
+        logger.exception("Failed to schedule session truncate memory maintenance for %s", session_id)
 
 
 def _reset_prompt_cache_baseline_after_session_truncate(runtime: Any, *, session_id: str, message_index: int) -> None:

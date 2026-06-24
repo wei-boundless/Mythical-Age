@@ -1201,9 +1201,9 @@
 }
 
 .agent-workbench .chat-message-shell__content.markdown code {
-  white-space: break-spaces;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .agent-workbench .chat-message-shell__content.markdown pre {

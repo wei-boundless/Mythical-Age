@@ -5,16 +5,54 @@ from typing import Any
 
 
 STATIC_PREFIX = "static_prefix"
-SEALED_CONTEXT_PREFIX = "sealed_context_prefix"
+CONTEXT_MEMORY_PREFIX = "context_memory_prefix"
 CONTEXT_APPEND = "context_append"
 DYNAMIC_TAIL = "dynamic_tail"
+CONTEXT_MEMORY = "context_memory"
+LEGACY_PROVIDER_VISIBLE_PREFIX_SECTION = "sealed_context_prefix"
 
 CONTEXT_ASSEMBLY_ORDER = (
     STATIC_PREFIX,
-    SEALED_CONTEXT_PREFIX,
+    CONTEXT_MEMORY_PREFIX,
     CONTEXT_APPEND,
     DYNAMIC_TAIL,
 )
+
+CONTEXT_PHYSICAL_ASSEMBLY_ORDER = (
+    STATIC_PREFIX,
+    CONTEXT_MEMORY,
+    DYNAMIC_TAIL,
+)
+
+CONTEXT_PHYSICAL_SEGMENT_BY_SECTION = {
+    STATIC_PREFIX: STATIC_PREFIX,
+    CONTEXT_MEMORY_PREFIX: CONTEXT_MEMORY,
+    LEGACY_PROVIDER_VISIBLE_PREFIX_SECTION: CONTEXT_MEMORY,
+    CONTEXT_APPEND: CONTEXT_MEMORY,
+    DYNAMIC_TAIL: DYNAMIC_TAIL,
+}
+
+CONTEXT_PHYSICAL_SEGMENT_RANK = {
+    STATIC_PREFIX: 10,
+    CONTEXT_MEMORY: 20,
+    DYNAMIC_TAIL: 30,
+}
+
+CONTEXT_PREFIX_STATE_BY_SECTION = {
+    STATIC_PREFIX: "static_provider_prefix",
+    CONTEXT_MEMORY_PREFIX: "replayed_provider_visible_context_prefix",
+    LEGACY_PROVIDER_VISIBLE_PREFIX_SECTION: "replayed_provider_visible_context_prefix",
+    CONTEXT_APPEND: "current_context_append_promotes_to_next_prefix",
+    DYNAMIC_TAIL: "uncached_dynamic_tail",
+}
+
+CONTEXT_PREFIX_BOUNDARY_BY_SECTION = {
+    STATIC_PREFIX: "cacheable_prefix",
+    CONTEXT_MEMORY_PREFIX: "cacheable_prefix",
+    LEGACY_PROVIDER_VISIBLE_PREFIX_SECTION: "cacheable_prefix",
+    CONTEXT_APPEND: "materialize_then_cache_on_next_request",
+    DYNAMIC_TAIL: "never_cache",
+}
 
 
 STATIC_PREFIX_KINDS = {
@@ -53,6 +91,7 @@ MEMORY_CONTEXT_KINDS = {
     "session_history_entry",
     "session_pinned_facts_context",
     "current_turn_user_context",
+    "single_agent_turn_followup_action_contract",
     "single_agent_turn_followup_message",
     "single_agent_turn_tool_call",
     "single_agent_turn_tool_observation",
@@ -72,6 +111,7 @@ APPEND_ONLY_CONTEXT_KINDS = {
     "session_history_entry",
     "session_pinned_facts_context",
     "current_turn_user_context",
+    "single_agent_turn_followup_action_contract",
     "single_agent_turn_followup_message",
     "single_agent_turn_tool_call",
     "single_agent_turn_tool_observation",
@@ -97,7 +137,6 @@ CURRENT_CONTROL_TAIL_KINDS = {
     "semantic_compaction_request",
     "session_history_tail_context",
     "skill_candidates",
-    "single_agent_turn_followup_action_contract",
     "task_runtime_boundary_dynamic",
     "user_steering_consumption_tail",
     "volatile_runtime_state",
@@ -144,11 +183,50 @@ class ContextAssemblyClassification:
         return asdict(self)
 
 
+def assemble_context_physical_message_specs(
+    *,
+    static_prefix: list[tuple[int, dict[str, Any]]] | tuple[tuple[int, dict[str, Any]], ...] = (),
+    context_memory: list[tuple[int, dict[str, Any]]] | tuple[tuple[int, dict[str, Any]], ...] = (),
+    dynamic_tail: list[tuple[int, dict[str, Any]]] | tuple[tuple[int, dict[str, Any]], ...] = (),
+    physical_order: list[str] | tuple[str, ...] | None = None,
+) -> list[dict[str, Any]]:
+    """Assemble the provider-visible physical context sequence.
+
+    This is the single physical concatenation point for context packages. The
+    dynamic tail participates in the same message sequence, always after
+    static prefix and context memory, but remains a volatile suffix by policy.
+    """
+
+    package_order = _normalized_physical_order(physical_order)
+    buckets = {
+        STATIC_PREFIX: _package_specs(static_prefix, package=STATIC_PREFIX, package_order=package_order),
+        CONTEXT_MEMORY: _package_specs(context_memory, package=CONTEXT_MEMORY, package_order=package_order),
+        DYNAMIC_TAIL: _package_specs(dynamic_tail, package=DYNAMIC_TAIL, package_order=package_order),
+    }
+    assembled: list[dict[str, Any]] = []
+    assembly_index = 0
+    for package in package_order:
+        for spec in buckets.get(package, []):
+            assembly_index += 1
+            metadata = {
+                **dict(spec.get("metadata") or {}),
+                "context_physical_assembly_index": assembly_index,
+                "context_physical_assembly_package": package,
+                "context_physical_assembly_order": list(package_order),
+                "context_physical_assembly_authority": "runtime.context_management.context_assembly",
+            }
+            spec["metadata"] = metadata
+            assembled.append(spec)
+    return assembled
+
+
 def classify_context_spec(spec: dict[str, Any] | None) -> ContextAssemblyClassification:
     payload = dict(spec or {})
     metadata = dict(payload.get("metadata") or {})
     kind = str(payload.get("kind") or metadata.get("kind") or "unknown_unplanned").strip() or "unknown_unplanned"
-    explicit_section = str(metadata.get("context_cache_section") or payload.get("context_cache_section") or "").strip()
+    explicit_section = _normalize_context_section(
+        metadata.get("context_cache_section") or payload.get("context_cache_section") or ""
+    )
     if explicit_section in CONTEXT_ASSEMBLY_ORDER:
         section = explicit_section
         reason = "explicit_context_cache_section"
@@ -185,8 +263,8 @@ def classify_context_spec(spec: dict[str, Any] | None) -> ContextAssemblyClassif
     )
     fixed_context_package = {
         STATIC_PREFIX: "static_prefix",
-        SEALED_CONTEXT_PREFIX: "sealed_context",
-        CONTEXT_APPEND: "context_append",
+        CONTEXT_MEMORY_PREFIX: "context_memory_prefix",
+        CONTEXT_APPEND: "context_memory_append",
         DYNAMIC_TAIL: "dynamic_tail",
     }[section]
     return ContextAssemblyClassification(
@@ -217,6 +295,80 @@ def apply_context_assembly_classification(spec: dict[str, Any] | None) -> dict[s
     return payload
 
 
+def context_physical_segment_for_section(section: str) -> str:
+    return CONTEXT_PHYSICAL_SEGMENT_BY_SECTION.get(_normalize_context_section(section), CONTEXT_MEMORY)
+
+
+def context_physical_segment_rank(segment: str) -> int:
+    return CONTEXT_PHYSICAL_SEGMENT_RANK.get(str(segment or "").strip(), 999)
+
+
+def context_prefix_state_for_section(section: str) -> str:
+    return CONTEXT_PREFIX_STATE_BY_SECTION.get(_normalize_context_section(section), "context_prefix_state_unknown")
+
+
+def context_prefix_boundary_for_section(section: str) -> str:
+    return CONTEXT_PREFIX_BOUNDARY_BY_SECTION.get(_normalize_context_section(section), "prefix_boundary_unknown")
+
+
+def _normalize_context_section(value: Any) -> str:
+    section = str(value or "").strip()
+    if section == LEGACY_PROVIDER_VISIBLE_PREFIX_SECTION:
+        return CONTEXT_MEMORY_PREFIX
+    return section
+
+
+def _normalized_physical_order(order: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+    explicit = bool(order)
+    raw = tuple(str(item or "").strip() for item in tuple(order or CONTEXT_PHYSICAL_ASSEMBLY_ORDER))
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        package = _normalize_physical_package(item)
+        if not package or package in seen:
+            continue
+        normalized.append(package)
+        seen.add(package)
+    required = CONTEXT_PHYSICAL_ASSEMBLY_ORDER if not explicit else (STATIC_PREFIX, CONTEXT_MEMORY)
+    for package in required:
+        if package not in seen:
+            normalized.append(package)
+            seen.add(package)
+    return tuple(normalized)
+
+
+def _normalize_physical_package(value: Any) -> str:
+    item = str(value or "").strip()
+    if item in {CONTEXT_MEMORY_PREFIX, LEGACY_PROVIDER_VISIBLE_PREFIX_SECTION, CONTEXT_APPEND}:
+        return CONTEXT_MEMORY
+    if item in {STATIC_PREFIX, CONTEXT_MEMORY, DYNAMIC_TAIL}:
+        return item
+    return ""
+
+
+def _package_specs(
+    values: list[tuple[int, dict[str, Any]]] | tuple[tuple[int, dict[str, Any]], ...],
+    *,
+    package: str,
+    package_order: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    specs: list[dict[str, Any]] = []
+    for original_order, raw_spec in list(values or []):
+        if not isinstance(raw_spec, dict):
+            continue
+        spec = dict(raw_spec)
+        metadata = {
+            **dict(spec.get("metadata") or {}),
+            "context_physical_segment": package,
+            "context_physical_segment_rank": context_physical_segment_rank(package),
+            "context_physical_original_order": int(original_order or 0),
+            "context_physical_segment_order": list(package_order),
+        }
+        spec["metadata"] = metadata
+        specs.append(spec)
+    return specs
+
+
 def is_dynamic_tail_spec(spec: dict[str, Any] | None) -> bool:
     return classify_context_spec(spec).context_cache_section == DYNAMIC_TAIL
 
@@ -227,7 +379,7 @@ def is_context_append_spec(spec: dict[str, Any] | None) -> bool:
 
 def is_sealable_context_spec(spec: dict[str, Any] | None) -> bool:
     classification = classify_context_spec(spec)
-    if classification.context_cache_section not in {SEALED_CONTEXT_PREFIX, CONTEXT_APPEND}:
+    if classification.context_cache_section not in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
         return False
     if classification.memory_commit_policy == "never_commit":
         return False
@@ -251,7 +403,7 @@ def _cache_policy_for_section(
         if not cache_scope or cache_scope == "none":
             cache_scope = "global" if cache_role == "cacheable_prefix" else "session"
         return cache_scope, cache_role, _prefix_tier(spec.get("prefix_tier"), cache_scope=cache_scope, cache_role=cache_role)
-    if section in {SEALED_CONTEXT_PREFIX, CONTEXT_APPEND}:
+    if section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
         return "task", "session_stable", "task"
     return "none", "volatile", "volatile"
 
@@ -259,8 +411,8 @@ def _cache_policy_for_section(
 def _semantic_commit_class(*, kind: str, section: str) -> str:
     if section == STATIC_PREFIX:
         return "static_protocol"
-    if section == SEALED_CONTEXT_PREFIX:
-        return "sealed_context_memory"
+    if section == CONTEXT_MEMORY_PREFIX:
+        return "provider_visible_context_memory"
     if section == CONTEXT_APPEND:
         if kind in {"current_turn_user_context", "single_agent_turn_user_steer_context", "user_steering_context_append"}:
             return "current_user_context"
@@ -279,7 +431,7 @@ def _memory_commit_policy(*, kind: str, section: str) -> str:
         return "never_commit"
     if section == STATIC_PREFIX:
         return "static_not_memory"
-    if kind in APPEND_ONLY_CONTEXT_KINDS or section in {SEALED_CONTEXT_PREFIX, CONTEXT_APPEND}:
+    if kind in APPEND_ONLY_CONTEXT_KINDS or section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
         return "append_then_seal"
     return "preserve_if_stable"
 

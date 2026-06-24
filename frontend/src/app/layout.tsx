@@ -9,6 +9,8 @@ import "../styles/04-chat-workbench.css";
 import "../styles/05-system-pages.css";
 import "../styles/06-task-workbench.css";
 import "../styles/07-agent-management.css";
+import "@xyflow/react/dist/style.css";
+import "../styles/08-graph-repository.css";
 
 export const metadata: Metadata = {
   title: "Mythical Age | 洪荒智能",

@@ -430,10 +430,10 @@ export class RunMonitorController {
         task_environment_id: "",
         project_id: projectId,
       };
-      this.host.syncWorkspaceViewUrl("creative");
+      this.host.syncWorkspaceViewUrl("graph-repository");
       this.store.setState((prev) => ({
         ...prev,
-        activeWorkspaceView: "creative",
+        activeWorkspaceView: "graph-repository",
         taskGraphMonitorBinding: normalizeTaskGraphBinding({
           task_run_id: signal.task_run_id,
           graph_run_id: graphRunId,

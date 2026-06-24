@@ -258,8 +258,11 @@ def build_provider_payload_manifest(
             "transport_contract_ref": str(transport_contract.get("contract_id") or ""),
             "transport_contract_hash": str(transport_contract.get("contract_hash") or ""),
             "tool_catalog_manifest_ref": str(dict(tool_catalog_manifest or {}).get("manifest_id") or ""),
-            "context_assembly_order": ["static_prefix", "sealed_context_prefix", "context_append", "dynamic_tail"],
+            "context_assembly_order": _context_cache_section_order(ordered_segments),
+            "context_physical_segment_order": _context_physical_segment_order(ordered_segments),
             "context_cache_section_counts": _context_cache_section_counts(ordered_segments),
+            "context_physical_segment_counts": _context_physical_segment_counts(ordered_segments),
+            "context_prefix_state_counts": _context_prefix_state_counts(ordered_segments),
             "stable_segment_after_dynamic_tail_count": _stable_segment_after_dynamic_tail_count(ordered_segments),
             "dynamic_tail_after_cache_boundary": _stable_segment_after_dynamic_tail_count(ordered_segments) == 0,
             "authority": "runtime.model_gateway.provider_payload.builder",
@@ -654,6 +657,76 @@ def _context_cache_section_counts(segments: tuple[ProviderPayloadSegment, ...]) 
         section = str(metadata.get("context_cache_section") or metadata.get("context_assembly_section") or "unknown")
         counts[section] = counts.get(section, 0) + 1
     return counts
+
+
+def _context_physical_segment_counts(segments: tuple[ProviderPayloadSegment, ...]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for segment in tuple(segments or ()):
+        if segment.transport_location != "messages":
+            continue
+        metadata = dict(segment.metadata or {})
+        physical_segment = str(metadata.get("context_physical_segment") or "").strip()
+        if not physical_segment:
+            physical_segment = str(metadata.get("context_cache_section") or metadata.get("context_assembly_section") or "unknown")
+        counts[physical_segment] = counts.get(physical_segment, 0) + 1
+    return counts
+
+
+def _context_prefix_state_counts(segments: tuple[ProviderPayloadSegment, ...]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for segment in tuple(segments or ()):
+        if segment.transport_location != "messages":
+            continue
+        metadata = dict(segment.metadata or {})
+        state = str(metadata.get("context_prefix_state") or "unknown").strip() or "unknown"
+        counts[state] = counts.get(state, 0) + 1
+    return counts
+
+
+def _context_cache_section_order(segments: tuple[ProviderPayloadSegment, ...]) -> list[str]:
+    declared = _first_declared_context_order(segments, key="context_cache_section_order")
+    if declared:
+        return declared
+    return _ordered_unique_context_metadata_values(segments, "context_cache_section", fallback_key="context_assembly_section")
+
+
+def _context_physical_segment_order(segments: tuple[ProviderPayloadSegment, ...]) -> list[str]:
+    declared = _first_declared_context_order(segments, key="context_physical_segment_order")
+    if declared:
+        return declared
+    return _ordered_unique_context_metadata_values(segments, "context_physical_segment")
+
+
+def _first_declared_context_order(segments: tuple[ProviderPayloadSegment, ...], *, key: str) -> list[str]:
+    for segment in tuple(segments or ()):
+        if segment.transport_location != "messages":
+            continue
+        value = dict(segment.metadata or {}).get(key)
+        if isinstance(value, (list, tuple)):
+            result = [str(item or "").strip() for item in value if str(item or "").strip()]
+            if result:
+                return result
+    return []
+
+
+def _ordered_unique_context_metadata_values(
+    segments: tuple[ProviderPayloadSegment, ...],
+    key: str,
+    *,
+    fallback_key: str = "",
+) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for segment in sorted(
+        [item for item in tuple(segments or ()) if item.transport_location == "messages"],
+        key=lambda item: int(item.ordinal or 0),
+    ):
+        metadata = dict(segment.metadata or {})
+        value = str(metadata.get(key) or (metadata.get(fallback_key) if fallback_key else "") or "").strip()
+        if value and value not in seen:
+            result.append(value)
+            seen.add(value)
+    return result
 
 
 def _stable_segment_after_dynamic_tail_count(segments: tuple[ProviderPayloadSegment, ...]) -> int:

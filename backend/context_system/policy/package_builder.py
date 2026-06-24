@@ -189,8 +189,8 @@ class MemoryContextPolicy:
             read_only=True,
             diagnostics={
                 "memory_runtime_view_ref": memory_view.view_id,
-                "sealed_context_receipt_ref": sealed_receipt.receipt_id,
-                "sealed_context_package_sha256": sealed_receipt.package_sha256,
+                "context_package_receipt_ref": sealed_receipt.receipt_id,
+                "context_package_sha256": sealed_receipt.package_sha256,
                 "context_candidate_count": len(memory_view.context_candidates),
                 "restore_candidate_count": len(memory_view.restore_candidates),
                 "retrieval_evidence_count": len(retrieval_items),

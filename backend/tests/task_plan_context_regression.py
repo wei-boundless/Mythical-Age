@@ -191,8 +191,8 @@ def test_task_execution_incremental_context_cursor_indexes_steer_and_runtime_sig
     assert dict(cursor_segment.get("metadata") or {})["cache_impact"] == "volatile_suffix_only"
     assert cursor["frame_type"] == "dynamic_execution_tail"
     assert cursor["frame_scope"] == "task_execution"
-    assert cursor["sealed_context_cursor"]["latest_task_state_replay_ref"] == "obs:read:1"
-    assert cursor["execution_contract"]["memory_source"] == "sealed_context_prefix+context_append"
+    assert cursor["context_memory_cursor"]["latest_task_state_replay_ref"] == "obs:read:1"
+    assert cursor["execution_contract"]["memory_source"] == "static_prefix+context_memory"
     assert cursor["execution_contract"]["tail_scope"] == "current_invocation_control_only"
     assert "steer:feedback:1" in event_refs
     assert "rtsig:budget:1" in runtime_control_refs
@@ -275,7 +275,7 @@ def test_task_execution_read_file_tool_memory_uses_refs_without_replaying_exact_
     assert replay_payload["task_state_replay_entry"]["content_range"]["path"] == "backend/example.py"
     assert replay_payload["task_state_replay_entry"]["content_range"]["exact_artifact_ref"] == "read_observation:example-content"
     assert "latest_tool_results" not in current_state_payload["task_state"]
-    assert frame_payload["incremental_context_cursor"]["sealed_context_cursor"]["latest_task_state_replay_ref"] == "obs:read:structured"
+    assert frame_payload["incremental_context_cursor"]["context_memory_cursor"]["latest_task_state_replay_ref"] == "obs:read:structured"
 
 
 def _payload_with_title(packet, title: str) -> dict[str, object]:

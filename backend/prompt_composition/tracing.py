@@ -5,8 +5,8 @@ from typing import Any
 from .models import PromptCompositionSegmentBinding, PromptCompositionSlot
 from runtime.context_management.context_assembly import (
     CONTEXT_APPEND,
+    CONTEXT_MEMORY_PREFIX,
     DYNAMIC_TAIL,
-    SEALED_CONTEXT_PREFIX,
     classify_context_spec,
 )
 
@@ -124,7 +124,7 @@ def runtime_source_kind_for_segment(segment: dict[str, Any]) -> str:
     if source_kind:
         return source_kind
     classification = classify_context_spec(segment)
-    if classification.context_cache_section in {SEALED_CONTEXT_PREFIX, CONTEXT_APPEND}:
+    if classification.context_cache_section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
         return "runtime_append_only_context"
     if classification.context_cache_section == DYNAMIC_TAIL:
         return "dynamic_context_fragment"

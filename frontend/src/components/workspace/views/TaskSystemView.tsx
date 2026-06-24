@@ -26,7 +26,6 @@ import {
   type RunManagementSubpage,
 } from "@/components/workspace/views/task-system/runs/RunManagementWorkbench";
 import { TaskSystemShell } from "@/components/workspace/views/task-system/TaskSystemShell";
-import { GraphTaskWorkspace } from "@/components/workspace/views/task-graph-workbench/GraphTaskWorkspace";
 import {
   deleteTaskSystemContract,
   deleteTaskSystemEnvironment,
@@ -50,7 +49,7 @@ import {
 } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 
-type TaskSystemDomain = "graphs" | "environments" | "contracts" | "nodes" | "runs";
+type TaskSystemDomain = "environments" | "contracts" | "nodes" | "runs";
 type ContractSubpage = "catalog" | "detail" | "usage";
 type NodeSubpage = "catalog" | "detail" | "capability" | "preview";
 
@@ -78,9 +77,7 @@ export function TaskSystemView() {
     activeWorkspaceView,
     chatTaskEnvironmentBinding,
     clearChatTaskEnvironmentBinding,
-    clearTaskGraphWorkspaceTarget,
     setChatTaskEnvironmentBinding,
-    taskGraphWorkspaceTarget,
   } = useAppStore();
   const [consolePayload, setConsolePayload] = useState<TaskSystemOverview | null>(null);
   const [nodeRuntimeCatalog, setNodeRuntimeCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
@@ -91,7 +88,6 @@ export function TaskSystemView() {
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState("");
   const [activeDomain, setActiveDomain] = useState<TaskSystemDomain>("environments");
   const [environmentSubpage, setEnvironmentSubpage] = useState<EnvironmentSubpage>("loadout");
-  const [selectedTaskSystemGraphId, setSelectedTaskSystemGraphId] = useState("");
   const [contractSubpage, setContractSubpage] = useState<ContractSubpage>("catalog");
   const [nodeSubpage, setNodeSubpage] = useState<NodeSubpage>("catalog");
   const [runSubpage, setRunSubpage] = useState<RunManagementSubpage>("queue");
@@ -182,17 +178,6 @@ export function TaskSystemView() {
     if (!selectedEnvironmentItem) return;
     setEnvironmentDraft(environmentDraftFromItem(selectedEnvironmentItem));
   }, [selectedEnvironmentItem]);
-
-  useEffect(() => {
-    if (!taskSystemActive || !taskGraphWorkspaceTarget) return;
-    setActiveDomain("graphs");
-
-    const targetGraphId = String(taskGraphWorkspaceTarget.graph_id || "").trim();
-    if (targetGraphId) {
-      setSelectedTaskSystemGraphId(targetGraphId);
-    }
-    clearTaskGraphWorkspaceTarget();
-  }, [clearTaskGraphWorkspaceTarget, taskGraphWorkspaceTarget, taskSystemActive]);
 
   function createEnvironmentDraft() {
     const index = environmentItems.length + 1;
@@ -395,12 +380,6 @@ export function TaskSystemView() {
     : environmentDraft.title || selectedEnvironmentId || "未选择任务环境";
   const domainItems: Array<LayerNavItem<TaskSystemDomain>> = [
     {
-      value: "graphs",
-      label: "图定义",
-      meta: `${consolePayload?.task_graph_management?.task_graphs?.length ?? 0} 张图`,
-      detail: "拓扑、节点、边契约、编译报告和发布配置",
-    },
-    {
       value: "environments",
       label: "环境管理",
       meta: selectedEnvironmentItem ? taskEnvironmentDisplayTitle(selectedEnvironmentItem) : `${environmentItems.length} 个环境`,
@@ -460,18 +439,14 @@ export function TaskSystemView() {
     />
   );
 
-  const subpageItems = activeDomain === "graphs"
-    ? []
-    : activeDomain === "environments"
+  const subpageItems = activeDomain === "environments"
     ? environmentPages
     : activeDomain === "contracts"
       ? contractPages
       : activeDomain === "nodes"
         ? nodePages
         : runPages;
-  const activeSubpage = activeDomain === "graphs"
-    ? ""
-    : activeDomain === "environments"
+  const activeSubpage = activeDomain === "environments"
     ? environmentSubpage
     : activeDomain === "contracts"
       ? contractSubpage
@@ -539,9 +514,7 @@ export function TaskSystemView() {
     </div>
   );
 
-  const path = activeDomain === "graphs"
-    ? "图定义 / 拓扑与发布配置"
-    : activeDomain === "environments"
+  const path = activeDomain === "environments"
       ? `环境管理 / ${environmentPages.find((item) => item.value === environmentSubpage)?.label ?? ""} / ${selectedEnvironmentLabel}`
       : activeDomain === "contracts"
       ? `契约库 / ${contractPages.find((item) => item.value === contractSubpage)?.label ?? ""}`
@@ -566,13 +539,6 @@ export function TaskSystemView() {
       title="任务系统"
     >
       <section className={`task-management-stage task-management-stage--${activeDomain}`}>
-        {activeDomain === "graphs" ? (
-          <GraphTaskWorkspace
-            onSelectedGraphChange={setSelectedTaskSystemGraphId}
-            requestedGraphId={selectedTaskSystemGraphId}
-          />
-        ) : null}
-
         {activeDomain === "environments" ? (
           <TaskEnvironmentManagementWorkbench
             activePage={environmentSubpage}
