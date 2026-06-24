@@ -960,11 +960,11 @@ def _build_system_wiring_manifest(
             config={
                 "accept_task_contract": True,
                 "request_task_run_enabled": may_request_task_run,
-                "contract_strictness": "canonical_task_contract_seed",
+                "contract_strictness": "canonical_task_run_contract_seed",
                 "task_lifecycle_policy": task_lifecycle_policy,
             },
             prompt_resources=("runtime.rule.turn_decision_alignment", "environment.general.lifecycle.task_run_handoff"),
-            context_segments=("task_contract_stable", "task_prompt_contract"),
+            context_segments=("task_run_contract_stable", "task_prompt_contract"),
             feedback_channels=("contract_gap_repair", "task_run_handoff_repair"),
         ),
         "react_loop": _system_group_manifest(
@@ -1694,7 +1694,12 @@ def _control_capabilities_for_runtime(
         )
         and not environment_disables_subagents
     )
-    has_explicit_contract = bool(engagement_contract or runtime_contract.get("task_contract") or runtime_contract.get("task_contract_seed"))
+    has_explicit_contract = bool(
+        engagement_contract
+        or runtime_contract.get("task_run_contract")
+        or runtime_contract.get("task_run_contract_seed")
+        or runtime_contract.get("engagement_contract")
+    )
     requires_json_action_protocol_explicit = "requires_json_action_protocol" in explicit
     supports_json_action_protocol = bool(
         may_call_tools

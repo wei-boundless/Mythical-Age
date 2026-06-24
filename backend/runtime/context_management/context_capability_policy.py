@@ -437,7 +437,7 @@ def _group_for_lifecycle_slot(slot: str) -> str:
 
 _KIND_GROUPS: dict[str, tuple[str, str, str]] = {
     "action_schema_static": (ACTION_CONTRACTS, "action_schema", "contract"),
-    "task_contract_stable": (TASK_CONTRACTS, "task_contract", "contract"),
+    "task_run_contract_stable": (TASK_CONTRACTS, "task_run_contract", "contract"),
     "task_prompt_contract": (TASK_CONTRACTS, "task_prompt_contract", "contract"),
     "tool_schema_catalog": (TOOL_CONTEXT, "tool_schema_catalog", "contract"),
     "tool_index_stable": (TOOL_CONTEXT, "tool_index", "contract"),

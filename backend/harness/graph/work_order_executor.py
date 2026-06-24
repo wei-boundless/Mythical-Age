@@ -289,6 +289,7 @@ class GraphNodeWorkOrderExecutor:
             task_run_id=task_run_id,
             task_run_payload=task_run_payload,
             artifact_refs=artifact_refs,
+            final_answer=final_answer,
         )
         structured_outputs = _structured_agent_outputs(task_run_payload)
         progress_receipts, progress_errors = _progress_receipts_from_structured_outputs(
@@ -935,6 +936,7 @@ def _formal_memory_receipts(
     task_run_id: str,
     task_run_payload: dict[str, Any],
     artifact_refs: list[dict[str, Any]],
+    final_answer: str = "",
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     service = getattr(services, "formal_memory_service", None)
     candidate_pool = _memory_candidates_from_task_run(task_run_payload)
@@ -951,8 +953,27 @@ def _formal_memory_receipts(
         if declaration_error:
             errors.append(declaration_error)
             continue
-        edge_candidates = _candidates_for_memory_edge(edge=edge, candidates=candidate_pool, task_run_payload=task_run_payload)
+        edge_candidates = _candidates_for_memory_edge(
+            edge=edge,
+            graph_config=graph_config,
+            work_order=work_order,
+            candidates=candidate_pool,
+            task_run_payload=task_run_payload,
+            artifact_refs=artifact_refs,
+            services=services,
+            final_answer=final_answer,
+        )
         if not edge_candidates:
+            if _edge_commits_memory(edge=edge, graph_config=graph_config, work_order=work_order):
+                errors.append(
+                    {
+                        "reason": "formal_memory_commit_candidate_missing",
+                        "edge_id": str(edge.get("edge_id") or ""),
+                        "repository": str(edge.get("repository") or edge.get("repository_id") or ""),
+                        "collection": str(edge.get("collection") or edge.get("collection_id") or ""),
+                        "authority": "harness.graph.memory_postprocess",
+                    }
+                )
             continue
         for candidate in edge_candidates:
             try:
@@ -1034,22 +1055,37 @@ def _memory_commit_failure_guard_errors(
     if node_type not in {"memory_commit", "memory_finalize"} and not write_mode.endswith("_commit"):
         return []
     signal = _memory_commit_failure_signal(final_answer)
-    if not signal:
-        return []
     committed_receipts = [
         dict(item)
         for item in list(memory_commit_receipts or [])
         if str(dict(item).get("operation") or "") == "memory_commit"
         and str(dict(item).get("status") or "") == "committed"
     ]
-    return [
-        {
-            "reason": "memory_commit_declared_failed",
-            "signal": signal,
-            "committed_receipt_count": len(committed_receipts),
-            "authority": "harness.graph.memory_commit_guard",
-        }
+    errors: list[dict[str, Any]] = []
+    commit_edges = [
+        edge
+        for edge in _memory_write_edges_for_work_order(graph_config=graph_config, work_order=work_order)
+        if _edge_commits_memory(edge=edge, graph_config=graph_config, work_order=work_order)
     ]
+    if commit_edges and not committed_receipts:
+        errors.append(
+            {
+                "reason": "memory_commit_receipt_missing",
+                "expected_commit_edge_count": len(commit_edges),
+                "committed_receipt_count": len(committed_receipts),
+                "authority": "harness.graph.memory_commit_guard",
+            }
+        )
+    if signal:
+        errors.append(
+            {
+                "reason": "memory_commit_declared_failed",
+                "signal": signal,
+                "committed_receipt_count": len(committed_receipts),
+                "authority": "harness.graph.memory_commit_guard",
+            }
+        )
+    return errors
 
 
 def _memory_commit_failure_signal(final_answer: str) -> str:
@@ -1457,7 +1493,17 @@ def _normalize_memory_edge(raw_edge: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _candidates_for_memory_edge(*, edge: dict[str, Any], candidates: list[dict[str, Any]], task_run_payload: dict[str, Any]) -> list[dict[str, Any]]:
+def _candidates_for_memory_edge(
+    *,
+    edge: dict[str, Any],
+    graph_config: GraphHarnessConfig,
+    work_order: GraphNodeWorkOrder,
+    candidates: list[dict[str, Any]],
+    task_run_payload: dict[str, Any],
+    artifact_refs: list[dict[str, Any]],
+    services: Any,
+    final_answer: str = "",
+) -> list[dict[str, Any]]:
     source_output_key = str(edge.get("source_output_key") or "").strip()
     if source_output_key:
         value = _nested_lookup(_candidate_source_payload(task_run_payload), source_output_key)
@@ -1467,10 +1513,111 @@ def _candidates_for_memory_edge(*, edge: dict[str, Any], candidates: list[dict[s
             return []
     if candidates:
         return [_candidate_for_edge(candidate, edge=edge) for candidate in candidates]
-    final_answer = str(dict(task_run_payload.get("diagnostics") or {}).get("final_answer") or "").strip()
-    if final_answer and str(edge.get("edge_type") or "") == "memory_commit":
-        return [_candidate_for_edge({"canonical_text": final_answer, "summary": final_answer[:240]}, edge=edge)]
+    materialized = _materialized_candidates_for_memory_edge(
+        edge=edge,
+        graph_config=graph_config,
+        work_order=work_order,
+        artifact_refs=artifact_refs,
+        services=services,
+    )
+    if materialized:
+        return materialized
+    answer = str(dict(task_run_payload.get("diagnostics") or {}).get("final_answer") or final_answer or "").strip()
+    if answer and str(edge.get("edge_type") or "") == "memory_commit":
+        return [_candidate_for_edge({"canonical_text": answer, "summary": _memory_candidate_summary(answer)}, edge=edge)]
     return []
+
+
+def _materialized_candidates_for_memory_edge(
+    *,
+    edge: dict[str, Any],
+    graph_config: GraphHarnessConfig,
+    work_order: GraphNodeWorkOrder,
+    artifact_refs: list[dict[str, Any]],
+    services: Any,
+) -> list[dict[str, Any]]:
+    if str(edge.get("edge_type") or "") != "memory_commit":
+        return []
+    materialization = _memory_edge_materialization_policy(edge)
+    if str(materialization.get("source") or "").strip() != "artifact_refs":
+        return []
+    content_requirement = _memory_edge_content_requirement(edge)
+    if _memory_edge_allows_refs_only(edge):
+        refs = _artifact_ref_values_for_memory(artifact_refs)
+        if refs:
+            return [
+                _candidate_for_edge(
+                    {
+                        "record_key": _memory_edge_record_key(edge),
+                        "record_kind": str(edge.get("record_kind") or ""),
+                        "summary": f"Artifact refs committed for {str(edge.get('collection') or edge.get('collection_id') or 'formal_memory')}",
+                        "artifact_refs": refs,
+                        "payload": {
+                            "artifact_refs": refs,
+                            "source": "memory_commit_output_artifact_refs",
+                            "authority": "harness.graph.memory_materializer",
+                        },
+                    },
+                    edge=edge,
+                )
+            ]
+    payloads = _source_candidate_artifact_payloads(
+        graph_config=graph_config,
+        work_order=work_order,
+        materialization=materialization,
+        services=services,
+    )
+    candidates: list[dict[str, Any]] = []
+    for index, payload in enumerate(payloads, start=1):
+        text = _artifact_payload_text(payload, services=services, materialization=materialization)
+        if bool(content_requirement.get("canonical_text_required")) and not text:
+            continue
+        refs = _artifact_ref_values_for_memory([payload])
+        candidates.append(
+            _candidate_for_edge(
+                {
+                    "record_key": _memory_edge_record_key(edge, index=index),
+                    "record_kind": str(edge.get("record_kind") or ""),
+                    "canonical_text": text,
+                    "summary": _memory_candidate_summary(text) if text else str(payload.get("summary") or ""),
+                    "artifact_refs": refs,
+                    "payload": {
+                        "source": "approved_source_artifact",
+                        "source_artifact_ref": refs[0] if refs else "",
+                        "source_node_id": str(payload.get("source_node_id") or ""),
+                        "materialization_policy": materialization,
+                        "authority": "harness.graph.memory_materializer",
+                    },
+                    "metadata": {
+                        "materialized_from": "approved_source_artifact",
+                        "authority": "harness.graph.memory_materializer",
+                    },
+                },
+                edge=edge,
+            )
+        )
+    return _dedupe_candidates(candidates)
+
+
+def _memory_edge_materialization_policy(edge: dict[str, Any]) -> dict[str, Any]:
+    metadata = dict(edge.get("metadata") or {})
+    return dict(edge.get("materialization_policy") or metadata.get("materialization_policy") or {})
+
+
+def _memory_edge_content_requirement(edge: dict[str, Any]) -> dict[str, Any]:
+    metadata = dict(edge.get("metadata") or {})
+    materialization = _memory_edge_materialization_policy(edge)
+    return dict(edge.get("content_requirement") or metadata.get("content_requirement") or materialization.get("content_requirement") or {})
+
+
+def _memory_edge_allows_refs_only(edge: dict[str, Any]) -> bool:
+    requirement = _memory_edge_content_requirement(edge)
+    return bool(requirement.get("artifact_ref_only_allowed")) and not bool(requirement.get("canonical_text_required"))
+
+
+def _memory_edge_record_key(edge: dict[str, Any], *, index: int = 1) -> str:
+    value = str(edge.get("record_key") or edge.get("record_kind") or edge.get("collection") or edge.get("collection_id") or "").strip()
+    return value or f"memory_record_{index:03d}"
 
 
 def _candidate_source_payload(task_run_payload: dict[str, Any]) -> dict[str, Any]:

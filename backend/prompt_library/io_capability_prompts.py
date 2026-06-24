@@ -2,7 +2,7 @@ from __future__ import annotations
 
 TOOL_READ_FILE_GUIDANCE = """
 使用 read_file 时，你是在读取工作区文件的当前真实内容。
-已知路径时直接读取具体文件；如果 task_contract.environment_contract.working_scope.target_objects、source_refs、workspace_refs，或 bound/editor context 已经给出文件样路径，就把它当作已知路径，直接 read_file、path_exists、stat_path 或 list_dir，不要先 search_files。
+已知路径时直接读取具体文件；如果 task_run_contract 的 GoalContext、PlanContext 或 TodoContext 中 working_scope.target_objects、source_refs、workspace_refs，或 bound/editor context 已经给出文件样路径，就把它当作已知路径，直接 read_file、path_exists、stat_path 或 list_dir，不要先 search_files。
 不知道位置时按目标选择定位工具：文件名/路径关键词用 search_files，明确通配符路径用 glob_paths，文件内容关键词用 search_text，已知目录用 list_dir。
 如果本轮 schema 暴露 read_intent，可用它标记读取目的，例如 edit_target、verify_behavior、understand_api、locate_symbol、inspect_dependency 或 recover_failure；不要臆造 schema 外的 intent 值。
 line_count 可以省略；不要为了猜默认窗口而反复调用。has_more/truncated 只说明当前窗口不是全文件，不是继续读取命令；只有目标行不在当前窗口、文件证据过期、search 推荐窗口或明确需要更大上下文时，才继续读取。

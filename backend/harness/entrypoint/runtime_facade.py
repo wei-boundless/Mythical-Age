@@ -56,12 +56,18 @@ from harness.loop.active_work import (
 )
 from harness.loop.model_action_protocol import ModelActionRequest
 from harness.loop.model_action_runtime import call_model_invoker
+from harness.loop.execution_kernel import (
+    append_action_lifecycle_event,
+    build_action_lifecycle_event_record,
+    decide_model_action_lifecycle,
+)
 from harness.loop.presentation import error_event, final_answer_event
 from harness.loop.single_agent_turn import run_single_agent_turn
 from harness.loop.task_executor import (
     append_user_work_instruction,
     execute_task_run,
 )
+from harness.entrypoint.task_mode_slash_command import TaskModeSlashSignal, task_mode_slash_signal_from_message
 from harness.loop.task_executor_controller import TaskExecutorController
 from harness.loop.task_run_recovery_state import recovery_state_for_task_run
 from harness.loop.task_lifecycle import (
@@ -618,7 +624,10 @@ class HarnessRuntimeFacade:
                     "runtime_assembly": runtime_assembly.to_dict(),
                 }
 
+                slash_task_signal = task_mode_slash_signal_from_message(request.message, turn_id=turn_id)
                 runtime_branch = _runtime_branch_projection(runtime_assembly=runtime_assembly)
+                if slash_task_signal is not None:
+                    runtime_branch = _slash_task_action_runtime_branch(slash_task_signal)
                 continuation_selection = select_session_continuation(
                     self.single_agent_runtime_host,
                     session_id=request.session_id,
@@ -705,6 +714,18 @@ class HarnessRuntimeFacade:
                     "type": "runtime_branch_decided",
                     "runtime_branch": runtime_branch,
                 }
+                if runtime_branch.get("branch_kind") == "slash_task_action_signal":
+                    async for event in self._run_slash_task_action_signal(
+                        request=semantic_request,
+                        turn_id=turn_id,
+                        runtime_assembly=runtime_assembly,
+                        runtime_branch=runtime_branch,
+                        agent_runtime_profile=agent_runtime_profile,
+                        slash_task_signal=slash_task_signal,
+                        current_work_boundary_receipt=current_work_receipt.to_dict(),
+                    ):
+                        yield event
+                    return
                 if runtime_branch.get("branch_kind") == "single_agent_turn":
                     async for event in self._run_single_agent_turn(
                         request=semantic_request,
@@ -1530,6 +1551,139 @@ class HarnessRuntimeFacade:
                 "state": "running_task" if active_work_context.running else "waiting_executor",
             },
         }
+
+    async def _run_slash_task_action_signal(
+        self,
+        *,
+        request: HarnessRuntimeRequest,
+        turn_id: str,
+        runtime_assembly: Any,
+        runtime_branch: dict[str, Any],
+        agent_runtime_profile: Any,
+        slash_task_signal: TaskModeSlashSignal | None,
+        current_work_boundary_receipt: dict[str, Any],
+    ):
+        signal = slash_task_signal
+        if signal is None or signal.action_request is None:
+            diagnostics = dict(signal.diagnostics if signal is not None else {})
+            errors = list(diagnostics.get("validation_errors") or [])
+            content = "任务命令没有形成合格的 request_task_run 动作信号，任务未启动。"
+            yield {
+                "type": "runtime_status",
+                "title": "任务命令未执行",
+                "detail": content,
+                "state": "blocked",
+                "phase": "slash_task_action_signal",
+                "terminal_reason": "slash_task_action_invalid",
+                "contract_errors": errors,
+                "runtime_branch": dict(runtime_branch or {}),
+                "diagnostics": diagnostics,
+            }
+            yield error_event(
+                content=content,
+                code="slash_task_action_invalid",
+                reason=";".join(str(item) for item in errors if str(item)) or "slash_task_action_invalid",
+                extra={
+                    "runtime_branch": dict(runtime_branch or {}),
+                    "diagnostics": diagnostics,
+                    "answer_source": "harness.entrypoint.slash_task_action_signal",
+                    "answer_persist_policy": "runtime_status_only",
+                    "answer_finalization_policy": "fail_closed_visible_message",
+                },
+            )
+            return
+
+        action_request = signal.action_request
+        packet_ref = f"slash-task-command:{turn_id}"
+        launch_runtime_assembly = _runtime_assembly_with_task_launch_supervision(runtime_assembly)
+        lifecycle = decide_model_action_lifecycle(
+            action_request,
+            packet_allowed_action_types=("request_task_run",),
+            invocation_kind="slash_task_command",
+            permit_invocation_kind="agent_turn",
+            packet_ref=packet_ref,
+            definitions_by_name=getattr(getattr(self.single_agent_runtime_host, "tool_authorization_index", None), "definitions_by_name", {}),
+            allowed_tool_names=set(),
+            runtime_profile=_runtime_profile_payload_from_assembly(launch_runtime_assembly),
+            permission_mode=_runtime_permission_mode_from_assembly(launch_runtime_assembly),
+            side_effect_policy="runtime_authorized",
+            current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
+            session_id=request.session_id,
+            turn_id=turn_id,
+            grant_scope="turn",
+        )
+        event = _append_model_action_admission_event(
+            self.single_agent_runtime_host,
+            action_request=action_request,
+            lifecycle=lifecycle,
+            run_id=turn_id,
+            packet_ref=packet_ref,
+            session_id=request.session_id,
+            turn_id=turn_id,
+            extra_payload={
+                "slash_task_signal": signal.to_dict(),
+                "runtime_branch": dict(runtime_branch or {}),
+            },
+        )
+        yield {"type": "model_action_request", "model_action_request": action_request.to_dict()}
+        yield {"type": "model_action_admission", "event": event}
+
+        admission = lifecycle.admission
+        if admission.decision != "allow":
+            content = str(admission.user_visible_reason or admission.system_reason or "任务动作信号未通过准入，任务未启动。").strip()
+            yield {
+                "type": "runtime_status",
+                "title": "任务动作未通过准入",
+                "detail": content,
+                "state": "blocked",
+                "phase": "slash_task_action_signal",
+                "terminal_reason": str(admission.system_reason or admission.decision),
+                "admission": admission.to_dict(),
+                "runtime_branch": dict(runtime_branch or {}),
+            }
+            yield error_event(
+                content=content,
+                code=str(admission.system_reason or "slash_task_admission_denied"),
+                reason=str(admission.system_reason or admission.decision),
+                extra={
+                    "admission": admission.to_dict(),
+                    "model_action_request": action_request.to_dict(),
+                    "runtime_branch": dict(runtime_branch or {}),
+                    "answer_source": "harness.entrypoint.slash_task_action_signal",
+                    "answer_persist_policy": "runtime_status_only",
+                    "answer_finalization_policy": "fail_closed_visible_message",
+                },
+            )
+            return
+
+        async for event in start_task_lifecycle_from_action_request(
+            runtime_host=self.single_agent_runtime_host,
+            session_id=request.session_id,
+            turn_id=turn_id,
+            runtime_contract=dict(request.runtime_contract or {}),
+            model_selection=dict(request.model_selection or {}),
+            action_request=action_request,
+            agent_runtime_profile=agent_runtime_profile,
+            runtime_assembly=launch_runtime_assembly,
+            runtime_branch=runtime_branch,
+            editor_context=dict(getattr(request, "editor_context", {}) or {}),
+            start_context_handoff={},
+            answer_source="harness.slash_task_command.request_task_run",
+            scheduler="slash_task_command",
+            max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
+            commit_assistant_message=self._apply_assistant_message_commit_async,
+            initialize_task_todo=self._initialize_task_todo_for_contract,
+            schedule_task_run_executor=self.schedule_task_run_executor,
+        ):
+            task_run_id = _task_run_id_from_lifecycle_event(event)
+            if task_run_id:
+                self._record_turn_environment_snapshot(
+                    session_id=request.session_id,
+                    turn_id=turn_id,
+                    runtime_assembly=launch_runtime_assembly,
+                    task_run_id=task_run_id,
+                )
+            yield event
 
     async def _run_explicit_contract_task_turn(
         self,
@@ -3079,6 +3233,95 @@ def _runtime_contract_for_turn(
     }
 
 
+def _runtime_profile_payload_from_assembly(runtime_assembly: Any) -> dict[str, Any]:
+    payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+    return dict(payload.get("profile") or {})
+
+
+def _runtime_permission_mode_from_assembly(runtime_assembly: Any) -> str:
+    payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+    runtime_contract = dict(payload.get("runtime_contract") or {})
+    profile = dict(payload.get("profile") or {})
+    return str(
+        payload.get("permission_mode")
+        or runtime_contract.get("permission_mode")
+        or profile.get("permission_mode")
+        or "default"
+    ).strip() or "default"
+
+
+class _RuntimeAssemblyPayloadView:
+    def __init__(self, base: Any, payload: dict[str, Any]) -> None:
+        self._base = base
+        self._payload = dict(payload or {})
+
+    def to_dict(self) -> dict[str, Any]:
+        return dict(self._payload or {})
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._base, name)
+
+
+def _runtime_assembly_with_task_launch_supervision(runtime_assembly: Any) -> Any:
+    payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+    profile = dict(payload.get("profile") or {})
+    lifecycle_policy = dict(profile.get("task_lifecycle_policy") or {})
+    supervision = dict(lifecycle_policy.get("task_launch_supervision") or lifecycle_policy.get("launch_supervision") or {})
+    lifecycle_policy["task_launch_supervision"] = {
+        **supervision,
+        "enabled": True,
+        "allow_direct_pass": True,
+        "gate_type": str(supervision.get("gate_type") or "slash_task_command_launch"),
+        "user_prompt": str(supervision.get("user_prompt") or "任务模式已建立。你可以补充约束，或直接继续执行。"),
+    }
+    profile["task_lifecycle_policy"] = lifecycle_policy
+    payload["profile"] = profile
+    return _RuntimeAssemblyPayloadView(runtime_assembly, payload)
+
+
+def _append_model_action_admission_event(
+    runtime_host: Any,
+    *,
+    action_request: ModelActionRequest,
+    lifecycle: Any,
+    run_id: str,
+    packet_ref: str,
+    session_id: str,
+    turn_id: str,
+    extra_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    event_record = build_action_lifecycle_event_record(
+        lifecycle,
+        action_request,
+        run_id=run_id,
+        packet_ref=packet_ref,
+        session_id=session_id,
+        turn_id=turn_id,
+        extra_payload=dict(extra_payload or {}),
+    )
+    event = append_action_lifecycle_event(runtime_host, event_record)
+    return event.to_dict() if hasattr(event, "to_dict") else dict(event or {})
+
+
+def _slash_task_action_runtime_branch(signal: TaskModeSlashSignal) -> dict[str, Any]:
+    mode_kind = str(signal.mode_kind or "").strip()
+    return {
+        "branch_kind": "slash_task_action_signal",
+        "invocation_kind": "task_action_signal",
+        "dispatch_target": "harness.entrypoint.slash_task_action_signal",
+        "reason": "user_slash_task_command",
+        "control_capabilities": {},
+        "monitor_policy": {"record_task_monitor": True, "record_turn_monitor": False},
+        "diagnostics": {
+            "slash_command": str(signal.command or ""),
+            "mode_kind": mode_kind,
+            "action_request_present": signal.action_request is not None,
+            "signal_authority": "harness.entrypoint.task_mode_slash_command",
+        },
+        "authority": "harness.entrypoint.runtime_branch",
+    }
+
+
 def _continuation_strategy_for_execution(*, decision_strategy: str, context: ActiveWorkContext) -> str:
     strategy = str(decision_strategy or "").strip()
     if strategy in {"same_run_resume", "already_running", "defer", "none"}:
@@ -3109,7 +3352,7 @@ def _explicit_contract_action_request(
             "next_action": "直接建立任务生命周期。",
             "completion_status": "working",
         },
-        task_contract_seed=_explicit_contract_task_seed(
+        task_run_contract_seed=_explicit_contract_task_seed(
             request=request,
             source=source,
             runtime_contract=runtime_contract,
@@ -3128,57 +3371,131 @@ def _explicit_contract_task_seed(
     source: dict[str, Any],
     runtime_contract: dict[str, Any],
 ) -> dict[str, Any]:
+    for candidate in (
+        source.get("task_run_contract_seed"),
+        source.get("task_run_contract"),
+        runtime_contract.get("task_run_contract_seed"),
+        runtime_contract.get("task_run_contract"),
+    ):
+        if isinstance(candidate, dict) and candidate:
+            return dict(candidate)
     output_contract = dict(source.get("output_contract") or {})
     acceptance_policy = dict(source.get("acceptance_policy") or {})
-    runtime_profile = dict(source.get("runtime_profile") or {})
-    if not runtime_profile:
-        runtime_profile = dict(dict(source.get("runtime_assembly_plan") or {}).get("runtime_profile") or {})
-    allowed_operations = _explicit_allowed_operations_for_contract(runtime_contract=runtime_contract, source=source)
+    user_visible_goal = _first_contract_text(
+        source.get("user_visible_goal"),
+        source.get("user_goal"),
+        source.get("objective"),
+        source.get("title"),
+        request.message,
+    )
+    task_run_goal = _first_contract_text(
+        source.get("task_run_goal"),
+        source.get("objective"),
+        source.get("user_visible_goal"),
+        source.get("user_goal"),
+        request.message,
+    )
+    working_scope = dict(source.get("working_scope") or {}) if isinstance(source.get("working_scope"), dict) else {}
+    completion_criteria = contract_string_tuple(
+        source.get("completion_criteria")
+        or output_contract.get("completion_criteria")
+        or acceptance_policy.get("completion_criteria")
+    )
+    required_artifacts = contract_dict_tuple(
+        source.get("required_artifacts")
+        or output_contract.get("required_artifacts")
+        or output_contract.get("artifact_requirements")
+        or acceptance_policy.get("required_artifacts")
+    )
+    required_verifications = contract_dict_tuple(
+        source.get("required_verifications")
+        or output_contract.get("required_verifications")
+        or output_contract.get("verification_requirements")
+        or acceptance_policy.get("required_verifications")
+    )
+    plan_contract = dict(source.get("plan_contract") or {}) if isinstance(source.get("plan_contract"), dict) else {}
+    major_steps = contract_string_tuple(
+        plan_contract.get("major_steps")
+        or plan_contract.get("steps")
+        or source.get("major_steps")
+        or completion_criteria
+        or (task_run_goal,)
+    )
+    primary_ref = "work-mode:plan:primary"
     return {
-        "user_visible_goal": _first_contract_text(
-            source.get("user_visible_goal"),
-            source.get("user_goal"),
-            source.get("objective"),
-            source.get("title"),
-            request.message,
-        ),
-        "task_run_goal": _first_contract_text(
-            source.get("task_run_goal"),
-            source.get("objective"),
-            source.get("user_visible_goal"),
-            source.get("user_goal"),
-            request.message,
-        ),
-        "required_artifacts": contract_dict_tuple(
-            source.get("required_artifacts")
-            or output_contract.get("required_artifacts")
-            or output_contract.get("artifact_requirements")
-            or acceptance_policy.get("required_artifacts")
-        ),
-        "required_verifications": contract_dict_tuple(
-            source.get("required_verifications")
-            or output_contract.get("required_verifications")
-            or output_contract.get("verification_requirements")
-            or acceptance_policy.get("required_verifications")
-        ),
-        "completion_criteria": contract_string_tuple(
-            source.get("completion_criteria")
-            or output_contract.get("completion_criteria")
-            or acceptance_policy.get("completion_criteria")
-        ),
-        "working_scope": dict(source.get("working_scope") or {}),
-        "capability_intent": dict(source.get("capability_intent") or {}),
-        "skill_intent": dict(source.get("skill_intent") or {}),
-        "observation_contract": dict(source.get("observation_contract") or {}),
-        "acceptance_policy": acceptance_policy,
-        "recovery_policy": dict(source.get("recovery_policy") or {}),
-        "runtime_profile": runtime_profile,
-        "permission_requirements": dict(source.get("permission_requirements") or source.get("tool_scope") or {}),
-        "allowed_operations": list(allowed_operations or ()),
-        "source_contract_ref": str(source.get("contract_id") or source.get("source_ref") or "").strip(),
-        "external_plan_ref": str(source.get("plan_id") or source.get("external_plan_ref") or "").strip(),
-        "prompt_contract": dict(source.get("prompt_contract") or {}),
-        "graph_slot": dict(source.get("graph_slot") or source.get("graph_contract") or {}),
+        "contract_version": "task_run_contract_v1",
+        "container_contract": {
+            "entry_reason": _first_contract_text(
+                source.get("entry_reason"),
+                f"显式任务合同已提供，当前工作需要绑定持续任务生命周期：{user_visible_goal}",
+            ),
+            "continuity_required": True,
+            "control_required": True,
+            "projection_required": True,
+            "checkpoint_required": True,
+            "minimum_viable_next_step": _first_contract_text(
+                source.get("minimum_viable_next_step"),
+                "按显式合同推进 primary Plan Work Mode 的第一步。",
+            ),
+            "primary_work_mode_ref": primary_ref,
+            "supporting_mode_refs": [],
+            "mode_transition_policy": {
+                "agent_may_propose_transition": True,
+                "system_may_infer_transition": False,
+                "requires_accepted_event": True,
+            },
+        },
+        "work_modes": [
+            {
+                "mode_instance_id": primary_ref,
+                "mode_kind": "plan",
+                "mode_role": "primary",
+                "status": "draft",
+                "depends_on_mode_refs": [],
+                "contract": {
+                    "strategy_summary": _first_contract_text(
+                        plan_contract.get("strategy_summary"),
+                        task_run_goal,
+                        user_visible_goal,
+                    ),
+                    "major_steps": list(major_steps),
+                    "plan_status": _first_contract_text(plan_contract.get("plan_status"), "agent_managed"),
+                    "replan_policy": dict(plan_contract.get("replan_policy") or {}) if isinstance(plan_contract.get("replan_policy"), dict) else {},
+                    "external_plan_ref": str(source.get("plan_id") or source.get("external_plan_ref") or "").strip(),
+                    "working_scope": working_scope,
+                },
+            }
+        ],
+        "lifecycle_contract": {
+            "pause_policy": {"allowed": True, "state_to_preserve": ["container_contract", "active_work_mode_refs", "completed_steps", "open_risks", "next_resume_step"]},
+            "resume_policy": {"resume_from": "latest_preserved_state_and_user_steer"},
+            "stop_policy": {"on_stop": "停止后说明已完成内容、未完成内容和可恢复状态。"},
+            "replan_policy": {"when": "显式合同、观察证据或验收状态发生实质偏离时先反馈。"},
+            "failure_recovery_policy": dict(source.get("recovery_policy") or {"on_failure": "公开说明失败原因、已完成范围和可恢复状态。"}),
+            "terminal_policy": {"final_report_required": True, "include_unfinished_work": True},
+        },
+        "feedback_contract": {
+            "feedback_sources": ["tool_observation", "runtime_observation", "lifecycle_signal", "verification_signal"],
+            "verification_feedback_policy": {"report_failed_verification": True},
+        },
+        "memory_contract": {
+            "preserve_on_pause": ["container_contract", "active_work_mode_refs", "completed_steps", "open_risks", "next_resume_step"],
+            "preserve_on_stop": ["final_status", "unfinished_work", "resume_hint"],
+        },
+        "acceptance_contract": {
+            "acceptance_mode": "strict" if (completion_criteria or required_artifacts or required_verifications) else "checkpoint",
+            "completion_criteria": list(completion_criteria),
+            "required_artifacts": list(required_artifacts),
+            "required_verifications": list(required_verifications),
+            "acceptance_policy": acceptance_policy,
+            "final_answer_requirements": ["说明完成项", "说明验证结果", "说明未完成项和风险"],
+            "evidence_refs_required": bool(completion_criteria or required_artifacts or required_verifications),
+        },
+        "runtime_requirements": {
+            "permission_requirements": dict(source.get("permission_requirements") or source.get("tool_scope") or {}),
+            "resource_requirements": {},
+            "safety_boundaries": [],
+        },
     }
 
 
@@ -3381,7 +3698,7 @@ def _runtime_is_blocked(assembly_payload: dict[str, Any]) -> bool:
 def _system_issued_explicit_contract_payload(assembly_payload: dict[str, Any]) -> dict[str, Any]:
     runtime_contract = dict(assembly_payload.get("runtime_contract") or {})
     candidates: list[dict[str, Any]] = []
-    for key in ("task_contract", "task_contract_seed", "engagement_contract"):
+    for key in ("task_run_contract", "task_run_contract_seed", "engagement_contract"):
         value = runtime_contract.get(key)
         if isinstance(value, dict) and value:
             candidates.append(dict(value))
@@ -3399,42 +3716,6 @@ def _system_issued_explicit_contract_payload(assembly_payload: dict[str, Any]) -
 
 def _explicit_contract_source_payload(assembly_payload: dict[str, Any]) -> dict[str, Any]:
     return _system_issued_explicit_contract_payload(assembly_payload)
-
-
-def _explicit_allowed_operations_for_contract(
-    *,
-    runtime_contract: dict[str, Any],
-    source: dict[str, Any],
-) -> tuple[str, ...] | None:
-    runtime_profile = dict(source.get("runtime_profile") or {})
-    if not runtime_profile:
-        runtime_profile = dict(dict(source.get("runtime_assembly_plan") or {}).get("runtime_profile") or {})
-    source_execution_permit = dict(runtime_profile.get("execution_permit") or {})
-    contract_runtime_profile = dict(runtime_contract.get("runtime_profile") or {})
-    contract_execution_permit = dict(runtime_contract.get("execution_permit") or {})
-    contract_runtime_execution_permit = dict(contract_runtime_profile.get("execution_permit") or {})
-    permission_requirements = dict(source.get("permission_requirements") or source.get("tool_scope") or {})
-    operation_requirement = dict(source.get("operation_requirement") or {})
-    operations: list[str] = []
-    seen: set[str] = set()
-    for value in (
-        runtime_contract.get("allowed_operations"),
-        contract_execution_permit.get("allowed_operations"),
-        contract_runtime_profile.get("allowed_operations"),
-        contract_runtime_execution_permit.get("allowed_operations"),
-        source.get("allowed_operations"),
-        source_execution_permit.get("allowed_operations"),
-        permission_requirements.get("allowed_operations"),
-        operation_requirement.get("allowed_operations"),
-        operation_requirement.get("required_operations"),
-        operation_requirement.get("optional_operations"),
-    ):
-        for operation in contract_string_tuple(value):
-            if operation in seen:
-                continue
-            seen.add(operation)
-            operations.append(operation)
-    return tuple(operations) if operations else None
 
 
 def _runtime_profile_with_execution_permit_allowed_operations(

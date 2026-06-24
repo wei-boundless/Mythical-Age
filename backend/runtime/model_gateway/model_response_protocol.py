@@ -221,6 +221,7 @@ def _looks_like_model_action_object(payload: dict[str, Any]) -> bool:
         "action_type" in keys
         or "authority" in keys
         or "tool_call" in keys
+        or "task_run_contract_seed" in keys
         or "task_contract_seed" in keys
         or "active_work_control" in keys
     )

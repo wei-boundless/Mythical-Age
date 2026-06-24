@@ -183,6 +183,23 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
     "input_commit_gate": {"status", "message_ref"},
     "runtime_branch_decided": {"runtime_branch"},
     "single_agent_turn_started": {"runtime_branch", "allowed_action_types"},
+    "model_action_request": {
+        "request_id",
+        "action_type",
+        "public_progress_note",
+        "public_action_state",
+        "task_run_contract_seed",
+        "active_work_control",
+        "recovery_resume",
+    },
+    "model_action_admission": {
+        "request_id",
+        "action_type",
+        "model_action_request",
+        "admission",
+        "runtime_event_id",
+        "source_event_id",
+    },
     "active_task_steer_accepted": {
         "summary",
         "status",
@@ -2095,7 +2112,10 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list
     raw_data = {key: value for key, value in dict(event).items() if key != "type"}
     if normalized in INTERNAL_STREAM_EVENTS:
         return []
-    if normalized in {"model_action_request", "agent_turn_terminal"}:
+    if normalized == "model_action_request":
+        data = _model_action_request_public_data(raw_data)
+        return [(normalized, data)] if data else []
+    if normalized == "agent_turn_terminal":
         return []
     if normalized == "runtime_evidence_projection_published":
         data = _runtime_evidence_projection_public_data(raw_data)
@@ -2123,7 +2143,8 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list
     if normalized in {"answer_candidate", "assistant_text", "token"}:
         return []
     if normalized in {"model_action_admission", "model_action_admission_checked"}:
-        return _tool_action_public_events(raw_data)
+        control_events = _control_action_public_events(raw_data)
+        return control_events or _tool_action_public_events(raw_data)
     if normalized == TOOL_ITEM_STARTED_EVENT:
         data = _tool_item_started_data(raw_data)
         return [(TOOL_ITEM_STARTED_EVENT, data)] if data else []
@@ -2331,6 +2352,82 @@ def _turn_error_summary(raw_data: dict[str, Any], *, fallback: str = "") -> str:
         if text:
             return text[:260]
     return "处理失败"
+
+
+def _model_action_request_public_data(raw_data: dict[str, Any]) -> dict[str, Any]:
+    request = _record(raw_data.get("model_action_request") or raw_data.get("action_request"))
+    if not request:
+        return {}
+    action_type = str(request.get("action_type") or "").strip()
+    if not action_type or action_type == "tool_call":
+        return {}
+    return _redact_public_stream_data(
+        _drop_empty_public_data(
+            {
+                "request_id": str(request.get("request_id") or "").strip(),
+                "action_type": action_type,
+                "public_progress_note": _safe_public_action_text(request.get("public_progress_note")),
+                "public_action_state": _record(request.get("public_action_state")),
+                "task_run_contract_seed": _record(request.get("task_run_contract_seed")),
+                "active_work_control": _record(request.get("active_work_control")),
+                "recovery_resume": _record(request.get("recovery_resume")),
+            }
+        )
+    )
+
+
+def _control_action_public_events(raw_data: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    raw_event = _record(raw_data.get("event"))
+    payload = _semantic_event_payload(raw_data)
+    request = _record(payload.get("model_action_request") or raw_data.get("model_action_request"))
+    if not request:
+        return []
+    action_type = str(request.get("action_type") or "").strip()
+    if action_type in {"", "tool_call", "tool_calls"}:
+        return []
+    admission = _record(payload.get("admission") or raw_data.get("admission"))
+    runtime_event_id = str(raw_event.get("event_id") or "").strip()
+    data = _drop_empty_public_data(
+        {
+            "request_id": str(request.get("request_id") or "").strip(),
+            "action_type": action_type,
+            "model_action_request": _model_action_request_public_data({"model_action_request": request}),
+            "admission": _public_admission_data(admission),
+            "runtime_event_id": runtime_event_id,
+            "source_event_id": runtime_event_id,
+        }
+    )
+    return [("model_action_admission", _redact_public_stream_data(data))] if data else []
+
+
+def _public_admission_data(admission: dict[str, Any]) -> dict[str, Any]:
+    if not admission:
+        return {}
+    return _drop_empty_public_data(
+        {
+            "admission_id": str(admission.get("admission_id") or "").strip(),
+            "action_request_ref": str(admission.get("action_request_ref") or "").strip(),
+            "decision": str(admission.get("decision") or "").strip(),
+            "user_visible_reason": _safe_public_action_text(admission.get("user_visible_reason")),
+            "system_reason": str(admission.get("system_reason") or "").strip(),
+            "contract_errors": [
+                str(item) for item in list(admission.get("contract_errors") or []) if str(item or "").strip()
+            ],
+            "resource_errors": [
+                str(item) for item in list(admission.get("resource_errors") or []) if str(item or "").strip()
+            ],
+            "issue_category": str(admission.get("issue_category") or "").strip(),
+            "issue_code": str(admission.get("issue_code") or "").strip(),
+        }
+    )
+
+
+def _drop_empty_public_data(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in dict(payload or {}).items()
+        if value not in ("", None, [], {}, ())
+    }
 
 
 def _tool_action_public_events(raw_data: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:

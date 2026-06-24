@@ -79,7 +79,7 @@ TASK_ACTION_JSON_REPAIR_PROMPT = (
     "你负责修复任务执行模型上一轮未被接受的 action。"
     "上一轮动作没有进入执行队列；你需要重新提交一个当前允许的动作。"
     "本轮提交一个可唯一识别的结构化动作，必须填写 action_type、public_action_state 和 public_progress_note。"
-    "如果使用 JSON action，顶层字段要直接表达动作，不要把 task_contract_seed 或 recovery_resume 塞进 payload 包装层。"
+    "如果使用 JSON action，顶层字段要直接表达动作，不要把 task_run_contract_seed 或 recovery_resume 塞进 payload 包装层。"
     "如果上一轮是在生成文件、网页、脚本或长内容时失败，且 allowed_action_types 包含 tool_call，并且当前观察没有要求收口，可以选择 action_type=tool_call 继续执行。"
     "如果当前观察要求暂停、停止或收口，选择 respond、ask_user 或 block，并把已知事实、影响和恢复条件写入对应用户可见字段。"
     "可以用代码块或简短说明包住动作；包装文字不会作为用户正文，同一轮文本里必须只有一个 action-like 对象。"

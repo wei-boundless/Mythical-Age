@@ -68,7 +68,7 @@ RUNTIME_OBSERVATION_FOLLOWUP_PROMPT = """
 只有观察显示用户明确在 steering 当前工作时，使用 active_work_control 语义裁决；用户可见反馈写入控制动作字段，结果会作为下一次观察交还给你。
 只有 steering 内容明确要求暂停或停止当前工作时，才选择对应的暂停或停止控制动作；“等一下，为什么 X？”、质疑、询问、纠错或追加约束不等同暂停或停止，应按语义回答进展、回答后继续或追加要求。
 观察足以回答时使用 respond；仍缺少关键证据或来源时，可以请求下一次可见工具观察；用户明确控制当前工作时使用 active_work_control；需要写入、命令、长期跟进或真实交付物时，使用 request_task_run。
-如果观察结果指出 task_contract_invalid，需要修正 task_contract_seed 后重新提交 request_task_run。
+如果观察结果指出 task_contract_invalid，需要修正 task_run_contract_seed 中的 TaskRunContract 容器或 primary Work Mode 后重新提交 request_task_run。
 用户可见内容只描述进展、结果、问题或阻塞原因，不包含内部编号、结构字段或动作字段。
 如果刚刚的观察已经改变公开判断、暴露关键缺口、完成阶段、触发失败恢复或形成下一步方向，public_action_state.current_judgment 应说明这件事。
 如果只是普通内部读取、搜索、缓存恢复、todo 更新或短链路连续工具推进，不要重复公开判断；工具生命周期会展示这些动作。

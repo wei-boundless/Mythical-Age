@@ -249,23 +249,23 @@ def admit_model_action(
                 issue_code="task_lifecycle_disabled_by_runtime_profile",
                 action_issue=issue,
             )
-    if action_request.action_type == "request_task_run" and not getattr(action_request, "task_contract_seed", {}):
+    if action_request.action_type == "request_task_run" and not getattr(action_request, "task_run_contract_seed", {}):
         issue = _action_issue(
             action_request,
             category="contract_gap",
-            code="task_contract_seed_missing",
-            user_visible_summary="持续任务缺少任务合同种子。",
-            repair_instruction="请 ask_user 补齐目标、范围、验收标准，或重新提交完整 request_task_run。",
+            code="task_run_contract_seed_missing",
+            user_visible_summary="持续任务缺少任务运行合同。",
+            repair_instruction="请 ask_user 补齐进入原因、primary Work Mode、下一步和验收模式，或重新提交完整 request_task_run。",
         )
         return AdmissionDecision(
             admission_id=f"admission:{action_request.request_id}",
             action_request_ref=action_request.request_id,
             decision="needs_contract",
-            user_visible_reason="需要先补充处理目标和验收标准，才能开始持续处理。",
-            system_reason="task_contract_seed_missing",
-            contract_errors=("task_contract_seed_missing",),
+            user_visible_reason="需要先补充任务运行合同和 primary Work Mode，才能开始持续处理。",
+            system_reason="task_run_contract_seed_missing",
+            contract_errors=("task_run_contract_seed_missing",),
             issue_category="contract_gap",
-            issue_code="task_contract_seed_missing",
+            issue_code="task_run_contract_seed_missing",
             action_issue=issue,
         )
     if action_request.action_type == "active_work_control":

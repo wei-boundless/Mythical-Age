@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, BrainCircuit, ChevronDown, ChevronUp, Eye, EyeOff, FileText, ImagePlus, ShieldCheck, Square, X, Zap } from "lucide-react";
+import { ArrowUp, BrainCircuit, ChevronDown, ChevronUp, Eye, EyeOff, FileText, ImagePlus, ListChecks, ShieldCheck, Square, Target, X, Zap } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ModelProviderConfig, ImageAssetConfig } from "@/lib/api";
@@ -190,6 +190,33 @@ export function ChatInput({
     await submit();
   };
 
+  const runTaskModeShortcut = async (mode: TaskModeShortcut) => {
+    if (inputDisabled || streaming) {
+      return;
+    }
+    const nextValue = value.trim();
+    const nextFiles = selectedFiles;
+    const command = taskModeSlashCommand(mode, nextValue);
+    setSubmitting(true);
+    setValue("");
+    setDraftMode("expanded");
+    setSelectedFiles([]);
+    try {
+      await onSend(command, nextFiles.length ? { files: nextFiles } : undefined);
+    } catch (error) {
+      console.error("Failed to start task mode", error);
+      setValue(nextValue);
+      setDraftMode((currentMode) => resolveLongTextCompactionMode({
+        content: nextValue,
+        currentMode,
+        intent: "restore",
+      }));
+      setSelectedFiles(nextFiles);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleComposerShortcut = (event: React.KeyboardEvent) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
@@ -294,6 +321,22 @@ export function ChatInput({
       ) : null}
       <div className="chat-input-panel__footer">
         <div className="chat-input-panel__controls">
+          <div className="chat-task-mode-actions" aria-label="任务模式快捷命令">
+            {TASK_MODE_SHORTCUTS.map((item) => (
+              <button
+                aria-label={`开启 ${item.label} Mode`}
+                className="chat-task-mode-button"
+                disabled={inputDisabled || streaming}
+                key={item.mode}
+                onClick={() => void runTaskModeShortcut(item.mode)}
+                title={item.title}
+                type="button"
+              >
+                <item.icon aria-hidden="true" size={14} />
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
           <div className="chat-control-cluster chat-control-cluster--model">
             <label className="chat-model-select chat-model-select--model" title="选择本轮模型">
               <BrainCircuit size={16} />
@@ -407,6 +450,24 @@ export function ChatInput({
       </div>
     </div>
   );
+}
+
+type TaskModeShortcut = "goal" | "plan" | "todo";
+
+const TASK_MODE_SHORTCUTS: Array<{
+  mode: TaskModeShortcut;
+  label: string;
+  title: string;
+  icon: typeof Target;
+}> = [
+  { mode: "goal", label: "Goal", title: "通过 /task goal 开启 Goal Mode", icon: Target },
+  { mode: "plan", label: "Plan", title: "通过 /task plan 开启 Plan Mode", icon: FileText },
+  { mode: "todo", label: "Todo", title: "通过 /task todo 开启 Todo Mode", icon: ListChecks },
+];
+
+function taskModeSlashCommand(mode: TaskModeShortcut, body: string) {
+  const text = body.trim();
+  return text ? `/task ${mode} ${text}` : `/task ${mode}`;
 }
 
 function formatFileSize(size: number) {

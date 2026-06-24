@@ -51,6 +51,12 @@ class ExecutionStateProjector:
                 "updated_at": payload.get("updated_at"),
                 "completed_at": payload.get("completed_at"),
                 "current_step_index": payload.get("current_step_index"),
+                "primary_work_mode_instance_id": str(diagnostics.get("primary_work_mode_instance_id") or ""),
+                "active_work_mode_refs": [
+                    str(item)
+                    for item in list(diagnostics.get("active_work_mode_refs") or [])
+                    if str(item).strip()
+                ],
                 "diagnostics": {
                     key: diagnostics.get(key)
                     for key in (

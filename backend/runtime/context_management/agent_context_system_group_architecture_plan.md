@@ -580,7 +580,7 @@ steer 是新 append，不改旧 prefix。
 控制 agent 是否可以接收、生成或请求任务契约。
 ```
 
-当前代码中，`request_task_run` 的 `task_contract_seed` 已经被严格规范化。系统执行字段、环境选择、skill 选择等不能塞进任务契约；它们应该由对应系统组接线。
+当前代码中，`request_task_run` 的 `task_run_contract_seed` 已经被严格规范化为 TaskRunContract 容器 + WorkModeContract。系统执行字段、环境选择、skill 选择等不能塞进任务契约；它们应该由对应系统组接线。
 
 接入能力组：
 
@@ -595,8 +595,8 @@ repair_feedback
 
 ```text
 允许模型提出 request_task_run。
-要求 task_contract_seed 包含目标、范围、完成标准和验收证据。
-把 goal_contract / plan_contract / lifecycle_contract / acceptance_contract 编译为任务上下文。
+要求 task_run_contract_seed 包含 container_contract、唯一 primary Work Mode、lifecycle/feedback/memory/acceptance contract。
+把 TaskRunContext、WorkModeContext、GoalContext、PlanContext、TodoContext 按固定顺序编译为任务上下文。
 ```
 
 关闭后：
@@ -977,7 +977,7 @@ default_profile_ref + sparse_overrides
       "enabled": true,
       "accept_task_contract": true,
       "request_task_run_enabled": true,
-      "contract_strictness": "canonical_task_contract_seed"
+      "contract_strictness": "canonical_task_run_contract_seed"
     },
     "subagent_delegation": {
       "enabled": true,
@@ -1156,7 +1156,7 @@ User request / task run
 | Agent 身份和运行档案 | `agent_system.registry.agent_registry`、`agent_system.profiles.runtime_profile_registry` | agent id、allowed tools、blocked operations、subagent policy、allowed memory scopes、allowed context sections |
 | 前端配置 | `frontend/src/components/workspace/views/orchestration`、`backend/api/orchestration_catalog.py` | 编辑和保存 runtime profile、subagent policy、工具包、上下文段、记忆范围 |
 | runtime 组装 | `harness.runtime.assembly.assemble_runtime(...)` | 解析 runtime contract、environment、operation authorization、tool exposure、subagent policy、context/memory/prompt policy |
-| task 契约 | `harness.loop.model_action_protocol`、`task_system.services.assembly_builder` | `task_contract_seed`、goal/plan/lifecycle/acceptance contract |
+| task 契约 | `harness.loop.model_action_protocol`、`task_system.services.assembly_builder` | `task_run_contract_seed`、TaskRunContract、WorkModeContract、Goal/Plan/Todo context |
 | environment | `task_system.environments`、`backend/api/task_system.py` | sandbox、file/resource/memory space、environment prompts、lifecycle policy |
 | memory profile | `TaskMemoryRequestProfile`、`task_system.repositories.assembly_config_repository` | memory layers、topics、writeback policy、allow_long_term_memory |
 | prompt library | `prompt_library`、`prompt_composition` | prompt resources、rules、packs、source bundle |

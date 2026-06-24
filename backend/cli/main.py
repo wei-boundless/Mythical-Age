@@ -65,6 +65,12 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--message", default="")
     start_parser.add_argument("--task-environment-id", default="")
     start_parser.add_argument("--no-watch", action="store_true", help="Only start the TaskRun and print its id")
+    for mode in ("goal", "plan", "todo"):
+        mode_parser = task_run_subparsers.add_parser(mode, help=f"Start Task Mode through /task {mode}")
+        mode_parser.add_argument("prompt", nargs="*", help=f"Optional {mode} mode command body")
+        mode_parser.add_argument("--session", default="")
+        mode_parser.add_argument("--task-environment-id", default="")
+        mode_parser.add_argument("--no-watch", action="store_true", help="Only start the TaskRun and print its id")
     execute_parser = task_run_subparsers.add_parser("execute", help="Execute a waiting single-agent TaskRun")
     execute_parser.add_argument("task_run_id")
     execute_parser.add_argument("--max-steps", type=int, default=12)
@@ -216,6 +222,8 @@ def _run_interactive_slash_command(
         print("/use <session_id>   switch session", file=stdout)
         print("/history            show current session history", file=stdout)
         print("/monitor            show current session live monitor", file=stdout)
+        print("/task <mode> [text] start goal/plan/todo Task Mode through the action signal path", file=stdout)
+        print("/goal|/plan|/todo   shorthand for /task <mode>", file=stdout)
         print("/config             show CLI config", file=stdout)
         print("/exit               leave the CLI", file=stdout)
         return False
@@ -249,6 +257,9 @@ def _run_interactive_slash_command(
         if not message:
             raise AgentCliClientError("Usage: /send <message>")
         _send_message_text(message, client=client, store=store, stdout=stdout, stderr=stderr, verbose=verbose)
+        return False
+    if command in {"/task", "/task-run", "/taskmode", "/task-mode", "/goal", "/plan", "/todo"}:
+        _send_message_text(text, client=client, store=store, stdout=stdout, stderr=stderr, verbose=verbose)
         return False
     raise AgentCliClientError(f"Unknown slash command: {command}")
 
@@ -349,6 +360,8 @@ def _run_task_run_command(
 ) -> int:
     if args.task_run_command == "start":
         return _run_task_run_start(args, client=client, store=store, stdout=stdout, stderr=stderr)
+    if args.task_run_command in {"goal", "plan", "todo"}:
+        return _run_task_mode_slash_start(args, client=client, store=store, stdout=stdout, stderr=stderr)
     if args.task_run_command == "execute":
         result = client.execute_task_run(
             args.task_run_id,
@@ -392,6 +405,37 @@ def _run_task_run_command(
         )
         return 0
     return 2
+
+
+def _run_task_mode_slash_start(
+    args: argparse.Namespace,
+    *,
+    client: AgentCliClient,
+    store: CliStateStore,
+    stdout: TextIO,
+    stderr: TextIO,
+) -> int:
+    session_id = _resolve_session_id(str(getattr(args, "session", "") or ""), store)
+    mode = str(getattr(args, "task_run_command", "") or "").strip()
+    body = " ".join(str(item) for item in list(getattr(args, "prompt", []) or []) if str(item).strip()).strip()
+    message = f"/task {mode} {body}".strip()
+    extra_payload = _runtime_extra_payload(
+        task_environment_id=str(getattr(args, "task_environment_id", "") or ""),
+    )
+    task_run_id = ""
+    terminal = ""
+    render_state: dict[str, Any] = {}
+    for event in client.stream_chat(session_id=session_id, message=message, extra_payload=extra_payload):
+        task_run_id = _task_run_id_from_stream_event(event) or task_run_id
+        terminal = _render_stream_event(event, stdout=stdout, stderr=stderr, verbose=bool(args.verbose), state=render_state) or terminal
+    if terminal == "error":
+        raise AgentCliClientError("Backend returned an error event.")
+    if not task_run_id:
+        raise AgentCliClientError("Backend stream completed without task_run_id.")
+    print(f"task_run_id {task_run_id}", file=stdout)
+    if bool(getattr(args, "no_watch", False)):
+        return 0
+    return _watch_task_run(task_run_id, client=client, stdout=stdout)
 
 
 def _run_task_run_start(

@@ -267,7 +267,7 @@ def _agent_visible_action_facts(signal: dict[str, Any] | None) -> dict[str, Any]
                     "execution_state": str(detected_action.get("execution_state") or "not_executed") if detected_action else "",
                     "action_type": str(detected_action.get("action_type") or ""),
                     "top_level_keys": list(detected_action.get("top_level_keys") or []),
-                    "task_contract_seed_summary": dict(detected_action.get("task_contract_seed_summary") or {}),
+                    "task_run_contract_seed_summary": dict(detected_action.get("task_run_contract_seed_summary") or {}),
                     "payload": previous_payload if isinstance(previous_payload, dict) else {},
                 }
             ),
@@ -300,7 +300,7 @@ def _agent_visible_action_fields(allowed_action_types: tuple[str, ...] | list[st
     if "block" in allowed:
         fields["block"] = "blocking_reason"
     if "request_task_run" in allowed:
-        fields["request_task_run"] = "task_contract_seed"
+        fields["request_task_run"] = "task_run_contract_seed"
     if "tool_call" in allowed:
         fields["tool_call"] = "tool_call or tool_calls"
     if "active_work_control" in allowed:
@@ -735,9 +735,9 @@ def _tool_followup_action_contract_messages(
         "如果需要用户补充，提交 action_type=ask_user，并填写 user_question。\n"
         "如果当前事实或权限不足，提交 action_type=block，并填写 blocking_reason。\n"
         "如果你判断需要任务模式提供的稳定任务身份、跨 turn 状态、阶段反馈、停止/恢复控制、验收边界或失败恢复，提交 action_type=request_task_run。\n"
-        "task_contract_seed 至少写清 user_visible_goal、task_run_goal、working_scope.target_objects 和完成证据；可以补充 lifecycle_contract、feedback_contract 和 acceptance_contract。"
+        "task_run_contract_seed 必须先写 TaskRunContract 容器，再选择一个 primary Work Mode：goal、plan、todo、investigation、recovery、monitor 或 open_work。"
         "如果仍需普通工具且工具通道可用，可以发起 provider-native tool_call 或 JSON tool_call；"
-        "工具前置说明可以作为公开进展，但不能宣称已经或即将启动 Task；task_contract_seed 必须留在 request_task_run 动作对象内。\n"
+        "工具前置说明可以作为公开进展，但不能宣称已经或即将启动 Task；task_run_contract_seed 必须留在 request_task_run 动作对象内。\n"
         "只有控制动作和工具动作需要动作对象；不要为了最终回答把自然语言正文塞进 JSON。"
     )
     return _append_model_messages_without_rewriting_context(
@@ -944,22 +944,22 @@ def _public_validation_error_reasons(errors: list[str]) -> list[str]:
     normalized = {str(item).strip() for item in list(errors or []) if str(item).strip()}
     reasons: list[str] = []
     if {
-        "task_contract_seed_required_for_request_task_run",
-        "task_contract_seed_must_be_object",
+        "task_run_contract_seed_required_for_request_task_run",
+        "task_run_contract_seed_must_be_object",
     }.intersection(normalized):
-        reasons.append("任务合同缺失或不是对象")
+        reasons.append("任务运行合同缺失或不是对象")
     if {
-        "user_visible_goal_required_for_request_task_run",
-        "task_run_goal_required_for_request_task_run",
+        "container_contract.entry_reason_required_for_request_task_run",
+        "container_contract.minimum_viable_next_step_required_for_request_task_run",
+        "work_modes.exactly_one_primary_required_for_request_task_run",
+        "work_modes_required_for_request_task_run",
+        "container_contract.primary_work_mode_ref_must_point_to_primary_work_mode",
     }.intersection(normalized):
-        reasons.append("任务目标不完整")
-    if {
-        "working_scope_required_for_request_task_run",
-        "working_scope.target_objects_required_for_request_task_run",
-    }.intersection(normalized):
-        reasons.append("工作范围不完整")
-    if "completion_evidence_required_for_request_task_run" in normalized:
-        reasons.append("缺少完成标准或验收证据")
+        reasons.append("TaskRunContract 容器或 primary Work Mode 不完整")
+    if any(item.startswith("primary_") and item.endswith("_required_for_request_task_run") for item in normalized):
+        reasons.append("primary Work Mode 的最低可执行内容不完整")
+    if "acceptance_contract.acceptance_mode_required_for_request_task_run" in normalized:
+        reasons.append("缺少验收模式")
     if {
         "public_response_required",
         "public_progress_note_required",
@@ -1294,7 +1294,7 @@ def _repair_instruction_for_contract_code(code: str, *, requested_action: str = 
     if normalized in {"native_control_action_command_transport_not_allowed", "control_action_command_transport_not_allowed"}:
         return "不要用 shell、bash、cmd、echo 或 printf 表达控制动作；请提交 JSON action 或 provider-native canonical control action。"
     if normalized == "invalid_native_control_action":
-        return "保留原动作类型，补齐缺失或错层的动作参数；request_task_run 必须填写 task_contract_seed，resume_recoverable_work 必须填写 recovery_resume。"
+        return "保留原动作类型，补齐缺失或错层的动作参数；request_task_run 必须填写 task_run_contract_seed，resume_recoverable_work 必须填写 recovery_resume。"
     if normalized in {"multiple_native_action_sources", "multiple_native_control_actions"}:
         return "只保留一个 native 控制动作，或只保留一个普通工具动作集合；不要在同一轮混合多个决策。"
     if normalized in {"single_agent_turn_multiple_action_sources"}:
@@ -4627,6 +4627,7 @@ def _looks_like_malformed_single_agent_action_payload(payload: dict[str, Any]) -
         "public_progress_note",
         "recovery_resume",
         "selected_skill_ids",
+        "task_run_contract_seed",
         "task_contract_seed",
         "tool_call",
         "tool_calls",
@@ -5024,20 +5025,20 @@ def _model_action_payload_from_native_control_args(
             }
         return payload
     if action_type == "request_task_run":
-        seed = args.get("task_contract_seed")
+        seed = args.get("task_run_contract_seed") if "task_run_contract_seed" in args else args.get("task_contract_seed")
         if isinstance(seed, dict):
-            payload["task_contract_seed"] = _native_request_task_contract_seed(dict(seed))
+            payload["task_run_contract_seed"] = _native_request_task_contract_seed(dict(seed))
         elif isinstance(seed, str) and seed.strip():
             parsed_seed = _native_json_object_arg(seed)
-            payload["task_contract_seed"] = (
+            payload["task_run_contract_seed"] = (
                 _native_request_task_contract_seed(parsed_seed)
                 if parsed_seed is not None
                 else seed
             )
-        elif "task_contract_seed" in args:
-            payload["task_contract_seed"] = seed
+        elif "task_run_contract_seed" in args or "task_contract_seed" in args:
+            payload["task_run_contract_seed"] = seed
         else:
-            payload["task_contract_seed"] = _native_request_task_contract_seed(args)
+            payload["task_run_contract_seed"] = _native_request_task_contract_seed(args)
         return payload
     return payload
 
@@ -5272,7 +5273,13 @@ def _detected_json_action_transport_rejection(
         return {}
     errors = [str(item) for item in list(protocol_errors or ()) if str(item)]
     action_type = str(payload.get("action_type") or "").strip()
-    task_contract_seed = dict(payload.get("task_contract_seed") or {}) if isinstance(payload.get("task_contract_seed"), dict) else {}
+    task_run_contract_seed = (
+        dict(payload.get("task_run_contract_seed") or {})
+        if isinstance(payload.get("task_run_contract_seed"), dict)
+        else dict(payload.get("task_contract_seed") or {})
+        if isinstance(payload.get("task_contract_seed"), dict)
+        else {}
+    )
     tool_call = dict(payload.get("tool_call") or {}) if isinstance(payload.get("tool_call"), dict) else {}
     detected_action: dict[str, Any] = {
         "detected": True,
@@ -5283,19 +5290,16 @@ def _detected_json_action_transport_rejection(
         "reason": ";".join(errors),
         "top_level_keys": sorted(str(key) for key in payload.keys()),
     }
-    if task_contract_seed:
-        detected_action["task_contract_seed_summary"] = {
-            "user_visible_goal": _compact_text(task_contract_seed.get("user_visible_goal"), limit=240),
-            "task_run_goal": _compact_text(task_contract_seed.get("task_run_goal"), limit=240),
-            "completion_criteria_count": len(list(task_contract_seed.get("completion_criteria") or []))
-            if isinstance(task_contract_seed.get("completion_criteria"), list)
-            else (1 if str(task_contract_seed.get("completion_criteria") or "").strip() else 0),
-            "required_artifacts_count": len(list(task_contract_seed.get("required_artifacts") or []))
-            if isinstance(task_contract_seed.get("required_artifacts"), list)
-            else (1 if task_contract_seed.get("required_artifacts") else 0),
-            "required_verifications_count": len(list(task_contract_seed.get("required_verifications") or []))
-            if isinstance(task_contract_seed.get("required_verifications"), list)
-            else (1 if task_contract_seed.get("required_verifications") else 0),
+    if task_run_contract_seed:
+        container = dict(task_run_contract_seed.get("container_contract") or {})
+        work_modes = [dict(item) for item in list(task_run_contract_seed.get("work_modes") or []) if isinstance(item, dict)]
+        primary_ref = str(container.get("primary_work_mode_ref") or "").strip()
+        primary = next((item for item in work_modes if str(item.get("mode_instance_id") or "") == primary_ref), {})
+        detected_action["task_run_contract_seed_summary"] = {
+            "entry_reason": _compact_text(container.get("entry_reason"), limit=240),
+            "primary_work_mode_ref": primary_ref,
+            "primary_work_mode_kind": str(dict(primary or {}).get("mode_kind") or "").strip(),
+            "work_mode_count": len(work_modes),
         }
     if tool_call:
         detected_action["tool_call_summary"] = {
@@ -5366,6 +5370,8 @@ _REQUEST_TASK_RUN_SYSTEM_SETTING_FIELDS = (
     "observation_contract",
 )
 _REQUEST_TASK_RUN_TASK_CONTRACT_FIELDS = (
+    "container_contract",
+    "work_modes",
     "user_visible_goal",
     "task_run_goal",
     "completion_criteria",
@@ -5387,20 +5393,42 @@ def _request_task_run_minimal_repair_action() -> dict[str, Any]:
             "current_judgment": "说明当前 turn 无法稳定承载的目标、恢复、验收或反馈边界。",
             "next_action": "进入持续任务执行流程。",
         },
-        "task_contract_seed": {
-            "user_visible_goal": "用户能看懂的任务目标。",
-            "task_run_goal": "执行生命周期要持续推进的具体任务目标。",
-            "working_scope": {
-                "target_objects": ["要处理的文件、模块、目录、对象或问题域"],
-                "source_refs": ["用户消息或已观察证据"],
-                "excluded_scope": [],
-                "known_constraints": ["用户明确约束、质量要求或排除项"],
+        "task_run_contract_seed": {
+            "container_contract": {
+                "entry_reason": "说明为什么当前工作需要持续任务生命周期。",
+                "continuity_required": True,
+                "control_required": True,
+                "projection_required": True,
+                "checkpoint_required": True,
+                "minimum_viable_next_step": "进入任务后第一步要做什么。",
+                "primary_work_mode_ref": "work-mode:plan:primary",
+                "supporting_mode_refs": [],
+                "mode_transition_policy": {
+                    "agent_may_propose_transition": True,
+                    "system_may_infer_transition": False,
+                    "requires_accepted_event": True,
+                },
             },
-            "completion_criteria": ["可验收完成标准"],
-            "goal_contract": {
-                "success_definition": "任务成功时用户能看到或验证的结果。",
-                "completion_evidence": ["证明任务完成的证据类型"],
-            },
+            "work_modes": [
+                {
+                    "mode_instance_id": "work-mode:plan:primary",
+                    "mode_kind": "plan",
+                    "mode_role": "primary",
+                    "status": "draft",
+                    "depends_on_mode_refs": [],
+                    "contract": {
+                        "strategy_summary": "当前可执行路线。",
+                        "major_steps": ["第一步"],
+                        "plan_status": "agent_managed",
+                        "working_scope": {
+                            "target_objects": ["要处理的文件、模块、目录、对象或问题域"],
+                            "source_refs": ["用户消息或已观察证据"],
+                            "excluded_scope": [],
+                            "known_constraints": ["用户明确约束、质量要求或排除项"],
+                        },
+                    },
+                }
+            ],
             "lifecycle_contract": {
                 "pause_policy": {"allowed": True, "state_to_preserve": ["current_goal", "completed_steps", "open_risks", "next_resume_step"]},
                 "resume_policy": {"resume_from": "latest_preserved_state_and_user_steer"},
@@ -5413,6 +5441,7 @@ def _request_task_run_minimal_repair_action() -> dict[str, Any]:
                 "feedback_sources": ["tool_observation", "runtime_observation", "lifecycle_signal", "verification_signal"],
             },
             "acceptance_contract": {
+                "acceptance_mode": "checkpoint",
                 "final_answer_requirements": ["说明完成内容、验证结果、未完成项和风险"],
             },
         },
@@ -5466,7 +5495,7 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
     if "public_task_lifecycle_claim_requires_request_task_run" in errors:
         return (
             "你的公开反馈宣称要开启或进入持续任务生命周期，但结构化动作不是 request_task_run。"
-            "请重新选择一个一致动作：如果你确实判断需要任务模式，提交 action_type=request_task_run 并填写 task_contract_seed；"
+            "请重新选择一个一致动作：如果你确实判断需要任务模式，提交 action_type=request_task_run 并填写 task_run_contract_seed；"
             "如果你只是要在当前 turn 内继续工具处理，请保留 tool_call 但改写公开反馈，不要宣称启动 Task。"
         )
     if action_type == "resume_recoverable_work":
@@ -5500,56 +5529,44 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
         return default
     if action_type != "request_task_run":
         return default
-    task_seed = payload.get("task_contract_seed")
+    task_seed = payload.get("task_run_contract_seed") if "task_run_contract_seed" in payload else payload.get("task_contract_seed")
     task_seed_obj = dict(task_seed or {}) if isinstance(task_seed, dict) else {}
     misplaced_top_level = [field for field in _REQUEST_TASK_RUN_TASK_CONTRACT_FIELDS if field in payload]
     payload_wrapper = payload.get("payload") if isinstance(payload.get("payload"), dict) else None
     if misplaced_top_level or payload_wrapper is not None:
         misplaced = "、".join(misplaced_top_level) if misplaced_top_level else "payload"
         return _with_request_task_run_repair_template(
-            "request_task_run 的任务字段放错层级。不要把 "
+            "request_task_run 的任务运行合同字段放错层级。不要把 "
             f"{misplaced} 放在 JSON 顶层，也不要使用 payload 包裹。"
-            "请保留 action_type=request_task_run，把任务目标、working_scope 和完成证据放入 task_contract_seed 内。"
+            "请保留 action_type=request_task_run，把 TaskRunContract 容器和 primary Work Mode 放入 task_run_contract_seed 内。"
         )
-    if any(str(item).startswith("system_execution_field_not_allowed_in_task_contract") for item in errors):
+    if any(str(item).startswith("system_execution_field_not_allowed_in_task_run_contract") for item in errors):
         return _with_request_task_run_repair_template(
-            "request_task_run 的任务合同只接收任务目标、working_scope 和完成证据；请删除不属于任务合同的执行配置字段。"
-        )
-    required_errors = {
-        f"{field}_required_for_request_task_run" for field in _REQUEST_TASK_RUN_NESTED_CONTRACT_FIELDS
-    }
-    if errors.intersection(required_errors) or "working_scope.target_objects_required_for_request_task_run" in errors:
-        missing = [
-            field
-            for field in _REQUEST_TASK_RUN_NESTED_CONTRACT_FIELDS
-            if field not in task_seed_obj or not isinstance(task_seed_obj.get(field), dict)
-        ]
-        if not missing and "working_scope.target_objects_required_for_request_task_run" in errors:
-            missing.append("working_scope.target_objects")
-        missing_text = "、".join(missing) if missing else "必需字段"
-        return _with_request_task_run_repair_template(
-            "request_task_run 必须提交完整 task_contract_seed。请在 task_contract_seed 内补齐 "
-            f"{missing_text}。"
-        )
-    if "task_contract_seed_required_for_request_task_run" in errors:
-        return _with_request_task_run_repair_template(
-            "request_task_run 必须包含 task_contract_seed，且任务目标、范围和完成标准都必须放在 task_contract_seed 内。"
+            "request_task_run 的任务运行合同只描述容器、工作模式、生命周期、反馈、记忆和验收；请删除工具、模型、环境或执行授权字段。"
         )
     if (
-        "user_visible_goal_required_for_request_task_run" in errors
-        or "task_run_goal_required_for_request_task_run" in errors
+        "container_contract.entry_reason_required_for_request_task_run" in errors
+        or "container_contract.minimum_viable_next_step_required_for_request_task_run" in errors
+        or "work_modes.exactly_one_primary_required_for_request_task_run" in errors
+        or "work_modes_required_for_request_task_run" in errors
+        or "container_contract.primary_work_mode_ref_must_point_to_primary_work_mode" in errors
     ):
-        return (
-            "request_task_run 必须在 task_contract_seed 内写清任务目标。"
-            "请补齐 user_visible_goal 和 task_run_goal：前者是用户能看懂的任务目标，"
-            "后者是执行器可持续推进的内部任务目标；不要把它们放在 JSON 顶层。"
+        return _with_request_task_run_repair_template(
+            "request_task_run 必须提交完整 task_run_contract_seed。请补齐 container_contract.entry_reason、"
+            "minimum_viable_next_step、primary_work_mode_ref，并提供且只提供一个 mode_role=primary 的 WorkModeContract。"
         )
-    if "completion_evidence_required_for_request_task_run" in errors:
-        return (
-            "request_task_run 必须声明完成证据。请在 task_contract_seed 内提供 "
-            "completion_criteria、required_artifacts 或 required_verifications；"
-            "只有可验收标准明确时，持续任务才能启动。"
+    if "task_run_contract_seed_required_for_request_task_run" in errors:
+        return _with_request_task_run_repair_template(
+            "request_task_run 必须包含 task_run_contract_seed，且 TaskRunContract 容器和 primary Work Mode 都必须放在 task_run_contract_seed 内。"
         )
+    if any(item.startswith("primary_") and item.endswith("_required_for_request_task_run") for item in errors):
+        return (
+            "primary Work Mode 的最低可执行内容不完整。"
+            "如果当前是 Goal Mode，请给出目标/成功定义和 scope/evidence；如果是 Plan Mode，请给出路线或阶段；"
+            "如果是 Todo Mode，请给出 items。不要用 goal 字段冒充 plan 或 todo。"
+        )
+    if "acceptance_contract.acceptance_mode_required_for_request_task_run" in errors:
+        return _with_request_task_run_repair_template("request_task_run 必须声明 acceptance_contract.acceptance_mode，例如 checkpoint、user_review、best_effort 或 strict。")
     if (
         "public_progress_note_required_for_request_task_run" in errors
         or "public_action_state_required_for_request_task_run" in errors

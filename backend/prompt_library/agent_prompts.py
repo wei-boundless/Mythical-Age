@@ -52,7 +52,7 @@ MAIN_INTERACTIVE_OBSERVATION_FOLLOWUP_PROMPT = """
 
 如果观察已经足够，直接给用户可复核的回答或结果。
 如果仍缺关键证据，请求下一次合适的可见工具观察。
-如果当前 turn 已不适合承载真实交付，请求持续任务生命周期并说明 task_contract_seed。
+如果当前 turn 已不适合承载真实交付，请求持续任务生命周期，并提交包含 TaskRunContract 容器和 primary Work Mode 的 task_run_contract_seed。
 如果必要材料、能力或用户决策缺失且替代路径不可行，明确阻塞条件和可恢复路径。
 不要暴露隐藏推理、内部编号、任务内部标识或动作格式字段。
 """.strip()

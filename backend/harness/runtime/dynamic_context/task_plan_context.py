@@ -22,6 +22,7 @@ def build_task_plan_context(
     baseline_items = _baseline_items(plan_contract, fallback_todo_plan=todo_plan if not plan_contract else {})
     baseline_seed = {
         "plan_id": plan_id,
+        "mode_instance_id": str(plan_contract.get("mode_instance_id") or ""),
         "plan_version": str(plan_contract.get("plan_version") or ""),
         "plan_status": str(plan_contract.get("plan_status") or ""),
         "strategy_summary": str(plan_contract.get("strategy_summary") or ""),
@@ -49,6 +50,8 @@ def build_task_plan_context(
                         {
                             "plan_baseline_ref": baseline_ref,
                             "plan_id": plan_id,
+                            "mode_instance_id": str(plan_contract.get("mode_instance_id") or ""),
+                            "mode_role": str(plan_contract.get("mode_role") or ""),
                             "plan_sha256": plan_sha256,
                             "plan_version": str(plan_contract.get("plan_version") or plan_sha256.removeprefix("sha256:")[:16]),
                             "plan_status": str(plan_contract.get("plan_status") or "agent_managed"),
@@ -81,7 +84,11 @@ def build_task_plan_context(
 
 def _plan_contract_from_task_contract(task_contract: dict[str, Any] | None) -> dict[str, Any]:
     contract = dict(task_contract or {})
-    raw = dict(contract.get("plan_contract") or {})
+    plan_mode = _work_mode_from_task_contract(contract, "plan")
+    raw = dict(plan_mode.get("contract") or {}) if plan_mode else {}
+    if not raw:
+        legacy_plan = contract.get("plan_contract")
+        raw = dict(legacy_plan or {}) if isinstance(legacy_plan, dict) else {}
     if not raw:
         completion_criteria = [
             compact_text(value, limit=220)
@@ -99,7 +106,9 @@ def _plan_contract_from_task_contract(task_contract: dict[str, Any] | None) -> d
         )
     return drop_empty(
         {
-            "plan_id": str(raw.get("plan_id") or "plan:agent-managed").strip(),
+            "plan_id": str(raw.get("plan_id") or _external_plan_ref(raw) or "plan:agent-managed").strip(),
+            "mode_instance_id": str(plan_mode.get("mode_instance_id") or "").strip(),
+            "mode_role": str(plan_mode.get("mode_role") or "").strip(),
             "plan_version": str(raw.get("plan_version") or "").strip(),
             "plan_status": str(raw.get("plan_status") or raw.get("approval_state") or "agent_managed").strip(),
             "strategy_summary": compact_text(raw.get("strategy_summary") or "", limit=360),
@@ -113,6 +122,46 @@ def _plan_contract_from_task_contract(task_contract: dict[str, Any] | None) -> d
             "authority": str(raw.get("authority") or "harness.runtime.dynamic_context.plan_contract"),
         }
     )
+
+
+def _work_mode_from_task_contract(task_contract: dict[str, Any], mode_kind: str) -> dict[str, Any]:
+    contract = dict(task_contract or {})
+    task_run_contract = (
+        dict(contract.get("task_run_contract") or {})
+        if isinstance(contract.get("task_run_contract"), dict)
+        else contract
+    )
+    work_modes = [
+        dict(item)
+        for item in list(task_run_contract.get("work_modes") or [])
+        if isinstance(item, dict)
+    ]
+    if not work_modes:
+        return {}
+    container_contract = (
+        dict(task_run_contract.get("container_contract") or {})
+        if isinstance(task_run_contract.get("container_contract"), dict)
+        else {}
+    )
+    primary_ref = str(container_contract.get("primary_work_mode_ref") or "").strip()
+    candidate: dict[str, Any] = {}
+    for item in work_modes:
+        if str(item.get("mode_kind") or "").strip() != mode_kind:
+            continue
+        if primary_ref and str(item.get("mode_instance_id") or "").strip() == primary_ref:
+            return item
+        if str(item.get("mode_role") or "").strip() == "primary":
+            return item
+        if not candidate:
+            candidate = item
+    return candidate
+
+
+def _external_plan_ref(plan_contract: dict[str, Any]) -> str:
+    value = plan_contract.get("external_plan_ref")
+    if isinstance(value, dict):
+        return str(value.get("ref") or value.get("id") or "").strip()
+    return str(value or "").strip()
 
 
 def _latest_todo_source(task_state: dict[str, Any]) -> dict[str, Any]:

@@ -455,7 +455,7 @@ class DynamicContextManager:
                     volatility_reason="task plan status can change during execution; each visible plan cursor is emitted as appendable context and the previous provider-visible package remains sealed",
                     input_chars=estimate_chars({"execution_state": request.execution_state, "observations": request.observations}),
                     output_chars=estimate_chars(task_plan_context),
-                    projection_strategy="plan_contract_plus_todo_cursor_projection",
+                    projection_strategy="plan_work_mode_baseline_plus_todo_cursor_projection",
                     cache_impact="context_append_then_sealed_prefix",
                     refs=tuple(
                         ref

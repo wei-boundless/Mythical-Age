@@ -202,7 +202,7 @@ def operation_requests_from_runtime_contract(runtime_contract: dict[str, Any] | 
     values.extend(list(payload.get("allowed_operations") or []))
     for key in ("operation_requirement", "tool_capability_requirements", "capability_requirements"):
         values.extend(_operations_from_requirement(payload.get(key)))
-    for key in ("task_contract", "engagement_contract"):
+    for key in ("engagement_contract",):
         nested = dict(payload.get(key) or {})
         for nested_key in ("operation_requirement", "tool_capability_requirements", "capability_requirements"):
             values.extend(_operations_from_requirement(nested.get(nested_key)))

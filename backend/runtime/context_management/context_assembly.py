@@ -69,7 +69,7 @@ STATIC_PREFIX_KINDS = {
     "personality_stable",
     "project_instructions_stable",
     "runtime_baseline_refs",
-    "task_contract_stable",
+    "task_run_contract_stable",
     "task_prompt_contract",
     "task_stable",
     "tool_index_stable",
