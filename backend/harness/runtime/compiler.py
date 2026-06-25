@@ -627,7 +627,7 @@ class RuntimeCompiler:
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
         attachment_context_payload, current_request_payload = _extract_attachment_context_payload(current_request_payload)
-        task_plan_context_payload, current_request_payload = _extract_task_plan_context_payload(current_request_payload)
+        task_mode_tail_context_payload, current_request_payload = _extract_task_mode_tail_context_payload(current_request_payload)
         editor_context_payload, current_request_payload = _extract_editor_context_payload(current_request_payload)
         provider_protocol_specs = _provider_protocol_message_specs(
             session_context,
@@ -779,8 +779,8 @@ class RuntimeCompiler:
                     source_ref_prefix="single_agent_turn",
                     dynamic_context=dynamic_context,
                 ),
-                *_task_plan_context_message_specs(
-                    task_plan_context_payload,
+                *_task_mode_tail_context_message_specs(
+                    task_mode_tail_context_payload,
                     title_prefix="Single agent turn",
                     source_ref_prefix="single_agent_turn",
                     dynamic_context=dynamic_context,
@@ -1371,7 +1371,7 @@ class RuntimeCompiler:
         runtime_control_signals = canonical_runtime_control_signal_projection(
             execution_projection.get("runtime_control_signals")
         )
-        task_plan_context_payload, volatile_payload = _extract_task_plan_context_payload(volatile_payload)
+        task_mode_tail_context_payload, volatile_payload = _extract_task_mode_tail_context_payload(volatile_payload)
         evidence_index_cursor_payload, volatile_payload = _extract_evidence_index_cursor_payload(volatile_payload)
         editor_context_payload, volatile_payload = _extract_editor_context_payload(volatile_payload)
         bound_task_context = build_bound_task_context(
@@ -1413,7 +1413,7 @@ class RuntimeCompiler:
             task_state_replay_entries=dynamic_context.task_state_replay_entries,
             current_observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
             execution_projection=execution_projection,
-            task_plan_context_payload=task_plan_context_payload,
+            task_mode_tail_context_payload=task_mode_tail_context_payload,
             evidence_index_cursor_payload=evidence_index_cursor_payload,
             editor_context_payload=editor_context_payload,
             read_evidence_payload=read_evidence_payload,
@@ -1643,8 +1643,8 @@ class RuntimeCompiler:
                     source_ref_prefix="task_execution",
                     dynamic_context=dynamic_context,
                 ),
-                *_task_plan_context_message_specs(
-                    task_plan_context_payload,
+                *_task_mode_tail_context_message_specs(
+                    task_mode_tail_context_payload,
                     title_prefix="Task execution",
                     source_ref_prefix="task_execution",
                     dynamic_context=dynamic_context,
@@ -2206,7 +2206,7 @@ class RuntimeCompiler:
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
         attachment_context_payload, current_request_payload = _extract_attachment_context_payload(current_request_payload)
-        task_plan_context_payload, current_request_payload = _extract_task_plan_context_payload(current_request_payload)
+        task_mode_tail_context_payload, current_request_payload = _extract_task_mode_tail_context_payload(current_request_payload)
         editor_context_payload, current_request_payload = _extract_editor_context_payload(current_request_payload)
         tool_observation_context_payload, current_request_payload = _extract_tool_observation_context_payload(
             current_request_payload
@@ -2361,8 +2361,8 @@ class RuntimeCompiler:
                     source_ref_prefix="observation_followup",
                     dynamic_context=dynamic_context,
                 ),
-                *_task_plan_context_message_specs(
-                    task_plan_context_payload,
+                *_task_mode_tail_context_message_specs(
+                    task_mode_tail_context_payload,
                     title_prefix="Observation followup",
                     source_ref_prefix="observation_followup",
                     dynamic_context=dynamic_context,
@@ -3919,10 +3919,6 @@ def _extract_task_mode_tail_context_payload(payload: dict[str, Any] | None) -> t
     return task_mode_payload, _drop_empty_payload(current)
 
 
-def _extract_task_plan_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
-    return _extract_task_mode_tail_context_payload(payload)
-
-
 def _extract_tool_observation_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
     current = dict(payload or {})
     observations_payload = (
@@ -4121,21 +4117,6 @@ def _read_evidence_context_source_ref(
     return f"{source_ref_prefix}:read_evidence_context:{digest or fallback_index}"
 
 
-def _task_plan_context_message_specs(
-    payload: dict[str, Any] | None,
-    *,
-    title_prefix: str,
-    source_ref_prefix: str,
-    dynamic_context: DynamicContextProjection,
-) -> list[dict[str, Any]]:
-    return _task_mode_tail_context_message_specs(
-        payload,
-        title_prefix=title_prefix,
-        source_ref_prefix=source_ref_prefix,
-        dynamic_context=dynamic_context,
-    )
-
-
 def _task_mode_tail_context_message_specs(
     payload: dict[str, Any] | None,
     *,
@@ -4150,7 +4131,7 @@ def _task_mode_tail_context_message_specs(
             "key": "task_goal_context",
             "title": "task goal context",
             "authority_class": "task_goal_context",
-            "content_source": "harness.runtime.dynamic_context.task_goal_context",
+            "content_source": "harness.runtime.dynamic_context.task_mode_tail_context.task_goal_context",
             "runtime_fragment_role": "task_goal_context",
             "semantic_slot": "task_goal_context",
             "semantic_rank": 21,
@@ -4159,7 +4140,7 @@ def _task_mode_tail_context_message_specs(
             "key": "task_plan_context",
             "title": "task plan context",
             "authority_class": "task_plan_context",
-            "content_source": "harness.runtime.dynamic_context.task_plan_context",
+            "content_source": "harness.runtime.dynamic_context.task_mode_tail_context.task_plan_context",
             "runtime_fragment_role": "task_plan_context",
             "semantic_slot": "task_plan_context",
             "semantic_rank": 22,
@@ -4168,7 +4149,7 @@ def _task_mode_tail_context_message_specs(
             "key": "task_todo_context",
             "title": "task todo context",
             "authority_class": "task_todo_context",
-            "content_source": "harness.runtime.dynamic_context.task_todo_context",
+            "content_source": "harness.runtime.dynamic_context.task_mode_tail_context.task_todo_context",
             "runtime_fragment_role": "task_todo_context",
             "semantic_slot": "task_todo_context",
             "semantic_rank": 23,

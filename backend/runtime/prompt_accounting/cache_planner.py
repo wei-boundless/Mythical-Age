@@ -361,7 +361,6 @@ def _prefix_diagnostics(
         "attachment_context_index_predicted_tokens": attachment_context_index_tokens,
         "evidence_index_cursor_predicted_tokens": evidence_index_cursor_tokens,
         "task_mode_tail_context_predicted_tokens": task_mode_tail_context_tokens,
-        "task_plan_context_predicted_tokens": task_mode_tail_context_tokens,
         "editor_context_index_predicted_tokens": editor_context_index_tokens,
         "current_editor_evidence_delta_predicted_tokens": current_editor_evidence_delta_tokens,
         "volatile_task_state_predicted_tokens": volatile_task_state_tokens,

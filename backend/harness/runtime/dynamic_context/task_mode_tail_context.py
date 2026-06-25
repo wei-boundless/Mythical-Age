@@ -12,6 +12,8 @@ def build_task_mode_tail_contexts(
     task_run_id: str = "",
     task_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if not _work_modes_from_task_contract(task_contract):
+        return {}
     goal_context = _task_goal_context(
         task_run_id=task_run_id,
         goal_contract=_goal_contract_from_task_contract(task_contract),
@@ -32,26 +34,6 @@ def build_task_mode_tail_contexts(
             "task_todo_context": todo_context,
         }
     )
-
-
-def build_task_plan_context(
-    task_state: dict[str, Any],
-    *,
-    task_run_id: str = "",
-    task_contract: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Compatibility entry point for callers that only want the plan segment.
-
-    The plan segment no longer absorbs todo state. Runtime assembly should use
-    build_task_mode_tail_contexts() so Goal, Plan, and Todo stay independent.
-    """
-
-    plan_context = build_task_mode_tail_contexts(
-        task_state,
-        task_run_id=task_run_id,
-        task_contract=task_contract,
-    ).get("task_plan_context")
-    return {"task_plan_context": plan_context} if plan_context else {}
 
 
 def _task_goal_context(*, task_run_id: str, goal_contract: dict[str, Any]) -> dict[str, Any]:
@@ -92,7 +74,7 @@ def _task_goal_context(*, task_run_id: str, goal_contract: dict[str, Any]) -> di
                 "change_model": "goal_contract_boundary",
                 "authority": "harness.runtime.dynamic_context.task_goal_delta",
             },
-            "authority": "harness.runtime.dynamic_context.task_goal_context",
+            "authority": "harness.runtime.dynamic_context.task_mode_tail_context.task_goal_context",
         }
     )
 
@@ -146,7 +128,7 @@ def _task_plan_context(*, task_run_id: str, plan_contract: dict[str, Any]) -> di
                 "change_model": "plan_contract_baseline",
                 "authority": "harness.runtime.dynamic_context.task_plan_delta",
             },
-            "authority": "harness.runtime.dynamic_context.task_plan_context",
+            "authority": "harness.runtime.dynamic_context.task_mode_tail_context.task_plan_context",
         }
     )
 
@@ -160,7 +142,7 @@ def _task_todo_context(
     todo_source = _latest_todo_source(task_state)
     todo_plan = dict(todo_source.get("todo_plan") or {})
     contract_plan = _todo_plan_from_contract(todo_contract)
-    if not todo_contract and not todo_plan:
+    if not todo_contract:
         return {}
     baseline_plan = contract_plan or todo_plan
     todo_id = str(
@@ -216,7 +198,7 @@ def _task_todo_context(
                     "authority": "harness.runtime.dynamic_context.task_todo_delta",
                 }
             ),
-            "authority": "harness.runtime.dynamic_context.task_todo_context",
+            "authority": "harness.runtime.dynamic_context.task_mode_tail_context.task_todo_context",
         }
     )
 
@@ -225,9 +207,6 @@ def _plan_contract_from_task_contract(task_contract: dict[str, Any] | None) -> d
     contract = dict(task_contract or {})
     plan_mode = _work_mode_from_task_contract(contract, "plan")
     raw = dict(plan_mode.get("contract") or {}) if plan_mode else {}
-    if not raw and not _work_modes_from_task_contract(contract):
-        legacy_plan = contract.get("plan_contract")
-        raw = dict(legacy_plan or {}) if isinstance(legacy_plan, dict) else {}
     if not raw:
         return {}
     return drop_empty(
@@ -254,9 +233,6 @@ def _goal_contract_from_task_contract(task_contract: dict[str, Any] | None) -> d
     contract = dict(task_contract or {})
     goal_mode = _work_mode_from_task_contract(contract, "goal")
     raw = dict(goal_mode.get("contract") or {}) if goal_mode else {}
-    if not raw and not _work_modes_from_task_contract(contract):
-        legacy_goal = contract.get("goal_contract")
-        raw = dict(legacy_goal or {}) if isinstance(legacy_goal, dict) else {}
     if not raw:
         return {}
     return drop_empty(

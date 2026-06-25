@@ -6,7 +6,7 @@ from harness.runtime.compiler import RuntimeCompiler
 from runtime.prompt_accounting import CanonicalPromptSerializer, PromptCachePlanner
 
 
-def test_task_execution_projects_todo_plan_as_dedicated_task_plan_context() -> None:
+def test_task_execution_projects_plan_and_todo_as_separate_task_mode_tail_contexts() -> None:
     todo_plan = {
         "plan_id": "plan:cache-refactor",
         "active_item_id": "step:2",
@@ -25,7 +25,7 @@ def test_task_execution_projects_todo_plan_as_dedicated_task_plan_context() -> N
                 "active_form": "Splitting task plan from volatile task state",
                 "status": "in_progress",
                 "notes": "Keep plan visible without replaying it in tool results.",
-                "evidence_expectations": ["task_plan_context segment is present"],
+                "evidence_expectations": ["task_todo_context segment is present"],
             },
         ],
     }
@@ -33,18 +33,47 @@ def test_task_execution_projects_todo_plan_as_dedicated_task_plan_context() -> N
         session_id="session:task-plan-context",
         task_run={"task_run_id": "taskrun:task-plan-context", "diagnostics": {"executor_status": "running"}},
         contract={
-            "task_run_goal": "fix prompt cache",
-            "completion_criteria": ["cache issue fixed"],
-            "plan_contract": {
-                "plan_id": "plan:cache-refactor",
-                "plan_version": "3",
-                "plan_status": "agent_managed",
-                "strategy_summary": "Split the durable plan from the execution cursor.",
-                "major_steps": [
-                    {"step_id": "phase:1", "title": "Audit prompt cache miss families"},
-                    {"step_id": "phase:2", "title": "Split plan contract from todo cursor"},
-                ],
-                "allowed_plan_operations": ["update", "replan"],
+            "contract_version": "task_run_contract_v1",
+            "container_contract": {
+                "entry_reason": "The work needs durable plan and todo modes.",
+                "primary_work_mode_ref": "work-mode:plan:primary",
+                "minimum_viable_next_step": "Continue the active plan step.",
+            },
+            "work_modes": [
+                {
+                    "mode_instance_id": "work-mode:plan:primary",
+                    "mode_kind": "plan",
+                    "mode_role": "primary",
+                    "contract": {
+                        "plan_id": "plan:cache-refactor",
+                        "plan_version": "3",
+                        "plan_status": "agent_managed",
+                        "strategy_summary": "Split the durable plan from the execution cursor.",
+                        "major_steps": [
+                            {"step_id": "phase:1", "title": "Audit prompt cache miss families"},
+                            {"step_id": "phase:2", "title": "Split plan contract from todo cursor"},
+                        ],
+                        "allowed_plan_operations": ["update", "replan"],
+                    },
+                },
+                {
+                    "mode_instance_id": "work-mode:todo:supporting",
+                    "mode_kind": "todo",
+                    "mode_role": "supporting",
+                    "contract": {
+                        "todo_list_id": "plan:cache-refactor",
+                        "items": [
+                            {"item_id": "step:1", "title": "Audit prompt cache miss families", "status": "completed"},
+                            {"item_id": "step:2", "title": "Split task plan from volatile task state", "status": "in_progress"},
+                        ],
+                        "active_item_id": "step:2",
+                        "completion_policy": "checkpoint_only",
+                    },
+                },
+            ],
+            "acceptance_contract": {
+                "acceptance_mode": "checkpoint",
+                "completion_criteria": ["cache issue fixed"],
             },
         },
         observations=[],
@@ -72,19 +101,24 @@ def test_task_execution_projects_todo_plan_as_dedicated_task_plan_context() -> N
 
     kinds = [segment["kind"] for segment in result.packet.segment_plan["segments"]]
     task_plan_payload = _payload_with_title(result.packet, "Task execution task plan context")
+    task_todo_payload = _payload_with_title(result.packet, "Task execution task todo context")
     current_state_payload = _payload_with_title(result.packet, "Task execution current state")
     replay_payload = _payload_with_title(result.packet, "Task execution replayed state evidence obs:todo:1")
     task_plan_context = task_plan_payload["task_plan_context"]
+    task_todo_context = task_todo_payload["task_todo_context"]
     current_state_text = json.dumps(current_state_payload, ensure_ascii=False)
     replay_text = json.dumps(replay_payload, ensure_ascii=False)
 
     assert kinds.index("task_plan_context") < kinds.index("volatile_task_state")
+    assert kinds.index("task_todo_context") < kinds.index("volatile_task_state")
+    assert kinds.index("task_plan_context") < kinds.index("task_todo_context")
     assert task_plan_payload["task_plan_context"]["task_plan_baseline"]["plan_id"] == "plan:cache-refactor"
     assert task_plan_payload["task_plan_context"]["task_plan_baseline"]["plan_version"] == "3"
     assert task_plan_payload["task_plan_context"]["task_plan_baseline"]["items"][0]["source"] == "plan_contract"
-    assert task_plan_context["todo_cursor"]["active_item_id"] == "step:2"
-    assert task_plan_context["todo_cursor"]["active_step_ref"].endswith(":step:step:2")
-    assert task_plan_context["todo_cursor"]["completion_ready_signal"] == {
+    assert "todo_cursor" not in task_plan_context
+    assert task_todo_context["todo_cursor"]["active_item_id"] == "step:2"
+    assert task_todo_context["todo_cursor"]["active_item_ref"].endswith(":todoitem:step:2")
+    assert task_todo_context["todo_cursor"]["completion_ready_signal"] == {
         "reported_by": "agent_todo",
         "value": False,
         "authority": "progress_signal_not_completion_gate",
@@ -92,24 +126,40 @@ def test_task_execution_projects_todo_plan_as_dedicated_task_plan_context() -> N
     assert "todo_plan" not in current_state_text
     assert "todo_plan" not in replay_text
     assert "task_plan_context" not in current_state_payload
+    assert "task_todo_context" not in current_state_payload
     assert "todos" not in dict(current_state_payload["task_state"].get("task_progress_facts") or {})
     cache_record = _cache_record_for_packet(result.packet)
-    assert cache_record.diagnostics["task_plan_context_predicted_tokens"] > 0
+    assert cache_record.diagnostics["task_mode_tail_context_predicted_tokens"] > 0
 
 
-def test_task_execution_projects_plan_contract_without_todo_cursor() -> None:
+def test_task_execution_projects_plan_mode_without_todo_tail_context() -> None:
     result = RuntimeCompiler().compile_task_execution_packet(
         session_id="session:task-plan-without-todo",
         task_run={"task_run_id": "taskrun:task-plan-without-todo", "diagnostics": {"executor_status": "running"}},
         contract={
-            "task_run_goal": "stabilize task mechanism",
-            "plan_contract": {
-                "plan_id": "plan:task-mechanism",
-                "plan_status": "agent_managed",
-                "strategy_summary": "Use the contract as the durable plan and todo only as a cursor.",
-                "major_steps": ["Tighten task entry", "Layer contracts", "Verify feedback"],
+            "contract_version": "task_run_contract_v1",
+            "container_contract": {
+                "entry_reason": "The work needs a durable plan mode.",
+                "primary_work_mode_ref": "work-mode:plan:primary",
+                "minimum_viable_next_step": "Start the first plan step.",
             },
-            "acceptance_contract": {"completion_criteria": ["task mechanism is stable"]},
+            "work_modes": [
+                {
+                    "mode_instance_id": "work-mode:plan:primary",
+                    "mode_kind": "plan",
+                    "mode_role": "primary",
+                    "contract": {
+                        "plan_id": "plan:task-mechanism",
+                        "plan_status": "agent_managed",
+                        "strategy_summary": "Use the contract as the durable plan.",
+                        "major_steps": ["Tighten task entry", "Layer contracts", "Verify feedback"],
+                    },
+                }
+            ],
+            "acceptance_contract": {
+                "acceptance_mode": "checkpoint",
+                "completion_criteria": ["task mechanism is stable"],
+            },
         },
         observations=[],
         execution_state={"system_projection": {"runtime_status": "running", "last_action_receipts": []}},
@@ -121,6 +171,7 @@ def test_task_execution_projects_plan_contract_without_todo_cursor() -> None:
 
     task_plan_payload = _payload_with_title(result.packet, "Task execution task plan context")
     context = task_plan_payload["task_plan_context"]
+    kinds = [segment["kind"] for segment in result.packet.segment_plan["segments"]]
 
     assert context["task_plan_baseline"]["plan_id"] == "plan:task-mechanism"
     assert [item["title"] for item in context["task_plan_baseline"]["items"]] == [
@@ -129,6 +180,7 @@ def test_task_execution_projects_plan_contract_without_todo_cursor() -> None:
         "Verify feedback",
     ]
     assert "todo_cursor" not in context
+    assert "task_todo_context" not in kinds
 
 
 def test_task_execution_incremental_context_cursor_indexes_steer_and_runtime_signals() -> None:

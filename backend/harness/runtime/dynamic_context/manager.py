@@ -26,7 +26,7 @@ from .observation_projector import ObservationProjector
 from .replacement_store import MemoryReplacementStore, ReplacementStore
 from .runtime_delta_projector import RuntimeDeltaProjector
 from .task_context_baseline import build_task_context_baseline_receipt
-from .task_plan_context import build_task_mode_tail_contexts
+from .task_mode_tail_context import build_task_mode_tail_contexts
 from .task_state_projector import TaskStateProjector
 from .token_budget import build_budget_report
 from .tool_result_projector import ToolResultProjector

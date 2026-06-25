@@ -1784,7 +1784,7 @@ backend/harness/loop/model_action_protocol.py
 backend/harness/loop/task_lifecycle.py
 backend/harness/task_contract_normalization.py
 backend/harness/runtime/task_contract_manifest.py
-backend/harness/runtime/dynamic_context/task_plan_context.py
+backend/harness/runtime/dynamic_context/task_mode_tail_context.py
 backend/harness/runtime/dynamic_context/todo_plan_projection.py
 backend/harness/runtime/dynamic_context/task_state_projector.py
 backend/harness/runtime/compiler.py
@@ -1929,7 +1929,7 @@ work_mode.transition_proposed -> 不改变 primary mode，直到 transition_acce
 | `backend/harness/loop/task_lifecycle.py` | task lifecycle 创建和完成 | 从 canonical TaskRunContract 创建 lifecycle；记录 contract origin、primary Work Mode、revision 和 acceptance |
 | `backend/harness/runtime/task_contract_manifest.py` | 任务合同模型可见 manifest | 输出 TaskRunContext、WorkModeContext index、GoalContext、PlanContext、TodoContext 的稳定顺序、active mode refs 和来源诊断 |
 | `backend/harness/runtime/compiler.py` | prompt/context/action schema 编译 | 只写 agent-facing 契约；避免开发说明；接入 task mode 能力说明 |
-| `backend/harness/runtime/dynamic_context/task_plan_context.py` | task plan 上下文投影 | 承载 PlanContext 和 plan lifecycle state，不混入 goal 或 todo 执行状态 |
+| `backend/harness/runtime/dynamic_context/task_mode_tail_context.py` | task mode dynamic-tail 上下文投影 | 分别承载 Goal、Plan、Todo 三个独立 dynamic-tail 段；Plan 只保留计划基线，Todo 独立承载执行游标 |
 | `backend/harness/runtime/dynamic_context/todo_plan_projection.py` | todo 运行投影 | 承载 TodoContext、todo lifecycle state 和 checklist 状态，靠 checkpoint 保存变化 |
 | `backend/harness/runtime/dynamic_context/task_state_projector.py` | task state 模型投影 | 按 TaskRunContext -> WorkModeContext index -> GoalContext -> PlanContext -> TodoContext 输出任务状态和 active mode refs |
 | `backend/harness/loop/single_agent_turn.py` | 单 turn 执行和 repair | repair 保留 agent 语义决策；失败必须可见 closeout；reasoning projection 不被屏蔽 |
