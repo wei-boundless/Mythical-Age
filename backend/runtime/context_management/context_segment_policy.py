@@ -22,6 +22,9 @@ DEFAULT_CONTEXT_APPEND_SLOT_RANKS: dict[str, int] = {
     "recovery_or_recent_work_facts": 10,
     "provider_protocol_history": 15,
     "selected_memory_and_task_state_facts": 20,
+    "task_goal_context": 21,
+    "task_plan_context": 22,
+    "task_todo_context": 23,
     "current_user_intent": 30,
     "active_user_steer_content": 35,
     "evidence_refs_and_file_state_facts": 40,
@@ -38,7 +41,6 @@ KIND_CONTEXT_APPEND_SLOT_DEFAULTS: dict[str, str] = {
     "recovery_context_package": "recovery_or_recent_work_facts",
     "recent_work_outcome": "recovery_or_recent_work_facts",
     "runtime_memory_context": "selected_memory_and_task_state_facts",
-    "task_plan_context": "selected_memory_and_task_state_facts",
     "task_state_replay_entry": "selected_memory_and_task_state_facts",
     "read_evidence_context": "evidence_refs_and_file_state_facts",
     "evidence_index_cursor": "evidence_refs_and_file_state_facts",
@@ -175,6 +177,24 @@ def _install_builtin_policy_defaults() -> None:
         register_context_segment_policy_defaults(kind=kind, semantic_slot=slot)
     for stream, slot in STREAM_CONTEXT_APPEND_SLOT_DEFAULTS.items():
         register_context_segment_policy_defaults(stream=stream, semantic_slot=slot)
+    for kind, rank in {
+        "task_goal_context": 21,
+        "task_plan_context": 22,
+        "task_todo_context": 23,
+    }.items():
+        register_context_segment_policy_defaults(
+            kind=kind,
+            section=DYNAMIC_TAIL,
+            physical_segment=DYNAMIC_TAIL,
+            prefix_cache_scope="none",
+            prefix_cache_role="volatile",
+            prefix_tier="volatile",
+            semantic_slot=kind,
+            semantic_slot_rank=rank,
+            commit_policy="never_commit",
+            replay_policy="current_dynamic_tail_only",
+            identity_policy="task_run_contract_ref_plus_content_hash",
+        )
     for kind, slot in {
         "lifecycle_runtime_guidance": "lifecycle_guidance",
         "runtime_control_signal_tail": "runtime_control_contract",

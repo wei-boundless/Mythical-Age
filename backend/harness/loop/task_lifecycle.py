@@ -659,7 +659,14 @@ def _feedback_contract_from_seed(
             "feedback_sources": list(_string_tuple(raw.get("feedback_sources")))
             or ["tool_observation", "runtime_observation", "user_steer", "lifecycle_signal", "budget_signal", "verification_signal", "recovery_signal"],
             "dynamic_context_slots": list(_string_tuple(raw.get("dynamic_context_slots")))
-            or ["stable_lifecycle_guidance", "dynamic_runtime_context", "task_plan_context", "tail_user_steer"],
+            or [
+                "stable_lifecycle_guidance",
+                "dynamic_runtime_context",
+                "task_goal_context",
+                "task_plan_context",
+                "task_todo_context",
+                "tail_user_steer",
+            ],
             "steer_policy": dict(raw.get("steer_policy") or {"identity_binding": "active_turn_or_task_run_required", "binding_failure": "fail_closed"}),
             "verification_feedback_policy": dict(raw.get("verification_feedback_policy") or {"feeds_acceptance_contract": True}),
             "budget_feedback_policy": dict(raw.get("budget_feedback_policy") or {"tool_or_context_limit_triggers_closeout_recover": True}),
@@ -1453,9 +1460,32 @@ def _dedupe_tuple(values: tuple[str, ...]) -> tuple[str, ...]:
 
 def _runtime_contract_from_task_run_contract(contract: TaskRunContract) -> dict[str, Any]:
     runtime_profile = dict(contract.runtime_profile or {})
+    runtime_profile = _runtime_profile_with_task_mode_dynamic_tail(runtime_profile, contract=contract)
     allowed_operations = _explicit_allowed_operations_from_contract(contract)
+    task_mode_context_cache_policy = _task_mode_context_cache_policy(contract)
     runtime_contract = {
         "runtime_profile": runtime_profile,
+        **(
+            {
+                "execution_policy": {
+                    "context_policy": {
+                        "context_assembly": {
+                            "provider_physical_model": "static_context_dynamic_tail",
+                            "dynamic_tail_supported": True,
+                            "source": "task_run_contract.work_modes",
+                        }
+                    },
+                    "prompt_policy": {
+                        "context_cache_policy": task_mode_context_cache_policy,
+                    },
+                },
+                "prompt_policy": {
+                    "context_cache_policy": task_mode_context_cache_policy,
+                },
+            }
+            if task_mode_context_cache_policy
+            else {}
+        ),
         "task_run_contract": {
             "container_contract": dict(contract.container_contract or {}),
             "work_modes": [dict(item) for item in contract.work_modes],
@@ -1512,6 +1542,45 @@ def _runtime_contract_from_task_run_contract(contract: TaskRunContract) -> dict[
             "authority": "task_system.engagement_contract_projection",
         }
     return runtime_contract
+
+
+def _runtime_profile_with_task_mode_dynamic_tail(
+    runtime_profile: dict[str, Any],
+    *,
+    contract: TaskRunContract,
+) -> dict[str, Any]:
+    policy = _task_mode_context_cache_policy(contract)
+    if not policy:
+        return dict(runtime_profile or {})
+    profile = dict(runtime_profile or {})
+    requirement = dict(profile.get("model_requirement") or {})
+    provider_extensions = dict(requirement.get("provider_extensions") or {})
+    existing_policy = dict(provider_extensions.get("context_cache_policy") or {})
+    provider_extensions["context_cache_policy"] = {
+        **existing_policy,
+        **policy,
+    }
+    requirement["provider_extensions"] = provider_extensions
+    profile["model_requirement"] = requirement
+    return profile
+
+
+def _task_mode_context_cache_policy(contract: TaskRunContract) -> dict[str, Any]:
+    mode_kinds = {
+        str(item.get("mode_kind") or "").strip()
+        for item in tuple(contract.work_modes or ())
+        if isinstance(item, dict)
+    }
+    active_modes = sorted(mode_kinds & {"goal", "plan", "todo"})
+    if not active_modes:
+        return {}
+    return {
+        "context_physical_model": "static_context_dynamic_tail",
+        "dynamic_tail_supported": True,
+        "reason": "task_work_mode_requires_current_dynamic_tail",
+        "work_mode_kinds": active_modes,
+        "source": "task_run_contract.work_modes",
+    }
 
 
 def _explicit_allowed_operations_from_contract(contract: TaskRunContract) -> tuple[str, ...] | None:

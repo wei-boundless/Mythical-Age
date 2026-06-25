@@ -4997,6 +4997,7 @@ def _task_model_selection(task_run: Any, *, agent_profile: Any | None = None) ->
         "action_reasoning_effort": str(requirement.get("action_reasoning_effort") or profile_payload.get("action_reasoning_effort") or "").strip(),
         "response_format": dict(requirement.get("response_format") or profile_payload.get("response_format") or {}),
         "structured_output": str(requirement.get("structured_output") or "").strip().lower(),
+        "provider_extensions": dict(requirement.get("provider_extensions") or profile_payload.get("provider_extensions") or {}),
         "stream_policy": _stream_policy_for_task_model_requirement(
             profile_payload.get("stream_policy"),
             requirement=requirement,
@@ -5047,6 +5048,12 @@ def _model_selection_with_runtime_requirement(
     response_format = dict(requirement.get("response_format") or {})
     if response_format:
         selection["response_format"] = response_format
+    provider_extensions = _provider_extensions_with_requirement(
+        selection.get("provider_extensions"),
+        requirement=requirement,
+    )
+    if provider_extensions:
+        selection["provider_extensions"] = provider_extensions
     structured_output = str(requirement.get("structured_output") or "").strip().lower()
     if structured_output:
         selection["structured_output"] = structured_output
@@ -5061,6 +5068,22 @@ def _model_selection_with_runtime_requirement(
         if value not in (None, "", {}, []):
             selection[key] = value
     return selection
+
+
+def _provider_extensions_with_requirement(
+    base_extensions: Any,
+    *,
+    requirement: dict[str, Any],
+) -> dict[str, Any]:
+    result = dict(base_extensions or {}) if isinstance(base_extensions, dict) else {}
+    requirement_extensions = dict(requirement.get("provider_extensions") or {}) if isinstance(requirement.get("provider_extensions"), dict) else {}
+    if requirement_extensions:
+        result.update(requirement_extensions)
+    context_cache_policy = dict(requirement.get("context_cache_policy") or {}) if isinstance(requirement.get("context_cache_policy"), dict) else {}
+    if context_cache_policy:
+        existing_policy = dict(result.get("context_cache_policy") or {}) if isinstance(result.get("context_cache_policy"), dict) else {}
+        result["context_cache_policy"] = {**existing_policy, **context_cache_policy}
+    return result
 
 
 def _stream_policy_for_task_model_requirement(

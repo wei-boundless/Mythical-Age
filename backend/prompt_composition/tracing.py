@@ -29,7 +29,9 @@ RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
     "turn_stable": "runtime_protocol",
     "attachment_context_index": "runtime_attachment_context_index",
     "evidence_index_cursor": "runtime_evidence_index_cursor",
+    "task_goal_context": "runtime_task_goal_context",
     "task_plan_context": "runtime_task_plan_context",
+    "task_todo_context": "runtime_task_todo_context",
     "editor_context_index": "runtime_editor_context_index",
     "current_editor_evidence_delta": "runtime_editor_evidence_delta",
     "runtime_memory_context": "runtime_memory_context",
@@ -177,8 +179,12 @@ def _binding_reason(*, status: str, kind: str, source_ref: str) -> str:
         return "segment is the current turn attachment index; it must not carry extracted attachment text"
     if status == "runtime_evidence_index_cursor":
         return "segment is evidence refs, hashes, ranges, freshness, and rehydration hints without exact historical content"
+    if status == "runtime_task_goal_context":
+        return "segment is the active goal mode boundary projected into the current dynamic tail"
     if status == "runtime_task_plan_context":
-        return "segment is task plan baseline, cursor, and delta isolated from tool result replay"
+        return "segment is the active plan mode baseline projected into the current dynamic tail"
+    if status == "runtime_task_todo_context":
+        return "segment is the active todo execution cursor projected into the current dynamic tail"
     if status == "runtime_editor_evidence_delta":
         return "segment is current editor selection or preview exact evidence visible for this invocation"
     if status == "runtime_memory_context":

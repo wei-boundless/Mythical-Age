@@ -224,7 +224,14 @@ _TOOL_CAPABILITY_SYSTEM_GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
     "task_planning": {
         "capability_groups": ("action_contracts", "task_state_context", "tool_context", "repair_feedback"),
         "prompt_resources": ("tool.guidance.todo", "runtime.rule.plan_mode_boundary", "environment.general.lifecycle.plan_gate"),
-        "context_segments": ("task_plan_context", "tool_schema_catalog", "single_agent_turn_tool_call", "single_agent_turn_tool_observation"),
+        "context_segments": (
+            "task_goal_context",
+            "task_plan_context",
+            "task_todo_context",
+            "tool_schema_catalog",
+            "single_agent_turn_tool_call",
+            "single_agent_turn_tool_observation",
+        ),
         "feedback_channels": ("todo_update", "plan_repair"),
     },
     "file_work": {

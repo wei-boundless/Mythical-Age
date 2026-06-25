@@ -600,7 +600,18 @@ def _normalized_feedback_contract(seed: dict[str, Any]) -> dict[str, Any]:
                 or ("tool_observation", "runtime_observation", "user_steer", "lifecycle_signal", "budget_signal", "verification_signal", "recovery_signal")
             )
         ),
-        "dynamic_context_slots": list(_string_tuple(raw.get("dynamic_context_slots") or ("dynamic_runtime_context", "task_plan_context", "tail_user_steer"))),
+        "dynamic_context_slots": list(
+            _string_tuple(
+                raw.get("dynamic_context_slots")
+                or (
+                    "dynamic_runtime_context",
+                    "task_goal_context",
+                    "task_plan_context",
+                    "task_todo_context",
+                    "tail_user_steer",
+                )
+            )
+        ),
         "steer_policy": dict(raw.get("steer_policy") or {}) if isinstance(raw.get("steer_policy"), dict) else {},
         "verification_feedback_policy": dict(raw.get("verification_feedback_policy") or {}) if isinstance(raw.get("verification_feedback_policy"), dict) else {},
         "budget_feedback_policy": dict(raw.get("budget_feedback_policy") or {}) if isinstance(raw.get("budget_feedback_policy"), dict) else {},

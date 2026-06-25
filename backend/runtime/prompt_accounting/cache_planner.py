@@ -309,10 +309,10 @@ def _prefix_diagnostics(
         for segment in segment_map.segments
         if str(segment.kind or "") == "evidence_index_cursor"
     )
-    task_plan_context_tokens = sum(
+    task_mode_tail_context_tokens = sum(
         int(segment.predicted_tokens or 0)
         for segment in segment_map.segments
-        if str(segment.kind or "") == "task_plan_context"
+        if str(segment.kind or "") in {"task_goal_context", "task_plan_context", "task_todo_context"}
     )
     current_editor_evidence_delta_tokens = sum(
         int(segment.predicted_tokens or 0)
@@ -360,7 +360,8 @@ def _prefix_diagnostics(
         "read_evidence_exact_predicted_tokens": read_evidence_tokens,
         "attachment_context_index_predicted_tokens": attachment_context_index_tokens,
         "evidence_index_cursor_predicted_tokens": evidence_index_cursor_tokens,
-        "task_plan_context_predicted_tokens": task_plan_context_tokens,
+        "task_mode_tail_context_predicted_tokens": task_mode_tail_context_tokens,
+        "task_plan_context_predicted_tokens": task_mode_tail_context_tokens,
         "editor_context_index_predicted_tokens": editor_context_index_tokens,
         "current_editor_evidence_delta_predicted_tokens": current_editor_evidence_delta_tokens,
         "volatile_task_state_predicted_tokens": volatile_task_state_tokens,

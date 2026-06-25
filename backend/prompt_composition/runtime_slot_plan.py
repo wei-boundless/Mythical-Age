@@ -167,7 +167,9 @@ def _layer_for_source_kind(source_kind: str) -> str:
         "runtime_active_skills",
         "runtime_attachment_context_index",
         "runtime_evidence_index_cursor",
+        "runtime_task_goal_context",
         "runtime_task_plan_context",
+        "runtime_task_todo_context",
         "runtime_editor_context_index",
         "runtime_editor_evidence_delta",
         "runtime_memory_context",
@@ -193,7 +195,7 @@ def _layer_for_source_kind(source_kind: str) -> str:
         return "append_only_task_evidence"
     if source_kind == "runtime_evidence_index_cursor":
         return "runtime_dynamic"
-    if source_kind == "runtime_task_plan_context":
+    if source_kind in {"runtime_task_goal_context", "runtime_task_plan_context", "runtime_task_todo_context"}:
         return "runtime_dynamic"
     if source_kind == "runtime_protocol":
         return "runtime_protocol_stable"
@@ -216,7 +218,9 @@ def _authority_class_for_source_kind(source_kind: str) -> str:
         "runtime_append_only_context": "append_only_context",
         "runtime_attachment_context_index": "attachment_context_index",
         "runtime_evidence_index_cursor": "evidence_index_cursor",
+        "runtime_task_goal_context": "task_goal_context",
         "runtime_task_plan_context": "task_plan_context",
+        "runtime_task_todo_context": "task_todo_context",
         "runtime_editor_context_index": "editor_context_index",
         "runtime_editor_evidence_delta": "editor_evidence_delta",
         "runtime_memory_context": "runtime_memory_context",
@@ -258,8 +262,12 @@ def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str, classificatio
         return "attachment_context_index"
     if source_kind == "runtime_evidence_index_cursor" or kind == "evidence_index_cursor":
         return "evidence_index_cursor"
-    if source_kind == "runtime_task_plan_context" or kind == "task_plan_context":
-        return "task_plan_context"
+    if source_kind in {"runtime_task_goal_context", "runtime_task_plan_context", "runtime_task_todo_context"} or kind in {
+        "task_goal_context",
+        "task_plan_context",
+        "task_todo_context",
+    }:
+        return "dynamic_context_tail"
     if source_kind == "runtime_editor_context_index" or kind == "editor_context_index":
         return "editor_context_index"
     if kind == "graph_node_completion_prefix":

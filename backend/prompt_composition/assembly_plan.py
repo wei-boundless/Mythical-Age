@@ -26,7 +26,6 @@ CONTEXT_APPEND_LAYER_NAMES = {
     "evidence_index_cursor",
     "file_evidence_cursor",
     "runtime_memory_context",
-    "task_plan_context",
 }
 
 PREFIX_TIER_ORDER = {
@@ -304,8 +303,12 @@ def _layer_for_source(source: PromptSource, *, cache_role: str, prefix_tier: str
         "tool_observations",
     } or source_kind in {"runtime_task_state_replay", "runtime_read_evidence_context"}:
         return "append_only_runtime_evidence"
-    if kind == "task_plan_context" or source_kind == "runtime_task_plan_context":
-        return "task_plan_context"
+    if kind in {"task_goal_context", "task_plan_context", "task_todo_context"} or source_kind in {
+        "runtime_task_goal_context",
+        "runtime_task_plan_context",
+        "runtime_task_todo_context",
+    }:
+        return "dynamic_context_tail"
     if kind == "evidence_index_cursor" or source_kind == "runtime_evidence_index_cursor":
         return "evidence_index_cursor"
     if kind == "attachment_context_index" or source_kind == "runtime_attachment_context_index":
@@ -368,8 +371,12 @@ def _dynamic_tier_for_source(source: PromptSource, *, cache_role: str, prefix_ti
         return "stable_prefix" if cache_role in STABLE_CACHE_ROLES and prefix_tier not in {"volatile", "none"} else "runtime_baseline_refs"
     if kind == "dynamic_projection":
         return "runtime_delta_tail"
-    if kind == "task_plan_context" or source_kind == "runtime_task_plan_context":
-        return "task_plan_context"
+    if kind in {"task_goal_context", "task_plan_context", "task_todo_context"} or source_kind in {
+        "runtime_task_goal_context",
+        "runtime_task_plan_context",
+        "runtime_task_todo_context",
+    }:
+        return "dynamic_context_tail"
     if kind == "evidence_index_cursor" or source_kind == "runtime_evidence_index_cursor":
         return "evidence_index_cursor"
     if kind == "attachment_context_index" or source_kind == "runtime_attachment_context_index":

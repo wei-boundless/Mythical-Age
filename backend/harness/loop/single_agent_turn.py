@@ -7528,7 +7528,9 @@ _FOLLOWUP_BASE_ACCUMULATED_CONTEXT_KINDS = {
     "single_agent_turn_tool_call",
     "single_agent_turn_tool_observation",
     "single_agent_turn_user_steer_context",
+    "task_goal_context",
     "task_plan_context",
+    "task_todo_context",
     "task_state_replay_entry",
     "tool_observations",
     "user_steering_context_append",
@@ -7601,7 +7603,25 @@ def _split_append_only_context_and_dynamic_tail(
     segment_plan: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     clean_messages = _copy_model_messages_without_rewriting(messages)
-    return clean_messages, []
+    if not clean_messages or not _uses_independent_dynamic_tail_physical_model(segment_plan):
+        return clean_messages, []
+    segments_by_index = _segment_plan_segments_by_message_index(dict(segment_plan or {}))
+    dynamic_tail_segments_by_hash = _dynamic_tail_segments_by_hash(dict(segment_plan or {}))
+    accumulated: list[dict[str, Any]] = []
+    dynamic_tail: list[dict[str, Any]] = []
+    for index, message in enumerate(clean_messages):
+        segment = dict(segments_by_index.get(index) or {})
+        if segment and _followup_base_segment_conflicts_with_message_shape(segment, message):
+            segment = {}
+        if not segment:
+            segment = _pop_matching_dynamic_tail_segment(dynamic_tail_segments_by_hash, message=message)
+        if (segment and _is_tool_followup_current_dynamic_tail_segment(segment)) or (
+            not segment and _is_current_control_tail_message(message)
+        ):
+            dynamic_tail.append(message)
+            continue
+        accumulated.append(message)
+    return accumulated, dynamic_tail
 
 
 def _uses_independent_dynamic_tail_physical_model(segment_plan: dict[str, Any] | None) -> bool:

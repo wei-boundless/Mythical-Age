@@ -325,13 +325,7 @@ langchain-agent/
 │   │   ├── types/            # 类型定义
 │   │   └── ui/               # UI 组件
 │   └── public/               # 静态资源
-├── docs/                     # 设计文档与架构记录
-│   ├── 系统架构/              # 70+ 篇计划书与审查记录
-│   ├── 设计原则/
-│   ├── 系统规划/
-│   ├── 接口文档/
-│   ├── maintenance/
-│   └── reviews/
+├── docs/                     # 设计文档（不公开）
 ├── scripts/                  # 运行和部署脚本
 ├── extensions/               # 扩展
 ├── apps/                     # 应用模板
