@@ -26,7 +26,7 @@ from .observation_projector import ObservationProjector
 from .replacement_store import MemoryReplacementStore, ReplacementStore
 from .runtime_delta_projector import RuntimeDeltaProjector
 from .task_context_baseline import build_task_context_baseline_receipt
-from .task_plan_context import build_task_plan_context
+from .task_plan_context import build_task_mode_tail_contexts
 from .task_state_projector import TaskStateProjector
 from .token_budget import build_budget_report
 from .tool_result_projector import ToolResultProjector
@@ -249,7 +249,7 @@ class DynamicContextManager:
             envelope_projection=envelope_projection,
             include_task_run_context=bool(dict(request.projection_policy or {}).get("include_task_run_context", True)),
         )
-        task_plan_context = build_task_plan_context(
+        task_mode_tail_contexts = build_task_mode_tail_contexts(
             task_state,
             task_run_id=request.task_run_id,
             task_contract=request.task_contract,
@@ -263,8 +263,8 @@ class DynamicContextManager:
         payload = {
             "task_state": task_state_cursor,
         }
-        if task_plan_context:
-            payload.update(task_plan_context)
+        if task_mode_tail_contexts:
+            payload.update(task_mode_tail_contexts)
         if evidence_index_cursor:
             payload.update(evidence_index_cursor)
         payload.update(_editor_context_dynamic_projection(request.editor_context))
@@ -443,25 +443,62 @@ class DynamicContextManager:
                     refs=tuple(_task_state_replay_refs(task_state_replay_entries)),
                 )
             )
+        task_goal_context = dict(volatile_state.get("task_goal_context") or {}) if isinstance(volatile_state.get("task_goal_context"), dict) else {}
+        if task_goal_context:
+            contract = dict(task_goal_context.get("task_goal_contract") or {})
+            reports.append(
+                VolatileSectionReport(
+                    section_id=f"dynamic_context:{request.invocation_kind}:task_goal_context",
+                    source="task_goal_context",
+                    volatility_reason="active goal mode boundary can change only through task contract revision; the current boundary stays in the dynamic tail while historical context remains sealed",
+                    input_chars=estimate_chars({"task_contract": request.task_contract}),
+                    output_chars=estimate_chars(task_goal_context),
+                    projection_strategy="goal_work_mode_contract_projection",
+                    cache_impact="dynamic_tail_only",
+                    refs=tuple(ref for ref in (str(contract.get("goal_ref") or ""), str(contract.get("goal_sha256") or "")) if ref),
+                )
+            )
         task_plan_context = dict(volatile_state.get("task_plan_context") or {}) if isinstance(volatile_state.get("task_plan_context"), dict) else {}
         if task_plan_context:
             baseline = dict(task_plan_context.get("task_plan_baseline") or {})
-            cursor = dict(task_plan_context.get("todo_cursor") or {})
-            delta = dict(task_plan_context.get("task_plan_delta") or {})
             reports.append(
                 VolatileSectionReport(
                     section_id=f"dynamic_context:{request.invocation_kind}:task_plan_context",
                     source="task_plan_context",
-                    volatility_reason="task plan status can change during execution; each visible plan cursor is emitted as appendable context and the previous provider-visible package remains sealed",
-                    input_chars=estimate_chars({"execution_state": request.execution_state, "observations": request.observations}),
+                    volatility_reason="active plan mode strategy can be revised by the agent; it is projected as its own dynamic tail segment instead of absorbing todo execution state",
+                    input_chars=estimate_chars({"task_contract": request.task_contract}),
                     output_chars=estimate_chars(task_plan_context),
-                    projection_strategy="plan_work_mode_baseline_plus_todo_cursor_projection",
-                    cache_impact="context_append_then_sealed_prefix",
+                    projection_strategy="plan_work_mode_baseline_projection",
+                    cache_impact="dynamic_tail_only",
                     refs=tuple(
                         ref
                         for ref in (
                             str(baseline.get("plan_baseline_ref") or ""),
-                            str(cursor.get("active_step_ref") or ""),
+                            str(baseline.get("plan_sha256") or ""),
+                        )
+                        if ref
+                    ),
+                )
+            )
+        task_todo_context = dict(volatile_state.get("task_todo_context") or {}) if isinstance(volatile_state.get("task_todo_context"), dict) else {}
+        if task_todo_context:
+            baseline = dict(task_todo_context.get("task_todo_baseline") or {})
+            cursor = dict(task_todo_context.get("todo_cursor") or {})
+            delta = dict(task_todo_context.get("task_todo_delta") or {})
+            reports.append(
+                VolatileSectionReport(
+                    section_id=f"dynamic_context:{request.invocation_kind}:task_todo_context",
+                    source="task_todo_context",
+                    volatility_reason="todo execution cursor changes as the agent works; it is projected as a separate dynamic tail segment and does not rewrite the plan baseline",
+                    input_chars=estimate_chars({"execution_state": request.execution_state, "observations": request.observations}),
+                    output_chars=estimate_chars(task_todo_context),
+                    projection_strategy="todo_work_mode_baseline_plus_runtime_cursor_projection",
+                    cache_impact="dynamic_tail_only",
+                    refs=tuple(
+                        ref
+                        for ref in (
+                            str(baseline.get("todo_baseline_ref") or ""),
+                            str(cursor.get("active_item_ref") or ""),
                             str(delta.get("cursor_hash") or ""),
                         )
                         if ref

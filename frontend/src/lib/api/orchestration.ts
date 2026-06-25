@@ -231,6 +231,16 @@ export async function approveOrchestrationHarnessTaskRunToolCall(taskRunId: stri
   );
 }
 
+export async function approveOrchestrationHarnessTaskRunLaunch(taskRunId: string, reason = "", maxSteps = 12, expectedActiveTurnId = "") {
+  return request<Record<string, unknown>>(
+    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/approve-launch`,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason, max_steps: maxSteps, expected_active_turn_id: expectedActiveTurnId }),
+    }
+  );
+}
+
 export async function stopOrchestrationHarnessTaskRun(taskRunId: string, reason = "", expectedActiveTurnId = "") {
   return request<Record<string, unknown>>(
     `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/stop`,

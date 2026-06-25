@@ -1090,6 +1090,7 @@ def wait_task_launch_supervision(
     now = time.time()
     gate_state = {
         "status": "pending",
+        "gate_id": f"task-launch-gate:{task_run.task_run_id}",
         "gate_type": str(gate_policy.get("gate_type") or "task_launch_supervision"),
         "mode": "supervision",
         "task_run_id": task_run.task_run_id,

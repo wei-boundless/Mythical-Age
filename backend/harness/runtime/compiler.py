@@ -3907,14 +3907,20 @@ def _extract_attachment_context_payload(payload: dict[str, Any] | None) -> tuple
     return attachment_payload, _drop_empty_payload(current)
 
 
-def _extract_task_plan_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
+def _extract_task_mode_tail_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
     current = dict(payload or {})
-    task_plan_payload = _drop_empty_payload(
+    task_mode_payload = _drop_empty_payload(
         {
+            "task_goal_context": current.pop("task_goal_context", None),
             "task_plan_context": current.pop("task_plan_context", None),
+            "task_todo_context": current.pop("task_todo_context", None),
         }
     )
-    return task_plan_payload, _drop_empty_payload(current)
+    return task_mode_payload, _drop_empty_payload(current)
+
+
+def _extract_task_plan_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
+    return _extract_task_mode_tail_context_payload(payload)
 
 
 def _extract_tool_observation_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -4122,28 +4128,89 @@ def _task_plan_context_message_specs(
     source_ref_prefix: str,
     dynamic_context: DynamicContextProjection,
 ) -> list[dict[str, Any]]:
-    task_plan_context = dict(payload or {}).get("task_plan_context")
-    if not task_plan_context:
-        return []
-    return [
-        _runtime_payload_spec(
-            role="system",
-            title=f"{title_prefix} task plan context",
-            payload={"task_plan_context": task_plan_context},
-            kind="task_plan_context",
-            source_ref=f"{source_ref_prefix}:task_plan_context",
-            cache_scope="task",
-            cache_role="session_stable",
-            compression_role="ref_only",
-            metadata={
-                **_dynamic_context_segment_metadata(dynamic_context, source="task_plan_context"),
-                "authority_class": "task_plan_context",
-                "content_source": "harness.runtime.dynamic_context.task_plan_context",
-                "runtime_fragment_role": "task_plan_context",
-                "cache_impact": "task_prefix_plan_context_snapshot",
-            },
+    return _task_mode_tail_context_message_specs(
+        payload,
+        title_prefix=title_prefix,
+        source_ref_prefix=source_ref_prefix,
+        dynamic_context=dynamic_context,
+    )
+
+
+def _task_mode_tail_context_message_specs(
+    payload: dict[str, Any] | None,
+    *,
+    title_prefix: str,
+    source_ref_prefix: str,
+    dynamic_context: DynamicContextProjection,
+) -> list[dict[str, Any]]:
+    data = dict(payload or {})
+    specs: list[dict[str, Any]] = []
+    for descriptor in (
+        {
+            "key": "task_goal_context",
+            "title": "task goal context",
+            "authority_class": "task_goal_context",
+            "content_source": "harness.runtime.dynamic_context.task_goal_context",
+            "runtime_fragment_role": "task_goal_context",
+            "semantic_slot": "task_goal_context",
+            "semantic_rank": 21,
+        },
+        {
+            "key": "task_plan_context",
+            "title": "task plan context",
+            "authority_class": "task_plan_context",
+            "content_source": "harness.runtime.dynamic_context.task_plan_context",
+            "runtime_fragment_role": "task_plan_context",
+            "semantic_slot": "task_plan_context",
+            "semantic_rank": 22,
+        },
+        {
+            "key": "task_todo_context",
+            "title": "task todo context",
+            "authority_class": "task_todo_context",
+            "content_source": "harness.runtime.dynamic_context.task_todo_context",
+            "runtime_fragment_role": "task_todo_context",
+            "semantic_slot": "task_todo_context",
+            "semantic_rank": 23,
+        },
+    ):
+        key = str(descriptor["key"])
+        context_payload = data.get(key)
+        if not context_payload:
+            continue
+        specs.append(
+            _runtime_payload_spec(
+                role="system",
+                title=f"{title_prefix} {descriptor['title']}",
+                payload={key: context_payload},
+                kind=key,
+                source_ref=f"{source_ref_prefix}:{key}",
+                cache_scope="none",
+                cache_role="volatile",
+                compression_role="ref_only",
+                metadata={
+                    **_dynamic_context_segment_metadata(dynamic_context, source=key),
+                    "authority_class": str(descriptor["authority_class"]),
+                    "content_source": str(descriptor["content_source"]),
+                    "runtime_fragment_role": str(descriptor["runtime_fragment_role"]),
+                    "cache_impact": "dynamic_tail_only",
+                    "context_cache_section": DYNAMIC_TAIL,
+                    "context_assembly_section": DYNAMIC_TAIL,
+                    "context_capability_group": "task_state_context",
+                    "context_capability_slot": str(descriptor["semantic_slot"]),
+                    "context_capability_member": "content",
+                    "context_semantic_slot": str(descriptor["semantic_slot"]),
+                    "context_semantic_slot_rank": int(descriptor["semantic_rank"]),
+                    "context_prefix_cache_scope": "none",
+                    "context_prefix_cache_role": "volatile",
+                    "context_prefix_tier": "volatile",
+                    "context_commit_policy": "never_commit",
+                    "context_replay_policy": "current_dynamic_tail_only",
+                    "stability_rule": "Task mode tail segments are current control state and must not be sealed into provider-visible memory.",
+                },
+            )
         )
-    ]
+    return specs
 
 
 def _editor_context_message_specs(

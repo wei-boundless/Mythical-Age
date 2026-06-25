@@ -183,6 +183,34 @@ async def approve_harness_task_run_tool_call(
     }
 
 
+@router.post("/orchestration/harness/task-runs/{task_run_id}/approve-launch")
+async def approve_harness_task_run_launch_gate(
+    task_run_id: str,
+    payload: TaskRunApprovalRequest | None = None,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    runtime_host = runtime.harness_runtime.single_agent_runtime_host
+    _assert_expected_active_turn(runtime_host, task_run_id, payload.expected_active_turn_id if payload is not None else "")
+    max_steps = payload.max_steps if payload is not None else 12
+    result = TaskRunControlGateway(
+        runtime_host=runtime_host,
+        schedule_task_run_executor=runtime.harness_runtime.schedule_task_run_executor,
+    ).approve_launch_gate_and_resume(
+        task_run_id,
+        reason=payload.reason if payload is not None else "",
+        requested_by="user",
+        turn_id=payload.expected_active_turn_id if payload is not None else "",
+        max_steps=max_steps,
+    )
+    _raise_for_task_run_control_result(result, fallback_error="task_run_launch_gate_rejected")
+    return {
+        **result,
+        "task_run_id": task_run_id,
+        "monitor_url": f"/api/orchestration/runtime-monitor/task-runs/{task_run_id}",
+        "trace_url": f"/api/orchestration/harness/task-runs/{task_run_id}",
+    }
+
+
 @router.post("/orchestration/harness/task-runs/{task_run_id}/stop")
 async def stop_harness_task_run(
     task_run_id: str,

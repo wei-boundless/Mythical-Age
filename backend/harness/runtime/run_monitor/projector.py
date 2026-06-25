@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from artifact_system.artifact_authority import artifact_refs_from_events, dedupe_artifact_refs
+from harness.loop.task_launch_gate import public_pending_launch_gate
 from harness.task_run_state_view import task_run_state_view
 from harness.task_run_status import runtime_control_state_from_task_run
 from harness.runtime.event_query import list_runtime_events, runtime_event_count
@@ -87,6 +88,7 @@ class RuntimeMonitorProjector:
         last_activity_at = max(created_at, updated_at, latest_event_at)
         last_activity_age_seconds = max(0.0, current_time - last_activity_at) if last_activity_at else 0.0
         status = str(getattr(task_run, "status", "") or "")
+        pending_launch_gate = public_pending_launch_gate(dict(diagnostics.get("pending_launch_gate") or {})) if isinstance(diagnostics.get("pending_launch_gate"), dict) else {}
         state_view = task_run_state_view(task_run, runtime_host=self.runtime_host)
         control = dict(state_view.get("runtime_control") or {})
         control_state = str(state_view.get("control_state") or "")
@@ -250,6 +252,7 @@ class RuntimeMonitorProjector:
             "task_work_state": str(state_view.get("task_work_state") or ""),
             "executor_status": str(state_view.get("executor_status") or ""),
             "executor_lease_state": str(state_view.get("executor_lease_state") or ""),
+            "wait_reason": str(diagnostics.get("wait_reason") or ""),
             "recovery_action": str(state_view.get("recovery_action") or ""),
             "recovery_cause": str(state_view.get("recovery_cause") or ""),
             "recoverable": bool(state_view.get("recoverable")),
@@ -280,6 +283,7 @@ class RuntimeMonitorProjector:
             "agent_brief_output": agent_brief,
             "latest_step_name": str(latest_step.get("step") or diagnostics.get("latest_step") or ""),
             "latest_step_status": str(latest_step.get("status") or diagnostics.get("latest_step_status") or ""),
+            **({"pending_launch_gate": pending_launch_gate} if pending_launch_gate else {}),
             "artifact_count": len(artifact_refs),
             "artifact_refs": artifact_refs[:10],
             "resource_refs": resource_refs,

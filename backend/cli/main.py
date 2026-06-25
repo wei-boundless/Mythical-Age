@@ -83,6 +83,11 @@ def build_parser() -> argparse.ArgumentParser:
     resume_parser.add_argument("task_run_id")
     resume_parser.add_argument("--max-steps", type=int, default=12)
     resume_parser.add_argument("--no-watch", action="store_true", help="Only schedule resume and print the accepted payload")
+    approve_launch_parser = task_run_subparsers.add_parser("approve-launch", help="Approve a TaskRun launch supervision gate and resume")
+    approve_launch_parser.add_argument("task_run_id")
+    approve_launch_parser.add_argument("--reason", default="cli_approve_launch")
+    approve_launch_parser.add_argument("--max-steps", type=int, default=12)
+    approve_launch_parser.add_argument("--no-watch", action="store_true", help="Only approve launch and print the accepted payload")
     stop_parser = task_run_subparsers.add_parser("stop", help="Stop a running TaskRun")
     stop_parser.add_argument("task_run_id")
     stop_parser.add_argument("--reason", default="cli_stop")
@@ -389,6 +394,17 @@ def _run_task_run_command(
             return 0 if result.get("ok") else 1
         print(f"resumed {args.task_run_id}", file=stdout)
         return _watch_task_run(args.task_run_id, client=client, stdout=stdout)
+    if args.task_run_command == "approve-launch":
+        result = client.approve_launch_task_run(
+            args.task_run_id,
+            reason=str(args.reason or "cli_approve_launch"),
+            max_steps=max(1, int(args.max_steps or 12)),
+        )
+        if bool(getattr(args, "no_watch", False)):
+            _print_json(result, stdout)
+            return 0 if result.get("ok") else 1
+        print(f"launch approved {args.task_run_id}", file=stdout)
+        return _watch_task_run(args.task_run_id, client=client, stdout=stdout)
     if args.task_run_command == "stop":
         result = client.stop_task_run(args.task_run_id, reason=str(args.reason or "cli_stop"))
         _print_json(result, stdout)
@@ -491,7 +507,7 @@ def _watch_task_run(task_run_id: str, *, client: AgentCliClient, stdout: TextIO)
                 print(f"[{status}] {latest.get('event_type') or 'monitor'}", file=stdout)
             seen_event_count = event_count
             seen_step = step
-        if status in {"completed", "failed", "aborted", "cancelled", "error", "blocked", "waiting_executor"}:
+        if status in {"completed", "failed", "aborted", "cancelled", "error", "blocked", "waiting_executor", "waiting_approval"}:
             trace = client.get_task_run_trace(task_run_id, include_payloads=False)
             final_task = dict(trace.get("task_run") or {})
             diagnostics = dict(final_task.get("diagnostics") or {})
@@ -499,18 +515,22 @@ def _watch_task_run(task_run_id: str, *, client: AgentCliClient, stdout: TextIO)
             final_answer = str(diagnostics.get("final_answer") or "")
             terminal_reason = str(final_task.get("terminal_reason") or monitor.get("terminal_reason") or "")
             recoverable_error = dict(diagnostics.get("recoverable_error") or {})
+            pending_launch_gate = dict(diagnostics.get("pending_launch_gate") or {}) if isinstance(diagnostics.get("pending_launch_gate"), dict) else {}
             if artifact_refs:
                 print("artifacts:", file=stdout)
                 for item in list(artifact_refs):
                     print(f"- {item}", file=stdout)
             if final_answer:
                 print(final_answer, file=stdout)
+            elif status == "waiting_approval":
+                message = str(pending_launch_gate.get("user_prompt") or terminal_reason or "waiting_approval")
+                print(message, file=stdout)
             elif status == "waiting_executor":
                 message = str(recoverable_error.get("user_message") or terminal_reason or "waiting_executor")
                 print(message, file=stdout)
             elif terminal_reason:
                 print(terminal_reason, file=stdout)
-            return 0 if status in {"completed", "waiting_executor"} else 1
+            return 0 if status in {"completed", "waiting_executor", "waiting_approval"} else 1
         time.sleep(2.0)
 
 

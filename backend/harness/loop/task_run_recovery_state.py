@@ -12,6 +12,7 @@ from harness.task_run_status import (
     runtime_control_state_from_task_run,
 )
 
+from .task_launch_gate import matching_launch_gate_pass_for_pending
 from .task_tool_approval import matching_approval_grant_for_pending
 
 
@@ -90,6 +91,9 @@ def recovery_state_for_task_run(task_run: Any, *, runtime_host: Any | None = Non
     elif status == "waiting_approval" and matching_approval_grant_for_pending(task_run) is not None:
         same_run_resumable = True
         reason = "approval_granted"
+    elif status == "waiting_approval" and matching_launch_gate_pass_for_pending(task_run) is not None:
+        same_run_resumable = True
+        reason = "launch_gate_passed"
 
     executable = same_run_resumable and not paused and control_state not in STOP_CONTROL_STATES
     return TaskRunRecoveryState(

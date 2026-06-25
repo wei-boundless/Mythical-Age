@@ -1562,6 +1562,7 @@ def _materialized_candidates_for_memory_edge(
                 )
             ]
     payloads = _source_candidate_artifact_payloads(
+        edge=edge,
         graph_config=graph_config,
         work_order=work_order,
         materialization=materialization,
@@ -1618,6 +1619,277 @@ def _memory_edge_allows_refs_only(edge: dict[str, Any]) -> bool:
 def _memory_edge_record_key(edge: dict[str, Any], *, index: int = 1) -> str:
     value = str(edge.get("record_key") or edge.get("record_kind") or edge.get("collection") or edge.get("collection_id") or "").strip()
     return value or f"memory_record_{index:03d}"
+
+
+def _artifact_ref_values_for_memory(items: Any) -> list[str]:
+    values: list[str] = []
+    seen: set[str] = set()
+
+    def add(value: Any) -> None:
+        if isinstance(value, dict):
+            for nested_key in ("artifact_refs", "source_artifact_refs", "output_refs", "refs"):
+                nested = value.get(nested_key)
+                if nested:
+                    for item in _artifact_ref_values_for_memory(nested):
+                        add(item)
+            candidates = [
+                value.get("artifact_materialization_ref"),
+                value.get("artifact_ref"),
+                value.get("path"),
+                value.get("created_file"),
+                value.get("absolute_path"),
+            ]
+            for candidate in candidates:
+                add(candidate)
+            return
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                add(item)
+            return
+        text = str(value or "").replace("\\", "/").strip()
+        if not text or text in seen:
+            return
+        seen.add(text)
+        values.append(text)
+
+    add(items)
+    return values
+
+
+def _source_candidate_artifact_payloads(
+    *,
+    edge: dict[str, Any],
+    graph_config: GraphHarnessConfig,
+    work_order: GraphNodeWorkOrder,
+    materialization: dict[str, Any],
+    services: Any,
+) -> list[dict[str, Any]]:
+    del graph_config, services
+    contexts = _memory_source_contexts(work_order)
+    source_node_id = str(
+        materialization.get("source_node_id")
+        or materialization.get("source_node")
+        or materialization.get("approved_source_node_id")
+        or ""
+    ).strip()
+    source_edge_id = str(
+        materialization.get("source_edge_id")
+        or materialization.get("approved_source_edge_id")
+        or ""
+    ).strip()
+    source_context_key = str(
+        materialization.get("source_context_key")
+        or materialization.get("source_input_key")
+        or materialization.get("target_context_key")
+        or ""
+    ).strip()
+    scored: list[tuple[int, int, dict[str, Any]]] = []
+    for order, context in enumerate(contexts):
+        ctx = dict(context or {})
+        if source_node_id and str(ctx.get("source_node_id") or "") != source_node_id:
+            continue
+        if source_edge_id and str(ctx.get("edge_id") or ctx.get("source_edge_id") or "") != source_edge_id:
+            continue
+        if source_context_key and source_context_key not in {
+            str(ctx.get("target_context_key") or ""),
+            str(ctx.get("target_input_slot") or ""),
+        }:
+            continue
+        score = _memory_source_context_score(ctx)
+        if score < 0:
+            continue
+        for payload in _artifact_payloads_from_memory_source_context(ctx):
+            payload_score = score + _memory_source_artifact_payload_score(payload)
+            if payload_score < 0:
+                continue
+            scored.append((payload_score, order, payload))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return _dedupe_artifact_payloads([payload for _, _, payload in scored])
+
+
+def _memory_source_contexts(work_order: GraphNodeWorkOrder) -> list[dict[str, Any]]:
+    contexts: list[dict[str, Any]] = []
+    input_package = dict(work_order.input_package or {})
+    graph_slot = dict(work_order.graph_slot or {})
+    edge_contracts = dict(graph_slot.get("edge_contracts") or {})
+    for source in (
+        input_package.get("inbound_context"),
+        edge_contracts.get("inbound_edge_contexts"),
+    ):
+        for item in list(source or []):
+            if isinstance(item, dict):
+                contexts.append(dict(item))
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for context in contexts:
+        key = str(context.get("context_id") or context.get("packet_id") or context.get("edge_id") or context)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(context)
+    return result
+
+
+def _artifact_payloads_from_memory_source_context(context: dict[str, Any]) -> list[dict[str, Any]]:
+    payload = dict(context.get("payload") or {})
+    base = {
+        "source_node_id": str(context.get("source_node_id") or ""),
+        "edge_id": str(context.get("edge_id") or context.get("source_edge_id") or ""),
+        "target_context_key": str(context.get("target_context_key") or ""),
+        "target_input_slot": str(context.get("target_input_slot") or ""),
+        "payload_contract_id": str(context.get("payload_contract_id") or context.get("packet_contract_id") or ""),
+    }
+    result: list[dict[str, Any]] = []
+    for item in list(payload.get("artifact_payloads") or []):
+        if isinstance(item, dict):
+            result.append({**base, **dict(item)})
+    for ref in list(context.get("artifact_refs") or []) + list(payload.get("artifact_refs") or []):
+        result.append({**base, "artifact_ref": ref})
+    if str(payload.get("content") or payload.get("text") or payload.get("handoff_summary") or "").strip():
+        result.append(
+            {
+                **base,
+                "content": str(payload.get("content") or payload.get("text") or payload.get("handoff_summary") or ""),
+                "artifact_refs": list(payload.get("artifact_refs") or []),
+            }
+        )
+    return result
+
+
+def _memory_source_context_score(context: dict[str, Any]) -> int:
+    haystack = " ".join(
+        str(context.get(key) or "")
+        for key in (
+            "source_node_id",
+            "edge_id",
+            "source_edge_id",
+            "target_context_key",
+            "target_input_slot",
+            "payload_contract_id",
+            "packet_contract_id",
+        )
+    ).lower()
+    if any(marker in haystack for marker in ("review", "audit", "审核", "裁决报告")):
+        return -10
+    if any(marker in haystack for marker in ("commit_receipt", "world_commit_round", "提交回执")):
+        return -10
+    score = 0
+    if any(marker in haystack for marker in ("candidate", "候选", "正文")):
+        score += 6
+    if "world_design" in haystack or "world.commit_candidate" in haystack:
+        score += 4
+    if "world_candidate" in haystack:
+        score += 4
+    return score
+
+
+def _memory_source_artifact_payload_score(payload: dict[str, Any]) -> int:
+    refs = " ".join(_artifact_ref_values_for_memory([payload])).lower()
+    if any(marker in refs for marker in ("world_review", "review_round", "commit_receipt", "world_commit_round", "/memory/world/")):
+        return -10
+    score = 0
+    if "world_candidate" in refs or "candidate_round" in refs:
+        score += 6
+    if str(payload.get("content") or payload.get("text") or "").strip():
+        score += 2
+    return score
+
+
+def _dedupe_artifact_payloads(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for payload in payloads:
+        refs = _artifact_ref_values_for_memory([payload])
+        key = refs[0] if refs else str(payload.get("content") or payload.get("text") or payload)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(dict(payload))
+    return result
+
+
+def _artifact_payload_text(payload: dict[str, Any], *, services: Any, materialization: dict[str, Any]) -> str:
+    if not _memory_materialization_payload_allowed(payload, materialization=materialization):
+        return ""
+    content = str(payload.get("content") or payload.get("text") or "").strip()
+    if content and not bool(payload.get("truncated")):
+        return content
+    workspace_root = _workspace_root_from_services(services)
+    for ref in _artifact_ref_values_for_memory([payload]):
+        text = _read_memory_artifact_text(ref, workspace_root=workspace_root, materialization=materialization)
+        if text:
+            return text
+    return content
+
+
+def _memory_materialization_payload_allowed(payload: dict[str, Any], *, materialization: dict[str, Any]) -> bool:
+    filters = dict(materialization.get("artifact_filters") or materialization.get("artifact_ref_filters") or {})
+    include_extensions = {
+        str(item).strip().lower()
+        for item in list(filters.get("include_extensions") or [".md", ".txt", ".json"])
+        if str(item).strip()
+    }
+    exclude_contains = [
+        str(item).strip().replace("\\", "/").lower()
+        for item in list(filters.get("exclude_path_contains") or ["/debug/", "\\debug\\", "/run_report", "run_report"])
+        if str(item).strip()
+    ]
+    refs = _artifact_ref_values_for_memory([payload])
+    if not refs:
+        return True
+    for ref in refs:
+        normalized = str(ref or "").replace("\\", "/").lower()
+        if any(marker and marker in normalized for marker in exclude_contains):
+            return False
+        suffix = Path(normalized.removeprefix("artifact:")).suffix.lower()
+        if include_extensions and suffix and suffix not in include_extensions:
+            return False
+    return True
+
+
+def _read_memory_artifact_text(ref: str, *, workspace_root: Path, materialization: dict[str, Any]) -> str:
+    raw = str(ref or "").strip()
+    if not raw:
+        return ""
+    rel = raw.removeprefix("artifact:").replace("\\", "/")
+    path = Path(rel)
+    candidates = [path] if path.is_absolute() else [workspace_root / path, path]
+    max_chars = 0
+    try:
+        max_chars = int(materialization.get("max_chars") or 0)
+    except (TypeError, ValueError):
+        max_chars = 0
+    seen: set[str] = set()
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            resolved = candidate
+        key = str(resolved)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if not resolved.exists() or not resolved.is_file():
+                continue
+            text = resolved.read_text(encoding="utf-8").strip()
+            if not text:
+                continue
+            return text[:max_chars] if max_chars else text
+        except OSError:
+            continue
+    return ""
+
+
+def _memory_candidate_summary(text: str) -> str:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return ""
+    lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+    for line in lines:
+        if line.startswith("#"):
+            return line.lstrip("#").strip()[:500]
+    return stripped[:500]
 
 
 def _candidate_source_payload(task_run_payload: dict[str, Any]) -> dict[str, Any]:

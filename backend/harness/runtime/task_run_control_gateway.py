@@ -4,12 +4,14 @@ from dataclasses import asdict
 from typing import Any, Callable
 
 from harness.loop.task_executor import (
+    approve_task_launch_gate,
     approve_task_run_tool_call,
     request_task_run_pause,
     resume_paused_task_run,
     stop_task_run,
 )
 from harness.loop.task_run_recovery_state import recovery_state_for_task_run
+from harness.loop.task_launch_gate import matching_launch_gate_pass_for_pending
 from harness.loop.task_tool_approval import matching_approval_grant_for_pending
 
 
@@ -53,7 +55,7 @@ class TaskRunControlGateway:
                 f"task_run_not_resumable:{recovery_state.status or getattr(task_run, 'status', '')}",
                 recovery_state=recovery_state,
             )
-        if recovery_state.status == "waiting_approval" and matching_approval_grant_for_pending(task_run) is None:
+        if recovery_state.status == "waiting_approval" and not _waiting_approval_resume_authorized(task_run):
             return _conflict(task_run_id, "task_run_waiting_approval_requires_grant", recovery_state=recovery_state)
         resume_result = resume_paused_task_run(
             self.runtime_host,
@@ -134,6 +136,68 @@ class TaskRunControlGateway:
             approval_result=approval_result,
         )
 
+    def approve_launch_gate_and_resume(
+        self,
+        task_run_id: str,
+        *,
+        reason: str = "",
+        requested_by: str = "user",
+        turn_id: str = "",
+        max_steps: int = 12,
+        scheduler: str = "task_run_launch_gate_resume_api",
+    ) -> dict[str, Any]:
+        task_run = self._task_run(task_run_id)
+        if task_run is None:
+            return _not_found(task_run_id)
+        preflight = self._preflight_user_control(task_run)
+        if not preflight.get("ok"):
+            return preflight
+        launch_gate_result = approve_task_launch_gate(
+            self.runtime_host,
+            task_run_id,
+            reason=reason,
+            requested_by=requested_by,
+            turn_id=turn_id,
+        )
+        if not launch_gate_result.get("ok"):
+            return _from_worker_rejection(task_run_id, launch_gate_result, phase="launch_gate")
+        approved_task_run = self._task_run(task_run_id)
+        if approved_task_run is None:
+            return _not_found(task_run_id)
+        recovery_state = recovery_state_for_task_run(approved_task_run, runtime_host=self.runtime_host)
+        if matching_launch_gate_pass_for_pending(approved_task_run) is None:
+            return _conflict(task_run_id, "launch_gate_pass_missing_after_approval", launch_gate_result=launch_gate_result)
+        if not recovery_state.same_run_resumable:
+            return _conflict(
+                task_run_id,
+                f"task_run_not_resumable:{recovery_state.status or getattr(approved_task_run, 'status', '')}",
+                launch_gate_result=launch_gate_result,
+                recovery_state=recovery_state,
+            )
+        resume_result = resume_paused_task_run(
+            self.runtime_host,
+            task_run_id,
+            reason=reason or "approved_task_launch_gate",
+            requested_by=requested_by,
+            turn_id=turn_id,
+        )
+        if not resume_result.get("ok"):
+            return _from_worker_rejection(
+                task_run_id,
+                resume_result,
+                phase="resume",
+                launch_gate_result=launch_gate_result,
+                recovery_state=recovery_state,
+            )
+        return self._schedule_resumed_task_run(
+            task_run_id,
+            max_steps=max_steps,
+            scheduler=scheduler,
+            turn_id=turn_id,
+            resume_result=resume_result,
+            launch_gate_result=launch_gate_result,
+        )
+
     def pause_task_run(
         self,
         task_run_id: str,
@@ -206,6 +270,7 @@ class TaskRunControlGateway:
         turn_id: str,
         resume_result: dict[str, Any],
         approval_result: dict[str, Any] | None = None,
+        launch_gate_result: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not callable(self.schedule_task_run_executor):
             return {
@@ -216,6 +281,7 @@ class TaskRunControlGateway:
                 "error": "task_run_scheduler_unavailable",
                 "authority": self.authority,
                 **({"approval": approval_result} if approval_result is not None else {}),
+                **({"launch_gate": launch_gate_result} if launch_gate_result is not None else {}),
             }
         schedule_result = self.schedule_task_run_executor(
             task_run_id,
@@ -233,6 +299,7 @@ class TaskRunControlGateway:
                 "schedule": dict(schedule_result or {}),
                 "authority": self.authority,
                 **({"approval": approval_result} if approval_result is not None else {}),
+                **({"launch_gate": launch_gate_result} if launch_gate_result is not None else {}),
             }
         task_run = self._task_run(task_run_id)
         return {
@@ -246,6 +313,7 @@ class TaskRunControlGateway:
             "authority": self.authority,
             **({"executor_already_running": True} if _schedule_result_already_running(schedule_result) else {}),
             **({"approval": approval_result} if approval_result is not None else {}),
+            **({"launch_gate": launch_gate_result} if launch_gate_result is not None else {}),
         }
 
     def _task_run(self, task_run_id: str) -> Any | None:
@@ -258,6 +326,7 @@ def _from_worker_rejection(
     *,
     phase: str,
     approval_result: dict[str, Any] | None = None,
+    launch_gate_result: dict[str, Any] | None = None,
     recovery_state: Any | None = None,
 ) -> dict[str, Any]:
     return {
@@ -268,6 +337,7 @@ def _from_worker_rejection(
         phase: dict(result or {}),
         "authority": TaskRunControlGateway.authority,
         **({"approval": approval_result} if approval_result is not None else {}),
+        **({"launch_gate": launch_gate_result} if launch_gate_result is not None else {}),
         **({"recovery_state": _recovery_payload(recovery_state)} if recovery_state is not None else {}),
     }
 
@@ -325,3 +395,7 @@ def _schedule_result_allows_progress(result: dict[str, Any]) -> bool:
 
 def _schedule_result_already_running(result: dict[str, Any]) -> bool:
     return str(dict(result or {}).get("reason") or "").strip() == "already_running"
+
+
+def _waiting_approval_resume_authorized(task_run: Any) -> bool:
+    return matching_approval_grant_for_pending(task_run) is not None or matching_launch_gate_pass_for_pending(task_run) is not None

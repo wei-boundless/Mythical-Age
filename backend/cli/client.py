@@ -130,6 +130,16 @@ class AgentCliClient:
             raise AgentCliClientError("Backend returned an invalid task resume payload.")
         return dict(payload)
 
+    def approve_launch_task_run(self, task_run_id: str, *, reason: str = "", max_steps: int = 12) -> dict[str, Any]:
+        payload = self._json_request(
+            "POST",
+            f"/orchestration/harness/task-runs/{_quote_path(task_run_id)}/approve-launch",
+            {"reason": reason, "max_steps": max_steps},
+        )
+        if not isinstance(payload, dict):
+            raise AgentCliClientError("Backend returned an invalid launch approval payload.")
+        return dict(payload)
+
     def stop_task_run(self, task_run_id: str, *, reason: str = "") -> dict[str, Any]:
         return self._task_run_control_request(task_run_id, "stop", reason=reason)
 

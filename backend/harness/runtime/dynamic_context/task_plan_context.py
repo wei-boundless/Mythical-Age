@@ -6,20 +6,102 @@ from .models import compact_text, dict_tuple, drop_empty, stable_json_hash
 from .todo_plan_projection import project_todo_plan
 
 
+def build_task_mode_tail_contexts(
+    task_state: dict[str, Any],
+    *,
+    task_run_id: str = "",
+    task_contract: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    goal_context = _task_goal_context(
+        task_run_id=task_run_id,
+        goal_contract=_goal_contract_from_task_contract(task_contract),
+    )
+    plan_context = _task_plan_context(
+        task_run_id=task_run_id,
+        plan_contract=_plan_contract_from_task_contract(task_contract),
+    )
+    todo_context = _task_todo_context(
+        task_state,
+        task_run_id=task_run_id,
+        todo_contract=_todo_contract_from_task_contract(task_contract),
+    )
+    return drop_empty(
+        {
+            "task_goal_context": goal_context,
+            "task_plan_context": plan_context,
+            "task_todo_context": todo_context,
+        }
+    )
+
+
 def build_task_plan_context(
     task_state: dict[str, Any],
     *,
     task_run_id: str = "",
     task_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    plan_contract = _plan_contract_from_task_contract(task_contract)
-    todo_source = _latest_todo_source(task_state)
-    todo_plan = dict(todo_source.get("todo_plan") or {})
-    if not plan_contract and not todo_plan:
-        return {}
+    """Compatibility entry point for callers that only want the plan segment.
 
-    plan_id = str(plan_contract.get("plan_id") or todo_plan.get("plan_id") or "current").strip() or "current"
-    baseline_items = _baseline_items(plan_contract, fallback_todo_plan=todo_plan if not plan_contract else {})
+    The plan segment no longer absorbs todo state. Runtime assembly should use
+    build_task_mode_tail_contexts() so Goal, Plan, and Todo stay independent.
+    """
+
+    plan_context = build_task_mode_tail_contexts(
+        task_state,
+        task_run_id=task_run_id,
+        task_contract=task_contract,
+    ).get("task_plan_context")
+    return {"task_plan_context": plan_context} if plan_context else {}
+
+
+def _task_goal_context(*, task_run_id: str, goal_contract: dict[str, Any]) -> dict[str, Any]:
+    if not goal_contract:
+        return {}
+    seed = {
+        "mode_instance_id": str(goal_contract.get("mode_instance_id") or ""),
+        "mode_role": str(goal_contract.get("mode_role") or ""),
+        "user_visible_goal": str(goal_contract.get("user_visible_goal") or ""),
+        "task_run_goal": str(goal_contract.get("task_run_goal") or ""),
+        "success_definition": str(goal_contract.get("success_definition") or ""),
+        "non_goals": list(goal_contract.get("non_goals") or []),
+        "completion_evidence": list(goal_contract.get("completion_evidence") or []),
+    }
+    goal_sha256 = stable_json_hash(seed)
+    goal_ref = _mode_ref(task_run_id=task_run_id, mode_kind="goal", mode_id=goal_contract.get("mode_instance_id"), digest=goal_sha256)
+    return drop_empty(
+        {
+            "task_goal_contract": drop_empty(
+                {
+                    "goal_ref": goal_ref,
+                    "mode_instance_id": str(goal_contract.get("mode_instance_id") or ""),
+                    "mode_role": str(goal_contract.get("mode_role") or ""),
+                    "goal_sha256": goal_sha256,
+                    "user_visible_goal": compact_text(goal_contract.get("user_visible_goal") or "", limit=500),
+                    "task_run_goal": compact_text(goal_contract.get("task_run_goal") or "", limit=500),
+                    "success_definition": compact_text(goal_contract.get("success_definition") or "", limit=500),
+                    "non_goals": list(goal_contract.get("non_goals") or []),
+                    "completion_evidence": list(goal_contract.get("completion_evidence") or []),
+                    "evidence_contract": dict(goal_contract.get("evidence_contract") or {}),
+                    "working_scope": dict(goal_contract.get("working_scope") or {}),
+                    "authority": "harness.runtime.dynamic_context.task_goal_contract",
+                }
+            ),
+            "task_goal_delta": {
+                "event": "goal_work_mode_visible",
+                "goal_ref": goal_ref,
+                "change_model": "goal_contract_boundary",
+                "authority": "harness.runtime.dynamic_context.task_goal_delta",
+            },
+            "authority": "harness.runtime.dynamic_context.task_goal_context",
+        }
+    )
+
+
+def _task_plan_context(*, task_run_id: str, plan_contract: dict[str, Any]) -> dict[str, Any]:
+    if not plan_contract:
+        return {}
+    plan_id = str(plan_contract.get("plan_id") or "current").strip() or "current"
+    baseline_items = _baseline_items(plan_contract)
     baseline_seed = {
         "plan_id": plan_id,
         "mode_instance_id": str(plan_contract.get("mode_instance_id") or ""),
@@ -40,44 +122,101 @@ def build_task_plan_context(
         {**item, "step_ref": step_refs.get(str(item.get("step_id") or ""), str(item.get("step_ref") or ""))}
         for item in baseline_items
     ]
-    cursor = _todo_cursor(todo_plan, baseline_ref=baseline_ref, step_refs=step_refs)
+    return drop_empty(
+        {
+            "task_plan_baseline": drop_empty(
+                {
+                    "plan_baseline_ref": baseline_ref,
+                    "plan_id": plan_id,
+                    "mode_instance_id": str(plan_contract.get("mode_instance_id") or ""),
+                    "mode_role": str(plan_contract.get("mode_role") or ""),
+                    "plan_sha256": plan_sha256,
+                    "plan_version": str(plan_contract.get("plan_version") or plan_sha256.removeprefix("sha256:")[:16]),
+                    "plan_status": str(plan_contract.get("plan_status") or "agent_managed"),
+                    "strategy_summary": compact_text(plan_contract.get("strategy_summary") or "", limit=360),
+                    "allowed_plan_operations": list(plan_contract.get("allowed_plan_operations") or []),
+                    "replan_policy": dict(plan_contract.get("replan_policy") or {}),
+                    "items": visible_baseline_items,
+                    "authority": "harness.runtime.dynamic_context.task_plan_baseline",
+                }
+            ),
+            "task_plan_delta": {
+                "event": "plan_work_mode_visible",
+                "plan_baseline_ref": baseline_ref,
+                "change_model": "plan_contract_baseline",
+                "authority": "harness.runtime.dynamic_context.task_plan_delta",
+            },
+            "authority": "harness.runtime.dynamic_context.task_plan_context",
+        }
+    )
+
+
+def _task_todo_context(
+    task_state: dict[str, Any],
+    *,
+    task_run_id: str,
+    todo_contract: dict[str, Any],
+) -> dict[str, Any]:
+    todo_source = _latest_todo_source(task_state)
+    todo_plan = dict(todo_source.get("todo_plan") or {})
+    contract_plan = _todo_plan_from_contract(todo_contract)
+    if not todo_contract and not todo_plan:
+        return {}
+    baseline_plan = contract_plan or todo_plan
+    todo_id = str(
+        todo_contract.get("todo_list_id")
+        or baseline_plan.get("plan_id")
+        or todo_plan.get("plan_id")
+        or "current"
+    ).strip() or "current"
+    baseline_items = _todo_baseline_items(baseline_plan)
+    baseline_seed = {
+        "todo_id": todo_id,
+        "mode_instance_id": str(todo_contract.get("mode_instance_id") or ""),
+        "items": baseline_items,
+    }
+    todo_sha256 = stable_json_hash(baseline_seed)
+    baseline_ref = _mode_ref(task_run_id=task_run_id, mode_kind="todo", mode_id=todo_id, digest=todo_sha256)
+    item_refs = {
+        str(item.get("todo_id") or ""): _todo_item_ref(baseline_ref=baseline_ref, todo_id=item.get("todo_id"))
+        for item in baseline_items
+        if str(item.get("todo_id") or "").strip()
+    }
+    visible_items = [
+        {**item, "todo_item_ref": item_refs.get(str(item.get("todo_id") or ""), str(item.get("todo_item_ref") or ""))}
+        for item in baseline_items
+    ]
+    cursor_plan = todo_plan or contract_plan
+    cursor = _todo_cursor(cursor_plan, baseline_ref=baseline_ref, item_refs=item_refs)
     cursor_hash = stable_json_hash(cursor) if cursor else ""
     return drop_empty(
         {
-            "task_plan_context": drop_empty(
+            "task_todo_baseline": drop_empty(
                 {
-                    "task_plan_baseline": drop_empty(
-                        {
-                            "plan_baseline_ref": baseline_ref,
-                            "plan_id": plan_id,
-                            "mode_instance_id": str(plan_contract.get("mode_instance_id") or ""),
-                            "mode_role": str(plan_contract.get("mode_role") or ""),
-                            "plan_sha256": plan_sha256,
-                            "plan_version": str(plan_contract.get("plan_version") or plan_sha256.removeprefix("sha256:")[:16]),
-                            "plan_status": str(plan_contract.get("plan_status") or "agent_managed"),
-                            "strategy_summary": compact_text(plan_contract.get("strategy_summary") or "", limit=360),
-                            "allowed_plan_operations": list(plan_contract.get("allowed_plan_operations") or []),
-                            "replan_policy": dict(plan_contract.get("replan_policy") or {}),
-                            "items": visible_baseline_items,
-                            "todo_rehydration_action": "agent_todo:view",
-                            "authority": "harness.runtime.dynamic_context.task_plan_baseline",
-                        }
-                    ),
-                    "todo_cursor": cursor,
-                    "task_plan_delta": drop_empty(
-                        {
-                            "event": "plan_contract_with_todo_cursor_visible",
-                            "plan_baseline_ref": baseline_ref,
-                            "source_observation_ref": str(todo_source.get("observation_ref") or ""),
-                            "source_tool": str(todo_source.get("tool_name") or "agent_todo"),
-                            "cursor_hash": cursor_hash,
-                            "change_model": "plan_contract_baseline_plus_todo_cursor",
-                            "authority": "harness.runtime.dynamic_context.task_plan_delta",
-                        }
-                    ),
-                    "authority": "harness.runtime.dynamic_context.task_plan_context",
+                    "todo_baseline_ref": baseline_ref,
+                    "todo_list_id": todo_id,
+                    "mode_instance_id": str(todo_contract.get("mode_instance_id") or ""),
+                    "mode_role": str(todo_contract.get("mode_role") or ""),
+                    "todo_sha256": todo_sha256,
+                    "completion_policy": str(todo_contract.get("completion_policy") or ""),
+                    "allowed_todo_operations": list(cursor_plan.get("allowed_operations") or []),
+                    "items": visible_items,
+                    "authority": "harness.runtime.dynamic_context.task_todo_baseline",
                 }
-            )
+            ),
+            "todo_cursor": cursor,
+            "task_todo_delta": drop_empty(
+                {
+                    "event": "todo_cursor_visible",
+                    "todo_baseline_ref": baseline_ref,
+                    "source_observation_ref": str(todo_source.get("observation_ref") or ""),
+                    "source_tool": str(todo_source.get("tool_name") or "agent_todo") if todo_source else "",
+                    "cursor_hash": cursor_hash,
+                    "change_model": "todo_contract_baseline_plus_runtime_cursor",
+                    "authority": "harness.runtime.dynamic_context.task_todo_delta",
+                }
+            ),
+            "authority": "harness.runtime.dynamic_context.task_todo_context",
         }
     )
 
@@ -86,24 +225,11 @@ def _plan_contract_from_task_contract(task_contract: dict[str, Any] | None) -> d
     contract = dict(task_contract or {})
     plan_mode = _work_mode_from_task_contract(contract, "plan")
     raw = dict(plan_mode.get("contract") or {}) if plan_mode else {}
-    if not raw:
+    if not raw and not _work_modes_from_task_contract(contract):
         legacy_plan = contract.get("plan_contract")
         raw = dict(legacy_plan or {}) if isinstance(legacy_plan, dict) else {}
     if not raw:
-        completion_criteria = [
-            compact_text(value, limit=220)
-            for value in list(contract.get("completion_criteria") or [])
-            if str(value).strip()
-        ]
-        raw = drop_empty(
-            {
-                "plan_id": str(contract.get("plan_ref") or contract.get("external_plan_ref") or "plan:agent-managed"),
-                "plan_status": "agent_managed",
-                "major_steps": completion_criteria,
-                "strategy_summary": "Agent manages the task strategy; todo is only the execution cursor.",
-                "allowed_plan_operations": ["create", "update", "replan", "explain_deviation"],
-            }
-        )
+        return {}
     return drop_empty(
         {
             "plan_id": str(raw.get("plan_id") or _external_plan_ref(raw) or "plan:agent-managed").strip(),
@@ -124,20 +250,85 @@ def _plan_contract_from_task_contract(task_contract: dict[str, Any] | None) -> d
     )
 
 
+def _goal_contract_from_task_contract(task_contract: dict[str, Any] | None) -> dict[str, Any]:
+    contract = dict(task_contract or {})
+    goal_mode = _work_mode_from_task_contract(contract, "goal")
+    raw = dict(goal_mode.get("contract") or {}) if goal_mode else {}
+    if not raw and not _work_modes_from_task_contract(contract):
+        legacy_goal = contract.get("goal_contract")
+        raw = dict(legacy_goal or {}) if isinstance(legacy_goal, dict) else {}
+    if not raw:
+        return {}
+    return drop_empty(
+        {
+            "mode_instance_id": str(goal_mode.get("mode_instance_id") or "").strip(),
+            "mode_role": str(goal_mode.get("mode_role") or "").strip(),
+            "user_visible_goal": compact_text(raw.get("user_visible_goal") or "", limit=500),
+            "task_run_goal": compact_text(raw.get("task_run_goal") or raw.get("agent_goal") or "", limit=500),
+            "success_definition": compact_text(raw.get("success_definition") or "", limit=500),
+            "non_goals": [
+                compact_text(value, limit=220)
+                for value in list(raw.get("non_goals") or [])
+                if str(value).strip()
+            ],
+            "completion_evidence": [
+                compact_text(value, limit=220)
+                for value in list(raw.get("completion_evidence") or [])
+                if str(value).strip()
+            ],
+            "evidence_contract": dict(raw.get("evidence_contract") or {}) if isinstance(raw.get("evidence_contract"), dict) else {},
+            "working_scope": dict(raw.get("working_scope") or {}) if isinstance(raw.get("working_scope"), dict) else {},
+            "authority": str(raw.get("authority") or "harness.runtime.dynamic_context.goal_contract"),
+        }
+    )
+
+
+def _todo_contract_from_task_contract(task_contract: dict[str, Any] | None) -> dict[str, Any]:
+    contract = dict(task_contract or {})
+    todo_mode = _work_mode_from_task_contract(contract, "todo")
+    raw = dict(todo_mode.get("contract") or {}) if todo_mode else {}
+    if not raw:
+        return {}
+    return drop_empty(
+        {
+            "mode_instance_id": str(todo_mode.get("mode_instance_id") or "").strip(),
+            "mode_role": str(todo_mode.get("mode_role") or "").strip(),
+            "todo_list_id": str(raw.get("todo_list_id") or raw.get("plan_id") or "").strip(),
+            "active_item_id": str(raw.get("active_item_id") or "").strip(),
+            "items": [
+                drop_empty(
+                    {
+                        "todo_id": str(item.get("todo_id") or item.get("item_id") or item.get("id") or "").strip(),
+                        "content": compact_text(item.get("content") or item.get("title") or item.get("summary") or "", limit=220),
+                        "status": str(item.get("status") or "").strip(),
+                        "notes": compact_text(item.get("notes") or "", limit=220),
+                    }
+                )
+                for item in list(raw.get("items") or [])[:40]
+                if isinstance(item, dict)
+            ],
+            "completion_policy": str(raw.get("completion_policy") or "").strip(),
+            "allowed_operations": [
+                compact_text(value, limit=120)
+                for value in list(raw.get("allowed_todo_operations") or raw.get("allowed_operations") or [])
+                if str(value).strip()
+            ],
+            "working_scope": dict(raw.get("working_scope") or {}) if isinstance(raw.get("working_scope"), dict) else {},
+            "authority": str(raw.get("authority") or "harness.runtime.dynamic_context.todo_contract"),
+        }
+    )
+
+
 def _work_mode_from_task_contract(task_contract: dict[str, Any], mode_kind: str) -> dict[str, Any]:
+    work_modes = _work_modes_from_task_contract(task_contract)
+    if not work_modes:
+        return {}
     contract = dict(task_contract or {})
     task_run_contract = (
         dict(contract.get("task_run_contract") or {})
         if isinstance(contract.get("task_run_contract"), dict)
         else contract
     )
-    work_modes = [
-        dict(item)
-        for item in list(task_run_contract.get("work_modes") or [])
-        if isinstance(item, dict)
-    ]
-    if not work_modes:
-        return {}
     container_contract = (
         dict(task_run_contract.get("container_contract") or {})
         if isinstance(task_run_contract.get("container_contract"), dict)
@@ -155,6 +346,20 @@ def _work_mode_from_task_contract(task_contract: dict[str, Any], mode_kind: str)
         if not candidate:
             candidate = item
     return candidate
+
+
+def _work_modes_from_task_contract(task_contract: dict[str, Any] | None) -> list[dict[str, Any]]:
+    contract = dict(task_contract or {})
+    task_run_contract = (
+        dict(contract.get("task_run_contract") or {})
+        if isinstance(contract.get("task_run_contract"), dict)
+        else contract
+    )
+    return [
+        dict(item)
+        for item in list(task_run_contract.get("work_modes") or [])
+        if isinstance(item, dict)
+    ]
 
 
 def _external_plan_ref(plan_contract: dict[str, Any]) -> str:
@@ -198,7 +403,7 @@ def _major_step_items(value: Any) -> list[dict[str, Any]]:
     return items
 
 
-def _baseline_items(plan_contract: dict[str, Any], *, fallback_todo_plan: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def _baseline_items(plan_contract: dict[str, Any]) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for item in list(plan_contract.get("major_steps") or [])[:40]:
         step_id = str(item.get("step_id") or "").strip()
@@ -214,27 +419,48 @@ def _baseline_items(plan_contract: dict[str, Any], *, fallback_todo_plan: dict[s
                 }
             )
         )
-    if items:
-        return items
-    fallback = dict(fallback_todo_plan or {})
-    for item in dict_tuple(fallback.get("items"))[:40]:
+    return items
+
+
+def _todo_plan_from_contract(todo_contract: dict[str, Any]) -> dict[str, Any]:
+    if not todo_contract:
+        return {}
+    return project_todo_plan(
+        {
+            "plan_id": str(todo_contract.get("todo_list_id") or ""),
+            "active_item_id": str(todo_contract.get("active_item_id") or ""),
+            "items": list(todo_contract.get("items") or []),
+            "allowed_operations": list(todo_contract.get("allowed_operations") or []),
+            "authority": str(todo_contract.get("authority") or "harness.runtime.dynamic_context.todo_contract"),
+        },
+        content_keys=("content", "title"),
+        allowed_operations=list(todo_contract.get("allowed_operations") or []),
+        authority="harness.runtime.dynamic_context.todo_contract_plan",
+    )
+
+
+def _todo_baseline_items(todo_plan: dict[str, Any]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for item in dict_tuple(dict(todo_plan or {}).get("items"))[:40]:
         todo_id = str(item.get("todo_id") or "").strip()
         if not todo_id:
             continue
         items.append(
             drop_empty(
                 {
-                    "step_ref": f"planstep:pending:{todo_id}",
-                    "step_id": todo_id,
-                    "title": compact_text(item.get("content") or item.get("title") or "", limit=220),
-                    "source": "todo_cursor_fallback",
+                    "todo_item_ref": f"todoitem:pending:{todo_id}",
+                    "todo_id": todo_id,
+                    "content": compact_text(item.get("content") or item.get("title") or "", limit=220),
+                    "status": str(item.get("status") or "").strip(),
+                    "notes": compact_text(item.get("notes") or "", limit=220),
+                    "source": "todo_contract",
                 }
             )
         )
     return items
 
 
-def _todo_cursor(todo_plan: dict[str, Any], *, baseline_ref: str, step_refs: dict[str, str]) -> dict[str, Any]:
+def _todo_cursor(todo_plan: dict[str, Any], *, baseline_ref: str, item_refs: dict[str, str]) -> dict[str, Any]:
     if not todo_plan:
         return {}
     item_statuses: list[dict[str, Any]] = []
@@ -247,11 +473,11 @@ def _todo_cursor(todo_plan: dict[str, Any], *, baseline_ref: str, step_refs: dic
         status = str(item.get("status") or "").strip()
         if status:
             status_counts[status] = status_counts.get(status, 0) + 1
-        step_ref = step_refs.get(todo_id) or _step_ref(baseline_ref=baseline_ref, step_id=todo_id)
+        todo_item_ref = item_refs.get(todo_id) or _todo_item_ref(baseline_ref=baseline_ref, todo_id=todo_id)
         item_statuses.append(
             drop_empty(
                 {
-                    "step_ref": step_ref,
+                    "todo_item_ref": todo_item_ref,
                     "todo_id": todo_id,
                     "status": status,
                     "active": True if todo_id == active_item_id else None,
@@ -261,9 +487,9 @@ def _todo_cursor(todo_plan: dict[str, Any], *, baseline_ref: str, step_refs: dic
         )
     return drop_empty(
         {
-            "plan_baseline_ref": baseline_ref,
+            "todo_baseline_ref": baseline_ref,
             "active_item_id": active_item_id,
-            "active_step_ref": (step_refs.get(active_item_id) or _step_ref(baseline_ref=baseline_ref, step_id=active_item_id)) if active_item_id else "",
+            "active_item_ref": (item_refs.get(active_item_id) or _todo_item_ref(baseline_ref=baseline_ref, todo_id=active_item_id)) if active_item_id else "",
             "completion_ready_signal": (
                 {
                     "reported_by": "agent_todo",
@@ -274,15 +500,15 @@ def _todo_cursor(todo_plan: dict[str, Any], *, baseline_ref: str, step_refs: dic
                 else None
             ),
             "item_statuses": item_statuses,
-            "completed_step_refs": [
-                str(item.get("step_ref") or "")
+            "completed_item_refs": [
+                str(item.get("todo_item_ref") or "")
                 for item in item_statuses
-                if str(item.get("status") or "") == "completed" and str(item.get("step_ref") or "")
+                if str(item.get("status") or "") == "completed" and str(item.get("todo_item_ref") or "")
             ],
-            "blocked_step_refs": [
-                str(item.get("step_ref") or "")
+            "blocked_item_refs": [
+                str(item.get("todo_item_ref") or "")
                 for item in item_statuses
-                if str(item.get("status") or "") == "blocked" and str(item.get("step_ref") or "")
+                if str(item.get("status") or "") == "blocked" and str(item.get("todo_item_ref") or "")
             ],
             "status_counts": status_counts,
             "authority": "harness.runtime.dynamic_context.todo_cursor",
@@ -297,8 +523,20 @@ def _baseline_ref(*, task_run_id: str, plan_id: str, plan_sha256: str) -> str:
     return f"taskplan:{scope}:{plan}:{digest}"
 
 
+def _mode_ref(*, task_run_id: str, mode_kind: str, mode_id: Any, digest: str) -> str:
+    scope = str(task_run_id or "session").replace(":", "_")
+    mode = str(mode_kind or "mode").replace(":", "_")
+    identity = str(mode_id or "current").replace(":", "_")
+    short_digest = str(digest or "").removeprefix("sha256:")[:16]
+    return f"taskmode:{scope}:{mode}:{identity}:{short_digest}"
+
+
 def _step_ref(*, baseline_ref: str, step_id: Any) -> str:
     return f"{baseline_ref}:step:{str(step_id or '').strip()}"
+
+
+def _todo_item_ref(*, baseline_ref: str, todo_id: Any) -> str:
+    return f"{baseline_ref}:todo:{str(todo_id or '').strip()}"
 
 
 def _tool_name(value: Any) -> str:

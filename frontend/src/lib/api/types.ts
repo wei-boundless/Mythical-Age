@@ -2775,6 +2775,8 @@ export type HarnessTaskRunLiveMonitor = {
   latest_step_summary?: string;
   latest_step_name?: string;
   latest_step_status?: string;
+  wait_reason?: string;
+  pending_launch_gate?: Record<string, unknown>;
   latest_public_progress_note?: string;
   agent_brief_output?: string;
   artifact_count?: number;

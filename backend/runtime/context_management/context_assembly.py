@@ -96,7 +96,6 @@ MEMORY_CONTEXT_KINDS = {
     "single_agent_turn_tool_call",
     "single_agent_turn_tool_observation",
     "single_agent_turn_user_steer_context",
-    "task_plan_context",
     "task_start_inherited_context",
     "task_state_replay_entry",
     "tool_observations",
@@ -137,7 +136,10 @@ CURRENT_CONTROL_TAIL_KINDS = {
     "semantic_compaction_request",
     "session_history_tail_context",
     "skill_candidates",
+    "task_goal_context",
+    "task_plan_context",
     "task_runtime_boundary_dynamic",
+    "task_todo_context",
     "user_steering_consumption_tail",
     "volatile_runtime_state",
     "volatile_task_state",
@@ -150,7 +152,6 @@ MEMORY_DYNAMIC_TIERS = {
     "evidence_index_cursor",
     "history_replay",
     "runtime_memory_context",
-    "task_plan_context",
 }
 
 CONTROL_DYNAMIC_TIERS = {

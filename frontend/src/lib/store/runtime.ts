@@ -16,6 +16,7 @@ import {
   getTaskEnvironmentCatalog,
   getWorkspaceContext,
   getOrchestrationHarnessSessionLiveMonitor,
+  approveOrchestrationHarnessTaskRunLaunch,
   approveOrchestrationHarnessTaskRunToolCall,
   pauseOrchestrationHarnessTaskRun,
   pauseGraphRun,
@@ -3889,23 +3890,32 @@ export class WorkspaceRuntime {
       return;
     }
     const expectedTurnId = this.activeExpectedTurnIdForTaskRun(taskRunId);
-    const approvingToolCall = this.activeTaskRunStatus(taskRunId) === "waiting_approval";
+    const approvalKind = this.activeTaskRunWaitingApprovalKind(taskRunId);
+    const approvingLaunchGate = approvalKind === "launch_gate";
+    const approvingToolCall = approvalKind === "tool_call";
+    const approving = approvingLaunchGate || approvingToolCall;
     this.setActiveTaskControlActivity({
       taskRunId,
       level: "running",
-      title: approvingToolCall ? "正在确认" : "正在继续",
-      detail: approvingToolCall ? "确认请求已发送，等待工具调用继续。" : "继续请求已发送，等待当前任务恢复执行。",
-      event: approvingToolCall ? "active_task_approval_requested" : "active_task_resume_requested",
+      title: approving ? "正在确认" : "正在继续",
+      detail: approvingLaunchGate
+        ? "启动确认已发送，等待任务进入执行。"
+        : approvingToolCall
+          ? "确认请求已发送，等待工具调用继续。"
+          : "继续请求已发送，等待当前任务恢复执行。",
+      event: approving ? "active_task_approval_requested" : "active_task_resume_requested",
     });
     try {
-      if (approvingToolCall) {
+      if (approvingLaunchGate) {
+        await approveOrchestrationHarnessTaskRunLaunch(taskRunId, "user_approve_launch_from_chat", 12, expectedTurnId);
+      } else if (approvingToolCall) {
         await approveOrchestrationHarnessTaskRunToolCall(taskRunId, "user_approve_tool_from_chat", 12, expectedTurnId);
       } else {
         await resumeOrchestrationHarnessTaskRun(taskRunId, 12, expectedTurnId);
       }
       await this.refreshActiveSessionMonitor();
     } catch (error) {
-      this.setActiveTaskControlError(approvingToolCall ? "approve" : "resume", taskRunId, error);
+      this.setActiveTaskControlError(approving ? "approve" : "resume", taskRunId, error);
     }
   }
 
@@ -4038,6 +4048,40 @@ export class WorkspaceRuntime {
       return "";
     }
     return String(monitor.status ?? taskRun.status ?? "").trim();
+  }
+
+  private activeTaskRunWaitingApprovalKind(taskRunId: string) {
+    const monitor = this.store.getState().taskGraphLiveMonitor;
+    if (!monitor) {
+      return "";
+    }
+    const taskRun = this.harnessMonitorTaskRun(monitor);
+    const monitorRecord = monitor as unknown as Record<string, unknown>;
+    const currentId = String(taskRun.task_run_id ?? monitor.task_run_id ?? "").trim();
+    if (currentId !== taskRunId) {
+      return "";
+    }
+    const status = String(monitor.status ?? taskRun.status ?? "").trim();
+    if (status !== "waiting_approval") {
+      return "";
+    }
+    const diagnostics = recordValue(taskRun.diagnostics);
+    const pendingLaunchGate = {
+      ...recordValue(diagnostics.pending_launch_gate),
+      ...recordValue(monitorRecord.pending_launch_gate),
+    };
+    const waitReason = String(monitorRecord.wait_reason ?? diagnostics.wait_reason ?? "").trim();
+    if (String(pendingLaunchGate.status ?? "").trim() === "pending" || waitReason === "task_launch_supervision") {
+      return "launch_gate";
+    }
+    const pendingApproval = {
+      ...recordValue(diagnostics.pending_approval),
+      ...recordValue(monitorRecord.pending_approval),
+    };
+    if (String(pendingApproval.status ?? "").trim() === "pending" || waitReason === "tool_approval_required") {
+      return "tool_call";
+    }
+    return "tool_call";
   }
 
   private activeExpectedTurnIdForTaskRun(taskRunId: string) {
@@ -6330,6 +6374,12 @@ export class WorkspaceRuntime {
 function finiteNumber(value: unknown): number | undefined {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 }
 
 function normalizedWorkspaceLineNumber(value: unknown): number | undefined {

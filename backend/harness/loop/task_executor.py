@@ -114,6 +114,13 @@ from .task_steering import (
     mark_task_steers_included,
 )
 from .task_lifecycle import TaskLifecycleRecord, finish_task_lifecycle
+from .task_launch_gate import (
+    LAUNCH_GATE_PASS_KIND,
+    append_task_launch_gate_pass,
+    build_task_launch_gate_pass,
+    matching_launch_gate_pass_for_pending,
+    pending_launch_gate_from_task_run,
+)
 from .turn_to_task_context_handoff import (
     handoff_summary,
     inherited_observations_for_packet,
@@ -433,6 +440,109 @@ def approve_task_run_tool_call(
     }
 
 
+def approve_task_launch_gate(
+    runtime_host: Any,
+    task_run_id: str,
+    *,
+    reason: str = "",
+    requested_by: str = "user",
+    turn_id: str = "",
+) -> dict[str, Any]:
+    task_run = runtime_host.state_index.get_task_run(task_run_id)
+    if task_run is None:
+        return _not_found(task_run_id)
+    if not _is_single_agent_task_run(task_run):
+        return _conflict(task_run_id, "not_single_agent_task_run")
+    if _origin_kind(task_run) == "graph_node_assigned":
+        return _conflict(task_run_id, "graph_node_task_run_controlled_by_graph_runtime")
+    status = str(getattr(task_run, "status", "") or "")
+    if status != "waiting_approval":
+        return _conflict(task_run_id, f"task_run_not_waiting_approval:{status}")
+    pending_launch_gate = pending_launch_gate_from_task_run(task_run)
+    if not pending_launch_gate:
+        return _conflict(task_run_id, "pending_launch_gate_missing")
+    if str(pending_launch_gate.get("status") or "") != "pending":
+        return _conflict(task_run_id, "pending_launch_gate_not_pending")
+    if pending_launch_gate.get("allow_direct_pass", True) is False:
+        return _conflict(task_run_id, "pending_launch_gate_direct_pass_not_allowed")
+    gate_pass = build_task_launch_gate_pass(
+        task_run=task_run,
+        pending_launch_gate=pending_launch_gate,
+        requested_by=requested_by,
+        reason=reason,
+    )
+    if gate_pass is None:
+        return _conflict(task_run_id, "pending_launch_gate_incomplete")
+    now = time.time()
+    runtime_host.runtime_objects.put_object(LAUNCH_GATE_PASS_KIND, gate_pass.pass_id, gate_pass.to_dict())
+    event = runtime_host.event_log.append(
+        task_run_id,
+        "task_launch_gate_passed",
+        payload={
+            "task_run_id": task_run_id,
+            "gate_pass": gate_pass.to_dict(),
+            "pending_launch_gate": pending_launch_gate,
+            "reason": reason,
+            "requested_by": requested_by,
+            **({"turn_id": turn_id} if turn_id else {}),
+        },
+        refs={
+            "task_run_ref": task_run_id,
+            "launch_gate_pass_ref": gate_pass.pass_id,
+            **({"turn_ref": turn_id} if turn_id else {}),
+        },
+    )
+    passed_pending_gate = {
+        **pending_launch_gate,
+        "status": "passed",
+        "passed_at": event.created_at or gate_pass.passed_at or now,
+        "pass_id": gate_pass.pass_id,
+        "passed_by": requested_by,
+        "reason": reason,
+    }
+    updated = replace(
+        task_run,
+        updated_at=event.created_at or now,
+        latest_event_offset=event.offset,
+        diagnostics={
+            **append_task_launch_gate_pass(task_run, gate_pass),
+            "pending_launch_gate": passed_pending_gate,
+            "executor_status": "waiting_approval",
+            "latest_step": "task_launch_gate_passed",
+            "latest_step_status": "waiting_approval",
+            "latest_step_summary": "任务启动确认已通过，等待继续执行。",
+            **({"latest_interaction_turn_id": turn_id} if turn_id else {}),
+        },
+    )
+    runtime_host.state_index.upsert_task_run(updated)
+    _record_task_step_summary(
+        runtime_host,
+        task_run_id=task_run_id,
+        step="task_launch_gate_passed",
+        status="waiting_approval",
+        summary="任务启动确认已通过，等待继续执行。",
+        refs={"launch_gate_pass_ref": gate_pass.pass_id, **({"turn_ref": turn_id} if turn_id else {})},
+    )
+    append_work_rollout_item(
+        runtime_host,
+        task_run=updated,
+        item_type="progress",
+        title="启动确认已通过",
+        status="waiting_approval",
+        summary="任务启动确认已通过，等待继续执行。",
+        event_offset=event.offset,
+        refs={"task_run_ref": task_run_id, "launch_gate_pass_ref": gate_pass.pass_id, **({"turn_ref": turn_id} if turn_id else {})},
+        payload={"pending_launch_gate": passed_pending_gate},
+    )
+    return {
+        "ok": True,
+        "accepted": True,
+        "task_run": updated.to_dict(),
+        "launch_gate_pass": gate_pass.to_dict(),
+        "pending_launch_gate": passed_pending_gate,
+    }
+
+
 def _is_single_agent_task_run(task_run: Any) -> bool:
     return str(getattr(task_run, "execution_runtime_kind", "") or "") in {"single_agent_task", "subagent_task"}
 
@@ -607,7 +717,7 @@ def resume_paused_task_run(
     status = str(getattr(task_run, "status", "") or "")
     if is_stopped_or_terminal_task_run(task_run, runtime_host=runtime_host):
         return _conflict(task_run_id, _task_run_terminal_conflict_reason(task_run, runtime_host=runtime_host))
-    if status == "waiting_approval" and matching_approval_grant_for_pending(task_run) is None:
+    if status == "waiting_approval" and not _waiting_approval_resume_authorized(task_run):
         return _conflict(task_run_id, "task_run_waiting_approval_requires_grant")
     if not _is_task_run_resumable_for_user_control(task_run, runtime_host=runtime_host):
         return _conflict(task_run_id, f"task_run_not_resumable:{status}")
@@ -677,6 +787,10 @@ def resume_paused_task_run(
         refs={"task_run_ref": task_run_id, **({"turn_ref": turn_id} if turn_id else {})},
     )
     return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "control": _runtime_control_payload(updated, runtime_host=runtime_host)}
+
+
+def _waiting_approval_resume_authorized(task_run: Any) -> bool:
+    return matching_approval_grant_for_pending(task_run) is not None or matching_launch_gate_pass_for_pending(task_run) is not None
 
 
 def stop_task_run(
