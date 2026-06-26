@@ -364,7 +364,7 @@ def _protocol_pressure_message(message: dict[str, Any]) -> tuple[dict[str, Any],
     if role != "assistant":
         return {}, {"bounded_chars": 0, "omitted_chars": 0}
 
-    reasoning = str(message.get("reasoning_content") or "").strip()
+    reasoning = _explicit_provider_text(message.get("reasoning_content"))
     tool_calls = message.get("tool_calls")
     has_tool_calls = isinstance(tool_calls, list) and bool(tool_calls)
     if not reasoning and not has_tool_calls:
@@ -394,6 +394,13 @@ def _protocol_pressure_message(message: dict[str, Any]) -> tuple[dict[str, Any],
 
 def _message_created_at(message: dict[str, Any]) -> float:
     return _safe_float(message.get("created_at") or message.get("updated_at") or message.get("timestamp"))
+
+
+def _explicit_provider_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    return text if text != "" else ""
 
 
 def _safe_float(value: Any) -> float:

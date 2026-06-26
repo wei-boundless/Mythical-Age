@@ -6,6 +6,12 @@
 - `backend/runtime/context_management/context_pipeline_standardization_refactor_plan.md`
 - `docs/context_physical_splicing_model.md`
 
+语义空间约束文档：
+
+- `backend/runtime/context_management/agent_semantic_space_context_design_20260627.md`
+
+后续工具契约瘦身、native tools admission、runtime control 封存优化必须先满足该语义空间规范，再处理 token 和 provider cache 细节。
+
 执行顺序锁定为：
 
 ```text
@@ -494,8 +500,7 @@ dynamic_tail
 ```text
 transport_contract
 global_static_prefix
-active_context_prefix
-byte_replay_archive_prefix
+provider_visible_context_prefix
 current_turn_tail
 never_replay_tail
 ```
@@ -503,7 +508,7 @@ never_replay_tail
 缓存 spine：
 
 ```text
-global_static_prefix + active_context_prefix + byte_replay_archive_prefix
+global_static_prefix + provider_visible_context_prefix
 ```
 
 Provider request 必须满足：
@@ -511,7 +516,7 @@ Provider request 必须满足：
 ```text
 transport_contract
 -> global_static_prefix
--> active_context_prefix / byte_replay_archive_prefix by ledger entry order
+-> provider_visible_context_prefix by ledger entry order
 -> current_turn_tail
 -> never_replay_tail
 ```
@@ -521,7 +526,7 @@ transport_contract
 - tail 后再出现 cache spine segment。
 - context append 插入 static prefix 中间。
 - dynamic tail 插入旧上下文中间。
-- active/archive 拆分打乱 ledger entry order。
+- 用 active、historical-only、tool transcript、runtime replay-only 等语义标签拆分物理位置。
 
 ### 5.1 语义 Section 细则
 
@@ -555,7 +560,7 @@ transport_contract
 
 - 从 session history 重新渲染历史。
 - 对旧 entry 改标题、换格式、重新摘要。
-- active/archive 拆分打乱 ledger 原始顺序。
+- 因语义可见性不同拆分物理 lane，打乱 ledger 原始顺序。
 
 `context_append` 是本轮新增、需要模型看见、且 provider success 后要封存的上下文。它本轮位于 `current_turn_tail`，下轮才从 ledger replay 回 prefix。
 
@@ -604,20 +609,14 @@ transport_contract
 - 作用：稳定系统/环境/工具/能力/输出契约。
 - 污染风险：当前 turn 状态进入 stable payload；tool schema/order 每轮变化；capability directory 无意义重排。
 
-`active_context_prefix`
+`provider_visible_context_prefix`
 
-- 来源：`context_memory_prefix` 且语义仍 active。
+- 来源：全部已确认的 `context_memory_prefix` provider-visible ledger entries。
 - 参与 cache spine。
-- 作用：历史用户约束、已封存工具 transcript、已封存 memory/evidence refs。
-- 污染风险：从 session history 重渲染同一历史；active/archive 拆分打乱 ledger order。
-- 硬规则：replay 排序必须以 `provider_visible_context_ledger_entry_index` 为准。
-
-`byte_replay_archive_prefix`
-
-- 来源：historical replay-only 或 archive replay。
-- 参与 cache spine。
-- 作用：保持 provider-visible bytes 连续，但语义上只读，不能作为当前活跃指令。
-- 适用：fork 继承历史 prefix、压缩前 byte replay、已过语义有效期但仍需 prefix continuity 的 entry。
+- 作用：按 ledger entry index 线性回放旧 user/memory/tool/evidence/runtime replay-only 字节，保持 provider prefix 连续。
+- 污染风险：从 session history 重渲染同一历史；按 semantic visibility 拆分物理位置；把本轮 current append 提前塞入 prefix。
+- 硬规则：语义差异只写入 `semantic_visibility`、`semantic_commit_class`、`validity_scope` 等 metadata，不改变物理拼接方式。
+- fork 继承、压缩前 byte replay、已过语义有效期但仍需 prefix continuity 的 entry 都仍在这条 lane 内按 entry index 插线。
 
 `current_turn_tail`
 
@@ -643,8 +642,8 @@ transport_contract
 | output contract / action schema | `static_prefix` | `global_static_prefix` | 否 | 稳定契约 |
 | file evidence policy / read guidance | `static_prefix` | `global_static_prefix` | 否 | 稳定策略，不放当前 read |
 | runtime baseline refs | `static_prefix` | `global_static_prefix` | 否 | 稳定 refs，不重复 append |
-| previous user/memory/tool/evidence context | `context_memory_prefix` | `active_context_prefix` | 已封存 | 只能 ledger replay |
-| fork/compaction inherited historical replay | `context_memory_prefix` | `byte_replay_archive_prefix` | 已封存 | 只保 prefix continuity |
+| previous user/memory/tool/evidence context | `context_memory_prefix` | `provider_visible_context_prefix` | 已封存 | 只能 ledger replay |
+| fork/compaction inherited historical replay | `context_memory_prefix` | `provider_visible_context_prefix` | 已封存 | 只保 prefix continuity，语义标记为 historical-only |
 | current user request | `context_append` | `current_turn_tail` | 是 | provider success 后封存 |
 | current selected memory | `context_append` | `current_turn_tail` | 是 | 下轮 prefix replay |
 | read evidence refs / file facts | `context_append` | `current_turn_tail` | 是 | refs/facts 封存 |
@@ -789,8 +788,8 @@ sealed tool transcript prefix
 | 本轮 read_file exact text / line window | `tool_transcript_delta` | `current_turn_tail` | 是 | 原始 tool result，成功后 sealed transcript |
 | 本轮必须即时可见的 exact evidence | `read_evidence_injection` | `never_replay_tail` | 否 | 只服务当前轮 |
 | path/range/hash/mtime/coverage/ref | `read_evidence_context` | `current_turn_tail` | 是 | 当前新增 evidence identity，成功后 prefix replay |
-| 已封存 read_file exact result | `context_memory_prefix` | `active_context_prefix` / `byte_replay_archive_prefix` | 已封存 | 只能 ledger 原字节 replay，不能重渲染 |
-| 已封存 read evidence refs | `context_memory_prefix` | `active_context_prefix` | 已封存 | 供 agent 判断可复用窗口和 freshness |
+| 已封存 read_file exact result | `context_memory_prefix` | `provider_visible_context_prefix` | 已封存 | 只能 ledger 原字节 replay，不能重渲染；语义可标记 historical-only |
+| 已封存 read evidence refs | `context_memory_prefix` | `provider_visible_context_prefix` | 已封存 | 供 agent 判断可复用窗口和 freshness |
 | 未变化重复读取 | `tool_transcript_delta` 或 `read_evidence_reuse` | `current_turn_tail` | 是 | 小型 ref/stub，不含旧全文 |
 | 缺口范围读取 | `tool_transcript_delta` + `read_evidence_context` | `current_turn_tail` | 是 | 只追加新 window，不重复旧 window |
 | artifact / reusable result ref | `read_evidence_context` | `current_turn_tail` 后封存为 prefix | 是 | 大结果复用入口 |
@@ -1069,7 +1068,7 @@ parent content replacement refs
 完成条件：
 
 - provider payload 只消费 `PhysicalContextSegment`。
-- cache spine hash 只由 `global_static_prefix + active_context_prefix + byte_replay_archive_prefix` 生成。
+- cache spine hash 只由 `global_static_prefix + provider_visible_context_prefix` 生成。
 - `current_turn_tail` 和 `never_replay_tail` 不被计入同请求 cache spine。
 - tail pollution diagnostics 能列出污染 kind/source_ref。
 
@@ -1198,7 +1197,7 @@ rg -n "physical_prefix_lane|context_cache_section|semantic_slot" backend/runtime
 
 ```text
 global_static_prefix
--> active_context_prefix / byte_replay_archive_prefix by ledger entry order
+-> provider_visible_context_prefix by ledger entry order
 -> current_turn_tail
 -> never_replay_tail
 ```

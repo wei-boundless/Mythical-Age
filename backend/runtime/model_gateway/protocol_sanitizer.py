@@ -93,7 +93,7 @@ class ProtocolSanitizer:
                         call_id = str(call.get("id") or "").strip()
                         if call_id:
                             pending[call_id] = call
-                elif not str(message.get("content") or "").strip() and not str(message.get("reasoning_content") or "").strip():
+                elif not str(message.get("content") or "").strip() and not _has_reasoning_content_field(message):
                     diagnostics["dropped_empty_messages"] += 1
                     continue
             if role == "user" and not str(message.get("content") or "").strip():
@@ -135,7 +135,7 @@ def _normalize_message(raw: Any) -> dict[str, Any] | None:
         if value:
             message[key] = value
     if role == "assistant":
-        reasoning_content = str(item.get("reasoning_content") or "").strip()
+        reasoning_content = _explicit_reasoning_content(item.get("reasoning_content"))
         if reasoning_content:
             message["reasoning_content"] = reasoning_content
         if item.get("prefix") is True or str(item.get("prefix") or "").strip().lower() == "true":
@@ -190,7 +190,7 @@ def _provider_payload_message(item: dict[str, Any], *, role: str) -> dict[str, A
         if value:
             message[key] = value
     if role == "assistant":
-        reasoning_content = str(item.get("reasoning_content") or "").strip()
+        reasoning_content = _explicit_reasoning_content(item.get("reasoning_content"))
         if reasoning_content:
             message["reasoning_content"] = reasoning_content
         if item.get("prefix") is True or str(item.get("prefix") or "").strip().lower() == "true":
@@ -221,6 +221,17 @@ def _provider_shaped_tool_calls(value: Any) -> list[dict[str, Any]]:
             return []
         result.append(copy.deepcopy(item))
     return result
+
+
+def _explicit_reasoning_content(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    return text if text != "" else ""
+
+
+def _has_reasoning_content_field(message: dict[str, Any]) -> bool:
+    return _explicit_reasoning_content(dict(message or {}).get("reasoning_content")) != ""
 
 
 def _aborted_tool_output(*, call_id: str, call: dict[str, Any], turn_id: str) -> dict[str, Any]:

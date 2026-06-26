@@ -284,7 +284,7 @@ def _provider_reasoning_contract_diagnostics(
         if str(payload.get("role") or "") != "assistant" or not payload.get("tool_calls"):
             continue
         assistant_tool_call_indexes.append(index)
-        if str(payload.get("reasoning_content") or "").strip():
+        if _has_provider_reasoning_content(payload):
             reasoning_indexes.append(index)
         else:
             missing_reasoning_indexes.append(index)
@@ -306,6 +306,15 @@ def _provider_reasoning_contract_diagnostics(
         ),
         "authority": "runtime.model_gateway.model_request.provider_reasoning_contract",
     }
+
+
+def _has_provider_reasoning_content(message: dict[str, Any]) -> bool:
+    if "reasoning_content" not in dict(message or {}):
+        return False
+    value = dict(message or {}).get("reasoning_content")
+    if value is None:
+        return False
+    return str(value) != ""
 
 
 def _stable_prefix_hash(bindings: tuple[ModelRequestSegmentBinding, ...]) -> str:

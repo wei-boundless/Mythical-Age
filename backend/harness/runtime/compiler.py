@@ -48,6 +48,7 @@ from core.project_layout import ProjectLayout
 from runtime.model_gateway.lightweight_chat_model import provider_message_payloads
 from runtime.model_gateway.protocol_sanitizer import ProtocolSanitizerResult, sanitize_messages_for_prompt
 from runtime.context_management.context_segment_policy import (
+    CONTEXT_APPEND,
     DYNAMIC_TAIL,
 )
 from runtime.context_management.context_pipeline import (
@@ -520,7 +521,10 @@ class RuntimeCompiler:
             assembly_payload=assembly_payload,
         )
         project_instruction_bundle = collect_project_instruction_bundle(base_dir=self.base_dir)
-        runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
+        runtime_instruction = _runtime_projection_instruction(
+            agent_visible_runtime_projection,
+            validity_scope=turn_id,
+        )
         environment_instruction = render_environment_instruction(
             environment_payload,
             environment_prompt_assembly=environment_prompt_assembly,
@@ -861,31 +865,40 @@ class RuntimeCompiler:
                     preamble=runtime_instruction,
                     kind="dynamic_projection",
                     source_ref="single_agent_turn_runtime_delta",
-                    cache_scope="none",
-                    cache_role="volatile",
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="summarize",
-                    metadata={
-                        **_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
-                        "authority_class": "runtime_delta_tail",
-                        "content_source": "harness.runtime.dynamic_context.runtime_delta_projection",
-                        "cache_impact": "volatile_suffix_only",
-                    },
+                    metadata=_provider_visible_replay_only_runtime_tail_metadata(
+                        {
+                            **_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
+                            "authority_class": "runtime_delta_tail",
+                            "content_source": "harness.runtime.dynamic_context.runtime_delta_projection",
+                        },
+                        semantic_slot="runtime_delta_tail",
+                        validity_scope=turn_id,
+                    ),
                 ),
                 _message_spec(
                     role="system",
-                    content=runtime_lifecycle_instruction,
+                    content=_runtime_control_context_content(
+                        runtime_lifecycle_instruction,
+                        validity_scope=turn_id,
+                    ),
                     kind="lifecycle_runtime_guidance",
                     source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
-                    cache_scope="none",
-                    cache_role="volatile",
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="preserve",
-                    metadata={
-                        "authority_class": "runtime_lifecycle_guidance",
-                        "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
-                        "lifecycle_trigger_reasons": dict(prompt_mount_plan.runtime_lifecycle_trigger_reasons),
-                        "volatility_reason": "runtime lifecycle guidance is selected from active state such as memory, observations, steering, or recovery",
-                        "cache_impact": "volatile_suffix_only",
-                    },
+                    metadata=_provider_visible_replay_only_runtime_tail_metadata(
+                        {
+                            "authority_class": "runtime_lifecycle_guidance",
+                            "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
+                            "lifecycle_trigger_reasons": dict(prompt_mount_plan.runtime_lifecycle_trigger_reasons),
+                            "volatility_reason": "runtime lifecycle guidance is selected from active state such as memory, observations, steering, or recovery",
+                        },
+                        semantic_slot="lifecycle_guidance",
+                        validity_scope=turn_id,
+                    ),
                 )
                 if runtime_lifecycle_instruction.strip()
                 else None,
@@ -1232,7 +1245,10 @@ class RuntimeCompiler:
             if _prompt_policy_visible(prompt_policy, "project_instruction_visibility", default=True)
             else ProjectInstructionBundle(cache_scope="task_stable")
         )
-        runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
+        runtime_instruction = _runtime_projection_instruction(
+            agent_visible_runtime_projection,
+            validity_scope=f"{task_run_id}:{invocation_index}",
+        )
         active_skill_instruction, active_skill_meta = _active_skill_instruction(
             base_dir=self.base_dir,
             assembly_payload=assembly_payload,
@@ -1700,16 +1716,19 @@ class RuntimeCompiler:
                     preamble=runtime_instruction,
                     kind="task_runtime_boundary_dynamic",
                     source_ref="task_execution_runtime_delta",
-                    cache_scope="none",
-                    cache_role="volatile",
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="preserve",
-                    metadata={
-                        "authority_class": "runtime_boundary",
-                        "cache_impact": "volatile_suffix_only",
-                        "projection_strategy": "agent_visible_runtime_boundary",
-                        "content_source": "runtime.dynamic_context.runtime_delta_projection",
-                        "volatility_reason": "runtime dynamic projection may include active state and must not mutate the cacheable task prefix",
-                    },
+                    metadata=_provider_visible_replay_only_runtime_tail_metadata(
+                        {
+                            "authority_class": "runtime_boundary",
+                            "projection_strategy": "agent_visible_runtime_boundary",
+                            "content_source": "runtime.dynamic_context.runtime_delta_projection",
+                            "volatility_reason": "runtime dynamic projection may include active state and must not mutate current instructions after its validity window",
+                        },
+                        semantic_slot="runtime_delta_tail",
+                        validity_scope=f"{task_run_id}:{invocation_index}",
+                    ),
                 ),
                 _runtime_payload_spec(
                     role="system",
@@ -1748,19 +1767,25 @@ class RuntimeCompiler:
                 else None,
                 _message_spec(
                     role="system",
-                    content=runtime_lifecycle_instruction,
+                    content=_runtime_control_context_content(
+                        runtime_lifecycle_instruction,
+                        validity_scope=f"{task_run_id}:{invocation_index}",
+                    ),
                     kind="lifecycle_runtime_guidance",
                     source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
-                    cache_scope="none",
-                    cache_role="volatile",
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="preserve",
-                    metadata={
-                        "authority_class": "runtime_lifecycle_guidance",
-                        "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
-                        "lifecycle_trigger_reasons": dict(prompt_mount_plan.runtime_lifecycle_trigger_reasons),
-                        "volatility_reason": "runtime lifecycle guidance is selected from active state such as memory, observations, steering, or recovery",
-                        "cache_impact": "volatile_suffix_only",
-                    },
+                    metadata=_provider_visible_replay_only_runtime_tail_metadata(
+                        {
+                            "authority_class": "runtime_lifecycle_guidance",
+                            "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
+                            "lifecycle_trigger_reasons": dict(prompt_mount_plan.runtime_lifecycle_trigger_reasons),
+                            "volatility_reason": "runtime lifecycle guidance is selected from active state such as memory, observations, steering, or recovery",
+                        },
+                        semantic_slot="lifecycle_guidance",
+                        validity_scope=f"{task_run_id}:{invocation_index}",
+                    ),
                 )
                 if runtime_lifecycle_instruction.strip()
                 else None,
@@ -2118,7 +2143,10 @@ class RuntimeCompiler:
             assembly_payload=assembly_payload,
         )
         project_instruction_bundle = collect_project_instruction_bundle(base_dir=self.base_dir)
-        runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
+        runtime_instruction = _runtime_projection_instruction(
+            agent_visible_runtime_projection,
+            validity_scope=f"{turn_id}:observation_followup:{len(observations) + 1}",
+        )
         environment_instruction = render_environment_instruction(
             environment_payload,
             environment_prompt_assembly=environment_prompt_assembly,
@@ -2364,31 +2392,40 @@ class RuntimeCompiler:
                     preamble=runtime_instruction,
                     kind="dynamic_projection",
                     source_ref="observation_followup_runtime_delta",
-                    cache_scope="none",
-                    cache_role="volatile",
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="summarize",
-                    metadata={
-                        **_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
-                        "authority_class": "runtime_delta_tail",
-                        "content_source": "harness.runtime.dynamic_context.runtime_delta_projection",
-                        "cache_impact": "volatile_suffix_only",
-                    },
+                    metadata=_provider_visible_replay_only_runtime_tail_metadata(
+                        {
+                            **_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
+                            "authority_class": "runtime_delta_tail",
+                            "content_source": "harness.runtime.dynamic_context.runtime_delta_projection",
+                        },
+                        semantic_slot="runtime_delta_tail",
+                        validity_scope=f"{turn_id}:observation_followup:{len(observations) + 1}",
+                    ),
                 ),
                 _message_spec(
                     role="system",
-                    content=runtime_lifecycle_instruction,
+                    content=_runtime_control_context_content(
+                        runtime_lifecycle_instruction,
+                        validity_scope=f"{turn_id}:observation_followup:{len(observations) + 1}",
+                    ),
                     kind="lifecycle_runtime_guidance",
                     source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
-                    cache_scope="none",
-                    cache_role="volatile",
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="preserve",
-                    metadata={
-                        "authority_class": "runtime_lifecycle_guidance",
-                        "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
-                        "lifecycle_trigger_reasons": dict(prompt_mount_plan.runtime_lifecycle_trigger_reasons),
-                        "volatility_reason": "runtime lifecycle guidance is selected from observation followup state and must remain outside the cacheable prefix",
-                        "cache_impact": "volatile_suffix_only",
-                    },
+                    metadata=_provider_visible_replay_only_runtime_tail_metadata(
+                        {
+                            "authority_class": "runtime_lifecycle_guidance",
+                            "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
+                            "lifecycle_trigger_reasons": dict(prompt_mount_plan.runtime_lifecycle_trigger_reasons),
+                            "volatility_reason": "runtime lifecycle guidance is selected from observation followup state and must expire after this follow-up boundary",
+                        },
+                        semantic_slot="lifecycle_guidance",
+                        validity_scope=f"{turn_id}:observation_followup:{len(observations) + 1}",
+                    ),
                 )
                 if runtime_lifecycle_instruction.strip()
                 else None,
@@ -4674,9 +4711,9 @@ def _same_provider_protocol_message(message: dict[str, Any], candidate: dict[str
     candidate_tool_ids = _assistant_tool_call_ids(candidate)
     if message_tool_ids or candidate_tool_ids:
         return bool(message_tool_ids) and message_tool_ids == candidate_tool_ids
-    reasoning = str(message.get("reasoning_content") or "").strip()
+    reasoning = _explicit_provider_text(message.get("reasoning_content"))
     if reasoning:
-        return reasoning == str(candidate.get("reasoning_content") or "").strip()
+        return reasoning == _explicit_provider_text(candidate.get("reasoning_content"))
     content = str(message.get("content") or "").strip()
     return bool(content) and content == str(candidate.get("content") or candidate.get("text") or "").strip()
 
@@ -4687,9 +4724,16 @@ def _is_provider_protocol_hot_message(message: dict[str, Any]) -> bool:
         return True
     if _assistant_tool_call_ids(message):
         return True
-    if str(message.get("reasoning_content") or "").strip():
+    if _explicit_provider_text(message.get("reasoning_content")):
         return True
     return False
+
+
+def _explicit_provider_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    return text if text != "" else ""
 
 
 def _assistant_tool_call_ids(message: dict[str, Any]) -> set[str]:
@@ -4957,7 +5001,7 @@ def _context_physical_assembly_manifest_from_specs(
         lane = str(metadata.get("physical_prefix_lane") or "").strip()
         if lane in {"current_turn_tail", "never_replay_tail"}:
             tail_seen = True
-        elif tail_seen and lane in {"global_static_prefix", "active_context_prefix", "byte_replay_archive_prefix"}:
+        elif tail_seen and lane in {"global_static_prefix", "provider_visible_context_prefix"}:
             stable_after_tail_count += 1
     return {
         "message_spec_count": len([item for item in list(specs or ()) if isinstance(item, dict)]),
@@ -5108,6 +5152,64 @@ def _current_user_context_append_metadata(payload: dict[str, Any] | None) -> dic
         "append_only_stream_index": 1,
         "append_only_content_hash": _stable_json_hash({"user_message": user_message}),
     }
+
+
+def _provider_visible_replay_only_runtime_tail_metadata(
+    metadata: dict[str, Any] | None,
+    *,
+    semantic_slot: str,
+    validity_scope: str = "",
+) -> dict[str, Any]:
+    payload = dict(metadata or {})
+    slot = str(semantic_slot or "runtime_delta_tail").strip() or "runtime_delta_tail"
+    return {
+        **payload,
+        "context_cache_section": CONTEXT_APPEND,
+        "fixed_context_package": "context_memory_append",
+        "context_prefix_cache_scope": "task",
+        "context_prefix_cache_role": "session_stable",
+        "context_prefix_tier": "task",
+        "context_semantic_slot": slot,
+        "context_commit_policy": "append_then_seal",
+        "context_replay_policy": "current_append_commit_on_provider_success_then_next_ledger_replay",
+        "context_identity_policy": "content_addressed_when_unkeyed",
+        "semantic_commit_class": "provider_visible_replay_only_runtime_tail",
+        "provider_visible_replay_only": True,
+        "semantic_memory_visible": False,
+        "semantic_memory_commit_policy": "never_commit",
+        "validity_scope": str(validity_scope or ""),
+        "provider_visible_after_validity": "historical_only_provider_visible_replay",
+        "append_only_context_package": "runtime_control_tail",
+        "append_only_context_stream": slot,
+        "cache_impact": "current_append_then_historical_replay_prefix",
+        "stability_rule": (
+            "This runtime-control block is current only at its original append point. "
+            "After provider success it may be replayed byte-for-byte as historical context so the next request "
+            "inherits the previous physical prefix; the latest runtime-control block later in the message stream "
+            "is the only current control boundary."
+        ),
+        "provider_visible_history_authority": "harness.runtime.compiler.provider_visible_replay_only_runtime_tail",
+    }
+
+
+def _runtime_control_context_notice(*, validity_scope: str = "") -> str:
+    validity = str(validity_scope or "current-provider-request").strip()
+    return (
+        "你正在阅读一段运行控制上下文。它第一次出现时描述当时请求的行动边界、可用动作和运行状态；"
+        "如果同一段内容在后续请求的历史前缀中再次出现，它只用于理解过去发生过什么，"
+        "不得作为本轮新的行动授权或限制。本轮以消息流后方最新的运行控制上下文为准。\n"
+        f"这段上下文的有效期标识：{validity}。"
+    )
+
+
+def _runtime_control_context_content(content: str, *, validity_scope: str = "") -> str:
+    body = str(content or "").strip()
+    if not body:
+        return ""
+    return _join_prompt_sections(
+        _runtime_control_context_notice(validity_scope=validity_scope),
+        body,
+    )
 
 
 def _optional_dynamic_context_segment_metadata(
@@ -6299,7 +6401,7 @@ def _task_scoped_tool_routes_from_tool_plan(tool_plan: Any | None) -> list[dict[
     return [item for item in routes if item["tool_name"]]
 
 
-def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
+def _runtime_projection_instruction(projection: dict[str, Any], *, validity_scope: str = "") -> str:
     if not projection:
         return ""
     allowed_actions = [
@@ -6318,7 +6420,10 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
     )
     allowed_text = "、".join(allowed_actions) if allowed_actions else "见 payload.allowed_action_types"
     transport_ref = "native_tool_preamble" if native_tool_available else "json_action"
-    return f"本轮行动边界：可选动作={allowed_text}；动作规则=action_schema_static；传输方式={transport_ref}；本段只说明当前轮边界。\n"
+    return _join_prompt_sections(
+        _runtime_control_context_notice(validity_scope=validity_scope),
+        f"本轮行动边界：可选动作={allowed_text}；动作规则=action_schema_static；传输方式={transport_ref}；本段只说明当前轮边界。",
+    )
 
 
 def _environment_stable_payload(environment_payload: dict[str, Any]) -> dict[str, Any]:

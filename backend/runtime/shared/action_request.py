@@ -266,6 +266,13 @@ def _default_tool_error_repair_instruction(failure_kind: str, message: str) -> s
     )
 
 
+def _explicit_provider_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    return text if text != "" else ""
+
+
 def build_tool_unavailable_observation(
     *,
     task_run_id: str,
@@ -397,7 +404,7 @@ def build_tool_action_request(task_run_id: str, event: dict[str, Any], *, step_i
         "content": assistant_content_preview,
         "tool_calls": tool_calls or ([payload] if payload else []),
     }
-    reasoning_content = str(assistant_additional_kwargs.get("reasoning_content") or "").strip()
+    reasoning_content = _explicit_provider_text(assistant_additional_kwargs.get("reasoning_content"))
     if reasoning_content:
         assistant_protocol_message["reasoning_content"] = reasoning_content
     return RuntimeActionRequest(

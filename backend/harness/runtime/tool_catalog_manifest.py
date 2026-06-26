@@ -6,6 +6,10 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from prompt_library.tool_prompts import tool_guidance_payload_for_visible_tools
+from runtime.shared.tool_schema_canonical import (
+    canonical_provider_tool_input_schema,
+    canonical_provider_tool_input_schema_ref,
+)
 
 _MODEL_VISIBLE_PROMPT_POLICIES = {"schema_only", "schema_plus_guidance"}
 _SPECIAL_CONTRACT_TOOL_NAMES = {
@@ -161,11 +165,11 @@ def _model_visible_tool_entry(tool_payload: dict[str, Any]) -> dict[str, Any]:
             }.items()
             if value
         }
-    input_schema = dict(tool.get("input_schema") or {}) if isinstance(tool.get("input_schema"), dict) else {}
+    input_schema = canonical_provider_tool_input_schema(tool)
     if input_schema:
         input_schema_summary = _input_schema_summary(input_schema)
         payload["input_schema_summary"] = input_schema_summary
-        payload["input_schema_ref"] = _short_hash(_stable_json_hash(input_schema))
+        payload["input_schema_ref"] = canonical_provider_tool_input_schema_ref(tool)
         tool_contract_summary = _special_tool_contract_summary(
             tool_name=name,
             input_schema_summary=input_schema_summary,
@@ -493,15 +497,6 @@ def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict
 def _stable_json_hash(value: Any) -> str:
     payload = json.dumps(_json_stable(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest()
-
-
-def _short_hash(value: str, *, prefix_chars: int = 10) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    if text.startswith("sha256:"):
-        return "sha256:" + text.removeprefix("sha256:")[:prefix_chars]
-    return text[:prefix_chars]
 
 
 def _digest(value: Any) -> str:

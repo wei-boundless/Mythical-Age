@@ -1416,7 +1416,7 @@ def _api_message(payload: dict[str, Any]) -> dict[str, Any] | None:
     if created_at > 0:
         message["created_at"] = created_at
     if role == "assistant":
-        reasoning_content = str(payload.get("reasoning_content") or "").strip()
+        reasoning_content = _explicit_provider_text(payload.get("reasoning_content"))
         if reasoning_content:
             message["reasoning_content"] = reasoning_content
         tool_calls = payload.get("tool_calls")
@@ -1429,6 +1429,13 @@ def _api_message(payload: dict[str, Any]) -> dict[str, Any] | None:
     if role == "assistant" and not content and not message.get("tool_calls") and not message.get("reasoning_content"):
         return None
     return message
+
+
+def _explicit_provider_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    return text if text != "" else ""
 
 
 def _truncated_api_transcript(

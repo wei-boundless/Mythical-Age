@@ -13,6 +13,7 @@ from runtime.prompt_accounting.cache_policy import (
     normalize_prefix_tier,
 )
 from runtime.prompt_accounting.serializer import canonical_json
+from runtime.shared.tool_schema_canonical import canonical_provider_schema_ref
 
 
 @dataclass(frozen=True, slots=True)
@@ -433,14 +434,9 @@ def _provider_tool_schema_fingerprint(tools: tuple[dict[str, Any], ...]) -> dict
             or function_payload.get("parameters")
             or {}
         )
-        items.append({"name": name, "input_schema_ref": _short_schema_ref(schema)})
+        items.append({"name": name, "input_schema_ref": canonical_provider_schema_ref(schema)})
     ordered = sorted(items, key=lambda item: item["name"])
     return {"tools": ordered, "tool_names": [item["name"] for item in ordered]}
-
-
-def _short_schema_ref(schema: Any) -> str:
-    digest = _stable_text_hash(canonical_json(schema or {}))
-    return "sha256:" + digest.removeprefix("sha256:")[:10]
 
 
 def _cache_boundary(
@@ -535,8 +531,7 @@ def _cache_spine_diagnostics(
 ) -> dict[str, Any]:
     spine_lanes = {
         "global_static_prefix",
-        "active_context_prefix",
-        "byte_replay_archive_prefix",
+        "provider_visible_context_prefix",
     }
     tail_lanes = {"current_turn_tail", "never_replay_tail"}
     message_segments = [
@@ -671,8 +666,7 @@ def _is_provider_visible_structural_prefix_segment(segment: ProviderPayloadSegme
         return False
     return lane in {
         "global_static_prefix",
-        "active_context_prefix",
-        "byte_replay_archive_prefix",
+        "provider_visible_context_prefix",
     }
 
 
@@ -788,7 +782,7 @@ def _cache_spine_segment_after_tail_count(segments: tuple[ProviderPayloadSegment
         if lane in {"current_turn_tail", "never_replay_tail"}:
             tail_seen = True
             continue
-        if tail_seen and lane in {"global_static_prefix", "active_context_prefix", "byte_replay_archive_prefix"}:
+        if tail_seen and lane in {"global_static_prefix", "provider_visible_context_prefix"}:
             count += 1
     return count
 

@@ -101,12 +101,12 @@ def _model_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
     tool_calls = raw_message.get("tool_calls") if raw_message.get("tool_calls") is not None else spec.get("tool_calls")
     if isinstance(tool_calls, list) and tool_calls:
         message["tool_calls"] = [dict(item) for item in tool_calls if isinstance(item, dict)]
-    reasoning_content = str(
+    reasoning_content = _first_explicit_text(
         raw_message.get("reasoning_content")
         if raw_message.get("reasoning_content") is not None
-        else spec.get("reasoning_content")
-        or ""
-    ).strip()
+        else None,
+        spec.get("reasoning_content") if spec.get("reasoning_content") is not None else None,
+    )
     if reasoning_content:
         message["reasoning_content"] = reasoning_content
     prefix = raw_message.get("prefix") if raw_message.get("prefix") is not None else spec.get("prefix")
@@ -117,6 +117,16 @@ def _model_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
 
 def _stable_text_hash(text: str) -> str:
     return "sha256:" + hashlib.sha256(str(text or "").encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _first_explicit_text(*values: Any) -> str:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value)
+        if text != "":
+            return text
+    return ""
 
 
 def _stable_hash(value: Any) -> str:

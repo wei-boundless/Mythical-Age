@@ -509,7 +509,7 @@ class ModelResponseRuntimeExecutor:
         )
         raw_content = protocol_result.content
         tool_calls = [dict(item) for item in protocol_result.native_tool_calls]
-        reasoning_content = str(protocol_result.reasoning_content or "").strip()
+        reasoning_content = _explicit_provider_text(protocol_result.reasoning_content)
         stream_preview_text = ""
         if stream_enabled and public_delta_count <= 0 and not (assistant_normalizer is not None and assistant_normalizer.observed_content.strip()):
             stream_preview_text = raw_content.strip()
@@ -790,6 +790,13 @@ def _is_tool_message(message: Any) -> bool:
 def _chunk_text(chunk: Any) -> str:
     content = getattr(chunk, "content", chunk)
     return stringify_content(content)
+
+
+def _explicit_provider_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    return text if text != "" else ""
 
 
 async def _recover_visible_prefix_stream(

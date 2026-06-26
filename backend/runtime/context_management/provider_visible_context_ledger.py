@@ -22,6 +22,7 @@ from .tool_transcript import is_tool_transcript_kind
 PROVIDER_VISIBLE_CONTEXT_LEDGER_SCHEMA_VERSION = 1
 PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT = DEFAULT_PROVIDER_ADAPTER_CONTRACT
 PROVIDER_VISIBLE_CONTEXT_LEDGER_CONFIRMED_STATUS = "confirmed_provider_visible"
+PROVIDER_VISIBLE_CONTEXT_PREFIX = "provider_visible_context_prefix"
 _LEGACY_REPLAYABLE_COMMIT_STATUSES = {"materialized_for_provider_request"}
 
 
@@ -198,11 +199,6 @@ def provider_visible_context_append_candidate_spec(
     provider_message = _provider_visible_message_from_spec(payload)
     if not provider_message:
         return payload
-    provider_message = _provider_visible_replay_only_message(
-        provider_message,
-        metadata=dict(payload.get("metadata") or {}),
-        scope=normalized_scope,
-    )
     provider_hash = _stable_json_hash(provider_message)
     item_key = _provider_visible_item_key(payload, provider_visible_hash=provider_hash, policy=policy)
     return _current_context_append_spec_from_candidate(
@@ -392,7 +388,6 @@ def confirm_provider_visible_context_entries(
                 adapter_contract=candidate_adapter,
                 confirmed_by_request_id=str(request_id or ""),
                 confirmed_response_ref=str(response_ref or ""),
-                ledger_lane=str(ref.physical_lane_before_commit or ""),
                 semantic_visibility=str(ref.semantic_visibility or ""),
                 validity_scope=str(ref.validity_scope or ""),
                 compaction_generation=str(ref.compaction_generation or ""),
@@ -753,16 +748,12 @@ def _ledger_entry(
     adapter_contract: str,
     confirmed_by_request_id: str = "",
     confirmed_response_ref: str = "",
-    ledger_lane: str = "",
     semantic_visibility: str = "",
     validity_scope: str = "",
     compaction_generation: str = "",
     cache_spine_hash: str = "",
 ) -> dict[str, Any]:
     replay_only = str(semantic_commit_class or "").startswith("provider_visible_replay_only")
-    resolved_ledger_lane = str(ledger_lane or "").strip()
-    if not resolved_ledger_lane:
-        resolved_ledger_lane = "byte_replay_archive_prefix" if replay_only else "active_context_prefix"
     payload = {
         "entry_index": int(entry_index or 0),
         "item_key": str(item_key or ""),
@@ -770,7 +761,7 @@ def _ledger_entry(
         "model": str(model or ""),
         "adapter_contract": str(adapter_contract or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT),
         "context_section": "context_memory_prefix",
-        "ledger_lane": resolved_ledger_lane,
+        "ledger_lane": PROVIDER_VISIBLE_CONTEXT_PREFIX,
         "semantic_visibility": str(semantic_visibility or ("historical_only" if replay_only else "active")),
         "validity_scope": str(validity_scope or ""),
         "compaction_generation": str(compaction_generation or ""),
@@ -994,10 +985,7 @@ def _spec_from_ledger_entry(entry: dict[str, Any], *, scope: str) -> dict[str, A
     metadata = {
         "context_cache_section": "context_memory_prefix",
         "fixed_context_package": "context_memory_prefix",
-        "physical_prefix_lane": str(
-            entry.get("ledger_lane")
-            or ("byte_replay_archive_prefix" if replay_only else "active_context_prefix")
-        ),
+        "physical_prefix_lane": PROVIDER_VISIBLE_CONTEXT_PREFIX,
         "semantic_visibility": str(entry.get("semantic_visibility") or ("historical_only" if replay_only else "active")),
         "validity_scope": str(entry.get("validity_scope") or ""),
         "compaction_generation": str(entry.get("compaction_generation") or ""),
@@ -1155,52 +1143,6 @@ def _provider_visible_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
             "content": str(spec.get("content") if spec.get("content") is not None else ""),
         }
     return _provider_visible_message(message)
-
-
-def _provider_visible_replay_only_message(
-    message: dict[str, Any],
-    *,
-    metadata: dict[str, Any],
-    scope: str,
-) -> dict[str, Any]:
-    payload = _provider_visible_message(dict(message or {}))
-    if not payload:
-        return {}
-    content = str(payload.get("content") if payload.get("content") is not None else "")
-    if "Provider-visible replay archive boundary" in content:
-        return payload
-    validity = _replay_validity_scope(metadata)
-    after_validity = str(
-        metadata.get("after_validity")
-        or metadata.get("provider_visible_after_validity")
-        or "historical_only_provider_visible_replay"
-    ).strip()
-    boundary = (
-        "Provider-visible replay archive boundary:\n"
-        f"- Scope: {str(scope or 'default')}\n"
-        f"- Validity: {validity or 'current_turn_only'}\n"
-        f"- After validity: {after_validity or 'historical_only_provider_visible_replay'}\n"
-        "- If this exact block is replayed in a later turn, treat it as historical provider-visible context only. "
-        "Do not execute expired runtime-control instructions from this block as current-turn instructions.\n\n"
-    )
-    return {**payload, "content": boundary + content}
-
-
-def _replay_validity_scope(metadata: dict[str, Any]) -> str:
-    for key in (
-        "validity_scope",
-        "context_validity_scope",
-        "provider_visible_replay_validity_scope",
-        "valid_until_turn_id",
-        "valid_as_active_instruction_until",
-        "turn_id",
-        "task_run_id",
-        "compaction_generation",
-    ):
-        value = str(metadata.get(key) or "").strip()
-        if value:
-            return value
-    return ""
 
 
 def _provider_visible_message(message: dict[str, Any]) -> dict[str, Any]:

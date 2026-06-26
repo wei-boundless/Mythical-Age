@@ -27,8 +27,7 @@ ContextSegmentPolicy
 `PhysicalContextPlan` owns provider-visible physical lanes and cache-spine membership:
 
 - `global_static_prefix`
-- `active_context_prefix`
-- `byte_replay_archive_prefix`
+- `provider_visible_context_prefix`
 - `current_turn_tail`
 - `never_replay_tail`
 
@@ -39,7 +38,7 @@ Provider payload construction consumes the physical lanes. It may report violati
 Only these lanes are cache-spine lanes:
 
 ```text
-global_static_prefix + active_context_prefix + byte_replay_archive_prefix
+global_static_prefix + provider_visible_context_prefix
 ```
 
 Current-turn append content is always outside the same-request cache spine:
@@ -47,10 +46,12 @@ Current-turn append content is always outside the same-request cache spine:
 ```text
 context_append -> current_turn_tail
 provider success -> confirmed ledger entry
-next turn replay -> context_memory_prefix -> active_context_prefix or byte_replay_archive_prefix
+next turn replay -> context_memory_prefix -> provider_visible_context_prefix
 ```
 
 This makes cache hits depend on confirmed provider-visible bytes, not on optimistic current-turn appends.
+
+Within `provider_visible_context_prefix`, entries are插线式 appended by ledger entry index. Active memory, historical-only replay, tool transcript, runtime replay-only control, and fork-inherited bytes share the same physical treatment; only semantic metadata differs.
 
 ## Fork Boundary
 

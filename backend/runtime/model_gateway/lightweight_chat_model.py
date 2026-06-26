@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
-import uuid
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
 import httpx
+
+from runtime.shared.tool_schema_canonical import canonical_provider_tool_input_schema
 
 
 @dataclass(slots=True)
@@ -241,7 +243,7 @@ def provider_tool_payloads(tools: list[Any], *, strict: Any = None) -> list[dict
         name = _tool_name(tool)
         if not name:
             continue
-        parameters = _tool_parameters_schema(tool)
+        parameters = canonical_provider_tool_input_schema(tool)
         function_payload: dict[str, Any] = {
             "name": name,
             "description": _tool_description(tool, fallback=name),
@@ -276,7 +278,7 @@ def _message_from_completion_response(
         "usage": usage,
     }
     additional_kwargs: dict[str, Any] = {"provider": provider}
-    reasoning_content = _first_text(
+    reasoning_content = _first_text_preserving_whitespace(
         message.get("reasoning_content"),
         message.get("reasoning"),
         dict(message.get("additional_kwargs") or {}).get("reasoning_content")
@@ -357,7 +359,10 @@ def _message_to_provider_payload(message: Any) -> dict[str, Any]:
             payload[key] = value
     if role == "assistant":
         additional_kwargs = dict(item.get("additional_kwargs") or {}) if isinstance(item.get("additional_kwargs"), dict) else {}
-        reasoning_content = _first_text(item.get("reasoning_content"), additional_kwargs.get("reasoning_content"))
+        reasoning_content = _first_text_preserving_whitespace(
+            item.get("reasoning_content"),
+            additional_kwargs.get("reasoning_content"),
+        )
         if reasoning_content:
             payload["reasoning_content"] = reasoning_content
         prefix = item.get("prefix")
@@ -392,7 +397,7 @@ def _provider_payload_passthrough(item: dict[str, Any]) -> dict[str, Any] | None
         if value:
             payload[key] = value
     if role == "assistant":
-        reasoning_content = _first_text(item.get("reasoning_content"))
+        reasoning_content = _first_text_preserving_whitespace(item.get("reasoning_content"))
         if reasoning_content:
             payload["reasoning_content"] = reasoning_content
         if item.get("prefix") is True or str(item.get("prefix") or "").strip().lower() == "true":
@@ -491,69 +496,6 @@ def _tool_description(tool: Any, *, fallback: str) -> str:
         or fallback
     )
 
-
-def _tool_parameters_schema(tool: Any) -> dict[str, Any]:
-    if isinstance(tool, dict):
-        schema = tool.get("input_schema") if isinstance(tool.get("input_schema"), dict) else tool.get("parameters")
-        if isinstance(schema, dict) and schema:
-            return _json_schema_object(schema)
-        return _schema_from_contract(
-            required_inputs=list(tool.get("required_inputs") or []),
-            optional_inputs=list(tool.get("optional_inputs") or []),
-        )
-
-    for schema_source in (getattr(tool, "input_schema", None), getattr(tool, "args_schema", None)):
-        schema = _schema_from_schema_source(schema_source)
-        if schema:
-            return _json_schema_object(schema)
-
-    capability_definition = getattr(tool, "capability_definition", None)
-    contract = getattr(capability_definition, "contract", None)
-    return _schema_from_contract(
-        required_inputs=list(getattr(contract, "required_inputs", []) or []),
-        optional_inputs=list(getattr(contract, "optional_inputs", []) or []),
-    )
-
-
-def _schema_from_schema_source(schema_source: Any) -> dict[str, Any]:
-    if schema_source is None:
-        return {}
-    if isinstance(schema_source, dict):
-        return dict(schema_source)
-    for method_name in ("model_json_schema", "schema"):
-        method = getattr(schema_source, method_name, None)
-        if callable(method):
-            try:
-                schema = method()
-            except Exception:
-                continue
-            if isinstance(schema, dict):
-                return dict(schema)
-    return {}
-
-
-def _schema_from_contract(*, required_inputs: list[Any], optional_inputs: list[Any]) -> dict[str, Any]:
-    required = [str(item).strip() for item in required_inputs if str(item).strip()]
-    optional = [str(item).strip() for item in optional_inputs if str(item).strip()]
-    properties = {name: {"type": "string"} for name in [*required, *optional]}
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": required,
-    }
-
-
-def _json_schema_object(schema: dict[str, Any]) -> dict[str, Any]:
-    payload = copy.deepcopy(schema)
-    payload.setdefault("type", "object")
-    payload.setdefault("properties", {})
-    if not isinstance(payload.get("properties"), dict):
-        payload["properties"] = {}
-    required = payload.get("required")
-    payload["required"] = [str(item) for item in list(required or []) if str(item)]
-    return payload
-
-
 def _provider_tool_calls_from_normalized(tool_calls: Any) -> list[dict[str, Any]]:
     provider_calls: list[dict[str, Any]] = []
     for index, raw in enumerate(_as_list(tool_calls), start=1):
@@ -572,7 +514,15 @@ def _provider_tool_calls_from_normalized(tool_calls: Any) -> list[dict[str, Any]
         arguments = args if isinstance(args, str) else json.dumps(dict(args or {}), ensure_ascii=False)
         provider_calls.append(
             {
-                "id": str(item.get("id") or item.get("call_id") or f"call_{uuid.uuid4().hex[:24]}"),
+                "id": str(
+                    item.get("id")
+                    or item.get("call_id")
+                    or _deterministic_provider_tool_call_id(
+                        name=name,
+                        arguments=arguments,
+                        index=index,
+                    )
+                ),
                 "type": "function",
                 "function": {
                     "name": name,
@@ -600,6 +550,37 @@ def _provider_tool_call_chunks(raw_tool_calls: Any) -> list[dict[str, Any]]:
             }
         )
     return chunks
+
+
+def _deterministic_provider_tool_call_id(*, name: str, arguments: str, index: int) -> str:
+    seed = {
+        "index": max(1, int(index or 1)),
+        "name": str(name or ""),
+        "arguments": _tool_call_arguments_identity(arguments),
+    }
+    digest = hashlib.sha256(
+        json.dumps(seed, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8",
+            errors="ignore",
+        )
+    ).hexdigest()[:24]
+    return f"call_{digest}"
+
+
+def _tool_call_arguments_identity(arguments: Any) -> Any:
+    if isinstance(arguments, str):
+        text = arguments
+        if text.strip():
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                return text
+            if isinstance(parsed, dict):
+                return _json_stable(parsed)
+        return text
+    if isinstance(arguments, dict):
+        return _json_stable(arguments)
+    return str(arguments or "")
 
 
 def _merge_tool_call_chunks(left: list[dict[str, Any]], right: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -685,6 +666,16 @@ def _parse_args(value: Any) -> dict[str, Any]:
             return {}
         return dict(parsed) if isinstance(parsed, dict) else {}
     return {}
+
+
+def _json_stable(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_stable(value[key]) for key in sorted(value)}
+    if isinstance(value, (list, tuple)):
+        return [_json_stable(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return repr(value)
 
 
 def _as_list(value: Any) -> list[Any]:

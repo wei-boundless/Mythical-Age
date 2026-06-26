@@ -131,7 +131,7 @@ def parse_json_object_with_diagnostics(content: Any) -> tuple[dict[str, Any], di
 
 def _reasoning_content_from_response(response: Any) -> str:
     additional_kwargs = dict(getattr(response, "additional_kwargs", {}) or {})
-    reasoning_content = str(additional_kwargs.get("reasoning_content") or "").strip()
+    reasoning_content = _explicit_provider_text(additional_kwargs.get("reasoning_content"))
     if reasoning_content:
         return reasoning_content
     raw_response = getattr(response, "raw_response", None)
@@ -143,23 +143,37 @@ def _reasoning_content_from_response(response: Any) -> str:
                 continue
             message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
             delta = choice.get("delta") if isinstance(choice.get("delta"), dict) else {}
-            reasoning_content = str(
-                dict(message).get("reasoning_content")
-                or dict(message).get("reasoning")
-                or dict(delta).get("reasoning_content")
-                or dict(delta).get("reasoning")
-                or ""
-            ).strip()
+            reasoning_content = _first_explicit_provider_text(
+                dict(message).get("reasoning_content"),
+                dict(message).get("reasoning"),
+                dict(delta).get("reasoning_content"),
+                dict(delta).get("reasoning"),
+            )
             if reasoning_content:
                 return reasoning_content
     if isinstance(response, dict):
-        reasoning_content = str(response.get("reasoning_content") or "").strip()
+        reasoning_content = _explicit_provider_text(response.get("reasoning_content"))
         if reasoning_content:
             return reasoning_content
         response_additional_kwargs = response.get("additional_kwargs")
         if isinstance(response_additional_kwargs, dict):
-            return str(response_additional_kwargs.get("reasoning_content") or "").strip()
+            return _explicit_provider_text(response_additional_kwargs.get("reasoning_content"))
     return ""
+
+
+def _first_explicit_provider_text(*values: Any) -> str:
+    for value in values:
+        text = _explicit_provider_text(value)
+        if text:
+            return text
+    return ""
+
+
+def _explicit_provider_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    return text if text != "" else ""
 
 
 def _parse_json_object_prefix_with_ignorable_trailing_text(text: str) -> tuple[dict[str, Any], str] | None:

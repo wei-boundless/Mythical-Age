@@ -18,21 +18,18 @@ from .context_segment_policy import (
 
 TRANSPORT_CONTRACT = "transport_contract"
 GLOBAL_STATIC_PREFIX = "global_static_prefix"
-ACTIVE_CONTEXT_PREFIX = "active_context_prefix"
-BYTE_REPLAY_ARCHIVE_PREFIX = "byte_replay_archive_prefix"
+PROVIDER_VISIBLE_CONTEXT_PREFIX = "provider_visible_context_prefix"
 CURRENT_TURN_TAIL = "current_turn_tail"
 NEVER_REPLAY_TAIL = "never_replay_tail"
 
 CACHE_SPINE_LANES = {
     GLOBAL_STATIC_PREFIX,
-    ACTIVE_CONTEXT_PREFIX,
-    BYTE_REPLAY_ARCHIVE_PREFIX,
+    PROVIDER_VISIBLE_CONTEXT_PREFIX,
 }
 TAIL_LANES = {CURRENT_TURN_TAIL, NEVER_REPLAY_TAIL}
 PHYSICAL_CONTEXT_LANE_ORDER = (
     GLOBAL_STATIC_PREFIX,
-    ACTIVE_CONTEXT_PREFIX,
-    BYTE_REPLAY_ARCHIVE_PREFIX,
+    PROVIDER_VISIBLE_CONTEXT_PREFIX,
     CURRENT_TURN_TAIL,
     NEVER_REPLAY_TAIL,
 )
@@ -236,7 +233,6 @@ def annotate_specs_with_physical_context_plan(
 
 def physical_lane_for_spec(spec: dict[str, Any] | None, *, policy: ContextSegmentPolicy | None = None) -> str:
     payload = dict(spec or {})
-    metadata = dict(payload.get("metadata") or {})
     policy = policy or context_segment_policy_for_spec(payload)
     section = str(policy.section or "")
     if section == STATIC_PREFIX:
@@ -244,29 +240,15 @@ def physical_lane_for_spec(spec: dict[str, Any] | None, *, policy: ContextSegmen
     if section == CONTEXT_MEMORY_PREFIX:
         if not _stable_prefix_binding(policy):
             return CURRENT_TURN_TAIL
-        return BYTE_REPLAY_ARCHIVE_PREFIX if _historical_replay_only(metadata) else ACTIVE_CONTEXT_PREFIX
+        return PROVIDER_VISIBLE_CONTEXT_PREFIX
     if section == CONTEXT_APPEND:
         return CURRENT_TURN_TAIL
     if section == DYNAMIC_TAIL:
-        return BYTE_REPLAY_ARCHIVE_PREFIX if _tail_archive_replay_allowed(payload, policy=policy) else NEVER_REPLAY_TAIL
+        return NEVER_REPLAY_TAIL
     return CURRENT_TURN_TAIL
 
 
-def _tail_archive_replay_allowed(spec: dict[str, Any] | None, *, policy: ContextSegmentPolicy) -> bool:
-    payload = dict(spec or {})
-    metadata = dict(payload.get("metadata") or {})
-    replay_policy = str(policy.replay_policy or metadata.get("context_replay_policy") or "").strip()
-    replay_safe_policy = replay_policy in {
-        "cache_replay_safe_expiring",
-        "historical_only_provider_visible_replay",
-    }
-    explicit_replay_only = metadata.get("provider_visible_replay_only") is True
-    if not (replay_safe_policy or explicit_replay_only):
-        return False
-    return bool(_validity_scope(metadata) or _historical_only_on_replay(metadata))
-
-
-def _historical_replay_only(metadata: dict[str, Any]) -> bool:
+def _historical_only_metadata(metadata: dict[str, Any]) -> bool:
     semantic_class = str(metadata.get("semantic_commit_class") or "").strip()
     return (
         metadata.get("provider_visible_replay_only") is True
@@ -288,9 +270,10 @@ def _historical_only_on_replay(metadata: dict[str, Any]) -> bool:
 
 
 def _semantic_visibility(*, metadata: dict[str, Any], lane: str) -> str:
-    if lane == BYTE_REPLAY_ARCHIVE_PREFIX:
-        return "historical_only"
-    if metadata.get("semantic_memory_visible") is False:
+    explicit = str(metadata.get("semantic_visibility") or "").strip()
+    if explicit:
+        return explicit
+    if _historical_only_metadata(metadata):
         return "historical_only"
     if lane in TAIL_LANES:
         return "current_turn_only"
@@ -347,9 +330,9 @@ def _spec_content_hash(spec: dict[str, Any]) -> str:
 
 def _physical_context_order_key(segment: PhysicalContextPlanSegment) -> tuple[int, int, int, str]:
     ledger_entry_index = _safe_int(segment.metadata.get("provider_visible_context_ledger_entry_index"))
-    if ledger_entry_index > 0 and segment.lane in {ACTIVE_CONTEXT_PREFIX, BYTE_REPLAY_ARCHIVE_PREFIX}:
+    if ledger_entry_index > 0 and segment.lane == PROVIDER_VISIBLE_CONTEXT_PREFIX:
         return (
-            PHYSICAL_CONTEXT_LANE_RANK[ACTIVE_CONTEXT_PREFIX],
+            PHYSICAL_CONTEXT_LANE_RANK[PROVIDER_VISIBLE_CONTEXT_PREFIX],
             ledger_entry_index,
             int(segment.index or 0),
             str(segment.source_ref or ""),

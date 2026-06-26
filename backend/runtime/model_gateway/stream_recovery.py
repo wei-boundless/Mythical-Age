@@ -360,7 +360,7 @@ def _message_without_provider_tool_protocol(message: dict[str, Any]) -> dict[str
         if (
             item.get("prefix") is not True
             and not str(item.get("content") or "").strip()
-            and not str(item.get("reasoning_content") or "").strip()
+            and not _explicit_provider_text(item.get("reasoning_content"))
         ):
             return {}
     if role in {"system", "user"} and not str(item.get("content") or "").strip():
@@ -446,6 +446,13 @@ def _message_to_recovery_dict(message: Any) -> dict[str, Any]:
         if isinstance(tool_calls, (list, tuple)):
             item["tool_calls"] = [dict(call) for call in tool_calls if isinstance(call, dict)]
     return item
+
+
+def _explicit_provider_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    return text if text != "" else ""
 
 
 def _normalize_role(value: Any) -> str:

@@ -1,10 +1,11 @@
-# Provider-Visible Context, Prefix Cache, and Fork Handoff Report
+# Provider-Visible 上下文、Prefix Cache 与 Fork 交接报告
 
-Date: 2026-06-26
+日期：2026-06-26
+更新：2026-06-27，物理模型改为插线式 `provider_visible_context_prefix`。
 
-## Current Main Chain
+## 当前主链
 
-The runtime context chain is now:
+运行时上下文链路为：
 
 ```text
 ContextSegmentPolicy
@@ -15,75 +16,73 @@ ContextSegmentPolicy
 -> Session/Fork Boundary
 ```
 
-The former standalone physical assembler is no longer a runtime module. Section, prefix, replay, and commit policy live in `context_segment_policy.py`. Physical ordering and cache-spine membership live in `physical_context_plan.py`.
+旧的独立 physical assembler 不再是运行时主链。section、prefix、replay、commit policy 归 `context_segment_policy.py`；物理排序和 cache-spine membership 归 `physical_context_plan.py`。
 
-## Authority Split
+## 权限边界
 
-`ContextSegmentPolicy` owns semantic classification:
+`ContextSegmentPolicy` 只负责语义分类：
 
 - `static_prefix`
 - `context_memory_prefix`
 - `context_append`
 - `dynamic_tail`
 
-`PhysicalContextPlan` owns physical lanes:
+`PhysicalContextPlan` 只负责物理 lane：
 
 - `global_static_prefix`
-- `active_context_prefix`
-- `byte_replay_archive_prefix`
+- `provider_visible_context_prefix`
 - `current_turn_tail`
 - `never_replay_tail`
 
-Only these lanes decide cache-spine membership:
+只有下面这段进入 cache spine：
 
 ```text
-cache_spine = global_static_prefix + active_context_prefix + byte_replay_archive_prefix
+cache_spine = global_static_prefix + provider_visible_context_prefix
 request = cache_spine + current_turn_tail + never_replay_tail
 ```
 
-There is no second physical segment/rank field in `ContextSegmentPolicy`. Semantic section remains useful for policy diagnostics, but physical order, cache-spine membership, and provider prefix hashes are derived from `physical_prefix_lane`.
+同一物理段内采用插线式处理：provider-visible ledger replay 无论语义是 active、historical-only、tool transcript 还是 runtime replay-only，都落入 `provider_visible_context_prefix`，再按 `provider_visible_context_ledger_entry_index` 线性排列。语义差异只能进入 `semantic_visibility`、`semantic_commit_class`、`validity_scope` 等 metadata，不允许改变物理位置。
 
-## Prefix Cache Rule
+## Prefix Cache 规则
 
-Current-turn append content is not cache-spine content.
+本轮 append 内容不是同请求 cache-spine 内容。
 
-`context_append` now maps to `current_turn_tail`. It may become provider-visible, and it may be committed after provider success, but it cannot be counted as cache-readable prefix in the same request. On the next turn, confirmed ledger replay returns as `context_memory_prefix`, and only then can it enter `active_context_prefix` or `byte_replay_archive_prefix`.
+`context_append` 映射到 `current_turn_tail`。它可以被 provider 看见，也可以在 provider success 后确认进 ledger，但不能在同一请求里计入可命中的 prefix。下一轮确认条目从 ledger replay 为 `context_memory_prefix`，再统一进入 `provider_visible_context_prefix`。
 
-This prevents the old failure mode:
+这避免旧失败模式：
 
 ```text
-current append -> active prefix before provider success -> false cache-spine continuity
+current append -> provider success 前提前进入 prefix -> 虚假的 cache-spine continuity
 ```
 
-## Provider Payload Rule
+## Provider Payload 规则
 
-Provider payload cache hashes now use the physical cache spine, not `cache_role/prefix_tier` alone.
+Provider payload cache hash 使用物理 cache spine，不再只看 `cache_role/prefix_tier`。
 
-The selected provider prefix hash is derived from:
+prefix hash 来源：
 
 ```text
 transport_contract_hash + physical cache-spine message segment hashes
 ```
 
-Missing `physical_prefix_lane` is a violation. Provider payload does not guess a lane from old section fields.
+缺失 `physical_prefix_lane` 是违规。Provider payload 不从旧 section 字段猜 lane。
 
-## Ledger Rule
+## Ledger 规则
 
-`provider_visible_context_ledger.py` is a confirmed-entry ledger. It does not decide whether a candidate is sealable. It receives candidates already accepted by policy and records them only after provider success.
+`provider_visible_context_ledger.py` 是 confirmed-entry ledger，不负责判断 candidate 是否可封存。它只接收已被 policy 接受的 candidate，并且只在 provider success 后记录。
 
-Failure requests may create a provider request commit record, but they do not confirm provider-visible replay entries.
+失败请求可以创建 provider request commit record，但不能确认 provider-visible replay entry。
 
-## Fork Handoff
+## Fork 交接
 
-Fork inheritance is anchored by confirmed context state:
+fork 继承锚定 confirmed context state：
 
 - fork point context commit
 - parent provider-visible ledger anchor
 - cache spine hash
 - compaction generation
 
-Child sessions read parent confirmed entries up to the fork anchor and write subsequent entries only under the child scope.
-The fork snapshot stores the fork-point compaction generation explicitly, and compiler inheritance carries it with the parent anchor metadata.
+子 session 读取父 session 到 fork anchor 为止的 confirmed entries，然后只在子 scope 下写入后续 entries。父条目和子条目都在同一 `provider_visible_context_prefix` 物理线中按 entry 顺序插入；fork snapshot 显式保存 fork-point compaction generation，compiler inheritance 随父 anchor metadata 传递。
 
 ## Removed Old Runtime Entrypoints
 
