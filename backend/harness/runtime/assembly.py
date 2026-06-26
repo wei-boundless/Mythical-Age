@@ -230,7 +230,7 @@ _TOOL_CAPABILITY_SYSTEM_GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
             "task_todo_context",
             "tool_schema_catalog",
             "single_agent_turn_tool_call",
-            "single_agent_turn_tool_observation",
+            "tool_transcript_delta",
         ),
         "feedback_channels": ("todo_update", "plan_repair"),
     },
@@ -248,19 +248,19 @@ _TOOL_CAPABILITY_SYSTEM_GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
     "artifact_generation": {
         "capability_groups": ("tool_context", "action_contracts", "repair_feedback"),
         "prompt_resources": ("tool.guidance.edit_file", "tool.guidance.batch_edit_file", "tool.guidance.write_file"),
-        "context_segments": ("tool_schema_catalog", "tool_index_stable", "read_evidence_context", "single_agent_turn_tool_observation"),
+        "context_segments": ("tool_schema_catalog", "tool_index_stable", "read_evidence_context", "tool_transcript_delta"),
         "feedback_channels": ("artifact_write_result", "artifact_write_error", "edit_recovery"),
     },
     "shell_execution": {
         "capability_groups": ("tool_context", "action_contracts", "repair_feedback"),
         "prompt_resources": ("tool.guidance.terminal_powershell",),
-        "context_segments": ("tool_schema_catalog", "tool_index_stable", "single_agent_turn_tool_call", "single_agent_turn_tool_observation"),
+        "context_segments": ("tool_schema_catalog", "tool_index_stable", "single_agent_turn_tool_call", "tool_transcript_delta"),
         "feedback_channels": ("shell_result", "shell_error", "shell_recovery"),
     },
     "source_control": {
         "capability_groups": ("tool_context", "evidence_context", "repair_feedback"),
         "prompt_resources": ("tool.guidance.git_read", "tool.guidance.git_write"),
-        "context_segments": ("tool_schema_catalog", "tool_index_stable", "read_evidence_context", "single_agent_turn_tool_observation"),
+        "context_segments": ("tool_schema_catalog", "tool_index_stable", "read_evidence_context", "tool_transcript_delta"),
         "feedback_channels": ("git_result", "git_error", "git_recovery"),
     },
     "web_research": {
@@ -284,7 +284,7 @@ _TOOL_CAPABILITY_SYSTEM_GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
     "subagent_delegation": {
         "capability_groups": ("action_contracts", "tool_context", "lifecycle_control", "repair_feedback"),
         "prompt_resources": ("tool.guidance.subagent", "runtime.rule.subagent_delegation", "runtime.rule.subagent_invocation_protocol"),
-        "context_segments": ("tool_schema_catalog", "tool_index_stable", "single_agent_turn_tool_call", "single_agent_turn_tool_observation"),
+        "context_segments": ("tool_schema_catalog", "tool_index_stable", "single_agent_turn_tool_call", "tool_transcript_delta"),
         "feedback_channels": ("subagent_result", "subagent_failure", "subagent_closeout"),
     },
 }
@@ -986,7 +986,7 @@ def _build_system_wiring_manifest(
                 "requires_json_action_protocol": bool(control.get("requires_json_action_protocol") is True),
             },
             prompt_resources=("runtime.rule.tool_use", "runtime.rule.multi_tool_scheduling"),
-            context_segments=("single_agent_turn_tool_call", "single_agent_turn_tool_observation", "single_agent_turn_followup_action_contract"),
+            context_segments=("single_agent_turn_tool_call", "tool_transcript_delta", "single_agent_turn_followup_action_contract"),
             feedback_channels=("tool_result", "tool_error", "tool_permission_denial", "followup_prompt_payload"),
         ),
         "tool_runtime": _system_group_manifest(
@@ -998,7 +998,7 @@ def _build_system_wiring_manifest(
                 "filtered_tool_count": len(filtered_tools),
             },
             prompt_resources=("tool.guidance.read_file", "tool.guidance.read_persisted_tool_result", "tool.guidance.edit_file", "tool.guidance.write_file", "tool.guidance.terminal_powershell"),
-            context_segments=("tool_schema_catalog", "tool_index_stable", "tool_observations"),
+            context_segments=("tool_schema_catalog", "tool_index_stable", "tool_transcript_delta"),
             feedback_channels=("tool_result", "tool_error", "tool_permission_denial"),
         ),
         "skill_runtime": _system_group_manifest(
@@ -1028,7 +1028,7 @@ def _build_system_wiring_manifest(
                 "tool.guidance.subagent",
                 *_lifecycle_prompt_refs(profile, "subagent_delegation", "subagent_result_integration"),
             ),
-            context_segments=("single_agent_turn_tool_call", "single_agent_turn_tool_observation"),
+            context_segments=("single_agent_turn_tool_call", "tool_transcript_delta"),
             feedback_channels=("subagent_result", "subagent_failure", "subagent_closeout"),
         ),
         "context_memory": _system_group_manifest(

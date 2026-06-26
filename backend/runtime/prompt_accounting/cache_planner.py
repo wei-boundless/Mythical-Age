@@ -28,7 +28,7 @@ CACHE_READ_REQUIRED_SEGMENT_KINDS = {
 APPEND_ONLY_REPLAY_SEGMENT_KINDS = {
     "read_evidence_context",
     "single_agent_turn_tool_call",
-    "single_agent_turn_tool_observation",
+    "tool_transcript_delta",
     "task_state_replay_entry",
 }
 
@@ -684,6 +684,56 @@ def _cache_read_target_diagnostics(
     }
 
 
+def _expected_miss_budget_diagnostics(
+    *,
+    segment_map: PromptSegmentMap,
+    diagnostics: dict[str, Any],
+    token_diagnostics: dict[str, Any],
+    target_diagnostics: dict[str, Any],
+) -> dict[str, Any]:
+    total_tokens = int(
+        target_diagnostics.get("target_warm_cache_read_rate_total_tokens")
+        or _total_predicted_tokens(segment_map)
+        or 0
+    )
+    expected_prefix_tokens = int(target_diagnostics.get("target_warm_cache_read_rate_prefix_tokens") or 0)
+    current_append_tokens = int(token_diagnostics.get("context_append_prefix_predicted_tokens") or 0)
+    volatile_tokens = int(diagnostics.get("volatile_predicted_tokens") or 0)
+    sidecar_tokens = int(token_diagnostics.get("provider_sidecar_tool_schema_predicted_tokens") or 0)
+    expected_miss_tokens = max(0, total_tokens - expected_prefix_tokens)
+    categorized_tokens = current_append_tokens + volatile_tokens + sidecar_tokens
+    uncategorized_tokens = max(0, expected_miss_tokens - categorized_tokens)
+    goal = float(target_diagnostics.get("target_warm_cache_read_rate_goal") or 0.95)
+    allowed_miss_tokens = max(0, int(math.floor((1.0 - goal) * total_tokens)))
+    families: list[dict[str, Any]] = []
+    for kind, tokens, reason in (
+        ("current_context_append", current_append_tokens, "new append materializes this turn and can only be cached on a later request"),
+        ("dynamic_or_never_replay_tail", volatile_tokens, "current control tail is invocation-local and must remain outside the cache spine"),
+        ("provider_transport_sidecar", sidecar_tokens, "provider tool schema or sidecar contract is stable transport, not provider-visible message history"),
+        ("uncategorized_non_prefix_payload", uncategorized_tokens, "remaining non-prefix payload should be inspected for cache pollution"),
+    ):
+        if tokens <= 0:
+            continue
+        families.append(
+            {
+                "kind": kind,
+                "predicted_tokens": tokens,
+                "predicted_token_ratio": _ratio(tokens, total_tokens),
+                "reason": reason,
+            }
+        )
+    over_budget = max(0, expected_miss_tokens - allowed_miss_tokens)
+    return {
+        "target_warm_cache_read_rate_expected_miss_tokens": expected_miss_tokens,
+        "target_warm_cache_read_rate_allowed_miss_tokens": allowed_miss_tokens,
+        "target_warm_cache_read_rate_expected_miss_over_budget_tokens": over_budget,
+        "target_warm_cache_read_rate_expected_miss_ratio": _ratio(expected_miss_tokens, total_tokens),
+        "target_warm_cache_read_rate_expected_miss_budget_status": "ok" if over_budget <= 0 else "over_budget",
+        "target_warm_cache_read_rate_expected_miss_families": families,
+        "target_warm_cache_read_rate_uncategorized_miss_tokens": uncategorized_tokens,
+    }
+
+
 def _provider_actual_cache_target_diagnostics(
     *,
     diagnostics: dict[str, Any],
@@ -905,6 +955,12 @@ def _plan_from_provider_payload_boundary(
         ),
         prefix_source=f"provider_payload_{key_tier}_prefix",
     )
+    expected_miss_budget = _expected_miss_budget_diagnostics(
+        segment_map=segment_map,
+        diagnostics=diagnostics,
+        token_diagnostics=token_diagnostics,
+        target_diagnostics=target_diagnostics,
+    )
     if not prefix_hash:
         return PromptCacheRecord(
             cache_record_id=f"pcache:{segment_map.request_id}",
@@ -923,6 +979,7 @@ def _plan_from_provider_payload_boundary(
                 **provider_diagnostics,
                 **token_diagnostics,
                 **target_diagnostics,
+                **expected_miss_budget,
                 "prefix_hash_source": "provider_payload_manifest",
             },
         )
@@ -963,6 +1020,7 @@ def _plan_from_provider_payload_boundary(
             **provider_diagnostics,
             **token_diagnostics,
             **target_diagnostics,
+            **expected_miss_budget,
             "prefix_key_tier": key_tier,
             "prefix_hash_source": "provider_payload_manifest",
             "provider_payload_stable_segment_count": int(selected_prefix.get("segment_count") or 0),

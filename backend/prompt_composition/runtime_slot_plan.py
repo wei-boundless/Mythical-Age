@@ -10,6 +10,7 @@ from runtime.context_management.context_segment_policy import (
     CONTEXT_APPEND,
     CONTEXT_MEMORY_PREFIX,
     DYNAMIC_TAIL,
+    STATIC_PREFIX,
     context_segment_policy_for_spec,
     context_segment_policy_metadata,
 )
@@ -163,7 +164,7 @@ def _render_contract(spec: dict[str, Any], *, source_kind: str) -> dict[str, Any
 
 def _layer_for_source_kind(source_kind: str) -> str:
     if source_kind == "runtime_baseline_refs":
-        return "runtime_dynamic"
+        return "runtime_protocol_stable"
     if source_kind == "dynamic_context_fragment":
         return "runtime_dynamic"
     if source_kind in {
@@ -240,12 +241,14 @@ def _authority_class_for_source_kind(source_kind: str) -> str:
 def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str, policy: dict[str, Any] | None = None) -> str:
     decision = dict(policy or {})
     section = str(decision.get("section") or decision.get("context_cache_section") or "")
+    if section == STATIC_PREFIX:
+        return "stable_prefix"
     if section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
         if kind == "runtime_memory_context":
             return "runtime_memory_context"
         if kind in {"current_turn_user_context", "single_agent_turn_user_steer_context", "user_steering_context_append"}:
             return "user_context_append"
-        if kind in {"provider_protocol_history", "single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"}:
+        if kind in {"provider_protocol_history", "single_agent_turn_tool_call", "tool_transcript_delta"}:
             return "append_only_task_evidence"
         return "context_memory_append"
     if section == DYNAMIC_TAIL:
@@ -285,6 +288,8 @@ def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str, policy: dict[
     if source_kind == "runtime_memory_context" or kind == "runtime_memory_context":
         return "runtime_memory_context"
     if source_kind == "runtime_baseline_refs" or kind == "runtime_baseline_refs":
+        if cache_role in {"cacheable_prefix", "session_stable"}:
+            return "stable_prefix"
         return "runtime_baseline_refs"
     if kind == "dynamic_projection":
         return "runtime_delta_tail"

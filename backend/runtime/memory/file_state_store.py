@@ -107,6 +107,49 @@ class FileStateAuthorityStore:
     def snapshot_scope(self, scope: dict[str, Any] | None, *, limit: int = 20) -> list[dict[str, Any]]:
         return self.load_scope(scope).projection(limit=limit)
 
+    def materialize_snapshot_scope(
+        self,
+        target_scope: dict[str, Any] | None,
+        snapshot: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+        *,
+        source_scope: dict[str, Any] | None = None,
+        observation_ref: str = "",
+        tool_call_id: str = "",
+    ) -> dict[str, Any]:
+        evidence_scope = normalize_file_evidence_scope(target_scope)
+        if not evidence_scope:
+            return {
+                "status": "skipped",
+                "reason": "missing_target_file_evidence_scope",
+                "authority": f"{FILE_STATE_STORE_AUTHORITY}.snapshot_materialization",
+            }
+        events = _file_state_snapshot_events(
+            snapshot,
+            source_scope=normalize_file_evidence_scope(source_scope),
+        )
+        if not events:
+            return {
+                "status": "empty",
+                "target_file_evidence_scope": evidence_scope,
+                "source_file_evidence_scope": normalize_file_evidence_scope(source_scope),
+                "applied_snapshot_event_count": 0,
+                "authority": f"{FILE_STATE_STORE_AUTHORITY}.snapshot_materialization",
+            }
+        self.apply_events_scope(
+            evidence_scope,
+            events,
+            observation_ref=str(observation_ref or "file_state_snapshot_materialization"),
+            tool_call_id=str(tool_call_id or "file_state_snapshot_materialization"),
+        )
+        return {
+            "status": "recorded",
+            "target_file_evidence_scope": evidence_scope,
+            "source_file_evidence_scope": normalize_file_evidence_scope(source_scope),
+            "snapshot_file_count": len([item for item in list(snapshot or []) if isinstance(item, dict)]),
+            "applied_snapshot_event_count": len(events),
+            "authority": f"{FILE_STATE_STORE_AUTHORITY}.snapshot_materialization",
+        }
+
     def prune_task_runs(self, task_run_ids: set[str] | list[str] | tuple[str, ...]) -> dict[str, Any]:
         targets = {str(item).strip() for item in task_run_ids if str(item).strip()}
         deleted: list[str] = []
@@ -240,6 +283,107 @@ def _event_payload(event: dict[str, Any], *, observation_ref: str, tool_call_id:
     if tool_call_id and not str(payload.get("tool_call_id") or "").strip():
         payload["tool_call_id"] = tool_call_id
     return _drop_empty(payload)
+
+
+def _file_state_snapshot_events(
+    snapshot: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    source_scope: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], ...]:
+    events: list[dict[str, Any]] = []
+    source = normalize_file_evidence_scope(source_scope)
+    source_kind = str(source.get("kind") or "")
+    source_scope_id = str(source.get("scope_id") or "")
+    for raw_file_state in [dict(item) for item in list(snapshot or []) if isinstance(item, dict)]:
+        path = str(raw_file_state.get("path") or "").replace("\\", "/").strip().strip("/")
+        if not path:
+            continue
+        total_lines = raw_file_state.get("total_lines")
+        file_hash = raw_file_state.get("content_sha256")
+        file_mtime = raw_file_state.get("mtime_ns")
+        for raw_range in [dict(item) for item in list(raw_file_state.get("read_ranges") or []) if isinstance(item, dict)]:
+            if raw_range.get("stale") is True:
+                continue
+            events.append(
+                _drop_empty(
+                    {
+                        "event_type": "read",
+                        "path": path,
+                        "start_line": raw_range.get("start_line"),
+                        "end_line": raw_range.get("end_line"),
+                        "total_lines": total_lines,
+                        "content_sha256": raw_range.get("content_sha256") or file_hash,
+                        "mtime_ns": raw_range.get("mtime_ns") or file_mtime,
+                        "read_intent": raw_range.get("read_intent"),
+                        "reusable_result_ref": raw_range.get("reusable_result_ref"),
+                        "exact_artifact_ref": raw_range.get("exact_artifact_ref"),
+                        "artifact_ref_status": raw_range.get("artifact_ref_status"),
+                        "visible_exact": raw_range.get("visible_exact"),
+                        "text_sha256": raw_range.get("text_sha256"),
+                        "next_start_line": raw_range.get("next_start_line"),
+                        "has_more": raw_range.get("has_more"),
+                        "observation_ref": raw_range.get("observation_ref") or raw_file_state.get("last_observation_ref"),
+                        "tool_call_id": raw_range.get("tool_call_id") or raw_file_state.get("last_tool_call_id"),
+                        "source_scope_kind": source_kind,
+                        "source_scope_id": source_scope_id,
+                    }
+                )
+            )
+        search_hits_by_query: dict[str, list[dict[str, Any]]] = {}
+        for raw_hit in [dict(item) for item in list(raw_file_state.get("search_hits") or []) if isinstance(item, dict)]:
+            query = str(raw_hit.get("query") or "")
+            if not query:
+                continue
+            search_hits_by_query.setdefault(query, []).append(
+                _drop_empty({"line": raw_hit.get("line"), "preview": raw_hit.get("preview")})
+            )
+        for query, matches in search_hits_by_query.items():
+            events.append(
+                _drop_empty(
+                    {
+                        "event_type": "search",
+                        "path": path,
+                        "query": query,
+                        "matches": matches,
+                        "observation_ref": raw_file_state.get("last_observation_ref"),
+                        "tool_call_id": raw_file_state.get("last_tool_call_id"),
+                        "source_scope_kind": source_kind,
+                        "source_scope_id": source_scope_id,
+                    }
+                )
+            )
+        for raw_write in [dict(item) for item in list(raw_file_state.get("write_events") or []) if isinstance(item, dict)]:
+            operation = str(raw_write.get("operation") or "").strip()
+            if operation not in {"write", "edit"}:
+                continue
+            events.append(
+                _drop_empty(
+                    {
+                        "event_type": operation,
+                        "path": path,
+                        "content_sha256": raw_write.get("content_sha256_after") or file_hash,
+                        "observation_ref": raw_write.get("observation_ref") or raw_file_state.get("last_observation_ref"),
+                        "tool_call_id": raw_file_state.get("last_tool_call_id"),
+                        "source_scope_kind": source_kind,
+                        "source_scope_id": source_scope_id,
+                    }
+                )
+            )
+        if raw_file_state.get("exists") is False:
+            events.append(
+                _drop_empty(
+                    {
+                        "event_type": "exists",
+                        "path": path,
+                        "exists": False,
+                        "observation_ref": raw_file_state.get("last_observation_ref"),
+                        "tool_call_id": raw_file_state.get("last_tool_call_id"),
+                        "source_scope_kind": source_kind,
+                        "source_scope_id": source_scope_id,
+                    }
+                )
+            )
+    return tuple(events)
 
 
 def _bounded_event_history(events: list[dict[str, Any]]) -> list[dict[str, Any]]:

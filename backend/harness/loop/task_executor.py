@@ -2179,6 +2179,83 @@ async def _execute_claimed_task_run(
             artifact_refs = dedupe_artifact_refs(list(admission_result["artifact_refs"]))
             continue
 
+        if action_request.action_type == "pause_for_user_steer":
+            validation_errors = _pause_for_user_steer_validation_errors(
+                runtime_host,
+                task_run=current_task,
+                action_request=action_request,
+                included_steer_ids=included_steer_ids,
+            )
+            if validation_errors:
+                repair_observation = _model_protocol_repair_observation(
+                    task_run_id=current_task.task_run_id,
+                    packet_ref=compilation.packet.packet_id,
+                    step_index=step_index,
+                    diagnostics={
+                        "validation_errors": validation_errors,
+                        "action_request": action_request.to_dict(),
+                        "authority": "harness.loop.task_executor.pause_for_user_steer_admission",
+                    },
+                    runtime_fingerprint=runtime_fingerprint,
+                )
+                raw_observations.append(repair_observation)
+                runtime_host.runtime_objects.put_object("observation", repair_observation["observation_id"], repair_observation)
+                runtime_host.event_log.append(
+                    current_task.task_run_id,
+                    "task_model_action_protocol_repair_required",
+                    payload={"observation": repair_observation, "diagnostics": {"validation_errors": validation_errors}},
+                    refs={
+                        "task_run_ref": current_task.task_run_id,
+                        "observation_ref": repair_observation["observation_id"],
+                        "runtime_invocation_packet_ref": compilation.packet.packet_id,
+                        "action_request_ref": action_request.request_id,
+                    },
+                )
+                _record_task_step_summary(
+                    runtime_host,
+                    task_run_id=current_task.task_run_id,
+                    step=f"pause_for_user_steer_repair_required:{step_index}",
+                    status="running",
+                    summary="模型请求暂停的用户补充要求引用无效，正在交回模型修正。",
+                    presentation_source=_PROTOCOL_REPAIR_PRESENTATION_SOURCE,
+                    refs={"observation_ref": repair_observation["observation_id"], "action_request_ref": action_request.request_id},
+                )
+                if _model_protocol_repair_count(raw_observations) >= _MAX_MODEL_PROTOCOL_REPAIR_ATTEMPTS:
+                    return _finish_executor_blocked(
+                        runtime_host,
+                        task_run=current_task,
+                        agent_run=agent_run,
+                        terminal_reason="pause_for_user_steer_protocol_repair_required",
+                        payload={
+                            "recoverable_error": {
+                                "error_code": "pause_for_user_steer_invalid",
+                                "retryable": True,
+                                "validation_errors": validation_errors,
+                            },
+                            "recovery_action": "rerun_task_executor",
+                            "action_request": action_request.to_dict(),
+                        },
+                    )
+                observation_context = _observations_for_packet(
+                    runtime_host,
+                    current_task.task_run_id,
+                    current_fingerprint=runtime_fingerprint,
+                    pending_observations=raw_observations,
+                )
+                raw_observations = list(observation_context["raw_observations"])
+                observations = list(observation_context["packet_observations"])
+                execution_state = dict(observation_context["execution_state"])
+                artifact_refs = dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs])
+                continue
+            return _pause_executor_for_user_steer(
+                runtime_host,
+                task_run=current_task,
+                agent_run=agent_run,
+                action_request=action_request,
+                packet_ref=compilation.packet.packet_id,
+                event_offset=action_event.offset,
+            )
+
         if action_request.action_type == "respond":
             control_closeout_observation = _latest_agent_closeout_runtime_control_observation(raw_observations)
             if control_closeout_observation is not None:
@@ -6940,6 +7017,162 @@ def _pause_executor_for_user_control(runtime_host: Any, *, task_run: Any, agent_
     return {"ok": False, "task_run": paused_task.to_dict(), "error": "task_run_paused", "retryable": True}
 
 
+def _pause_executor_for_user_steer(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    agent_run: Any | None,
+    action_request: AnyModelActionRequest,
+    packet_ref: str,
+    event_offset: int | float = 0,
+) -> dict[str, Any]:
+    now = time.time()
+    pause_request = dict(getattr(action_request, "pause_request", {}) or {})
+    steer_ref = str(pause_request.get("steer_ref") or "").strip()
+    checkpoint_summary = compact_text(pause_request.get("checkpoint_summary") or "", limit=1200)
+    resume_hint = compact_text(pause_request.get("resume_hint") or "", limit=800)
+    requires_user_input = bool(pause_request.get("requires_user_input") is True)
+    public_status = (
+        public_runtime_progress_summary(action_request.public_progress_note)
+        or "已按用户补充要求暂停；任务保持在同一 task_run 的可继续状态。"
+    )
+    public_action_state = _action_public_state(action_request)
+    recoverable_payload = {
+        "error_code": "user_steer_pause",
+        "retryable": True,
+        "user_message": "任务已按用户补充要求停在可恢复边界。",
+        "steer_ref": steer_ref,
+        "checkpoint_summary": checkpoint_summary,
+        "resume_hint": resume_hint,
+        "requires_user_input": requires_user_input,
+    }
+    event = runtime_host.event_log.append(
+        task_run.task_run_id,
+        "task_run_paused_for_user_steer",
+        payload={
+            "task_run_id": task_run.task_run_id,
+            "action_request": action_request.to_dict(),
+            "pause_request": {
+                **pause_request,
+                "steer_ref": steer_ref,
+                "checkpoint_summary": checkpoint_summary,
+                "resume_hint": resume_hint,
+                "requires_user_input": requires_user_input,
+            },
+            "recoverable_error": recoverable_payload,
+            "requested_by": "agent",
+            "origin": "user_steer_pause",
+            "runtime_invocation_packet_ref": packet_ref,
+        },
+        refs={
+            "task_run_ref": task_run.task_run_id,
+            "steer_ref": steer_ref,
+            "action_request_ref": action_request.request_id,
+            "runtime_invocation_packet_ref": packet_ref,
+        },
+    )
+    diagnostics = _diagnostics_with_runtime_control(
+        _strip_terminal_diagnostics(dict(task_run.diagnostics or {})),
+        state=_TASK_RUN_PAUSED,
+        requested_by="agent",
+        requested_at=event.created_at or now,
+        reason="user_steer_requires_pause",
+        latest_step="task_run_paused_for_user_steer",
+        latest_step_status="waiting_executor",
+        latest_step_summary=public_status,
+        extra_control={
+            "origin": "user_steer_pause",
+            "steer_ref": steer_ref,
+            "action_request_ref": action_request.request_id,
+            "checkpoint_summary": checkpoint_summary,
+            "resume_hint": resume_hint,
+            "requires_user_input": requires_user_input,
+        },
+    )
+    paused_task = replace(
+        task_run,
+        status="waiting_executor",
+        updated_at=event.created_at or now,
+        latest_event_offset=event.offset,
+        terminal_reason="",
+        diagnostics={
+            **_strip_runtime_lease_diagnostics(diagnostics),
+            "executor_status": "waiting_executor",
+            "wait_reason": "user_steer_pause",
+            "recoverable_error": recoverable_payload,
+            "recovery_action": "resume_task_run",
+            "latest_public_status": public_status,
+            "latest_public_progress_note": public_status,
+            "latest_public_action_state": public_action_state,
+            "latest_current_judgment": str(public_action_state.get("current_judgment") or ""),
+            "latest_next_action": str(public_action_state.get("next_action") or ""),
+            "latest_completion_status": str(public_action_state.get("completion_status") or "blocked"),
+            "user_steer_pause": {
+                "origin": "user_steer_pause",
+                "steer_ref": steer_ref,
+                "action_request_ref": action_request.request_id,
+                "checkpoint_summary": checkpoint_summary,
+                "resume_hint": resume_hint,
+                "requires_user_input": requires_user_input,
+                "runtime_invocation_packet_ref": packet_ref,
+            },
+        },
+    )
+    runtime_host.state_index.upsert_task_run(paused_task)
+    _bind_active_turn_for_task_state(runtime_host, paused_task, state="waiting_executor")
+    if agent_run is not None:
+        runtime_host.state_index.upsert_agent_run(
+            replace(
+                agent_run,
+                status="failed",
+                updated_at=event.created_at or now,
+                diagnostics={
+                    **dict(agent_run.diagnostics or {}),
+                    "terminal_reason": "user_steer_pause",
+                    "runtime_control": _runtime_control_payload(paused_task, runtime_host=runtime_host),
+                    "recoverable_error": recoverable_payload,
+                },
+            )
+        )
+    _record_task_step_summary(
+        runtime_host,
+        task_run_id=task_run.task_run_id,
+        step="task_run_paused_for_user_steer",
+        status="waiting_executor",
+        summary=public_status,
+        public_progress_note=public_status,
+        current_judgment=str(public_action_state.get("current_judgment") or ""),
+        next_action=str(public_action_state.get("next_action") or ""),
+        completion_status=str(public_action_state.get("completion_status") or "blocked"),
+        presentation_source="model_action.pause_for_user_steer",
+        refs={"steer_ref": steer_ref, "action_request_ref": action_request.request_id},
+    )
+    append_work_rollout_item(
+        runtime_host,
+        task_run=paused_task,
+        item_type="pause_boundary",
+        title="已按用户补充要求暂停",
+        status="waiting_executor",
+        summary=public_status,
+        agent_brief_output=checkpoint_summary,
+        event_offset=event.offset or event_offset,
+        refs={
+            "task_run_ref": task_run.task_run_id,
+            "steer_ref": steer_ref,
+            "action_request_ref": action_request.request_id,
+            "runtime_invocation_packet_ref": packet_ref,
+        },
+        payload={
+            "terminal_reason": "user_steer_pause",
+            "recoverable_error": recoverable_payload,
+            "pause_request": pause_request,
+            "model_visible": True,
+        },
+    )
+    latest_task = runtime_host.state_index.get_task_run(task_run.task_run_id) or paused_task
+    return {"ok": False, "task_run": latest_task.to_dict(), "error": "user_steer_pause", "retryable": True}
+
+
 def _stop_executor_for_user_control(runtime_host: Any, *, task_run: Any, agent_run: Any | None, boundary: str) -> dict[str, Any]:
     now = time.time()
     control = _runtime_control_payload(task_run, runtime_host=runtime_host)
@@ -8351,6 +8584,62 @@ def _consumed_steer_ids(action_request: AnyModelActionRequest, included_steer_id
     return result
 
 
+def _pause_for_user_steer_validation_errors(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    action_request: AnyModelActionRequest,
+    included_steer_ids: list[str],
+) -> list[str]:
+    if str(getattr(action_request, "action_type", "") or "") != "pause_for_user_steer":
+        return []
+    pause_request = dict(getattr(action_request, "pause_request", {}) or {})
+    steer_ref = str(pause_request.get("steer_ref") or "").strip()
+    reason = str(pause_request.get("reason") or "").strip()
+    checkpoint_summary = str(pause_request.get("checkpoint_summary") or "").strip()
+    errors: list[str] = []
+    if not steer_ref:
+        errors.append("pause_request.steer_ref_required")
+    if reason != "user_steer_requires_pause":
+        errors.append("pause_request.reason_must_be_user_steer_requires_pause")
+    if not checkpoint_summary:
+        errors.append("pause_request.checkpoint_summary_required")
+    diagnostics = dict(getattr(action_request, "diagnostics", {}) or {})
+    if _has_non_empty_sequence(diagnostics.get("consumed_steer_refs")):
+        errors.append("pause_for_user_steer_must_not_consume_steer_refs")
+    if _has_non_empty_sequence(diagnostics.get("consumed_user_steer_refs")):
+        errors.append("pause_for_user_steer_must_not_consume_user_steer_refs")
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
+    pending_steers = list_pending_task_steers(runtime_host, task_run_id)
+    allowed_refs = {
+        str(item or "").strip()
+        for item in list(included_steer_ids or [])
+        if str(item or "").strip()
+    }
+    for steer in pending_steers:
+        steer_id = str(steer.get("steer_id") or "").strip()
+        steer_task_run_id = str(steer.get("task_run_id") or "").strip()
+        state = str(steer.get("consumption_state") or "pending").strip()
+        if not steer_id:
+            continue
+        if steer_task_run_id and steer_task_run_id != task_run_id:
+            continue
+        if state not in {"pending", "included_in_packet"}:
+            continue
+        allowed_refs.add(steer_id)
+    if steer_ref and steer_ref not in allowed_refs:
+        errors.append("pause_request.steer_ref_not_pending_for_task")
+    return errors
+
+
+def _has_non_empty_sequence(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, (list, tuple, set)):
+        return any(str(item or "").strip() for item in value)
+    return bool(str(value or "").strip())
+
+
 def _contract_revision_decisions(action_request: AnyModelActionRequest) -> list[dict[str, Any]]:
     diagnostics = dict(action_request.diagnostics or {})
     raw = diagnostics.get("contract_revision_decisions")
@@ -9048,6 +9337,7 @@ def _runtime_control_payload(task_run: Any, *, runtime_host: Any | None = None) 
         "authority": "orchestration.task_run_control",
         **({"runtime_control_signal_ref": signal_ref} if signal_ref else {}),
         **({"runtime_control_event_ref": event_ref} if event_ref else {}),
+        **_runtime_control_optional_projection(control),
     }
 
 
@@ -9074,14 +9364,16 @@ def _diagnostics_with_runtime_control(
     latest_step_status: str,
     latest_step_summary: str,
     control_signal: ExecutorControlSignal | None = None,
+    extra_control: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     control_payload = {
         "state": state,
         "requested_by": requested_by or "user",
         "requested_at": float(requested_at or time.time()),
         "reason": reason,
-        "authority": "orchestration.task_run_control",
         **_executor_control_signal_trace_payload(control_signal),
+        **_runtime_control_optional_projection(dict(extra_control or {})),
+        "authority": "orchestration.task_run_control",
     }
     return {
         **dict(diagnostics or {}),
@@ -9090,6 +9382,26 @@ def _diagnostics_with_runtime_control(
         "latest_step_status": latest_step_status,
         "latest_step_summary": latest_step_summary,
     }
+
+
+def _runtime_control_optional_projection(control: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for key in (
+        "origin",
+        "steer_ref",
+        "action_request_ref",
+        "checkpoint_summary",
+        "resume_hint",
+        "requires_user_input",
+        "runtime_control_signal_kind",
+        "runtime_control_signal_fingerprint",
+        "runtime_control_signal_observation_ref",
+    ):
+        value = control.get(key)
+        if value in ("", None, [], {}):
+            continue
+        payload[key] = value
+    return payload
 
 
 def _completion_repair_observation(*, task_run_id: str, packet_ref: str, action_request: AnyModelActionRequest, verdict: dict[str, Any]) -> dict[str, Any]:

@@ -39,6 +39,8 @@ INTERNAL_PROTOCOL_MARKERS = (
     'name="collect_subagent_result"',
     'name="observe_subagents"',
     'name="stop_subagent"',
+    "pause_for_user_steer",
+    "pause_request",
     "**工具调用:**",
     "**工具输出:**",
     "此工具调用为系统自动补全示例",
@@ -80,7 +82,7 @@ _ACTIVE_WORK_CONTROL_KEY_RE = re.compile(
 )
 _MODEL_ACTION_PROTOCOL_RE = re.compile(
     r'"authority"\s*:\s*"harness\.loop\.model_action_request"|'
-    r'"action_type"\s*:\s*"(?:respond|ask_user|tool_call|request_task_run|active_work_control|block)"',
+    r'"action_type"\s*:\s*"(?:respond|ask_user|tool_call|request_task_run|active_work_control|pause_for_user_steer|block)"',
     re.IGNORECASE,
 )
 _RUNTIME_PROTOCOL_DISCLOSURE_MARKERS = (

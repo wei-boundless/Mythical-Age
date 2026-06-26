@@ -280,6 +280,8 @@ def _result_metadata_for_tool(
     if name != "read_file" or status != "ok":
         return {}
     tool_result = dict(structured_payload.get("tool_result") or {})
+    result_kind = str(tool_result.get("kind") or "").strip()
+    result_status = str(tool_result.get("status") or "").strip()
     path = str(tool_result.get("path") or (observed_paths[0] if observed_paths else "") or args.get("path") or "").strip()
     start_line = _int_or_none(tool_result.get("start_line"))
     end_line = _int_or_none(tool_result.get("end_line"))
@@ -302,20 +304,71 @@ def _result_metadata_for_tool(
             "has_more": has_more,
             "truncated": bool(tool_result.get("truncated") or has_more),
             "content_sha256": str(tool_result.get("content_sha256") or "").strip(),
+            "mtime_ns": _int_or_none(tool_result.get("mtime_ns")),
+            "reused_observation_ref": str(tool_result.get("reused_observation_ref") or "").strip(),
+            "exact_artifact_ref": str(tool_result.get("exact_artifact_ref") or "").strip(),
+            "reusable_result_ref": str(tool_result.get("reusable_result_ref") or "").strip(),
+            "includes_file_text": False if result_kind == "read_file_reuse" else None,
         }
     )
     if not content_range:
         return {}
+    is_reuse = result_kind == "read_file_reuse" or result_status == "reuse_unchanged"
     result_boundary = _drop_empty_dict(
         {
-            "fact_status": "window_evidence",
-            "usable_as": ["current_file_window"],
-            "not_usable_as": ["full_file_fact"] if has_more else [],
+            "fact_status": "unchanged_reused_window_evidence" if is_reuse else "window_evidence",
+            "usable_as": (
+                ["freshness_confirmation", "prior_file_window_reference"]
+                if is_reuse
+                else ["current_file_window"]
+            ),
+            "not_usable_as": (
+                ["new_file_text", "full_file_fact"]
+                if is_reuse
+                else ["full_file_fact"] if has_more else []
+            ),
             "freshness": "active",
             "requires_agent_judgment": True,
+            "includes_file_text": False if is_reuse else None,
         }
     )
     recovery_options: list[dict[str, Any]] = []
+    if is_reuse:
+        recovery_options.append(
+            _drop_empty_dict(
+                {
+                    "kind": "use_prior_evidence_reference",
+                    "condition": "the task only needs the unchanged range already covered by prior exact evidence",
+                    "observation_ref": str(tool_result.get("reused_observation_ref") or tool_result.get("observation_ref") or ""),
+                    "exact_artifact_ref": str(tool_result.get("exact_artifact_ref") or ""),
+                    "reusable_result_ref": str(tool_result.get("reusable_result_ref") or ""),
+                }
+            )
+        )
+        recovery_options.append(
+            _drop_empty_dict(
+                {
+                    "kind": "read_different_or_changed_range",
+                    "tool_name": "read_file",
+                    "condition": "exact text is needed for a different range or the file has changed",
+                    "args_hint": _drop_empty_dict(
+                        {
+                            "path": path,
+                            "start_line": start_line,
+                            "line_count": line_count,
+                        }
+                    ),
+                }
+            )
+        )
+        return _drop_empty_dict(
+            {
+                "content_range": content_range,
+                "result_boundary": result_boundary,
+                "semantic_delta": dict(tool_result.get("semantic_delta") or {}),
+                "recovery_options": recovery_options,
+            }
+        )
     if has_more and next_start_line is not None:
         recovery_options.append(
             _drop_empty_dict(
@@ -607,5 +660,4 @@ def _directory_satisfied_by_path(directory: str, candidate: str) -> bool:
     if not target or not observed:
         return False
     return observed == target or observed.startswith(target + "/") or observed.endswith("/" + target) or ("/" + target + "/") in ("/" + observed + "/")
-
 

@@ -47,18 +47,16 @@ from harness.recovery_receipt import recovery_operation_availability_from_receip
 from core.project_layout import ProjectLayout
 from runtime.model_gateway.lightweight_chat_model import provider_message_payloads
 from runtime.model_gateway.protocol_sanitizer import ProtocolSanitizerResult, sanitize_messages_for_prompt
-from runtime.context_management.context_capability_policy import apply_context_capability_profile
 from runtime.context_management.context_segment_policy import (
-    CONTEXT_APPEND,
-    CONTEXT_MEMORY_PREFIX,
     DYNAMIC_TAIL,
-    STATIC_PREFIX,
-    context_segment_policy_for_spec,
-    context_segment_policy_is_provider_visible_sealable,
-    context_segment_policy_metadata,
 )
-from runtime.context_management.physical_context_plan import annotate_specs_with_physical_context_plan
-from runtime.context_management.provider_visible_context_ledger import assemble_provider_visible_context_specs
+from runtime.context_management.context_pipeline import (
+    apply_context_capability_profile_to_specs,
+    build_context_pipeline,
+    normalize_context_compaction_generation,
+    sealed_provider_visible_replay_spec,
+)
+from runtime.context_management.tool_transcript import TOOL_TRANSCRIPT_DELTA_KIND
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies
 
 from .artifact_scope import runtime_artifact_scope_from_environment
@@ -925,7 +923,7 @@ class RuntimeCompiler:
             fallback_model_messages=model_messages,
         )
         single_turn_dynamic_refs = (
-            "agent_visible_runtime_projection",
+            "runtime_delta_projection",
             "operation_authorization",
             "active_work_context",
             "recent_work_outcome",
@@ -1081,6 +1079,7 @@ class RuntimeCompiler:
             contract=contract,
         )
         operation_authorization = dict(assembly_payload.get("operation_authorization") or {})
+        user_steering_payload = _user_steering_task_payload(execution_state)
         packet_context = build_task_execution_packet_context(
             session_id=session_id,
             task_run=task_run,
@@ -1094,6 +1093,7 @@ class RuntimeCompiler:
             operation_authorization=operation_authorization,
             prompt_policy=prompt_policy,
             include_task_run_context=task_run_context_enabled,
+            user_steering_payload=user_steering_payload,
         )
         tool_payloads = packet_context.model_visible_tools
         allowed_actions = packet_context.allowed_action_types
@@ -1139,7 +1139,7 @@ class RuntimeCompiler:
         )
         action_schema_manifest = build_action_schema_manifest(
             invocation_kind="task_execution",
-            schema=task_execution_action_schema(),
+            schema=task_execution_action_schema(allowed_action_types=allowed_actions),
             source_ref="task_execution_action_schema",
         )
         artifact_scope_manifest = build_artifact_scope_manifest(
@@ -1313,6 +1313,7 @@ class RuntimeCompiler:
             operation_authorization=operation_authorization,
             prompt_policy=prompt_policy,
             include_task_run_context=task_run_context_enabled,
+            user_steering_payload=user_steering_payload,
         )
         packet_id = packet_context.packet_id
         projection_policy = packet_context.projection_policy
@@ -1379,10 +1380,10 @@ class RuntimeCompiler:
             task_state_payload=task_state_payload,
             evidence_index_cursor_payload=evidence_index_cursor_payload,
             current_observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
+            user_steering_payload=user_steering_payload,
         )
         read_evidence_payload = packet_context.read_evidence_payload
         read_evidence_prompt_payload = _read_evidence_prompt_payload(read_evidence_payload)
-        user_steering_payload = _user_steering_task_payload(execution_state)
         incremental_context_frame_payload = build_task_execution_incremental_context_frame_payload(
             task_run_id=task_run_id,
             invocation_index=invocation_index,
@@ -1698,7 +1699,7 @@ class RuntimeCompiler:
                     payload=dynamic_payload,
                     preamble=runtime_instruction,
                     kind="task_runtime_boundary_dynamic",
-                    source_ref="agent_visible_runtime_projection",
+                    source_ref="task_execution_runtime_delta",
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="preserve",
@@ -1807,7 +1808,7 @@ class RuntimeCompiler:
                         "volatility_reason": (
                             "the cursor explains the current invocation delta and must stay after the "
                             "locked append-only task context; durable tool/context facts are carried by "
-                            "task_state_replay_entry and tool_observations segments"
+                            "task_state_replay_entry and tool_transcript_delta segments"
                         ),
                         "cache_impact": "volatile_suffix_only",
                         "content_source": "harness.runtime.incremental_context_cursor",
@@ -1879,7 +1880,7 @@ class RuntimeCompiler:
             fallback_model_messages=model_messages,
         )
         task_dynamic_refs = (
-            "agent_visible_runtime_projection",
+            "runtime_delta_projection",
             "operation_authorization",
             "active_skills",
             "recovery_packet",
@@ -2362,7 +2363,7 @@ class RuntimeCompiler:
                     payload=dynamic_payload,
                     preamble=runtime_instruction,
                     kind="dynamic_projection",
-                    source_ref="agent_visible_runtime_projection",
+                    source_ref="observation_followup_runtime_delta",
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="summarize",
@@ -2451,7 +2452,7 @@ class RuntimeCompiler:
             fallback_model_messages=model_messages,
         )
         observation_dynamic_refs = (
-            "agent_visible_runtime_projection",
+            "runtime_delta_projection",
             "operation_authorization",
             "history",
             "task_plan_context",
@@ -3164,16 +3165,33 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
     }
 
 
-def task_execution_action_schema() -> dict[str, Any]:
-    return {
+def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) -> dict[str, Any]:
+    allowed = tuple(
+        dict.fromkeys(
+            str(item).strip()
+            for item in tuple(allowed_action_types or ("respond", "ask_user", "tool_call", "block"))
+            if str(item).strip()
+        )
+    )
+    pause_for_user_steer_available = "pause_for_user_steer" in allowed
+    schema = {
         "authority": "harness.loop.model_action_request",
-        "action_type": "respond|ask_user|tool_call|block",
+        "action_type": "|".join(allowed),
+        "allowed_action_types": list(allowed),
         "json_action_shape_rules": [
             "提交一个可唯一识别的结构化动作；推荐使用一个顶层 JSON 对象，Markdown 代码块或简短说明只会作为传输包装被忽略。",
             "respond 必须把用户可见最终回复写在顶层 final_answer；不要写 payload.final_answer、payload.content、action.final_answer 或 action.content。",
             "ask_user 必须把用户要回答的问题写在顶层 user_question；不要使用 provider-native ask_user 工具调用。",
             "block 必须把真实阻塞原因写在顶层 blocking_reason。",
             "tool_call 使用顶层 tool_calls 或 tool_call；普通工具可以使用 provider-native tool_call。控制动作必须是单个结构化控制信号，可用 JSON action 或 provider-native canonical control signal；同一轮不要混入其它动作来源。",
+            *(
+                [
+                    "pause_for_user_steer 只能在本轮 allowed_action_types 明确包含它时使用；它不是工具，也不是缺权限、缺资源、预算耗尽或普通不确定性的兜底。",
+                    "pause_for_user_steer 必须携带顶层 pause_request，并且不得在 diagnostics.consumed_steer_refs 或 diagnostics.consumed_user_steer_refs 中消费该 steer。",
+                ]
+                if pause_for_user_steer_available
+                else []
+            ),
         ],
         "public_response_obligation": {
             "authority": "model_semantic_response",
@@ -3221,6 +3239,43 @@ def task_execution_action_schema() -> dict[str, Any]:
         "tool_calls": [
             {"tool_name": "本轮可见工具名", "args": {"参数名": "参数值"}}
         ],
+        **(
+            {
+                "pause_for_user_steer_shape_rules": [
+                    "只有当 pending_user_steers 中存在指向当前 task_run 的未消费用户 steer，并且继续原步骤会越过用户最新意图时，才可以提交 action_type=pause_for_user_steer。",
+                    "暂停只记录可恢复边界和用户 steer 事实；恢复后仍由你判断继续、改计划、询问用户、写工具或阻塞。",
+                    "不得用 pause_for_user_steer 处理缺工具权限、缺文件、外部事实不足、工具失败、上下文预算耗尽、普通犹豫或系统安全边界。",
+                    "提交该动作时不要把 steer 标记为 consumed；这条 steer 需要在恢复后的任务上下文中继续保持可见，直到你真正处理它。",
+                ],
+                "pause_request": {
+                    "reason": "必须为 user_steer_requires_pause",
+                    "steer_ref": "pending_user_steers 中指向当前 task_run 的 steer_id",
+                    "checkpoint_summary": "已经完成的工作、尚未完成的工作、当前安全恢复点；必填",
+                    "resume_hint": "可选；恢复后你建议自己首先重新判断什么事实或计划",
+                    "requires_user_input": "可选布尔值；只有确实需要用户补充回答时才为 true",
+                },
+                "minimal_valid_pause_for_user_steer_example": {
+                    "authority": "harness.loop.model_action_request",
+                    "action_type": "pause_for_user_steer",
+                    "public_progress_note": "用户刚刚补充了会影响当前任务方向的要求，我会先停在可继续状态，恢复后先处理这条补充要求。",
+                    "public_action_state": {
+                        "visible_status": "blocked",
+                        "current_judgment": "继续原步骤前需要先处理用户最新 steer。",
+                        "next_action": "等待恢复后重新判断任务方向。",
+                        "completion_status": "blocked",
+                    },
+                    "pause_request": {
+                        "reason": "user_steer_requires_pause",
+                        "steer_ref": "steer:当前任务中的用户补充要求 id",
+                        "checkpoint_summary": "已完成到当前安全边界；尚未把用户最新 steer 纳入执行。",
+                        "resume_hint": "恢复后先读取 pending_user_steers 并判断是否需要改计划。",
+                        "requires_user_input": False,
+                    },
+                },
+            }
+            if pause_for_user_steer_available
+            else {}
+        ),
         "diagnostics": {
             "artifacts": [
                 {"path": "真实交付物路径", "kind": "artifact kind", "summary": "产物说明"}
@@ -3247,6 +3302,7 @@ def task_execution_action_schema() -> dict[str, Any]:
             },
         },
     }
+    return schema
 
 
 def _current_work_boundary_receipt_model_visible_payload(receipt: dict[str, Any] | None) -> dict[str, Any]:
@@ -3641,7 +3697,7 @@ def _single_agent_turn_output_contract(
                 "transport": "json_action",
                 "allowed_action_types": [
                     item
-                    for item in ("respond", "ask_user", "block", "request_task_run", "active_work_control")
+                    for item in ("respond", "ask_user", "block", "request_task_run", "active_work_control", "pause_for_user_steer")
                     if item in allowed_actions
                 ],
                 "parallel_allowed": False,
@@ -3667,6 +3723,7 @@ def _single_agent_turn_output_contract(
                             "request_task_run",
                             "active_work_control",
                             "resume_recoverable_work",
+                            "pause_for_user_steer",
                         )
                         if item in allowed_actions
                     ],
@@ -3771,6 +3828,36 @@ def _single_agent_turn_output_contract(
                     "answer_then_continue_active_work",
                 ],
             },
+            **(
+                {
+                    "pause_for_user_steer": {
+                        "enabled": True,
+                        "operation_availability_gate": (
+                            "Use pause_for_user_steer only when this invocation's allowed_action_types contains "
+                            "pause_for_user_steer and the task runtime boundary contains pending_user_steers for the "
+                            "current task_run. It is a task lifecycle control action, not a tool."
+                        ),
+                        "required_fields": [
+                            "pause_request.reason=user_steer_requires_pause",
+                            "pause_request.steer_ref",
+                            "pause_request.checkpoint_summary",
+                        ],
+                        "payload_schema": {
+                            "reason": "must be user_steer_requires_pause",
+                            "steer_ref": "one steer_id from pending_user_steers for this task_run",
+                            "checkpoint_summary": "what is complete, what is not complete, and where the task can resume",
+                            "resume_hint": "optional first judgment to make after resume",
+                            "requires_user_input": "optional boolean",
+                        },
+                        "boundary": (
+                            "Do not use for permission/resource/tool/budget failures. Do not consume the steer in "
+                            "diagnostics; the steer remains pending so the resumed agent can decide how to handle it."
+                        ),
+                    }
+                }
+                if "pause_for_user_steer" in allowed_actions
+                else {}
+            ),
         },
         "capability_source": dict(control_capabilities or {}),
     }
@@ -4233,29 +4320,32 @@ def _tool_observation_context_message_specs(
         specs.append(
             _runtime_payload_spec(
                 role="system",
-                title=f"Tool observation {observation_ref}",
-                payload={"tool_observation": observation},
-                kind="tool_observations",
-                source_ref=f"{source_ref_prefix}:tool_observation:{observation_ref}",
+                title=f"Current turn tool result {observation_ref}",
+                payload={TOOL_TRANSCRIPT_DELTA_KIND: observation},
+                kind=TOOL_TRANSCRIPT_DELTA_KIND,
+                source_ref=f"{source_ref_prefix}:tool_transcript:{observation_ref}",
                 cache_scope="task",
                 cache_role="session_stable",
                 compression_role="ref_only",
                 metadata={
                     **_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
-                    "authority_class": "append_only_tool_observation_context",
+                    "authority_class": "append_only_tool_transcript_delta",
+                    "source_route": "observation_followup_projector",
+                    "canonical_kind": TOOL_TRANSCRIPT_DELTA_KIND,
+                    "semantic_title": "Current turn tool result",
                     "volatility_reason": (
-                        "this tool observation entry is newly appended for the current follow-up; "
-                        "later follow-ups must reuse it unchanged and append later observations after it"
+                        "this tool transcript entry is newly appended for the current follow-up; "
+                        "later follow-ups must reuse it unchanged and append later tool results after it"
                     ),
                     "cache_impact": "append_only_task_prefix",
                     "stability_rule": (
-                        "tool observations are emitted as append-only context entries; existing "
-                        "observation entries must not be rewritten when later observations arrive"
+                        "tool transcript deltas are emitted as append-only context entries; existing "
+                        "entries must not be rewritten when later tool results arrive"
                     ),
-                    "content_source": "harness.runtime.dynamic_context.tool_observation_context",
-                    "runtime_fragment_role": "tool_observation_delta",
-                    "append_only_context_package": "tool_observation_context",
-                    "append_only_context_stream": "tool_observations",
+                    "content_source": "harness.runtime.dynamic_context.tool_transcript_delta",
+                    "runtime_fragment_role": "tool_transcript_delta",
+                    "append_only_context_package": "tool_transcript",
+                    "append_only_context_stream": "tool_transcript",
                     "append_only_event_offset": _safe_int(observation.get("event_offset")),
                     "append_only_created_at": _safe_float(observation.get("created_at")),
                     "append_only_stream_index": index,
@@ -4650,7 +4740,7 @@ def _model_messages_and_segment_plan(
         spec["content"] = str(model_message.get("content") or spec.get("content") or "")
         spec["model_message"] = model_message
         source_specs.append(spec)
-    source_specs, _context_capability_diagnostics = _apply_context_capability_profile_to_source_specs(
+    source_specs, _context_capability_diagnostics = apply_context_capability_profile_to_specs(
         source_specs,
         invocation_kind=invocation_kind,
         context_capability_profile=context_capability_profile,
@@ -4673,11 +4763,7 @@ def _model_messages_and_segment_plan(
         message_specs=clean_specs,
     )
     clean_specs = [dict(item) for item in materialize_runtime_prompt_sources(source_manifest)]
-    clean_specs = _specs_with_context_compaction_generation(
-        clean_specs,
-        compaction_generation=compaction_generation,
-    )
-    clean_specs, _provider_visible_context_diagnostics = _apply_provider_visible_context_ledger_to_specs(
+    context_pipeline_result = build_context_pipeline(
         clean_specs,
         invocation_kind=invocation_kind,
         provider_visible_context_scope=provider_visible_context_scope,
@@ -4687,14 +4773,12 @@ def _model_messages_and_segment_plan(
         model_selection=model_selection,
         context_capability_profile=context_capability_profile,
         system_wiring_manifest=system_wiring_manifest,
+        apply_capability_profile_stage=False,
     )
-    clean_specs, _context_physical_diagnostics = _apply_physical_context_plan_to_specs(
-        clean_specs,
-        compaction_generation=compaction_generation,
-        model_selection=model_selection,
-        context_capability_profile=context_capability_profile,
-        system_wiring_manifest=system_wiring_manifest,
-    )
+    clean_specs = [dict(item) for item in tuple(context_pipeline_result.message_specs or ())]
+    context_pipeline_diagnostics = dict(context_pipeline_result.diagnostics or {})
+    _provider_visible_context_diagnostics = dict(context_pipeline_diagnostics.get("provider_visible_context_ledger") or {})
+    _context_physical_diagnostics = dict(context_pipeline_diagnostics.get("physical_context") or {})
     slot_plan = build_runtime_prompt_slot_plan(
         packet_id=packet_id,
         invocation_kind=invocation_kind,
@@ -4720,223 +4804,17 @@ def _model_messages_and_segment_plan(
         diagnostics={
             **dict(_context_physical_diagnostics or {}),
             "provider_visible_context_ledger": dict(_provider_visible_context_diagnostics or {}),
+            "context_capability": dict(_context_capability_diagnostics or {}),
+            "context_pipeline": context_pipeline_diagnostics,
             "dynamic_context_metadata_validation": dynamic_context_validation,
         },
     )
     return model_messages, segment_plan, tuple(clean_specs), source_manifest, slot_plan, load_plan
 
 
-_PROVIDER_VISIBLE_CONTEXT_LEDGER_INVOCATIONS = {
-    "single_agent_turn",
-    "single_agent_turn_tool_followup",
-    "task_execution",
-    "tool_observation_followup",
-}
-
-
-def _apply_provider_visible_context_ledger_to_specs(
-    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
-    *,
-    invocation_kind: str,
-    provider_visible_context_scope: str,
-    provider_visible_context_inheritance: dict[str, Any] | None,
-    compaction_generation: str,
-    storage_root: Path | None,
-    model_selection: dict[str, Any] | None,
-    context_capability_profile: dict[str, Any] | None,
-    system_wiring_manifest: dict[str, Any] | None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    clean_specs = [dict(item) for item in list(specs or ()) if isinstance(item, dict)]
-    scope = str(provider_visible_context_scope or "").strip()
-    if not clean_specs or not scope or storage_root is None:
-        return clean_specs, {
-            "status": "skipped",
-            "reason": "missing_scope_or_storage_root",
-            "authority": "harness.runtime.compiler.provider_visible_context_ledger",
-        }
-    if str(invocation_kind or "") not in _PROVIDER_VISIBLE_CONTEXT_LEDGER_INVOCATIONS:
-        return clean_specs, {
-            "status": "skipped",
-            "reason": "invocation_kind_not_provider_visible_context_ledger_managed",
-            "invocation_kind": str(invocation_kind or ""),
-            "authority": "harness.runtime.compiler.provider_visible_context_ledger",
-        }
-
-    inheritance_contract = _provider_visible_context_inheritance_contract(
-        provider_visible_context_inheritance,
-        write_scope=scope,
-    )
-    provider, model = _provider_model_from_selection(model_selection)
-    static_prefix: list[dict[str, Any]] = []
-    provider_visible_candidates: list[tuple[int, dict[str, Any]]] = []
-    current_turn_tail_specs: list[dict[str, Any]] = []
-    blocked_dynamic_tail_replay_count = 0
-    non_sealable_context_append_count = 0
-    context_candidate_count = 0
-
-    for original_order, raw_spec in enumerate(clean_specs, start=1):
-        spec = dict(raw_spec)
-        policy = context_segment_policy_for_spec(spec)
-        section = policy.section
-        metadata = {
-            **dict(spec.get("metadata") or {}),
-            **context_segment_policy_metadata(policy),
-        }
-        spec["metadata"] = metadata
-        spec["cache_scope"] = policy.prefix_cache_scope
-        spec["cache_role"] = policy.prefix_cache_role
-        spec["prefix_tier"] = policy.prefix_tier
-        if section == STATIC_PREFIX:
-            static_prefix.append(spec)
-            continue
-        if section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
-            if not context_segment_policy_is_provider_visible_sealable(policy):
-                current_turn_tail_specs.append(spec)
-                non_sealable_context_append_count += 1
-                continue
-            provider_visible_candidates.append((original_order, spec))
-            context_candidate_count += 1
-            continue
-        if section == DYNAMIC_TAIL:
-            current_turn_tail_specs.append(spec)
-            blocked_dynamic_tail_replay_count += 1
-            continue
-        current_turn_tail_specs.append(spec)
-
-    ledger_specs_with_order = assemble_provider_visible_context_specs(
-        provider_visible_candidates,
-        storage_root=storage_root,
-        scope=scope,
-        inherited_scope=str(inheritance_contract.get("inherited_scope") or ""),
-        inherited_anchor=dict(inheritance_contract.get("inherited_anchor") or {}),
-        compaction_generation=_normalize_context_compaction_generation(compaction_generation),
-        provider=provider,
-        model=model,
-    )
-    ledger_specs = [dict(spec) for _order, spec in list(ledger_specs_with_order or []) if isinstance(spec, dict)]
-    inherited_ledger_spec_count = sum(
-        1
-        for spec in ledger_specs
-        if str(dict(dict(spec).get("metadata") or {}).get("provider_visible_context_inherited_from_scope") or "").strip()
-    )
-    if not provider_visible_candidates and not ledger_specs:
-        return clean_specs, {
-            "status": "skipped",
-            "reason": "no_provider_visible_context_candidates_or_confirmed_ledger_entries",
-            "invocation_kind": str(invocation_kind or ""),
-            "authority": "harness.runtime.compiler.provider_visible_context_ledger",
-        }
-    return [*static_prefix, *ledger_specs, *current_turn_tail_specs], {
-        "status": "applied",
-        "scope": scope,
-        "invocation_kind": str(invocation_kind or ""),
-        "provider": provider,
-        "model": model,
-        "compaction_generation": _normalize_context_compaction_generation(compaction_generation),
-        "context_candidate_count": context_candidate_count,
-        "converted_dynamic_tail_replay_only_count": 0,
-        "blocked_dynamic_tail_replay_count": blocked_dynamic_tail_replay_count,
-        "non_sealable_context_append_tail_count": non_sealable_context_append_count,
-        "ledger_materialized_spec_count": len(ledger_specs),
-        "fork_inherited_provider_visible_spec_count": inherited_ledger_spec_count,
-        "fork_inherited_provider_visible_scope": str(inheritance_contract.get("inherited_scope") or ""),
-        "fork_inherited_provider_visible_anchor_id": str(
-            dict(inheritance_contract.get("inherited_anchor") or {}).get("anchor_id") or ""
-        ),
-        "fork_inherited_provider_visible_terminal_entry_index": _safe_int(
-            dict(inheritance_contract.get("inherited_anchor") or {}).get("terminal_entry_index")
-        ),
-        "fork_point_provider_request_commit_id": str(inheritance_contract.get("fork_point_provider_request_commit_id") or ""),
-        "fork_point_provider_request_cache_spine_hash": str(inheritance_contract.get("fork_point_provider_request_cache_spine_hash") or ""),
-        "fork_point_provider_payload_prefix_hash": str(inheritance_contract.get("fork_point_provider_payload_prefix_hash") or ""),
-        "fork_point_provider_payload_message_prefix_hash": str(inheritance_contract.get("fork_point_provider_payload_message_prefix_hash") or ""),
-        "fork_point_provider_payload_messages_hash": str(inheritance_contract.get("fork_point_provider_payload_messages_hash") or ""),
-        "fork_point_transport_contract_hash": str(inheritance_contract.get("fork_point_transport_contract_hash") or ""),
-        "fork_point_cache_sensitive_params_hash": str(inheritance_contract.get("fork_point_cache_sensitive_params_hash") or ""),
-        "provider_cache_scope_id": str(inheritance_contract.get("provider_cache_scope_id") or ""),
-        "current_turn_tail_spec_count": len(current_turn_tail_specs),
-        "physical_replay_rule": "static_prefix_then_confirmed_provider_visible_context_then_current_turn_tail",
-        "authority": "harness.runtime.compiler.provider_visible_context_ledger",
-    }
-
-
 def _context_compaction_generation_from_session_context(session_context: dict[str, Any] | None) -> str:
     payload = dict(session_context or {})
-    return _normalize_context_compaction_generation(payload.get("compaction_generation"))
-
-
-def _normalize_context_compaction_generation(value: Any) -> str:
-    text = str(value if value is not None else "").strip()
-    return text or "0"
-
-
-def _specs_with_context_compaction_generation(
-    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
-    *,
-    compaction_generation: str,
-) -> list[dict[str, Any]]:
-    generation = _normalize_context_compaction_generation(compaction_generation)
-    result: list[dict[str, Any]] = []
-    for raw_spec in list(specs or ()):
-        if not isinstance(raw_spec, dict):
-            continue
-        spec = dict(raw_spec)
-        metadata = {
-            **dict(spec.get("metadata") or {}),
-            "compaction_generation": str(dict(spec.get("metadata") or {}).get("compaction_generation") or generation),
-            "context_compaction_generation": str(
-                dict(spec.get("metadata") or {}).get("context_compaction_generation")
-                or dict(spec.get("metadata") or {}).get("compaction_generation")
-                or generation
-            ),
-        }
-        spec["metadata"] = metadata
-        result.append(spec)
-    return result
-
-
-def _provider_visible_context_inheritance_contract(
-    value: dict[str, Any] | None,
-    *,
-    write_scope: str,
-) -> dict[str, Any]:
-    payload = dict(value or {})
-    inherited_scope = str(
-        payload.get("inherited_scope")
-        or payload.get("parent_session_id")
-        or payload.get("scope")
-        or ""
-    ).strip()
-    normalized_write_scope = str(write_scope or "").strip()
-    if not inherited_scope or inherited_scope == normalized_write_scope:
-        return {}
-    anchor = (
-        dict(payload.get("inherited_anchor") or {})
-        if isinstance(payload.get("inherited_anchor"), dict)
-        else dict(payload.get("fork_point_provider_visible_ledger_anchor") or {})
-        if isinstance(payload.get("fork_point_provider_visible_ledger_anchor"), dict)
-        else {}
-    )
-    if not anchor:
-        return {}
-    return {
-        "inherited_scope": inherited_scope,
-        "write_scope": normalized_write_scope,
-        "inherited_anchor": anchor,
-        "fork_id": str(payload.get("fork_id") or ""),
-        "fork_point_context_commit_id": str(payload.get("fork_point_context_commit_id") or ""),
-        "fork_point_cache_spine_hash": str(payload.get("fork_point_cache_spine_hash") or ""),
-        "fork_point_provider_request_commit_id": str(payload.get("fork_point_provider_request_commit_id") or ""),
-        "fork_point_provider_request_cache_spine_hash": str(payload.get("fork_point_provider_request_cache_spine_hash") or ""),
-        "fork_point_provider_payload_prefix_hash": str(payload.get("fork_point_provider_payload_prefix_hash") or ""),
-        "fork_point_provider_payload_message_prefix_hash": str(payload.get("fork_point_provider_payload_message_prefix_hash") or ""),
-        "fork_point_provider_payload_messages_hash": str(payload.get("fork_point_provider_payload_messages_hash") or ""),
-        "fork_point_transport_contract_hash": str(payload.get("fork_point_transport_contract_hash") or ""),
-        "fork_point_cache_sensitive_params_hash": str(payload.get("fork_point_cache_sensitive_params_hash") or ""),
-        "provider_cache_scope_id": str(payload.get("provider_cache_scope_id") or ""),
-        "fork_point_compaction_generation": str(payload.get("fork_point_compaction_generation") or ""),
-        "authority": "harness.runtime.compiler.provider_visible_context_inheritance_contract",
-    }
+    return normalize_context_compaction_generation(payload.get("compaction_generation"))
 
 
 def _provider_visible_context_inheritance_from_session_context(
@@ -4977,63 +4855,39 @@ def _provider_visible_context_inheritance_from_session_context(
         "fork_point_transport_contract_hash": str(forked_from.get("fork_point_transport_contract_hash") or ""),
         "fork_point_cache_sensitive_params_hash": str(forked_from.get("fork_point_cache_sensitive_params_hash") or ""),
         "provider_cache_scope_id": str(forked_from.get("provider_cache_scope_id") or ""),
+        "fork_point_tool_context_anchor": str(forked_from.get("fork_point_tool_context_anchor") or ""),
+        "fork_point_tool_context_projection": (
+            dict(forked_from.get("fork_point_tool_context_projection") or {})
+            if isinstance(forked_from.get("fork_point_tool_context_projection"), dict)
+            else {}
+        ),
+        "fork_point_read_evidence_scope": (
+            dict(forked_from.get("fork_point_read_evidence_scope") or {})
+            if isinstance(forked_from.get("fork_point_read_evidence_scope"), dict)
+            else {}
+        ),
+        "fork_child_read_evidence_scope": (
+            dict(forked_from.get("fork_child_read_evidence_scope") or {})
+            if isinstance(forked_from.get("fork_child_read_evidence_scope"), dict)
+            else {}
+        ),
+        "fork_point_read_evidence_state_ref": str(forked_from.get("fork_point_read_evidence_state_ref") or ""),
+        "fork_point_read_evidence_file_count": _safe_int(forked_from.get("fork_point_read_evidence_file_count")),
+        "fork_file_state_materialization": (
+            dict(forked_from.get("fork_file_state_materialization") or {})
+            if isinstance(forked_from.get("fork_file_state_materialization"), dict)
+            else {}
+        ),
+        "fork_point_content_replacement_state_ref": str(forked_from.get("fork_point_content_replacement_state_ref") or ""),
+        "fork_point_content_replacement_state": (
+            dict(forked_from.get("fork_point_content_replacement_state") or {})
+            if isinstance(forked_from.get("fork_point_content_replacement_state"), dict)
+            else {}
+        ),
         "fork_point_compaction_generation": str(forked_from.get("fork_point_compaction_generation") or ""),
         "workspace_effect_policy": str(forked_from.get("workspace_effect_policy") or ""),
         "authority": "harness.runtime.compiler.provider_visible_context_inheritance_from_session_context",
     }
-
-
-def _provider_model_from_selection(model_selection: dict[str, Any] | None) -> tuple[str, str]:
-    selection = dict(model_selection or {})
-    return (
-        str(selection.get("provider") or selection.get("llm_provider") or "").strip(),
-        str(selection.get("model") or selection.get("llm_model") or "").strip(),
-    )
-
-
-def _apply_physical_context_plan_to_specs(
-    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
-    *,
-    compaction_generation: str = "",
-    model_selection: dict[str, Any] | None,
-    context_capability_profile: dict[str, Any] | None,
-    system_wiring_manifest: dict[str, Any] | None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    policy_specs: list[dict[str, Any]] = []
-    section_counts: dict[str, int] = {}
-    for original_order, raw_spec in enumerate(list(specs or ()), start=1):
-        if not isinstance(raw_spec, dict):
-            continue
-        spec = dict(raw_spec)
-        policy = context_segment_policy_for_spec(spec)
-        section = policy.section
-        section_counts[section] = section_counts.get(section, 0) + 1
-        metadata = {
-            **dict(spec.get("metadata") or {}),
-            **context_segment_policy_metadata(policy),
-            "context_physical_bucket_original_order": original_order,
-        }
-        spec["metadata"] = metadata
-        spec["cache_scope"] = policy.prefix_cache_scope
-        spec["cache_role"] = policy.prefix_cache_role
-        spec["prefix_tier"] = policy.prefix_tier
-        policy_specs.append(spec)
-    assembled, physical_plan = annotate_specs_with_physical_context_plan(
-        policy_specs,
-        compaction_generation=_normalize_context_compaction_generation(compaction_generation),
-    )
-    diagnostics = {
-        "input_spec_count": len(list(specs or ())),
-        "output_spec_count": len(assembled),
-        "context_cache_section_counts": section_counts,
-        "physical_context_plan": physical_plan.to_dict(),
-        "cache_spine_hash": physical_plan.cache_spine_hash,
-        "cache_spine_generation": physical_plan.cache_spine_generation,
-        "stable_after_tail_violations": [dict(item) for item in physical_plan.stable_after_tail_violations],
-        "stable_after_tail_violation_count": len(physical_plan.stable_after_tail_violations),
-        "authority": "harness.runtime.compiler.context_physical_assembly",
-    }
-    return assembled, diagnostics
 
 
 def _sanitize_model_messages_for_prompt_packet(
@@ -5046,7 +4900,7 @@ def _sanitize_model_messages_for_prompt_packet(
     sealed_replay_specs = [
         dict(item)
         for item in list(message_specs or ())
-        if isinstance(item, dict) and _sealed_provider_visible_replay_spec(dict(item))
+        if isinstance(item, dict) and sealed_provider_visible_replay_spec(dict(item))
     ]
     if not sealed_replay_specs:
         return sanitize_messages_for_prompt(messages, turn_id=turn_id, source=source)
@@ -5119,90 +4973,6 @@ def _context_physical_assembly_manifest_from_specs(
         "final_order_source": "message_specs_after_context_physical_assembly",
         "authority": "harness.runtime.compiler.context_physical_assembly_manifest",
     }
-
-
-def _apply_context_capability_profile_to_source_specs(
-    source_specs: list[dict[str, Any]],
-    *,
-    invocation_kind: str,
-    context_capability_profile: dict[str, Any] | None,
-    system_wiring_manifest: dict[str, Any] | None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    profile = dict(context_capability_profile or {})
-    if not profile:
-        compiled = dict(dict(system_wiring_manifest or {}).get("compiled") or {})
-        profile = dict(compiled.get("context_capability_profile") or {})
-    if not profile:
-        return list(source_specs or []), {}
-
-    kept: list[dict[str, Any]] = []
-    rejected: list[dict[str, Any]] = []
-    group_counts: dict[str, int] = {}
-    bypassed: list[dict[str, Any]] = []
-    for index, spec in enumerate(list(source_specs or []), start=1):
-        if _sealed_provider_visible_replay_spec(spec):
-            kept.append(_annotated_context_capability_bypass_spec(spec))
-            bypassed.append(
-                {
-                    "index": index,
-                    "kind": str(spec.get("kind") or ""),
-                    "source_ref": str(spec.get("source_ref") or ""),
-                    "reason": "sealed_provider_visible_replay_is_not_reclassified",
-                }
-            )
-            continue
-        filtered, diagnostics = apply_context_capability_profile(
-            [dict(spec)],
-            profile=profile,
-            invocation_kind=invocation_kind,
-        )
-        for group, count in dict(diagnostics.get("context_capability_group_counts") or {}).items():
-            group_id = str(group or "")
-            group_counts[group_id] = group_counts.get(group_id, 0) + int(count or 0)
-        if filtered:
-            kept.extend(filtered)
-            continue
-        for item in list(diagnostics.get("rejected_context_capabilities") or []):
-            if isinstance(item, dict):
-                rejected.append({"source_index": index, **dict(item)})
-    return kept, {
-        "context_capability_profile": profile,
-        "context_capability_group_counts": group_counts,
-        "rejected_context_capability_count": len(rejected),
-        "rejected_context_capabilities": rejected[:30],
-        "bypassed_sealed_replay_count": len(bypassed),
-        "bypassed_sealed_replay_specs": bypassed[:30],
-        "input_spec_count": len(list(source_specs or [])),
-        "output_spec_count": len(kept),
-        "invocation_kind": str(invocation_kind or ""),
-        "authority": "harness.runtime.compiler.context_capability_source_filter",
-    }
-
-
-def _sealed_provider_visible_replay_spec(spec: dict[str, Any]) -> bool:
-    metadata = dict(spec.get("metadata") or {})
-    if metadata.get("provider_protocol_replay") is True:
-        return True
-    payload_authority = str(metadata.get("provider_visible_payload_authority") or "").strip()
-    if payload_authority.endswith(".replay"):
-        return True
-    replay_policy = str(metadata.get("context_replay_policy") or "").strip()
-    if replay_policy == "provider_visible_ledger_replay":
-        return True
-    if metadata.get("provider_visible_context_ledger_authority") and metadata.get("provider_visible_context_ledger_commit_stage") != "provider_success_required":
-        return True
-    return False
-
-
-def _annotated_context_capability_bypass_spec(spec: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(spec)
-    payload["metadata"] = {
-        **dict(spec.get("metadata") or {}),
-        "context_capability_bypass": "sealed_provider_visible_replay",
-        "context_capability_bypass_reason": "already sealed provider-visible replay must remain byte-stable",
-        "context_capability_authority": "harness.runtime.compiler.context_capability_source_filter",
-    }
-    return payload
 
 
 def _model_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
@@ -6338,9 +6108,10 @@ def _model_decision_contract_payload(
     semantic_actions = [str(item) for item in tuple(allowed_action_types or ()) if str(item)]
     control_actions = [
         item
-        for item in ("ask_user", "block", "request_task_run", "active_work_control")
+        for item in ("ask_user", "block", "request_task_run", "active_work_control", "pause_for_user_steer")
         if item in semantic_actions
     ]
+    pause_for_user_steer_allowed = "pause_for_user_steer" in semantic_actions
     return {
         "authority": "harness.runtime.model_decision_contract",
         "prompt_authority": "runtime_action_contract",
@@ -6361,7 +6132,39 @@ def _model_decision_contract_payload(
             "respond_requires_top_level_final_answer": "action_type=respond 时，最终给用户看的自然回复必须写在顶层 final_answer；不要放入 payload.content、payload.final_answer 或 action.content。",
             "ask_user_requires_top_level_user_question": "action_type=ask_user 时，用户要回答的问题必须写在顶层 user_question；不要通过 provider-native ask_user 工具调用表达。",
             "block_requires_top_level_blocking_reason": "action_type=block 时，真实阻塞原因必须写在顶层 blocking_reason。",
+            **(
+                {
+                    "pause_for_user_steer_requires_top_level_pause_request": (
+                        "action_type=pause_for_user_steer 时，必须填写顶层 pause_request。"
+                        "pause_request.reason 必须是 user_steer_requires_pause，必须引用当前 pending_user_steers 中的 steer_ref，"
+                        "并写出 checkpoint_summary；不要把这条 steer 放入 consumed_steer_refs。"
+                    )
+                }
+                if pause_for_user_steer_allowed
+                else {}
+            ),
         },
+        **(
+            {
+                "task_pause_rule": {
+                    "pause_for_user_steer_allowed": True,
+                    "authority_boundary": "model_decides_semantic_pause_after_runtime_exposes_pending_user_steer",
+                    "use_only_when": [
+                        "本轮上下文包含指向当前 task_run 的 pending_user_steers 或等价用户 steer 事实。",
+                        "你判断继续当前执行步骤会越过用户最新要求，需要停在可恢复边界。",
+                        "你能提供 steer_ref 和 checkpoint_summary，让恢复后的你先重新判断用户 steer。",
+                    ],
+                    "do_not_use_for": [
+                        "缺权限、缺资源、缺文件、缺外部事实、工具失败、预算耗尽或普通不确定。",
+                        "没有 pending_user_steers 的普通任务暂停。",
+                        "已经真正处理并消费该 steer 的情况。",
+                    ],
+                    "resume_contract": "系统只在 task_run 上记录暂停事实和恢复句柄；恢复后由你根据上下文缓存、pending steer 和 runtime facts 判断下一步。",
+                }
+            }
+            if pause_for_user_steer_allowed
+            else {}
+        ),
         "task_entry_rule": {
             "request_task_run_allowed": bool(task_run_allowed),
             "you_choose_task_lifecycle_when_turn_boundary_is_insufficient": bool(task_run_allowed),

@@ -8,6 +8,8 @@ from typing import Any
 
 from core.project_layout import ProjectLayout
 
+from .tool_transcript import is_tool_transcript_kind
+
 
 CONTEXT_COMMIT_RECORD_SCHEMA_VERSION = 1
 
@@ -314,9 +316,9 @@ def _tool_context_projection(model_request: Any) -> dict[str, Any]:
         semantic_slot = str(metadata.get("context_semantic_slot") or metadata.get("semantic_slot") or "").strip()
         authority_class = str(metadata.get("authority_class") or "").strip()
         if not (
-            kind in {"single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"}
+            is_tool_transcript_kind(kind, include_historical=True)
             or semantic_slot == "tool_transcript"
-            or authority_class == "append_only_tool_observation_context"
+            or authority_class == "append_only_tool_transcript_delta"
         ):
             continue
         tool_segments.append(

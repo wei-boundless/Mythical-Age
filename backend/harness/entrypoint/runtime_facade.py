@@ -2147,7 +2147,7 @@ class HarnessRuntimeFacade:
             result = self._task_run_control_gateway(schedule_task_run_executor=None).pause_task_run(
                 context.task_run_id,
                 reason="conversation_pause",
-                requested_by="user",
+                requested_by="agent",
             )
             if not result.get("ok"):
                 response = active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)

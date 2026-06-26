@@ -178,10 +178,45 @@ def _read_file_evidence_item(*, base: dict[str, Any], metadata: dict[str, Any], 
             "not_usable_as": list(boundary.get("not_usable_as") or []),
             "fact_status": str(boundary.get("fact_status") or "window_evidence"),
             "freshness": str(boundary.get("freshness") or ""),
+            "includes_file_text": boundary.get("includes_file_text") if isinstance(boundary.get("includes_file_text"), bool) else None,
+            "semantic_delta": _semantic_delta_summary(metadata.get("semantic_delta") or tool_result.get("semantic_delta")),
             "recovery_options": _bounded_dicts(
                 [dict(item) for item in list(metadata.get("recovery_options") or []) if isinstance(item, dict)],
                 limit=3,
             ),
+        }
+    )
+
+
+def _semantic_delta_summary(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    requested_range = dict(value.get("requested_range") or {}) if isinstance(value.get("requested_range"), dict) else {}
+    prior = dict(value.get("valid_prior_evidence") or {}) if isinstance(value.get("valid_prior_evidence"), dict) else {}
+    current = dict(value.get("current_observation") or {}) if isinstance(value.get("current_observation"), dict) else {}
+    return _drop_empty(
+        {
+            "subject": str(value.get("subject") or ""),
+            "change_state": str(value.get("change_state") or ""),
+            "path": str(value.get("path") or ""),
+            "requested_range": _drop_empty(
+                {
+                    "start_line": requested_range.get("start_line"),
+                    "end_line": requested_range.get("end_line"),
+                    "line_count": requested_range.get("line_count"),
+                }
+            ),
+            "prior_evidence_refs": _drop_empty(
+                {
+                    "observation_ref": str(prior.get("observation_ref") or ""),
+                    "exact_artifact_ref": str(prior.get("exact_artifact_ref") or ""),
+                    "reusable_result_ref": str(prior.get("reusable_result_ref") or ""),
+                }
+            ),
+            "includes_file_text": current.get("includes_file_text") if isinstance(current.get("includes_file_text"), bool) else None,
+            "confirms_prior_evidence_is_current": current.get("confirms_prior_evidence_is_current")
+            if isinstance(current.get("confirms_prior_evidence_is_current"), bool)
+            else None,
         }
     )
 

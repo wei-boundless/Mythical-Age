@@ -15,6 +15,8 @@ from .context_segment_policy import (
     context_segment_policy_for_spec,
     context_segment_policy_metadata,
 )
+from .context_candidates import ContextCommitCandidate
+from .tool_transcript import is_tool_transcript_kind
 
 
 PROVIDER_VISIBLE_CONTEXT_LEDGER_SCHEMA_VERSION = 1
@@ -218,7 +220,7 @@ def provider_visible_context_append_candidate_spec(
 
 
 def confirm_provider_visible_context_entries(
-    candidates: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    candidates: list[ContextCommitCandidate] | tuple[ContextCommitCandidate, ...],
     *,
     default_storage_root: Path | str | None = None,
     default_scope: str = "",
@@ -239,19 +241,17 @@ def confirm_provider_visible_context_entries(
     these exact provider-visible candidate messages.
     """
 
-    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    typed_candidates = list(candidates or [])
+    if any(not isinstance(item, ContextCommitCandidate) for item in typed_candidates):
+        raise TypeError("confirm_provider_visible_context_entries requires ContextCommitCandidate items")
+
+    grouped: dict[tuple[str, str], list[ContextCommitCandidate]] = {}
     for raw_candidate in list(candidates or []):
-        if not isinstance(raw_candidate, dict):
-            continue
-        candidate = dict(raw_candidate)
-        scope = str(candidate.get("provider_visible_context_ledger_scope") or default_scope or "").strip()
+        candidate = raw_candidate
+        scope = str(candidate.scope or default_scope or "").strip()
         if not scope:
             continue
-        storage_value = str(
-            candidate.get("provider_visible_context_ledger_storage_root")
-            or default_storage_root
-            or ""
-        ).strip()
+        storage_value = str(candidate.storage_root or default_storage_root or "").strip()
         grouped.setdefault((storage_value, scope), []).append(candidate)
 
     confirmations: list[dict[str, Any]] = []
@@ -284,10 +284,10 @@ def confirm_provider_visible_context_entries(
         group_failed = False
         group_confirmations: list[dict[str, Any]] = []
         for ref in refs:
-            item_key = str(ref.get("provider_visible_context_ledger_item_key") or "").strip()
-            expected_hash = str(ref.get("provider_visible_hash") or "").strip()
+            item_key = str(ref.item_key or "").strip()
+            expected_hash = str(ref.provider_visible_hash or "").strip()
             provider_message = _provider_visible_message(
-                dict(ref.get("provider_visible_context_candidate_message") or {})
+                dict(ref.provider_message or {})
             )
             if not item_key or not expected_hash or not provider_message:
                 failure = _structured_failure(
@@ -298,6 +298,7 @@ def confirm_provider_visible_context_entries(
                         "item_key": item_key,
                         "provider_visible_hash": expected_hash,
                         "request_id": str(request_id or ""),
+                        "candidate_id": str(ref.candidate_id or ""),
                     },
                 )
                 ledger = _record_recovery_event(ledger, failure)
@@ -323,7 +324,7 @@ def confirm_provider_visible_context_entries(
                 changed = True
                 group_failed = True
                 continue
-            candidate_adapter = str(ref.get("provider_adapter_contract") or ledger.get("adapter_contract") or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT)
+            candidate_adapter = str(ref.adapter_contract or ledger.get("adapter_contract") or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT)
             ledger_adapter = str(ledger.get("adapter_contract") or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT)
             if candidate_adapter and ledger_adapter and candidate_adapter != ledger_adapter:
                 failure = _structured_failure(
@@ -336,6 +337,7 @@ def confirm_provider_visible_context_entries(
                         "adapter_contract": candidate_adapter,
                         "ledger_adapter_contract": ledger_adapter,
                         "request_id": str(request_id or ""),
+                        "candidate_id": str(ref.candidate_id or ""),
                     },
                 )
                 ledger = _record_recovery_event(ledger, failure)
@@ -381,20 +383,20 @@ def confirm_provider_visible_context_entries(
                 item_key=item_key,
                 provider_visible_message=provider_message,
                 provider_visible_hash=expected_hash,
-                kind=str(ref.get("provider_visible_context_candidate_kind") or ""),
-                source_ref=str(ref.get("provider_visible_context_candidate_source_ref") or ""),
-                semantic_commit_class=str(ref.get("provider_visible_context_candidate_semantic_commit_class") or ""),
+                kind=str(ref.kind or ""),
+                source_ref=str(ref.source_ref or ""),
+                semantic_commit_class=str(ref.semantic_commit_class or ""),
                 previous_entry_hash=_previous_entry_hash({"entries": _confirmed_ledger_entries(ledger)}),
-                provider=str(provider or ref.get("provider_visible_context_candidate_provider") or ""),
-                model=str(model or ref.get("provider_visible_context_candidate_model") or ""),
+                provider=str(provider or ref.provider or ""),
+                model=str(model or ref.model or ""),
                 adapter_contract=candidate_adapter,
                 confirmed_by_request_id=str(request_id or ""),
                 confirmed_response_ref=str(response_ref or ""),
-                ledger_lane=str(ref.get("provider_visible_context_candidate_ledger_lane") or ""),
-                semantic_visibility=str(ref.get("provider_visible_context_candidate_semantic_visibility") or ""),
-                validity_scope=str(ref.get("provider_visible_context_candidate_validity_scope") or ""),
-                compaction_generation=str(ref.get("provider_visible_context_candidate_compaction_generation") or ""),
-                cache_spine_hash=str(ref.get("provider_visible_context_candidate_cache_spine_hash") or ""),
+                ledger_lane=str(ref.physical_lane_before_commit or ""),
+                semantic_visibility=str(ref.semantic_visibility or ""),
+                validity_scope=str(ref.validity_scope or ""),
+                compaction_generation=str(ref.compaction_generation or ""),
+                cache_spine_hash=str(ref.cache_spine_hash or ""),
             )
             ledger["entries"] = [
                 *[dict(item) for item in list(ledger.get("entries") or []) if isinstance(item, dict)],
@@ -1045,7 +1047,7 @@ def _provider_visible_ledger_replay_kind(
     role = str(dict(message or {}).get("role") or "").strip()
     if semantic_class in {"tool_transcript", "provider_visible_replay_only_tool_transcript"}:
         return "provider_visible_tool_transcript_replay"
-    if kind in {"single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"}:
+    if is_tool_transcript_kind(kind, include_historical=True):
         return "provider_visible_tool_transcript_replay"
     if role == "tool" or (role == "assistant" and dict(message or {}).get("tool_calls")):
         return "provider_visible_tool_transcript_replay"

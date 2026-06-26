@@ -29,6 +29,7 @@ from runtime.prompt_accounting import (
 )
 from runtime.prompt_accounting.serializer import canonical_json
 from runtime.context_management.context_commit_record import create_provider_request_context_commit_record
+from runtime.context_management.context_candidates import ContextCommitCandidate
 from runtime.context_management.provider_visible_context_ledger import (
     confirm_provider_visible_context_entries,
     latest_provider_visible_context_success_anchor,
@@ -1965,45 +1966,19 @@ def _normalize_tool_call_options(
     return None
 
 
-def _provider_visible_context_commit_candidates_from_accounting(accounting: dict[str, Any]) -> list[dict[str, Any]]:
+def _provider_visible_context_commit_candidates_from_accounting(accounting: dict[str, Any]) -> list[ContextCommitCandidate]:
     model_request = dict(accounting or {}).get("model_request")
-    candidates: list[dict[str, Any]] = []
+    candidates: list[ContextCommitCandidate] = []
     seen: set[tuple[str, str, str, str]] = set()
     for segment in _provider_visible_context_ref_segments(model_request):
-        metadata = dict(segment.get("metadata") or {})
-        if str(metadata.get("provider_visible_context_ledger_commit_stage") or "") != "provider_success_required":
+        candidate = ContextCommitCandidate.from_provider_payload_segment(segment)
+        if candidate is None:
             continue
-        scope = str(metadata.get("provider_visible_context_ledger_scope") or "").strip()
-        item_key = str(metadata.get("provider_visible_context_ledger_item_key") or "").strip()
-        provider_hash = str(metadata.get("provider_visible_hash") or "").strip()
-        storage_root = str(metadata.get("provider_visible_context_ledger_storage_root") or "").strip()
-        provider_message = dict(metadata.get("provider_visible_context_candidate_message") or {})
-        if not scope or not item_key or not provider_hash or not provider_message:
-            continue
-        identity = (storage_root, scope, item_key, provider_hash)
+        identity = (candidate.storage_root, candidate.scope, candidate.item_key, candidate.provider_visible_hash)
         if identity in seen:
             continue
         seen.add(identity)
-        candidates.append(
-            {
-                "provider_visible_context_ledger_storage_root": storage_root,
-                "provider_visible_context_ledger_scope": scope,
-                "provider_visible_context_ledger_item_key": item_key,
-                "provider_visible_hash": provider_hash,
-                "provider_visible_context_candidate_message": provider_message,
-                "provider_visible_context_candidate_kind": str(metadata.get("provider_visible_context_candidate_kind") or ""),
-                "provider_visible_context_candidate_source_ref": str(metadata.get("provider_visible_context_candidate_source_ref") or ""),
-                "provider_visible_context_candidate_semantic_commit_class": str(metadata.get("provider_visible_context_candidate_semantic_commit_class") or ""),
-                "provider_visible_context_candidate_provider": str(metadata.get("provider_visible_context_candidate_provider") or ""),
-                "provider_visible_context_candidate_model": str(metadata.get("provider_visible_context_candidate_model") or ""),
-                "provider_visible_context_candidate_ledger_lane": str(metadata.get("physical_prefix_lane") or ""),
-                "provider_visible_context_candidate_semantic_visibility": str(metadata.get("semantic_visibility") or ""),
-                "provider_visible_context_candidate_validity_scope": str(metadata.get("validity_scope") or ""),
-                "provider_visible_context_candidate_compaction_generation": str(metadata.get("compaction_generation") or ""),
-                "provider_visible_context_candidate_cache_spine_hash": str(metadata.get("cache_spine_hash") or ""),
-                "provider_adapter_contract": str(metadata.get("provider_adapter_contract") or ""),
-            }
-        )
+        candidates.append(candidate)
     return candidates
 
 
@@ -2011,7 +1986,7 @@ def _context_commit_storage_root_from_accounting(accounting: dict[str, Any]) -> 
     payload = dict(accounting or {})
     context = dict(payload.get("accounting_context") or {})
     for candidate in _provider_visible_context_commit_candidates_from_accounting(payload):
-        value = str(dict(candidate).get("provider_visible_context_ledger_storage_root") or "").strip()
+        value = str(candidate.storage_root or "").strip()
         if value:
             return value
     for key in (
@@ -2030,7 +2005,7 @@ def _context_commit_scope_from_accounting(accounting: dict[str, Any]) -> str:
     payload = dict(accounting or {})
     context = dict(payload.get("accounting_context") or {})
     for candidate in _provider_visible_context_commit_candidates_from_accounting(payload):
-        value = str(dict(candidate).get("provider_visible_context_ledger_scope") or "").strip()
+        value = str(candidate.scope or "").strip()
         if value:
             return value
     for key in ("provider_visible_context_ledger_scope", "session_id"):

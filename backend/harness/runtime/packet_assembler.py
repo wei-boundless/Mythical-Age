@@ -149,6 +149,7 @@ def build_task_execution_packet_context(
     task_state_payload: dict[str, Any] | None = None,
     evidence_index_cursor_payload: dict[str, Any] | None = None,
     current_observations: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
+    user_steering_payload: dict[str, Any] | None = None,
 ) -> RuntimePacketContext:
     runtime_base_dir = Path(base_dir) if base_dir is not None else Path(__file__).resolve().parents[2]
     task_run_payload = dict(task_run or {})
@@ -176,7 +177,11 @@ def build_task_execution_packet_context(
         available_tools=tool_payloads,
     )
     model_visible_tools = tuple(dict(item) for item in tool_plan.model_visible_tools)
-    surface = _task_execution_model_action_surface(model_visible_tools=model_visible_tools)
+    surface = _task_execution_model_action_surface(
+        model_visible_tools=model_visible_tools,
+        task_run_id=task_run_id,
+        user_steering_payload=dict(user_steering_payload or {}),
+    )
     effective_capabilities = _task_execution_effective_control_capabilities(
         allowed_actions=surface.allowed_action_types,
         visible_tool_count=len(model_visible_tools),
@@ -223,6 +228,7 @@ def build_task_execution_packet_context(
         effective_control_capabilities=effective_capabilities,
         operation_availability={
             "tool_call": True,
+            "pause_for_user_steer": "pause_for_user_steer" in surface.allowed_action_types,
             "source_authority": "harness.runtime.packet_assembler.operation_availability",
             "source_ref": task_run_id,
         },
@@ -429,12 +435,23 @@ def _task_execution_agent_scope(
 def _task_execution_model_action_surface(
     *,
     model_visible_tools: tuple[dict[str, Any], ...],
+    task_run_id: str,
+    user_steering_payload: dict[str, Any],
 ) -> RuntimePacketModelActionSurface:
+    steer_refs = _pause_for_user_steer_refs(
+        user_steering_payload,
+        task_run_id=task_run_id,
+    )
+    actions = ["respond", "ask_user", "tool_call", "block"]
+    if steer_refs:
+        actions.append("pause_for_user_steer")
     return RuntimePacketModelActionSurface(
-        allowed_action_types=("respond", "ask_user", "tool_call", "block"),
+        allowed_action_types=tuple(actions),
         diagnostics={
             "source": "task_execution_runtime_contract",
             "visible_tool_count": len(model_visible_tools),
+            "pause_for_user_steer_available": bool(steer_refs),
+            "pause_for_user_steer_refs": list(steer_refs),
         },
     )
 
@@ -448,11 +465,35 @@ def _task_execution_effective_control_capabilities(
     return {
         "authority": "harness.runtime.task_execution_control_capabilities",
         "may_call_tools": "tool_call" in allowed,
+        "may_pause_for_user_steer": "pause_for_user_steer" in allowed,
         "visible_tool_count": visible_tool_count,
         "supports_json_action_protocol": True,
         "requires_json_action_protocol": True,
         "may_emit_assistant_message": "respond" in allowed,
     }
+
+
+def _pause_for_user_steer_refs(
+    user_steering_payload: dict[str, Any] | None,
+    *,
+    task_run_id: str,
+) -> tuple[str, ...]:
+    payload = dict(user_steering_payload or {})
+    result: list[str] = []
+    for item in list(payload.get("pending_user_steers") or []):
+        if not isinstance(item, dict):
+            continue
+        steer_id = str(item.get("steer_id") or "").strip()
+        steer_task_run_id = str(item.get("task_run_id") or "").strip()
+        state = str(item.get("consumption_state") or "pending").strip()
+        if not steer_id or steer_id in result:
+            continue
+        if steer_task_run_id and steer_task_run_id != str(task_run_id or "").strip():
+            continue
+        if state not in {"pending", "included_in_packet"}:
+            continue
+        result.append(steer_id)
+    return tuple(result)
 
 
 def _task_execution_tool_plan(

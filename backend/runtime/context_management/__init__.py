@@ -16,6 +16,24 @@ from .context_commit_record import (
     create_session_context_commit_record,
     latest_provider_request_context_commit_record,
 )
+from .context_candidates import (
+    ContextCandidate,
+    ContextCommitCandidate,
+    ContextPolicyDecision,
+    PhysicalContextSegment,
+    context_candidate_from_message_spec,
+)
+from .context_candidate_registry import ContextCandidateContributor, ContextCandidateRegistry
+from .context_pipeline import (
+    ContextPipelineResult,
+    apply_context_capability_profile_to_specs,
+    apply_physical_context_plan_to_specs,
+    apply_provider_visible_context_ledger_to_specs,
+    build_context_pipeline,
+    normalize_context_compaction_generation,
+    sealed_provider_visible_replay_spec,
+    specs_with_context_compaction_generation,
+)
 from .physical_context_plan import (
     ACTIVE_CONTEXT_PREFIX,
     BYTE_REPLAY_ARCHIVE_PREFIX,
@@ -68,6 +86,15 @@ from runtime_objects.tool_result_storage import (
     ToolResultStore,
 )
 from .tool_use_summary import ToolUseSummary, build_tool_use_summary
+from .tool_transcript import (
+    CURRENT_TOOL_TRANSCRIPT_KINDS,
+    HISTORICAL_TOOL_TRANSCRIPT_RESULT_KINDS,
+    TOOL_TRANSCRIPT_CALL_KIND,
+    TOOL_TRANSCRIPT_DELTA_KIND,
+    is_current_tool_transcript_kind,
+    is_historical_tool_transcript_kind,
+    is_tool_transcript_kind,
+)
 
 __all__ = [
     "ContentReplacement",
@@ -90,6 +117,21 @@ __all__ = [
     "create_provider_request_context_commit_record",
     "create_session_context_commit_record",
     "latest_provider_request_context_commit_record",
+    "ContextCandidate",
+    "ContextCommitCandidate",
+    "ContextPolicyDecision",
+    "PhysicalContextSegment",
+    "context_candidate_from_message_spec",
+    "ContextCandidateContributor",
+    "ContextCandidateRegistry",
+    "ContextPipelineResult",
+    "apply_context_capability_profile_to_specs",
+    "apply_physical_context_plan_to_specs",
+    "apply_provider_visible_context_ledger_to_specs",
+    "build_context_pipeline",
+    "normalize_context_compaction_generation",
+    "sealed_provider_visible_replay_spec",
+    "specs_with_context_compaction_generation",
     "ACTIVE_CONTEXT_PREFIX",
     "BYTE_REPLAY_ARCHIVE_PREFIX",
     "CURRENT_TURN_TAIL",
@@ -131,6 +173,13 @@ __all__ = [
     "MEMORY_CONTEXT_KINDS",
     "STATIC_PREFIX",
     "STATIC_PREFIX_KINDS",
+    "CURRENT_TOOL_TRANSCRIPT_KINDS",
+    "HISTORICAL_TOOL_TRANSCRIPT_RESULT_KINDS",
+    "TOOL_TRANSCRIPT_CALL_KIND",
+    "TOOL_TRANSCRIPT_DELTA_KIND",
+    "is_current_tool_transcript_kind",
+    "is_historical_tool_transcript_kind",
+    "is_tool_transcript_kind",
 ]
 
 

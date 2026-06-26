@@ -34,6 +34,12 @@ def main() -> int:
     parser.add_argument("--thinking-mode", default="", help="enabled/disabled; empty means project setting.")
     parser.add_argument("--without-tools", action="store_true", help="Do not include native tool sidecar.")
     parser.add_argument(
+        "--live-scenario",
+        choices=("tail", "no_tail", "both"),
+        default="tail",
+        help="Which append-only scenario to send when --live is enabled.",
+    )
+    parser.add_argument(
         "--output",
         default="",
         help="Optional JSON report path. Defaults to storage/runtime_state/prompt_cache_live_tests.",
@@ -41,7 +47,7 @@ def main() -> int:
     args = parser.parse_args()
     report = build_local_report(args)
     if args.live:
-        report["live"] = asyncio.run(run_live_tail_probe(args))
+        report.update(asyncio.run(run_live_probe(args)))
     output_path = _output_path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
@@ -96,7 +102,29 @@ def build_local_report(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-async def run_live_tail_probe(args: argparse.Namespace) -> dict[str, Any]:
+async def run_live_probe(args: argparse.Namespace) -> dict[str, Any]:
+    scenario = str(getattr(args, "live_scenario", "tail") or "tail")
+    if scenario == "both":
+        no_tail = await _run_live_append_only_probe(args, include_tail=False)
+        tail = await _run_live_append_only_probe(args, include_tail=True)
+        return {
+            "live": tail,
+            "live_scenarios": {
+                "append_only_without_dynamic_tail": no_tail,
+                "append_only_with_replaceable_dynamic_tail": tail,
+            },
+        }
+    include_tail = scenario != "no_tail"
+    result = await _run_live_append_only_probe(args, include_tail=include_tail)
+    return {
+        "live": result,
+        "live_scenarios": {
+            str(result.get("scenario") or ""): result,
+        },
+    }
+
+
+async def _run_live_append_only_probe(args: argparse.Namespace, *, include_tail: bool) -> dict[str, Any]:
     settings = get_settings()
     if str(settings.llm_provider or "").strip().lower() != "deepseek":
         raise RuntimeError(f"live probe requires deepseek provider, got {settings.llm_provider!r}")
@@ -117,7 +145,7 @@ async def run_live_tail_probe(args: argparse.Namespace) -> dict[str, Any]:
         tools=tools,
         tool_bind_kwargs={"tool_choice": "none"} if tools else {},
     )
-    messages_by_request = _append_only_requests(args, include_tail=True)
+    messages_by_request = _append_only_requests(args, include_tail=include_tail)
     calls: list[dict[str, Any]] = []
     try:
         for index, messages in enumerate(messages_by_request, start=1):
@@ -142,7 +170,9 @@ async def run_live_tail_probe(args: argparse.Namespace) -> dict[str, Any]:
         "model": str(settings.llm_model or ""),
         "thinking_mode": thinking_mode,
         "with_native_tools": bool(tools),
-        "scenario": "append_only_with_replaceable_dynamic_tail",
+        "scenario": "append_only_with_replaceable_dynamic_tail"
+        if include_tail
+        else "append_only_without_dynamic_tail",
         "calls": calls,
         "cache_read_pattern": _cache_read_pattern(calls),
     }
@@ -377,6 +407,9 @@ def _summary(report: dict[str, Any], output_path: Path) -> dict[str, Any]:
     tail = dict(dict(report.get("scenarios") or {}).get("append_only_with_replaceable_dynamic_tail") or {})
     no_tail = dict(dict(report.get("scenarios") or {}).get("append_only_without_dynamic_tail") or {})
     live = dict(report.get("live") or {})
+    live_scenarios = dict(report.get("live_scenarios") or {})
+    live_tail = dict(live_scenarios.get("append_only_with_replaceable_dynamic_tail") or {})
+    live_no_tail = dict(live_scenarios.get("append_only_without_dynamic_tail") or {})
     return {
         "report_path": str(output_path),
         "with_native_tools": bool(report.get("with_native_tools")),
@@ -401,6 +434,8 @@ def _summary(report: dict[str, Any], output_path: Path) -> dict[str, Any]:
             for item in list(tail.get("pairwise_message_prefix") or [])
         ],
         "live_cache_read_pattern": dict(live.get("cache_read_pattern") or {}),
+        "live_tail_cache_read_pattern": dict(live_tail.get("cache_read_pattern") or {}),
+        "live_no_tail_cache_read_pattern": dict(live_no_tail.get("cache_read_pattern") or {}),
     }
 
 

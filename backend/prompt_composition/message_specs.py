@@ -110,6 +110,8 @@ def message_spec_content_source(*, kind: str, cache_role: str, source_ref: str) 
         return "harness.runtime.user_steering_context"
     if normalized_kind == "user_steering_consumption_tail":
         return "harness.runtime.user_steering_consumption_tail"
+    if normalized_kind == "tool_transcript_delta":
+        return "harness.runtime.tool_transcript_delta"
     if normalized_kind in {
         "dynamic_projection",
         "graph_node_completion_prefix",
@@ -120,7 +122,6 @@ def message_spec_content_source(*, kind: str, cache_role: str, source_ref: str) 
         "session_history_tail_context",
         "read_evidence_injection",
         "task_runtime_boundary_dynamic",
-        "tool_observations",
         "volatile_task_state",
         "current_turn_user_context",
     }:

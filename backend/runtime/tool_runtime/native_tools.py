@@ -52,6 +52,10 @@ from runtime.tool_runtime.read_file_window import (
     build_read_file_error_result,
     build_read_file_window_result,
 )
+from runtime.tool_runtime.read_admission import (
+    ReadFileCurrentFacts,
+    decide_read_file_admission,
+)
 from runtime.shared.file_observation_policy import (
     READ_FILE_MAX_LINE_COUNT,
     recommended_windows_for_matches,
@@ -359,8 +363,33 @@ class NativeReadFileTool(_NativeToolBase):
                 raise FileNotFoundError("file does not exist")
             if file_path.is_dir():
                 raise IsADirectoryError("path is a directory")
-            content = files.read_text(file_path, limit=None)
             rel = files.relative_path(file_path)
+            stat = file_path.stat()
+            mtime_ns = int(stat.st_mtime_ns)
+            admission = decide_read_file_admission(
+                file_evidence_scope=dict(getattr(context, "file_evidence_scope", {}) or {}),
+                storage_roots=_runtime_context_storage_roots(context),
+                path=rel,
+                start_line=start_line,
+                line_count=line_count,
+                read_intent=read_intent,
+                current_facts=ReadFileCurrentFacts(
+                    path=rel,
+                    mtime_ns=mtime_ns,
+                    size_bytes=int(stat.st_size),
+                    exists=True,
+                ),
+            )
+            if admission.should_reuse:
+                return self._envelope(
+                    tool_args=args,
+                    status="ok",
+                    text=admission.to_visible_text(),
+                    structured_payload={"tool_result": admission.to_tool_result()},
+                    observed_paths=(rel,),
+                    execution_receipt=context.execution_receipt,
+                )
+            content = files.read_text(file_path, limit=None)
             window = build_read_file_window_result(
                 content,
                 path=rel,
@@ -368,8 +397,6 @@ class NativeReadFileTool(_NativeToolBase):
                 line_count=line_count,
                 read_intent=read_intent,
             )
-            stat = file_path.stat()
-            mtime_ns = int(stat.st_mtime_ns)
             tool_result = window.to_dict(include_text=False)
             tool_result["mtime_ns"] = mtime_ns
             if read_intent:
@@ -426,6 +453,31 @@ class NativeReadFileTool(_NativeToolBase):
         try:
             target = _gateway_target_for_path(context, gateway, action="read", path=path)
             repository_id = target.repository_id
+            display_path = target.display_path if target.external else target.logical_path
+            admission = decide_read_file_admission(
+                file_evidence_scope=dict(getattr(context, "file_evidence_scope", {}) or {}),
+                storage_roots=_runtime_context_storage_roots(context),
+                path=display_path,
+                start_line=start_line,
+                line_count=line_count,
+                read_intent=read_intent,
+                repository_id=repository_id,
+            )
+            if admission.should_reuse:
+                return self._envelope(
+                    tool_args=args,
+                    status="ok",
+                    text=admission.to_visible_text(),
+                    structured_payload={
+                        "tool_result": admission.to_tool_result(),
+                        "file_gateway": {
+                            "access_decision": "reuse_unchanged",
+                            "repository_id": repository_id,
+                        },
+                    },
+                    observed_paths=(display_path,),
+                    execution_receipt=context.execution_receipt,
+                )
             result = gateway.read_text(
                 target.repository_id,
                 target.logical_path,

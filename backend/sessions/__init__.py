@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import logging
 import os
@@ -157,6 +158,29 @@ class SessionManager:
             )
             fork_id = f"fork-{uuid.uuid4().hex[:16]}"
             provider_cache_scope_id = _fork_provider_cache_scope_id(parent_payload, parent_session_id=parent_id)
+            parent_file_evidence_scope = self._session_file_evidence_scope(parent_id)
+            child_file_evidence_scope = self._session_file_evidence_scope(child_id)
+            file_state_snapshot = self._session_file_state_snapshot(parent_id)
+            file_state_materialization = self._materialize_fork_file_state(
+                parent_session_id=parent_id,
+                child_session_id=child_id,
+                snapshot=file_state_snapshot,
+                parent_file_evidence_scope=parent_file_evidence_scope,
+                child_file_evidence_scope=child_file_evidence_scope,
+                fork_id=fork_id,
+            )
+            read_evidence_state_ref = _fork_state_ref(
+                "read_evidence",
+                {
+                    "file_evidence_scope": parent_file_evidence_scope,
+                    "file_state_snapshot": file_state_snapshot,
+                },
+            )
+            tool_context_projection = _fork_tool_context_projection(provider_request_commit.get("tool_context_projection"))
+            content_replacement_state = _fork_content_replacement_state(
+                parent_payload=parent_payload,
+                provider_request_commit=provider_request_commit,
+            )
             forked_from = {
                 "fork_id": fork_id,
                 "parent_session_id": parent_id,
@@ -175,6 +199,16 @@ class SessionManager:
                 "fork_point_cache_sensitive_params_hash": str(provider_request_commit.get("cache_sensitive_params_hash") or ""),
                 "fork_point_tool_catalog_hash": str(provider_request_commit.get("tool_catalog_hash") or ""),
                 "fork_point_stable_tool_catalog_hash": str(provider_request_commit.get("stable_tool_catalog_hash") or ""),
+                "fork_point_tool_context_anchor": str(provider_request_commit.get("tool_context_anchor") or ""),
+                "fork_point_tool_context_projection": tool_context_projection,
+                "fork_point_read_evidence_scope": parent_file_evidence_scope,
+                "fork_child_read_evidence_scope": child_file_evidence_scope,
+                "fork_point_read_evidence_state_ref": read_evidence_state_ref,
+                "fork_point_read_evidence_file_count": len(file_state_snapshot),
+                "fork_point_file_state_snapshot": file_state_snapshot,
+                "fork_file_state_materialization": file_state_materialization,
+                "fork_point_content_replacement_state_ref": str(content_replacement_state.get("state_ref") or ""),
+                "fork_point_content_replacement_state": content_replacement_state,
                 "provider_cache_scope_id": provider_cache_scope_id,
                 "fork_point_compaction_generation": str(
                     context_commit.get("compaction_generation")
@@ -795,6 +829,77 @@ class SessionManager:
             logger.exception("Failed to create context commit record for fork: %s", session_id)
             return {}
 
+    def _session_file_evidence_scope(self, session_id: str) -> dict[str, Any]:
+        try:
+            from runtime.memory.file_evidence_scope import session_file_evidence_scope
+
+            return session_file_evidence_scope(session_id)
+        except Exception:
+            logger.exception("Failed to create session file evidence scope for fork: %s", session_id)
+            return {}
+
+    def _session_file_state_snapshot(self, session_id: str) -> list[dict[str, Any]]:
+        scope = self._session_file_evidence_scope(session_id)
+        if not scope:
+            return []
+        try:
+            from runtime.memory.file_state_store import FileStateAuthorityStore
+
+            return [
+                dict(item)
+                for item in list(FileStateAuthorityStore(self.base_dir).snapshot_scope(scope, limit=20) or [])
+                if isinstance(item, dict)
+            ]
+        except Exception:
+            logger.exception("Failed to load file evidence snapshot for fork: %s", session_id)
+            return []
+
+    def _materialize_fork_file_state(
+        self,
+        *,
+        parent_session_id: str,
+        child_session_id: str,
+        snapshot: list[dict[str, Any]],
+        parent_file_evidence_scope: dict[str, Any],
+        child_file_evidence_scope: dict[str, Any],
+        fork_id: str,
+    ) -> dict[str, Any]:
+        if not snapshot:
+            return {
+                "status": "empty",
+                "source_file_evidence_scope": dict(parent_file_evidence_scope or {}),
+                "target_file_evidence_scope": dict(child_file_evidence_scope or {}),
+                "authority": "sessions.fork_context_snapshot.file_state_materialization",
+            }
+        try:
+            from runtime.memory.file_state_store import FileStateAuthorityStore
+
+            result = FileStateAuthorityStore(self.base_dir).materialize_snapshot_scope(
+                child_file_evidence_scope,
+                snapshot,
+                source_scope=parent_file_evidence_scope,
+                observation_ref=f"fork:{fork_id}:file_state_snapshot",
+                tool_call_id="session_fork",
+            )
+            return {
+                **dict(result or {}),
+                "parent_session_id": str(parent_session_id or ""),
+                "child_session_id": str(child_session_id or ""),
+                "fork_id": str(fork_id or ""),
+                "authority": "sessions.fork_context_snapshot.file_state_materialization",
+            }
+        except Exception:
+            logger.exception("Failed to materialize fork file state: %s -> %s", parent_session_id, child_session_id)
+            return {
+                "status": "failed",
+                "source_file_evidence_scope": dict(parent_file_evidence_scope or {}),
+                "target_file_evidence_scope": dict(child_file_evidence_scope or {}),
+                "parent_session_id": str(parent_session_id or ""),
+                "child_session_id": str(child_session_id or ""),
+                "fork_id": str(fork_id or ""),
+                "authority": "sessions.fork_context_snapshot.file_state_materialization",
+            }
+
 
 def _replace_file_atomically(source: Path, target: Path) -> None:
     retry_delays = (0.01, 0.025, 0.05, 0.1)
@@ -850,6 +955,158 @@ def _fork_provider_cache_scope_id(parent_payload: dict[str, Any], *, parent_sess
     if inherited:
         return inherited
     return str(parent_session_id or "").strip()
+
+
+def _fork_tool_context_projection(value: Any) -> dict[str, Any]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    segments = [
+        _drop_empty(
+            {
+                "segment_id": str(item.get("segment_id") or ""),
+                "kind": str(item.get("kind") or ""),
+                "source_ref": str(item.get("source_ref") or ""),
+                "tool_observation_ref": str(item.get("tool_observation_ref") or ""),
+                "tool_call_id": str(item.get("tool_call_id") or ""),
+                "content_hash": str(item.get("content_hash") or ""),
+                "physical_prefix_lane": str(item.get("physical_prefix_lane") or ""),
+                "compaction_generation": str(item.get("compaction_generation") or ""),
+            }
+        )
+        for item in list(payload.get("tool_context_segments") or [])[:80]
+        if isinstance(item, dict)
+    ]
+    return _drop_empty(
+        {
+            "tool_context_hash": str(payload.get("tool_context_hash") or ""),
+            "tool_context_segment_count": _int(payload.get("tool_context_segment_count")) or len(segments),
+            "tool_context_segments": segments,
+            "authority": "sessions.fork_context_snapshot.tool_context_projection",
+        }
+    )
+
+
+def _fork_content_replacement_state(
+    *,
+    parent_payload: dict[str, Any],
+    provider_request_commit: dict[str, Any],
+) -> dict[str, Any]:
+    refs = _collect_content_replacement_refs(
+        [
+            dict(provider_request_commit or {}).get("tool_context_projection"),
+            dict(provider_request_commit or {}).get("provider_payload_segments"),
+            dict(provider_request_commit or {}).get("provider_payload_cache_boundary"),
+            list(dict(parent_payload or {}).get("api_transcript") or [])[-24:],
+        ],
+        limit=80,
+    )
+    return _drop_empty(
+        {
+            "state_ref": _fork_state_ref("content_replacement", refs),
+            "replacement_count": len(refs),
+            "content_replacements": refs,
+            "authority": "sessions.fork_context_snapshot.content_replacement_state",
+        }
+    )
+
+
+def _collect_content_replacement_refs(value: Any, *, limit: int) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    stack: list[tuple[Any, bool]] = [(value, False)]
+    visited = 0
+    replacement_keys = {
+        "content_replacements",
+        "replacement",
+        "replacements",
+        "replacement_refs",
+        "rehydration_plan",
+        "persisted_tool_result",
+    }
+    while stack and len(refs) < max(1, int(limit or 1)) and visited < 4000:
+        item, inside_replacement = stack.pop()
+        visited += 1
+        if isinstance(item, dict):
+            if inside_replacement or _dict_has_replacement_identity(item):
+                ref = _content_replacement_ref(item)
+                ref_key = str(
+                    ref.get("replacement_id")
+                    or ref.get("replacement_key")
+                    or ref.get("replacement_ref")
+                    or ref.get("path")
+                    or ref.get("content_hash")
+                    or ""
+                )
+                if ref and ref_key and ref_key not in seen:
+                    seen.add(ref_key)
+                    refs.append(ref)
+                    if len(refs) >= max(1, int(limit or 1)):
+                        break
+            for key, child in reversed(list(item.items())):
+                key_text = str(key)
+                child_inside = inside_replacement or key_text in replacement_keys or key_text.endswith("content_replacements")
+                if not child_inside and key_text in {"content", "text", "provider_messages", "messages"}:
+                    continue
+                stack.append((child, child_inside))
+            continue
+        if isinstance(item, (list, tuple)):
+            for child in reversed(list(item)[-200:]):
+                stack.append((child, inside_replacement))
+    return refs
+
+
+def _dict_has_replacement_identity(value: dict[str, Any]) -> bool:
+    return any(
+        str(value.get(key) or "").strip()
+        for key in (
+            "replacement_id",
+            "replacement_key",
+            "replacement_ref",
+            "rehydration_ref",
+        )
+    )
+
+
+def _content_replacement_ref(value: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(value or {})
+    return _drop_empty(
+        {
+            "replacement_id": str(payload.get("replacement_id") or ""),
+            "replacement_key": str(payload.get("replacement_key") or ""),
+            "replacement_ref": str(payload.get("replacement_ref") or payload.get("rehydration_ref") or ""),
+            "path": str(payload.get("path") or ""),
+            "content_hash": str(payload.get("content_hash") or ""),
+            "source_kind": str(payload.get("source_kind") or ""),
+            "source_id": str(payload.get("source_id") or ""),
+            "task_run_id": str(payload.get("task_run_id") or ""),
+            "status": str(payload.get("status") or payload.get("store_status") or ""),
+        }
+    )
+
+
+def _fork_state_ref(kind: str, payload: Any) -> str:
+    if payload in ("", None, [], {}, ()):
+        return ""
+    digest = _stable_json_hash({"kind": str(kind or ""), "payload": payload}).removeprefix("sha256:")
+    return f"{kind}:{digest[:24]}"
+
+
+def _stable_json_hash(value: Any) -> str:
+    text = json.dumps(_json_stable(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _json_stable(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_stable(value[key]) for key in sorted(value)}
+    if isinstance(value, (list, tuple)):
+        return [_json_stable(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return repr(value)
+
+
+def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in dict(payload or {}).items() if value not in ("", None, [], {}, ())}
 
 
 def _normalize_workspace_effect_policy(value: Any) -> str:

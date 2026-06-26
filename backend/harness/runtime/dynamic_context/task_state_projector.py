@@ -714,13 +714,13 @@ def _task_progress_facts_projection(
     file_evidence_decisions: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     files = [_task_progress_file_fact(item) for item in list(file_state or [])]
-    recent_tool_observations = _task_progress_tool_observations(latest_results)
+    recent_tool_result_refs = _task_progress_tool_result_refs(latest_results)
     return drop_empty(
         {
             "authority": "harness.runtime.dynamic_context.task_progress_facts",
             "files": [item for item in files if item][-8:],
             "file_evidence": _task_progress_file_evidence_facts(dict(file_evidence_decisions or {})),
-            "recent_tool_observations": recent_tool_observations[-8:],
+            "recent_tool_result_refs": recent_tool_result_refs[-8:],
         }
     )
 
@@ -781,19 +781,19 @@ def _file_reusable_result_ref(item: dict[str, Any]) -> str:
     return ""
 
 
-def _task_progress_tool_observations(latest_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    observations: list[dict[str, Any]] = []
+def _task_progress_tool_result_refs(latest_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result_refs: list[dict[str, Any]] = []
     for item in latest_results[-12:]:
         tool_name = _tool_name(str(item.get("tool_name") or ""))
         if not tool_name:
             continue
-        observations.append(
+        result_refs.append(
             drop_empty(
                 {
                     "tool_call_id": str(item.get("tool_call_id") or ""),
                     "tool_name": tool_name,
                     "outcome": str(item.get("status") or ""),
-                    "observation_ref": str(item.get("observation_ref") or item.get("tool_result_ref") or ""),
+                    "result_ref": str(item.get("observation_ref") or item.get("tool_result_ref") or ""),
                     "path": _projection_path(item),
                     "trace_only": _is_context_only_tool(tool_name),
                     "reason": str(item.get("reason") or ""),
@@ -801,7 +801,7 @@ def _task_progress_tool_observations(latest_results: list[dict[str, Any]]) -> li
                 }
             )
         )
-    return observations
+    return result_refs
 
 
 def _authoritative_subagent_results_projection(value: Any) -> list[dict[str, Any]]:
@@ -1353,34 +1353,34 @@ def _cursor_caution_windows(value: Any) -> list[dict[str, Any]]:
 def _cursor_task_progress_facts_projection(value: dict[str, Any]) -> dict[str, Any]:
     if not value:
         return {}
-    raw_observations = dict_tuple(value.get("recent_tool_observations"))
-    context_observations = [
+    raw_result_refs = dict_tuple(value.get("recent_tool_result_refs"))
+    context_result_refs = [
         item
-        for item in raw_observations
+        for item in raw_result_refs
         if isinstance(item, dict) and item.get("trace_only") is True
     ]
-    observations = [
+    result_refs = [
         drop_empty(
             {
                 "tool_name": str(item.get("tool_name") or ""),
                 "outcome": str(item.get("outcome") or ""),
-                "observation_ref": str(item.get("observation_ref") or ""),
+                "result_ref": str(item.get("result_ref") or ""),
                 "trace_only": item.get("trace_only") if isinstance(item.get("trace_only"), bool) else None,
                 "reason": str(item.get("reason") or ""),
             }
         )
-        for item in raw_observations[-6:]
+        for item in raw_result_refs[-6:]
         if item.get("trace_only") is not True
     ]
-    observations = [item for item in observations if item]
-    latest_context_observation = context_observations[-1] if context_observations else {}
+    result_refs = [item for item in result_refs if item]
+    latest_context_result_ref = context_result_refs[-1] if context_result_refs else {}
     return drop_empty(
         {
             "authority": str(value.get("authority") or "harness.runtime.dynamic_context.task_progress_facts"),
             "file_evidence": dict(value.get("file_evidence") or {}),
-            "recent_tool_observation_refs": observations,
-            "context_observation_count": len(context_observations) or None,
-            "latest_context_observation_ref": str(latest_context_observation.get("observation_ref") or ""),
+            "recent_tool_result_refs": result_refs,
+            "context_result_ref_count": len(context_result_refs) or None,
+            "latest_context_result_ref": str(latest_context_result_ref.get("result_ref") or ""),
         }
     )
 

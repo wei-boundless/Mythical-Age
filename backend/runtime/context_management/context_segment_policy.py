@@ -42,8 +42,7 @@ KIND_CONTEXT_APPEND_SLOT_DEFAULTS: dict[str, str] = {
     "provider_protocol_history": "provider_protocol_history",
     "single_agent_turn_followup_action_contract": "action_contract",
     "single_agent_turn_tool_call": "tool_transcript",
-    "single_agent_turn_tool_observation": "tool_transcript",
-    "tool_observations": "tool_transcript",
+    "tool_transcript_delta": "tool_transcript",
 }
 
 STREAM_CONTEXT_APPEND_SLOT_DEFAULTS: dict[str, str] = {
@@ -68,6 +67,7 @@ STATIC_PREFIX_KINDS = {
     "lifecycle_stable",
     "personality_stable",
     "project_instructions_stable",
+    "runtime_baseline_refs",
     "task_run_contract_stable",
     "task_prompt_contract",
     "task_stable",
@@ -84,18 +84,16 @@ MEMORY_CONTEXT_KINDS = {
     "incremental_context_frame",
     "provider_protocol_history",
     "read_evidence_context",
-    "runtime_baseline_refs",
     "runtime_memory_context",
     "session_pinned_facts_context",
     "current_turn_user_context",
     "single_agent_turn_followup_action_contract",
     "single_agent_turn_followup_message",
     "single_agent_turn_tool_call",
-    "single_agent_turn_tool_observation",
     "single_agent_turn_user_steer_context",
     "task_start_inherited_context",
     "task_state_replay_entry",
-    "tool_observations",
+    "tool_transcript_delta",
     "user_steering_context_append",
 }
 
@@ -109,10 +107,9 @@ APPEND_ONLY_CONTEXT_KINDS = {
     "single_agent_turn_followup_action_contract",
     "single_agent_turn_followup_message",
     "single_agent_turn_tool_call",
-    "single_agent_turn_tool_observation",
     "single_agent_turn_user_steer_context",
     "task_state_replay_entry",
-    "tool_observations",
+    "tool_transcript_delta",
     "user_steering_context_append",
 }
 
@@ -596,14 +593,6 @@ def _cache_policy_for_section(
         role = _cache_role(cache_role)
         if role == "never_cache":
             return "none", "never_cache", "none"
-        if kind in {
-            "evidence_index_cursor",
-            "attachment_context_index",
-            "editor_context_index",
-            "runtime_memory_context",
-            "read_evidence_context",
-        }:
-            return "task", "volatile", "volatile"
         if role not in {"cacheable_prefix", "session_stable"}:
             role = "session_stable"
         scope = str(cache_scope or "").strip() or "task"
@@ -623,7 +612,7 @@ def _semantic_commit_class(*, kind: str, section: str) -> str:
             return "selected_memory_context"
         if kind == "provider_protocol_history":
             return "provider_protocol_transcript"
-        if kind in {"single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"}:
+        if kind in {"single_agent_turn_tool_call", "tool_transcript_delta"}:
             return "tool_transcript"
         return "context_memory_append"
     return "current_runtime_control"

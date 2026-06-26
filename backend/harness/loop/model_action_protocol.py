@@ -10,9 +10,10 @@ ModelActionType = Literal[
     "request_task_run",
     "active_work_control",
     "resume_recoverable_work",
+    "pause_for_user_steer",
     "block",
 ]
-TaskExecutionModelActionType = Literal["respond", "ask_user", "tool_call", "block"]
+TaskExecutionModelActionType = Literal["respond", "ask_user", "tool_call", "block", "pause_for_user_steer"]
 
 
 def _ensure_tool_call_id(tool_call: dict[str, Any] | None, *, request_id: Any, ordinal: int | None = None) -> dict[str, Any]:
@@ -38,6 +39,7 @@ class ModelActionRequest:
     permission_request: dict[str, Any] = field(default_factory=dict)
     active_work_control: dict[str, Any] = field(default_factory=dict)
     recovery_resume: dict[str, Any] = field(default_factory=dict)
+    pause_request: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.loop.model_action_request"
 
@@ -58,6 +60,7 @@ class ModelActionRequest:
         payload["permission_request"] = dict(self.permission_request or {})
         payload["active_work_control"] = dict(self.active_work_control or {})
         payload["recovery_resume"] = dict(self.recovery_resume or {})
+        payload["pause_request"] = dict(self.pause_request or {})
         payload["diagnostics"] = dict(self.diagnostics or {})
         return payload
 
@@ -74,6 +77,7 @@ class TaskExecutionModelActionRequest:
     blocking_reason: str = ""
     tool_call: dict[str, Any] = field(default_factory=dict)
     tool_calls: tuple[dict[str, Any], ...] = ()
+    pause_request: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.loop.model_action_request"
 
@@ -85,6 +89,7 @@ class TaskExecutionModelActionRequest:
         payload = asdict(self)
         payload["tool_call"] = dict(self.tool_call or {})
         payload["tool_calls"] = [dict(item) for item in tuple(self.tool_calls or ())]
+        payload["pause_request"] = dict(self.pause_request or {})
         payload["public_action_state"] = dict(self.public_action_state or {})
         payload["diagnostics"] = dict(self.diagnostics or {})
         return payload
@@ -107,7 +112,7 @@ def model_action_request_from_payload(
     if authority != "harness.loop.model_action_request":
         errors.append("invalid_authority")
     action_type = str(raw.get("action_type") or "").strip()
-    if action_type not in {"respond", "ask_user", "tool_call", "request_task_run", "active_work_control", "resume_recoverable_work", "block"}:
+    if action_type not in {"respond", "ask_user", "tool_call", "request_task_run", "active_work_control", "resume_recoverable_work", "pause_for_user_steer", "block"}:
         errors.append(f"action_type_unsupported:{action_type}")
     allowed = {str(item) for item in list(allowed_action_types or ()) if str(item)}
     if allowed and action_type and action_type not in allowed:
@@ -124,6 +129,7 @@ def model_action_request_from_payload(
     permission_request = raw.get("permission_request") or {}
     active_work_control = raw.get("active_work_control") or {}
     recovery_resume = raw.get("recovery_resume") or {}
+    pause_request = raw.get("pause_request") or {}
     if not isinstance(tool_call, dict):
         errors.append("tool_call_must_be_object")
         tool_call = {}
@@ -142,6 +148,9 @@ def model_action_request_from_payload(
     if not isinstance(recovery_resume, dict):
         errors.append("recovery_resume_must_be_object")
         recovery_resume = {}
+    if not isinstance(pause_request, dict):
+        errors.append("pause_request_must_be_object")
+        pause_request = {}
     selected_skill_ids = raw_selected_skill_ids
     if action_type == "request_task_run" and isinstance(task_run_contract_seed, dict):
         normalized_seed, seed_errors, seed_gaps, canonical_selected_skill_ids = _normalize_task_contract_seed(task_run_contract_seed)
@@ -239,6 +248,18 @@ def model_action_request_from_payload(
             errors.append("recovery_resume.task_run_id_required")
         if not str(resume_payload.get("continuation_id") or "").strip():
             errors.append("recovery_resume.continuation_id_required")
+    if action_type == "pause_for_user_steer":
+        pause_payload = dict(pause_request or {})
+        if not str(pause_payload.get("steer_ref") or "").strip():
+            errors.append("pause_request.steer_ref_required")
+        if str(pause_payload.get("reason") or "").strip() != "user_steer_requires_pause":
+            errors.append("pause_request.reason_must_be_user_steer_requires_pause")
+        if not str(pause_payload.get("checkpoint_summary") or "").strip():
+            errors.append("pause_request.checkpoint_summary_required")
+        if _has_non_empty_value(dict(raw.get("diagnostics") or {}).get("consumed_steer_refs")):
+            errors.append("pause_for_user_steer_must_not_consume_steer_refs")
+        if _has_non_empty_value(dict(raw.get("diagnostics") or {}).get("consumed_user_steer_refs")):
+            errors.append("pause_for_user_steer_must_not_consume_user_steer_refs")
     if errors:
         return None, {
             "status": "invalid",
@@ -267,6 +288,7 @@ def model_action_request_from_payload(
         permission_request=dict(permission_request),
         active_work_control=dict(active_work_control),
         recovery_resume=dict(recovery_resume),
+        pause_request=dict(pause_request),
         diagnostics=normalized_diagnostics,
     ), {
         "status": "accepted",
@@ -344,7 +366,7 @@ def task_execution_action_request_from_payload(
             "validation_errors": tool_call_errors,
             "authority": "harness.loop.model_action_protocol",
         }
-    if action_request.action_type not in {"respond", "ask_user", "tool_call", "block"}:
+    if action_request.action_type not in {"respond", "ask_user", "tool_call", "block", "pause_for_user_steer"}:
         return None, {
             "status": "invalid",
             "validation_errors": [f"action_type_not_allowed_for_task_execution:{action_request.action_type}"],
@@ -363,6 +385,7 @@ def task_execution_action_request_from_payload(
         blocking_reason=action_request.blocking_reason,
         tool_call=dict(action_request.tool_call or {}),
         tool_calls=tuple(dict(item) for item in task_tool_calls),
+        pause_request=dict(action_request.pause_request or {}),
         diagnostics=dict(action_request.diagnostics or {}),
     ), {
         "status": "accepted",

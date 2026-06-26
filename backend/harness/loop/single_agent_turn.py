@@ -73,6 +73,11 @@ from runtime.context_management import (
     DYNAMIC_TAIL,
     provider_visible_context_append_candidate_spec,
 )
+from runtime.context_management.tool_transcript import (
+    TOOL_TRANSCRIPT_DELTA_KIND,
+    is_current_tool_transcript_kind,
+    is_tool_transcript_kind,
+)
 from runtime.prompt_accounting import ContextUsageMeter
 from runtime.model_gateway.assistant_stream_frame import (
     ASSISTANT_STREAM_REPAIR_EVENT,
@@ -7355,12 +7360,11 @@ def _is_followup_provider_visible_current_append(
 def _is_followup_provider_visible_append_only_kind(kind: str, spec: dict[str, Any]) -> bool:
     if kind in {
         "single_agent_turn_tool_call",
-        "single_agent_turn_tool_observation",
+        TOOL_TRANSCRIPT_DELTA_KIND,
         "single_agent_turn_user_steer_context",
         "single_agent_turn_followup_action_contract",
         "single_agent_turn_followup_message",
         "runtime_control_signal_tail",
-        "tool_observations",
     }:
         return True
     role = str(dict(spec or {}).get("role") or "")
@@ -7370,7 +7374,7 @@ def _is_followup_provider_visible_append_only_kind(kind: str, spec: dict[str, An
 def _followup_provider_visible_replay_only_class(kind: str) -> str:
     if kind in {"runtime_control_signal_tail", "single_agent_turn_followup_action_contract"}:
         return "provider_visible_replay_only_runtime_tail"
-    if kind in {"single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"}:
+    if is_current_tool_transcript_kind(kind):
         return "provider_visible_replay_only_tool_transcript"
     if kind == "single_agent_turn_user_steer_context":
         return "provider_visible_replay_only_user_steer"
@@ -7547,27 +7551,6 @@ def _is_tool_followup_action_contract_message(message: dict[str, Any]) -> bool:
         return True
     content = str(payload.get("content") or "")
     return "你是正在根据刚才工具观察决定下一步的 coding agent。" in content
-
-
-_FOLLOWUP_BASE_ACCUMULATED_CONTEXT_KINDS = {
-    "accumulated_context_boundary",
-    "incremental_context_frame",
-    "provider_protocol_history",
-    "read_evidence_context",
-    "runtime_memory_context",
-    "session_pinned_facts_context",
-    "current_turn_user_context",
-    "single_agent_turn_followup_message",
-    "single_agent_turn_tool_call",
-    "single_agent_turn_tool_observation",
-    "single_agent_turn_user_steer_context",
-    "task_goal_context",
-    "task_plan_context",
-    "task_todo_context",
-    "task_state_replay_entry",
-    "tool_observations",
-    "user_steering_context_append",
-}
 
 
 def _ordered_tool_followup_accumulated_context_messages(
@@ -8043,7 +8026,7 @@ def _sealed_followup_base_context_policy(
 def _provider_visible_history_replay_kind(base: dict[str, Any], *, message: dict[str, Any]) -> str:
     original_kind = str(dict(base or {}).get("kind") or "").strip()
     role = str(dict(message or {}).get("role") or "").strip()
-    if original_kind in {"single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"}:
+    if is_tool_transcript_kind(original_kind, include_historical=True):
         return "provider_visible_tool_transcript_replay"
     if role == "tool" or (role == "assistant" and dict(message or {}).get("tool_calls")):
         return "provider_visible_tool_transcript_replay"
@@ -8142,8 +8125,8 @@ def _single_agent_turn_followup_message_spec(
         source_ref = _followup_tool_message_source_ref(message, prefix="single_agent_turn.tool_call")
         compression_role = "preserve"
     elif role == "tool":
-        kind = "single_agent_turn_tool_observation"
-        source_ref = _followup_tool_message_source_ref(message, prefix="single_agent_turn.tool_observation")
+        kind = TOOL_TRANSCRIPT_DELTA_KIND
+        source_ref = _followup_tool_message_source_ref(message, prefix="single_agent_turn.tool_transcript")
         compression_role = "summarize"
     elif _is_active_turn_user_steer_message(message):
         kind = "single_agent_turn_user_steer_context"
@@ -8196,6 +8179,13 @@ def _single_agent_turn_followup_message_spec(
                 "stability_rule": "follow-up context is appended physically; local cache annotations must not reorder or promote it",
             }
         )
+    if kind == TOOL_TRANSCRIPT_DELTA_KIND:
+        metadata.update(
+            {
+                "canonical_kind": TOOL_TRANSCRIPT_DELTA_KIND,
+                "source_route": "single_agent_turn_followup",
+            }
+        )
     metadata["cache_policy_rebased"] = "disabled_physical_source_order_append_only"
     return {
         "role": role,
@@ -8236,7 +8226,10 @@ def _followup_base_segment_conflicts_with_message_shape(base: dict[str, Any], me
     if role == "assistant" and payload.get("tool_calls"):
         return kind != "single_agent_turn_tool_call"
     if role == "tool":
-        return kind != "single_agent_turn_tool_observation"
+        return not (
+            is_tool_transcript_kind(kind, include_historical=True)
+            or kind == "provider_visible_tool_transcript_replay"
+        )
     return False
 
 
@@ -8262,8 +8255,12 @@ def _rebased_followup_source_ref(*, kind: str, message: dict[str, Any], fallback
         str(message.get("role") or "") == "assistant" and message.get("tool_calls")
     ):
         return _followup_tool_message_source_ref(message, prefix="single_agent_turn.tool_call")
-    if kind == "single_agent_turn_tool_observation" or str(message.get("role") or "") == "tool":
-        return _followup_tool_message_source_ref(message, prefix="single_agent_turn.tool_observation")
+    if (
+        is_tool_transcript_kind(kind, include_historical=True)
+        or kind == "provider_visible_tool_transcript_replay"
+        or str(message.get("role") or "") == "tool"
+    ):
+        return _followup_tool_message_source_ref(message, prefix="single_agent_turn.tool_transcript")
     return str(fallback or "single_agent_turn_base")
 
 

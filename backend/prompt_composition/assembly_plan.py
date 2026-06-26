@@ -300,8 +300,7 @@ def _layer_for_source(source: PromptSource, *, cache_role: str, prefix_tier: str
         "read_evidence_context",
         "task_state_replay_entry",
         "single_agent_turn_tool_call",
-        "single_agent_turn_tool_observation",
-        "tool_observations",
+        "tool_transcript_delta",
     } or source_kind in {"runtime_task_state_replay", "runtime_read_evidence_context"}:
         return "append_only_runtime_evidence"
     if kind in {"task_goal_context", "task_plan_context", "task_todo_context"} or source_kind in {
@@ -342,7 +341,7 @@ def _dynamic_tier_for_source(source: PromptSource, *, cache_role: str, prefix_ti
     kind = str(source.kind or "")
     source_kind = str(source.source_kind or "")
     if layer == "context_memory_append":
-        if kind in {"provider_protocol_history", "single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"}:
+        if kind in {"provider_protocol_history", "single_agent_turn_tool_call", "tool_transcript_delta"}:
             return "append_only_runtime_evidence"
         if kind == "runtime_memory_context":
             return "runtime_memory_context"
@@ -393,8 +392,7 @@ def _dynamic_tier_for_source(source: PromptSource, *, cache_role: str, prefix_ti
     if kind in {
         "read_evidence_context",
         "single_agent_turn_tool_call",
-        "single_agent_turn_tool_observation",
-        "tool_observations",
+        "tool_transcript_delta",
     }:
         return "append_only_runtime_evidence"
     if kind in {"session_history", "session_history_context", "provider_protocol_history"}:

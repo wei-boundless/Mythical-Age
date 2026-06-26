@@ -46,10 +46,9 @@ RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
     "session_history_tail_context": "runtime_session_history_tail_context",
     "provider_protocol_history": "runtime_append_only_context",
     "single_agent_turn_tool_call": "runtime_append_only_context",
-    "single_agent_turn_tool_observation": "runtime_append_only_context",
     "single_agent_turn_user_steer_context": "runtime_append_only_context",
     "session_pinned_facts_context": "runtime_append_only_context",
-    "tool_observations": "runtime_append_only_context",
+    "tool_transcript_delta": "runtime_append_only_context",
     "user_steering_context_append": "runtime_append_only_context",
     "user_steering_consumption_tail": "dynamic_context_fragment",
 }

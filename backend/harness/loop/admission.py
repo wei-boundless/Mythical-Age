@@ -320,6 +320,59 @@ def admit_model_action(
                 issue_code="active_work_control_disabled_by_runtime_profile",
                 action_issue=issue,
             )
+    if action_request.action_type == "pause_for_user_steer":
+        pause_request = dict(getattr(action_request, "pause_request", {}) or {})
+        steer_ref = str(pause_request.get("steer_ref") or "").strip()
+        reason = str(pause_request.get("reason") or "").strip()
+        checkpoint_summary = str(pause_request.get("checkpoint_summary") or "").strip()
+        if str(invocation_kind or "") != "task_execution":
+            issue = _action_issue(
+                action_request,
+                category="protocol_violation",
+                code="pause_for_user_steer_requires_task_execution",
+                user_visible_summary="当前运行边界不能执行任务暂停动作。",
+                repair_instruction="只有 task_execution 且本轮动作合同开放 pause_for_user_steer 时，才能提交该动作。",
+            )
+            return AdmissionDecision(
+                admission_id=f"admission:{action_request.request_id}",
+                action_request_ref=action_request.request_id,
+                decision="deny",
+                user_visible_reason="当前运行边界不能执行任务暂停动作。",
+                system_reason="pause_for_user_steer_requires_task_execution",
+                contract_errors=("pause_for_user_steer_requires_task_execution",),
+                issue_category="protocol_violation",
+                issue_code="pause_for_user_steer_requires_task_execution",
+                action_issue=issue,
+            )
+        missing: list[str] = []
+        if not steer_ref:
+            missing.append("pause_request.steer_ref_required")
+        if reason != "user_steer_requires_pause":
+            missing.append("pause_request.reason_must_be_user_steer_requires_pause")
+        if not checkpoint_summary:
+            missing.append("pause_request.checkpoint_summary_required")
+        if missing:
+            return _invalid(action_request, ",".join(missing))
+        return AdmissionDecision(
+            admission_id=f"admission:{action_request.request_id}",
+            action_request_ref=action_request.request_id,
+            permission_delta={
+                "action_type": action_request.action_type,
+                "allowed_action_types": sorted(allowed_actions),
+                "invocation_kind": str(invocation_kind or ""),
+                "grant_scope": "task_run",
+                "requested_by": "agent",
+                "origin": "user_steer_pause",
+                "steer_ref": steer_ref,
+                "reason": reason,
+                "resource_scope": {
+                    "task_run_control": "pause_for_user_steer",
+                    "steer_ref": steer_ref,
+                    "origin": "user_steer_pause",
+                },
+            },
+            decision="allow",
+        )
     return AdmissionDecision(
         admission_id=f"admission:{action_request.request_id}",
         action_request_ref=action_request.request_id,
