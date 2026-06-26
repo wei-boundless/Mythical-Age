@@ -117,6 +117,14 @@
   gap: 10px;
 }
 
+.graph-os-topbar-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .graph-os-context-tabs__group {
   min-width: 0;
   display: grid;
@@ -204,7 +212,8 @@
   font-style: normal;
 }
 
-.graph-os-refresh {
+.graph-os-refresh,
+.graph-os-project-entry {
   min-height: 34px;
   border: 1px solid var(--console-line-soft);
   border-radius: var(--console-radius-sm);
@@ -214,6 +223,20 @@
   align-items: center;
   gap: 6px;
   padding: 0 10px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.graph-os-project-entry {
+  border-color: var(--console-active-ring);
+  background: var(--console-selected);
+  color: var(--console-accent);
+  font-weight: 800;
+}
+
+.graph-os-project-entry:hover {
+  border-color: var(--console-accent);
+  background: var(--console-accent-soft);
 }
 
 .graph-os-meta {
@@ -1821,6 +1844,7 @@
 
 .graph-editor-canvas-brief button,
 .graph-instance-workbench__header button,
+.graph-instance-workbench__header-link,
 .graph-instance-run-actions button,
 .graph-instance-session-row button {
   min-height: 31px;
@@ -1833,11 +1857,13 @@
   justify-content: center;
   gap: 6px;
   padding: 0 9px;
+  text-decoration: none;
   transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
 }
 
 .graph-editor-canvas-brief button:hover,
 .graph-instance-workbench__header button:hover,
+.graph-instance-workbench__header-link:hover,
 .graph-instance-run-actions button:hover,
 .graph-instance-session-row button:hover {
   border-color: var(--console-active-ring);

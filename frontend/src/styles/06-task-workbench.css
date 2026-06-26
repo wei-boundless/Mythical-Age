@@ -102,7 +102,8 @@
 .graph-foreground-panel--create > button,
 .graph-foreground-node-output > button,
 .graph-foreground-session-card > button,
-.graph-foreground-library__writer > button,
+.graph-foreground-library__writer-submit,
+.graph-foreground-library__writer-toggle,
 .graph-foreground-asset-tabs button {
   min-height: 30px;
   border: 1px solid color-mix(in srgb, var(--console-accent) 28%, transparent);
@@ -125,7 +126,8 @@
 .graph-foreground-panel--create > button:hover,
 .graph-foreground-node-output > button:hover,
 .graph-foreground-session-card > button:hover,
-.graph-foreground-library__writer > button:hover,
+.graph-foreground-library__writer-submit:hover,
+.graph-foreground-library__writer-toggle:hover,
 .graph-foreground-asset-tabs button:hover,
 .graph-foreground-asset-tabs__active {
   border-color: var(--console-accent);
@@ -1123,29 +1125,106 @@
   border-top: 1px solid var(--console-line-soft);
   background: var(--console-bg-raised);
   display: grid;
-  grid-template-columns: minmax(210px, 260px) minmax(0, 1fr) minmax(230px, 0.54fr) auto;
-  gap: 8px;
-  align-items: end;
-  padding: 8px 10px 10px;
+  gap: 0;
+  padding: 8px 10px;
 }
 
 .graph-foreground-library__body--session .graph-foreground-library__writer label {
   padding: 0;
 }
 
-.graph-foreground-library__body--session .graph-foreground-library__writer .graph-foreground-template-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin: 0;
+.graph-foreground-library__body--session .graph-foreground-library__writer-bar {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(120px, 160px) minmax(180px, 1fr) auto auto;
+  gap: 8px;
+  align-items: end;
 }
 
-.graph-foreground-library__body--session .graph-foreground-library__writer textarea {
-  min-height: 72px;
+.graph-foreground-library__body--session .graph-foreground-library__writer-title {
+  min-width: 0;
+  align-self: center;
+  display: grid;
+  gap: 2px;
+}
+
+.graph-foreground-library__body--session .graph-foreground-library__writer-title span {
+  color: var(--console-text-soft);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.graph-foreground-library__body--session .graph-foreground-library__writer-title strong {
+  overflow: hidden;
+  color: var(--console-text);
+  font-size: 13px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-foreground-library__body--session .graph-foreground-library__writer-path {
+  min-width: 0;
+}
+
+.graph-foreground-library__body--session .graph-foreground-library__writer-panel {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(250px, 0.82fr) minmax(280px, 1fr);
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.graph-foreground-library__body--session .graph-foreground-library__writer-templates {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.graph-foreground-library__body--session .graph-foreground-library__writer-templates button {
+  min-height: 34px;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--console-warning) 18%, transparent);
+  border-radius: 7px;
+  background: var(--console-surface);
+  color: var(--console-text-soft);
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  padding: 5px 8px;
+  text-align: left;
+}
+
+.graph-foreground-library__body--session .graph-foreground-library__writer-template--active {
+  border-color: color-mix(in srgb, var(--console-warning) 52%, transparent);
+  background: var(--console-warning-soft);
+  color: var(--console-warning);
+}
+
+.graph-foreground-library__body--session .graph-foreground-library__writer-templates strong,
+.graph-foreground-library__body--session .graph-foreground-library__writer-templates small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-foreground-library__body--session .graph-foreground-library__writer-templates small {
+  color: var(--console-muted);
+  font-size: 11px;
+}
+
+.graph-foreground-library__body--session .graph-foreground-library__writer-content {
+  min-height: 86px;
+  max-height: 118px;
   margin: 0;
   width: 100%;
 }
 
-.graph-foreground-library__body--session .graph-foreground-library__writer > button {
-  align-self: end;
+.graph-foreground-library__body--session .graph-foreground-library__writer-submit {
+  align-self: start;
+  min-width: 120px;
 }
 
 .graph-foreground-reader-head {
@@ -1315,8 +1394,7 @@
   justify-content: flex-end;
 }
 
-.graph-foreground-library__editor textarea,
-.graph-foreground-library__writer textarea {
+.graph-foreground-library__editor textarea {
   min-height: 160px;
   margin: 8px 10px 0;
   width: calc(100% - 20px);
@@ -1326,10 +1404,6 @@
   min-height: clamp(460px, 58vh, 760px);
   font-size: 15px;
   line-height: 1.72;
-}
-
-.graph-foreground-library__writer textarea {
-  min-height: 110px;
 }
 
 .graph-foreground-file-preview {
@@ -1382,8 +1456,835 @@
   max-height: calc(100vh - 255px);
 }
 
+.writing-project-shell {
+  min-width: 0;
+  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 14px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--console-bg) 94%, white 6%), var(--console-bg));
+  color: var(--console-text);
+  font-family: var(--workbench-font);
+}
+
+.writing-project-shell--writing {
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+}
+
+.writing-project-shell--writing .writing-project-shell__meta {
+  display: none;
+}
+
+.writing-project-shell__topbar {
+  min-height: 60px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--console-line-soft);
+  border-radius: 14px;
+  background: var(--console-surface);
+}
+
+.writing-project-shell__back,
+.writing-project-shell__actions a,
+.writing-project-shell__actions button {
+  height: 36px;
+  border: 1px solid var(--console-line);
+  border-radius: 10px;
+  background: var(--console-bg-raised);
+  color: var(--console-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.writing-project-shell__actions button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.writing-project-shell__back:hover,
+.writing-project-shell__actions a:hover,
+.writing-project-shell__actions button:not(:disabled):hover {
+  border-color: var(--console-line-strong);
+  background: var(--console-hover);
+}
+
+.writing-project-shell__title {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.writing-project-shell__title span,
+.writing-project-shell__meta span,
+.writing-project-shell__rail span,
+.writing-project-surface__head span {
+  color: var(--console-muted);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.writing-project-shell__title strong {
+  overflow: hidden;
+  color: var(--console-text);
+  font-size: 18px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.writing-project-shell__title small {
+  overflow: hidden;
+  color: var(--console-muted);
+  font-size: 12px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.writing-project-shell__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.writing-project-shell__actions select {
+  max-width: 320px;
+  height: 36px;
+  border: 1px solid var(--console-line);
+  border-radius: 10px;
+  background: var(--console-bg-raised);
+  color: var(--console-text);
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.writing-project-shell__meta {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.writing-project-shell__meta p {
+  min-width: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 3px 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--console-line-soft);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--console-surface) 82%, var(--console-bg) 18%);
+}
+
+.writing-project-shell__meta svg {
+  grid-row: 1 / span 2;
+  color: var(--console-accent);
+}
+
+.writing-project-shell__meta strong {
+  overflow: hidden;
+  color: var(--console-text);
+  font-family: var(--workbench-font-mono);
+  font-size: 12px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.writing-project-shell__body {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.writing-project-shell--writing .writing-project-shell__body {
+  grid-template-columns: minmax(150px, 184px) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.writing-project-shell__rail {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 10px;
+}
+
+.writing-project-shell--writing .writing-project-shell__rail {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.writing-project-shell--writing .writing-project-shell__identity,
+.writing-project-shell--writing .writing-project-shell__engine-card {
+  display: none;
+}
+
+.writing-project-shell--writing .writing-project-shell__nav {
+  gap: 8px;
+  padding: 10px;
+}
+
+.writing-project-shell--writing .writing-project-shell__nav-item {
+  min-height: 74px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  align-content: start;
+  justify-items: start;
+  padding: 12px 12px 13px;
+  border-radius: 16px;
+}
+
+.writing-project-shell--writing .writing-project-shell__nav-item small {
+  white-space: normal;
+}
+
+.writing-project-shell--reader-focus .writing-project-shell__body {
+  grid-template-columns: minmax(118px, 140px) minmax(0, 1fr);
+}
+
+.writing-project-shell--reader-focus .writing-project-shell__nav {
+  gap: 6px;
+  padding: 8px;
+}
+
+.writing-project-shell--reader-focus .writing-project-shell__nav-item {
+  min-height: 62px;
+  gap: 6px;
+  padding: 10px;
+}
+
+.writing-project-shell--reader-focus .writing-project-shell__nav-item small {
+  display: none;
+}
+
+.writing-project-shell--reader-focus .writing-project-shell__nav-item strong {
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.writing-project-shell__identity,
+.writing-project-shell__engine-card,
+.writing-project-shell__nav,
+.writing-project-surface,
+.writing-project-panel {
+  border: 1px solid var(--console-line-soft);
+  border-radius: 14px;
+  background: var(--console-surface);
+}
+
+.writing-project-shell__identity,
+.writing-project-shell__engine-card {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+}
+
+.writing-project-shell__identity strong,
+.writing-project-shell__engine-card strong,
+.writing-project-surface__head strong,
+.writing-project-panel header strong {
+  color: var(--console-text);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.writing-project-shell__identity small,
+.writing-project-shell__engine-card small,
+.writing-project-shell__engine-card span,
+.writing-project-panel header span,
+.writing-project-panel article span,
+.writing-project-panel article small,
+.writing-project-panel button small,
+.writing-project-panel button span {
+  color: var(--console-muted);
+}
+
+.writing-project-shell__nav {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+}
+
+.writing-project-shell__nav-item {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 10px 11px;
+  border: 1px solid var(--console-line-soft);
+  border-radius: 12px;
+  background: var(--console-bg-raised);
+  color: var(--console-text);
+  text-align: left;
+}
+
+.writing-project-shell__nav-item span {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.writing-project-shell__nav-item strong {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.writing-project-shell__nav-item small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--console-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.writing-project-shell__nav-item:hover,
+.writing-project-shell__nav-item--active {
+  border-color: var(--console-active-ring);
+  background: var(--console-selected);
+}
+
+.writing-project-shell__nav-item svg {
+  color: var(--console-accent);
+}
+
+.writing-project-shell__engine-card header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.writing-project-shell__engine-card p {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.writing-project-shell__engine-card strong {
+  overflow: hidden;
+  font-family: var(--workbench-font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.writing-project-shell__engine-card a {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--console-accent);
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.writing-project-shell__stage {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--console-line-soft);
+  border-radius: 16px;
+  background: var(--console-surface);
+}
+
+.writing-project-shell__stage--writing {
+  display: grid;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-session-screen {
+  height: 100%;
+  grid-template-columns: minmax(176px, 206px) minmax(0, 1fr) minmax(188px, 228px);
+  gap: 0;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-session-screen--focus {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.writing-project-shell__stage--writing .graph-foreground-chapter-rail,
+.writing-project-shell__stage--writing .graph-foreground-assets--session,
+.writing-project-shell__stage--writing .graph-foreground-session-side {
+  height: 100%;
+  border-radius: 0;
+  border: 0;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-chapter-rail,
+.writing-project-shell__stage--writing .graph-foreground-assets--session {
+  border-right: 1px solid var(--console-line-soft);
+}
+
+.writing-project-shell__stage--writing .graph-foreground-file-preview--reader,
+.writing-project-shell__stage--writing .graph-foreground-file-editor-textarea {
+  max-height: none;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-library__body--session {
+  height: 100%;
+  grid-template-rows: minmax(0, 1fr) auto;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--console-bg) 54%, white 46%) 0%,
+      color-mix(in srgb, var(--console-surface) 94%, white 6%) 20%,
+      var(--console-surface) 100%
+    );
+}
+
+.writing-project-shell__stage--writing .graph-foreground-library__editor {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  background: transparent;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-file-preview--reader {
+  flex: 1;
+  min-height: 0;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-reader-head {
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 28px 10px;
+  border-bottom: 0;
+  background: transparent;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-reader-head strong {
+  font-size: 21px;
+  line-height: 1.2;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-reader-head small {
+  font-size: 13px;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-reader-nav {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+  justify-content: end;
+  gap: 6px;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-reader-tools {
+  padding: 0 28px 12px;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-chapter-actions {
+  margin: 0 24px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--console-warning) 30%, transparent);
+  border-radius: 16px;
+  top: 12px;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-library__writer {
+  padding: 10px 16px 14px;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-library__writer-bar {
+  grid-template-columns: minmax(120px, 148px) minmax(220px, 1fr) auto auto;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-library__writer-panel {
+  grid-template-columns: minmax(260px, 0.72fr) minmax(320px, 1fr);
+  gap: 10px;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-file-preview--reader,
+.writing-project-shell__stage--writing .graph-foreground-file-editor-textarea {
+  width: min(1120px, calc(100% - 48px));
+  margin: 16px auto 0;
+  border: 1px solid color-mix(in srgb, var(--console-line-soft) 88%, white 12%);
+  border-radius: 22px;
+  background: var(--console-surface);
+  box-shadow: 0 20px 48px color-mix(in srgb, var(--console-text) 8%, transparent);
+}
+
+.writing-project-shell__stage--writing .graph-foreground-file-preview--reader {
+  min-height: clamp(560px, 69vh, 980px);
+  padding: 42px clamp(32px, 5vw, 72px);
+}
+
+.writing-project-shell__stage--writing .graph-foreground-file-editor-textarea {
+  min-height: clamp(560px, 69vh, 980px);
+  padding: 38px clamp(28px, 5vw, 64px);
+  font-size: 16px;
+  line-height: 1.92;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-file-preview--reader > * {
+  width: 100%;
+  max-width: 88ch;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-file-preview--reader pre {
+  width: 100%;
+  max-width: 100%;
+  overflow: auto;
+  border-radius: 16px;
+  padding: 18px 20px;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-file-preview--reader p,
+.writing-project-shell__stage--writing .graph-foreground-file-preview--reader li,
+.writing-project-shell__stage--writing .graph-foreground-file-preview--reader blockquote {
+  font-size: 17px;
+  line-height: 1.96;
+}
+
+.writing-project-shell__stage--writing .graph-foreground-reader-empty {
+  min-height: 560px;
+}
+
+.writing-project-shell--reader-focus .writing-project-shell__stage {
+  border-radius: 22px;
+}
+
+.writing-project-shell--reader-focus .writing-project-shell__stage--writing .graph-foreground-file-preview--reader,
+.writing-project-shell--reader-focus .writing-project-shell__stage--writing .graph-foreground-file-editor-textarea {
+  width: min(1180px, calc(100% - 56px));
+}
+
+.writing-project-shell--reader-focus .writing-project-shell__stage--writing .graph-foreground-reader-head {
+  padding-top: 22px;
+}
+
+.writing-project-shell--reader-focus .writing-project-shell__stage--writing .graph-foreground-assets--session {
+  min-height: 100%;
+}
+
+.writing-project-surface {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--console-surface);
+}
+
+.writing-project-surface__head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--console-line-soft);
+}
+
+.writing-project-surface__head strong {
+  display: block;
+  margin-top: 2px;
+}
+
+.writing-project-assets__grid,
+.writing-project-review__grid,
+.writing-project-runtime__grid {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.writing-project-assets__grid {
+  grid-template-columns: minmax(240px, 0.9fr) minmax(280px, 1fr) minmax(260px, 0.92fr);
+}
+
+.writing-project-review__grid {
+  grid-template-columns: minmax(240px, 0.94fr) minmax(240px, 0.92fr) minmax(280px, 1fr);
+}
+
+.writing-project-runtime__grid {
+  grid-template-columns: minmax(230px, 0.88fr) minmax(250px, 0.9fr) minmax(220px, 0.8fr);
+}
+
+.writing-project-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.writing-project-panel > header {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--console-line-soft);
+}
+
+.writing-project-panel > div {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px 12px;
+}
+
+.writing-project-panel button,
+.writing-project-panel a,
+.writing-project-panel article {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+}
+
+.writing-project-panel button,
+.writing-project-panel a {
+  border: 1px solid var(--console-line-soft);
+  border-radius: 12px;
+  background: var(--console-bg-raised);
+  color: var(--console-text);
+  padding: 10px 11px;
+}
+
+.writing-project-panel button:hover,
+.writing-project-panel a:hover {
+  border-color: var(--console-active-ring);
+  background: var(--console-selected);
+}
+
+.writing-project-panel button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.writing-project-panel button > span,
+.writing-project-panel a > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.writing-project-panel button strong,
+.writing-project-panel a strong,
+.writing-project-panel article strong {
+  color: var(--console-text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.writing-project-panel article {
+  flex-direction: column;
+  border: 1px solid var(--console-line-soft);
+  border-radius: 12px;
+  background: var(--console-bg-raised);
+  padding: 10px 11px;
+}
+
+.writing-project-search {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 12px;
+  padding: 0 11px;
+  border: 1px solid var(--console-line-soft);
+  border-radius: 12px;
+  background: var(--console-bg-raised);
+}
+
+.writing-project-search input {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--console-text);
+}
+
+.writing-project-search input::placeholder {
+  color: var(--console-muted);
+}
+
+.writing-project-shell__error,
+.writing-project-shell__loading {
+  margin: 0;
+  border: 1px solid var(--console-line-soft);
+  border-radius: 12px;
+  background: var(--console-warning-soft);
+  color: var(--console-text);
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+@media (max-width: 1180px) {
+  .writing-project-shell__body {
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  }
+
+  .writing-project-shell--writing .writing-project-shell__body,
+  .writing-project-shell--reader-focus .writing-project-shell__body {
+    grid-template-columns: minmax(128px, 148px) minmax(0, 1fr);
+  }
+
+  .writing-project-shell__meta {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .writing-project-shell__stage--writing .graph-foreground-session-screen {
+    grid-template-columns: minmax(160px, 190px) minmax(0, 1fr);
+  }
+
+  .writing-project-shell__stage--writing .graph-foreground-session-side {
+    grid-column: 1 / -1;
+  }
+
+  .writing-project-shell__stage--writing .graph-foreground-reader-head {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .writing-project-shell__stage--writing .graph-foreground-reader-tools {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .writing-project-shell__stage--writing .graph-foreground-chapter-actions {
+    margin-left: 16px;
+    margin-right: 16px;
+  }
+
+  .writing-project-shell__stage--writing .graph-foreground-file-preview--reader,
+  .writing-project-shell__stage--writing .graph-foreground-file-editor-textarea,
+  .writing-project-shell--reader-focus .writing-project-shell__stage--writing .graph-foreground-file-preview--reader,
+  .writing-project-shell--reader-focus .writing-project-shell__stage--writing .graph-foreground-file-editor-textarea {
+    width: min(100%, calc(100% - 32px));
+  }
+
+  .writing-project-assets__grid,
+  .writing-project-review__grid,
+  .writing-project-runtime__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .writing-project-shell {
+    height: auto;
+    min-height: 100vh;
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+  }
+
+  .writing-project-shell--writing {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .writing-project-shell__topbar,
+  .writing-project-shell__body,
+  .writing-project-shell__meta {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .writing-project-shell__actions {
+    flex-wrap: wrap;
+    justify-content: start;
+  }
+
+  .writing-project-shell__body {
+    overflow: visible;
+  }
+
+  .writing-project-shell__rail {
+    grid-template-rows: auto auto auto;
+  }
+
+  .writing-project-shell--writing .writing-project-shell__rail {
+    grid-template-rows: auto;
+  }
+
+  .writing-project-shell__nav {
+    max-height: 340px;
+  }
+
+  .writing-project-shell--writing .writing-project-shell__nav {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .writing-project-shell--writing .writing-project-shell__nav-item,
+  .writing-project-shell--reader-focus .writing-project-shell__nav-item {
+    min-height: 58px;
+  }
+
+  .writing-project-shell__stage--writing .graph-foreground-session-screen {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .writing-project-shell__stage--writing .graph-foreground-session-side {
+    grid-column: auto;
+  }
+
+  .writing-project-shell__stage--writing .graph-foreground-reader-head {
+    padding: 16px 16px 10px;
+  }
+
+  .writing-project-shell__stage--writing .graph-foreground-reader-tools {
+    padding: 0 16px 10px;
+  }
+
+  .writing-project-shell__stage--writing .graph-foreground-file-preview--reader,
+  .writing-project-shell__stage--writing .graph-foreground-file-editor-textarea,
+  .writing-project-shell--reader-focus .writing-project-shell__stage--writing .graph-foreground-file-preview--reader,
+  .writing-project-shell--reader-focus .writing-project-shell__stage--writing .graph-foreground-file-editor-textarea {
+    width: calc(100% - 20px);
+    min-height: 420px;
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+}
+
 .graph-foreground-file-preview--reader > * {
-  max-width: 76ch;
+  max-width: 84ch;
 }
 
 .graph-foreground-file-preview--reader h1,
@@ -1429,46 +2330,6 @@
 .graph-foreground-reader-empty strong {
   color: var(--console-text);
   font-size: 15px;
-}
-
-.graph-foreground-template-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 5px;
-  margin: 7px 10px 0;
-}
-
-.graph-foreground-template-grid button {
-  min-height: 40px;
-  min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--console-warning) 18%, transparent);
-  border-radius: 7px;
-  background: var(--console-surface);
-  color: var(--console-text-soft);
-  cursor: pointer;
-  display: grid;
-  gap: 2px;
-  padding: 6px 8px;
-  text-align: left;
-}
-
-.graph-foreground-template-grid__active {
-  border-color: color-mix(in srgb, var(--console-warning) 52%, transparent) !important;
-  background: var(--console-warning-soft) !important;
-  color: var(--console-warning) !important;
-}
-
-.graph-foreground-template-grid strong,
-.graph-foreground-template-grid small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.graph-foreground-template-grid small {
-  color: var(--console-muted);
-  font-size: 11px;
 }
 
 .graph-foreground-artifacts-pane {
@@ -1700,10 +2561,6 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .graph-foreground-library__body--session .graph-foreground-library__writer {
-    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-  }
-
   .graph-foreground-library__writer {
     border-top: 1px solid var(--console-line-soft);
   }
@@ -1780,7 +2637,11 @@
     border-bottom: 1px solid var(--console-line-soft);
   }
 
-  .graph-foreground-library__body--session .graph-foreground-library__writer {
+  .graph-foreground-library__body--session .graph-foreground-library__writer-bar {
+    grid-template-columns: minmax(0, 1fr) minmax(160px, 1fr);
+  }
+
+  .graph-foreground-library__body--session .graph-foreground-library__writer-panel {
     grid-template-columns: minmax(0, 1fr);
   }
 

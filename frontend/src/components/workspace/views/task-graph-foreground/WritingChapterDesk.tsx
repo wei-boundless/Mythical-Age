@@ -1,12 +1,14 @@
 "use client";
 
-import type { Dispatch, SetStateAction } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import {
   AlertTriangle,
   BookOpen,
+  ChevronDown,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Eye,
   FileText,
   FolderTree,
@@ -200,8 +202,15 @@ export function WritingChapterDesk({
   setSelectedNodeId,
   writeNewFile,
 }: WritingChapterDeskProps) {
-  const visibleActions: Array<WritingChapterAction & { fallback?: boolean }> = chapterActions.length
-    ? chapterActions
+  const [writerExpanded, setWriterExpanded] = useState(false);
+  const selectedControlId = selectedHumanControl?.control_id
+    || chapterActions.find((chapterAction) => chapterAction.enabled && chapterAction.control_id)?.control_id
+    || "";
+  const scopedChapterActions = selectedControlId
+    ? chapterActions.filter((chapterAction) => chapterAction.control_id === selectedControlId)
+    : chapterActions;
+  const visibleActions: Array<WritingChapterAction & { fallback?: boolean }> = scopedChapterActions.length
+    ? uniqueChapterActionsByDecision(scopedChapterActions)
     : (["pass", "revise", "replace"] as HumanEdgeDecisionKind[]).map((decision) => ({
         action: decision === "pass" ? "approve" : decision === "revise" ? "request_revision" : "replace_with_user_text",
         control_id: "",
@@ -340,24 +349,38 @@ export function WritingChapterDesk({
               )}
             </article>
 
-            <div className="graph-foreground-library__writer">
-              <label>
-                <span>写入正式库</span>
-                <input onChange={(event) => setNewFilePath(event.target.value)} placeholder="input/brief.md" value={newFilePath} />
-              </label>
-              <div className="graph-foreground-template-grid">
-                {FILE_PATH_TEMPLATES.map((template) => (
-                  <button className={newFilePath === template.path ? "graph-foreground-template-grid__active" : undefined} key={template.path} onClick={() => setNewFilePath(template.path)} type="button">
-                    <strong>{template.label}</strong>
-                    <small>{template.path}</small>
-                  </button>
-                ))}
+            <div className={classNames("graph-foreground-library__writer", writerExpanded && "graph-foreground-library__writer--expanded")}>
+              <div className="graph-foreground-library__writer-bar">
+                <div className="graph-foreground-library__writer-title">
+                  <span>写入正式库</span>
+                  <strong>{newFileContent.trim() ? "有待写入内容" : "辅助工具"}</strong>
+                </div>
+                <label className="graph-foreground-library__writer-path">
+                  <span>路径</span>
+                  <input onChange={(event) => setNewFilePath(event.target.value)} placeholder="input/brief.md" value={newFilePath} />
+                </label>
+                <button aria-expanded={writerExpanded} className="graph-foreground-library__writer-toggle" onClick={() => setWriterExpanded((value) => !value)} type="button">
+                  {writerExpanded ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+                  <span>{writerExpanded ? "收起" : "展开"}</span>
+                </button>
+                <button className="graph-foreground-library__writer-submit" disabled={!newFilePath.trim() || action === "write-file"} onClick={() => void writeNewFile()} type="button">
+                  <FileText size={14} />
+                  <span>{action === "write-file" ? "写入中" : "写入正式库"}</span>
+                </button>
               </div>
-              <textarea onChange={(event) => setNewFileContent(event.target.value)} placeholder="输入要写入项目正式库的内容" value={newFileContent} />
-              <button disabled={!newFilePath.trim() || action === "write-file"} onClick={() => void writeNewFile()} type="button">
-                <FileText size={14} />
-                <span>{action === "write-file" ? "写入中" : "写入正式库"}</span>
-              </button>
+              {writerExpanded ? (
+                <div className="graph-foreground-library__writer-panel">
+                  <div className="graph-foreground-library__writer-templates">
+                    {FILE_PATH_TEMPLATES.map((template) => (
+                      <button className={newFilePath === template.path ? "graph-foreground-library__writer-template--active" : undefined} key={template.path} onClick={() => setNewFilePath(template.path)} type="button">
+                        <strong>{template.label}</strong>
+                        <small>{template.path}</small>
+                      </button>
+                    ))}
+                  </div>
+                  <textarea className="graph-foreground-library__writer-content" onChange={(event) => setNewFileContent(event.target.value)} placeholder="输入要写入项目正式库的内容" value={newFileContent} />
+                </div>
+              ) : null}
             </div>
           </div>
         ) : (
@@ -457,4 +480,17 @@ export function WritingChapterDesk({
       </aside>
     </div>
   );
+}
+
+function uniqueChapterActionsByDecision(actions: WritingChapterAction[]) {
+  const byDecision = new Map<HumanEdgeDecisionKind, WritingChapterAction>();
+  for (const action of actions) {
+    const current = byDecision.get(action.decision);
+    if (!current || (!current.enabled && action.enabled)) {
+      byDecision.set(action.decision, action);
+    }
+  }
+  return (["pass", "revise", "replace"] as HumanEdgeDecisionKind[])
+    .map((decision) => byDecision.get(decision))
+    .filter((action): action is WritingChapterAction => Boolean(action));
 }

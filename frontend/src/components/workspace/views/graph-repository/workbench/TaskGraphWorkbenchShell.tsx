@@ -13,6 +13,7 @@ import type {
 
 export function TaskGraphWorkbenchShell({
   activeContext,
+  actions,
   breadcrumb,
   children,
   counts,
@@ -25,6 +26,7 @@ export function TaskGraphWorkbenchShell({
   title,
 }: {
   activeContext: TaskGraphWorkbenchContext;
+  actions?: ReactNode;
   breadcrumb: TaskGraphBreadcrumbSegment[];
   children: ReactNode;
   counts: TaskGraphWorkbenchCounts;
@@ -44,10 +46,13 @@ export function TaskGraphWorkbenchShell({
           <strong>{title || "未命名图任务"}</strong>
         </div>
         <TaskGraphContextTabs activeContext={activeContext} counts={counts} onContextChange={onContextChange} />
-        <button className="graph-os-refresh" disabled={saving === "load"} onClick={onRefresh} title="刷新任务图系统" type="button">
-          <RefreshCw size={15} />
-          <span>刷新</span>
-        </button>
+        <div className="graph-os-topbar-actions">
+          {actions}
+          <button className="graph-os-refresh" disabled={saving === "load"} onClick={onRefresh} title="刷新任务图系统" type="button">
+            <RefreshCw size={15} />
+            <span>刷新</span>
+          </button>
+        </div>
       </header>
       <div className="graph-os-meta">
         <TaskGraphBreadcrumb segments={breadcrumb} />

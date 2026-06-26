@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { BookOpen } from "lucide-react";
 import {
   createGraphTaskInstance,
   getOrchestrationAgents,
@@ -44,7 +45,21 @@ function initialDraft() {
   });
 }
 
-export function GraphRepositoryPage({ requestedGraphId = "" }: { requestedGraphId?: string }) {
+type RequestedInstancePanel = "writing" | "files" | "artifacts";
+const DEFAULT_WRITING_GRAPH_ID = "graph.writing.modular_novel.master";
+const DEFAULT_WRITING_INSTANCE_ID = "project.creation.writing.honghuang";
+
+export function GraphRepositoryPage({
+  requestedContext,
+  requestedGraphId = "",
+  requestedInstanceId = "",
+  requestedPanel,
+}: {
+  requestedContext?: TaskGraphWorkbenchContext;
+  requestedGraphId?: string;
+  requestedInstanceId?: string;
+  requestedPanel?: RequestedInstancePanel;
+}) {
   const [activeContext, setActiveContext] = useState<TaskGraphWorkbenchContext>("editor");
   const [overview, setOverview] = useState<TaskSystemOverview | null>(null);
   const [agentCatalog, setAgentCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
@@ -59,10 +74,18 @@ export function GraphRepositoryPage({ requestedGraphId = "" }: { requestedGraphI
   const [instancesLoading, setInstancesLoading] = useState(false);
   const [selectedInstanceId, setSelectedInstanceId] = useState("");
   const requestedGraphRef = useRef(requestedGraphId.trim());
+  const requestedContextRef = useRef<TaskGraphWorkbenchContext | undefined>(requestedContext);
+  const requestedInstanceRef = useRef(requestedInstanceId.trim());
+  const requestedPanelRef = useRef<RequestedInstancePanel | undefined>(requestedPanel);
 
   useEffect(() => {
     requestedGraphRef.current = requestedGraphId.trim();
-  }, [requestedGraphId]);
+    requestedContextRef.current = requestedContext;
+    requestedInstanceRef.current = requestedInstanceId.trim();
+    requestedPanelRef.current = requestedPanel;
+    if (requestedContext) setActiveContext(requestedContext);
+    if (requestedInstanceId.trim()) setSelectedInstanceId(requestedInstanceId.trim());
+  }, [requestedContext, requestedGraphId, requestedInstanceId, requestedPanel]);
 
   const graphs = useMemo(
     () => overview?.task_graph_management?.task_graphs ?? [],
@@ -99,6 +122,7 @@ export function GraphRepositoryPage({ requestedGraphId = "" }: { requestedGraphI
         const graph = nextOverview.task_graph_management?.task_graphs?.find((item) => item.graph_id === requested);
         if (graph) {
           await openGraph(graph, { silent: true });
+          if (requestedContextRef.current) setActiveContext(requestedContextRef.current);
         }
       }
     } catch (exc) {
@@ -132,8 +156,11 @@ export function GraphRepositoryPage({ requestedGraphId = "" }: { requestedGraphI
     try {
       const payload = await listGraphTaskInstances(normalizedGraphId);
       setInstances(payload.instances ?? []);
+      const requestedInstanceId = requestedInstanceRef.current;
       setSelectedInstanceId((current) => current && payload.instances.some((item) => item.graph_task_instance_id === current)
         ? current
+        : requestedInstanceId && payload.instances.some((item) => item.graph_task_instance_id === requestedInstanceId)
+          ? requestedInstanceId
         : payload.instances[0]?.graph_task_instance_id || "");
     } catch {
       setInstances([]);
@@ -418,7 +445,7 @@ export function GraphRepositoryPage({ requestedGraphId = "" }: { requestedGraphI
             instance={selectedInstance}
             instances={instances}
             instancesLoading={instancesLoading}
-            initialPanel="files"
+            initialPanel={requestedPanelRef.current || "files"}
             onCreateInstance={() => void createInstanceFromDraft()}
           onRefreshInstances={() => void refreshInstances(draft.graph_id, { allowMissingGraph: Boolean(selectedInstance) })}
             onSelectInstance={(instance) => setSelectedInstanceId(instance.graph_task_instance_id)}
@@ -439,11 +466,21 @@ export function GraphRepositoryPage({ requestedGraphId = "" }: { requestedGraphI
     { label: "实例", value: selectedInstance?.title || selectedInstance?.graph_task_instance_id || "未选择" },
     { label: "运行", value: selectedInstance?.active_graph_run_id || "未启动" },
   ];
+  const writingProjectInstanceId = (draft.graph_id === DEFAULT_WRITING_GRAPH_ID || selectedInstance?.graph_id === DEFAULT_WRITING_GRAPH_ID)
+    ? selectedInstance?.graph_task_instance_id || selectedInstanceId || DEFAULT_WRITING_INSTANCE_ID
+    : DEFAULT_WRITING_INSTANCE_ID;
+  const writingProjectHref = `/writing-project?instance_id=${encodeURIComponent(writingProjectInstanceId)}`;
 
   return (
     <section className="workspace-view boundary-console graph-repository-page" aria-label="任务图系统">
       <TaskGraphWorkbenchShell
         activeContext={activeContext}
+        actions={(
+          <a className="graph-os-project-entry" href={writingProjectHref} title="打开写作项目">
+            <BookOpen size={15} />
+            <span>写作项目</span>
+          </a>
+        )}
         breadcrumb={breadcrumb}
         counts={{
           templates: templates.length,
