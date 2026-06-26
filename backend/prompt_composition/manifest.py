@@ -276,7 +276,7 @@ def _cache_boundary_diagnostics(
             "provider payload cache is prefix based; physical order is fixed by the runtime packet, "
             "while cache_role and prefix_tier only diagnose whether that fixed order exposes a stable prefix"
         ),
-        "physical_model_contract": (
+        "prompt_lineage_contract": (
             "cache diagnostics must not reorder, promote, or reject provider-visible messages"
         ),
         "authority": "prompt_composition.cache_boundary_diagnostics",

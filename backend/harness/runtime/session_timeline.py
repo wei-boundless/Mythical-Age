@@ -14,7 +14,7 @@ from runtime.output_stream.public_contract import (
     TOOL_PERMISSION_DECIDED_EVENT,
 )
 
-_TASK_ANCHOR_PUBLIC_EVENTS = {"task_bridge_started", "task_bridge_terminal"}
+_TASK_ANCHOR_PUBLIC_EVENTS = {"task_origin_bound", "task_bridge_started", "task_bridge_terminal"}
 _TASK_CLOSED_PUBLIC_EVENTS = {"session_output_commit_ack"}
 _BODY_ONLY_SURFACE = "body_only"
 _LIVE_TIMELINE_SURFACE = "live_timeline"

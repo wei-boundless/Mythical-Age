@@ -20,6 +20,7 @@ RuntimeEventType = Literal[
     "model_action_request_received",
     "model_action_admission_checked",
     "bounded_observation_recorded",
+    "task_origin_bound",
     "task_run_lifecycle_started",
     "task_run_lifecycle_waiting_executor",
     "task_run_lifecycle_finished",

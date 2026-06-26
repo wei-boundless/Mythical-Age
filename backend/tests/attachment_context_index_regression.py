@@ -40,8 +40,8 @@ def test_single_turn_attachment_context_index_is_not_user_message_text() -> None
 
     kinds = [segment["kind"] for segment in result.packet.segment_plan["segments"]]
     attachment_segment = _segment_by_kind(result.packet, "attachment_context_index")
-    attachment_payload = _payload_with_title(result.packet, "Single agent turn attachment context index")
-    current_request_payload = _payload_with_title(result.packet, "Single agent turn current request")
+    attachment_payload = _payload_with_title(result.packet, "Attachment context index")
+    current_request_payload = _payload_with_title(result.packet, "Current user request")
     current_request_text = json.dumps(current_request_payload, ensure_ascii=False)
 
     assert kinds.index("attachment_context_index") < kinds.index("current_turn_user_context")
@@ -67,3 +67,5 @@ def _payload_with_title(packet, title: str) -> dict[str, object]:
         if content.startswith(title + "\n"):
             return json.loads(content.split("\n", 1)[1])
     raise AssertionError(f"missing model message title: {title}")
+
+

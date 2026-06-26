@@ -301,6 +301,7 @@ class HarnessRuntimeFacade:
             for item in list(api_transcript or [])
             if isinstance(item, dict)
         ]
+        session_context = _attach_fork_snapshot_to_session_context(session_context, history_record)
         context_recovery_package = (
             self._context_recovery_package_for_session(
                 session_id,
@@ -320,6 +321,13 @@ class HarnessRuntimeFacade:
             session_context["provider_protocol_compaction_created_at"] = provider_protocol_compaction_created_at
         else:
             session_context.pop("provider_protocol_compaction_created_at", None)
+        compaction_generation = str(history_record.get("compaction_generation") or "0").strip() or "0"
+        session_context["compaction_generation"] = compaction_generation
+        compaction_generation_updated_at = _safe_compaction_boundary_timestamp(
+            history_record.get("compaction_generation_updated_at")
+        )
+        if compaction_generation_updated_at > 0:
+            session_context["compaction_generation_updated_at"] = compaction_generation_updated_at
         conversation_state = dict(history_record.get("conversation_state") or {})
         project_binding = dict(conversation_state.get("project_binding") or {})
         if project_binding:
@@ -495,6 +503,7 @@ class HarnessRuntimeFacade:
             "compressed_context": history_assembly.compressed_context,
             "api_transcript": [dict(item) for item in list(api_transcript or []) if isinstance(item, dict)],
         }
+        session_context = _attach_fork_snapshot_to_session_context(session_context, history_record)
         context_recovery_package = (
             self._context_recovery_package_for_session(
                 request.session_id,
@@ -510,6 +519,13 @@ class HarnessRuntimeFacade:
         )
         if provider_protocol_compaction_created_at > 0:
             session_context["provider_protocol_compaction_created_at"] = provider_protocol_compaction_created_at
+        compaction_generation = str(history_record.get("compaction_generation") or "0").strip() or "0"
+        session_context["compaction_generation"] = compaction_generation
+        compaction_generation_updated_at = _safe_compaction_boundary_timestamp(
+            history_record.get("compaction_generation_updated_at")
+        )
+        if compaction_generation_updated_at > 0:
+            session_context["compaction_generation_updated_at"] = compaction_generation_updated_at
         conversation_state = dict(history_record.get("conversation_state") or {})
         project_binding = dict(conversation_state.get("project_binding") or {})
         if project_binding:
@@ -590,7 +606,7 @@ class HarnessRuntimeFacade:
                     return
 
                 active_work_context = self._active_work_context_from_active_turn(request.session_id)
-                agent_runtime_profile = self.agent_runtime_registry.get_profile("agent:0")
+                agent_runtime_profile = self._resolve_request_agent_runtime_profile(request)
                 request_environment_binding = dict(getattr(request, "environment_binding", {}) or {})
                 runtime_contract = _runtime_contract_for_turn(
                     request_runtime_contract=dict(request.runtime_contract or {}),
@@ -2408,6 +2424,29 @@ class HarnessRuntimeFacade:
             },
         )
 
+    def _resolve_request_agent_runtime_profile(self, request: Any) -> Any:
+        request_profile = dict(getattr(request, "runtime_profile", {}) or {})
+        runtime_contract = dict(getattr(request, "runtime_contract", {}) or {})
+        contract_profile = dict(runtime_contract.get("runtime_profile") or {})
+        profile_id = _first_non_empty_string(
+            request_profile.get("agent_profile_id"),
+            request_profile.get("profile_ref"),
+            request_profile.get("agent_profile_ref"),
+            contract_profile.get("agent_profile_id"),
+            contract_profile.get("profile_ref"),
+            contract_profile.get("agent_profile_ref"),
+        )
+        if profile_id:
+            profile = self.agent_runtime_registry.get_profile_by_profile_id(profile_id)
+            if profile is not None:
+                return profile
+        agent_id = _first_non_empty_string(
+            request_profile.get("agent_id"),
+            contract_profile.get("agent_id"),
+        )
+        profile = self.agent_runtime_registry.get_profile(agent_id or "agent:0")
+        return profile or self.agent_runtime_registry.get_profile("agent:0")
+
     def _task_executor_services(self, *, agent_id: str = "agent:0") -> TaskExecutorServices:
         profile = self.agent_runtime_registry.get_profile(agent_id) or self.agent_runtime_registry.get_profile("agent:0")
         if profile is None:
@@ -3169,6 +3208,25 @@ def _history_without_current_user_request(
     return result
 
 
+def _attach_fork_snapshot_to_session_context(
+    session_context: dict[str, Any],
+    history_record: dict[str, Any],
+) -> dict[str, Any]:
+    payload = dict(session_context or {})
+    record = dict(history_record or {})
+    parent_session_id = str(record.get("parent_session_id") or "").strip()
+    forked_from = dict(record.get("forked_from") or {}) if isinstance(record.get("forked_from"), dict) else {}
+    if parent_session_id:
+        payload["parent_session_id"] = parent_session_id
+    else:
+        payload.pop("parent_session_id", None)
+    if forked_from:
+        payload["forked_from"] = forked_from
+    else:
+        payload.pop("forked_from", None)
+    return payload
+
+
 def _graph_model_override_diagnostics(work_order: Any) -> dict[str, Any]:
     dispatch_context = dict(getattr(work_order, "dispatch_context", {}) or {})
     diagnostics = dispatch_context.get("model_override_diagnostics")
@@ -3732,10 +3790,17 @@ def _runtime_profile_with_execution_permit_allowed_operations(
     return profile
 
 
-def _first_contract_text(*values: Any) -> str:
+def _first_non_empty_string(*values: Any) -> str:
     for value in values:
         text = str(value or "").strip()
         if text:
             return text
     return ""
 
+
+def _first_contract_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""

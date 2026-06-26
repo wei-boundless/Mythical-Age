@@ -5,8 +5,14 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from .context_assembly import CONTEXT_APPEND, CONTEXT_MEMORY_PREFIX, DYNAMIC_TAIL, STATIC_PREFIX
-from .context_segment_policy import context_segment_policy_for_spec, context_segment_policy_metadata
+from .context_segment_policy import (
+    CONTEXT_APPEND,
+    CONTEXT_MEMORY_PREFIX,
+    DYNAMIC_TAIL,
+    STATIC_PREFIX,
+    context_segment_policy_for_spec,
+    context_segment_policy_metadata,
+)
 
 
 STATIC_IDENTITY = "static_identity"
@@ -64,10 +70,9 @@ class ContextCapabilityDecision:
 
 
 @dataclass(frozen=True, slots=True)
-class ContextAssemblyCapabilityProfile:
+class ContextCapabilityProfile:
     profile_id: str
     invocation_kind: str = ""
-    provider_physical_model: str = ""
     enabled_groups: tuple[str, ...] = DEFAULT_CONTEXT_CAPABILITY_GROUPS
     disabled_groups: tuple[str, ...] = ()
     group_config: dict[str, Any] = field(default_factory=dict)
@@ -83,7 +88,7 @@ class ContextAssemblyCapabilityProfile:
         return payload
 
 
-def build_context_assembly_capability_profile(
+def build_context_capability_profile(
     *,
     invocation_kind: str = "",
     profile_payload: dict[str, Any] | None = None,
@@ -91,7 +96,7 @@ def build_context_assembly_capability_profile(
     memory_policy: dict[str, Any] | None = None,
     prompt_policy: dict[str, Any] | None = None,
     override: dict[str, Any] | None = None,
-) -> ContextAssemblyCapabilityProfile:
+) -> ContextCapabilityProfile:
     profile = dict(profile_payload or {})
     context = _merge_dicts(
         profile.get("context_policy"),
@@ -107,8 +112,6 @@ def build_context_assembly_capability_profile(
     )
     raw_profile = _merge_dicts(
         context.get("context_capability_profile"),
-        context.get("context_assembly_capability_profile"),
-        context.get("context_assembly"),
         prompt.get("context_capability_profile"),
         override,
     )
@@ -140,40 +143,28 @@ def build_context_assembly_capability_profile(
     for group in _groups_disabled_by_legacy_policy(context=context, memory=memory):
         disabled.add(group)
         enabled.discard(group)
-    provider_physical_model = str(
-        raw_profile.get("provider_physical_model")
-        or raw_profile.get("provider_context_physical_model")
-        or ""
-    ).strip()
-    if provider_physical_model not in {"", "static_context", "static_context_dynamic_tail"}:
-        provider_physical_model = ""
     seed = {
         "invocation_kind": str(invocation_kind or ""),
-        "provider_physical_model": provider_physical_model,
         "enabled_groups": sorted(enabled),
         "disabled_groups": sorted(disabled),
     }
-    return ContextAssemblyCapabilityProfile(
+    return ContextCapabilityProfile(
         profile_id="ctxcap:" + _stable_hash(seed)[:16],
         invocation_kind=str(invocation_kind or ""),
-        provider_physical_model=provider_physical_model,
         enabled_groups=tuple(group for group in DEFAULT_CONTEXT_CAPABILITY_GROUPS if group in enabled and group not in disabled),
         disabled_groups=tuple(group for group in DEFAULT_CONTEXT_CAPABILITY_GROUPS if group in disabled),
         group_config=dict(group_config),
         diagnostics={
             "default_enabled": True,
             "legacy_policy_bridge": bool(context or memory),
-            "physical_model_note": (
-                "provider adapters own the physical context model; agent capability switches only connect "
-                "or omit semantic groups before fixed assembly"
-            ),
+            "physical_plan_note": "capability switches only connect or omit semantic groups before PhysicalContextPlan",
             "authority": "runtime.context_management.context_capability_policy.profile_builder",
         },
     )
 
 
-def context_capability_profile_from_payload(value: dict[str, Any] | ContextAssemblyCapabilityProfile | None) -> ContextAssemblyCapabilityProfile:
-    if isinstance(value, ContextAssemblyCapabilityProfile):
+def context_capability_profile_from_payload(value: dict[str, Any] | ContextCapabilityProfile | None) -> ContextCapabilityProfile:
+    if isinstance(value, ContextCapabilityProfile):
         return value
     payload = dict(value or {})
     if payload.get("authority") == "runtime.context_management.context_capability_policy" or payload.get("profile_id"):
@@ -189,26 +180,24 @@ def context_capability_profile_from_payload(value: dict[str, Any] | ContextAssem
         )
         seed = {
             "invocation_kind": str(payload.get("invocation_kind") or ""),
-            "provider_physical_model": str(payload.get("provider_physical_model") or ""),
             "enabled_groups": sorted(enabled),
             "disabled_groups": sorted(disabled),
         }
-        return ContextAssemblyCapabilityProfile(
+        return ContextCapabilityProfile(
             profile_id=str(payload.get("profile_id") or "ctxcap:" + _stable_hash(seed)[:16]),
             invocation_kind=str(payload.get("invocation_kind") or ""),
-            provider_physical_model=str(payload.get("provider_physical_model") or ""),
             enabled_groups=enabled or DEFAULT_CONTEXT_CAPABILITY_GROUPS,
             disabled_groups=disabled,
             group_config=dict(payload.get("group_config") or {}),
             diagnostics=dict(payload.get("diagnostics") or {}),
         )
-    return build_context_assembly_capability_profile(override=payload)
+    return build_context_capability_profile(override=payload)
 
 
-def apply_context_assembly_capability_profile(
+def apply_context_capability_profile(
     specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
     *,
-    profile: dict[str, Any] | ContextAssemblyCapabilityProfile | None = None,
+    profile: dict[str, Any] | ContextCapabilityProfile | None = None,
     invocation_kind: str = "",
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     resolved = context_capability_profile_from_payload(profile)
@@ -252,7 +241,7 @@ def apply_context_assembly_capability_profile(
 def context_capability_decision_for_spec(
     spec: dict[str, Any],
     *,
-    profile: dict[str, Any] | ContextAssemblyCapabilityProfile | None = None,
+    profile: dict[str, Any] | ContextCapabilityProfile | None = None,
 ) -> ContextCapabilityDecision:
     resolved = context_capability_profile_from_payload(profile)
     group, slot, member, reason = _capability_group_for_spec(spec)
@@ -269,7 +258,7 @@ def context_capability_decision_for_spec(
 def context_capability_decision_for_prompt_resource(
     resource: dict[str, Any],
     *,
-    profile: dict[str, Any] | ContextAssemblyCapabilityProfile | None = None,
+    profile: dict[str, Any] | ContextCapabilityProfile | None = None,
 ) -> ContextCapabilityDecision:
     resolved = context_capability_profile_from_payload(profile)
     group, slot, member, reason = _capability_group_for_prompt_resource(resource)
@@ -295,7 +284,7 @@ def prompt_context_capability_metadata(*, group: str, slot: str = "", member: st
 def _annotated_spec(
     spec: dict[str, Any],
     *,
-    profile: ContextAssemblyCapabilityProfile,
+    profile: ContextCapabilityProfile,
     decision: ContextCapabilityDecision,
 ) -> dict[str, Any]:
     policy = context_segment_policy_for_spec(spec)
@@ -308,8 +297,6 @@ def _annotated_spec(
         "context_capability_member": decision.member,
         "context_capability_enabled": True,
         "context_capability_reason": decision.reason,
-        "context_capability_provider_physical_model": profile.provider_physical_model,
-        "context_capability_physical_model_authority": "provider_adapter",
         "context_capability_prefix_coupled": True,
         "context_capability_authority": "runtime.context_management.context_capability_policy",
     }
@@ -447,7 +434,6 @@ _KIND_GROUPS: dict[str, tuple[str, str, str]] = {
     "runtime_memory_context": (CONTEXT_MEMORY, "runtime_memory_context", "content"),
     "session_history": (CONTEXT_MEMORY, "history_replay", "content"),
     "session_history_context": (CONTEXT_MEMORY, "history_replay", "content"),
-    "session_history_entry": (CONTEXT_MEMORY, "history_replay", "content"),
     "provider_protocol_history": (CONTEXT_MEMORY, "provider_protocol_history", "content"),
     "current_turn_user_context": (CONTEXT_MEMORY, "current_user_intent", "content"),
     "single_agent_turn_user_steer_context": (CONTEXT_MEMORY, "active_user_steer_content", "content"),
@@ -478,7 +464,6 @@ _KIND_GROUPS: dict[str, tuple[str, str, str]] = {
     "partial_stream_recovery_instruction": (REPAIR_FEEDBACK, "visible_prefix_recovery_contract", "feedback"),
     "partial_stream_recovery_visible_prefix": (REPAIR_FEEDBACK, "visible_prefix_recovery_context", "feedback"),
     "active_skills": (ACTIVE_SKILL, "active_skill_body", "content"),
-    "skill_candidates": (ACTIVE_SKILL, "skill_candidates", "content"),
     "lifecycle_runtime_guidance": (LIFECYCLE_CONTROL, "lifecycle_guidance", "contract"),
     "runtime_control_signal_tail": (LIFECYCLE_CONTROL, "runtime_control_signal", "control"),
     "dynamic_projection": (CURRENT_DYNAMIC_CONTROL, "runtime_delta_tail", "control"),

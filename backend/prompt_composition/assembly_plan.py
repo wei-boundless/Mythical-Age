@@ -6,12 +6,13 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .source_bundle import PromptSource, PromptSourceBundle
-from runtime.context_management.context_assembly import (
+from runtime.context_management.context_segment_policy import (
     CONTEXT_APPEND,
     CONTEXT_MEMORY_PREFIX,
     DYNAMIC_TAIL,
     STATIC_PREFIX,
-    classify_context_spec,
+    context_segment_policy_for_spec,
+    context_segment_policy_metadata,
 )
 
 
@@ -190,16 +191,16 @@ def _slot_from_source(source: PromptSource, *, provider_profile: dict[str, Any])
         "prefix_tier": source.prefix_tier,
         "metadata": dict(source.metadata or {}),
     }
-    classification = classify_context_spec(source_spec)
-    cache_role = classification.cache_role
-    prefix_tier = classification.prefix_tier
-    source_cache_scope = classification.cache_scope
+    policy = context_segment_policy_for_spec(source_spec)
+    cache_role = policy.prefix_cache_role
+    prefix_tier = policy.prefix_tier
+    source_cache_scope = policy.prefix_cache_scope
     layer = _layer_for_source(source, cache_role=cache_role, prefix_tier=prefix_tier)
-    if classification.context_cache_section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
+    if policy.section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
         layer = _context_append_layer(layer)
-    elif classification.context_cache_section == DYNAMIC_TAIL:
+    elif policy.section == DYNAMIC_TAIL:
         layer = "dynamic_context_tail"
-    elif classification.context_cache_section == STATIC_PREFIX and layer == "volatile":
+    elif policy.section == STATIC_PREFIX and layer == "volatile":
         layer = "task_stable_scope"
     dynamic_tier = _dynamic_tier_for_source(source, cache_role=cache_role, prefix_tier=prefix_tier, layer=layer)
     cache_scope = _cache_scope_for_tier(
@@ -221,7 +222,7 @@ def _slot_from_source(source: PromptSource, *, provider_profile: dict[str, Any])
         "prompt_source_kind": source.source_kind,
         "prompt_source_order": int(source.source_order or 0),
         "assembly_decided_by": "prompt_composition.assembly_plan",
-        **classification.to_dict(),
+        **context_segment_policy_metadata(policy),
     }
     if source.kind == "tool_schema_catalog":
         metadata.setdefault("provider_tool_schema_cache_profile", dict(provider_profile or {}))
@@ -351,7 +352,7 @@ def _dynamic_tier_for_source(source: PromptSource, *, cache_role: str, prefix_ti
     if layer == "dynamic_context_tail":
         if kind == "read_evidence_injection":
             return "current_exact_evidence"
-        if kind in {"active_skills", "skill_candidates"}:
+        if kind == "active_skills":
             return "active_skills"
         if kind == "graph_node_completion_prefix":
             return "assistant_completion_prefix"
@@ -396,7 +397,7 @@ def _dynamic_tier_for_source(source: PromptSource, *, cache_role: str, prefix_ti
         "tool_observations",
     }:
         return "append_only_runtime_evidence"
-    if kind in {"session_history", "session_history_context", "session_history_entry", "provider_protocol_history"}:
+    if kind in {"session_history", "session_history_context", "provider_protocol_history"}:
         return "history_replay"
     if kind == "session_history_tail_context":
         return "dynamic_context_tail"
@@ -411,7 +412,7 @@ def _dynamic_tier_for_source(source: PromptSource, *, cache_role: str, prefix_ti
         "runtime_incremental_context_cursor",
     }:
         return "dynamic_context_tail"
-    if kind in {"active_skills", "skill_candidates"}:
+    if kind == "active_skills":
         return "active_skills"
     if kind == "graph_node_completion_prefix":
         return "assistant_completion_prefix"
@@ -468,9 +469,9 @@ def _diagnostics(slots: list[PromptAssemblySlot]) -> dict[str, Any]:
         "dynamic_tier_counts": _count_by(slots, "dynamic_tier"),
         "cache_order_warnings": cache_order_warnings,
         "segment_prefix_violations": cache_order_warnings,
-        "physical_model_contract": (
-            "assembly order is fixed by source_order; cache_role, prefix_tier, provider policy, and "
-            "context_cache_section are diagnostics only and must not reorder provider-visible messages"
+        "prompt_lineage_contract": (
+            "prompt composition preserves source lineage; physical provider-visible order is assigned later by "
+            "PhysicalContextPlan, while cache_role, prefix_tier, provider policy, and context_cache_section remain diagnostics here"
         ),
         "assembly_reordered_slot_count": sum(1 for slot in slots if slot.assembly_order != slot.source_order),
     }

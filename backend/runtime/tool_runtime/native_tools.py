@@ -25,12 +25,15 @@ from capability_system.tools.workspace_file_service import (
 )
 from core.config import get_settings
 from file_management import (
+    EXTERNAL_READONLY_REPOSITORY_PREFIX,
     FileGateway,
     FileGatewayApprovalRequired,
     FileGatewayPermissionError,
     FileGatewayRequestContext,
     build_file_access_table,
+    external_logical_path,
     resolve_file_environment,
+    split_external_logical_path,
 )
 from memory_system.runtime_scope import project_id_for_task_run
 from core.project_layout import ProjectLayout
@@ -174,6 +177,7 @@ class _NativeToolBase:
         environment = resolve_file_environment(
             profile_id,
             repository_requirements=dict(config.get("repository_requirements") or {}),
+            external_read_scopes=config.get("external_read_scopes"),
         )
         table = build_file_access_table(
             environment,
@@ -195,6 +199,7 @@ class _NativeToolBase:
             sandbox_root=sandbox_root,
             managed_storage_root=managed_storage_root,
             runtime_output_root=_runtime_output_root(context, managed_storage_root),
+            external_read_scopes=config.get("external_read_scopes"),
         )
 
     def _gateway_context(self, context: ToolUseContext) -> FileGatewayRequestContext:
@@ -419,15 +424,18 @@ class NativeReadFileTool(_NativeToolBase):
         read_intent = _normalize_read_intent(args.get("read_intent"))
         repository_id = _repository_for_action(context, "read")
         try:
+            target = _gateway_target_for_path(context, gateway, action="read", path=path)
+            repository_id = target.repository_id
             result = gateway.read_text(
-                repository_id,
-                path,
+                target.repository_id,
+                target.logical_path,
                 self._gateway_context(context),
                 operation_id=self.operation_id,
             )
+            display_path = target.display_path if target.external else result.logical_path
             window = build_read_file_window_result(
                 result.content,
-                path=result.logical_path,
+                path=display_path,
                 repository_id=result.repository_id,
                 managed_file_ref=result.managed_file_ref.to_dict(),
                 start_line=start_line,
@@ -442,7 +450,7 @@ class NativeReadFileTool(_NativeToolBase):
             tool_result["mtime_ns"] = result_mtime_ns
             artifact = _write_read_observation_artifact(
                 context=context,
-                path=result.logical_path,
+                path=display_path,
                 text=window.text,
                 start_line=window.start_line,
                 end_line=window.end_line,
@@ -485,7 +493,7 @@ class NativeReadFileTool(_NativeToolBase):
                     "root_binding": result.metadata.get("root_binding"),
                 },
             },
-            observed_paths=(result.logical_path,),
+            observed_paths=(display_path,),
             execution_receipt=context.execution_receipt,
         )
 
@@ -1362,7 +1370,8 @@ class NativeWriteFileTool(_NativeToolBase):
         path = str(args.get("path") or "").strip()
         if gateway is not None:
             try:
-                existing = gateway.existing_file_path(_repository_for_action(context, "write"), path)
+                target = _gateway_target_for_path(context, gateway, action="write", path=path)
+                existing = gateway.existing_file_path(target.repository_id, target.logical_path)
             except (KeyError, ValueError) as exc:
                 return ToolPermissionResult(
                     allowed=False,
@@ -1453,9 +1462,11 @@ class NativeWriteFileTool(_NativeToolBase):
     ) -> ToolResultEnvelope:
         repository_id = _repository_for_action(context, "write")
         try:
+            target = _gateway_target_for_path(context, gateway, action="write", path=path)
+            repository_id = target.repository_id
             result = gateway.write_text(
-                repository_id,
-                path,
+                target.repository_id,
+                target.logical_path,
                 content,
                 self._gateway_context(context),
                 operation_id=self.operation_id,
@@ -1630,11 +1641,13 @@ class NativeEditFileTool(_NativeToolBase):
         repository_id = _repository_for_action(context, "edit")
         old_text = str(args.get("old_text") or "")
         try:
+            target = _gateway_target_for_path(context, gateway, action="edit", path=path)
+            repository_id = target.repository_id
             before_result = None
             try:
                 before_result = gateway.read_text(
-                    repository_id,
-                    path,
+                    target.repository_id,
+                    target.logical_path,
                     self._gateway_context(context),
                     operation_id="op.read_file",
                 )
@@ -1672,8 +1685,8 @@ class NativeEditFileTool(_NativeToolBase):
                         execution_receipt=context.execution_receipt,
                     )
             result = gateway.edit_text(
-                repository_id,
-                path,
+                target.repository_id,
+                target.logical_path,
                 old_text,
                 str(args.get("new_text") or ""),
                 self._gateway_context(context),
@@ -1900,9 +1913,11 @@ class NativeBatchEditFileTool(_NativeToolBase):
     ) -> ToolResultEnvelope:
         repository_id = _repository_for_action(context, "edit")
         try:
+            target = _gateway_target_for_path(context, gateway, action="edit", path=path)
+            repository_id = target.repository_id
             before_result = gateway.read_text(
-                repository_id,
-                path,
+                target.repository_id,
+                target.logical_path,
                 self._gateway_context(context),
                 operation_id="op.read_file",
             )
@@ -1938,8 +1953,8 @@ class NativeBatchEditFileTool(_NativeToolBase):
                 )
                 return self._error_envelope(args=args, path=before_result.logical_path, guard_failure=guard, context=context, rejected_edits=rejected_edits)
             result = gateway.write_text(
-                repository_id,
-                path,
+                target.repository_id,
+                target.logical_path,
                 after_content,
                 self._gateway_context(context),
                 operation_id=self.operation_id,
@@ -2208,7 +2223,7 @@ class NativeTerminalTool(_NativeToolBase):
     def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         command = str(args.get("command") or "").strip()
         structured_payload = _tool_call_structured_payload(args)
-        blocked_reason = validate_sandbox_command_text(command, kind="command", workspace_root=context.workspace_root)
+        blocked_reason = "" if _runtime_full_access(context) else validate_sandbox_command_text(command, kind="command", workspace_root=context.workspace_root)
         if blocked_reason:
             receipt = _command_receipt(
                 command=command,
@@ -2341,7 +2356,7 @@ class NativePythonReplTool(_NativeToolBase):
 
     def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         code = str(args.get("code") or "")
-        blocked_reason = validate_sandbox_command_text(code, kind="code", workspace_root=context.workspace_root)
+        blocked_reason = "" if _runtime_full_access(context) else validate_sandbox_command_text(code, kind="code", workspace_root=context.workspace_root)
         if blocked_reason:
             receipt = _command_receipt(
                 command="python -c <code>",
@@ -2532,6 +2547,55 @@ class NativeReadStructuredFileTool(_NativeToolBase):
 
     def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         path = str(args.get("path") or "").strip()
+        gateway = self._file_gateway(context)
+        external_target = None
+        if gateway is not None:
+            try:
+                target = _gateway_target_for_path(context, gateway, action="read", path=path)
+                if target.external:
+                    external_target = target
+            except Exception:
+                external_target = None
+        if gateway is not None and external_target is not None:
+            try:
+                _repository, _binding, file_path, _logical_path, _access = gateway.resolve_physical_path(
+                    external_target.repository_id,
+                    external_target.logical_path,
+                    action="read",
+                    approval_fingerprint=_gateway_approval_fingerprint(context),
+                )
+                if not file_path.exists():
+                    raise FileNotFoundError("file does not exist")
+                if file_path.is_dir():
+                    raise IsADirectoryError("path is a directory")
+                data, data_format = _parse_structured_file(file_path)
+            except Exception as exc:
+                return self._envelope(
+                    tool_args=args,
+                    status="error",
+                    text=f"Structured read failed: {exc}",
+                    structured_payload={"tool_result": {"kind": "structured_file", "status": "error", "error": str(exc)}},
+                    execution_receipt=context.execution_receipt,
+                )
+            summary = _summarize(data)
+            return self._envelope(
+                tool_args=args,
+                status="ok",
+                text=summary,
+                structured_payload={
+                    "tool_result": {
+                        "kind": "structured_file",
+                        "path": external_target.display_path,
+                        "repository_id": external_target.repository_id,
+                        "format": data_format,
+                        "root_type": type(data).__name__,
+                        "data": data,
+                        "summary": summary,
+                    }
+                },
+                observed_paths=(external_target.display_path,),
+                execution_receipt=context.execution_receipt,
+            )
         files = self._files(context)
         try:
             file_path = files.resolve(path, require_path=True)
@@ -2578,15 +2642,64 @@ class NativeSearchFilesTool(_NativeToolBase):
         if not query:
             return self._envelope(tool_args=args, status="error", text="Search failed: query is required.", execution_receipt=context.execution_receipt)
         files = self._files(context)
-        using_default_roots = not [str(item or "").strip() for item in list(args.get("roots") or [])]
-        safe_roots = files.safe_roots(args.get("roots"))
+        requested_roots = [str(item or "").strip() for item in list(args.get("roots") or []) if str(item or "").strip()]
+        external_roots = [item for item in requested_roots if _is_external_path_arg(item)]
+        workspace_roots = [item for item in requested_roots if not _is_external_path_arg(item)]
+        gateway = self._file_gateway(context)
+        using_default_roots = not requested_roots
+        external_matches: list[str] = []
+        external_meta: dict[str, Any] = {}
+        if gateway is not None and external_roots:
+            try:
+                external_matches, external_meta = _search_external_path_matches(
+                    context,
+                    gateway,
+                    roots=external_roots,
+                    query=query,
+                    terms=_query_terms(query),
+                    limit=max(1, min(int(args.get("max_results") or 20), 100)),
+                )
+            except Exception as exc:
+                return self._envelope(tool_args=args, status="error", text=f"Search failed: {exc}", execution_receipt=context.execution_receipt)
+        safe_roots = [] if requested_roots and not workspace_roots else files.safe_roots(workspace_roots if requested_roots else args.get("roots"), fallback_to_workspace=not requested_roots)
         if not safe_roots:
+            if external_roots:
+                matched = tuple(external_matches)
+                text = "\n".join(f"[{index}] {path}" for index, path in enumerate(matched, start=1)) or _format_path_search_no_results(query, external_meta)
+                return self._envelope(
+                    tool_args=args,
+                    status="ok",
+                    text=text,
+                    structured_payload={
+                        "tool_result": {
+                            "kind": "path_search",
+                            "query": query,
+                            "matches": list(matched),
+                            "search_meta": external_meta,
+                            "searched_roots": list(external_meta.get("searched_roots") or external_roots),
+                            "used_default_roots": False,
+                            "workspace_root": str(files.workspace_root),
+                            "omitted_workspace_root": False,
+                        }
+                    },
+                    matched_paths=matched,
+                    execution_receipt=context.execution_receipt,
+                )
             return self._envelope(tool_args=args, status="error", text="Search failed: no safe search roots.", execution_receipt=context.execution_receipt)
         limit = max(1, min(int(args.get("max_results") or 20), 100))
         terms = _query_terms(query)
-        matches, search_meta = _search_path_matches(files, safe_roots=safe_roots, query=query, terms=terms, limit=limit, using_default_roots=using_default_roots)
-        matched = tuple(matches)
+        remaining_limit = max(1, limit - len(external_matches))
+        matches, search_meta = _search_path_matches(files, safe_roots=safe_roots, query=query, terms=terms, limit=remaining_limit, using_default_roots=using_default_roots)
+        matched = tuple(sorted(dict.fromkeys([*external_matches, *matches]))[:limit])
         boundary = _path_search_boundary(files, safe_roots=safe_roots, using_default_roots=using_default_roots)
+        if external_meta:
+            boundary["searched_roots"] = [*list(external_meta.get("searched_roots") or []), *list(boundary.get("searched_roots") or [])]
+            search_meta = {
+                **search_meta,
+                "external": external_meta,
+                "scanned_paths": int(search_meta.get("scanned_paths") or 0) + int(external_meta.get("scanned_paths") or 0),
+                "truncated": bool(search_meta.get("truncated") or external_meta.get("truncated")),
+            }
         text = "\n".join(f"[{index}] {path}" for index, path in enumerate(matched, start=1)) or _format_path_search_no_results(query, boundary)
         if search_meta.get("truncated"):
             text = f"{text}\n搜索已按交互式预算提前返回，结果可能未穷尽；可缩小 roots 或使用 glob_paths 精确匹配。"
@@ -2666,7 +2779,37 @@ class NativeSearchTextTool(_NativeToolBase):
         case_sensitive = bool(args.get("case_sensitive") is True)
         requested_paths = _nonempty_path_args(args.get("paths"))
         if requested_paths:
-            target_paths, path_error = _resolve_search_paths(files, requested_paths)
+            gateway = self._file_gateway(context)
+            external_path_values = [item for item in requested_paths if _is_external_path_arg(item)]
+            workspace_path_values = [item for item in requested_paths if not _is_external_path_arg(item)]
+            external_matches: list[dict[str, Any]] = []
+            if gateway is not None and external_path_values:
+                try:
+                    external_targets = _external_targets_from_values(
+                        context,
+                        gateway,
+                        values=external_path_values,
+                        action="search",
+                        allow_root=False,
+                    )
+                    external_matches = _search_external_text_in_targets(
+                        context,
+                        gateway,
+                        query=query,
+                        targets=external_targets,
+                        glob=glob,
+                        limit=scan_limit,
+                        case_sensitive=case_sensitive,
+                    )
+                except Exception as exc:
+                    return self._envelope(
+                        tool_args=args,
+                        status="error",
+                        text=f"Search failed: {exc}",
+                        structured_payload={"tool_result": {"kind": "text_search", "status": "error", "error": str(exc)}},
+                        execution_receipt=context.execution_receipt,
+                    )
+            target_paths, path_error = _resolve_search_paths(files, workspace_path_values) if workspace_path_values else ([], "")
             if path_error:
                 return self._envelope(
                     tool_args=args,
@@ -2675,7 +2818,8 @@ class NativeSearchTextTool(_NativeToolBase):
                     structured_payload={"tool_result": {"kind": "text_search", "status": "error", "error": path_error}},
                     execution_receipt=context.execution_receipt,
                 )
-            matches = _search_text_in_paths(files, query=query, paths=target_paths, glob=glob, limit=scan_limit, case_sensitive=case_sensitive)
+            workspace_matches = _search_text_in_paths(files, query=query, paths=target_paths, glob=glob, limit=max(1, scan_limit - len(external_matches)), case_sensitive=case_sensitive) if target_paths else []
+            matches = [*external_matches, *workspace_matches]
             total_matches = len(matches)
             matches = _slice_search_matches(matches, offset=offset, limit=limit)
             matched_paths = tuple(dict.fromkeys(str(item.get("path") or "") for item in matches if str(item.get("path") or "").strip()))
@@ -2701,7 +2845,10 @@ class NativeSearchTextTool(_NativeToolBase):
                 matched_paths=matched_paths,
                 execution_receipt=context.execution_receipt,
             )
-        roots_error = _roots_file_misuse_error(files, args.get("roots"))
+        requested_roots = [str(item or "").strip() for item in list(args.get("roots") or []) if str(item or "").strip()]
+        external_roots = [item for item in requested_roots if _is_external_path_arg(item)]
+        workspace_roots = [item for item in requested_roots if not _is_external_path_arg(item)]
+        roots_error = _roots_file_misuse_error(files, workspace_roots if requested_roots else args.get("roots"))
         if roots_error:
             return self._envelope(
                 tool_args=args,
@@ -2710,19 +2857,73 @@ class NativeSearchTextTool(_NativeToolBase):
                 structured_payload={"tool_result": {"kind": "text_search", "status": "error", "error": roots_error}},
                 execution_receipt=context.execution_receipt,
             )
-        using_default_roots = not [str(item or "").strip() for item in list(args.get("roots") or [])]
-        safe_roots = files.safe_roots(args.get("roots"))
+        using_default_roots = not requested_roots
+        gateway = self._file_gateway(context)
+        external_matches = []
+        if gateway is not None and external_roots:
+            try:
+                external_targets = _external_targets_from_values(
+                    context,
+                    gateway,
+                    values=external_roots,
+                    action="search",
+                    allow_root=True,
+                )
+                external_matches = _search_external_text_in_targets(
+                    context,
+                    gateway,
+                    query=query,
+                    targets=external_targets,
+                    glob=glob,
+                    limit=scan_limit,
+                    case_sensitive=case_sensitive,
+                )
+            except Exception as exc:
+                return self._envelope(
+                    tool_args=args,
+                    status="error",
+                    text=f"Search failed: {exc}",
+                    structured_payload={"tool_result": {"kind": "text_search", "status": "error", "error": str(exc)}},
+                    execution_receipt=context.execution_receipt,
+                )
+        safe_roots = [] if requested_roots and not workspace_roots else files.safe_roots(workspace_roots if requested_roots else args.get("roots"), fallback_to_workspace=not requested_roots)
         if not safe_roots:
+            if external_roots:
+                total_matches = len(external_matches)
+                matches = _slice_search_matches(external_matches, offset=offset, limit=limit)
+                matched_paths = tuple(dict.fromkeys(str(item.get("path") or "") for item in matches if str(item.get("path") or "").strip()))
+                text = _format_text_search_output(matches, query=query, output_mode=output_mode)
+                return self._envelope(
+                    tool_args=args,
+                    status="ok",
+                    text=text,
+                    structured_payload={
+                        "tool_result": _text_search_tool_result(
+                            query=query,
+                            matches=matches,
+                            requested_paths=(),
+                            output_mode=output_mode,
+                            limit=limit,
+                            offset=offset,
+                            total_matches=total_matches,
+                            context_lines=context_lines,
+                            total_lines_by_path={},
+                        )
+                    },
+                    matched_paths=matched_paths,
+                    execution_receipt=context.execution_receipt,
+                )
             return self._envelope(tool_args=args, status="error", text="Search failed: no safe search roots.", execution_receipt=context.execution_receipt)
-        matches = _search_text(
+        workspace_matches = _search_text(
             files,
             query=query,
             safe_roots=safe_roots,
             glob=glob,
-            limit=scan_limit,
+            limit=max(1, scan_limit - len(external_matches)),
             using_default_roots=using_default_roots,
             case_sensitive=case_sensitive,
         )
+        matches = [*external_matches, *workspace_matches]
         total_matches = len(matches)
         matches = _slice_search_matches(matches, offset=offset, limit=limit)
         matched_paths = tuple(dict.fromkeys(str(item.get("path") or "") for item in matches if str(item.get("path") or "").strip()))
@@ -2756,6 +2957,20 @@ class NativeGlobPathsTool(_NativeToolBase):
 
     def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         pattern = str(args.get("pattern") or "").strip()
+        gateway = self._file_gateway(context)
+        if gateway is not None and _is_external_path_arg(pattern):
+            try:
+                matches = tuple(_external_glob_paths(context, gateway, pattern=pattern, max_results=int(args.get("max_results") or 80)))
+            except Exception as exc:
+                return self._envelope(tool_args=args, status="error", text=f"Glob failed: {exc}", execution_receipt=context.execution_receipt)
+            return self._envelope(
+                tool_args=args,
+                status="ok",
+                text="\n".join(matches) or "No paths matched.",
+                structured_payload={"tool_result": {"kind": "glob_paths", "pattern": pattern, "matches": list(matches)}},
+                matched_paths=matches,
+                execution_receipt=context.execution_receipt,
+            )
         try:
             matches = tuple(self._files(context).glob_paths(pattern, max_results=int(args.get("max_results") or 80)))
         except Exception as exc:
@@ -2776,6 +2991,38 @@ class NativeListDirTool(_NativeToolBase):
 
     def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         path = str(args.get("path") or ".").strip() or "."
+        gateway = self._file_gateway(context)
+        if gateway is not None and _is_external_path_arg(path):
+            try:
+                target = _gateway_target_for_path(context, gateway, action="read", path=path, allow_root=True)
+                directory = _external_physical_path(gateway, target, action="read", context=context)
+                if not directory.exists():
+                    raise FileNotFoundError("directory does not exist")
+                if not directory.is_dir():
+                    raise NotADirectoryError("path is not a directory")
+                entries = sorted(directory.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower()))
+            except Exception as exc:
+                return self._envelope(tool_args=args, status="error", text=f"List failed: {exc}", execution_receipt=context.execution_receipt)
+            limit = max(1, min(int(args.get("max_entries") or 80), 300))
+            rows: list[dict[str, Any]] = []
+            for item in entries[:limit]:
+                rows.append(
+                    {
+                        "path": _external_display_child_path(target, directory, item),
+                        "kind": "dir" if item.is_dir() else "file",
+                        "size_bytes": 0 if item.is_dir() else item.stat().st_size,
+                    }
+                )
+            text = "\n".join(f"{row['kind']}\t{row['path']}\t{row['size_bytes']} bytes" for row in rows) or "Directory is empty."
+            observed = tuple(str(row["path"]) for row in rows)
+            return self._envelope(
+                tool_args=args,
+                status="ok",
+                text=text,
+                structured_payload={"tool_result": {"kind": "directory_listing", "path": target.display_path, "entries": rows}},
+                observed_paths=observed,
+                execution_receipt=context.execution_receipt,
+            )
         files = self._files(context)
         try:
             entries = files.list_dir(path)
@@ -2809,6 +3056,34 @@ class NativeStatPathTool(_NativeToolBase):
 
     def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         path = str(args.get("path") or "").strip()
+        gateway = self._file_gateway(context)
+        if gateway is not None and _is_external_path_arg(path):
+            try:
+                target = _gateway_target_for_path(context, gateway, action="read", path=path, allow_root=True)
+                physical = _external_physical_path(gateway, target, action="read", context=context)
+                exists = physical.exists()
+                stat = physical.stat() if exists else None
+                payload = {
+                    "kind": "path_stat",
+                    "path": target.display_path,
+                    "exists": exists,
+                    "is_dir": physical.is_dir() if exists else False,
+                    "is_file": physical.is_file() if exists else False,
+                    "size_bytes": stat.st_size if stat is not None else 0,
+                    "suffix": physical.suffix.lower(),
+                    "repository_id": target.repository_id,
+                }
+            except Exception as exc:
+                return self._envelope(tool_args=args, status="error", text=f"Stat failed: {exc}", execution_receipt=context.execution_receipt)
+            text = "\n".join(f"{key}: {value}" for key, value in payload.items())
+            return self._envelope(
+                tool_args=args,
+                status="ok",
+                text=text,
+                structured_payload={"tool_result": payload},
+                observed_paths=(target.display_path,),
+                execution_receipt=context.execution_receipt,
+            )
         files = self._files(context)
         try:
             info = files.path_info(path)
@@ -2840,6 +3115,22 @@ class NativePathExistsTool(_NativeToolBase):
 
     def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         path = str(args.get("path") or "").strip()
+        gateway = self._file_gateway(context)
+        if gateway is not None and _is_external_path_arg(path):
+            try:
+                target = _gateway_target_for_path(context, gateway, action="read", path=path, allow_root=True)
+                physical = _external_physical_path(gateway, target, action="read", context=context)
+                exists = physical.exists()
+            except Exception as exc:
+                return self._envelope(tool_args=args, status="error", text=f"Exists failed: {exc}", execution_receipt=context.execution_receipt)
+            return self._envelope(
+                tool_args=args,
+                status="ok",
+                text="true" if exists else "false",
+                structured_payload={"tool_result": {"kind": "path_exists", "path": target.display_path, "exists": exists, "repository_id": target.repository_id}},
+                observed_paths=(target.display_path,),
+                execution_receipt=context.execution_receipt,
+            )
         files = self._files(context)
         try:
             target = files.resolve(path, require_path=True)
@@ -3016,6 +3307,51 @@ def _file_management_config(context: ToolUseContext) -> dict[str, Any]:
     return payload
 
 
+@dataclass(frozen=True, slots=True)
+class _GatewayPathTarget:
+    repository_id: str
+    logical_path: str
+    display_path: str
+    external: bool = False
+
+
+def _gateway_target_for_path(
+    context: ToolUseContext,
+    gateway: FileGateway,
+    *,
+    action: str,
+    path: str,
+    allow_root: bool = False,
+) -> _GatewayPathTarget:
+    raw_path = str(path or "").replace("\\", "/").strip().strip("/")
+    scope_id, tail = split_external_logical_path(raw_path)
+    if scope_id:
+        repository_id = f"{EXTERNAL_READONLY_REPOSITORY_PREFIX}{scope_id}"
+        repository = gateway.environment.repository(repository_id)
+        if repository is None:
+            raise KeyError(f"unknown external read scope: {scope_id}")
+        source_info = dict(repository.metadata.get("external_read_scope") or {})
+        source_kind = str(source_info.get("source_kind") or repository.metadata.get("external_source_kind") or "").strip()
+        if not tail and source_kind == "file":
+            tail = str(repository.metadata.get("external_file_name") or "").strip()
+        logical_path = tail or "."
+        if logical_path == "." and not allow_root:
+            raise ValueError("external path must include a file path")
+        return _GatewayPathTarget(
+            repository_id=repository_id,
+            logical_path=logical_path,
+            display_path=external_logical_path(scope_id, "" if logical_path == "." else logical_path),
+            external=True,
+        )
+    logical_path = raw_path or ("." if allow_root else "")
+    return _GatewayPathTarget(
+        repository_id=_repository_for_action(context, action),
+        logical_path=logical_path,
+        display_path=logical_path,
+        external=False,
+    )
+
+
 def context_tool_call_id(execution_receipt: dict[str, Any] | None) -> str:
     return str(dict(execution_receipt or {}).get("tool_call_id") or "").strip()
 
@@ -3153,9 +3489,11 @@ def _check_gateway_file_permission(
     gateway = tool._file_gateway(context)
     if gateway is None:
         return None
-    repository_id = _repository_for_action(context, action)
     path = str(args.get("path") or "").strip()
+    repository_id = _repository_for_action(context, action)
     try:
+        target = _gateway_target_for_path(context, gateway, action=action, path=path, allow_root=action in {"read", "search", "open"})
+        repository_id = target.repository_id
         gateway.check_access(
             repository_id,
             action,
@@ -3200,7 +3538,7 @@ def _gateway_approval_fingerprint(context: ToolUseContext) -> str:
     explicit = str(context.approval_fingerprint or "").strip()
     if explicit:
         return explicit
-    mode = str(context.permission_mode or "").strip().lower()
+    mode = _runtime_permission_mode(context)
     if mode in {"full_access", "bypass"}:
         scope = (
             str(context.task_run_id or "").strip()
@@ -3211,6 +3549,17 @@ def _gateway_approval_fingerprint(context: ToolUseContext) -> str:
         )
         return f"runtime-permission:{mode}:{scope}"
     return ""
+
+
+def _runtime_permission_mode(context: ToolUseContext) -> str:
+    explicit = str(context.permission_mode or "").strip().lower()
+    if explicit:
+        return explicit
+    return str(dict(context.sandbox_policy or {}).get("permission_mode") or "").strip().lower()
+
+
+def _runtime_full_access(context: ToolUseContext) -> bool:
+    return _runtime_permission_mode(context) in {"full_access", "bypass"}
 
 
 def _real_workspace_root(context: ToolUseContext) -> Path:
@@ -3593,6 +3942,171 @@ def _runtime_output_root(context: ToolUseContext, managed_storage_root: Path) ->
         root = Path(explicit)
         return root.resolve() if root.is_absolute() else (_real_workspace_root(context) / root).resolve()
     return (managed_storage_root / "runtime").resolve()
+
+
+def _is_external_path_arg(value: Any) -> bool:
+    scope_id, _tail = split_external_logical_path(str(value or ""))
+    return bool(scope_id)
+
+
+def _external_physical_path(
+    gateway: FileGateway,
+    target: _GatewayPathTarget,
+    *,
+    action: str,
+    context: ToolUseContext,
+) -> Path:
+    _repository, _binding, physical_path, _logical_path, _access = gateway.resolve_physical_path(
+        target.repository_id,
+        target.logical_path,
+        action=action,
+        approval_fingerprint=_gateway_approval_fingerprint(context),
+    )
+    return physical_path
+
+
+def _external_display_child_path(target: _GatewayPathTarget, root_path: Path, child: Path) -> str:
+    if root_path.is_file():
+        return target.display_path
+    try:
+        relative = child.resolve().relative_to(root_path.resolve()).as_posix()
+    except ValueError:
+        relative = child.name
+    return f"{target.display_path.rstrip('/')}/{relative}".rstrip("/") if relative else target.display_path
+
+
+def _iter_external_search_files(root_path: Path):
+    if root_path.is_file():
+        yield root_path
+        return
+    if not root_path.exists() or not root_path.is_dir():
+        return
+    for directory, dirnames, filenames in os.walk(root_path):
+        dirnames[:] = [
+            dirname
+            for dirname in dirnames
+            if dirname.lower() not in {item.lower() for item in DEFAULT_EXCLUDED_DIRS}
+        ]
+        for filename in filenames:
+            path = Path(directory) / filename
+            if path.is_file():
+                yield path
+
+
+def _search_external_path_matches(
+    context: ToolUseContext,
+    gateway: FileGateway,
+    *,
+    roots: list[str],
+    query: str,
+    terms: list[str],
+    limit: int,
+) -> tuple[list[str], dict[str, Any]]:
+    matches: list[str] = []
+    seen: set[str] = set()
+    scanned = 0
+    searched_roots: list[str] = []
+    deadline = time.monotonic() + _PATH_SEARCH_TIME_BUDGET_SECONDS
+    for root in roots:
+        target = _gateway_target_for_path(context, gateway, action="search", path=root, allow_root=True)
+        physical_root = _external_physical_path(gateway, target, action="search", context=context)
+        searched_roots.append(target.display_path)
+        if not physical_root.exists():
+            continue
+        for path in _iter_external_search_files(physical_root):
+            scanned += 1
+            display_path = _external_display_child_path(target, physical_root, path)
+            if display_path not in seen and _path_matches_query(display_path, query=query, terms=terms):
+                seen.add(display_path)
+                matches.append(display_path)
+                if len(matches) >= limit:
+                    return sorted(matches), {**_path_search_meta(scanned=scanned, truncated=False), "searched_roots": searched_roots}
+            if scanned >= _PATH_SEARCH_SCAN_LIMIT or time.monotonic() >= deadline:
+                return sorted(matches), {**_path_search_meta(scanned=scanned, truncated=True), "searched_roots": searched_roots}
+    return sorted(matches), {**_path_search_meta(scanned=scanned, truncated=False), "searched_roots": searched_roots}
+
+
+def _search_external_text_in_targets(
+    context: ToolUseContext,
+    gateway: FileGateway,
+    *,
+    query: str,
+    targets: list[_GatewayPathTarget],
+    glob: str,
+    limit: int,
+    case_sensitive: bool,
+    action: str = "search",
+) -> list[dict[str, Any]]:
+    matches: list[dict[str, Any]] = []
+    pattern = str(glob or "").strip()
+    query_cmp = query if case_sensitive else query.lower()
+    for target in targets:
+        if len(matches) >= limit:
+            return matches
+        physical_root = _external_physical_path(gateway, target, action=action, context=context)
+        if not physical_root.exists():
+            continue
+        for path in _iter_external_search_files(physical_root):
+            if len(matches) >= limit:
+                return matches
+            display_path = _external_display_child_path(target, physical_root, path)
+            if pattern and not fnmatch.fnmatch(display_path, pattern) and not fnmatch.fnmatch(Path(display_path).name, pattern):
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                line_cmp = line if case_sensitive else line.lower()
+                column = line_cmp.find(query_cmp) + 1
+                if column <= 0:
+                    continue
+                matches.append({"path": display_path, "line": line_number, "column": column, "text": line[:240]})
+                if len(matches) >= limit:
+                    return matches
+                break
+    return matches
+
+
+def _external_targets_from_values(
+    context: ToolUseContext,
+    gateway: FileGateway,
+    *,
+    values: list[str],
+    action: str,
+    allow_root: bool,
+) -> list[_GatewayPathTarget]:
+    targets: list[_GatewayPathTarget] = []
+    for value in values:
+        if not _is_external_path_arg(value):
+            continue
+        targets.append(_gateway_target_for_path(context, gateway, action=action, path=value, allow_root=allow_root))
+    return targets
+
+
+def _external_glob_paths(
+    context: ToolUseContext,
+    gateway: FileGateway,
+    *,
+    pattern: str,
+    max_results: int,
+) -> list[str]:
+    scope_id, tail_pattern = split_external_logical_path(pattern)
+    if not scope_id:
+        return []
+    root_arg = external_logical_path(scope_id)
+    target = _gateway_target_for_path(context, gateway, action="search", path=root_arg, allow_root=True)
+    physical_root = _external_physical_path(gateway, target, action="search", context=context)
+    normalized_pattern = str(pattern or "").replace("\\", "/").strip()
+    matches: list[str] = []
+    limit = max(1, min(int(max_results or 80), 300))
+    for path in _iter_external_search_files(physical_root):
+        display_path = _external_display_child_path(target, physical_root, path)
+        if fnmatch.fnmatch(display_path, normalized_pattern) or fnmatch.fnmatch(display_path.removeprefix(f"external/{scope_id}/"), tail_pattern or "*"):
+            matches.append(display_path)
+            if len(matches) >= limit:
+                return sorted(dict.fromkeys(matches))
+    return sorted(dict.fromkeys(matches))[:limit]
 
 
 def _search_path_matches(

@@ -72,7 +72,7 @@ def test_prompt_assembly_plan_is_the_topology_authority() -> None:
         "task_contract_stable",
         "volatile_task_state",
     ]
-    assert assembly_plan.diagnostics["assembly_order_policy"] == "context_assembly_section_prefix_locked"
+    assert assembly_plan.diagnostics["assembly_order_policy"] == "source_lineage_order_pre_physical_assembly"
 
 
 def test_prompt_assembly_reorders_stable_segment_before_dynamic_tail() -> None:
@@ -175,7 +175,7 @@ def test_context_memory_moves_before_dynamic_tail() -> None:
         "task_runtime_boundary_dynamic",
         "lifecycle_runtime_guidance",
     ]
-    assert assembly_plan.diagnostics["assembly_order_policy"] == "context_assembly_section_prefix_locked"
+    assert assembly_plan.diagnostics["assembly_order_policy"] == "source_lineage_order_pre_physical_assembly"
 
 
 def test_task_execution_cursor_does_not_duplicate_user_steers_or_runtime_controls() -> None:

@@ -16,9 +16,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.deps import require_runtime
 from harness.continuation import select_session_continuation
 from harness.entrypoint import HarnessRuntimeRequest
+from harness.runtime.control_events import RuntimeSignalScope
 from harness.runtime.projection.projector import ProjectionLifecycleState, attach_public_projection_event
 from harness.runtime.public_progress import public_runtime_progress_summary
 from harness.runtime.runtime_private_text import looks_like_runtime_private_artifact_text
+from harness.runtime.task_run_control_gateway import TaskRunControlGateway
 from harness.task_run_status import is_stopped_or_terminal_task_run
 from runtime.output_boundary import (
     contains_inline_pseudo_tool_call,
@@ -38,6 +40,7 @@ from runtime.output_stream.public_contract import (
     SESSION_OUTPUT_COMMIT_CHECKED_EVENT,
     SESSION_OUTPUT_COMMIT_FAILED_EVENT,
     SESSION_OUTPUT_COMMIT_SKIPPED_EVENT,
+    TASK_ORIGIN_BOUND_EVENT,
     TASK_BRIDGE_STARTED_EVENT,
     TASK_BRIDGE_TERMINAL_EVENT,
     TOOL_CALL_REQUESTED_EVENT,
@@ -138,6 +141,24 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "source_turn_event_offset",
         "runtime_event_id",
         "public_sequence_started_at",
+        "created_at",
+    },
+    TASK_ORIGIN_BOUND_EVENT: {
+        "status",
+        "stream_run_id",
+        "session_id",
+        "turn_id",
+        "active_turn_id",
+        "turn_run_id",
+        "task_run_id",
+        "runtime_task_run_id",
+        "message_id",
+        "message_ref",
+        "task_origin_binding",
+        "active_turn",
+        "source_handoff_event_id",
+        "source_handoff_event_offset",
+        "runtime_event_id",
         "created_at",
     },
     TASK_BRIDGE_STARTED_EVENT: {
@@ -563,6 +584,16 @@ class QueuedChatInputRequest(BaseModel):
     editor_context: dict[str, Any] = Field(default_factory=dict)
 
 
+class ChatRunInterruptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: str = Field(default="interrupt_for_resume", max_length=80)
+    reason: str = Field(default="user_stop_from_chat", max_length=240)
+    expected_active_turn_id: str = Field(default="", max_length=240)
+    expected_task_run_id: str = Field(default="", max_length=240)
+    cascade_subagents: str = Field(default="interrupt_for_resume", max_length=80)
+
+
 @router.post("/chat/runs")
 async def create_chat_run(payload: ChatRequest):
     runtime = require_runtime()
@@ -674,6 +705,143 @@ async def get_chat_run(stream_run_id: str):
     return _run_response(runtime, run)
 
 
+@router.post("/chat/runs/{stream_run_id}/interrupt")
+async def interrupt_chat_run(stream_run_id: str, payload: ChatRunInterruptRequest | None = None):
+    runtime = require_runtime()
+    request = payload or ChatRunInterruptRequest()
+    run = _get_run_or_404(runtime, stream_run_id)
+    mode = _validated_interrupt_mode(request.mode)
+    cascade_policy = _validated_interrupt_cascade(request.cascade_subagents, mode=mode)
+    reason = str(request.reason or "user_stop_from_chat").strip() or "user_stop_from_chat"
+    host = runtime.harness_runtime.single_agent_runtime_host
+    registry = host.run_registry
+    active_turn = host.active_turn_registry.snapshot(run.session_id)
+    expected_turn_id = str(request.expected_active_turn_id or "").strip()
+    expected_task_run_id = str(request.expected_task_run_id or "").strip()
+    active_turn_control: dict[str, Any] = {}
+    if active_turn is not None:
+        active_turn_control = host.active_turn_registry.mark_interrupting(
+            session_id=run.session_id,
+            expected_turn_id=expected_turn_id,
+            expected_task_run_id=expected_task_run_id,
+            reason=reason,
+        )
+        if not active_turn_control.get("accepted"):
+            raise HTTPException(status_code=409, detail=active_turn_control)
+        active_turn = host.active_turn_registry.snapshot(run.session_id)
+    elif expected_turn_id or expected_task_run_id:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "active_turn_unavailable",
+                "expected_active_turn_id": expected_turn_id,
+                "expected_task_run_id": expected_task_run_id,
+                "authority": "api.chat.runtime_interruption",
+            },
+        )
+
+    root_task_run_id = _interrupt_root_task_run_id(
+        run,
+        active_turn=active_turn,
+        expected_task_run_id=expected_task_run_id,
+    )
+    stream_control = await asyncio.to_thread(
+        host.cancel_runtime_run_cells,
+        runtime_run_sessions={run.stream_run_id: run.session_id},
+        reason=reason,
+    )
+    task_control: dict[str, Any] = {}
+    if root_task_run_id:
+        gateway = TaskRunControlGateway(runtime_host=host, schedule_task_run_executor=None)
+        task_control = await asyncio.to_thread(
+            gateway.stop_task_run if mode == "hard_stop" else gateway.pause_task_run,
+            root_task_run_id,
+            reason=reason,
+            requested_by="user",
+        )
+    interruption_record: dict[str, Any] = {}
+    if mode == "interrupt_for_resume":
+        interruption_record = await asyncio.to_thread(
+            host.record_chat_turn_run_runtime_interruption_best_effort,
+            run,
+            code="runtime_stream_interrupted",
+            reason=reason,
+            orphaned_by="api.chat.runtime_interruption",
+        )
+    else:
+        _safe_update_run(
+            registry,
+            run.stream_run_id,
+            fallback=run,
+            status="stopped",
+            terminal_event="",
+            owner_process_id=0,
+            owner_instance_id="",
+            diagnostics={
+                "runtime_interruption_mode": mode,
+                "runtime_interruption_reason": reason,
+            },
+        )
+    subagent_controls = await asyncio.to_thread(
+        _cascade_interrupted_subagents,
+        host,
+        root_task_run_id=root_task_run_id,
+        session_id=run.session_id,
+        mode=mode,
+        cascade_policy=cascade_policy,
+        reason=reason,
+    )
+    context_status = _session_context_recovery_status(runtime, run.session_id)
+    selection = select_session_continuation(
+        host,
+        session_id=run.session_id,
+        active_work_present=False,
+        context_recovery_status=context_status,
+    )
+    current_run = registry.get_run(run.stream_run_id) or run
+    checkpoint = {
+        "latest_event_offset": int(getattr(current_run, "latest_event_offset", -1) or -1),
+        "stream_run_status": str(getattr(current_run, "status", "") or ""),
+        "context_resume_available": bool(context_status.get("available") is True and context_status.get("fresh") is True),
+        "authority": "api.chat.runtime_interruption.checkpoint",
+    }
+    runtime_signal = _publish_chat_interruption_fact_signal(
+        host,
+        run=current_run,
+        root_task_run_id=root_task_run_id,
+        mode=mode,
+        reason=reason,
+        stream_control=stream_control,
+        task_control=task_control,
+        subagent_controls=subagent_controls,
+        context_recovery_status=context_status,
+        checkpoint=checkpoint,
+    )
+    accepted = bool(
+        (not task_control or task_control.get("ok") is True)
+        and (not stream_control or not stream_control.get("rejected"))
+    )
+    return {
+        "ok": accepted,
+        "accepted": accepted,
+        "stream_run_id": run.stream_run_id,
+        "session_id": run.session_id,
+        "mode": mode,
+        "reason": reason,
+        "active_turn": active_turn.to_dict() if active_turn is not None else {},
+        "active_turn_control": active_turn_control,
+        "task_control": task_control,
+        "stream_control": stream_control,
+        "subagent_controls": subagent_controls,
+        "interruption_record": interruption_record,
+        "continuation": selection.to_dict(),
+        "runtime_signal": runtime_signal,
+        "context_recovery_status": context_status,
+        "checkpoint": checkpoint,
+        "authority": "api.chat.runtime_interruption",
+    }
+
+
 @router.get("/chat/sessions/{session_id}/latest-run")
 async def get_latest_chat_run_for_session(
     session_id: str,
@@ -708,17 +876,22 @@ async def get_latest_session_continuation(session_id: str):
     runtime = require_runtime()
     validated_session_id = validate_session_id(session_id)
     host = runtime.harness_runtime.single_agent_runtime_host
-    active_work_present = _validated_active_work_context(runtime, validated_session_id) is not None
+    active_work_present = _active_work_blocks_continuation(runtime, validated_session_id)
+    context_status = _session_context_recovery_status(runtime, validated_session_id)
     selection = select_session_continuation(
         host,
         session_id=validated_session_id,
         active_work_present=active_work_present,
+        context_recovery_status=context_status,
     )
     record = selection.record.to_dict() if selection.record is not None else {}
+    interrupted_turn = selection.interrupted_turn.to_dict() if selection.interrupted_turn is not None else {}
     return {
         "session_id": validated_session_id,
-        "available": bool(record),
+        "available": bool(record or interrupted_turn),
         "record": record,
+        "interrupted_turn": interrupted_turn,
+        "context_recovery_status": context_status,
         "reason": selection.reason,
         "authority": "api.chat.session_continuation_projection",
     }
@@ -1169,6 +1342,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
     terminal_event = ""
     bridge_context: ChatTaskBridgeContext | None = None
     turn_context: PublicTurnOutputContext | None = None
+    task_handoff_observed = False
     projection_lifecycle = ProjectionLifecycleState()
     current = _safe_mark_run_running(registry, run)
     try:
@@ -1251,6 +1425,73 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                     )
                     await _allow_public_stream_flush(previous_offset, current)
                     continue
+                if _is_task_origin_bound_public_event(public_event_type, data):
+                    bridged_task_run_id = _task_run_id_from_public_data(data) or event_task_run_id
+                    if turn_context is None:
+                        host.record_chat_turn_run_runtime_interruption_best_effort(
+                            current,
+                            code="task_origin_binding_context_missing",
+                            reason="Task origin binding arrived before a public turn context was available.",
+                            orphaned_by="api.chat.run_chat_to_event_log.task_origin_binding_context_missing",
+                        )
+                        return
+                    origin_public_anchor = {**turn_context.anchor(), "task_run_id": bridged_task_run_id}
+                    previous_offset = _latest_public_event_offset(current)
+                    current = _append_chat_public_event(
+                        registry=registry,
+                        replay=replay,
+                        current=current,
+                        public_event_type=public_event_type,
+                        data=data,
+                        session_id=request.session_id,
+                        projection_lifecycle=projection_lifecycle,
+                        runtime_task_run_id=bridged_task_run_id,
+                        runtime_turn_run_id=runtime_turn_run_id or turn_context.turn_run_id,
+                        runtime_active_turn_id=runtime_active_turn_id or turn_context.turn_id,
+                        public_anchor=origin_public_anchor,
+                    )
+                    await _allow_public_stream_flush(previous_offset, current)
+                    if bridge_context is None:
+                        bridge_context = _chat_task_bridge_context_from_handoff(
+                            run=run,
+                            request=request,
+                            turn_context=turn_context,
+                            public_data=data,
+                            source_event=event,
+                            task_run_id=bridged_task_run_id,
+                            public_sequence_base=int(getattr(current, "latest_event_offset", -1) or -1) + 1,
+                        )
+                        previous_offset = _latest_public_event_offset(current)
+                        current = _append_chat_public_event(
+                            registry=registry,
+                            replay=replay,
+                            current=current,
+                            public_event_type=TASK_BRIDGE_STARTED_EVENT,
+                            data=_task_bridge_started_event_data(bridge_context),
+                            session_id=request.session_id,
+                            projection_lifecycle=projection_lifecycle,
+                            runtime_task_run_id=bridge_context.task_run_id,
+                            runtime_turn_run_id=bridge_context.turn_run_id,
+                            runtime_active_turn_id=bridge_context.turn_id,
+                            public_anchor=bridge_context.anchor(),
+                        )
+                        await _allow_public_stream_flush(previous_offset, current)
+                        current = _safe_update_run(
+                            registry,
+                            run.stream_run_id,
+                            fallback=current,
+                            status="running",
+                            terminal_event="",
+                            diagnostics={
+                                "runtime_task_run_id": bridge_context.task_run_id,
+                                "runtime_turn_run_id": bridge_context.turn_run_id,
+                                "active_turn_id": bridge_context.turn_id,
+                                "task_bridge_id": bridge_context.bridge_id,
+                                "chat_stream_bridge": "task_run",
+                                "task_origin_binding": dict(data.get("task_origin_binding") or {}),
+                            },
+                        )
+                    continue
                 if _is_task_executor_handoff_terminal(public_event_type, data):
                     bridged_task_run_id = _task_run_id_from_public_data(data) or event_task_run_id
                     if turn_context is None:
@@ -1261,46 +1502,53 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                             orphaned_by="api.chat.run_chat_to_event_log.task_bridge_context_missing",
                         )
                         return
-                    bridge_context = _chat_task_bridge_context_from_handoff(
-                        run=run,
-                        request=request,
-                        turn_context=turn_context,
-                        public_data=data,
-                        source_event=event,
-                        task_run_id=bridged_task_run_id,
-                        public_sequence_base=int(getattr(current, "latest_event_offset", -1) or -1) + 1,
-                    )
-                    previous_offset = _latest_public_event_offset(current)
-                    current = _append_chat_public_event(
-                        registry=registry,
-                        replay=replay,
-                        current=current,
-                        public_event_type=TASK_BRIDGE_STARTED_EVENT,
-                        data=_task_bridge_started_event_data(bridge_context),
-                        session_id=request.session_id,
-                        projection_lifecycle=projection_lifecycle,
-                        runtime_task_run_id=bridge_context.task_run_id,
-                        runtime_turn_run_id=bridge_context.turn_run_id,
-                        runtime_active_turn_id=bridge_context.turn_id,
-                        public_anchor=bridge_context.anchor(),
-                    )
-                    await _allow_public_stream_flush(previous_offset, current)
-                    current = _safe_update_run(
-                        registry,
-                        run.stream_run_id,
-                        fallback=current,
-                        status="running",
-                        terminal_event="",
-                        diagnostics={
-                            "runtime_task_run_id": bridge_context.task_run_id,
-                            "runtime_turn_run_id": bridge_context.turn_run_id,
-                            "active_turn_id": bridge_context.turn_id,
-                            "task_bridge_id": bridge_context.bridge_id,
-                            "chat_stream_bridge": "task_run",
-                        },
-                    )
+                    if bridge_context is None:
+                        bridge_context = _chat_task_bridge_context_from_handoff(
+                            run=run,
+                            request=request,
+                            turn_context=turn_context,
+                            public_data=data,
+                            source_event=event,
+                            task_run_id=bridged_task_run_id,
+                            public_sequence_base=int(getattr(current, "latest_event_offset", -1) or -1) + 1,
+                        )
+                        previous_offset = _latest_public_event_offset(current)
+                        current = _append_chat_public_event(
+                            registry=registry,
+                            replay=replay,
+                            current=current,
+                            public_event_type=TASK_BRIDGE_STARTED_EVENT,
+                            data=_task_bridge_started_event_data(bridge_context),
+                            session_id=request.session_id,
+                            projection_lifecycle=projection_lifecycle,
+                            runtime_task_run_id=bridge_context.task_run_id,
+                            runtime_turn_run_id=bridge_context.turn_run_id,
+                            runtime_active_turn_id=bridge_context.turn_id,
+                            public_anchor=bridge_context.anchor(),
+                        )
+                        await _allow_public_stream_flush(previous_offset, current)
+                        current = _safe_update_run(
+                            registry,
+                            run.stream_run_id,
+                            fallback=current,
+                            status="running",
+                            terminal_event="",
+                            diagnostics={
+                                "runtime_task_run_id": bridge_context.task_run_id,
+                                "runtime_turn_run_id": bridge_context.turn_run_id,
+                                "active_turn_id": bridge_context.turn_id,
+                                "task_bridge_id": bridge_context.bridge_id,
+                                "chat_stream_bridge": "task_run",
+                            },
+                        )
+                    task_handoff_observed = True
                     break
                 previous_offset = _latest_public_event_offset(current)
+                public_anchor = (
+                    bridge_context.anchor()
+                    if bridge_context is not None and event_task_run_id == bridge_context.task_run_id
+                    else (turn_context.anchor() if turn_context is not None else None)
+                )
                 current = _append_chat_public_event(
                     registry=registry,
                     replay=replay,
@@ -1312,13 +1560,13 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                     runtime_task_run_id=event_task_run_id,
                     runtime_turn_run_id=runtime_turn_run_id or (turn_context.turn_run_id if turn_context else ""),
                     runtime_active_turn_id=runtime_active_turn_id or (turn_context.turn_id if turn_context else ""),
-                    public_anchor=turn_context.anchor() if turn_context is not None else None,
+                    public_anchor=public_anchor,
                 )
                 await _allow_public_stream_flush(previous_offset, current)
                 terminal_event = public_event_type if public_event_type in TERMINAL_STREAM_EVENTS else terminal_event
                 if public_event_type in TERMINAL_STREAM_EVENTS:
                     break
-            if terminal_event or bridge_context is not None:
+            if terminal_event or task_handoff_observed:
                 break
         if bridge_context is not None and not terminal_event:
             current = await _bridge_task_run_to_chat_stream(
@@ -1343,7 +1591,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
     except Exception as exc:
         logger.exception("Chat run failed before terminal event.", extra={"stream_run_id": run.stream_run_id})
         current = registry.get_run(run.stream_run_id) or current
-        if _bridge_context_has_live_bound_task(runtime, bridge_context):
+        if _bridge_context_has_live_bound_task(runtime, bridge_context) or _active_turn_has_live_bound_task(runtime, request.session_id):
             host.record_chat_turn_run_runtime_interruption_best_effort(
                 current,
                 code="projection_stream_exception",
@@ -1360,12 +1608,12 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
         return
     if not terminal_event:
         current = registry.get_run(run.stream_run_id) or current
-        if _bridge_context_has_live_bound_task(runtime, bridge_context):
+        if _bridge_context_has_live_bound_task(runtime, bridge_context) or _active_turn_has_live_bound_task(runtime, request.session_id):
             host.record_chat_turn_run_runtime_interruption_best_effort(
                 current,
-                code="projection_stream_missing_terminal",
-                reason="Chat stream ended before the task bridge emitted a public terminal event.",
-                orphaned_by="api.chat.run_chat_to_event_log.bridge_missing_terminal",
+                code="projection_stream_missing_task_bridge_terminal",
+                reason="Chat stream ended while the active turn still had a live bound task.",
+                orphaned_by="api.chat.run_chat_to_event_log.active_turn_task_missing_terminal",
             )
             return
         host.record_chat_turn_run_runtime_interruption_best_effort(
@@ -1938,6 +2186,22 @@ def _bridge_context_has_live_bound_task(runtime: Any, bridge_context: ChatTaskBr
     return task_run is not None and not is_stopped_or_terminal_task_run(task_run, runtime_host=host)
 
 
+def _active_turn_has_live_bound_task(runtime: Any, session_id: str) -> bool:
+    try:
+        host = runtime.harness_runtime.single_agent_runtime_host
+        active_turn = host.active_turn_registry.resolve_current(str(session_id or "").strip())
+    except Exception:
+        return False
+    task_run_id = str(getattr(active_turn, "bound_task_run_id", "") or "").strip() if active_turn is not None else ""
+    if not task_run_id:
+        return False
+    try:
+        task_run = host.state_index.get_task_run(task_run_id)
+    except Exception:
+        return False
+    return task_run is not None and not is_stopped_or_terminal_task_run(task_run, runtime_host=host)
+
+
 def _task_terminal_context_from_stream_event(stream_event: dict[str, Any], *, fallback_task_run_id: str = "") -> dict[str, Any]:
     raw_event = _record(stream_event.get("event"))
     payload = _record(raw_event.get("payload"))
@@ -1987,6 +2251,15 @@ def _is_task_executor_handoff_terminal(public_event_type: str, data: dict[str, A
         data.get("status"),
     )
     return any(str(candidate or "").strip().lower() in TASK_EXECUTOR_HANDOFF_REASONS for candidate in candidates) and bool(_task_run_id_from_public_data(data))
+
+
+def _is_task_origin_bound_public_event(public_event_type: str, data: dict[str, Any]) -> bool:
+    if public_event_type != TASK_ORIGIN_BOUND_EVENT:
+        return False
+    binding = data.get("task_origin_binding")
+    if not isinstance(binding, dict):
+        return False
+    return bool(_task_run_id_from_public_data(data) or str(binding.get("task_run_id") or "").strip().startswith("taskrun:"))
 
 
 def _task_run_id_from_public_data(data: dict[str, Any]) -> str:
@@ -2074,6 +2347,301 @@ def _validated_active_work_context(runtime: Any, session_id: str) -> Any | None:
     except Exception:
         logger.debug("Failed to resolve validated active work context.", exc_info=True)
         return None
+
+
+def _active_work_blocks_continuation(runtime: Any, session_id: str) -> bool:
+    host = getattr(getattr(runtime, "harness_runtime", None), "single_agent_runtime_host", None)
+    active_registry = getattr(host, "active_turn_registry", None)
+    active_turn = None
+    if active_registry is not None:
+        try:
+            active_turn = active_registry.snapshot(session_id)
+        except Exception:
+            active_turn = None
+    if active_turn is not None and str(getattr(active_turn, "state", "") or "") == "interrupting":
+        return False
+    return _validated_active_work_context(runtime, session_id) is not None
+
+
+def _validated_interrupt_mode(value: str) -> str:
+    mode = str(value or "interrupt_for_resume").strip() or "interrupt_for_resume"
+    if mode not in {"interrupt_for_resume", "hard_stop"}:
+        raise HTTPException(status_code=400, detail="unsupported_interrupt_mode")
+    return mode
+
+
+def _validated_interrupt_cascade(value: str, *, mode: str) -> str:
+    cascade = str(value or "interrupt_for_resume").strip() or "interrupt_for_resume"
+    if cascade not in {"interrupt_for_resume", "hard_stop", "leave_running"}:
+        raise HTTPException(status_code=400, detail="unsupported_interrupt_cascade")
+    if cascade == "leave_running" and mode != "hard_stop":
+        raise HTTPException(status_code=400, detail="leave_running_cascade_not_allowed_for_chat_interrupt")
+    return cascade
+
+
+def _interrupt_root_task_run_id(
+    run: RuntimeRun,
+    *,
+    active_turn: Any | None,
+    expected_task_run_id: str = "",
+) -> str:
+    diagnostics = dict(run.diagnostics or {})
+    candidates = [
+        expected_task_run_id,
+        getattr(active_turn, "bound_task_run_id", "") if active_turn is not None else "",
+        diagnostics.get("runtime_task_run_id"),
+        diagnostics.get("task_run_id"),
+        diagnostics.get("public_anchor_task_run_id"),
+    ]
+    for candidate in candidates:
+        normalized = str(candidate or "").strip()
+        if normalized:
+            return normalized
+    return ""
+
+
+def _cascade_interrupted_subagents(
+    host: Any,
+    *,
+    root_task_run_id: str,
+    session_id: str,
+    mode: str,
+    cascade_policy: str,
+    reason: str,
+) -> list[dict[str, Any]]:
+    root_id = str(root_task_run_id or "").strip()
+    if not root_id or cascade_policy == "leave_running":
+        return []
+    gateway = TaskRunControlGateway(runtime_host=host, schedule_task_run_executor=None)
+    controls: list[dict[str, Any]] = []
+    for child in _subagent_task_runs_for_parent(host, root_task_run_id=root_id, session_id=session_id):
+        child_id = str(getattr(child, "task_run_id", "") or "").strip()
+        if not child_id or child_id == root_id:
+            continue
+        if cascade_policy == "hard_stop" or mode == "hard_stop":
+            result = gateway.stop_task_run(child_id, reason=reason, requested_by="parent_agent")
+        else:
+            result = gateway.pause_task_run(child_id, reason=reason, requested_by="parent_agent")
+        controls.append(
+            {
+                "task_run_id": child_id,
+                "parent_task_run_id": root_id,
+                "control": result,
+                "authority": "api.chat.runtime_interruption.subagent_cascade",
+            }
+        )
+    return controls
+
+
+def _subagent_task_runs_for_parent(host: Any, *, root_task_run_id: str, session_id: str) -> list[Any]:
+    state_index = getattr(host, "state_index", None)
+    list_session_task_runs = getattr(state_index, "list_session_task_runs", None)
+    if not callable(list_session_task_runs):
+        return []
+    try:
+        task_runs = list(list_session_task_runs(session_id) or [])
+    except Exception:
+        return []
+    root_id = str(root_task_run_id or "").strip()
+    children: list[Any] = []
+    for task_run in task_runs:
+        if str(getattr(task_run, "execution_runtime_kind", "") or "") != "subagent_task":
+            continue
+        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+        parent_ids = _subagent_parent_task_run_ids(diagnostics)
+        if root_id in parent_ids:
+            children.append(task_run)
+    return children
+
+
+def _subagent_parent_task_run_ids(diagnostics: dict[str, Any]) -> set[str]:
+    parent_ids: set[str] = set()
+    for key in ("parent_task_run_id", "root_task_run_id", "supervisor_task_run_id"):
+        value = str(diagnostics.get(key) or "").strip()
+        if value:
+            parent_ids.add(value)
+    for key in ("origin", "subagent_control", "agent_control", "parent_agent"):
+        payload = diagnostics.get(key)
+        if not isinstance(payload, dict):
+            continue
+        for nested_key in ("parent_task_run_id", "root_task_run_id", "supervisor_task_run_id"):
+            value = str(payload.get(nested_key) or "").strip()
+            if value:
+                parent_ids.add(value)
+    return parent_ids
+
+
+def _session_context_recovery_status(runtime: Any, session_id: str) -> dict[str, Any]:
+    normalized_session_id = str(session_id or "").strip()
+    session_manager = getattr(runtime, "session_manager", None)
+    loader = getattr(session_manager, "load_session_record", None)
+    if not callable(loader):
+        return {
+            "available": False,
+            "present": False,
+            "fresh": False,
+            "source": "",
+            "reason": "session_manager_unavailable",
+            "authority": "api.chat.context_recovery_status",
+        }
+    try:
+        record = dict(loader(normalized_session_id) or {})
+    except Exception:
+        return {
+            "available": False,
+            "present": False,
+            "fresh": False,
+            "source": "",
+            "reason": "session_record_unavailable",
+            "authority": "api.chat.context_recovery_status",
+        }
+    raw_messages = [dict(item) for item in list(record.get("messages") or []) if isinstance(item, dict)]
+    compacted = bool(str(record.get("compressed_context") or "").strip()) or _safe_float(record.get("provider_protocol_compaction_created_at")) > 0
+    if raw_messages and not compacted:
+        return {
+            "available": True,
+            "present": True,
+            "fresh": True,
+            "source": "full_session_history",
+            "raw_message_count": len(raw_messages),
+            "requires_context_recovery_package": False,
+            "reason": "",
+            "authority": "api.chat.context_recovery_status",
+        }
+    package = {}
+    package_loader = getattr(getattr(runtime, "harness_runtime", None), "_context_recovery_package_for_session", None)
+    if callable(package_loader):
+        try:
+            package = dict(package_loader(normalized_session_id, raw_messages=raw_messages) or {})
+        except Exception:
+            package = {}
+    coverage = dict(package.get("coverage") or {}) if package else {}
+    if package:
+        return {
+            "available": True,
+            "present": True,
+            "fresh": True,
+            "source": str(package.get("source") or "context_recovery_package"),
+            "schema_version": str(package.get("schema_version") or ""),
+            "covered_message_count": int(coverage.get("covered_message_count") or 0),
+            "covered_event_run_id": str(coverage.get("covered_event_run_id") or ""),
+            "covered_event_offset_end": coverage.get("covered_event_offset_end"),
+            "raw_message_count": len(raw_messages),
+            "requires_context_recovery_package": compacted,
+            "reason": "",
+            "authority": "api.chat.context_recovery_status",
+        }
+    return {
+        "available": False,
+        "present": False,
+        "fresh": False,
+        "source": "",
+        "raw_message_count": len(raw_messages),
+        "requires_context_recovery_package": compacted,
+        "reason": "context_recovery_package_missing_or_stale" if compacted else "session_history_missing",
+        "authority": "api.chat.context_recovery_status",
+    }
+
+
+def _publish_chat_interruption_fact_signal(
+    host: Any,
+    *,
+    run: RuntimeRun,
+    root_task_run_id: str,
+    mode: str,
+    reason: str,
+    stream_control: dict[str, Any],
+    task_control: dict[str, Any],
+    subagent_controls: list[dict[str, Any]],
+    context_recovery_status: dict[str, Any],
+    checkpoint: dict[str, Any],
+) -> dict[str, Any]:
+    gateway = getattr(host, "runtime_gateway", None)
+    publish = getattr(gateway, "publish", None)
+    if not callable(publish):
+        return {
+            "published": False,
+            "reason": "runtime_gateway_unavailable",
+            "authority": "api.chat.runtime_interruption.signal",
+        }
+    diagnostics = dict(run.diagnostics or {})
+    active_turn = getattr(getattr(host, "active_turn_registry", None), "snapshot", lambda _session_id: None)(run.session_id)
+    task_run_id = str(root_task_run_id or "").strip()
+    turn_id = str(getattr(active_turn, "turn_id", "") or diagnostics.get("turn_id") or diagnostics.get("active_turn_id") or "")
+    turn_run_id = str(getattr(active_turn, "turn_run_id", "") or diagnostics.get("turn_run_id") or "")
+    payload = {
+        "signal_kind": "runtime_interruption_fact",
+        "mode": mode,
+        "reason": reason,
+        "stream_run_id": run.stream_run_id,
+        "session_id": run.session_id,
+        "task_run_id": task_run_id,
+        "turn_id": turn_id,
+        "turn_run_id": turn_run_id,
+        "stream_control": dict(stream_control or {}),
+        "task_control": _control_fact(task_control),
+        "subagent_controls": [_control_fact(dict(item.get("control") or item)) for item in list(subagent_controls or [])],
+        "context_recovery_status": dict(context_recovery_status or {}),
+        "checkpoint": dict(checkpoint or {}),
+        "contract": {
+            "system_role": "carry_runtime_facts_and_feedback_only",
+            "agent_role": "decide_next_action_from_facts",
+            "semantic_decision_owner": "agent",
+        },
+        "authority": "api.chat.runtime_interruption.signal",
+    }
+    try:
+        event = publish(
+            task_run_id or run.event_log_id,
+            signal_type="runtime.interruption.fact",
+            scope=RuntimeSignalScope(
+                session_id=run.session_id,
+                task_run_id=task_run_id,
+                turn_id=turn_id,
+                turn_run_id=turn_run_id,
+            ),
+            source_authority="api.chat.runtime_interruption",
+            payload=payload,
+            visibility="model_visible",
+            refs={
+                "stream_run_ref": run.stream_run_id,
+                **({"task_run_ref": task_run_id} if task_run_id else {}),
+                **({"turn_ref": turn_id} if turn_id else {}),
+                **({"turn_run_ref": turn_run_id} if turn_run_id else {}),
+            },
+        )
+    except Exception:
+        logger.debug("Failed to publish chat interruption fact signal.", exc_info=True)
+        return {
+            "published": False,
+            "reason": "runtime_signal_publish_failed",
+            "authority": "api.chat.runtime_interruption.signal",
+        }
+    return {
+        "published": True,
+        "event_id": str(getattr(event, "event_id", "") or ""),
+        "offset": int(getattr(event, "offset", -1) or -1),
+        "signal_type": "runtime.interruption.fact",
+        "authority": "api.chat.runtime_interruption.signal",
+    }
+
+
+def _control_fact(value: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(value or {})
+    return {
+        key: payload.get(key)
+        for key in (
+            "ok",
+            "accepted",
+            "task_run_id",
+            "error",
+            "reason",
+            "authority",
+            "control",
+            "recovery_state",
+        )
+        if key in payload
+    }
 
 
 def _run_response(runtime: Any, run: RuntimeRun) -> dict[str, Any]:
@@ -3287,4 +3855,3 @@ def _runtime_run_refs_from_event(event: dict[str, Any]) -> dict[str, str]:
     if active_turn_id:
         refs["active_turn_id"] = active_turn_id
     return refs
-

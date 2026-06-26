@@ -17,6 +17,7 @@ SESSION_OUTPUT_COMMIT_ACK_EVENT = "session_output_commit_ack"
 SESSION_OUTPUT_COMMIT_FAILED_EVENT = "session_output_commit_failed"
 SESSION_OUTPUT_COMMIT_SKIPPED_EVENT = "session_output_commit_skipped"
 CHAT_TURN_BOUND_EVENT = "chat_turn_bound"
+TASK_ORIGIN_BOUND_EVENT = "task_origin_bound"
 TASK_BRIDGE_STARTED_EVENT = "task_bridge_started"
 TASK_BRIDGE_TERMINAL_EVENT = "task_bridge_terminal"
 TURN_COMPLETED_EVENT = "turn_completed"
@@ -58,6 +59,7 @@ COMMIT_PUBLIC_EVENTS = {
 
 ANCHOR_PUBLIC_EVENTS = {
     CHAT_TURN_BOUND_EVENT,
+    TASK_ORIGIN_BOUND_EVENT,
     TASK_BRIDGE_STARTED_EVENT,
     TASK_BRIDGE_TERMINAL_EVENT,
 }

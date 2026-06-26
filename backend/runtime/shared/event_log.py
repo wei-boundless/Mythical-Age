@@ -306,6 +306,7 @@ _RUNTIME_EVENT_FACT_TYPES = {
     "session_output_commit_checked",
     "session_output_commit_failed",
     "session_output_commit_skipped",
+    "task_origin_bound",
     "task_run_executor_claimed",
     "task_run_executor_failed",
     "task_run_executor_scheduled",

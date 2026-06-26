@@ -442,7 +442,7 @@ def test_runtime_tool_plan_records_local_mcp_routes_as_deferred_capabilities() -
     assert plan.dispatchable_tool_names == ()
 
 
-def test_runtime_tool_plan_does_not_create_local_mcp_route_when_environment_lacks_it() -> None:
+def test_runtime_tool_plan_creates_local_mcp_route_from_agent_authorization() -> None:
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(
             available_tools=[],
@@ -473,13 +473,13 @@ def test_runtime_tool_plan_does_not_create_local_mcp_route_when_environment_lack
         invocation_kind="task_execution",
         tool_definitions_by_name={},
     )
-    filtered = {
-        item["operation_id"]: item["reason"]
-        for item in plan.capability_table.to_dict()["filtered"]
-    }
+    capability = plan.capability_table.capability_for_operation("op.mcp_pdf")
 
-    assert plan.capability_table.capability_for_operation("op.mcp_pdf") is None
-    assert filtered["op.mcp_pdf"] == "environment_filtered"
+    assert capability is not None
+    assert capability.tool_name == "mcp__langchain_agent__pdf"
+    assert capability.visible is False
+    assert capability.dispatchable is False
+    assert capability.metadata["runtime_exposure"] == "local_mcp_runtime"
 
 
 def test_tool_invocation_request_agent_turn_does_not_require_task_run() -> None:

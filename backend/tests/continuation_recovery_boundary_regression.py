@@ -592,7 +592,7 @@ def test_recovery_boundary_receipt_projection_requires_authority() -> None:
         },
     )
 
-    dynamic_payload = _message_payload_with_title(result.packet, "Single agent turn dynamic runtime")
+    dynamic_payload = _message_payload_with_title(result.packet, "Current runtime control")
     projected = dict(dynamic_payload["recovery_boundary_receipt"])
 
     assert "resume_recoverable_work" in result.packet.allowed_action_types
@@ -635,7 +635,7 @@ def test_recovery_boundary_receipt_projection_accepts_trusted_resume_receipt() -
         },
     )
 
-    dynamic_payload = _message_payload_with_title(result.packet, "Single agent turn dynamic runtime")
+    dynamic_payload = _message_payload_with_title(result.packet, "Current runtime control")
     projected = dict(dynamic_payload["recovery_boundary_receipt"])
 
     assert projected["operation_availability"]["resume_recoverable_work"] is True
@@ -763,3 +763,4 @@ def test_task_execution_packet_injects_authorized_recovery_packet_from_task_run_
     assert projected["resume_intent"] == "user_requested_resume"
     assert projected["user_resume_instruction"] == "继续，并优先处理刚才新增的 steer。"
     assert "recovery_packet" in result.packet.diagnostics["prompt_manifest"]["dynamic_projection_refs"]
+

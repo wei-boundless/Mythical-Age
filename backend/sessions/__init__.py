@@ -123,12 +123,82 @@ class SessionManager:
             "api_transcript": [],
             "compressed_context": "",
             "provider_protocol_compaction_created_at": 0.0,
+            "compaction_generation": "0",
+            "compaction_generation_updated_at": 0.0,
             "scope": _normalize_scope(scope),
             "task_binding": {},
             "conversation_state": _normalize_conversation_state(initial_state),
         }
         self._write_payload(session_id, payload)
         return self._summary_from_payload(payload)
+
+    def fork_session(
+        self,
+        parent_session_id: str,
+        *,
+        title: str = "",
+        session_id: str = "",
+        workspace_effect_policy: str = "shared_workspace",
+    ) -> dict[str, Any]:
+        parent_id = str(parent_session_id or "").strip()
+        now = time.time()
+        with self._session_lock(parent_id):
+            parent_payload = self._read_payload(parent_id)
+            child_id = str(session_id or "").strip() or f"session-{uuid.uuid4().hex[:16]}"
+            child_path = self._session_path(child_id)
+            if child_path.exists():
+                raise ValueError("fork target session already exists")
+            provider_anchor = self._latest_provider_visible_anchor(parent_id)
+            provider_request_commit = self._latest_provider_request_context_commit(parent_id)
+            context_commit = self._create_context_commit_record(
+                parent_id,
+                parent_payload,
+                provider_anchor=provider_anchor,
+            )
+            fork_id = f"fork-{uuid.uuid4().hex[:16]}"
+            provider_cache_scope_id = _fork_provider_cache_scope_id(parent_payload, parent_session_id=parent_id)
+            forked_from = {
+                "fork_id": fork_id,
+                "parent_session_id": parent_id,
+                "fork_point_context_commit_id": str(context_commit.get("record_id") or ""),
+                "fork_point_turn_id": str(context_commit.get("turn_id") or ""),
+                "fork_point_public_message_count": len(list(parent_payload.get("messages") or [])),
+                "fork_point_api_transcript_count": len(list(parent_payload.get("api_transcript") or [])),
+                "fork_point_provider_visible_ledger_anchor": provider_anchor,
+                "fork_point_cache_spine_hash": str(context_commit.get("cache_spine_hash") or ""),
+                "fork_point_provider_request_commit_id": str(provider_request_commit.get("record_id") or ""),
+                "fork_point_provider_request_cache_spine_hash": str(provider_request_commit.get("cache_spine_hash") or ""),
+                "fork_point_provider_payload_prefix_hash": str(provider_request_commit.get("provider_payload_prefix_hash") or ""),
+                "fork_point_provider_payload_message_prefix_hash": str(provider_request_commit.get("provider_payload_message_prefix_hash") or ""),
+                "fork_point_provider_payload_messages_hash": str(provider_request_commit.get("provider_payload_messages_hash") or ""),
+                "fork_point_transport_contract_hash": str(provider_request_commit.get("transport_contract_hash") or ""),
+                "fork_point_cache_sensitive_params_hash": str(provider_request_commit.get("cache_sensitive_params_hash") or ""),
+                "fork_point_tool_catalog_hash": str(provider_request_commit.get("tool_catalog_hash") or ""),
+                "fork_point_stable_tool_catalog_hash": str(provider_request_commit.get("stable_tool_catalog_hash") or ""),
+                "provider_cache_scope_id": provider_cache_scope_id,
+                "fork_point_compaction_generation": str(
+                    context_commit.get("compaction_generation")
+                    or parent_payload.get("compaction_generation")
+                    or "0"
+                ),
+                "workspace_effect_policy": _normalize_workspace_effect_policy(workspace_effect_policy),
+                "created_at": now,
+                "authority": "sessions.fork_context_snapshot",
+            }
+            child_payload = copy.deepcopy(parent_payload)
+            child_payload["id"] = child_id
+            child_payload["title"] = str(title or "").strip() or _fork_title(str(parent_payload.get("title") or "New Session"))
+            child_payload["created_at"] = now
+            child_payload["updated_at"] = now
+            child_payload["parent_session_id"] = parent_id
+            child_payload["forked_from"] = forked_from
+            child_payload["messages"] = _rewrite_message_session_refs(list(child_payload.get("messages") or []), parent_id=parent_id, child_id=child_id)
+            child_payload["api_transcript"] = _rewrite_message_session_refs(list(child_payload.get("api_transcript") or []), parent_id=parent_id, child_id=child_id)
+            child_payload["task_binding"] = copy.deepcopy(dict(parent_payload.get("task_binding") or {}))
+            child_payload["scope"] = _normalize_scope(dict(parent_payload.get("scope") or {}))
+            child_payload["conversation_state"] = _normalize_conversation_state(dict(parent_payload.get("conversation_state") or {}))
+            self._write_payload(child_id, child_payload)
+            return self._summary_from_payload(child_payload)
 
     def rename_session(self, session_id: str, title: str, *, preserve_updated_at: bool = False) -> dict[str, Any]:
         with self._session_lock(session_id):
@@ -212,8 +282,12 @@ class SessionManager:
             "title": str(payload.get("title") or "New Session"),
             "created_at": float(payload.get("created_at") or 0),
             "updated_at": float(payload.get("updated_at") or 0),
+            "parent_session_id": str(payload.get("parent_session_id") or ""),
+            "forked_from": dict(payload.get("forked_from") or {}),
             "compressed_context": str(payload.get("compressed_context") or ""),
             "provider_protocol_compaction_created_at": _float(payload.get("provider_protocol_compaction_created_at")),
+            "compaction_generation": str(payload.get("compaction_generation") or "0"),
+            "compaction_generation_updated_at": _float(payload.get("compaction_generation_updated_at")),
             "scope": _normalize_scope(dict(payload.get("scope") or {})),
             "task_binding": _normalize_task_binding(dict(payload.get("task_binding") or {})),
             "conversation_state": _normalize_conversation_state(dict(payload.get("conversation_state") or {})),
@@ -464,6 +538,7 @@ class SessionManager:
         *,
         messages: list[dict[str, Any]],
         compressed_context: str | None = None,
+        compaction_generation_reason: str = "",
     ) -> dict[str, Any]:
         with self._session_lock(session_id):
             payload = self._read_payload(session_id)
@@ -485,6 +560,11 @@ class SessionManager:
             if compressed_context is not None:
                 payload["compressed_context"] = str(compressed_context or "")
                 payload["provider_protocol_compaction_created_at"] = time.time() if str(compressed_context or "").strip() else 0.0
+            if str(compaction_generation_reason or "").strip():
+                _bump_compaction_generation(
+                    payload,
+                    reason=str(compaction_generation_reason or "").strip(),
+                )
             payload["updated_at"] = time.time()
             self._write_payload(session_id, payload)
             return self._history_from_payload(session_id, payload)
@@ -562,7 +642,11 @@ class SessionManager:
             "title": str(payload.get("title") or "New Session"),
             "created_at": float(payload.get("created_at") or 0),
             "updated_at": float(payload.get("updated_at") or 0),
+            "parent_session_id": str(payload.get("parent_session_id") or ""),
+            "forked_from": dict(payload.get("forked_from") or {}),
             "message_count": message_count,
+            "compaction_generation": str(payload.get("compaction_generation") or "0"),
+            "compaction_generation_updated_at": _float(payload.get("compaction_generation_updated_at")),
             "scope": _normalize_scope(dict(payload.get("scope") or {})),
             "task_binding": _normalize_task_binding(dict(payload.get("task_binding") or {})),
             "conversation_state": _normalize_conversation_state(dict(payload.get("conversation_state") or {})),
@@ -668,6 +752,49 @@ class SessionManager:
         with self._summary_cache_guard:
             self._summary_cache.pop(cache_key, None)
 
+    def _latest_provider_visible_anchor(self, session_id: str) -> dict[str, Any]:
+        try:
+            from runtime.context_management.provider_visible_context_ledger import latest_provider_visible_context_success_anchor
+
+            return latest_provider_visible_context_success_anchor(storage_root=self.base_dir, scope=session_id)
+        except Exception:
+            logger.exception("Failed to load provider-visible context anchor for fork: %s", session_id)
+            return {}
+
+    def _latest_provider_request_context_commit(self, session_id: str) -> dict[str, Any]:
+        try:
+            from runtime.context_management.context_commit_record import latest_provider_request_context_commit_record
+
+            return latest_provider_request_context_commit_record(
+                storage_root=self.base_dir,
+                session_id=session_id,
+                status="succeeded",
+            )
+        except Exception:
+            logger.exception("Failed to load provider request context commit for fork: %s", session_id)
+            return {}
+
+    def _create_context_commit_record(
+        self,
+        session_id: str,
+        payload: dict[str, Any],
+        *,
+        provider_anchor: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            from runtime.context_management.context_commit_record import create_session_context_commit_record
+
+            return create_session_context_commit_record(
+                storage_root=self.base_dir,
+                session_id=session_id,
+                session_payload=dict(payload or {}),
+                provider_visible_anchor=dict(provider_anchor or {}),
+                reason="session_fork_point",
+            )
+        except Exception:
+            logger.exception("Failed to create context commit record for fork: %s", session_id)
+            return {}
+
 
 def _replace_file_atomically(source: Path, target: Path) -> None:
     retry_delays = (0.01, 0.025, 0.05, 0.1)
@@ -702,6 +829,60 @@ def _unreadable_session_payload(path: Path, *, error: str) -> dict[str, Any]:
         "storage_status": "unreadable",
         "storage_error": error,
     }
+
+
+def _fork_title(parent_title: str) -> str:
+    base = str(parent_title or "New Session").strip() or "New Session"
+    suffix = " fork"
+    limit = 100
+    if len(base) + len(suffix) <= limit:
+        return base + suffix
+    return base[: max(1, limit - len(suffix))].rstrip() + suffix
+
+
+def _fork_provider_cache_scope_id(parent_payload: dict[str, Any], *, parent_session_id: str) -> str:
+    forked_from = (
+        dict(parent_payload.get("forked_from") or {})
+        if isinstance(parent_payload.get("forked_from"), dict)
+        else {}
+    )
+    inherited = str(forked_from.get("provider_cache_scope_id") or "").strip()
+    if inherited:
+        return inherited
+    return str(parent_session_id or "").strip()
+
+
+def _normalize_workspace_effect_policy(value: Any) -> str:
+    normalized = str(value or "").strip()
+    if normalized in {"shared_workspace", "forked_worktree", "read_only_snapshot"}:
+        return normalized
+    return "shared_workspace"
+
+
+def _bump_compaction_generation(payload: dict[str, Any], *, reason: str) -> None:
+    current = _int(payload.get("compaction_generation"))
+    next_generation = str(max(0, current) + 1)
+    now = time.time()
+    payload["compaction_generation"] = next_generation
+    payload["compaction_generation_updated_at"] = now
+    payload["compaction_generation_reason"] = str(reason or "")
+    payload["compaction_generation_boundary_id"] = f"ctxgen:{next_generation}:{int(now * 1000)}"
+
+
+def _rewrite_message_session_refs(messages: list[Any], *, parent_id: str, child_id: str) -> list[Any]:
+    result: list[Any] = []
+    for item in list(messages or []):
+        if not isinstance(item, dict):
+            result.append(copy.deepcopy(item))
+            continue
+        payload = copy.deepcopy(item)
+        if str(payload.get("session_id") or "").strip() == parent_id:
+            payload["session_id"] = child_id
+        metadata = payload.get("metadata")
+        if isinstance(metadata, dict) and str(metadata.get("session_id") or "").strip() == parent_id:
+            payload["metadata"] = {**metadata, "session_id": child_id}
+        result.append(payload)
+    return result
 
 
 def _safe_session_id(value: str) -> str:
@@ -1029,9 +1210,15 @@ def _float(value: Any) -> float:
         return 0.0
 
 
+def _int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def validate_session_id(value: str) -> str:
     normalized = str(value or "").strip()
     if normalized != _safe_session_id(normalized):
         raise InvalidSessionId("Invalid session_id")
     return normalized
-

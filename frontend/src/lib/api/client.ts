@@ -94,6 +94,40 @@ function requestTimeoutReason(path: string, timeoutMs: number) {
   return new DOMException(`Request timed out after ${timeoutMs}ms: ${path}`, "TimeoutError");
 }
 
+function combinedRequestSignal(externalSignal: AbortSignal | null | undefined, timeoutSignal: AbortSignal) {
+  if (!externalSignal) {
+    return { signal: timeoutSignal, cleanup: () => undefined };
+  }
+
+  const controller = new AbortController();
+  let cleanup: () => void = () => undefined;
+  const abortFrom = (source: AbortSignal) => {
+    if (!controller.signal.aborted) {
+      controller.abort(source.reason ?? new DOMException("Aborted", "AbortError"));
+    }
+    cleanup();
+  };
+  const onExternalAbort = () => abortFrom(externalSignal);
+  const onTimeoutAbort = () => abortFrom(timeoutSignal);
+  cleanup = () => {
+    externalSignal.removeEventListener("abort", onExternalAbort);
+    timeoutSignal.removeEventListener("abort", onTimeoutAbort);
+  };
+
+  if (externalSignal.aborted) {
+    abortFrom(externalSignal);
+    return { signal: controller.signal, cleanup };
+  }
+  if (timeoutSignal.aborted) {
+    abortFrom(timeoutSignal);
+    return { signal: controller.signal, cleanup };
+  }
+
+  externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+  timeoutSignal.addEventListener("abort", onTimeoutAbort, { once: true });
+  return { signal: controller.signal, cleanup };
+}
+
 function shouldRetryGetRequest(path: string) {
   return !isNonRetriableSessionObservationPath(path);
 }
@@ -130,16 +164,27 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
   }
   const method = (init?.method || "GET").toUpperCase();
   const timeoutMs = requestTimeoutMs(path);
+  let lastAbortWasTimeout = false;
   const runFetch = async () => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(requestTimeoutReason(path, timeoutMs)), timeoutMs);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort(requestTimeoutReason(path, timeoutMs));
+    }, timeoutMs);
+    const combinedSignal = combinedRequestSignal(init?.signal, controller.signal);
     try {
+      lastAbortWasTimeout = false;
       return await fetch(`${getApiBase()}${path}`, {
         ...init,
         headers,
-        signal: controller.signal,
+        signal: combinedSignal.signal,
       });
+    } catch (error) {
+      lastAbortWasTimeout = timedOut && isRequestAbortError(error);
+      throw error;
     } finally {
+      combinedSignal.cleanup();
       clearTimeout(timer);
     }
   };
@@ -147,16 +192,16 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
   try {
     response = await runFetch();
   } catch (error) {
-    if (method === "GET" && isRequestAbortError(error) && shouldRetryGetRequest(path)) {
+    if (method === "GET" && lastAbortWasTimeout && isRequestAbortError(error) && shouldRetryGetRequest(path)) {
       try {
         response = await runFetch();
       } catch (retryError) {
-        if (isRequestAbortError(retryError)) {
+        if (lastAbortWasTimeout && isRequestAbortError(retryError)) {
           throw requestTimeoutError(path, timeoutMs, retryError);
         }
         throw retryError;
       }
-    } else if (isRequestAbortError(error)) {
+    } else if (lastAbortWasTimeout && isRequestAbortError(error)) {
       throw requestTimeoutError(path, timeoutMs, error);
     } else {
       throw error;

@@ -258,13 +258,9 @@ def build_provider_payload_manifest(
             "transport_contract_ref": str(transport_contract.get("contract_id") or ""),
             "transport_contract_hash": str(transport_contract.get("contract_hash") or ""),
             "tool_catalog_manifest_ref": str(dict(tool_catalog_manifest or {}).get("manifest_id") or ""),
-            "context_assembly_order": _context_cache_section_order(ordered_segments),
-            "context_physical_segment_order": _context_physical_segment_order(ordered_segments),
             "context_cache_section_counts": _context_cache_section_counts(ordered_segments),
-            "context_physical_segment_counts": _context_physical_segment_counts(ordered_segments),
-            "context_prefix_state_counts": _context_prefix_state_counts(ordered_segments),
-            "stable_segment_after_dynamic_tail_count": _stable_segment_after_dynamic_tail_count(ordered_segments),
-            "dynamic_tail_after_cache_boundary": _stable_segment_after_dynamic_tail_count(ordered_segments) == 0,
+            "cache_spine_segment_after_tail_count": _cache_spine_segment_after_tail_count(ordered_segments),
+            "cache_spine_contiguous_before_tail": _cache_spine_segment_after_tail_count(ordered_segments) == 0,
             "authority": "runtime.model_gateway.provider_payload.builder",
         },
     )
@@ -480,6 +476,10 @@ def _cache_boundary(
         *response_format_segments,
     ]
     stable_prefix_segments = _provider_prefix_segments_for_tier(segments, tier=selected_tier)
+    cache_spine = _cache_spine_diagnostics(
+        segments,
+        transport_contract_hash=transport_contract_hash,
+    )
     return {
         "selected_prefix_key_tier": selected_tier,
         "provider_payload_prefix_hash": str(selected_prefix.get("provider_payload_prefix_hash") or ""),
@@ -513,18 +513,92 @@ def _cache_boundary(
         "tool_call_options_segment_count": len(tool_option_segments),
         "response_format_segment_count": len(response_format_segments),
         "provider_params_segment_count": len(request_param_segments),
+        "cache_spine_hash": str(cache_spine.get("cache_spine_hash") or ""),
+        "cache_spine_generation": str(cache_spine.get("cache_spine_generation") or ""),
+        "cache_spine_segment_count": int(cache_spine.get("cache_spine_segment_count") or 0),
+        "cache_spine_lane_counts": dict(cache_spine.get("cache_spine_lane_counts") or {}),
+        "cache_spine_lane_order": list(cache_spine.get("cache_spine_lane_order") or []),
+        "stable_after_tail_violations": list(cache_spine.get("stable_after_tail_violations") or []),
+        "stable_after_tail_violation_count": int(cache_spine.get("stable_after_tail_violation_count") or 0),
         "authority": "runtime.model_gateway.provider_payload.cache_boundary",
     }
 
 
 def _contiguous_stable_message_prefix(segments: tuple[ProviderPayloadSegment, ...]) -> list[ProviderPayloadSegment]:
-    result: list[ProviderPayloadSegment] = []
-    for segment in [item for item in segments if item.transport_location == "messages"]:
-        if _is_provider_visible_structural_prefix_segment(segment):
-            result.append(segment)
+    return _provider_visible_structural_prefix_segments(segments)
+
+
+def _cache_spine_diagnostics(
+    segments: tuple[ProviderPayloadSegment, ...],
+    *,
+    transport_contract_hash: str,
+) -> dict[str, Any]:
+    spine_lanes = {
+        "global_static_prefix",
+        "active_context_prefix",
+        "byte_replay_archive_prefix",
+    }
+    tail_lanes = {"current_turn_tail", "never_replay_tail"}
+    message_segments = [
+        segment
+        for segment in sorted(tuple(segments or ()), key=lambda item: int(item.ordinal or 0))
+        if segment.transport_location == "messages"
+    ]
+    spine_segments: list[ProviderPayloadSegment] = []
+    lane_counts: dict[str, int] = {}
+    lane_order: list[str] = []
+    violations: list[dict[str, Any]] = []
+    tail_seen = False
+    generation = ""
+    for segment in message_segments:
+        metadata = dict(segment.metadata or {})
+        lane = str(metadata.get("physical_prefix_lane") or "").strip()
+        if not lane:
+            violations.append(
+                {
+                    "segment_id": segment.segment_id,
+                    "kind": segment.kind,
+                    "source_ref": segment.source_ref,
+                    "ordinal": int(segment.ordinal or 0),
+                    "reason": "missing_physical_prefix_lane",
+                }
+            )
+            lane = "current_turn_tail"
+        if not generation:
+            generation = str(metadata.get("cache_spine_generation") or metadata.get("compaction_generation") or "")
+        if lane:
+            lane_counts[lane] = lane_counts.get(lane, 0) + 1
+            if lane not in lane_order:
+                lane_order.append(lane)
+        if lane in tail_lanes:
+            tail_seen = True
             continue
-        break
-    return result
+        if lane in spine_lanes:
+            if tail_seen:
+                violations.append(
+                    {
+                        "segment_id": segment.segment_id,
+                        "kind": segment.kind,
+                        "source_ref": segment.source_ref,
+                        "lane": lane,
+                        "ordinal": int(segment.ordinal or 0),
+                        "reason": "cache_spine_segment_after_current_turn_tail",
+                    }
+                )
+            spine_segments.append(segment)
+    spine_hash = _physical_prefix_hash(
+        transport_contract_hash=transport_contract_hash,
+        message_prefix_hash=_segments_hash(spine_segments),
+    ) if spine_segments or transport_contract_hash else ""
+    return {
+        "cache_spine_hash": spine_hash,
+        "cache_spine_generation": generation or "0",
+        "cache_spine_segment_count": len(spine_segments),
+        "cache_spine_lane_counts": lane_counts,
+        "cache_spine_lane_order": lane_order,
+        "stable_after_tail_violations": violations,
+        "stable_after_tail_violation_count": len(violations),
+    }
 
 
 def _contiguous_message_prefix_for_tier(
@@ -592,25 +666,14 @@ def _provider_visible_structural_prefix_segments(
 
 def _is_provider_visible_structural_prefix_segment(segment: ProviderPayloadSegment) -> bool:
     metadata = dict(segment.metadata or {})
-    boundary = str(
-        metadata.get("context_provider_visible_boundary")
-        or metadata.get("context_prefix_boundary")
-        or ""
-    ).strip()
-    if boundary in {
-        "static_provider_context",
-        "sealed_provider_visible_context",
-        "cacheable_prefix",
-    }:
-        return True
-    if boundary in {
-        "current_append_context",
-        "current_dynamic_tail",
-        "materialize_then_cache_on_next_request",
-        "never_cache",
-    }:
+    lane = str(metadata.get("physical_prefix_lane") or "").strip()
+    if not lane:
         return False
-    return is_cache_eligible_prefix(cache_role=segment.cache_role, prefix_tier=segment.prefix_tier)
+    return lane in {
+        "global_static_prefix",
+        "active_context_prefix",
+        "byte_replay_archive_prefix",
+    }
 
 
 def _tier_prefix_diagnostics(
@@ -711,92 +774,21 @@ def _context_cache_section_counts(segments: tuple[ProviderPayloadSegment, ...]) 
         if segment.transport_location != "messages":
             continue
         metadata = dict(segment.metadata or {})
-        section = str(metadata.get("context_cache_section") or metadata.get("context_assembly_section") or "unknown")
+        section = str(metadata.get("context_cache_section") or "unknown")
         counts[section] = counts.get(section, 0) + 1
     return counts
 
 
-def _context_physical_segment_counts(segments: tuple[ProviderPayloadSegment, ...]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for segment in tuple(segments or ()):
-        if segment.transport_location != "messages":
-            continue
-        metadata = dict(segment.metadata or {})
-        physical_segment = str(metadata.get("context_physical_segment") or "").strip()
-        if not physical_segment:
-            physical_segment = str(metadata.get("context_cache_section") or metadata.get("context_assembly_section") or "unknown")
-        counts[physical_segment] = counts.get(physical_segment, 0) + 1
-    return counts
-
-
-def _context_prefix_state_counts(segments: tuple[ProviderPayloadSegment, ...]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for segment in tuple(segments or ()):
-        if segment.transport_location != "messages":
-            continue
-        metadata = dict(segment.metadata or {})
-        state = str(metadata.get("context_prefix_state") or "unknown").strip() or "unknown"
-        counts[state] = counts.get(state, 0) + 1
-    return counts
-
-
-def _context_cache_section_order(segments: tuple[ProviderPayloadSegment, ...]) -> list[str]:
-    declared = _first_declared_context_order(segments, key="context_cache_section_order")
-    if declared:
-        return declared
-    return _ordered_unique_context_metadata_values(segments, "context_cache_section", fallback_key="context_assembly_section")
-
-
-def _context_physical_segment_order(segments: tuple[ProviderPayloadSegment, ...]) -> list[str]:
-    declared = _first_declared_context_order(segments, key="context_physical_segment_order")
-    if declared:
-        return declared
-    return _ordered_unique_context_metadata_values(segments, "context_physical_segment")
-
-
-def _first_declared_context_order(segments: tuple[ProviderPayloadSegment, ...], *, key: str) -> list[str]:
-    for segment in tuple(segments or ()):
-        if segment.transport_location != "messages":
-            continue
-        value = dict(segment.metadata or {}).get(key)
-        if isinstance(value, (list, tuple)):
-            result = [str(item or "").strip() for item in value if str(item or "").strip()]
-            if result:
-                return result
-    return []
-
-
-def _ordered_unique_context_metadata_values(
-    segments: tuple[ProviderPayloadSegment, ...],
-    key: str,
-    *,
-    fallback_key: str = "",
-) -> list[str]:
-    result: list[str] = []
-    seen: set[str] = set()
-    for segment in sorted(
-        [item for item in tuple(segments or ()) if item.transport_location == "messages"],
-        key=lambda item: int(item.ordinal or 0),
-    ):
-        metadata = dict(segment.metadata or {})
-        value = str(metadata.get(key) or (metadata.get(fallback_key) if fallback_key else "") or "").strip()
-        if value and value not in seen:
-            result.append(value)
-            seen.add(value)
-    return result
-
-
-def _stable_segment_after_dynamic_tail_count(segments: tuple[ProviderPayloadSegment, ...]) -> int:
-    dynamic_seen = False
+def _cache_spine_segment_after_tail_count(segments: tuple[ProviderPayloadSegment, ...]) -> int:
+    tail_seen = False
     count = 0
     for segment in [item for item in tuple(segments or ()) if item.transport_location == "messages"]:
         metadata = dict(segment.metadata or {})
-        section = str(metadata.get("context_cache_section") or metadata.get("context_assembly_section") or "")
-        if section == "dynamic_tail":
-            dynamic_seen = True
+        lane = str(metadata.get("physical_prefix_lane") or "").strip()
+        if lane in {"current_turn_tail", "never_replay_tail"}:
+            tail_seen = True
             continue
-        stable = is_cache_eligible_prefix(cache_role=segment.cache_role, prefix_tier=segment.prefix_tier)
-        if dynamic_seen and stable:
+        if tail_seen and lane in {"global_static_prefix", "active_context_prefix", "byte_replay_archive_prefix"}:
             count += 1
     return count
 

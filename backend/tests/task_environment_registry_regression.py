@@ -22,7 +22,6 @@ from agent_system.profiles.runtime_profile_registry import default_agent_runtime
 from capability_system.tools.authorization import build_tool_authorization_index
 from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definitions
 from harness.runtime import RuntimeCompiler, assemble_runtime, build_runtime_tool_plan
-from harness.runtime.tool_scheduling import environment_allowed_operations
 from prompt_library import (
     DEFAULT_PERSONALITY_PROMPT_REF,
     ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT,
@@ -168,7 +167,6 @@ def test_development_environment_exposes_shell_image_generation_and_image_read_t
         for item in list(operation_auth.get("decisions") or [])
     }
     assert decisions["op.shell"]["final_decision"] == "allow"
-    assert decisions["op.shell"]["environment_constraint"] == "env.coding.vibe_workspace"
 
 
 def test_full_access_does_not_expand_or_unhide_model_visible_tools() -> None:
@@ -204,26 +202,6 @@ def test_full_access_does_not_expand_or_unhide_model_visible_tools() -> None:
     assert decisions["op.browser_control"]["reason"] == "agent_permission_missing"
     assert decisions["op.git_push"]["final_decision"] == "deny"
     assert decisions["op.git_push"]["reason"] == "agent_permission_missing"
-
-
-def test_coding_environment_operations_are_derived_from_registered_runtime_payload() -> None:
-    payload = build_task_environment_catalog().runtime_environment_payload("env.coding.vibe_workspace")
-    allowed = environment_allowed_operations(payload)
-
-    assert {
-        "op.read_file",
-        "op.write_file",
-        "op.edit_file",
-        "op.shell",
-        "op.python_repl",
-        "op.git_status",
-        "op.git_commit",
-        "op.codebase_search",
-        "op.python_symbol_search",
-        "op.mcp_pdf",
-        "op.mcp_image_ocr",
-    }.issubset(allowed)
-    assert environment_allowed_operations("env.coding.vibe_workspace") == allowed
 
 
 def test_coding_environment_exposes_core_development_tools_for_authorized_agent() -> None:
@@ -271,7 +249,6 @@ def test_coding_environment_exposes_core_development_tools_for_authorized_agent(
     assert decisions["op.edit_file"]["final_decision"] == "allow"
     assert decisions["op.shell"]["final_decision"] == "allow"
     assert decisions["op.python_repl"]["final_decision"] == "allow"
-    assert decisions["op.python_repl"]["environment_constraint"] == "env.coding.vibe_workspace"
 
 
 def test_runtime_available_tools_expose_canonical_tool_input_schema() -> None:
@@ -314,7 +291,7 @@ def test_runtime_available_tools_expose_canonical_tool_input_schema() -> None:
     assert "todos" not in todo["optional_inputs"]
 
 
-def test_runtime_profile_does_not_bind_task_environment_without_explicit_selection() -> None:
+def test_main_agent_profile_selects_default_task_environment_without_explicit_selection() -> None:
     profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
     definitions = get_tool_definitions()
     index = build_tool_authorization_index(definitions)
@@ -333,10 +310,10 @@ def test_runtime_profile_does_not_bind_task_environment_without_explicit_selecti
 
     assert dict(assembly.get("profile") or {}).get("profile_ref") == "main_interactive_agent"
     assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.general.workspace"
-    assert dict(dict(assembly.get("diagnostics") or {}).get("task_environment") or {}).get("source") == "fallback_default"
+    assert dict(dict(assembly.get("diagnostics") or {}).get("task_environment") or {}).get("source") == "agent_runtime_profile"
 
 
-def test_runtime_policy_default_environment_does_not_select_task_environment() -> None:
+def test_runtime_policy_default_environment_does_not_override_agent_profile_default_environment() -> None:
     profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
     definitions = get_tool_definitions()
     index = build_tool_authorization_index(definitions)
@@ -363,7 +340,7 @@ def test_runtime_policy_default_environment_does_not_select_task_environment() -
     ).to_dict()
 
     assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.general.workspace"
-    assert dict(dict(assembly.get("diagnostics") or {}).get("task_environment") or {}).get("source") == "fallback_default"
+    assert dict(dict(assembly.get("diagnostics") or {}).get("task_environment") or {}).get("source") == "agent_runtime_profile"
 
 
 def test_explicit_task_environment_selection_is_orthogonal_to_agent_runtime_profile() -> None:
@@ -621,7 +598,7 @@ def test_task_environment_catalog_is_single_normalized_resource_surface() -> Non
     assert writing_item["task_library"]["task_ids"] == ["engage.test.writing"]
 
 
-def test_creation_environment_filters_development_execution_tools_before_runtime_exposure() -> None:
+def test_task_environment_does_not_filter_agent_authorized_operations() -> None:
     definitions = get_tool_definitions()
     index = build_tool_authorization_index(definitions)
     profile = SimpleNamespace(
@@ -649,15 +626,14 @@ def test_creation_environment_filters_development_execution_tools_before_runtime
         for item in list(dict(assembly.get("operation_authorization") or {}).get("decisions") or [])
     }
 
-    assert "terminal" not in tool_names
-    assert "browser_control" not in tool_names
+    assert "terminal" in tool_names
+    assert "browser_control" in tool_names
     assert "web_search" in tool_names
     assert "write_file" in tool_names
-    assert decisions["op.shell"]["reason"] == "environment_filtered"
-    assert decisions["op.browser_control"]["reason"] == "environment_filtered"
+    assert decisions["op.shell"]["final_decision"] == "allow"
+    assert decisions["op.browser_control"]["final_decision"] == "allow"
     assert decisions["op.write_file"]["final_decision"] == "allow"
     assert decisions["op.web_search"]["final_decision"] == "allow"
-    assert decisions["op.shell"]["environment_constraint"] == "env.office.file_search"
 
 
 def test_runtime_operation_ceiling_limits_tools_before_prompt_index() -> None:
@@ -897,8 +873,8 @@ def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts
         history=[],
         runtime_assembly=assembly,
     ).packet
-    stable_message = _message_content_with_title(packet, "Single agent turn stable boundary")
-    stable_payload = _payload_after_title(stable_message, "Single agent turn stable boundary")
+    stable_message = _message_content_with_title(packet, "Turn operating contract")
+    stable_payload = _payload_after_title(stable_message, "Turn operating contract")
     model_input = _model_input_text(packet)
     lifecycle_message = next(
         str(message.get("content") or "")
@@ -941,59 +917,75 @@ def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts
     assert set(expected_lifecycle_refs).issubset(set(general_lifecycle_defaults))
 
 
-def test_task_execution_lifecycle_prompts_are_environment_specific() -> None:
-    profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
+def test_task_execution_lifecycle_prompts_are_main_agent_specific() -> None:
+    profiles = {item.agent_profile_id: item for item in default_agent_runtime_profiles()}
     definitions = get_tool_definitions()
     index = build_tool_authorization_index(definitions)
     cases = {
-        "env.coding.vibe_workspace": {
+        "main_coding_agent": {
+            "environment_id": "env.coding.vibe_workspace",
             "prefix": "environment.coding.lifecycle.",
             "included": "Coding 动作选择生命周期",
             "excluded": ("Office 动作选择生命周期", "General 动作选择生命周期"),
         },
-        "env.office.file_search": {
+        "main_office_agent": {
+            "environment_id": "env.office.file_search",
             "prefix": "environment.office.lifecycle.",
             "included": "Office 动作选择生命周期",
             "excluded": ("Coding 动作选择生命周期", "General 动作选择生命周期"),
         },
-        "env.general.workspace": {
+        "main_interactive_agent": {
+            "environment_id": "env.general.workspace",
             "prefix": "environment.general.lifecycle.",
             "included": "General 动作选择生命周期",
             "excluded": ("Coding 动作选择生命周期", "Office 动作选择生命周期"),
         },
     }
 
-    for environment_id, expectation in cases.items():
+    for profile_id, expectation in cases.items():
+        profile = profiles[profile_id]
+        environment_id = str(expectation["environment_id"])
         assembly = assemble_runtime(
             backend_dir=BACKEND_DIR,
-            session_id=f"session-{environment_id}",
-            turn_id=f"turn-{environment_id}",
-            agent_invocation_id=f"agent-{environment_id}",
-            runtime_contract={"task_environment_id": environment_id},
+            session_id=f"session-{profile_id}",
+            turn_id=f"turn-{profile_id}",
+            agent_invocation_id=f"agent-{profile_id}",
+            runtime_contract={},
             model_selection={},
             agent_runtime_profile=profile,
             tool_instances=build_tool_instances(BACKEND_DIR),
             definitions_by_name=index.definitions_by_name,
         )
         packet = RuntimeCompiler().compile_task_execution_packet(
-            session_id=f"session-{environment_id}",
+            session_id=f"session-{profile_id}",
             task_run={
-                "task_run_id": f"taskrun:{environment_id}",
-                "session_id": f"session-{environment_id}",
-                "task_id": f"task:{environment_id}",
-                "agent_profile_id": "main_interactive_agent",
+                "task_run_id": f"taskrun:{profile_id}",
+                "session_id": f"session-{profile_id}",
+                "task_id": f"task:{profile_id}",
+                "agent_profile_id": profile_id,
             },
-            contract={"user_visible_goal": "验证环境生命周期提示词", "completion_criteria": ["提示词按环境隔离"]},
+            contract={"user_visible_goal": "验证主 agent 生命周期提示词", "completion_criteria": ["提示词按主 agent 隔离"]},
             observations=[],
             execution_state={},
-            agent_profile_ref="main_interactive_agent",
+            agent_profile_ref=profile_id,
             available_tools=assembly.available_tools,
             runtime_assembly=assembly,
             invocation_index=1,
         ).packet
         manifest = packet.diagnostics["prompt_manifest"]
         lifecycle_refs = list(manifest["prompt_mount_plan"]["lifecycle_prompt_refs"])
+        prompt_defaults = dict(assembly.profile.prompt_policy.get("lifecycle_prompt_defaults") or {})
+        wiring_prompt_gates = dict(
+            dict(assembly.system_wiring_manifest.get("compiled") or {}).get("prompt_resource_gates") or {}
+        )
+        wiring_lifecycle_refs = [ref for ref in wiring_prompt_gates if ".lifecycle." in ref]
 
+        assert assembly.task_environment["environment_id"] == environment_id
+        assert dict(assembly.diagnostics["task_environment"]).get("source") == "agent_runtime_profile"
+        assert prompt_defaults
+        assert all(ref.startswith(str(expectation["prefix"])) for ref in prompt_defaults.values())
+        assert wiring_lifecycle_refs
+        assert all(ref.startswith(str(expectation["prefix"])) for ref in wiring_lifecycle_refs)
         assert lifecycle_refs
         assert all(ref.startswith(str(expectation["prefix"])) for ref in lifecycle_refs)
         assert set(lifecycle_refs).issubset(set(ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT[environment_id]))
@@ -1042,7 +1034,7 @@ def test_chat_environment_uses_role_prompt_boundary_without_task_lifecycle() -> 
     assert "角色氛围" in model_input
 
 
-def test_environment_boundary_owns_lifecycle_defaults_over_prompt_policy() -> None:
+def test_agent_prompt_policy_owns_lifecycle_defaults_over_environment_selection() -> None:
     profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
     polluted_profile = replace(
         profile,
@@ -1079,10 +1071,12 @@ def test_environment_boundary_owns_lifecycle_defaults_over_prompt_policy() -> No
         == "environment.general.lifecycle.action_selection"
     )
     mount_defaults = assembly.prompt_mount_plan["lifecycle_prompt_defaults"]
-    assert mount_defaults["action_selection"] == "environment.coding.lifecycle.action_selection"
-    assert set(mount_defaults.values()) == set(
-        ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT["env.coding.vibe_workspace"]
-    )
+    assert mount_defaults["action_selection"] == "environment.general.lifecycle.action_selection"
+    assert set(mount_defaults.values()) == {
+        "environment.general.lifecycle.context_intake",
+        "environment.general.lifecycle.action_selection",
+        "environment.general.lifecycle.finalization",
+    }
 
     fallback_payload = assembly.to_dict()
     fallback_payload["prompt_mount_plan"] = {}
@@ -1094,7 +1088,7 @@ def test_environment_boundary_owns_lifecycle_defaults_over_prompt_policy() -> No
             "task_id": "task:lifecycle-boundary-authority",
             "agent_profile_id": "main_interactive_agent",
         },
-        contract={"user_visible_goal": "验证生命周期提示词权威", "completion_criteria": ["按环境边界装配"]},
+        contract={"user_visible_goal": "验证生命周期提示词权威", "completion_criteria": ["按 agent 配置装配"]},
         observations=[],
         execution_state={},
         agent_profile_ref="main_interactive_agent",
@@ -1105,8 +1099,8 @@ def test_environment_boundary_owns_lifecycle_defaults_over_prompt_policy() -> No
 
     lifecycle_refs = packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_prompt_refs"]
     assert lifecycle_refs
-    assert all(ref.startswith("environment.coding.lifecycle.") for ref in lifecycle_refs)
-    assert "environment.general.lifecycle.action_selection" not in lifecycle_refs
+    assert all(ref.startswith("environment.general.lifecycle.") for ref in lifecycle_refs)
+    assert "environment.coding.lifecycle.action_selection" not in lifecycle_refs
 
 
 def test_runtime_compiler_stable_payload_keeps_environment_and_operation_projection_only() -> None:
@@ -1714,8 +1708,8 @@ def test_runtime_contract_can_select_custom_personality_prompt(tmp_path: Path) -
         history=[],
         runtime_assembly=assembly,
     ).packet
-    stable_message = _message_content_with_title(packet, "Single agent turn stable boundary")
-    stable_payload = _payload_after_title(stable_message, "Single agent turn stable boundary")
+    stable_message = _message_content_with_title(packet, "Turn operating contract")
+    stable_payload = _payload_after_title(stable_message, "Turn operating contract")
     model_input = _model_input_text(packet)
     manifest = packet.diagnostics["prompt_manifest"]
 
@@ -1746,3 +1740,4 @@ def _message_content_with_title(packet, title: str) -> str:
 
 def _payload_from_packet_message(packet, title: str) -> dict[str, object]:
     return _payload_after_title(_message_content_with_title(packet, title), title)
+

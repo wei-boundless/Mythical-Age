@@ -35,14 +35,14 @@ def test_single_turn_plan_mode_is_visible_in_dynamic_runtime_and_output_contract
         },
     ).packet
 
-    stable_payload = _payload_after_title(packet, "Single agent turn stable boundary")
-    dynamic_payload = _payload_after_title(packet, "Single agent turn dynamic runtime")
-    projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
+    stable_payload = _payload_after_title(packet, "Turn operating contract")
+    dynamic_payload = _payload_after_title(packet, "Current runtime control")
+    planning_cursor = dynamic_payload["runtime_context"]["planning"]
 
     assert "planning_protocol" not in stable_payload
     assert "planning_protocol" not in stable_payload["output_contract"]
-    assert projection["planning"]["plan_mode_active"] is True
-    assert projection["planning"]["implementation_allowed"] is False
+    assert planning_cursor["plan_mode_active"] is True
+    assert planning_cursor["implementation_allowed"] is False
     assert packet.output_contract["planning_protocol"]["mode"] == "plan_only"
 
 
@@ -136,3 +136,4 @@ def _payload_after_title(packet, title: str) -> dict:
         if marker in content:
             return json.loads(content.split(marker, 1)[1])
     raise AssertionError(f"missing message title: {title}")
+

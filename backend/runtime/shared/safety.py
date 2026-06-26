@@ -12,6 +12,7 @@ def build_task_safety_validators(
     root_dir: Path,
     safety_envelope: dict[str, Any] | None,
     sandbox_policy: dict[str, Any] | None = None,
+    permission_mode: str = "default",
 ) -> dict[str, Any]:
     envelope = dict(safety_envelope or {})
     sandbox = dict(sandbox_policy or {})
@@ -21,7 +22,7 @@ def build_task_safety_validators(
             safety_envelope=envelope,
             sandbox_policy=sandbox,
         ),
-        "shell_read_only": _shell_validator(sandbox_policy=sandbox),
+        "shell_read_only": _shell_validator(sandbox_policy=sandbox, permission_mode=permission_mode),
     }
 
 
@@ -87,10 +88,13 @@ def _filesystem_validator(
     return _validate
 
 
-def _shell_validator(*, sandbox_policy: dict[str, Any]):
+def _shell_validator(*, sandbox_policy: dict[str, Any], permission_mode: str):
     sandbox_enabled = bool(sandbox_policy.get("enabled") is True and sandbox_policy.get("sandbox_root"))
+    mode = str(permission_mode or sandbox_policy.get("permission_mode") or "").strip().lower()
 
     def _validate(operation_input: dict[str, Any]) -> bool | tuple[bool, str] | OperationGateResult:
+        if mode in {"full_access", "bypass"}:
+            return True
         if sandbox_enabled:
             return True
         try:

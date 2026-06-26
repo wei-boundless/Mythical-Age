@@ -200,6 +200,8 @@ import type {
   RuntimeRequirement,
   RuntimeResourceInventory,
   RuntimeResourceInventoryItem,
+  ChatRunInterruptPayload,
+  ChatRunInterruptResult,
   SessionContinuationProjection,
   SessionContinuationRecord,
   SessionHistory,
@@ -395,6 +397,7 @@ export type ChatRunCreatePayload = {
   session_id: string;
   session_scope?: Partial<SessionScope>;
   environment_binding?: Record<string, unknown>;
+  runtime_profile?: Record<string, unknown>;
   runtime_contract?: Record<string, unknown>;
   model_selection?: Record<string, unknown>;
   image_generation?: Record<string, unknown>;
@@ -459,9 +462,10 @@ export async function uploadChatAttachment(sessionId: string, file: File) {
   });
 }
 
-export async function createChatRun(payload: ChatRunCreatePayload) {
+export async function createChatRun(payload: ChatRunCreatePayload, options: { signal?: AbortSignal } = {}) {
   return request<ChatRun>("/chat/runs", {
     method: "POST",
+    signal: options.signal,
     body: JSON.stringify({
       ...payload,
       stream: true,
@@ -495,6 +499,13 @@ export async function cancelQueuedChatInput(sessionId: string, queueItemId: stri
 
 export async function getChatRun(streamRunId: string) {
   return request<ChatRun>(`/chat/runs/${encodeURIComponent(streamRunId)}`);
+}
+
+export async function interruptChatRun(streamRunId: string, payload: ChatRunInterruptPayload) {
+  return request<ChatRunInterruptResult>(`/chat/runs/${encodeURIComponent(streamRunId)}/interrupt`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function getLatestChatRunForSession(sessionId: string, scope?: Partial<SessionScope>) {
@@ -939,6 +950,7 @@ export async function streamExistingChatRun(
   } = {}
 ) {
   const run = await getChatRun(streamRunId);
+  handlers.onRunCreated?.(run);
   return consumeChatRunLive(run, sessionId, handlers, options);
 }
 
@@ -951,5 +963,6 @@ export async function streamChat(
   } = {}
 ): Promise<StreamResult> {
   const run = await createChatRun(payload);
+  handlers.onRunCreated?.(run);
   return consumeChatRunLive(run, payload.session_id, handlers, options);
 }

@@ -9,12 +9,6 @@ from capability_system.mcp.local_registry import default_local_mcp_units
 from permissions.operations import build_default_operation_registry
 from runtime.tooling import ToolCapability, ToolCapabilityFilterIssue, ToolCapabilitySourceTrace, ToolCapabilityTable
 
-from .tool_scheduling import (
-    evaluate_environment_operation,
-    operation_requests_from_authorization,
-    operation_requests_from_runtime_contract,
-)
-
 _OPERATION_REGISTRY = build_default_operation_registry()
 _SUBAGENT_LIFECYCLE_TOOL_NAMES = {
     "spawn_subagent",
@@ -71,14 +65,6 @@ def build_runtime_tool_plan(
     environment_payload = dict(assembly.get("task_environment") or {})
     operation_authorization = dict(assembly.get("operation_authorization") or {})
     operation_decisions = _operation_decisions_by_id(operation_authorization)
-    task_requested_operations = tuple(
-        dict.fromkeys(
-            [
-                *operation_requests_from_authorization(operation_authorization),
-                *operation_requests_from_runtime_contract(dict(assembly.get("runtime_contract") or {})),
-            ]
-        )
-    )
     filtered_issues: list[ToolCapabilityFilterIssue] = []
     visible_tools = tuple(
         sorted(
@@ -96,8 +82,6 @@ def build_runtime_tool_plan(
                     invocation_kind=invocation_kind,
                     definition_by_name=definition_by_name,
                     operation_decisions=operation_decisions,
-                    environment_payload=environment_payload,
-                    task_requested_operations=task_requested_operations,
                     filtered_issues=filtered_issues,
                 )
             ),
@@ -153,8 +137,6 @@ def build_runtime_tool_plan(
     capabilities.extend(
         _local_mcp_route_capabilities(
             operation_authorization=operation_authorization,
-            environment_payload=environment_payload,
-            task_requested_operations=task_requested_operations,
             filtered_issues=filtered_issues,
         )
     )
@@ -165,7 +147,7 @@ def build_runtime_tool_plan(
         filtered=tuple(filtered_issues),
         source_trace=(
             ToolCapabilitySourceTrace(source="runtime_tool_plan", detail=invocation_kind),
-            ToolCapabilitySourceTrace(source="tool_scheduling", detail="environment_hard_filter"),
+            ToolCapabilitySourceTrace(source="tool_scheduling", detail="operation_authorization_filter"),
         ),
     )
     schema_hash = _stable_hash(visible_tools)
@@ -233,8 +215,6 @@ def _tool_allowed_for_runtime_plan(
     invocation_kind: str,
     definition_by_name: dict[str, Any],
     operation_decisions: dict[str, dict[str, Any]],
-    environment_payload: dict[str, Any],
-    task_requested_operations: tuple[str, ...],
     filtered_issues: list[ToolCapabilityFilterIssue],
 ) -> bool:
     tool_name = _tool_name(tool)
@@ -293,22 +273,6 @@ def _tool_allowed_for_runtime_plan(
             )
         )
         return False
-    environment_decision = evaluate_environment_operation(
-        operation_id,
-        environment_payload=environment_payload,
-        task_requested_operations=task_requested_operations,
-    )
-    if not environment_decision.allowed:
-        filtered_issues.append(
-            ToolCapabilityFilterIssue(
-                operation_id=operation_id,
-                tool_name=tool_name,
-                reason=environment_decision.reason,
-                source="task_environment",
-                metadata=environment_decision.to_dict(),
-            )
-        )
-        return False
     return True
 
 
@@ -352,8 +316,6 @@ def _tool_owner_scope(tool: dict[str, Any], definition: Any | None) -> str:
 def _local_mcp_route_capabilities(
     *,
     operation_authorization: dict[str, Any],
-    environment_payload: dict[str, Any],
-    task_requested_operations: tuple[str, ...],
     filtered_issues: list[ToolCapabilityFilterIssue],
 ) -> list[ToolCapability]:
     allowed_operations = {
@@ -372,12 +334,7 @@ def _local_mcp_route_capabilities(
         tool_name = f"mcp__langchain_agent__{unit.route}"
         if not operation_id:
             continue
-        environment_decision = evaluate_environment_operation(
-            operation_id,
-            environment_payload=environment_payload,
-            task_requested_operations=task_requested_operations,
-        )
-        if operation_id in allowed_operations and environment_decision.allowed:
+        if operation_id in allowed_operations:
             capabilities.append(
                 ToolCapability(
                     operation_id=operation_id,
@@ -402,17 +359,6 @@ def _local_mcp_route_capabilities(
                 )
             )
             continue
-        if operation_id in allowed_operations and not environment_decision.allowed:
-            filtered_issues.append(
-                ToolCapabilityFilterIssue(
-                    operation_id=operation_id,
-                    tool_name=tool_name,
-                    reason=environment_decision.reason,
-                    source="task_environment",
-                    metadata=environment_decision.to_dict(),
-                )
-            )
-            continue
         reason = denied_reasons.get(operation_id)
         if reason:
             filtered_issues.append(
@@ -421,7 +367,7 @@ def _local_mcp_route_capabilities(
                     tool_name=tool_name,
                     reason=reason,
                     source="operation_authorization",
-                    metadata=environment_decision.to_dict(),
+                    metadata={"operation_id": operation_id, "authority": "harness.runtime.operation_authorization"},
                 )
             )
     return capabilities

@@ -692,8 +692,19 @@ function patchActiveTaskTurnGate(
   event: string,
   data: Record<string, unknown>,
 ): StoreState {
-  const turnId = stringValue(session.boundTurnId) || stringValue(data.active_turn_id) || stringValue(data.turn_id);
-  const taskRunId = stringValue(session.boundTaskRunId) || stringValue(data.runtime_task_run_id) || stringValue(data.task_run_id);
+  const originBinding = recordValue(data.task_origin_binding);
+  const activeTurn = recordValue(data.active_turn);
+  const turnId = stringValue(session.boundTurnId)
+    || stringValue(data.active_turn_id)
+    || stringValue(data.turn_id)
+    || stringValue(originBinding.active_turn_id)
+    || stringValue(originBinding.turn_id)
+    || stringValue(activeTurn.turn_id);
+  const taskRunId = stringValue(session.boundTaskRunId)
+    || stringValue(data.runtime_task_run_id)
+    || stringValue(data.task_run_id)
+    || stringValue(originBinding.task_run_id)
+    || stringValue(activeTurn.bound_task_run_id);
   const currentTaskRunId = stringValue(state.activeTurnSnapshot?.task_run_id);
   if (!turnId && !taskRunId) {
     return state;
@@ -707,6 +718,7 @@ function patchActiveTaskTurnGate(
   }
   const terminalReason = stringValue(data.terminal_reason);
   const nextState = stringValue(data.active_turn_state)
+    || stringValue(activeTurn.state)
     || (terminalReason === "task_executor_scheduled" ? "waiting_executor" : "")
     || state.activeTurnSnapshot?.state
     || "running_task";
@@ -716,7 +728,10 @@ function patchActiveTaskTurnGate(
       turn_id: turnId || state.activeTurnSnapshot?.turn_id || "",
       task_run_id: effectiveTaskRunId,
       state: nextState as NonNullable<StoreState["activeTurnSnapshot"]>["state"],
-      turn_run_id: stringValue(session.boundTurnRunId) || state.activeTurnSnapshot?.turn_run_id,
+      turn_run_id: stringValue(session.boundTurnRunId)
+        || stringValue(originBinding.turn_run_id)
+        || stringValue(activeTurn.turn_run_id)
+        || state.activeTurnSnapshot?.turn_run_id,
       updated_at: Date.now() / 1000,
     },
   };

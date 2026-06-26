@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 from core.project_layout import ProjectLayout
+from file_management import external_scope_payloads_for_base_dir
 from harness.loop.admission import AdmissionDecision
 from harness.loop.execution_kernel import (
     ActionLifecycleDecision,
@@ -60,16 +61,16 @@ from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_sc
 from runtime.cache_manager import DEFAULT_SANDBOX_CACHE_TTL_SECONDS, runtime_cache_manager_for_host
 from runtime.context_management import (
     CONTEXT_APPEND,
-    CONTEXT_MEMORY,
     CONTEXT_MEMORY_PREFIX,
+    NEVER_REPLAY_TAIL,
     PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT,
     STATIC_PREFIX,
-    classify_context_spec,
+    annotate_specs_with_physical_context_plan,
+    context_segment_is_provider_visible_sealable_spec,
     context_segment_policy_for_spec,
     context_segment_policy_metadata,
+    context_segment_routes_to_dynamic_tail,
     DYNAMIC_TAIL,
-    is_dynamic_tail_spec,
-    is_sealable_context_spec,
     provider_visible_context_append_candidate_spec,
 )
 from runtime.prompt_accounting import ContextUsageMeter
@@ -1595,6 +1596,10 @@ async def run_single_agent_turn(
             session_id=session_id,
             model_selection=dict(model_selection or {}),
         )
+        provider_cache_scope_id = _provider_cache_scope_id_for_turn(
+            session_id=session_id,
+            session_context=session_context,
+        )
         reasoning_projection_public_visible = _turn_reasoning_projection_public_enabled(runtime_assembly)
 
         def memory_maintenance_main_context_for_commit() -> dict[str, Any]:
@@ -1763,6 +1768,7 @@ async def run_single_agent_turn(
                     accounting_context={
                         "request_id": f"modelreq:{current_packet_ref}:agent-closeout:{phase}:{attempt}",
                         "session_id": session_id,
+                        "provider_cache_scope_id": provider_cache_scope_id,
                         "run_id": turn_run.turn_run_id if turn_run is not None else "",
                         "turn_id": turn_id,
                         "packet_ref": current_packet_ref,
@@ -2001,6 +2007,7 @@ async def run_single_agent_turn(
             accounting_context={
                 "request_id": f"modelreq:{compilation.packet.packet_id}:1",
                 "session_id": session_id,
+                "provider_cache_scope_id": provider_cache_scope_id,
                 "run_id": turn_run.turn_run_id if turn_run is not None else "",
                 "turn_id": turn_id,
                 "packet_ref": compilation.packet.packet_id,
@@ -2053,6 +2060,7 @@ async def run_single_agent_turn(
                     accounting_context={
                         "request_id": f"modelreq:{current_packet_ref}:active-turn-steer:{tool_iteration + 1}",
                         "session_id": session_id,
+                        "provider_cache_scope_id": provider_cache_scope_id,
                         "run_id": turn_run.turn_run_id if turn_run is not None else "",
                         "turn_id": turn_id,
                         "packet_ref": current_packet_ref,
@@ -2163,6 +2171,7 @@ async def run_single_agent_turn(
                             else f"modelreq:{current_packet_ref}:runtime-control-recovery:{tool_iteration + 1}:{protocol_recovery_attempts}"
                         ),
                         "session_id": session_id,
+                        "provider_cache_scope_id": provider_cache_scope_id,
                         "run_id": turn_run.turn_run_id if turn_run is not None else "",
                         "turn_id": turn_id,
                         "packet_ref": current_packet_ref,
@@ -2774,6 +2783,7 @@ async def run_single_agent_turn(
                 accounting_context={
                     "request_id": f"modelreq:{followup_packet_ref}:tool-followup:{tool_iteration}",
                     "session_id": session_id,
+                    "provider_cache_scope_id": provider_cache_scope_id,
                     "run_id": turn_run.turn_run_id if turn_run is not None else "",
                     "turn_id": turn_id,
                     "packet_ref": followup_packet_ref,
@@ -2900,6 +2910,7 @@ async def run_single_agent_turn(
                             else f"modelreq:{current_packet_ref}:final-runtime-control-recovery:{protocol_recovery_attempts}"
                         ),
                         "session_id": session_id,
+                        "provider_cache_scope_id": provider_cache_scope_id,
                         "run_id": turn_run.turn_run_id if turn_run is not None else "",
                         "turn_id": turn_id,
                         "packet_ref": current_packet_ref,
@@ -2990,6 +3001,7 @@ async def run_single_agent_turn(
                     accounting_context={
                         "request_id": f"modelreq:{current_packet_ref}:final-admission-repair",
                         "session_id": session_id,
+                        "provider_cache_scope_id": provider_cache_scope_id,
                         "run_id": turn_run.turn_run_id if turn_run is not None else "",
                         "turn_id": turn_id,
                         "packet_ref": current_packet_ref,
@@ -3148,6 +3160,8 @@ async def run_single_agent_turn(
                     turn_id=turn_id,
                     source_packet_ref=current_packet_ref,
                     tool_observation_payloads=tool_observation_payloads,
+                    turn_run_id=turn_run.turn_run_id if turn_run is not None else "",
+                    stream_run_id=stream_run_id,
                     session_context=session_context,
                     current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
                 )
@@ -6265,6 +6279,9 @@ async def _invoke_turn_tool(
         file_scope=compile_tool_file_management_policy(
             dict(assembly_payload.get("task_environment") or {}),
             sandbox_policy=sandbox_scope,
+            external_read_scopes=external_scope_payloads_for_base_dir(
+                str(getattr(runtime_host, "backend_dir", "") or assembly_payload.get("backend_dir") or ".")
+            ),
         ),
         file_evidence_scope=session_file_evidence_scope(session_id),
         requested_constraints={
@@ -7062,6 +7079,12 @@ def _single_agent_turn_followup_prompt_payload(
         model_selection=model_selection,
     )
     specs = _with_provider_payload_hashes(specs)
+    specs, physical_plan = annotate_specs_with_physical_context_plan(specs)
+    append_only_messages = [
+        dict(spec.get("model_message") or {"role": spec.get("role") or "user", "content": spec.get("content") or ""})
+        for spec in specs
+        if isinstance(spec, dict)
+    ]
     segment_plan = build_prompt_segment_plan(
         packet_id=f"{packet_id}:tool-followup:{max(1, int(tool_iteration or 1))}",
         invocation_kind="single_agent_turn_tool_followup",
@@ -7070,6 +7093,7 @@ def _single_agent_turn_followup_prompt_payload(
     segment_plan = _with_followup_context_physical_diagnostics(
         segment_plan,
         base_segment_plan=base_segment_plan,
+        physical_plan=physical_plan.to_dict(),
     )
     segment_plan = _annotate_single_agent_followup_segment_plan(
         segment_plan,
@@ -7109,10 +7133,10 @@ def _single_agent_turn_append_only_followup_message_specs(
         base_segment_plan=prefix_locked_base_plan,
         model_messages=list(provider_messages or []),
     )
-    independent_dynamic_tail = _uses_independent_dynamic_tail_physical_model(prefix_locked_base_plan)
+    has_dynamic_tail = _has_physical_dynamic_tail_segments(prefix_locked_base_plan)
     dynamic_tail_segments_by_hash = (
         _dynamic_tail_segments_by_hash(prefix_locked_base_plan)
-        if independent_dynamic_tail
+        if has_dynamic_tail
         else {}
     )
     current_tool_round_indexes = _current_tool_round_message_indexes(ordered_input_messages)
@@ -7123,7 +7147,7 @@ def _single_agent_turn_append_only_followup_message_specs(
         base_from_hash = False
         if base and _followup_base_segment_conflicts_with_message_shape(base, provider_message):
             base = {}
-        if not base and independent_dynamic_tail:
+        if not base and has_dynamic_tail:
             base = _pop_matching_dynamic_tail_segment(dynamic_tail_segments_by_hash, message=provider_message)
             base_from_hash = bool(base)
         if base:
@@ -7138,7 +7162,7 @@ def _single_agent_turn_append_only_followup_message_specs(
                 prefix_lock_violation=prefix_lock_violation,
                 is_current_tool_round=index in current_tool_round_indexes,
                 seal_provider_visible_history=not (
-                    independent_dynamic_tail and _is_tool_followup_current_dynamic_tail_segment(base)
+                    has_dynamic_tail and _is_tool_followup_current_dynamic_tail_segment(base)
                 ),
                 packet_id=packet_id,
             )
@@ -7164,6 +7188,19 @@ def _provider_visible_followup_ledger_kwargs(
         "provider_visible_context_scope": str(session_id or "").strip(),
         "model_selection": dict(model_selection or {}),
     }
+
+
+def _provider_cache_scope_id_for_turn(*, session_id: str, session_context: dict[str, Any] | None) -> str:
+    payload = dict(session_context or {})
+    forked_from = (
+        dict(payload.get("forked_from") or {})
+        if isinstance(payload.get("forked_from"), dict)
+        else {}
+    )
+    inherited = str(forked_from.get("provider_cache_scope_id") or "").strip()
+    if inherited:
+        return inherited
+    return str(session_id or "").strip()
 
 
 def _provider_visible_followup_ledger_kwargs_from_accounting(
@@ -7248,7 +7285,6 @@ def _followup_provider_visible_candidate_source_spec(spec: dict[str, Any]) -> di
     metadata = {
         **metadata,
         "context_cache_section": CONTEXT_APPEND,
-        "context_assembly_section": CONTEXT_APPEND,
         "fixed_context_package": "context_memory_append",
         "context_commit_policy": "append_then_seal",
         "context_replay_policy": "current_append_commit_on_provider_success_then_next_ledger_replay",
@@ -7491,7 +7527,7 @@ def _followup_provider_visible_message_from_spec(spec: dict[str, Any]) -> dict[s
 
 
 def _is_followup_sealable_segment(segment: dict[str, Any]) -> bool:
-    if not is_sealable_context_spec(dict(segment or {})):
+    if not context_segment_is_provider_visible_sealable_spec(dict(segment or {})):
         return False
     cache_role = str(dict(segment or {}).get("cache_role") or "").strip()
     prefix_tier = str(dict(segment or {}).get("prefix_tier") or "").strip()
@@ -7519,9 +7555,6 @@ _FOLLOWUP_BASE_ACCUMULATED_CONTEXT_KINDS = {
     "provider_protocol_history",
     "read_evidence_context",
     "runtime_memory_context",
-    "session_history",
-    "session_history_context",
-    "session_history_entry",
     "session_pinned_facts_context",
     "current_turn_user_context",
     "single_agent_turn_followup_message",
@@ -7603,7 +7636,7 @@ def _split_append_only_context_and_dynamic_tail(
     segment_plan: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     clean_messages = _copy_model_messages_without_rewriting(messages)
-    if not clean_messages or not _uses_independent_dynamic_tail_physical_model(segment_plan):
+    if not clean_messages or not _has_physical_dynamic_tail_segments(segment_plan):
         return clean_messages, []
     segments_by_index = _segment_plan_segments_by_message_index(dict(segment_plan or {}))
     dynamic_tail_segments_by_hash = _dynamic_tail_segments_by_hash(dict(segment_plan or {}))
@@ -7624,83 +7657,79 @@ def _split_append_only_context_and_dynamic_tail(
     return accumulated, dynamic_tail
 
 
-def _uses_independent_dynamic_tail_physical_model(segment_plan: dict[str, Any] | None) -> bool:
-    plan = dict(segment_plan or {})
-    diagnostics = dict(plan.get("diagnostics") or {})
-    physical_model_values = (
-        plan.get("context_physical_model"),
-        plan.get("provider_context_physical_model"),
-        diagnostics.get("context_physical_model"),
-        diagnostics.get("provider_context_physical_model"),
-        diagnostics.get("provider_cache_policy_context_physical_model"),
-    )
-    physical_model_supports_tail = any(
-        str(value or "").strip() == "static_context_dynamic_tail"
-        for value in physical_model_values
-    )
-    tail_enabled = any(
-        value is True
-        for value in (
-            plan.get("context_independent_dynamic_tail_enabled"),
-            plan.get("provider_context_independent_dynamic_tail_enabled"),
-            plan.get("dynamic_tail_supported"),
-            plan.get("provider_dynamic_tail_supported"),
-            diagnostics.get("context_independent_dynamic_tail_enabled"),
-            diagnostics.get("provider_context_independent_dynamic_tail_enabled"),
-            diagnostics.get("dynamic_tail_supported"),
-            diagnostics.get("provider_dynamic_tail_supported"),
-            diagnostics.get("provider_cache_policy_dynamic_tail_supported"),
-        )
-    )
-    return bool(physical_model_supports_tail and tail_enabled)
+def _has_physical_dynamic_tail_segments(segment_plan: dict[str, Any] | None) -> bool:
+    for segment in list(dict(segment_plan or {}).get("segments") or []):
+        if not isinstance(segment, dict):
+            continue
+        if _is_tool_followup_current_dynamic_tail_segment(segment):
+            return True
+    return False
 
 
 def _with_followup_context_physical_diagnostics(
     segment_plan: dict[str, Any],
     *,
     base_segment_plan: dict[str, Any],
+    physical_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload = dict(segment_plan or {})
     inherited = _context_physical_diagnostics_from_segment_plan(base_segment_plan)
-    if not inherited:
+    current_plan = dict(physical_plan or {})
+    if not inherited and not current_plan:
         return payload
     diagnostics = {
         **dict(payload.get("diagnostics") or {}),
         **inherited,
+        **(
+            {
+                "physical_context_plan": current_plan,
+                "physical_context_plan_ref": str(current_plan.get("plan_id") or ""),
+                "cache_spine_hash": str(current_plan.get("cache_spine_hash") or ""),
+                "cache_spine_generation": str(current_plan.get("cache_spine_generation") or ""),
+                "physical_prefix_lane_order": list(current_plan.get("lane_order") or []),
+                "physical_prefix_lane_counts": dict(current_plan.get("lane_counts") or {}),
+            }
+            if current_plan
+            else {}
+        ),
         "context_physical_inherited_from_base_segment_plan": True,
     }
     payload["diagnostics"] = diagnostics
-    for key in (
-        "context_physical_model",
-        "provider_context_physical_model",
-        "dynamic_tail_supported",
-        "provider_dynamic_tail_supported",
-        "context_independent_dynamic_tail_enabled",
-        "provider_context_independent_dynamic_tail_enabled",
-    ):
-        if key in inherited:
-            payload[key] = inherited[key]
     return payload
 
 
 def _context_physical_diagnostics_from_segment_plan(segment_plan: dict[str, Any] | None) -> dict[str, Any]:
     plan = dict(segment_plan or {})
-    diagnostics = dict(plan.get("diagnostics") or {})
     result: dict[str, Any] = {}
-    for key in (
-        "context_physical_model",
-        "provider_context_physical_model",
-        "provider_cache_policy_context_physical_model",
-        "dynamic_tail_supported",
-        "provider_dynamic_tail_supported",
-        "provider_cache_policy_dynamic_tail_supported",
-        "context_independent_dynamic_tail_enabled",
-        "provider_context_independent_dynamic_tail_enabled",
-    ):
-        value = plan.get(key, diagnostics.get(key))
-        if value in (None, ""):
+    lane_counts: dict[str, int] = {}
+    lane_order: list[str] = []
+    physical_plan_ref = ""
+    cache_spine_hash = ""
+    cache_spine_generation = ""
+    for segment in list(plan.get("segments") or []):
+        if not isinstance(segment, dict):
             continue
-        result[key] = value
+        metadata = dict(segment.get("metadata") or {})
+        lane = str(metadata.get("physical_prefix_lane") or "").strip()
+        if lane:
+            lane_counts[lane] = lane_counts.get(lane, 0) + 1
+            if lane not in lane_order:
+                lane_order.append(lane)
+        if not physical_plan_ref:
+            physical_plan_ref = str(metadata.get("physical_context_plan_ref") or "")
+        if not cache_spine_hash:
+            cache_spine_hash = str(metadata.get("cache_spine_hash") or "")
+        if not cache_spine_generation:
+            cache_spine_generation = str(metadata.get("cache_spine_generation") or "")
+    if lane_counts:
+        result["base_physical_prefix_lane_counts"] = lane_counts
+        result["base_physical_prefix_lane_order"] = lane_order
+    if physical_plan_ref:
+        result["base_physical_context_plan_ref"] = physical_plan_ref
+    if cache_spine_hash:
+        result["base_cache_spine_hash"] = cache_spine_hash
+    if cache_spine_generation:
+        result["base_cache_spine_generation"] = cache_spine_generation
     return result
 
 
@@ -7785,7 +7814,10 @@ def _message_hash_keys(message: dict[str, Any]) -> tuple[str, ...]:
 def _is_tool_followup_current_dynamic_tail_segment(segment: dict[str, Any]) -> bool:
     if not segment:
         return False
-    return is_dynamic_tail_spec(dict(segment or {}))
+    metadata = dict(dict(segment or {}).get("metadata") or {})
+    if str(metadata.get("physical_prefix_lane") or "").strip() == NEVER_REPLAY_TAIL:
+        return True
+    return context_segment_routes_to_dynamic_tail(dict(segment or {}))
 
 
 def _is_tool_followup_accumulated_message_by_shape(message: dict[str, Any]) -> bool:
@@ -7860,6 +7892,7 @@ def _single_agent_turn_followup_base_message_spec(
         cache_scope = str(sealed.get("cache_scope") or cache_scope)
         cache_role = str(sealed.get("cache_role") or cache_role)
         prefix_tier = str(sealed.get("prefix_tier") or prefix_tier)
+        kind = str(sealed.get("kind") or kind)
         metadata = dict(sealed.get("metadata") or metadata)
     if prefix_lock_violation:
         metadata = {
@@ -7867,7 +7900,7 @@ def _single_agent_turn_followup_base_message_spec(
             "prefix_lock_status": "violated",
             "prefix_lock_violation": dict(prefix_lock_violation),
             "prefix_lock_authority": "diagnostic_only",
-            "prefix_lock_cache_policy": "preserve_context_assembly_classification",
+            "prefix_lock_cache_policy": "preserve_context_segment_policy_classification",
         }
     if _is_tool_followup_current_dynamic_tail_segment(base):
         metadata = {
@@ -7914,8 +7947,6 @@ def _current_followup_append_context_policy(
             if str(key).startswith("context_")
         },
         "context_cache_section": CONTEXT_APPEND,
-        "context_assembly_section": CONTEXT_APPEND,
-        "context_physical_segment": CONTEXT_APPEND,
         "context_semantic_slot": str(dict(metadata or {}).get("context_semantic_slot") or "tool_transcript"),
         "context_commit_policy": "append_then_seal",
         "context_replay_policy": "current_append_commit_on_provider_success_then_next_ledger_replay",
@@ -7977,8 +8008,6 @@ def _sealed_followup_base_context_policy(
         **_without_context_classification_metadata(dict(metadata or {})),
         "previous_context_structure": original_context,
         "context_cache_section": CONTEXT_MEMORY_PREFIX,
-        "context_assembly_section": CONTEXT_MEMORY_PREFIX,
-        "context_physical_segment": CONTEXT_MEMORY,
         "context_semantic_slot": str(dict(metadata or {}).get("context_semantic_slot") or "provider_visible_history"),
         "context_commit_policy": "replay_only_already_materialized",
         "context_replay_policy": "provider_visible_history_replay",
@@ -8007,7 +8036,24 @@ def _sealed_followup_base_context_policy(
             **sealed_metadata,
             **context_segment_policy_metadata(policy),
         },
+        "kind": _provider_visible_history_replay_kind(base, message=message),
     }
+
+
+def _provider_visible_history_replay_kind(base: dict[str, Any], *, message: dict[str, Any]) -> str:
+    original_kind = str(dict(base or {}).get("kind") or "").strip()
+    role = str(dict(message or {}).get("role") or "").strip()
+    if original_kind in {"single_agent_turn_tool_call", "single_agent_turn_tool_observation", "tool_observations"}:
+        return "provider_visible_tool_transcript_replay"
+    if role == "tool" or (role == "assistant" and dict(message or {}).get("tool_calls")):
+        return "provider_visible_tool_transcript_replay"
+    if original_kind in {"current_turn_user_context", "single_agent_turn_user_steer_context", "user_steering_context_append"}:
+        return "provider_visible_user_context_replay"
+    if role == "user":
+        return "provider_visible_user_message_replay"
+    if role == "assistant":
+        return "provider_visible_assistant_message_replay"
+    return "provider_visible_context_replay"
 
 
 def _without_context_classification_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -8016,19 +8062,14 @@ def _without_context_classification_metadata(metadata: dict[str, Any]) -> dict[s
         "authority",
         "cache_role",
         "cache_scope",
-        "context_assembly_section",
         "context_cache_section",
         "context_commit_policy",
         "context_contract_mapping_authority",
         "context_contract_ref",
         "context_contract_slot",
         "context_identity_policy",
-        "context_physical_segment",
-        "context_physical_segment_rank",
-        "context_prefix_boundary",
         "context_prefix_cache_role",
         "context_prefix_cache_scope",
-        "context_prefix_state",
         "context_prefix_tier",
         "context_repair_feedback_slot",
         "context_replay_policy",

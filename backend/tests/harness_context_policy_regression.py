@@ -254,11 +254,11 @@ def test_single_agent_turn_receives_recent_terminal_task_outcome_from_state_inde
     current_request_message = next(
         str(message.get("content") or "")
         for message in reversed(model.last_messages)
-        if str(message.get("content") or "").startswith("Single agent turn current request\n")
+        if str(message.get("content") or "").startswith("Current user request\n")
     )
     current_request_payload = _packet_payload_after_title(
         current_request_message,
-        "Single agent turn current request",
+        "Current user request",
     )
 
     assert "recent_work_outcome" in payload
@@ -332,3 +332,4 @@ def test_explicit_capability_boundary_uses_single_agent_turn() -> None:
         event.get("type") == "task_run_lifecycle_started"
         for event in events
     )
+

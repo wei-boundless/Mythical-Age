@@ -1027,7 +1027,7 @@ def _context_append_prefix_predicted_tokens(segment_map: PromptSegmentMap, *, ti
     total = 0
     for segment in tuple(segment_map.segments or ()):
         metadata = dict(getattr(segment, "metadata", None) or {})
-        if str(metadata.get("context_cache_section") or metadata.get("context_assembly_section") or "") != "context_append":
+        if str(metadata.get("context_cache_section") or "") != "context_append":
             continue
         if not is_prefix_eligible_for_tier(
             cache_role=getattr(segment, "cache_role", ""),

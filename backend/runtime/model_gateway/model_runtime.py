@@ -28,12 +28,15 @@ from runtime.prompt_accounting import (
     extract_provider_usage,
 )
 from runtime.prompt_accounting.serializer import canonical_json
-from runtime.context_management.provider_visible_context_ledger import confirm_provider_visible_context_entries
+from runtime.context_management.context_commit_record import create_provider_request_context_commit_record
+from runtime.context_management.provider_visible_context_ledger import (
+    confirm_provider_visible_context_entries,
+    latest_provider_visible_context_success_anchor,
+)
 from runtime.tool_runtime.tool_call_policy import ToolCallBindingOptions
 
 from .lightweight_chat_model import LightweightChatModel, LightweightConversationAgent, provider_message_payloads
 from .model_request import ModelRequestBuilder
-from .provider_cache_policy import provider_cache_policy_override_from_payload
 from .providers import ProviderRequestProfile, build_provider_adapter_result
 
 if TYPE_CHECKING:
@@ -136,7 +139,6 @@ class ModelRuntime:
         prompt_accounting_ledger: PromptAccountingLedger | None = None,
     ) -> None:
         self.settings_service = settings_service
-        self._chat_model_pool: dict[str, Any] = {}
         self.prompt_accounting_ledger = prompt_accounting_ledger
         self._prompt_serializer = CanonicalPromptSerializer()
         self._prompt_cache_planner = PromptCachePlanner()
@@ -255,7 +257,6 @@ class ModelRuntime:
                 except Exception as exc:
                     self._finish_prompt_accounting(accounting, response=None, error=exc)
                     last_error = self._map_error(exc, effective_spec)
-                    await self._invalidate_chat_model_for_spec(effective_spec)
                     if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
                         logger.warning(
                             "Retrying model invoke after %s (%s/%s): %s",
@@ -267,6 +268,8 @@ class ModelRuntime:
                         await asyncio.sleep(min(0.5, 0.1 * attempt))
                         continue
                     break
+                finally:
+                    await self._aclose_chat_model(model)
             if last_error is None:
                 continue
             if spec_index < len(candidates) - 1:
@@ -347,7 +350,6 @@ class ModelRuntime:
                 except Exception as exc:
                     self._finish_prompt_accounting(accounting, response=None, error=exc)
                     last_error = self._map_error(exc, effective_spec)
-                    await self._invalidate_chat_model_for_spec(effective_spec)
                     if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
                         logger.warning(
                             "Retrying tool-enabled model invoke after %s (%s/%s): %s",
@@ -359,6 +361,8 @@ class ModelRuntime:
                         await asyncio.sleep(min(0.5, 0.1 * attempt))
                         continue
                     break
+                finally:
+                    await self._aclose_chat_model(model)
             if last_error is None:
                 continue
             if spec_index < len(candidates) - 1:
@@ -431,7 +435,6 @@ class ModelRuntime:
                 except Exception as exc:
                     self._finish_prompt_accounting(accounting, response=None, error=exc)
                     last_error = self._map_error(exc, effective_spec)
-                    await self._invalidate_chat_model_for_spec(effective_spec)
                     if emitted:
                         raise last_error from exc
                     if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
@@ -445,6 +448,8 @@ class ModelRuntime:
                         await asyncio.sleep(min(0.5, 0.1 * attempt))
                         continue
                     break
+                finally:
+                    await self._aclose_chat_model(model)
             if last_error is None:
                 continue
             if spec_index < len(candidates) - 1:
@@ -531,7 +536,6 @@ class ModelRuntime:
                 except Exception as exc:
                     self._finish_prompt_accounting(accounting, response=None, error=exc)
                     last_error = self._map_error(exc, effective_spec)
-                    await self._invalidate_chat_model_for_spec(effective_spec)
                     if emitted:
                         raise last_error from exc
                     if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
@@ -545,6 +549,8 @@ class ModelRuntime:
                         await asyncio.sleep(min(0.5, 0.1 * attempt))
                         continue
                     break
+                finally:
+                    await self._aclose_chat_model(model)
             if last_error is None:
                 continue
             if spec_index < len(candidates) - 1:
@@ -618,7 +624,6 @@ class ModelRuntime:
                 except Exception as exc:
                     self._finish_prompt_accounting(accounting, response=None, error=exc)
                     last_error = self._map_error(exc, effective_spec)
-                    await self._invalidate_chat_model_for_spec(effective_spec)
                     if emitted:
                         raise last_error from exc
                     if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
@@ -632,6 +637,8 @@ class ModelRuntime:
                         await asyncio.sleep(min(0.5, 0.1 * attempt))
                         continue
                     break
+                finally:
+                    await self._aclose_chat_model(model)
             if last_error is None:
                 continue
             if spec_index < len(candidates) - 1:
@@ -751,42 +758,10 @@ class ModelRuntime:
         )
 
     def _get_chat_model_for_spec(self, spec: ModelSpec):
-        key = self._chat_model_pool_key(spec)
-        model = self._chat_model_pool.get(key)
-        if model is None:
-            model = self._build_chat_model_for_spec(spec)
-            self._chat_model_pool[key] = model
-        return model
-
-    async def _invalidate_chat_model_for_spec(self, spec: ModelSpec) -> None:
-        key = self._chat_model_pool_key(spec)
-        model = self._chat_model_pool.pop(key, None)
-        if model is not None:
-            await self._aclose_chat_model(model)
+        return self._build_chat_model_for_spec(spec)
 
     async def close(self) -> None:
-        models = list(self._chat_model_pool.values())
-        self._chat_model_pool.clear()
-        for model in models:
-            await self._aclose_chat_model(model)
-
-    def _chat_model_pool_key(self, spec: ModelSpec) -> str:
-        api_key = str(spec.api_key or "")
-        api_key_fingerprint = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16] if api_key else ""
-        return "|".join(
-            [
-                str(spec.provider or ""),
-                str(spec.model or ""),
-                str(spec.base_url or ""),
-                api_key_fingerprint,
-                str(self._max_output_tokens_for_spec(spec)),
-                str(self._model_call_timeout_seconds_for_spec(spec)),
-                str(self._temperature_for_spec(spec)),
-                str(self._thinking_mode_for_spec(spec)),
-                str(self._reasoning_effort_for_spec(spec)),
-                self._provider_adapter_result_for_spec(spec).pool_key_hash(),
-            ]
-        )
+        return None
 
     def _create_raw_agent(
         self,
@@ -1019,9 +994,20 @@ class ModelRuntime:
             "model": spec.model,
             "started_at": created_at,
             "trace_span_context": trace_span_context,
+            "accounting_context": context,
         }
         if model_request is not None:
             base_accounting["model_request"] = model_request
+            pending_commit = self._record_provider_request_context_commit(
+                base_accounting,
+                status="pending",
+                reason="provider_request_pending",
+            )
+            if pending_commit:
+                base_accounting["provider_request_context_commit_pending"] = pending_commit
+                base_accounting["provider_visible_ledger_anchor_before"] = dict(
+                    pending_commit.get("provider_visible_ledger_anchor_before") or {}
+                )
         if ledger is None or model_request is None:
             return base_accounting
         try:
@@ -1208,9 +1194,22 @@ class ModelRuntime:
         ledger = self.prompt_accounting_ledger
         request_id = str(dict(accounting or {}).get("request_id") or "")
         if error is not None:
+            self._record_provider_request_context_commit(
+                accounting,
+                status="failed",
+                error=error,
+                reason="provider_request_failed",
+            )
             self._finish_model_trace_span(accounting, provider_usage=None, error=error)
             return
-        self._confirm_provider_visible_context_success(accounting, response=response)
+        provider_visible_confirmation = self._confirm_provider_visible_context_success(accounting, response=response)
+        self._record_provider_request_context_commit(
+            accounting,
+            status="succeeded",
+            response=response,
+            provider_visible_confirmation=provider_visible_confirmation,
+            reason="provider_request_succeeded",
+        )
         if ledger is None or not request_id:
             self._finish_model_trace_span(accounting, provider_usage=None, error=None)
             return
@@ -1348,6 +1347,51 @@ class ModelRuntime:
         except Exception:
             logger.debug("Failed to confirm provider-visible context ledger entries", exc_info=True)
             return {"status": "failed", "authority": "runtime.model_gateway.model_runtime.provider_visible_context_confirm"}
+
+    def _record_provider_request_context_commit(
+        self,
+        accounting: dict[str, Any],
+        *,
+        status: str,
+        response: Any | None = None,
+        provider_visible_confirmation: dict[str, Any] | None = None,
+        error: BaseException | dict[str, Any] | str | None = None,
+        reason: str,
+    ) -> dict[str, Any]:
+        payload = dict(accounting or {})
+        model_request = payload.get("model_request")
+        request_id = str(payload.get("request_id") or getattr(model_request, "request_id", "") or "").strip()
+        session_id = str(payload.get("session_id") or "").strip()
+        storage_root = _context_commit_storage_root_from_accounting(payload)
+        if not model_request or not request_id or not session_id or not storage_root:
+            return {}
+        anchor_before = dict(payload.get("provider_visible_ledger_anchor_before") or {})
+        if not anchor_before:
+            scope = _context_commit_scope_from_accounting(payload) or session_id
+            try:
+                anchor_before = latest_provider_visible_context_success_anchor(
+                    storage_root=storage_root,
+                    scope=scope,
+                )
+            except Exception:
+                logger.debug("Failed to load provider-visible anchor before provider request commit", exc_info=True)
+                anchor_before = {}
+        try:
+            return create_provider_request_context_commit_record(
+                storage_root=storage_root,
+                session_id=session_id,
+                request_id=request_id,
+                status=str(status or ""),
+                model_request=model_request,
+                provider_visible_anchor_before=anchor_before,
+                provider_visible_confirmation=dict(provider_visible_confirmation or {}),
+                response_ref=_provider_response_ref(response) if response is not None else "",
+                error=error,
+                reason=reason,
+            )
+        except Exception:
+            logger.debug("Failed to write provider request context commit record", exc_info=True)
+            return {}
 
     def _start_model_trace_span(
         self,
@@ -1555,14 +1599,6 @@ class ModelRuntime:
         tool_call_options: ToolCallBindingOptions | dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         adapter_result = self._provider_adapter_result_for_spec(spec)
-        context_cache_policy = provider_cache_policy_override_from_payload(
-            {"provider_extensions": dict(spec.provider_extensions or {})}
-        )
-        context_cache_policy_payload = (
-            {"context_cache_policy": context_cache_policy}
-            if _has_context_cache_policy_override(context_cache_policy)
-            else {}
-        )
         return {
             "provider": str(spec.provider or ""),
             "model": str(spec.model or ""),
@@ -1584,7 +1620,6 @@ class ModelRuntime:
             "reasoning_effort": self._reasoning_effort_for_spec(spec),
             "chat_openai_reasoning_effort": self._chat_openai_reasoning_effort_for_spec(spec) or "",
             "stream_policy": dict(spec.stream_policy or {}),
-            **context_cache_policy_payload,
             **dict(adapter_result.request_params_for_accounting or {}),
         }
 
@@ -1961,10 +1996,48 @@ def _provider_visible_context_commit_candidates_from_accounting(accounting: dict
                 "provider_visible_context_candidate_semantic_commit_class": str(metadata.get("provider_visible_context_candidate_semantic_commit_class") or ""),
                 "provider_visible_context_candidate_provider": str(metadata.get("provider_visible_context_candidate_provider") or ""),
                 "provider_visible_context_candidate_model": str(metadata.get("provider_visible_context_candidate_model") or ""),
+                "provider_visible_context_candidate_ledger_lane": str(metadata.get("physical_prefix_lane") or ""),
+                "provider_visible_context_candidate_semantic_visibility": str(metadata.get("semantic_visibility") or ""),
+                "provider_visible_context_candidate_validity_scope": str(metadata.get("validity_scope") or ""),
+                "provider_visible_context_candidate_compaction_generation": str(metadata.get("compaction_generation") or ""),
+                "provider_visible_context_candidate_cache_spine_hash": str(metadata.get("cache_spine_hash") or ""),
                 "provider_adapter_contract": str(metadata.get("provider_adapter_contract") or ""),
             }
         )
     return candidates
+
+
+def _context_commit_storage_root_from_accounting(accounting: dict[str, Any]) -> str:
+    payload = dict(accounting or {})
+    context = dict(payload.get("accounting_context") or {})
+    for candidate in _provider_visible_context_commit_candidates_from_accounting(payload):
+        value = str(dict(candidate).get("provider_visible_context_ledger_storage_root") or "").strip()
+        if value:
+            return value
+    for key in (
+        "provider_visible_context_ledger_storage_root",
+        "context_commit_storage_root",
+        "storage_root",
+        "runtime_state_root",
+    ):
+        value = str(context.get(key) or payload.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _context_commit_scope_from_accounting(accounting: dict[str, Any]) -> str:
+    payload = dict(accounting or {})
+    context = dict(payload.get("accounting_context") or {})
+    for candidate in _provider_visible_context_commit_candidates_from_accounting(payload):
+        value = str(dict(candidate).get("provider_visible_context_ledger_scope") or "").strip()
+        if value:
+            return value
+    for key in ("provider_visible_context_ledger_scope", "session_id"):
+        value = str(context.get(key) or payload.get(key) or "").strip()
+        if value:
+            return value
+    return ""
 
 
 def _provider_visible_context_ref_segments(model_request: Any) -> list[dict[str, Any]]:
@@ -2042,15 +2115,6 @@ def _cache_relevant_base_url(value: Any) -> str:
     if "api.openai.azure.com" in text:
         return "https://api.openai.azure.com"
     return text
-
-
-def _has_context_cache_policy_override(payload: dict[str, Any] | None) -> bool:
-    value = dict(payload or {})
-    return bool(
-        str(value.get("context_physical_model") or "").strip()
-        or value.get("dynamic_tail_supported") is not None
-        or str(value.get("reason") or "").strip()
-    )
 
 
 def _cache_relevant_tool_call_options(
@@ -2238,14 +2302,21 @@ def _spec_with_provider_request_scope(
                 source="provider_extensions.explicit_user_id",
             ),
         )
-    session_id = str(dict(accounting_context or {}).get("session_id") or "").strip()
-    if not session_id:
+    context = dict(accounting_context or {})
+    session_id = str(context.get("session_id") or "").strip()
+    explicit_cache_scope_id = str(
+        context.get("provider_cache_scope_id")
+        or context.get("provider_cache_namespace_session_id")
+        or ""
+    ).strip()
+    cache_scope_id = explicit_cache_scope_id or session_id
+    if not cache_scope_id:
         return spec
     return _copy_spec_with_provider_extensions(
         spec,
         _provider_extensions_with_deepseek_user_id(
             extensions,
-            user_id=_deepseek_session_user_id(session_id),
+            user_id=_deepseek_session_user_id(cache_scope_id),
             source="session_id_hash",
         ),
     )
@@ -2598,4 +2669,3 @@ def _exception_chain_text(exc: Exception) -> str:
         parts.append(f"{current.__class__.__name__}: {current}")
         current = current.__cause__ or current.__context__
     return " | ".join(parts) or exc.__class__.__name__
-

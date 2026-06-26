@@ -1774,6 +1774,7 @@ def _file_write_scope_authorizes_without_approval(
         environment = resolve_file_environment(
             profile_id,
             repository_requirements=dict(file_policy.get("repository_requirements") or {}),
+            external_read_scopes=file_policy.get("external_read_scopes"),
         )
     except Exception:
         return False
@@ -1912,6 +1913,7 @@ def _safety_validators(request: ToolInvocationRequest, *, sandbox_policy: dict[s
         root_dir=backend_dir,
         safety_envelope={},
         sandbox_policy=sandbox_policy,
+        permission_mode=str(request.permission_mode or "default"),
     )
 
 

@@ -41,6 +41,11 @@ class CreateSessionRequest(BaseModel):
     project_binding: dict[str, Any] = Field(default_factory=dict)
 
 
+class ForkSessionRequest(BaseModel):
+    title: str = Field(default="", max_length=100)
+    workspace_effect_policy: str = Field(default="shared_workspace", max_length=80)
+
+
 class RenameSessionRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=100)
 
@@ -108,6 +113,32 @@ async def create_session(payload: CreateSessionRequest) -> dict[str, Any]:
             title=payload.title,
             scope=payload.scope,
             project_binding=payload.project_binding,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/sessions/{session_id}/fork")
+async def fork_session(
+    session_id: str,
+    payload: ForkSessionRequest,
+    workspace_view: str | None = Query(default=None, max_length=80),
+    task_environment_id: str | None = Query(default=None, max_length=200),
+    project_id: str | None = Query(default=None, max_length=240),
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        await asyncio.to_thread(
+            assert_optional_session_scope,
+            runtime.session_manager,
+            session_id,
+            request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+        )
+        return await asyncio.to_thread(
+            runtime.session_manager.fork_session,
+            session_id,
+            title=payload.title,
+            workspace_effect_policy=payload.workspace_effect_policy,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

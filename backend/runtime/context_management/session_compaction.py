@@ -662,6 +662,9 @@ def _compaction_response(
             kwargs: dict[str, Any] = {"messages": stored_messages}
             if summary_message is not None:
                 kwargs["compressed_context"] = _compressed_context_after_compact(record, summary_message)
+            kwargs["compaction_generation_reason"] = (
+                f"{mode}:{str(getattr(result, 'strategy', 'none') or 'none')}:{str(effective_level or '')}"
+            )
             persisted = replace(session_id, **kwargs)
             applied = True
     return {

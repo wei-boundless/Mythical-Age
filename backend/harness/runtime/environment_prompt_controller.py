@@ -3,7 +3,10 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from prompt_library import ALL_ENVIRONMENT_LIFECYCLE_PROMPT_IDS, ENVIRONMENT_LIFECYCLE_PROMPT_SLOTS
+from prompt_library import (
+    ALL_ENVIRONMENT_LIFECYCLE_PROMPT_IDS,
+    ENVIRONMENT_LIFECYCLE_PROMPT_SLOTS,
+)
 
 
 GENERAL_ENVIRONMENT_ID = "env.general.workspace"
@@ -86,12 +89,17 @@ def build_base_prompt_mount_plan(
     selected_payload = dict(selected_environment or {})
     selected_environment_id = _environment_id(selected_payload) or GENERAL_ENVIRONMENT_ID
     base_environment_id = selected_environment_id
-    boundary = dict(selected_payload.get("environment_boundary") or {})
     prompt_policy_payload = dict(prompt_policy or {})
-    lifecycle_defaults = _prompt_ref_map(boundary.get("lifecycle_prompt_defaults"))
-    lifecycle_overrides = _prompt_ref_map(boundary.get("lifecycle_prompt_overrides"))
+    lifecycle_defaults = _lifecycle_prompt_defaults_for_environment(
+        prompt_policy_payload,
+        environment_id=selected_environment_id,
+    )
+    lifecycle_overrides = _lifecycle_prompt_overrides_for_environment(
+        prompt_policy_payload,
+        environment_id=selected_environment_id,
+    )
     tool_guidance_defaults = _prompt_ref_map(prompt_policy_payload.get("tool_guidance_prompt_defaults"))
-    tool_guidance_overrides = _prompt_ref_map(boundary.get("tool_guidance_prompt_overrides"))
+    tool_guidance_overrides = _prompt_ref_map(prompt_policy_payload.get("tool_guidance_prompt_overrides"))
     selected_refs = _environment_prompt_refs(selected_payload)
     lifecycle_ref_set = _lifecycle_ref_set(lifecycle_defaults, lifecycle_overrides)
     selected_refs_without_lifecycle = _without_lifecycle_refs(selected_refs, lifecycle_ref_set=lifecycle_ref_set)
@@ -122,6 +130,7 @@ def build_base_prompt_mount_plan(
             "lifecycle_prompt_override_count": len(lifecycle_overrides),
             "tool_guidance_prompt_default_count": len(tool_guidance_defaults),
             "tool_guidance_prompt_override_count": len(tool_guidance_overrides),
+            "prompt_configuration_authority": "agent_runtime_profile.prompt_policy",
             "personality": dict(personality_diagnostics or {}),
         },
     )
@@ -489,6 +498,32 @@ def _lifecycle_ref_set(defaults: dict[str, str], overrides: dict[str, str]) -> s
         *{str(item).strip() for item in defaults.values() if str(item).strip()},
         *{str(item).strip() for item in overrides.values() if str(item).strip()},
     }
+
+
+def _lifecycle_prompt_defaults_for_environment(prompt_policy: dict[str, Any], *, environment_id: str) -> dict[str, str]:
+    by_environment = _environment_prompt_ref_map(
+        prompt_policy.get("lifecycle_prompt_defaults_by_environment"),
+        environment_id=environment_id,
+    )
+    explicit = _prompt_ref_map(prompt_policy.get("lifecycle_prompt_defaults"))
+    return {**by_environment, **explicit}
+
+
+def _lifecycle_prompt_overrides_for_environment(prompt_policy: dict[str, Any], *, environment_id: str) -> dict[str, str]:
+    by_environment = _environment_prompt_ref_map(
+        prompt_policy.get("lifecycle_prompt_overrides_by_environment"),
+        environment_id=environment_id,
+    )
+    explicit = _prompt_ref_map(prompt_policy.get("lifecycle_prompt_overrides"))
+    return {**by_environment, **explicit}
+
+
+def _environment_prompt_ref_map(value: Any, *, environment_id: str) -> dict[str, str]:
+    if isinstance(value, dict):
+        environment_map = value.get(environment_id)
+        if isinstance(environment_map, dict):
+            return _prompt_ref_map(environment_map)
+    return {}
 
 
 def _prompt_ref_map(value: Any) -> dict[str, str]:

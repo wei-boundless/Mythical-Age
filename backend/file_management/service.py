@@ -15,6 +15,14 @@ from runtime.file_change_signals import publish_file_change_record
 
 from .access_table import build_file_access_table
 from .api_models import ManagedFileTarget
+from .external_read_scopes import (
+    EXTERNAL_READONLY_REPOSITORY_PREFIX,
+    ExternalReadScope,
+    ExternalReadScopeRegistry,
+    external_logical_path,
+    external_scope_payloads_for_base_dir,
+    external_scope_repositories,
+)
 from .gateway import FileGateway, FileGatewayApprovalRequired, FileGatewayRequestContext
 from .models import FileAccessRule, ManagedFileRepositorySpec, normalize_logical_path, stable_content_hash
 from .resolver import ResolvedFileEnvironment, resolve_file_environment
@@ -86,12 +94,85 @@ class ManagedFileService:
         profiles = self.list_profiles()["profiles"]
         project_target = self.project_target_for_session(session_id=session_id)
         graph_repository = _graph_instance_repository_spec("preview").to_dict()
+        external_scopes = self._external_scope_registry().list_scopes(enabled_only=True)
+        external_repositories = [repo.to_dict() for repo in external_scope_repositories(external_scopes)]
         return {
             "profiles": profiles,
             "project_target": project_target,
-            "dynamic_repositories": [graph_repository],
+            "dynamic_repositories": [graph_repository, *external_repositories],
+            "external_read_scopes": [scope.to_dict(include_source_path=True) for scope in external_scopes],
             "authority": "file_management.service.repositories",
         }
+
+    def list_external_read_scopes(self) -> dict[str, Any]:
+        scopes = self._external_scope_registry().list_scopes()
+        return {
+            "scopes": [scope.to_dict(include_source_path=True) for scope in scopes],
+            "authority": "file_management.service.external_read_scopes",
+        }
+
+    def upsert_external_read_scope(
+        self,
+        *,
+        source_path: str,
+        scope_id: str = "",
+        title: str = "",
+        enabled: bool = True,
+    ) -> dict[str, Any]:
+        scope = self.register_external_read_scope(
+            source_path=source_path,
+            scope_id=scope_id,
+            title=title,
+            enabled=enabled,
+        )
+        return {
+            "ok": True,
+            "scope": scope.to_dict(include_source_path=True),
+            "target": self.external_read_target(scope).model_dump(),
+            "logical_path": external_logical_path(scope.scope_id, scope.default_logical_path()),
+            "authority": "file_management.service.external_read_scope_upsert",
+        }
+
+    def register_external_read_scope(
+        self,
+        *,
+        source_path: str,
+        scope_id: str = "",
+        title: str = "",
+        enabled: bool = True,
+    ) -> ExternalReadScope:
+        try:
+            return self._external_scope_registry().upsert_scope(
+                source_path=source_path,
+                scope_id=scope_id,
+                title=title,
+                enabled=enabled,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    def delete_external_read_scope(self, scope_id: str) -> dict[str, Any]:
+        removed = self._external_scope_registry().remove_scope(scope_id)
+        if not removed:
+            raise HTTPException(status_code=404, detail="external read scope not found")
+        return {
+            "ok": True,
+            "scope_id": str(scope_id or "").strip(),
+            "authority": "file_management.service.external_read_scope_delete",
+        }
+
+    def external_read_target(self, scope: ExternalReadScope) -> ManagedFileTarget:
+        return ManagedFileTarget(
+            repository_id=scope.repository_id,
+            repository_kind="material_mount",
+            scope_kind="external_read_scope",
+            scope_id=scope.scope_id,
+            logical_path=scope.default_logical_path() or ".",
+            workspace_root=str(self.layout.project_root.resolve()),
+            profile_id=MANAGED_PROJECT_PROFILE_ID,
+        )
 
     def project_target_for_session(self, *, session_id: str = "", logical_path: str = "AGENTS.md") -> dict[str, Any]:
         root = self._project_root(session_id=session_id)
@@ -246,11 +327,12 @@ class ManagedFileService:
         ctx = context or ManagedFileServiceContext()
         logical_path = normalize_logical_path(target.logical_path)
         profile_id = str(target.profile_id or "").strip() or _default_profile_for_repository(target.repository_id)
+        external_scopes = external_scope_payloads_for_base_dir(self.runtime.base_dir)
         if str(target.repository_id or "").strip() == GRAPH_INSTANCE_REPOSITORY_ID:
             environment = _graph_instance_environment(str(target.scope_id or "").strip())
         else:
             try:
-                environment = resolve_file_environment(profile_id)
+                environment = resolve_file_environment(profile_id, external_read_scopes=external_scopes)
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
         repository_id = str(target.repository_id or "").strip()
@@ -267,6 +349,7 @@ class ManagedFileService:
             project_root=project_root,
             managed_storage_root=self.layout.project_root / ".managed-files",
             runtime_output_root=self.layout.storage_root / "runtime_state" / "file_management",
+            external_read_scopes=external_scopes,
         )
         return _ResolvedManagedFile(
             gateway=gateway,
@@ -292,6 +375,8 @@ class ManagedFileService:
 
     def _project_root(self, *, session_id: str = "", target: ManagedFileTarget | None = None) -> Path:
         explicit_root = str(getattr(target, "workspace_root", "") or "").strip()
+        if str(getattr(target, "repository_id", "") or "").strip().startswith(EXTERNAL_READONLY_REPOSITORY_PREFIX):
+            explicit_root = ""
         if explicit_root:
             root = Path(explicit_root).expanduser().resolve()
             if not root.is_dir():
@@ -420,6 +505,9 @@ class ManagedFileService:
                 refresh(logical_path)
             except Exception:
                 return
+
+    def _external_scope_registry(self) -> ExternalReadScopeRegistry:
+        return ExternalReadScopeRegistry.from_base_dir(self.runtime.base_dir)
 
 
 @dataclass(frozen=True, slots=True)

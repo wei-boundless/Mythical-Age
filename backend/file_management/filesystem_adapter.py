@@ -10,9 +10,10 @@ from .models import normalize_logical_path
 class FsspecLocalFileAdapter:
     """Repository-relative local filesystem adapter backed by fsspec."""
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(self, root: str | Path, *, create_root: bool = True) -> None:
         self.root = Path(root).resolve()
-        self.root.mkdir(parents=True, exist_ok=True)
+        if create_root:
+            self.root.mkdir(parents=True, exist_ok=True)
         self.fs = fsspec.filesystem("file")
 
     def resolve(self, logical_path: str) -> Path:

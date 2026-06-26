@@ -9,6 +9,7 @@ from sqlalchemy import Column, MetaData, String, Table
 from .models import ManagedFileEnvironmentProfile, ManagedFileRepositorySpec
 from .models import FileAccessRule
 from .registry import FileEnvironmentRegistry, default_file_environment_registry
+from .external_read_scopes import external_scope_repositories, external_scopes_from_payload
 
 
 metadata = MetaData()
@@ -71,6 +72,7 @@ def resolve_file_environment(
     *,
     registry: FileEnvironmentRegistry | None = None,
     repository_requirements: dict[str, dict[str, Any]] | None = None,
+    external_read_scopes: Any = None,
 ) -> ResolvedFileEnvironment:
     active_registry = registry or default_file_environment_registry()
     profile = active_registry.require_profile(profile_id)
@@ -79,6 +81,8 @@ def resolve_file_environment(
         _merge_repository_requirement(repo, requirements.get(repo.repository_id, {}))
         for repo in profile.repository_specs
     )
+    external_repositories = external_scope_repositories(external_scopes_from_payload(external_read_scopes))
+    repositories = (*repositories, *external_repositories)
     return ResolvedFileEnvironment(
         profile_id=profile.profile_id,
         repositories=repositories,

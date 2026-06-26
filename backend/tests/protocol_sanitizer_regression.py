@@ -164,8 +164,6 @@ def test_runtime_compiler_uses_provider_protocol_as_single_append_only_history_p
 
     assert "provider_protocol_history" in first_kinds
     assert "provider_protocol_history" in second_kinds
-    assert "session_history_entry" in first_kinds
-    assert "session_history_entry" in second_kinds
 
     first_historical_stable = _stable_prefix_signature(first_segments, exclude_kinds={"current_turn_user_context"})
     second_historical_stable = _stable_prefix_signature(second_segments, exclude_kinds={"current_turn_user_context"})
@@ -227,7 +225,7 @@ def _last_history_segment_index(segments: list[dict]) -> int:
     indexes = [
         index
         for index, segment in enumerate(segments)
-        if str(segment.get("kind") or "") in {"provider_protocol_history", "session_history_entry"}
+        if str(segment.get("kind") or "") == "provider_protocol_history"
     ]
     assert indexes
     return max(indexes)

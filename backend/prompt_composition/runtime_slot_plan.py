@@ -6,7 +6,13 @@ from typing import Any
 
 from .models import PromptCompositionSlot, RuntimePromptSlot, RuntimePromptSlotPlan
 from .tracing import runtime_source_kind_for_segment
-from runtime.context_management.context_assembly import CONTEXT_APPEND, CONTEXT_MEMORY_PREFIX, DYNAMIC_TAIL, classify_context_spec
+from runtime.context_management.context_segment_policy import (
+    CONTEXT_APPEND,
+    CONTEXT_MEMORY_PREFIX,
+    DYNAMIC_TAIL,
+    context_segment_policy_for_spec,
+    context_segment_policy_metadata,
+)
 
 
 def build_runtime_prompt_slot_plan(
@@ -22,11 +28,11 @@ def build_runtime_prompt_slot_plan(
         spec = _normalized_spec(raw_spec)
         kind = str(spec.get("kind") or "unknown_unplanned").strip() or "unknown_unplanned"
         source_kind = runtime_source_kind_for_segment(spec)
-        classification = classify_context_spec(spec)
+        policy = context_segment_policy_for_spec(spec)
         layer = _layer_for_source_kind(source_kind)
-        if classification.context_cache_section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
+        if policy.section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
             layer = "context_memory"
-        elif classification.context_cache_section == DYNAMIC_TAIL:
+        elif policy.section == DYNAMIC_TAIL:
             layer = "runtime_dynamic"
         metadata = dict(spec.get("metadata") or {})
         prompt_source_manifest_id = str(metadata.get("runtime_prompt_source_manifest_id") or "")
@@ -51,10 +57,10 @@ def build_runtime_prompt_slot_plan(
                 target_role=str(spec.get("role") or "user"),
                 source_kind=source_kind,
                 source_ref=str(spec.get("source_ref") or ""),
-                cache_scope=classification.cache_scope,
-                cache_role=classification.cache_role,
-                cache_tier=classification.prefix_tier,
-                dynamic_tier=_dynamic_tier(kind=kind, source_kind=source_kind, cache_role=classification.cache_role, classification=classification.to_dict()),
+                cache_scope=policy.prefix_cache_scope,
+                cache_role=policy.prefix_cache_role,
+                cache_tier=policy.prefix_tier,
+                dynamic_tier=_dynamic_tier(kind=kind, source_kind=source_kind, cache_role=policy.prefix_cache_role, policy=policy.to_dict()),
                 compression_role=str(spec.get("compression_role") or "summarize"),
                 authority_class=str(metadata.get("authority_class") or _authority_class_for_source_kind(source_kind)),
                 render_contract=_render_contract(spec, source_kind=source_kind),
@@ -65,7 +71,7 @@ def build_runtime_prompt_slot_plan(
                     "prompt_source_manifest_id": prompt_source_manifest_id,
                     "prompt_source_id": prompt_source_id,
                     "slot_source": "runtime_prompt_source_manifest",
-                    **classification.to_dict(),
+                    **context_segment_policy_metadata(policy),
                 },
             )
         )
@@ -157,7 +163,7 @@ def _render_contract(spec: dict[str, Any], *, source_kind: str) -> dict[str, Any
 
 def _layer_for_source_kind(source_kind: str) -> str:
     if source_kind == "runtime_baseline_refs":
-        return "runtime_protocol_stable"
+        return "runtime_dynamic"
     if source_kind == "dynamic_context_fragment":
         return "runtime_dynamic"
     if source_kind in {
@@ -231,9 +237,9 @@ def _authority_class_for_source_kind(source_kind: str) -> str:
     }.get(source_kind, "runtime_prompt_slot")
 
 
-def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str, classification: dict[str, Any] | None = None) -> str:
-    assembly = dict(classification or {})
-    section = str(assembly.get("context_cache_section") or "")
+def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str, policy: dict[str, Any] | None = None) -> str:
+    decision = dict(policy or {})
+    section = str(decision.get("section") or decision.get("context_cache_section") or "")
     if section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
         if kind == "runtime_memory_context":
             return "runtime_memory_context"
@@ -245,7 +251,7 @@ def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str, classificatio
     if section == DYNAMIC_TAIL:
         if kind == "read_evidence_injection":
             return "current_exact_evidence"
-        if kind in {"active_skills", "skill_candidates"}:
+        if kind == "active_skills":
             return "active_skills"
         if kind == "graph_node_completion_prefix":
             return "assistant_completion_prefix"
@@ -272,7 +278,7 @@ def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str, classificatio
         return "editor_context_index"
     if kind == "graph_node_completion_prefix":
         return "assistant_completion_prefix"
-    if kind in {"active_skills", "skill_candidates"}:
+    if kind == "active_skills":
         return "active_skills"
     if kind in {"bound_task_runtime_context"}:
         return "file_evidence_cursor"

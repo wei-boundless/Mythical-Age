@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from .models import PromptCompositionSegmentBinding, PromptCompositionSlot
-from runtime.context_management.context_assembly import (
+from runtime.context_management.context_segment_policy import (
     CONTEXT_APPEND,
     CONTEXT_MEMORY_PREFIX,
     DYNAMIC_TAIL,
-    classify_context_spec,
 )
+from runtime.context_management.context_segment_policy import context_segment_policy_for_spec
 
 RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
     "action_schema_static": "runtime_action_schema",
@@ -45,7 +45,6 @@ RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
     "active_skills": "runtime_active_skills",
     "session_history_tail_context": "runtime_session_history_tail_context",
     "provider_protocol_history": "runtime_append_only_context",
-    "session_history_entry": "runtime_append_only_context",
     "single_agent_turn_tool_call": "runtime_append_only_context",
     "single_agent_turn_tool_observation": "runtime_append_only_context",
     "single_agent_turn_user_steer_context": "runtime_append_only_context",
@@ -125,10 +124,10 @@ def runtime_source_kind_for_segment(segment: dict[str, Any]) -> str:
     source_kind = RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND.get(kind)
     if source_kind:
         return source_kind
-    classification = classify_context_spec(segment)
-    if classification.context_cache_section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
+    policy = context_segment_policy_for_spec(segment)
+    if policy.section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
         return "runtime_append_only_context"
-    if classification.context_cache_section == DYNAMIC_TAIL:
+    if policy.section == DYNAMIC_TAIL:
         return "dynamic_context_fragment"
     return "legacy_runtime_text"
 

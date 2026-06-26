@@ -8,6 +8,7 @@ from typing import Any
 from core.project_layout import ProjectLayout
 
 from .access_table import FileAccessGrant, FileAccessTable
+from .external_read_scopes import EXTERNAL_READONLY_ROOT_REF_PREFIX, ExternalReadScope, external_scopes_from_payload
 from .filesystem_adapter import FsspecLocalFileAdapter
 from .models import ManagedFileRef, ManagedFileRepositorySpec, normalize_logical_path
 from .receipts import FileOperationReceipt
@@ -104,12 +105,18 @@ class RepositoryRootResolver:
         sandbox_root: str | Path | None = None,
         managed_storage_root: str | Path | None = None,
         runtime_output_root: str | Path | None = None,
+        external_read_scopes: Any = None,
     ) -> None:
         self.project_root = Path(project_root).resolve()
         self.storage_root = ProjectLayout.from_backend_dir(self.project_root).storage_root.resolve()
         self.sandbox_root = Path(sandbox_root).resolve() if sandbox_root is not None else None
         self.managed_storage_root = Path(managed_storage_root).resolve() if managed_storage_root is not None else self.project_root / ".managed-files"
         self.runtime_output_root = Path(runtime_output_root).resolve() if runtime_output_root is not None else self.managed_storage_root / "runtime"
+        self.external_read_scopes = {
+            scope.scope_id: scope
+            for scope in external_scopes_from_payload(external_read_scopes)
+            if isinstance(scope, ExternalReadScope)
+        }
 
     def resolve(self, repository: ManagedFileRepositorySpec) -> RepositoryRootBinding:
         root_ref = str(repository.root_ref or "").strip()
@@ -131,6 +138,12 @@ class RepositoryRootResolver:
             root = self.managed_storage_root / "research" / _safe_root_fragment(root_ref.removeprefix("research://"))
         elif root_ref.startswith("graph-task-instance://"):
             root = self.storage_root / "graph_task_instances" / _safe_root_fragment(root_ref.removeprefix("graph-task-instance://"))
+        elif root_ref.startswith(EXTERNAL_READONLY_ROOT_REF_PREFIX):
+            scope_id = root_ref.removeprefix(EXTERNAL_READONLY_ROOT_REF_PREFIX)
+            scope = self.external_read_scopes.get(scope_id)
+            if scope is None:
+                raise ValueError(f"unknown external read scope: {scope_id}")
+            root = scope.root()
         elif not root_ref:
             root = self.managed_storage_root / "repositories" / _safe_root_fragment(repository.repository_id.replace(".", "/"))
         else:
@@ -176,6 +189,7 @@ class FileGateway:
         sandbox_root: str | Path | None = None,
         managed_storage_root: str | Path | None = None,
         runtime_output_root: str | Path | None = None,
+        external_read_scopes: Any = None,
         metadata_store: Any | None = None,
     ) -> "FileGateway":
         return cls(
@@ -186,6 +200,7 @@ class FileGateway:
                 sandbox_root=sandbox_root,
                 managed_storage_root=managed_storage_root,
                 runtime_output_root=runtime_output_root,
+                external_read_scopes=external_read_scopes,
             ),
             metadata_store=metadata_store,
         )
@@ -314,6 +329,18 @@ class FileGateway:
         target = adapter.resolve(normalized_path)
         return target if target.exists() and target.is_file() else None
 
+    def resolve_physical_path(
+        self,
+        repository_id: str,
+        logical_path: str,
+        *,
+        action: str,
+        approval_fingerprint: str = "",
+    ) -> tuple[ManagedFileRepositorySpec, RepositoryRootBinding, Path, str, str]:
+        repository, binding, adapter, normalized_path = self._repository_adapter(repository_id, logical_path)
+        access_decision = self.check_access(repository_id, action, approval_fingerprint=approval_fingerprint)
+        return repository, binding, adapter.resolve(normalized_path), normalized_path, access_decision
+
     def _repository_adapter(
         self,
         repository_id: str,
@@ -323,8 +350,19 @@ class FileGateway:
         repository = self.environment.repository(repository_id)
         if repository is None:
             raise KeyError(f"unknown file repository: {repository_id}")
+        if repository.scope_kind == "external_read_scope":
+            source_kind = str(repository.metadata.get("external_source_kind") or "").strip()
+            file_name = str(repository.metadata.get("external_file_name") or "").strip()
+            if source_kind == "file" and file_name and normalized_path != file_name:
+                raise FileGatewayPermissionError(
+                    repository_id=repository.repository_id,
+                    action="read",
+                    reason="external file scope is limited to the registered file",
+                    source="file_management.external_read_scope",
+                )
         binding = self.root_resolver.resolve(repository)
-        return repository, binding, FsspecLocalFileAdapter(binding.root), normalized_path
+        create_root = not str(binding.root_ref or "").startswith(EXTERNAL_READONLY_ROOT_REF_PREFIX)
+        return repository, binding, FsspecLocalFileAdapter(binding.root, create_root=create_root), normalized_path
 
     def check_access(
         self,

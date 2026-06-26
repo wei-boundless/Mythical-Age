@@ -35,6 +35,8 @@ def build_turn_to_task_context_handoff_seed(
     turn_id: str,
     source_packet_ref: str,
     tool_observation_payloads: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    turn_run_id: str = "",
+    stream_run_id: str = "",
     session_context: dict[str, Any] | None = None,
     current_work_boundary_receipt: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -73,6 +75,8 @@ def build_turn_to_task_context_handoff_seed(
         {
             "session_id": str(session_id or ""),
             "turn_id": str(turn_id or ""),
+            "turn_run_id": str(turn_run_id or ""),
+            "stream_run_id": str(stream_run_id or ""),
             "source_packet_ref": str(source_packet_ref or ""),
             "inherited_observations": observations,
             "inherited_observation_refs": [
@@ -114,6 +118,8 @@ def record_turn_to_task_context_handoff(
             "handoff_id": handoff_id,
             "session_id": str(session_id or seed.get("session_id") or ""),
             "turn_id": str(turn_id or seed.get("turn_id") or ""),
+            "turn_run_id": str(seed.get("turn_run_id") or ""),
+            "stream_run_id": str(seed.get("stream_run_id") or ""),
             "task_run_id": str(task_run_id or ""),
             "task_id": str(task_id or ""),
             "created_at": time.time(),
@@ -147,6 +153,8 @@ def record_turn_to_task_context_handoff(
         refs={
             "turn_ref": str(payload.get("turn_id") or turn_id or ""),
             "task_run_ref": str(task_run_id or ""),
+            "turn_run_ref": str(payload.get("turn_run_id") or ""),
+            "stream_run_ref": str(payload.get("stream_run_id") or ""),
             "turn_to_task_context_handoff_ref": handoff_ref,
             "source_packet_ref": str(payload.get("source_packet_ref") or ""),
         },
@@ -189,6 +197,8 @@ def handoff_summary(handoff: dict[str, Any] | None) -> dict[str, Any]:
             "handoff_id": str(payload.get("handoff_id") or ""),
             "session_id": str(payload.get("session_id") or ""),
             "turn_id": str(payload.get("turn_id") or ""),
+            "turn_run_id": str(payload.get("turn_run_id") or ""),
+            "stream_run_id": str(payload.get("stream_run_id") or ""),
             "task_run_id": str(payload.get("task_run_id") or ""),
             "source_packet_ref": str(payload.get("source_packet_ref") or ""),
             "inherited_observation_refs": list(payload.get("inherited_observation_refs") or [])[:_MAX_OBSERVATIONS],

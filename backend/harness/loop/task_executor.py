@@ -17,7 +17,7 @@ from artifact_system.artifact_authority import (
     dedupe_artifact_refs,
     normalize_artifact_ref,
 )
-from file_management import RepositoryRootResolver, normalize_logical_path, resolve_file_environment
+from file_management import RepositoryRootResolver, external_scope_payloads_for_base_dir, normalize_logical_path, resolve_file_environment
 from runtime.shared.models import AgentRun, AgentRunResult
 from runtime.memory.file_evidence_scope import task_run_file_evidence_scope
 from runtime.memory.file_state_store import FileStateAuthorityStore
@@ -4739,7 +4739,7 @@ async def _execute_task_tool_call(
     operation_id = str(getattr(definition, "operation_id", "") or tool_name)
     tool_turn_id = str(dict(getattr(task_run, "diagnostics", {}) or {}).get("turn_id") or task_run.task_id or "")
     sandbox_policy = _task_sandbox_policy(runtime_assembly, runtime_host=runtime_host, task_run_id=task_run.task_run_id)
-    file_policy = _task_file_policy(runtime_assembly, sandbox_policy=sandbox_policy)
+    file_policy = _task_file_policy(runtime_assembly, sandbox_policy=sandbox_policy, runtime_host=runtime_host)
     runtime_permission_mode = _task_runtime_permission_mode(
         task_run,
         runtime_host=runtime_host,
@@ -5277,15 +5277,22 @@ def _task_runtime_scope_policy(task_run: Any) -> dict[str, Any]:
     }
 
 
-def _task_file_policy(runtime_assembly: dict[str, Any], *, sandbox_policy: dict[str, Any]) -> dict[str, Any]:
+def _task_file_policy(runtime_assembly: dict[str, Any], *, sandbox_policy: dict[str, Any], runtime_host: Any | None = None) -> dict[str, Any]:
     environment = dict(runtime_assembly.get("task_environment") or {})
     storage = dict(environment.get("storage_space") or {})
     artifact_root = str(sandbox_policy.get("artifact_root") or runtime_artifact_scope_from_environment(environment).artifact_root or "")
+    backend_dir = str(
+        getattr(runtime_host, "backend_dir", "")
+        or runtime_assembly.get("backend_dir")
+        or storage.get("workspace_root")
+        or "."
+    ).strip()
     return compile_tool_file_management_policy(
         environment,
         storage_space=storage,
         artifact_root=artifact_root,
         sandbox_policy=sandbox_policy,
+        external_read_scopes=external_scope_payloads_for_base_dir(backend_dir),
     )
 
 
@@ -9696,7 +9703,7 @@ def _verified_repository_artifacts(
             sandbox_candidates.append(ref)
             continue
         if environment is None:
-            file_policy = _task_file_policy(runtime_assembly, sandbox_policy=sandbox_policy)
+            file_policy = _task_file_policy(runtime_assembly, sandbox_policy=sandbox_policy, runtime_host=runtime_host)
             environment = _resolve_file_policy_environment(file_policy)
             resolver = _file_repository_root_resolver(
                 project_root=project_root,
@@ -9726,6 +9733,7 @@ def _resolve_file_policy_environment(file_policy: dict[str, Any]) -> Any | None:
         return resolve_file_environment(
             profile_id,
             repository_requirements=dict(file_policy.get("repository_requirements") or {}),
+            external_read_scopes=file_policy.get("external_read_scopes"),
         )
     except Exception:
         return None
@@ -9753,6 +9761,7 @@ def _file_repository_root_resolver(
         sandbox_root=sandbox_root,
         managed_storage_root=managed_storage_root,
         runtime_output_root=runtime_output_root,
+        external_read_scopes=file_policy.get("external_read_scopes"),
     )
 
 

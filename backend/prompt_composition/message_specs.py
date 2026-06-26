@@ -62,7 +62,7 @@ def message_spec_content_source(*, kind: str, cache_role: str, source_ref: str) 
         return "harness.runtime.project_instructions"
     if normalized_kind == "task_prompt_contract":
         return "prompt_composition.section_renderer.task_contract"
-    if normalized_kind in {"active_skills", "skill_candidates"}:
+    if normalized_kind == "active_skills":
         return "task_system.skill_renderer"
     if normalized_kind in {"action_schema_static"}:
         return "runtime.action_schema_manifest"
@@ -117,7 +117,6 @@ def message_spec_content_source(*, kind: str, cache_role: str, source_ref: str) 
         "semantic_compaction_request",
         "session_history",
         "session_history_context",
-        "session_history_entry",
         "session_history_tail_context",
         "read_evidence_injection",
         "task_runtime_boundary_dynamic",

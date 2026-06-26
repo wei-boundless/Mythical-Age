@@ -88,14 +88,6 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         "thinking_mode": str(args.thinking_mode or "enabled"),
         "reasoning_effort": str(args.reasoning_effort or ""),
     }
-    if bool(getattr(args, "independent_dynamic_tail", False)):
-        model_selection["provider_extensions"] = {
-            "context_cache_policy": {
-                "context_physical_model": "static_context_dynamic_tail",
-                "dynamic_tail_supported": True,
-                "reason": "live_prompt_cache_task_probe_independent_dynamic_tail",
-            }
-        }
     runtime_contract = _code_review_runtime_contract(run_id=run_id, model_selection=model_selection)
     request = HarnessRuntimeRequest(
         session_id=session_id,

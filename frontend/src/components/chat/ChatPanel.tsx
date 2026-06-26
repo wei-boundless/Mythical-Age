@@ -283,7 +283,7 @@ export function ChatPanel() {
       <div className="chat-panel-footer min-w-0" ref={footerRef}>
         <div className="chat-panel-status-row">
           <div className="chat-panel-status-row__left">
-            <WorkspaceModeSwitcher ariaLabel="切换当前会话任务环境" className="chat-environment-switcher" />
+            <WorkspaceModeSwitcher ariaLabel="切换当前主 Agent" className="chat-environment-switcher" />
           </div>
           <div className="chat-panel-status-row__activity">
             {suppressFooterActivity ? null : <SessionActivityBar activity={footerActivity} active={currentSessionActive} />}

@@ -35,6 +35,7 @@ import {
   getSessionWorkspaceTree,
   getWorkbenchCurrentSession,
   getProjectWorkspaceTree,
+  interruptChatRun,
   listProjectWorkspaces,
   listProjectWorkspaceSessions,
   listFileChanges,
@@ -74,6 +75,7 @@ import {
   FRONTEND_EDITOR_CONTEXT_TEXT_LIMIT,
   GENERAL_TASK_ENVIRONMENT_ID,
   GRAPH_ONLY_TASK_ENVIRONMENT_IDS,
+  LAST_ACTIVE_MAIN_AGENT_KEY,
   LAST_ACTIVE_TASK_ENVIRONMENT_KEY,
   MAIN_CHAT_POOL_KEY,
   MAX_LIVE_RUNTIME_PROGRESS_ENTRIES,
@@ -110,7 +112,7 @@ import {
 import { streamEventStopsActiveWork } from "./runtime/streamEvents";
 import { isCatalogEnvironmentVisible, taskEnvironmentIdOf, taskEnvironmentLabelOf } from "./runtime/taskEnvironmentCatalog";
 import { errorDetailMessage, runtimeText } from "./runtime/text";
-import type { ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, FileChangeDiffCenterWorkspaceTarget, Message, PermissionMode, RuntimeLogCenterWorkspaceTarget, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionProjectionCenterWorkspaceTarget, SessionRef, StoreActions, StoreState, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
+import type { ActiveMainAgentSelection, ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, FileChangeDiffCenterWorkspaceTarget, Message, PermissionMode, RuntimeLogCenterWorkspaceTarget, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionProjectionCenterWorkspaceTarget, SessionRef, StoreActions, StoreState, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
 
 type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
@@ -118,6 +120,12 @@ type ActiveChatStreamBinding = {
   streamRunId: string;
   taskRunId: string;
   turnId: string;
+};
+
+type PendingChatStreamInterruption = {
+  streamEpoch: number;
+  taskRunId: string;
+  expectedTurnId: string;
 };
 
 const MANAGED_PROJECT_PROFILE_ID = "file_profile.managed_project_workspace";
@@ -169,6 +177,7 @@ export class WorkspaceRuntime {
   private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "activeProjectionsByKey" | "orchestrationSnapshot" | "activeTurnSnapshot">>();
   private activeChatStreamBindings = new Map<string, ActiveChatStreamBinding>();
   private chatStreamEpochBySession = new Map<string, number>();
+  private pendingChatStreamInterruptions = new Map<string, PendingChatStreamInterruption>();
   private removedStreamingSessionIds = new Set<string>();
   private streamAbortControllers = new Map<string, AbortController>();
   private stoppedStreamingSessionIds = new Set<string>();
@@ -203,6 +212,13 @@ export class WorkspaceRuntime {
         thinkingProjectionEnabled: rememberedThinkingProjectionEnabled,
       }));
     }
+    const rememberedMainAgent = this.rememberedMainAgentSelection();
+    if (rememberedMainAgent) {
+      this.store.setState((prev) => ({
+        ...prev,
+        activeMainAgent: rememberedMainAgent,
+      }));
+    }
     this.runMonitorController = new RunMonitorController(this.store, {
       applySelectedSessionShell: (sessionId, scope) => this.applySelectedSessionShell(sessionId, scope ? { scope, poolKey: sessionPoolKeyForScope(scope) } : undefined),
       bindTaskEnvironmentContext: (taskEnvironmentId, options) => this.bindTaskEnvironmentContext(taskEnvironmentId, options),
@@ -221,6 +237,9 @@ export class WorkspaceRuntime {
       },
       setActiveTaskEnvironment: async (environmentId, options) => {
         await this.setActiveTaskEnvironment(environmentId, options);
+      },
+      setActiveMainAgent: async (selection) => {
+        await this.setActiveMainAgent(selection);
       },
       refreshWorkspaceTree: async () => {
         await this.refreshWorkspaceTree();
@@ -2657,6 +2676,60 @@ export class WorkspaceRuntime {
     return this.taskEnvironmentRegistryLabel(taskEnvironmentId, catalog) || taskEnvironmentId;
   }
 
+  private normalizeMainAgentSelection(
+    selection: Partial<ActiveMainAgentSelection> | null | undefined,
+  ): ActiveMainAgentSelection {
+    const agentId = String(selection?.agent_id || "agent:0").trim() || "agent:0";
+    const profileId = String(selection?.agent_profile_id || "main_interactive_agent").trim() || "main_interactive_agent";
+    const defaultEnvironmentId = String(selection?.default_task_environment_id || GENERAL_TASK_ENVIRONMENT_ID).trim() || GENERAL_TASK_ENVIRONMENT_ID;
+    return {
+      agent_id: agentId,
+      agent_profile_id: profileId,
+      agent_name: String(selection?.agent_name || "通用主 Agent").trim() || "通用主 Agent",
+      main_agent_kind: String(selection?.main_agent_kind || "general").trim() || "general",
+      default_task_environment_id: defaultEnvironmentId,
+      default_task_environment_label: String(selection?.default_task_environment_label || this.taskEnvironmentLabel(defaultEnvironmentId)).trim(),
+      source: String(selection?.source || "agent-switcher").trim() || "agent-switcher",
+      updated_at: Number(selection?.updated_at || Date.now() / 1000),
+    };
+  }
+
+  private rememberedMainAgentSelection(): ActiveMainAgentSelection | null {
+    const raw = storageGet(LAST_ACTIVE_MAIN_AGENT_KEY);
+    if (!raw) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(raw) as Partial<ActiveMainAgentSelection>;
+      return this.normalizeMainAgentSelection(parsed);
+    } catch {
+      return null;
+    }
+  }
+
+  private rememberMainAgentSelection(selection: ActiveMainAgentSelection) {
+    storageSet(LAST_ACTIVE_MAIN_AGENT_KEY, JSON.stringify(selection));
+  }
+
+  private async setActiveMainAgent(selection: ActiveMainAgentSelection) {
+    const activeAgent = this.normalizeMainAgentSelection({
+      ...selection,
+      source: selection.source || "agent-switcher",
+      updated_at: Date.now() / 1000,
+    });
+    this.rememberMainAgentSelection(activeAgent);
+    this.store.setState((prev) => ({
+      ...prev,
+      activeMainAgent: activeAgent,
+    }));
+    if (activeAgent.default_task_environment_id) {
+      await this.setActiveTaskEnvironment(activeAgent.default_task_environment_id, {
+        environmentLabel: activeAgent.default_task_environment_label,
+        source: "agent-switcher",
+      });
+    }
+  }
+
   private normalizeActiveTaskEnvironment(
     activeEnvironment: Partial<NonNullable<StoreState["conversationActiveEnvironment"]>> | null | undefined,
     catalog = this.store.getState().taskEnvironmentCatalog,
@@ -3045,6 +3118,30 @@ export class WorkspaceRuntime {
       return;
     }
     this.activeChatStreamBindings.set(sessionId, next);
+  }
+
+  private bindCreatedChatRunForStream(sessionId: string, streamEpoch: number, run: ChatRun | null | undefined) {
+    const binding = this.chatRunBinding(run);
+    if (!binding) {
+      return;
+    }
+    const streamStillCurrent = this.isCurrentChatStreamEpoch(sessionId, streamEpoch);
+    if (streamStillCurrent) {
+      this.updateActiveChatStreamBinding(sessionId, binding);
+    }
+    const pending = this.pendingChatStreamInterruptions.get(sessionId);
+    if (!pending || pending.streamEpoch !== streamEpoch) {
+      return;
+    }
+    this.pendingChatStreamInterruptions.delete(sessionId);
+    void this.interruptChatRunForResume(binding.streamRunId, {
+      taskRunId: pending.taskRunId || binding.taskRunId,
+      expectedTurnId: pending.expectedTurnId || binding.turnId,
+    });
+  }
+
+  private currentChatStreamEpoch(sessionId: string) {
+    return this.chatStreamEpochBySession.get(sessionId) ?? 0;
   }
 
   private nextChatStreamEpoch(sessionId: string) {
@@ -3599,6 +3696,7 @@ export class WorkspaceRuntime {
           session_id: sessionId,
           session_scope: this.sessionScopeForSession(sessionId),
           environment_binding: this.chatEnvironmentBindingPayload(requestState),
+          runtime_profile: this.chatRuntimeProfilePayload(requestState),
           runtime_contract: this.chatRuntimeContractPayload(requestState),
           model_selection: this.chatModelSelectionPayload(requestState),
           permission_mode: permissionMode,
@@ -3615,6 +3713,9 @@ export class WorkspaceRuntime {
             : undefined,
         },
         {
+          onRunCreated: (run) => {
+            this.bindCreatedChatRunForStream(sessionId, streamEpoch, run);
+          },
           onEvent: (event, data) => {
             if (!this.isCurrentChatStreamEpoch(sessionId, streamEpoch)) {
               return;
@@ -3765,18 +3866,42 @@ export class WorkspaceRuntime {
 
   private stopCurrentStream() {
     const sessionId = this.store.getState().currentSessionId;
-    const taskRunId = this.activeControllableTaskRunId();
-    const expectedTurnId = taskRunId ? this.activeExpectedTurnIdForTaskRun(taskRunId) : "";
-    this.releaseStoppedChatStreamBoundary(sessionId, "user_stopped", { taskRunId, turnId: expectedTurnId });
-    if (taskRunId) {
-      void this.stopTaskRunFromSystemInterrupt(taskRunId, expectedTurnId, "user_stop_from_chat_stream");
+    const normalizedSessionId = String(sessionId || "").trim();
+    const streamBinding = normalizedSessionId ? this.activeChatStreamBindings.get(normalizedSessionId) : undefined;
+    const taskRunId = String(streamBinding?.taskRunId || this.activeControllableTaskRunId()).trim();
+    const expectedTurnId = taskRunId
+      ? this.activeExpectedTurnIdForTaskRun(taskRunId)
+      : String(streamBinding?.turnId || this.store.getState().activeTurnSnapshot?.turn_id || "").trim();
+    const streamRunId = String(streamBinding?.streamRunId || "").trim();
+    const streamEpoch = normalizedSessionId ? this.currentChatStreamEpoch(normalizedSessionId) : 0;
+    const released = this.releaseStoppedChatStreamBoundary(sessionId, "user_interrupted_for_resume", {
+      taskRunId,
+      turnId: expectedTurnId,
+      preserveActiveWorkContext: true,
+    });
+    if (!released) {
+      return;
+    }
+    if (streamRunId) {
+      void this.interruptChatRunForResume(streamRunId, {
+        taskRunId,
+        expectedTurnId,
+      });
+      return;
+    }
+    if (normalizedSessionId && streamEpoch > 0) {
+      this.pendingChatStreamInterruptions.set(normalizedSessionId, {
+        streamEpoch,
+        taskRunId,
+        expectedTurnId,
+      });
     }
   }
 
   private releaseStoppedChatStreamBoundary(
     sessionId: string | null | undefined,
     reason = "user_stopped",
-    options: { abortStream?: boolean; taskRunId?: string; turnId?: string } = {},
+    options: { abortStream?: boolean; taskRunId?: string; turnId?: string; preserveActiveWorkContext?: boolean } = {},
   ) {
     return this.releaseControlledChatStreamBoundary(sessionId, reason, {
       ...options,
@@ -3801,6 +3926,7 @@ export class WorkspaceRuntime {
       abortStream?: boolean;
       taskRunId?: string;
       turnId?: string;
+      preserveActiveWorkContext?: boolean;
       connectionState: "stopped" | "paused";
     },
   ) {
@@ -3826,7 +3952,7 @@ export class WorkspaceRuntime {
     this.activeChatStreamBindings.delete(normalizedSessionId);
     this.store.setState((prev) => {
       const detached = this.removeActiveStreamSession(prev, normalizedSessionId);
-      const nextState = options.connectionState === "stopped"
+      const nextState = options.connectionState === "stopped" && options.preserveActiveWorkContext !== true
         ? this.releaseActiveTurnGateForStoppedStream(detached, stoppedTaskRunId, stoppedTurnId)
         : detached;
       return {
@@ -3839,6 +3965,57 @@ export class WorkspaceRuntime {
       };
     });
     return true;
+  }
+
+  private async interruptChatRunForResume(
+    streamRunId: string,
+    input: { taskRunId?: string; expectedTurnId?: string } = {},
+  ) {
+    const normalizedStreamRunId = String(streamRunId || "").trim();
+    if (!normalizedStreamRunId) {
+      return;
+    }
+    const taskRunId = String(input.taskRunId || "").trim();
+    const expectedTurnId = String(input.expectedTurnId || "").trim();
+    this.setChatInterruptionActivity({
+      level: "running",
+      title: "正在中断",
+      detail: "输出流已断开，正在把任务进度和运行事实交给后端保存。",
+      event: "chat_stream_interrupt_requested",
+      taskRunId,
+      streamRunId: normalizedStreamRunId,
+    });
+    try {
+      await interruptChatRun(normalizedStreamRunId, {
+        mode: "interrupt_for_resume",
+        reason: "user_stop_from_chat_stream",
+        expected_active_turn_id: expectedTurnId,
+        expected_task_run_id: taskRunId,
+        cascade_subagents: "interrupt_for_resume",
+      });
+      await this.refreshActiveSessionMonitor();
+      const currentSessionId = this.store.getState().currentSessionId;
+      if (currentSessionId) {
+        await this.hydrateLatestOrchestrationSnapshot(currentSessionId);
+      }
+      this.setChatInterruptionActivity({
+        level: "idle",
+        title: "已中断",
+        detail: "上下文已保持连续，任务断开事实会交给下一轮 agent 判断。",
+        event: "chat_stream_interrupt_recorded",
+        taskRunId,
+        streamRunId: normalizedStreamRunId,
+      });
+    } catch (error) {
+      this.setChatInterruptionActivity({
+        level: "error",
+        title: "中断记录失败",
+        detail: this.errorMessage(error, "输出流已断开，但后端中断事实未确认，请在运行监控里检查当前任务状态。"),
+        event: "chat_stream_interrupt_failed",
+        taskRunId,
+        streamRunId: normalizedStreamRunId,
+      });
+    }
   }
 
   private releaseActiveTurnGateForStoppedStream(state: StoreState, taskRunId: string, turnId: string) {
@@ -3857,6 +4034,44 @@ export class WorkspaceRuntime {
       activeTurnSnapshot: snapshotMatches ? null : state.activeTurnSnapshot,
       taskGraphLiveMonitor: monitorMatches ? null : state.taskGraphLiveMonitor,
     };
+  }
+
+  private setChatInterruptionActivity(input: {
+    level: StoreState["sessionActivity"]["level"];
+    title: string;
+    detail: string;
+    event: string;
+    taskRunId?: string;
+    streamRunId?: string;
+  }) {
+    const sessionId = this.store.getState().currentSessionId;
+    if (!sessionId) {
+      return;
+    }
+    const debug: Record<string, string> = { event: input.event };
+    if (input.taskRunId) debug.taskRunId = input.taskRunId;
+    if (input.streamRunId) debug.streamRunId = input.streamRunId;
+    const activity = {
+      level: input.level,
+      title: input.title,
+      detail: input.detail,
+      event: input.event,
+      receipt: {
+        level: input.level,
+        title: input.title,
+        body: input.detail,
+        debug,
+      },
+      updatedAt: Date.now(),
+    };
+    this.store.setState((prev) => ({
+      ...prev,
+      sessionActivity: activity,
+      sessionActivitiesById: {
+        ...prev.sessionActivitiesById,
+        [sessionId]: activity,
+      },
+    }));
   }
 
   private async pauseActiveTaskRun() {
@@ -3936,15 +4151,6 @@ export class WorkspaceRuntime {
     });
     try {
       await stopOrchestrationHarnessTaskRun(taskRunId, "user_stop_from_chat", expectedTurnId);
-      await this.refreshActiveSessionMonitor();
-    } catch (error) {
-      this.setActiveTaskControlError("stop", taskRunId, error);
-    }
-  }
-
-  private async stopTaskRunFromSystemInterrupt(taskRunId: string, expectedTurnId: string, reason: string) {
-    try {
-      await stopOrchestrationHarnessTaskRun(taskRunId, reason, expectedTurnId);
       await this.refreshActiveSessionMonitor();
     } catch (error) {
       this.setActiveTaskControlError("stop", taskRunId, error);
@@ -4486,9 +4692,28 @@ export class WorkspaceRuntime {
     };
   }
 
+  private chatRuntimeProfilePayload(state: StoreState): Record<string, unknown> {
+    const activeAgent = this.normalizeMainAgentSelection(state.activeMainAgent);
+    return {
+      agent_id: activeAgent.agent_id,
+      agent_profile_id: activeAgent.agent_profile_id,
+      default_task_environment_id: activeAgent.default_task_environment_id,
+      source: activeAgent.source || "agent-switcher",
+      selected_main_agent: {
+        agent_id: activeAgent.agent_id,
+        agent_profile_id: activeAgent.agent_profile_id,
+        agent_name: activeAgent.agent_name,
+        main_agent_kind: activeAgent.main_agent_kind,
+        default_task_environment_id: activeAgent.default_task_environment_id,
+      },
+    };
+  }
+
   private chatRuntimeContractPayload(state: StoreState): Record<string, unknown> {
     const publicVisible = Boolean(state.thinkingProjectionEnabled);
+    const runtimeProfile = this.chatRuntimeProfilePayload(state);
     return {
+      runtime_profile: runtimeProfile,
       reasoning_projection_enabled: publicVisible,
       reasoning_projection: {
         enabled: true,
@@ -5437,7 +5662,7 @@ export class WorkspaceRuntime {
       await this.persistActiveTaskEnvironment(sessionId, activeEnvironment).catch((error) => {
         this.store.setState((prev) => ({
           ...prev,
-          taskEnvironmentCatalogError: this.errorMessage(error, "任务环境切换已在前端生效，但会话状态写入失败。"),
+          taskEnvironmentCatalogError: this.errorMessage(error, "会话运行配置已在前端生效，但会话状态写入失败。"),
         }));
       });
     }
@@ -5469,7 +5694,7 @@ export class WorkspaceRuntime {
     }).catch((error) => {
       this.store.setState((prev) => ({
         ...prev,
-        taskEnvironmentCatalogError: this.errorMessage(error, "任务环境切换失败。"),
+        taskEnvironmentCatalogError: this.errorMessage(error, "会话运行配置切换失败。"),
       }));
     });
   }
@@ -5953,7 +6178,7 @@ export class WorkspaceRuntime {
     }).catch((error) => {
       this.store.setState((prev) => ({
         ...prev,
-        taskEnvironmentCatalogError: this.errorMessage(error, "任务环境切换失败。"),
+        taskEnvironmentCatalogError: this.errorMessage(error, "会话运行配置切换失败。"),
       }));
     });
   }
@@ -5962,7 +6187,7 @@ export class WorkspaceRuntime {
     void this.setActiveTaskEnvironment(GENERAL_TASK_ENVIRONMENT_ID, { source: "conversation" }).catch((error) => {
       this.store.setState((prev) => ({
         ...prev,
-        taskEnvironmentCatalogError: this.errorMessage(error, "任务环境切换失败。"),
+        taskEnvironmentCatalogError: this.errorMessage(error, "会话运行配置切换失败。"),
       }));
     });
   }

@@ -286,7 +286,7 @@ class _ActiveWorkDecisionModelRuntime:
         return SimpleNamespace(content=self._active_work_followup_answer(messages), tool_calls=[])
 
     def _allows_active_work_control(self, messages) -> bool:
-        marker = "Single agent turn stable boundary\n"
+        marker = "Turn operating contract\n"
         for message in list(messages or []):
             if not isinstance(message, dict):
                 continue
@@ -503,3 +503,4 @@ def _seed_active_work(
     return task_run_id
 
 __all__ = [name for name in globals() if not name.startswith('__')]
+

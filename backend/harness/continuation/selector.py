@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from harness.loop.task_run_recovery_state import recovery_state_for_task_run
@@ -60,6 +60,7 @@ class ContinuationSelection:
     record: ContinuationRecord | None = None
     interrupted_turn: InterruptedTurnContinuationRecord | None = None
     reason: str = ""
+    context_recovery_status: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.continuation.selector"
 
     def to_dict(self) -> dict[str, Any]:
@@ -67,6 +68,7 @@ class ContinuationSelection:
             "record": self.record.to_dict() if self.record is not None else {},
             "interrupted_turn": self.interrupted_turn.to_dict() if self.interrupted_turn is not None else {},
             "reason": self.reason,
+            "context_recovery_status": dict(self.context_recovery_status or {}),
             "authority": self.authority,
         }
 
@@ -76,12 +78,18 @@ def select_session_continuation(
     *,
     session_id: str,
     active_work_present: bool = False,
+    context_recovery_status: dict[str, Any] | None = None,
 ) -> ContinuationSelection:
     normalized_session_id = str(session_id or "").strip()
+    resolved_context_status = _normalize_context_recovery_status(
+        context_recovery_status
+        if context_recovery_status is not None
+        else _context_recovery_status_from_host(runtime_host, session_id=normalized_session_id)
+    )
     if not normalized_session_id:
-        return ContinuationSelection(reason="session_id_missing")
+        return ContinuationSelection(reason="session_id_missing", context_recovery_status=resolved_context_status)
     if active_work_present:
-        return ContinuationSelection(reason="live_active_work_present")
+        return ContinuationSelection(reason="live_active_work_present", context_recovery_status=resolved_context_status)
     task_runs = [
         item
         for item in list(getattr(runtime_host.state_index, "list_session_task_runs", lambda _session_id: [])(normalized_session_id) or [])
@@ -97,7 +105,12 @@ def select_session_continuation(
         recovery_state = recovery_state_for_task_run(task_run, runtime_host=runtime_host)
         if recovery_state.graph_controlled:
             continue
-        record = _record_from_task_run(runtime_host, task_run=task_run, recovery_state=recovery_state)
+        record = _record_from_task_run(
+            runtime_host,
+            task_run=task_run,
+            recovery_state=recovery_state,
+            context_recovery_status=resolved_context_status,
+        )
         if record is not None:
             selected_record = record
             break
@@ -107,10 +120,17 @@ def select_session_continuation(
             record=selected_record,
             interrupted_turn=selected_interrupted_turn,
             reason=_selection_reason(task_record=selected_record, interrupted_turn=selected_interrupted_turn),
+            context_recovery_status=resolved_context_status,
         )
     if not task_runs:
-        return ContinuationSelection(reason="session_task_run_missing_or_interrupted_turn_missing")
-    return ContinuationSelection(reason="no_supported_session_task_or_interrupted_turn")
+        return ContinuationSelection(
+            reason="session_task_run_missing_or_interrupted_turn_missing",
+            context_recovery_status=resolved_context_status,
+        )
+    return ContinuationSelection(
+        reason="no_supported_session_task_or_interrupted_turn",
+        context_recovery_status=resolved_context_status,
+    )
 
 
 def _record_from_task_run(
@@ -118,6 +138,7 @@ def _record_from_task_run(
     *,
     task_run: Any,
     recovery_state: Any,
+    context_recovery_status: dict[str, Any],
 ) -> ContinuationRecord | None:
     task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
     session_id = str(getattr(task_run, "session_id", "") or "").strip()
@@ -130,25 +151,28 @@ def _record_from_task_run(
     state = "none"
     resume_strategy = "unavailable"
     resume_allowed = False
+    context_resume_available = _context_resume_available(context_recovery_status)
+    context_resume_source = str(context_recovery_status.get("source") or context_recovery_status.get("reason") or "")
+    same_run_executable = bool(recovery_state.executable)
     requires_user_confirmation = False
     if not terminal and bool(recovery_state.executable):
         state = "recoverable"
         resume_strategy = "same_run_resume"
-        resume_allowed = True
+        resume_allowed = context_resume_available
     elif not terminal and bool(recovery_state.paused):
         state = "paused"
         resume_strategy = "same_run_resume" if bool(recovery_state.same_run_resumable) else "ask_user_confirm"
-        resume_allowed = bool(recovery_state.executable)
+        resume_allowed = context_resume_available and bool(recovery_state.executable)
         requires_user_confirmation = not resume_allowed
     elif not terminal and recovery_state.status == "waiting_approval":
         state = "waiting_approval"
         resume_strategy = "require_approval"
-        resume_allowed = bool(recovery_state.executable)
+        resume_allowed = context_resume_available and bool(recovery_state.executable)
         requires_user_confirmation = True
     elif not terminal and bool(recovery_state.recoverable):
         state = "recoverable"
         resume_strategy = "same_run_resume" if bool(recovery_state.same_run_resumable) else "ask_user_confirm"
-        resume_allowed = bool(recovery_state.executable)
+        resume_allowed = context_resume_available and bool(recovery_state.executable)
         requires_user_confirmation = not resume_allowed
     elif terminal or recovery_state.completed_iteration or recovery_state.stopped:
         state = "terminal_read_only"
@@ -198,6 +222,9 @@ def _record_from_task_run(
         state=state,  # type: ignore[arg-type]
         resume_allowed=resume_allowed,
         resume_strategy=resume_strategy,
+        context_resume_available=context_resume_available,
+        context_resume_source=context_resume_source,
+        same_run_executable=same_run_executable,
         recovery_cause=recovery_cause,
         task_status=status,
         executor_status=str(recovery_state.executor_status or diagnostics.get("executor_status") or ""),
@@ -233,8 +260,100 @@ def _record_from_task_run(
                 "reason": str(recovery_state.reason or ""),
                 "authority": recovery_state.authority,
             },
+            "context_recovery": dict(context_recovery_status or {}),
+            "context_resume_available": context_resume_available,
+            "execution_resume": {
+                "same_run_executable": same_run_executable,
+                "same_run_resumable": bool(recovery_state.same_run_resumable),
+                "authority": recovery_state.authority,
+            },
         },
     )
+
+
+def _normalize_context_recovery_status(payload: dict[str, Any] | None) -> dict[str, Any]:
+    data = dict(payload or {})
+    if not data:
+        return {
+            "available": False,
+            "present": False,
+            "fresh": False,
+            "source": "",
+            "reason": "context_recovery_status_unavailable",
+            "authority": "harness.continuation.context_recovery_status",
+        }
+    source = str(data.get("source") or "")
+    fresh = bool(data.get("fresh") is True or source == "full_session_history")
+    available = bool(data.get("available") is True or fresh)
+    return {
+        **data,
+        "available": available,
+        "present": bool(data.get("present") is True or data.get("available") is True),
+        "fresh": fresh,
+        "source": source,
+        "reason": str(data.get("reason") or ""),
+        "authority": str(data.get("authority") or "harness.continuation.context_recovery_status"),
+    }
+
+
+def _context_recovery_status_from_host(runtime_host: Any, *, session_id: str) -> dict[str, Any]:
+    session_manager = getattr(runtime_host, "session_manager", None)
+    loader = getattr(session_manager, "load_session_record", None)
+    if not callable(loader):
+        return {
+            "available": False,
+            "present": False,
+            "fresh": False,
+            "source": "",
+            "reason": "session_manager_unavailable",
+            "authority": "harness.continuation.context_recovery_status",
+        }
+    try:
+        record = dict(loader(session_id) or {})
+    except Exception:
+        return {
+            "available": False,
+            "present": False,
+            "fresh": False,
+            "source": "",
+            "reason": "session_record_unavailable",
+            "authority": "harness.continuation.context_recovery_status",
+        }
+    messages = [item for item in list(record.get("messages") or []) if isinstance(item, dict)]
+    compacted = bool(str(record.get("compressed_context") or "").strip()) or _float_value(record.get("provider_protocol_compaction_created_at")) > 0
+    if messages and not compacted:
+        return {
+            "available": True,
+            "present": True,
+            "fresh": True,
+            "source": "full_session_history",
+            "raw_message_count": len(messages),
+            "requires_context_recovery_package": False,
+            "reason": "",
+            "authority": "harness.continuation.context_recovery_status",
+        }
+    return {
+        "available": False,
+        "present": False,
+        "fresh": False,
+        "source": "",
+        "raw_message_count": len(messages),
+        "requires_context_recovery_package": compacted,
+        "reason": "context_recovery_package_status_unavailable",
+        "authority": "harness.continuation.context_recovery_status",
+    }
+
+
+def _context_resume_available(context_recovery_status: dict[str, Any]) -> bool:
+    status = _normalize_context_recovery_status(context_recovery_status)
+    return bool(status.get("available") is True and status.get("fresh") is True)
+
+
+def _float_value(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _recovery_cause_from_recovery_state(recovery_state: Any) -> str:
@@ -517,10 +636,10 @@ def _artifact_refs(*, rollout: dict[str, Any], diagnostics: dict[str, Any]) -> l
 
 def _next_recommended_step(*, state: str, resume_allowed: bool) -> str:
     if state == "terminal_read_only":
-        return "只读说明最近任务结果；不要续跑该任务。"
+        return "保持会话上下文连续；原 task_run 只能作为断开后的运行事实参考，由 agent 判断是否说明状态、重新规划，或创建新的任务延续。"
     if resume_allowed:
-        return "使用已校验的 continuation handle 恢复原 task_run，并在下一次模型调用中核对文件状态与未完成验收项。"
-    return "先向用户说明当前任务需要确认或授权，不能自动续跑。"
+        return "上下文已连续，原 task_run 也具备同运行续跑动作；agent 仍需先核对最新文件状态、任务断开事实和未完成验收项，再决定是否执行续跑。"
+    return "上下文已连续；把任务断开或不可原地调度视为运行事实交给 agent，由 agent 判断下一步，不要由系统替代语义决策。"
 
 
 def _model_visible_summary(
@@ -545,6 +664,7 @@ def _model_visible_summary(
         parts.append(f"结束原因：{terminal_reason}")
     if status:
         parts.append(f"当前状态：{status}")
+    parts.append("续跑规则：上下文连续性优先；task_run 是否可原地续跑只是运行事实，下一步由 agent 根据用户目标、最新文件状态和任务断开信息判断。")
     return "\n".join(parts)
 
 

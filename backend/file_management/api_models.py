@@ -50,6 +50,13 @@ class ManagedFileOpenInVSCodeRequest(BaseModel):
     session_id: str = Field(default="", max_length=240)
 
 
+class ExternalReadScopeRequest(BaseModel):
+    source_path: str = Field(..., min_length=1, max_length=4000)
+    scope_id: str = Field(default="", max_length=120)
+    title: str = Field(default="", max_length=240)
+    enabled: bool = True
+
+
 class VSCodeCommandResultRequest(BaseModel):
     status: str = Field(default="", max_length=80)
     message: str = Field(default="", max_length=2000)

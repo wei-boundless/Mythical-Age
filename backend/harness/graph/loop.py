@@ -1336,6 +1336,34 @@ def _evaluate_loop_route(
         )
     if mode != "metric_target":
         raise ValueError(f"unsupported graph loop route mode: {mode}")
+    hybrid = _evaluate_metric_target_route_from_progress_receipt(
+        graph_config=graph_config,
+        state=state,
+        result=result,
+        node=node,
+        node_loop=node_loop,
+        route_policy=route_policy,
+        services=services,
+    )
+    if hybrid is not None:
+        return hybrid
+    return _evaluate_metric_target_route(
+        graph_config=graph_config,
+        state=state,
+        result=result,
+        node_loop=node_loop,
+        route_policy=route_policy,
+    )
+
+
+def _evaluate_metric_target_route(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    result: NodeResultEnvelope,
+    node_loop: dict[str, Any],
+    route_policy: dict[str, Any],
+) -> dict[str, Any]:
     scope_id = str(route_policy.get("scope_id") or node_loop.get("scope_id") or "").strip()
     frame = _loop_frame_for_route(graph_config=graph_config, scope_id=scope_id, node_id=result.node_id, route_policy=route_policy)
     metric = _route_metric(route_policy=route_policy, state=state, result=result)
@@ -1348,20 +1376,13 @@ def _evaluate_loop_route(
             "scope_id": scope_id,
             "route_policy": route_policy,
         }
-    patched_inputs = dict(state.initial_inputs or {})
+    patched_inputs = _apply_route_metric_counters(
+        initial_inputs=dict(state.initial_inputs or {}),
+        route_policy=route_policy,
+        metric=metric,
+    )
     current_key = str(route_policy.get("current_key") or "").strip()
     target_key = str(route_policy.get("target_key") or "").strip()
-    if current_key:
-        patched_inputs[current_key] = _numeric_value(patched_inputs.get(current_key), 0) + metric
-    last_metric_key = str(route_policy.get("last_metric_key") or "").strip()
-    if last_metric_key:
-        patched_inputs[last_metric_key] = metric
-    for counter in list(route_policy.get("secondary_counters") or []):
-        if not isinstance(counter, dict):
-            continue
-        secondary_key = str(counter.get("current_key") or "").strip()
-        if secondary_key:
-            patched_inputs[secondary_key] = _numeric_value(patched_inputs.get(secondary_key), 0) + metric
     patched_inputs = _apply_patch_rules(patched_inputs, list(route_policy.get("patch_rules") or []))
     current_value = _numeric_value(patched_inputs.get(current_key), 0) if current_key else 0
     target_value = _numeric_value(patched_inputs.get(target_key), 0) if target_key else 0
@@ -1400,6 +1421,93 @@ def _evaluate_loop_route(
         "current_value": current_value,
         "target_key": target_key,
         "target_value": target_value,
+        "initial_inputs_patch": patched_inputs,
+        "scope_node_ids": list(_loop_scope_node_ids(graph_config=graph_config, frame=frame)),
+        "reset_scope_on_continue": frame.get("reset_scope_on_continue"),
+        "preserve_iteration_results": frame.get("preserve_iteration_results"),
+    }
+
+
+def _evaluate_metric_target_route_from_progress_receipt(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    result: NodeResultEnvelope,
+    node: dict[str, Any],
+    node_loop: dict[str, Any],
+    route_policy: dict[str, Any],
+    services: Any | None,
+) -> dict[str, Any] | None:
+    if not _route_uses_chapter_progress_receipt(state=state, route_policy=route_policy):
+        return None
+    scope_id = str(route_policy.get("scope_id") or node_loop.get("scope_id") or "").strip()
+    frame = _loop_frame_for_route(graph_config=graph_config, scope_id=scope_id, node_id=result.node_id, route_policy=route_policy)
+    try:
+        receipt = first_chapter_progress_receipt(
+            _progress_receipt_sources(
+                graph_config=graph_config,
+                state=state,
+                result=result,
+                route_policy=route_policy,
+                services=services,
+            ),
+            key="chapter_progress_receipt",
+            initial_inputs=dict(state.initial_inputs or {}),
+        )
+    except ChapterProgressReceiptError:
+        return None
+
+    metric = _chapter_progress_receipt_metric(
+        receipt=receipt,
+        route_policy=route_policy,
+        state=state,
+        result=result,
+    )
+    patched_inputs = _apply_route_metric_counters(
+        initial_inputs=dict(state.initial_inputs or {}),
+        route_policy=route_policy,
+        metric=metric,
+    )
+    patched_inputs = _apply_chapter_progress_receipt_inputs(
+        initial_inputs=patched_inputs,
+        receipt=receipt,
+    )
+    patched_inputs = _apply_patch_rules(patched_inputs, list(route_policy.get("patch_rules") or []))
+
+    current_key = str(route_policy.get("current_key") or "group_current_measure").strip()
+    target_key = str(route_policy.get("target_key") or "group_target_measure").strip()
+    current_value = _numeric_value(patched_inputs.get(current_key), 0) if current_key else 0
+    target_value = _numeric_value(patched_inputs.get(target_key), 0) if target_key else 0
+    receipt_complete = bool(receipt.get("volume_complete"))
+    action = "exit" if receipt_complete or (target_key and current_value >= target_value) else "continue"
+    if action == "continue" and _chapter_batch_cursor_advanced(
+        previous_inputs=dict(state.initial_inputs or {}),
+        next_inputs=patched_inputs,
+    ):
+        patched_inputs = _apply_child_loop_input_resets(
+            graph_config=graph_config,
+            inputs=patched_inputs,
+            parent_frame=frame,
+        )
+    patched_inputs = _apply_derived_fields(patched_inputs, list(route_policy.get("derived_fields") or []))
+    continue_node_id = str(route_policy.get("continue_node_id") or frame.get("continue_node_id") or frame.get("entry_node_id") or "").strip()
+    exit_node_id = str(route_policy.get("exit_node_id") or frame.get("exit_node_id") or "").strip()
+    return {
+        "authority": "harness.graph.loop_route_decision",
+        "action": action,
+        "reason": "volume_complete" if receipt_complete else ("target_reached" if action == "exit" else "target_not_reached"),
+        "node_id": result.node_id,
+        "result_id": result.result_id,
+        "scope_id": scope_id,
+        "frame_id": str(frame.get("frame_id") or scope_id),
+        "continue_node_id": continue_node_id,
+        "exit_node_id": exit_node_id,
+        "metric": metric,
+        "current_key": current_key,
+        "current_value": current_value,
+        "target_key": target_key,
+        "target_value": target_value,
+        "progress_receipt": receipt,
         "initial_inputs_patch": patched_inputs,
         "scope_node_ids": list(_loop_scope_node_ids(graph_config=graph_config, frame=frame)),
         "reset_scope_on_continue": frame.get("reset_scope_on_continue"),
@@ -1453,43 +1561,42 @@ def _evaluate_progress_receipt_route(
             scope_id=scope_id,
         )
 
-    patched_inputs = dict(state.initial_inputs or {})
-    committed_words = _numeric_value(receipt.get("committed_words"), 0)
-    current_key = str(route_policy.get("current_key") or "group_current_measure").strip()
-    if current_key:
-        patched_inputs[current_key] = _numeric_value(patched_inputs.get(current_key), 0) + committed_words
-    last_metric_key = str(route_policy.get("last_metric_key") or "last_batch_words").strip()
-    if last_metric_key:
-        patched_inputs[last_metric_key] = committed_words
-    for counter in list(route_policy.get("secondary_counters") or []):
-        if not isinstance(counter, dict):
-            continue
-        secondary_key = str(counter.get("current_key") or "").strip()
-        if secondary_key:
-            patched_inputs[secondary_key] = _numeric_value(patched_inputs.get(secondary_key), 0) + committed_words
-
-    next_chapter_index = int(_numeric_value(receipt.get("next_chapter_index"), _numeric_value(patched_inputs.get("chapter_index"), 1)))
-    batch_complete = bool(receipt.get("batch_complete"))
-    patched_inputs["chapter_index"] = next_chapter_index
-    patched_inputs["active_chapter_start_index"] = next_chapter_index
-    patched_inputs["active_chapter_end_index"] = int(_numeric_value(receipt.get("batch_end_index"), _numeric_value(patched_inputs.get("batch_end_index"), next_chapter_index)))
-    if batch_complete:
-        patched_inputs["batch_start_index"] = next_chapter_index
-        patched_inputs["batch_end_index"] = next_chapter_index + max(1, int(_numeric_value(patched_inputs.get("units_per_batch"), 1))) - 1
-        patched_inputs["active_chapter_end_index"] = patched_inputs["batch_end_index"]
-    else:
-        patched_inputs["batch_start_index"] = int(_numeric_value(receipt.get("batch_start_index"), _numeric_value(patched_inputs.get("batch_start_index"), next_chapter_index)))
-        patched_inputs["batch_end_index"] = int(_numeric_value(receipt.get("batch_end_index"), _numeric_value(patched_inputs.get("batch_end_index"), patched_inputs["active_chapter_end_index"])))
-    patched_inputs["active_chapter_range"] = f"{int(patched_inputs['active_chapter_start_index']):03d}-{int(patched_inputs['active_chapter_end_index']):03d}"
+    committed_words = _chapter_progress_receipt_metric(
+        receipt=receipt,
+        route_policy=route_policy,
+        state=state,
+        result=result,
+    )
+    patched_inputs = _apply_route_metric_counters(
+        initial_inputs=dict(state.initial_inputs or {}),
+        route_policy=route_policy,
+        metric=committed_words,
+    )
+    patched_inputs = _apply_chapter_progress_receipt_inputs(
+        initial_inputs=patched_inputs,
+        receipt=receipt,
+    )
     patched_inputs = _apply_patch_rules(patched_inputs, list(route_policy.get("patch_rules") or []))
-    patched_inputs.setdefault("active_chapter_range", f"{int(_numeric_value(patched_inputs.get('active_chapter_start_index'), next_chapter_index)):03d}-{int(_numeric_value(patched_inputs.get('active_chapter_end_index'), next_chapter_index)):03d}")
+    patched_inputs.setdefault(
+        "active_chapter_range",
+        f"{int(_numeric_value(patched_inputs.get('active_chapter_start_index'), _numeric_value(receipt.get('next_chapter_index'), 1))):03d}-{int(_numeric_value(patched_inputs.get('active_chapter_end_index'), _numeric_value(receipt.get('next_chapter_index'), 1))):03d}",
+    )
 
+    current_key = str(route_policy.get("current_key") or "group_current_measure").strip()
     target_key = str(route_policy.get("target_key") or "group_target_measure").strip()
     current_value = _numeric_value(patched_inputs.get(current_key), 0) if current_key else 0
     target_value = _numeric_value(patched_inputs.get(target_key), 0) if target_key else 0
     receipt_complete = bool(receipt.get("volume_complete"))
     action = "exit" if receipt_complete or (target_key and current_value >= target_value) else "continue"
-    patched_inputs = _apply_frame_cursor_patch(inputs=patched_inputs, frame=frame, action=action)
+    if action == "continue" and _chapter_batch_cursor_advanced(
+        previous_inputs=dict(state.initial_inputs or {}),
+        next_inputs=patched_inputs,
+    ):
+        patched_inputs = _apply_child_loop_input_resets(
+            graph_config=graph_config,
+            inputs=patched_inputs,
+            parent_frame=frame,
+        )
     patched_inputs = _apply_derived_fields(patched_inputs, list(route_policy.get("derived_fields") or []))
     continue_node_id = str(route_policy.get("continue_node_id") or frame.get("continue_node_id") or frame.get("entry_node_id") or "").strip()
     exit_node_id = str(route_policy.get("exit_node_id") or frame.get("exit_node_id") or "").strip()
@@ -1514,6 +1621,100 @@ def _evaluate_progress_receipt_route(
         "reset_scope_on_continue": frame.get("reset_scope_on_continue"),
         "preserve_iteration_results": frame.get("preserve_iteration_results"),
     }
+
+
+def _route_uses_chapter_progress_receipt(*, state: GraphLoopState, route_policy: dict[str, Any]) -> bool:
+    return bool(
+        any(
+            key in dict(state.initial_inputs or {})
+            for key in ("batch_start_index", "batch_end_index", "chapter_index", "units_per_batch")
+        )
+        and str(route_policy.get("current_key") or "").strip() in {"", "group_current_measure"}
+    )
+
+
+def _chapter_progress_receipt_metric(
+    *,
+    receipt: dict[str, Any],
+    route_policy: dict[str, Any],
+    state: GraphLoopState,
+    result: NodeResultEnvelope,
+) -> float | int:
+    metric = _numeric_value(receipt.get("committed_words"), None)
+    if metric is not None:
+        return metric
+    fallback = _route_metric(route_policy=route_policy, state=state, result=result)
+    return _numeric_value(fallback, 0)
+
+
+def _apply_route_metric_counters(
+    *,
+    initial_inputs: dict[str, Any],
+    route_policy: dict[str, Any],
+    metric: float | int,
+) -> dict[str, Any]:
+    patched_inputs = dict(initial_inputs or {})
+    current_key = str(route_policy.get("current_key") or "").strip()
+    if current_key:
+        patched_inputs[current_key] = _numeric_value(patched_inputs.get(current_key), 0) + metric
+    last_metric_key = str(route_policy.get("last_metric_key") or "").strip()
+    if last_metric_key:
+        patched_inputs[last_metric_key] = metric
+    for counter in list(route_policy.get("secondary_counters") or []):
+        if not isinstance(counter, dict):
+            continue
+        secondary_key = str(counter.get("current_key") or "").strip()
+        if secondary_key:
+            patched_inputs[secondary_key] = _numeric_value(patched_inputs.get(secondary_key), 0) + metric
+    return patched_inputs
+
+
+def _apply_chapter_progress_receipt_inputs(
+    *,
+    initial_inputs: dict[str, Any],
+    receipt: dict[str, Any],
+) -> dict[str, Any]:
+    patched_inputs = dict(initial_inputs or {})
+    next_chapter_index = int(_numeric_value(receipt.get("next_chapter_index"), _numeric_value(patched_inputs.get("chapter_index"), 1)))
+    batch_complete = bool(receipt.get("batch_complete"))
+    patched_inputs["chapter_index"] = next_chapter_index
+    patched_inputs["active_chapter_start_index"] = next_chapter_index
+    patched_inputs["active_chapter_end_index"] = int(
+        _numeric_value(receipt.get("batch_end_index"), _numeric_value(patched_inputs.get("batch_end_index"), next_chapter_index))
+    )
+    if batch_complete:
+        patched_inputs["batch_start_index"] = next_chapter_index
+        patched_inputs["batch_end_index"] = next_chapter_index + max(1, int(_numeric_value(patched_inputs.get("units_per_batch"), 1))) - 1
+        patched_inputs["active_chapter_end_index"] = patched_inputs["batch_end_index"]
+    else:
+        patched_inputs["batch_start_index"] = int(
+            _numeric_value(receipt.get("batch_start_index"), _numeric_value(patched_inputs.get("batch_start_index"), next_chapter_index))
+        )
+        patched_inputs["batch_end_index"] = int(
+            _numeric_value(
+                receipt.get("batch_end_index"),
+                _numeric_value(patched_inputs.get("batch_end_index"), patched_inputs["active_chapter_end_index"]),
+            )
+        )
+    patched_inputs["active_chapter_count"] = max(
+        0,
+        int(_numeric_value(patched_inputs.get("active_chapter_end_index"), next_chapter_index))
+        - int(_numeric_value(patched_inputs.get("active_chapter_start_index"), next_chapter_index))
+        + 1,
+    )
+    patched_inputs["active_chapter_range"] = (
+        f"{int(_numeric_value(patched_inputs.get('active_chapter_start_index'), next_chapter_index)):03d}-"
+        f"{int(_numeric_value(patched_inputs.get('active_chapter_end_index'), next_chapter_index)):03d}"
+    )
+    return patched_inputs
+
+
+def _chapter_batch_cursor_advanced(*, previous_inputs: dict[str, Any], next_inputs: dict[str, Any]) -> bool:
+    previous = _numeric_value(previous_inputs.get("batch_start_index"), None)
+    current = _numeric_value(next_inputs.get("batch_start_index"), None)
+    if previous is None or current is None:
+        return False
+    return int(current) != int(previous)
 
 
 def _evaluate_generic_progress_receipt_route(

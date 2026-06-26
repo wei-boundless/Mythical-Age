@@ -66,63 +66,44 @@ def _runtime_context_projection(
     prompt_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     projection = dict(agent_visible_runtime_projection or {})
-    if str(projection.get("invocation_kind") or "") == "task_execution":
-        return _task_execution_runtime_context_projection(
-            assembly_payload,
-            agent_visible_runtime_projection=projection,
-            prompt_policy=dict(prompt_policy or {}),
-        )
     profile = dict(assembly_payload.get("profile") or {})
-    environment = dict(assembly_payload.get("task_environment") or {})
-    storage = dict(environment.get("storage_space") or {})
-    payload = {
-        "assembly_id": str(assembly_payload.get("assembly_id") or ""),
-        "agent_profile_ref": str(assembly_payload.get("agent_profile_ref") or ""),
-        "runtime_profile_ref": str(profile.get("profile_ref") or ""),
-        "task_environment_id": str(environment.get("environment_id") or ""),
-        "storage": drop_empty(
-            {
-                "environment_storage_root": str(storage.get("environment_storage_root") or ""),
-                "artifact_root": str(storage.get("artifact_root") or ""),
-            }
-        ),
-        "agent_prompt_refs": string_tuple(assembly_payload.get("agent_prompt_refs")),
-        "agent_prompt_refs_by_invocation": _prompt_refs_by_invocation(assembly_payload.get("agent_prompt_refs_by_invocation")),
-        "environment_prompt_refs": string_tuple(assembly_payload.get("environment_prompt_refs")),
-        "allowed_operation_count": len(list(dict(assembly_payload.get("operation_authorization") or {}).get("allowed_operations") or [])),
-        "runtime_policy_refs": drop_empty(
-            {
-                "permission_scope": str(dict(profile.get("permission_policy") or {}).get("permission_scope") or ""),
-                "task_lifecycle_hash": stable_json_hash(dict(profile.get("task_lifecycle_policy") or {})),
-                "planning_hash": stable_json_hash(dict(profile.get("planning_policy") or {})),
-                "self_review_hash": stable_json_hash(dict(profile.get("self_review_policy") or {})),
-            }
-        ),
-        "agent_visible_runtime_projection": projection,
-    }
-    return drop_empty(payload)
+    return _runtime_context_cursor_projection(
+        agent_visible_runtime_projection=projection,
+        profile_payload=profile,
+    )
 
 
-def _task_execution_runtime_context_projection(
-    assembly_payload: dict[str, Any],
+def _runtime_context_cursor_projection(
     *,
     agent_visible_runtime_projection: dict[str, Any],
-    prompt_policy: dict[str, Any] | None = None,
+    profile_payload: dict[str, Any],
 ) -> dict[str, Any]:
     tool_boundary = dict(agent_visible_runtime_projection.get("tool_boundary") or {})
     permission_boundary = dict(agent_visible_runtime_projection.get("permission_boundary") or {})
     model_decision_contract = dict(agent_visible_runtime_projection.get("model_decision_contract") or {})
     service_surface = dict(agent_visible_runtime_projection.get("service_surface") or {})
     execution_boundary = dict(agent_visible_runtime_projection.get("execution_boundary") or {})
+    planning = dict(agent_visible_runtime_projection.get("planning") or {})
+    task_lifecycle = dict(agent_visible_runtime_projection.get("task_lifecycle") or {})
+    profile_policy = dict(profile_payload or {})
     return drop_empty(
         {
+            "invocation_kind": str(agent_visible_runtime_projection.get("invocation_kind") or ""),
+            "allowed_action_types": [
+                str(item)
+                for item in list(agent_visible_runtime_projection.get("allowed_action_types") or [])
+                if str(item)
+            ],
             "model_decision_contract": _task_execution_model_decision_cursor(model_decision_contract),
             "service_surface": _task_execution_service_surface_cursor(service_surface),
             "execution_boundary": _task_execution_boundary_cursor(execution_boundary),
             "permission_scope": str(permission_boundary.get("permission_scope") or ""),
+            "planning": _planning_cursor(planning),
+            "task_lifecycle": _task_lifecycle_cursor(task_lifecycle),
             "tool_boundary": drop_empty(
                 {
                     "visible_tool_count": int(tool_boundary.get("visible_tool_count") or 0),
+                    "visible_tools_ref": "tool_index_stable.available_tools",
                     "allowed_operation_count": int(tool_boundary.get("allowed_operation_count") or 0),
                     "subagent_lifecycle_enabled": bool(tool_boundary.get("subagent_lifecycle_enabled") is True),
                     "allowed_subagent_ids": [
@@ -132,7 +113,57 @@ def _task_execution_runtime_context_projection(
                     ],
                 }
             ),
-            "authority": "harness.runtime.task_execution_context.model_visible",
+            "runtime_policy_refs": drop_empty(
+                {
+                    "permission_scope": str(dict(profile_policy.get("permission_policy") or {}).get("permission_scope") or ""),
+                    "task_lifecycle_hash": stable_json_hash(dict(profile_policy.get("task_lifecycle_policy") or {})),
+                    "planning_hash": stable_json_hash(dict(profile_policy.get("planning_policy") or {})),
+                    "self_review_hash": stable_json_hash(dict(profile_policy.get("self_review_policy") or {})),
+                }
+            ),
+            "stable_context_refs": {
+                "runtime_baseline": "runtime_baseline_refs",
+                "tool_index": "tool_index_stable.available_tools",
+                "action_schema": "action_schema_static",
+            },
+            "authority": "harness.runtime.runtime_context.cursor",
+        }
+    )
+
+
+def _planning_cursor(value: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(value or {})
+    return drop_empty(
+        {
+            "plan_mode_active": payload.get("plan_mode_active") if isinstance(payload.get("plan_mode_active"), bool) else None,
+            "implementation_allowed": payload.get("implementation_allowed")
+            if isinstance(payload.get("implementation_allowed"), bool)
+            else None,
+            "specified_plan_allowed": payload.get("specified_plan_allowed")
+            if isinstance(payload.get("specified_plan_allowed"), bool)
+            else None,
+            "todo_required_when_task_run": payload.get("todo_required_when_task_run")
+            if isinstance(payload.get("todo_required_when_task_run"), bool)
+            else None,
+            "protocol_ref": "action_schema_static.planning_protocol",
+        }
+    )
+
+
+def _task_lifecycle_cursor(value: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(value or {})
+    return drop_empty(
+        {
+            "request_task_run_allowed": payload.get("request_task_run_allowed")
+            if isinstance(payload.get("request_task_run_allowed"), bool)
+            else None,
+            "requires_completion_evidence": payload.get("requires_completion_evidence")
+            if isinstance(payload.get("requires_completion_evidence"), bool)
+            else None,
+            "artifact_evidence_required": payload.get("artifact_evidence_required")
+            if isinstance(payload.get("artifact_evidence_required"), bool)
+            else None,
+            "contract_ref": "action_schema_static.task_entry_rule",
         }
     )
 

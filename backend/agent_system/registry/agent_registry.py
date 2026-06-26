@@ -37,16 +37,72 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
     return (
         AgentDescriptor(
             agent_id="agent:0",
-            agent_name="主 Agent",
+            agent_name="通用主 Agent",
             agent_category="main_agent",
             interface_target="main_conversation",
-            description="你是主会话 Agent。你负责理解用户目标、组织必要上下文和工具调用，并给出最终答复或交付结果。你可以委派专门 Agent 执行局部检索、验证或实现任务，但最终判断、取舍和对用户的说明由你负责。",
+            description="你是通用主会话 Agent。你负责处理广泛工作请求，理解用户目标、组织必要上下文和工具调用，并给出最终答复或交付结果。你可以委派专门 Agent 执行局部检索、验证或实现任务，但最终判断、取舍和对用户的说明由你负责。",
             enabled=True,
             builtin=True,
             editable=True,
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "main_conversation_entry", "builtin_kind": "primary", "system_key": "task_system", "slot_index": 0, "agent_template_id": "builtin.main.primary", "subagent_enabled": False, "group_eligible": False},
+            metadata={
+                "role": "main_conversation_entry",
+                "builtin_kind": "primary",
+                "system_key": "task_system",
+                "slot_index": 0,
+                "agent_template_id": "builtin.main.general",
+                "main_agent_kind": "general",
+                "default_task_environment_id": "env.general.workspace",
+                "subagent_enabled": False,
+                "group_eligible": False,
+            },
+        ),
+        AgentDescriptor(
+            agent_id="agent:main_coding",
+            agent_name="编码主 Agent",
+            agent_category="main_agent",
+            interface_target="main_conversation",
+            description="你是编码主会话 Agent。你负责真实代码工作区里的开发、排查、重构和验证交付。你必须以当前代码事实、用户最新要求、项目规则和可验证结果为准；可以委派检索或复核子 Agent，但最终实现判断、风险取舍和对用户说明由你负责。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={
+                "role": "main_conversation_entry",
+                "builtin_kind": "primary",
+                "system_key": "task_system",
+                "slot_index": 1,
+                "agent_template_id": "builtin.main.coding",
+                "main_agent_kind": "coding",
+                "default_task_environment_id": "env.coding.vibe_workspace",
+                "subagent_enabled": False,
+                "group_eligible": False,
+            },
+        ),
+        AgentDescriptor(
+            agent_id="agent:main_office",
+            agent_name="办公主 Agent",
+            agent_category="main_agent",
+            interface_target="main_conversation",
+            description="你是办公资料主会话 Agent。你负责文件资料、来源核验、摘要整理、表格或文档材料处理和可交付办公产物。你必须基于真实读取和来源证据作答；可以委派资料、PDF、表格或网页研究子 Agent，但最终来源裁决和对用户说明由你负责。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={
+                "role": "main_conversation_entry",
+                "builtin_kind": "primary",
+                "system_key": "task_system",
+                "slot_index": 2,
+                "agent_template_id": "builtin.main.office",
+                "main_agent_kind": "office",
+                "default_task_environment_id": "env.office.file_search",
+                "subagent_enabled": False,
+                "group_eligible": False,
+            },
         ),
         AgentDescriptor(
             agent_id="agent:1",
@@ -59,7 +115,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=True,
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "memory_system", "slot_index": 1, "agent_template_id": "builtin.system.memory_manager", "subagent_enabled": False, "group_eligible": False},
+            metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "memory_system", "slot_index": 3, "agent_template_id": "builtin.system.memory_manager", "subagent_enabled": False, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:2",
@@ -72,7 +128,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=True,
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "config_system", "slot_index": 2, "agent_template_id": "builtin.system.config_manager", "subagent_enabled": False, "group_eligible": False},
+            metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "config_system", "slot_index": 4, "agent_template_id": "builtin.system.config_manager", "subagent_enabled": False, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:3",
@@ -85,7 +141,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=True,
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "health_system", "slot_index": 3, "agent_template_id": "builtin.system.health_manager", "subagent_enabled": False, "group_eligible": False},
+            metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "health_system", "slot_index": 5, "agent_template_id": "builtin.system.health_manager", "subagent_enabled": False, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:4",
@@ -98,7 +154,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=True,
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "task_management_system", "slot_index": 4, "agent_template_id": "builtin.system.task_manager", "subagent_enabled": False, "group_eligible": False},
+            metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "task_management_system", "slot_index": 6, "agent_template_id": "builtin.system.task_manager", "subagent_enabled": False, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:5",
@@ -111,7 +167,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=True,
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "capability_system", "slot_index": 5, "agent_template_id": "builtin.system.capability_manager", "subagent_enabled": False, "group_eligible": False},
+            metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "capability_system", "slot_index": 7, "agent_template_id": "builtin.system.capability_manager", "subagent_enabled": False, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:knowledge_searcher",
@@ -124,7 +180,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=True,
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "knowledge_search", "slot_index": 6, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.knowledge_searcher", "subagent_enabled": True, "group_eligible": False},
+            metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "knowledge_search", "slot_index": 8, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.knowledge_searcher", "subagent_enabled": True, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:pdf_reader",
@@ -137,7 +193,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=True,
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "pdf_analysis", "slot_index": 7, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.pdf_reader", "subagent_enabled": True, "group_eligible": False},
+            metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "pdf_analysis", "slot_index": 9, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.pdf_reader", "subagent_enabled": True, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:table_analyst",
@@ -150,7 +206,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=True,
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "structured_data_analysis", "slot_index": 8, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.table_analyst", "subagent_enabled": True, "group_eligible": False},
+            metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "structured_data_analysis", "slot_index": 10, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.table_analyst", "subagent_enabled": True, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:web_researcher",
@@ -163,7 +219,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=True,
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "web_research", "slot_index": 9, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.web_researcher", "subagent_enabled": True, "group_eligible": False},
+            metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "web_research", "slot_index": 11, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.web_researcher", "subagent_enabled": True, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:codebase_searcher",
@@ -176,7 +232,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=True,
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "codebase_search", "slot_index": 10, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.codebase_searcher", "subagent_enabled": True, "group_eligible": False},
+            metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "codebase_search", "slot_index": 12, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.codebase_searcher", "subagent_enabled": True, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:memory_searcher",
@@ -189,7 +245,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=True,
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "memory_search", "slot_index": 11, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.memory_searcher", "subagent_enabled": True, "group_eligible": False},
+            metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "memory_search", "slot_index": 13, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.memory_searcher", "subagent_enabled": True, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:verifier",
@@ -202,7 +258,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=True,
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "completion_verification", "slot_index": 12, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.verifier", "subagent_enabled": True, "group_eligible": False},
+            metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "completion_verification", "slot_index": 14, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.verifier", "subagent_enabled": True, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:context_compactor",
@@ -215,7 +271,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=True,
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "context_management", "slot_index": 13, "agent_template_id": "builtin.system.context_compactor", "subagent_enabled": False, "group_eligible": False},
+            metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "context_management", "slot_index": 15, "agent_template_id": "builtin.system.context_compactor", "subagent_enabled": False, "group_eligible": False},
         ),
     )
 
@@ -484,7 +540,17 @@ def _enforce_system_builtin_payload(
         **{
             key: value
             for key, value in dict(default_payload.get("metadata") or {}).items()
-            if key in {"role", "system_key", "slot_index", "builtin_kind", "agent_template_id", "subagent_enabled", "group_eligible"}
+            if key in {
+                "role",
+                "system_key",
+                "slot_index",
+                "builtin_kind",
+                "agent_template_id",
+                "main_agent_kind",
+                "default_task_environment_id",
+                "subagent_enabled",
+                "group_eligible",
+            }
         },
         "definition_source": "system_builtin",
         "lifecycle_policy": str(

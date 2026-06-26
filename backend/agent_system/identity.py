@@ -5,6 +5,12 @@ from typing import Iterable
 
 CANONICAL_AGENT_ID_BY_ALIAS = {
     "agent:main": "agent:0",
+    "agent:main_general": "agent:0",
+    "agent.general_main": "agent:0",
+    "agent:main_code": "agent:main_coding",
+    "agent.coding_main": "agent:main_coding",
+    "agent:main_file": "agent:main_office",
+    "agent.office_main": "agent:main_office",
     "agent:rag_analyst": "agent:knowledge_searcher",
     "agent:6": "agent:knowledge_searcher",
     "agent.rag_retriever": "agent:knowledge_searcher",
@@ -82,7 +88,11 @@ def agent_id_aliases(agent_id: str) -> tuple[str, ...]:
     canonical = normalize_agent_id(agent_id)
     values = [canonical] if canonical else []
     if canonical == "agent:0":
-        values.append("agent:main")
+        values.extend(("agent:main", "agent:main_general", "agent.general_main"))
+    if canonical == "agent:main_coding":
+        values.extend(("agent:main_code", "agent.coding_main"))
+    if canonical == "agent:main_office":
+        values.extend(("agent:main_file", "agent.office_main"))
     values.extend(WORKER_AGENT_ALIASES.get(canonical, ()))
     seen: set[str] = set()
     result: list[str] = []
@@ -105,5 +115,3 @@ def normalize_agent_id_sequence(values: Iterable[str]) -> tuple[str, ...]:
         seen.add(normalized)
         result.append(normalized)
     return tuple(result)
-
-

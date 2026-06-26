@@ -205,7 +205,7 @@ def test_single_agent_turn_renders_stable_tool_index_for_provider_cache() -> Non
     )
 
     packet = result.packet
-    stable_payload = _message_payload_with_title(packet, "Single agent turn stable boundary")
+    stable_payload = _message_payload_with_title(packet, "Turn operating contract")
     tool_plan = build_runtime_tool_plan(
         runtime_assembly=runtime_assembly,
         invocation_kind="single_agent_turn",
@@ -217,8 +217,8 @@ def test_single_agent_turn_renders_stable_tool_index_for_provider_cache() -> Non
         source_ref="runtime_assembly.available_tools",
         tool_guidance_prompt_defaults=_TOOL_GUIDANCE_DEFAULTS,
     ).to_model_visible_payload(include_catalog_hash=True)
-    tool_index_payload = _message_payload_with_title(packet, "Single agent turn tool index")
-    tool_schema_payload = _message_payload_with_title(packet, "Single agent turn tool schema catalog")
+    tool_index_payload = _message_payload_with_title(packet, "Available tool index")
+    tool_schema_payload = _message_payload_with_title(packet, "Tool schema catalog")
     tool_segment = next(
         segment
         for segment in list(packet.segment_plan.get("segments") or [])
@@ -333,8 +333,8 @@ def test_observation_followup_stable_contract_uses_tool_catalog_manifest_payload
     )
 
     packet = result.packet
-    stable_payload = _message_payload_with_title(packet, "Observation followup stable contract")
-    tool_index_payload = _message_payload_with_title(packet, "Observation followup tool index")
+    stable_payload = _message_payload_with_title(packet, "Tool observation follow-up contract")
+    tool_index_payload = _message_payload_with_title(packet, "Available tool index")
     schema_segment = next(
         segment
         for segment in list(packet.segment_plan.get("segments") or [])
@@ -520,3 +520,5 @@ def test_provider_usage_does_not_mark_estimated_stable_prefix_under_read_as_cach
     assert dict(updated.diagnostics or {})["provider_cache_read_stable_prefix_covered"] is None
     assert dict(updated.diagnostics or {})["provider_cache_read_stable_prefix_coverage_evidence"] == "unmeasured_by_provider_usage"
     assert break_record is None
+
+

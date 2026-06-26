@@ -451,7 +451,7 @@ function WorkspaceManagerPanel({
   }
 
   return (
-    <aside className="workbench-resource-panel" aria-label="任务环境管理">
+    <aside className="workbench-resource-panel" aria-label="项目与会话管理">
       <header className="workbench-panel-head">
         <div>
           <strong>项目</strong>
@@ -716,10 +716,10 @@ function MainToolbar({
       </div>
       <div className="workbench-toolbar-actions">
         <button
-          aria-label={leftPanelCollapsed ? "打开左侧任务环境" : "收起左侧任务环境"}
+          aria-label={leftPanelCollapsed ? "打开左侧项目栏" : "收起左侧项目栏"}
           className="workbench-toolbar-icon-button"
           onClick={onToggleLeftPanel}
-          title={leftPanelCollapsed ? "打开左侧任务环境" : "收起左侧任务环境"}
+          title={leftPanelCollapsed ? "打开左侧项目栏" : "收起左侧项目栏"}
           type="button"
         >
           {leftPanelCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
@@ -772,7 +772,7 @@ export function WorkbenchShell({
   className = "",
   hideMainToolbar = false,
   leftPanel,
-  leftPanelLabel = "任务环境",
+  leftPanelLabel = "项目栏",
   rightPanel,
   rightPanelLabel = "辅助栏",
 }: {
@@ -858,7 +858,7 @@ export function WorkbenchShell({
             side="left"
           />
         )}
-        <section className={hideMainToolbar ? "workbench-center workbench-center--no-toolbar" : "workbench-center"} aria-label="主任务环境">
+        <section className={hideMainToolbar ? "workbench-center workbench-center--no-toolbar" : "workbench-center"} aria-label="主会话">
           {hideMainToolbar ? null : (
             <MainToolbar
               leftPanelCollapsed={leftCollapsed}

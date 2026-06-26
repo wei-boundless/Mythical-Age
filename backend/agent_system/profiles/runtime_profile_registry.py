@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from core.project_layout import ProjectLayout
+from prompt_library import ENVIRONMENT_LIFECYCLE_PROMPT_DEFAULTS_BY_ENVIRONMENT
 from prompt_library.migrations import migrate_runtime_profile_prompt_metadata
 
 from ..registry.agent_registry import AgentRegistry
@@ -79,8 +80,66 @@ def _runtime_profile(**payload: Any) -> AgentRuntimeProfile:
     )
 
 
+def _main_agent_runtime_policy(environment_id: str) -> dict[str, Any]:
+    lifecycle_defaults = dict(ENVIRONMENT_LIFECYCLE_PROMPT_DEFAULTS_BY_ENVIRONMENT.get(environment_id) or {})
+    return {
+        "prompt_policy": {
+            "lifecycle_prompt_defaults": lifecycle_defaults,
+            "lifecycle_prompt_authority": "agent_runtime_profile",
+        }
+    }
+
+
 def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
     main_packages = (*default_enabled_package_selections(), ToolPackageSelection(package_id="pkg.subagent.lifecycle"))
+    office_packages = (
+        ToolPackageSelection(package_id="pkg.filesystem.read"),
+        ToolPackageSelection(package_id="pkg.filesystem.write"),
+        ToolPackageSelection(package_id="pkg.search.local"),
+        ToolPackageSelection(package_id="pkg.web"),
+        ToolPackageSelection(package_id="pkg.memory"),
+        ToolPackageSelection(package_id="pkg.agent"),
+        ToolPackageSelection(package_id="pkg.mcp.local"),
+        ToolPackageSelection(package_id="pkg.subagent.lifecycle"),
+    )
+    main_prompt_refs = {
+        "single_agent_turn": ["agent.main_interactive_agent.single_agent_turn.work_role"],
+        "tool_observation_followup": ["agent.main_interactive_agent.tool_observation_followup.work_role"],
+        "task_execution": ["agent.main_interactive_agent.task_execution.work_role"],
+    }
+    main_subagent_policy = SubagentPolicy(
+        enabled=True,
+        allowed_subagent_ids=(
+            "agent:knowledge_searcher",
+            "agent:codebase_searcher",
+            "agent:memory_searcher",
+            "agent:pdf_reader",
+            "agent:table_analyst",
+            "agent:web_researcher",
+            "agent:verifier",
+        ),
+        max_subagent_runs_per_task=4,
+        max_active_subagents=2,
+        context_policy="summary_and_refs_only",
+        result_policy="observation_refs_only",
+        allow_nested_subagents=False,
+    )
+    office_subagent_policy = SubagentPolicy(
+        enabled=True,
+        allowed_subagent_ids=(
+            "agent:knowledge_searcher",
+            "agent:memory_searcher",
+            "agent:pdf_reader",
+            "agent:table_analyst",
+            "agent:web_researcher",
+            "agent:verifier",
+        ),
+        max_subagent_runs_per_task=4,
+        max_active_subagents=2,
+        context_policy="summary_and_refs_only",
+        result_policy="observation_refs_only",
+        allow_nested_subagents=False,
+    )
     profiles = (
         _runtime_profile(
             agent_profile_id="main_interactive_agent",
@@ -99,31 +158,68 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                     "action_long_output_timeout_seconds": 90,
                 }
             ),
-            subagent_policy=SubagentPolicy(
-                enabled=True,
-                allowed_subagent_ids=(
-                    "agent:knowledge_searcher",
-                    "agent:codebase_searcher",
-                    "agent:memory_searcher",
-                    "agent:pdf_reader",
-                    "agent:table_analyst",
-                    "agent:web_researcher",
-                    "agent:verifier",
-                ),
-                max_subagent_runs_per_task=4,
-                max_active_subagents=2,
-                context_policy="summary_and_refs_only",
-                result_policy="observation_refs_only",
-                allow_nested_subagents=False,
-            ),
+            subagent_policy=main_subagent_policy,
             lifecycle_policy="system_builtin",
             metadata={
                 "runtime_template_id": "builtin.main.default",
-                "agent_prompt_refs_by_invocation": {
-                    "single_agent_turn": ["agent.main_interactive_agent.single_agent_turn.work_role"],
-                    "tool_observation_followup": ["agent.main_interactive_agent.tool_observation_followup.work_role"],
-                    "task_execution": ["agent.main_interactive_agent.task_execution.work_role"],
-                },
+                "main_agent_kind": "general",
+                "default_task_environment_id": "env.general.workspace",
+                "agent_prompt_refs_by_invocation": main_prompt_refs,
+                "runtime_policy": _main_agent_runtime_policy("env.general.workspace"),
+            },
+        ),
+        _runtime_profile(
+            agent_profile_id="main_coding_agent",
+            agent_id="agent:main_coding",
+            allowed_tool_packages=main_packages,
+            extra_allowed_operations=("op.model_response", "op.shell"),
+            blocked_operations=("op.python_repl", "op.memory_write_candidate", "op.git_push"),
+            allowed_memory_scopes=("conversation_readonly", "state_readonly", "long_term_candidate"),
+            allowed_context_sections=("conversation", "state", "task", "projection", "tool", "runtime_contracts"),
+            model_profile=parse_agent_model_profile(
+                {
+                    "profile_id": "model.profile.main_coding.action_control",
+                    "display_name": "Main coding agent action control profile",
+                    "action_max_output_tokens": 65536,
+                    "action_timeout_seconds": 90,
+                    "action_long_output_timeout_seconds": 90,
+                }
+            ),
+            subagent_policy=main_subagent_policy,
+            lifecycle_policy="system_builtin",
+            metadata={
+                "runtime_template_id": "builtin.main.coding",
+                "main_agent_kind": "coding",
+                "default_task_environment_id": "env.coding.vibe_workspace",
+                "agent_prompt_refs_by_invocation": main_prompt_refs,
+                "runtime_policy": _main_agent_runtime_policy("env.coding.vibe_workspace"),
+            },
+        ),
+        _runtime_profile(
+            agent_profile_id="main_office_agent",
+            agent_id="agent:main_office",
+            allowed_tool_packages=office_packages,
+            extra_allowed_operations=("op.model_response",),
+            blocked_operations=("op.shell", "op.python_repl", "op.browser_control", "op.git_push", "op.image_generate"),
+            allowed_memory_scopes=("conversation_readonly", "state_readonly", "long_term_candidate"),
+            allowed_context_sections=("conversation", "state", "task", "projection", "tool", "runtime_contracts", "artifact_refs"),
+            model_profile=parse_agent_model_profile(
+                {
+                    "profile_id": "model.profile.main_office.action_control",
+                    "display_name": "Main office agent action control profile",
+                    "action_max_output_tokens": 65536,
+                    "action_timeout_seconds": 90,
+                    "action_long_output_timeout_seconds": 90,
+                }
+            ),
+            subagent_policy=office_subagent_policy,
+            lifecycle_policy="system_builtin",
+            metadata={
+                "runtime_template_id": "builtin.main.office",
+                "main_agent_kind": "office",
+                "default_task_environment_id": "env.office.file_search",
+                "agent_prompt_refs_by_invocation": main_prompt_refs,
+                "runtime_policy": _main_agent_runtime_policy("env.office.file_search"),
             },
         ),
         _runtime_profile(
@@ -957,7 +1053,11 @@ def _enforce_system_builtin_profile_payload(
                 "system_key",
                 "manager_kind",
                 "runtime_template_id",
+                "prompt_template_id",
+                "main_agent_kind",
+                "default_task_environment_id",
                 "agent_prompt_refs_by_invocation",
+                "runtime_policy",
                 "worker_kind",
                 "subagent_task_kind",
                 "input_contract",

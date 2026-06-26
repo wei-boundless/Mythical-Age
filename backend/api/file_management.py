@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 
 from api.deps import require_runtime
 from file_management.api_models import (
+    ExternalReadScopeRequest,
     ManagedFileEditRequest,
     ManagedFileOpenInVSCodeRequest,
     ManagedFileReadRequest,
@@ -34,6 +35,30 @@ async def list_file_management_profiles() -> dict[str, Any]:
 async def list_file_management_repositories(session_id: str = "") -> dict[str, Any]:
     runtime = require_runtime()
     return await asyncio.to_thread(ManagedFileService(runtime).list_repositories, session_id=session_id)
+
+
+@router.get("/file-management/external-read-scopes")
+async def list_external_read_scopes() -> dict[str, Any]:
+    runtime = require_runtime()
+    return await asyncio.to_thread(ManagedFileService(runtime).list_external_read_scopes)
+
+
+@router.post("/file-management/external-read-scopes")
+async def upsert_external_read_scope(payload: ExternalReadScopeRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    return await asyncio.to_thread(
+        ManagedFileService(runtime).upsert_external_read_scope,
+        source_path=payload.source_path,
+        scope_id=payload.scope_id,
+        title=payload.title,
+        enabled=payload.enabled,
+    )
+
+
+@router.delete("/file-management/external-read-scopes/{scope_id}")
+async def delete_external_read_scope(scope_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    return await asyncio.to_thread(ManagedFileService(runtime).delete_external_read_scope, scope_id)
 
 
 @router.post("/file-management/files/read")
@@ -156,6 +181,7 @@ def _context(session_id: str) -> ManagedFileServiceContext:
 
 def _managed_target_for_selected_file(runtime: Any, selected_path: str, *, session_id: str = "") -> tuple[Any, str, str]:
     from file_management.api_models import ManagedFileTarget
+    from file_management.external_read_scopes import external_logical_path
 
     file_path = Path(selected_path).expanduser().resolve()
     if not file_path.exists():
@@ -169,9 +195,10 @@ def _managed_target_for_selected_file(runtime: Any, selected_path: str, *, sessi
         workspace_root = root
         display_path = logical_path
     else:
-        workspace_root = file_path.parent
-        logical_path = file_path.name
-        display_path = str(file_path)
+        service = ManagedFileService(runtime)
+        scope = service.register_external_read_scope(source_path=str(file_path))
+        target = service.external_read_target(scope)
+        return target, external_logical_path(scope.scope_id, scope.default_logical_path()), str(file_path)
 
     scope_id = str(session_id or workspace_root.name or "selected-file").strip()
     target = ManagedFileTarget(

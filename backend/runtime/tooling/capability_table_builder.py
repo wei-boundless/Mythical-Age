@@ -6,7 +6,6 @@ from typing import Any
 from permissions.operations import OperationRegistry, build_default_operation_registry
 from capability_system.tools.native_tool_catalog import ToolDefinition, get_tool_definitions
 from file_management import FileAccessTable
-from harness.runtime.tool_scheduling import environment_allowed_operations
 from task_system.environments import TaskEnvironmentSpec
 from task_system.tasks import SpecificTaskAssemblyPolicy
 
@@ -91,11 +90,6 @@ def build_tool_capability_table(
     task_denied = {registry.normalize_id(item) for item in request.task_denied_operations}
     agent_allowed = {registry.normalize_id(item) for item in request.agent_profile_allowed_operations}
     runtime_available = {registry.normalize_id(item) for item in request.runtime_available_operations}
-    environment_allowed = {
-        registry.normalize_id(item)
-        for item in environment_allowed_operations(request.environment.to_dict())
-    }
-
     dispatch_requested = task_required | task_optional
     audit_requested = dispatch_requested | task_denied | agent_allowed | runtime_available
 
@@ -113,9 +107,6 @@ def build_tool_capability_table(
             continue
         if runtime_available and operation_id not in runtime_available:
             filtered.append(_issue(operation_id, tool_name, "runtime operation unavailable", "runtime_availability"))
-            continue
-        if operation_id not in environment_allowed:
-            filtered.append(_issue(operation_id, tool_name, "filtered by task environment", "task_environment"))
             continue
         if tool is None:
             filtered.append(_issue(operation_id, "", "no registered tool for operation", "tool_registry"))
@@ -146,7 +137,7 @@ def build_tool_capability_table(
                 file_repository_grants=tuple(file_gate["repository_grants"]),
                 source_trace=(
                     ToolCapabilitySourceTrace(source="tool_registry", detail=tool.name),
-                    ToolCapabilitySourceTrace(source="task_environment", detail=request.environment.environment_id),
+                    ToolCapabilitySourceTrace(source="environment_package", detail=request.environment.environment_id),
                     ToolCapabilitySourceTrace(source="file_access_table", detail=",".join(file_gate["repository_grants"])),
                 ),
                 metadata={
@@ -164,7 +155,7 @@ def build_tool_capability_table(
         capabilities=tuple(capabilities),
         filtered=tuple(filtered),
         source_trace=(
-            ToolCapabilitySourceTrace(source="task_environment", detail=request.environment.environment_id),
+            ToolCapabilitySourceTrace(source="environment_package", detail=request.environment.environment_id),
             ToolCapabilitySourceTrace(source="specific_task", detail="tool requirements"),
             ToolCapabilitySourceTrace(source="agent_profile", detail="operation ceiling"),
             ToolCapabilitySourceTrace(source="file_access_table", detail="file grants"),
@@ -229,5 +220,4 @@ def _issue(
         source=source,
         metadata=dict(metadata or {}),
     )
-
 

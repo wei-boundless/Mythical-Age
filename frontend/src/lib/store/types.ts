@@ -317,10 +317,21 @@ export type TaskSelectionState = {
 
 export type ConversationTaskEnvironment = ConversationActiveEnvironment;
 
+export type ActiveMainAgentSelection = {
+  agent_id: string;
+  agent_profile_id: string;
+  agent_name: string;
+  main_agent_kind: string;
+  default_task_environment_id: string;
+  default_task_environment_label?: string;
+  source?: string;
+  updated_at?: number;
+};
+
 export type ChatTaskEnvironmentBinding = {
   task_environment_id: string;
   environment_label: string;
-  source: "task-system" | "center-workspace" | "workspace-mode";
+  source: "task-system" | "center-workspace" | "workspace-mode" | "agent-switcher";
   bound_at: number;
 };
 
@@ -462,6 +473,7 @@ export type StoreState = {
   taskEnvironmentCatalogLoading: boolean;
   taskEnvironmentCatalogError: string;
   conversationActiveEnvironment: ConversationTaskEnvironment | null;
+  activeMainAgent: ActiveMainAgentSelection;
   workspaceInitializing: boolean;
   messages: Message[];
   activeProjectionsByKey: Record<string, ActiveProjectionState>;
@@ -528,6 +540,7 @@ export type StoreActions = {
   setWorkspaceView: (view: WorkspaceView) => void;
   refreshTaskEnvironmentCatalog: () => Promise<void>;
   setActiveTaskEnvironment: (environmentId: string, options?: { environmentLabel?: string; source?: string }) => Promise<void>;
+  setActiveMainAgent: (selection: ActiveMainAgentSelection) => Promise<void>;
   refreshWorkspaceTree: () => Promise<void>;
   selectProjectWorkspace: (projectKey: string) => Promise<void>;
   selectProjectWorkspaceDirectory: () => Promise<void>;

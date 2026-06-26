@@ -223,7 +223,7 @@ _SYSTEM_GROUP_CAPABILITY_GROUPS: dict[str, tuple[str, ...]] = {
 _TOOL_CAPABILITY_SYSTEM_GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
     "task_planning": {
         "capability_groups": ("action_contracts", "task_state_context", "tool_context", "repair_feedback"),
-        "prompt_resources": ("tool.guidance.todo", "runtime.rule.plan_mode_boundary", "environment.general.lifecycle.plan_gate"),
+        "prompt_resources": ("tool.guidance.todo", "runtime.rule.plan_mode_boundary"),
         "context_segments": (
             "task_goal_context",
             "task_plan_context",
@@ -415,6 +415,7 @@ def assemble_runtime(
     task_environment, environment_diagnostics = _resolve_runtime_task_environment(
         backend_dir=backend_dir,
         environment_binding=environment_binding,
+        agent_runtime_profile=agent_runtime_profile,
         runtime_contract=runtime_contract_payload,
     )
     task_environment = apply_session_scoped_environment_storage(task_environment, session_id=session_id)
@@ -433,7 +434,6 @@ def assemble_runtime(
     operation_projection = project_operation_authorization(
         agent_allowed_operations=profile.allowed_operations,
         agent_blocked_operations=tuple(getattr(agent_runtime_profile, "blocked_operations", ()) or ()),
-        environment_payload=task_environment,
         task_requested_operations=task_requested_operations,
         definitions_by_name=definitions_by_name,
         permission_mode=normalized_permission_mode,
@@ -970,7 +970,10 @@ def _build_system_wiring_manifest(
                 "contract_strictness": "canonical_task_run_contract_seed",
                 "task_lifecycle_policy": task_lifecycle_policy,
             },
-            prompt_resources=("runtime.rule.turn_decision_alignment", "environment.general.lifecycle.task_run_handoff"),
+            prompt_resources=(
+                "runtime.rule.turn_decision_alignment",
+                *_lifecycle_prompt_refs(profile, "task_run_handoff"),
+            ),
             context_segments=("task_run_contract_stable", "task_prompt_contract"),
             feedback_channels=("contract_gap_repair", "task_run_handoff_repair"),
         ),
@@ -1007,7 +1010,7 @@ def _build_system_wiring_manifest(
                 "selection_source": str(dict(skill_activation or {}).get("selection_source") or ""),
             },
             prompt_resources=tuple(str(item.get("prompt_ref") or item.get("skill_id") or "") for item in tuple(skill_runtime_views or ())),
-            context_segments=("active_skills", "skill_candidates"),
+            context_segments=("active_skills",),
             feedback_channels=("skill_output_rule", "skill_failure_repair"),
         ),
         "subagent_delegation": _system_group_manifest(
@@ -1021,7 +1024,10 @@ def _build_system_wiring_manifest(
                 "result_policy": str(subagent_policy.get("result_policy") or "observation_refs_only"),
                 "allow_nested_subagents": bool(subagent_policy.get("allow_nested_subagents") is True),
             },
-            prompt_resources=("tool.guidance.subagent", "environment.general.lifecycle.subagent_delegation", "environment.general.lifecycle.subagent_result_integration"),
+            prompt_resources=(
+                "tool.guidance.subagent",
+                *_lifecycle_prompt_refs(profile, "subagent_delegation", "subagent_result_integration"),
+            ),
             context_segments=("single_agent_turn_tool_call", "single_agent_turn_tool_observation"),
             feedback_channels=("subagent_result", "subagent_failure", "subagent_closeout"),
         ),
@@ -1034,7 +1040,7 @@ def _build_system_wiring_manifest(
                 "history_scope": str(context_policy.get("history_scope") or ""),
                 "provider_visible_replay": True,
             },
-            prompt_resources=("environment.general.lifecycle.memory_read_context",),
+            prompt_resources=_lifecycle_prompt_refs(profile, "memory_read_context"),
             context_segments=("context_memory_prefix", "context_append", "runtime_memory_context", "session_history", "task_state_replay_entry"),
             feedback_channels=("memory_read_recovery", "provider_visible_ledger_recovery"),
         ),
@@ -1048,7 +1054,7 @@ def _build_system_wiring_manifest(
                 "write_scope": str(memory_policy.get("write_scope") or ""),
                 "writeback_policy": str(memory_policy.get("writeback_policy") or memory_policy.get("write_scope") or ""),
             },
-            prompt_resources=("environment.general.lifecycle.memory_write_handoff",),
+            prompt_resources=_lifecycle_prompt_refs(profile, "memory_write_handoff"),
             context_segments=("runtime_memory_context", "session_pinned_facts_context"),
             feedback_channels=("memory_write_candidate", "memory_write_rejected", "memory_conflict"),
         ),
@@ -1056,7 +1062,7 @@ def _build_system_wiring_manifest(
             enabled=evidence_read_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["evidence_read"],
             config={"exact_read_evidence": evidence_read_enabled},
-            prompt_resources=("tool.guidance.read_file", "environment.general.lifecycle.verification_gate"),
+            prompt_resources=("tool.guidance.read_file", *_lifecycle_prompt_refs(profile, "verification_gate")),
             context_segments=("read_evidence_context", "evidence_index_cursor", "attachment_context_index", "editor_context_index"),
             feedback_channels=("evidence_missing", "evidence_recovery"),
         ),
@@ -1099,7 +1105,7 @@ def _build_system_wiring_manifest(
                 "steer_append_only": True,
                 "resume_replay_required": True,
             },
-            prompt_resources=("environment.general.lifecycle.active_work_control", "environment.general.lifecycle.user_steer_contract_revision"),
+            prompt_resources=_lifecycle_prompt_refs(profile, "active_work_control", "user_steer_contract_revision"),
             context_segments=("single_agent_turn_user_steer_context", "user_steering_context_append", "runtime_control_signal_tail"),
             feedback_channels=("resume_recovery", "user_steer_repair", "closeout_control"),
         ),
@@ -1107,7 +1113,7 @@ def _build_system_wiring_manifest(
             enabled=output_projection_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["output_projection"],
             config={"final_commit_required": True, "activity_archive": True},
-            prompt_resources=("environment.general.lifecycle.finalization",),
+            prompt_resources=_lifecycle_prompt_refs(profile, "finalization"),
             context_segments=("dynamic_projection",),
             feedback_channels=("final_answer_boundary", "projection_closeout"),
         ),
@@ -1115,7 +1121,7 @@ def _build_system_wiring_manifest(
             enabled=recovery_closeout_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["recovery_closeout"],
             config={"structured_failure_required": True, "recovery_package_allowed": True},
-            prompt_resources=("environment.general.lifecycle.tool_observation_recovery", "environment.general.lifecycle.compaction_handoff"),
+            prompt_resources=_lifecycle_prompt_refs(profile, "tool_observation_recovery", "compaction_handoff"),
             context_segments=("provider_visible_ledger_recovery_checkpoint", "recovery_context_package", "recent_work_outcome"),
             feedback_channels=("structured_failure", "recovery_package", "closeout_control"),
         ),
@@ -1124,6 +1130,7 @@ def _build_system_wiring_manifest(
         _tool_capability_system_group_manifests(
             tools_by_capability_group=tools_by_capability_group,
             may_call_tools=tool_runtime_enabled,
+            profile=profile,
         )
     )
     context_capability_groups = _compiled_context_capability_groups(system_groups)
@@ -1238,11 +1245,15 @@ def _tool_capability_system_group_manifests(
     *,
     tools_by_capability_group: dict[str, list[dict[str, Any]]],
     may_call_tools: bool,
+    profile: RuntimeAssemblyProfile,
 ) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for capability_group, config in _TOOL_CAPABILITY_SYSTEM_GROUPS.items():
         tools = [dict(item) for item in list(tools_by_capability_group.get(capability_group) or []) if isinstance(item, dict)]
         group_id = f"tool_{capability_group}"
+        prompt_resources = tuple(config.get("prompt_resources") or ())
+        if capability_group == "task_planning":
+            prompt_resources = (*prompt_resources, *_lifecycle_prompt_refs(profile, "plan_gate"))
         result[group_id] = _system_group_manifest(
             enabled=bool(may_call_tools and tools),
             capability_groups=tuple(config.get("capability_groups") or ()),
@@ -1252,11 +1263,23 @@ def _tool_capability_system_group_manifests(
                 "tool_names": [str(item.get("tool_name") or "") for item in tools if str(item.get("tool_name") or "")],
                 "operation_ids": [str(item.get("operation_id") or "") for item in tools if str(item.get("operation_id") or "")],
             },
-            prompt_resources=tuple(config.get("prompt_resources") or ()),
+            prompt_resources=prompt_resources,
             context_segments=tuple(config.get("context_segments") or ()),
             feedback_channels=tuple(config.get("feedback_channels") or ()),
         )
     return result
+
+
+def _lifecycle_prompt_refs(profile: RuntimeAssemblyProfile, *slots: str) -> tuple[str, ...]:
+    defaults = dict(dict(profile.prompt_policy or {}).get("lifecycle_prompt_defaults") or {})
+    overrides = dict(dict(profile.prompt_policy or {}).get("lifecycle_prompt_overrides") or {})
+    refs: list[str] = []
+    for slot in slots:
+        key = str(slot or "").strip()
+        ref = str(overrides.get(key) or defaults.get(key) or f"environment.general.lifecycle.{key}").strip()
+        if ref:
+            refs.append(ref)
+    return _dedupe_strings(tuple(refs))
 
 
 def _compiled_context_capability_groups(system_groups: dict[str, dict[str, Any]]) -> dict[str, bool]:
@@ -1581,6 +1604,7 @@ def _resolve_runtime_task_environment(
     *,
     backend_dir: Path,
     environment_binding: dict[str, Any] | None = None,
+    agent_runtime_profile: Any | None = None,
     runtime_contract: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     registry = task_environment_registry_from_backend_dir(backend_dir)
@@ -1602,10 +1626,19 @@ def _resolve_runtime_task_environment(
         dict(runtime_contract.get("runtime_profile") or {}).get("task_environment_id"),
         dict(runtime_contract.get("runtime_profile") or {}).get("environment_id"),
     )
-    environment_id = explicit or "env.general.workspace"
+    agent_default = _agent_profile_default_environment_id(agent_runtime_profile)
+    environment_id = explicit or agent_default or "env.general.workspace"
     registry.require(environment_id)
     environment_payload = build_task_environment_catalog(registry=registry).runtime_environment_payload(environment_id)
-    source = "environment_binding" if explicit_binding else "runtime_contract" if explicit else "fallback_default"
+    source = (
+        "environment_binding"
+        if explicit_binding
+        else "runtime_contract"
+        if explicit
+        else "agent_runtime_profile"
+        if agent_default
+        else "fallback_default"
+    )
     return (
         {
             **environment_payload,
@@ -1617,6 +1650,19 @@ def _resolve_runtime_task_environment(
             "environment_group_id": str(dict(environment_payload.get("group") or {}).get("group_id") or ""),
             "source": source,
         },
+    )
+
+
+def _agent_profile_default_environment_id(agent_runtime_profile: Any | None) -> str:
+    metadata = dict(getattr(agent_runtime_profile, "metadata", {}) or {})
+    runtime_policy = dict(metadata.get("runtime_policy") or metadata.get("execution_policy") or {})
+    context_policy = dict(runtime_policy.get("context_policy") or {})
+    return _first_string(
+        metadata.get("default_task_environment_id"),
+        metadata.get("task_environment_id"),
+        runtime_policy.get("default_task_environment_id"),
+        runtime_policy.get("task_environment_id"),
+        context_policy.get("default_task_environment_id"),
     )
 
 
@@ -1665,10 +1711,6 @@ def _control_capabilities_for_runtime(
         environment_kind == "chat"
         or lifecycle_policy.get("active_work_control") is False
     )
-    environment_disables_subagents = (
-        environment_kind == "chat"
-        or lifecycle_policy.get("subagent_delegation") is False
-    )
     task_run_allowed = task_lifecycle.get("request_task_run") is not False
     subagent_enabled = bool(subagent.get("enabled") is True)
     may_emit_assistant_message = bool(explicit.get("may_emit_assistant_message", True) is not False)
@@ -1699,7 +1741,6 @@ def _control_capabilities_for_runtime(
             if "may_use_subagents" in explicit
             else subagent_enabled
         )
-        and not environment_disables_subagents
     )
     has_explicit_contract = bool(
         engagement_contract

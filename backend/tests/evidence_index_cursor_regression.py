@@ -106,8 +106,8 @@ def test_single_agent_turn_moves_session_file_state_out_of_dynamic_runtime(tmp_p
     )
 
     kinds = [segment["kind"] for segment in result.packet.segment_plan["segments"]]
-    evidence_payload = _payload_with_title(result.packet, "Single agent turn evidence index cursor")
-    dynamic_payload = _optional_payload_with_title(result.packet, "Single agent turn dynamic runtime")
+    evidence_payload = _payload_with_title(result.packet, "Evidence index cursor")
+    dynamic_payload = _optional_payload_with_title(result.packet, "Current runtime control")
     serialized_dynamic = json.dumps(dynamic_payload, ensure_ascii=False)
     evidence_file = evidence_payload["evidence_index_cursor"]["files"][0]
 
@@ -145,3 +145,5 @@ def _cache_record_for_packet(packet):
         segment_plan=packet.segment_plan,
     )
     return PromptCachePlanner().plan(segment_map)
+
+

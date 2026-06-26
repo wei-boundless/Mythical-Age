@@ -12,6 +12,7 @@ export const SESSION_TOKEN_STATS_DELAY_MS = 5000;
 export const FRONTEND_EDITOR_CONTEXT_TEXT_LIMIT = 12000;
 export const TOKEN_STATS_MONITOR_REFRESH_INTERVAL_MS = 10_000;
 export const LAST_ACTIVE_TASK_ENVIRONMENT_KEY = "agentWorkbench.lastActiveTaskEnvironment";
+export const LAST_ACTIVE_MAIN_AGENT_KEY = "agentWorkbench.lastActiveMainAgent";
 export const LAST_ACTIVE_SESSION_REF_KEY = "agentWorkbench.lastActiveSessionRef";
 export const CHAT_STREAM_DISPLAY_ENABLED_KEY = "agentWorkbench.chatStreamDisplayEnabled";
 export const THINKING_PROJECTION_ENABLED_KEY = "agentWorkbench.thinkingProjectionEnabled";

@@ -9,6 +9,7 @@ def compile_tool_file_management_policy(
     storage_space: dict[str, Any] | None = None,
     artifact_root: str = "",
     sandbox_policy: dict[str, Any] | None = None,
+    external_read_scopes: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
 ) -> dict[str, Any]:
     environment = dict(environment_payload or {})
     file_management = dict(environment.get("file_management") or {})
@@ -45,6 +46,7 @@ def compile_tool_file_management_policy(
         "memory_projection_policy": str(file_management.get("memory_projection_policy") or ""),
         "constraints": constraints,
         "storage_space": dict(storage_space or environment.get("storage_space") or {}),
+        "external_read_scopes": [dict(item) for item in list(external_read_scopes or []) if isinstance(item, dict)],
         "artifact_root": str(artifact_root or ""),
         "authority": "harness.runtime.file_management_policy",
     }

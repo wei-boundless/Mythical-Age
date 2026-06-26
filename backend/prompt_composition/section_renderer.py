@@ -41,7 +41,7 @@ def render_environment_instruction(
     environment_payload: dict[str, Any],
     *,
     environment_prompt_assembly: Any,
-    include_storage_note: bool = True,
+    include_storage_note: bool = False,
 ) -> str:
     content = _environment_prompt_section_content(environment_prompt_assembly)
     environment_id = str(

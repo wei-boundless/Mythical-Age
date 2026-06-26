@@ -108,62 +108,6 @@ def skill_runtime_view_from_skill_definition(skill: SkillDefinition) -> SkillRun
     )
 
 
-def render_skill_candidate_cards(skill_runtime_views: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> str:
-    cards: list[str] = []
-    for item in skill_runtime_views or []:
-        data = dict(item)
-        skill_id = str(data.get("skill_id") or "").strip()
-        if not skill_id:
-            continue
-        lines = [
-            f"- skill_id: {skill_id}",
-            f"  title: {str(data.get('title') or skill_id).strip()}",
-        ]
-        capability = str(data.get("capability") or "").strip()
-        if capability:
-            lines.append(f"  capability: {capability}")
-        use_when = str(data.get("use_when") or "").strip()
-        if use_when:
-            lines.append(f"  use_when: {use_when}")
-        forbidden = [
-            str(value).strip()
-            for value in list(data.get("not_for") or [])
-            if str(value).strip()
-        ]
-        if forbidden:
-            lines.append(f"  not_for: {', '.join(forbidden)}")
-        operations = [
-            str(value).strip()
-            for value in list(data.get("required_operations") or [])
-            if str(value).strip()
-        ]
-        if operations:
-            lines.append(f"  requires_operations: {', '.join(operations)}")
-        group = str(data.get("preferred_capability_group") or "").strip()
-        if group:
-            lines.append(f"  capability_group: {group}")
-        tags = [
-            str(value).strip()
-            for value in list(data.get("capability_tags") or [])
-            if str(value).strip()
-        ]
-        if tags:
-            lines.append(f"  capability_tags: {', '.join(tags)}")
-        selection_hint = str(data.get("selection_hint") or "").strip()
-        if selection_hint:
-            lines.append(f"  selection_hint: {selection_hint}")
-        cards.append("\n".join(lines))
-    if not cards:
-        return ""
-    return "\n".join(
-        [
-            "候选 Skills（第一阶段）：",
-            "这些只是可选能力卡片，不代表已经启用。只有当你在当前轮决策中选择对应 skill_id 后，运行时才会展开完整技能说明。",
-            *cards,
-        ]
-    )
-
-
 def expand_selected_skill_bodies(
     *,
     base_dir: Path,
@@ -277,5 +221,4 @@ def _model_visible_skill_body(text: str) -> str:
         if line.strip() == "---":
             return "\n".join(lines[index + 1 :]).strip()
     return content
-
 

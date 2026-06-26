@@ -30,6 +30,9 @@ class ContinuationRecord:
     resume_allowed: bool = False
     resume_strategy: str = "unavailable"
     resume_scheduler: str = "conversation_recovery_resume"
+    context_resume_available: bool = False
+    context_resume_source: str = ""
+    same_run_executable: bool = False
     recovery_cause: str = ""
     task_status: str = ""
     executor_status: str = ""
@@ -133,6 +136,9 @@ def continuation_record_from_payload(payload: dict[str, Any] | None) -> Continua
             resume_allowed=bool(data.get("resume_allowed") is True),
             resume_strategy=str(data.get("resume_strategy") or "unavailable"),
             resume_scheduler=str(data.get("resume_scheduler") or "conversation_recovery_resume"),
+            context_resume_available=bool(data.get("context_resume_available") is True),
+            context_resume_source=str(data.get("context_resume_source") or ""),
+            same_run_executable=bool(data.get("same_run_executable") is True),
             recovery_cause=str(data.get("recovery_cause") or ""),
             task_status=str(data.get("task_status") or ""),
             executor_status=str(data.get("executor_status") or ""),

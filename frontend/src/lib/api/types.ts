@@ -4068,6 +4068,7 @@ export type MemoryNamespaceScope = {
 };
 
 export type StreamHandlers = {
+  onRunCreated?: (run: ChatRun) => void;
   onEvent: (event: string, data: Record<string, unknown>) => void;
 };
 
@@ -4103,8 +4104,13 @@ export type SessionContinuationRecord = {
   state?: string;
   resume_allowed?: boolean;
   resume_strategy?: string;
+  context_resume_available?: boolean;
+  context_resume_source?: string;
+  same_run_executable?: boolean;
   recovery_cause?: string;
   task_status?: string;
+  executor_status?: string;
+  control_state?: string;
   user_visible_goal?: string;
   latest_progress?: string;
   event_cursor?: number;
@@ -4117,7 +4123,37 @@ export type SessionContinuationProjection = {
   session_id: string;
   available: boolean;
   record?: SessionContinuationRecord;
+  interrupted_turn?: Record<string, unknown>;
+  context_recovery_status?: Record<string, unknown>;
   reason?: string;
+  authority?: string;
+};
+
+export type ChatRunInterruptPayload = {
+  mode?: "interrupt_for_resume" | "hard_stop" | string;
+  reason?: string;
+  expected_active_turn_id?: string;
+  expected_task_run_id?: string;
+  cascade_subagents?: "interrupt_for_resume" | "hard_stop" | "leave_running" | string;
+};
+
+export type ChatRunInterruptResult = {
+  ok: boolean;
+  accepted: boolean;
+  stream_run_id: string;
+  session_id: string;
+  mode: string;
+  reason?: string;
+  active_turn?: Record<string, unknown>;
+  active_turn_control?: Record<string, unknown>;
+  task_control?: Record<string, unknown>;
+  stream_control?: Record<string, unknown>;
+  subagent_controls?: Record<string, unknown>[];
+  interruption_record?: Record<string, unknown>;
+  continuation?: SessionContinuationProjection | Record<string, unknown>;
+  runtime_signal?: Record<string, unknown>;
+  context_recovery_status?: Record<string, unknown>;
+  checkpoint?: Record<string, unknown>;
   authority?: string;
 };
 

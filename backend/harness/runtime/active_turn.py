@@ -91,6 +91,8 @@ class ActiveTurnRegistry:
 
     def resolve_current(self, session_id: str) -> ActiveTurnRecord | None:
         record = self.snapshot(session_id)
+        if record is not None and record.state == "interrupting":
+            return None
         if record is None or not record.bound_task_run_id:
             return record
         task_run = getattr(getattr(self.runtime_host, "state_index", None), "get_task_run", lambda _task_run_id: None)(
@@ -181,6 +183,42 @@ class ActiveTurnRegistry:
         if not expected_task_run_id or record.bound_task_run_id != expected_task_run_id:
             return record
         return self._update(record, state="terminal", steerable=False, terminal_reason=str(terminal_reason or "completed"))
+
+    def mark_interrupting(
+        self,
+        *,
+        session_id: str,
+        expected_turn_id: str = "",
+        expected_task_run_id: str = "",
+        reason: str = "runtime_interrupted_for_resume",
+    ) -> dict[str, Any]:
+        result = self.compare_and_update_current_turn(
+            session_id=session_id,
+            expected_turn_id=expected_turn_id,
+            expected_task_run_id=expected_task_run_id,
+            terminal_reason=reason,
+        )
+        if not result.get("accepted"):
+            return result
+        record_payload = dict(result.get("record") or {})
+        record = _record_from_payload(record_payload)
+        if record is None:
+            return {
+                **result,
+                "accepted": False,
+                "denied_reason": "active_turn_record_unavailable",
+                "authority": "harness.runtime.active_turn.mark_interrupting",
+            }
+        updated = self._update(
+            record,
+            state="interrupting",
+            terminal_reason=str(reason or "runtime_interrupted_for_resume"),
+        )
+        return {
+            **result,
+            "record": updated.to_dict(),
+            "authority": "harness.runtime.active_turn.mark_interrupting",
+        }
 
     def compare_and_update_current_turn(
         self,
