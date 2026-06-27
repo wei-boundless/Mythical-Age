@@ -39,7 +39,7 @@ READONLY_PLANNER_ROLE_PROMPT = "\n".join(
         "你只根据任务目标、用户显式流程和已经存在的真实观察生成可执行计划草稿。",
         "你不修改文件，不运行命令，不宣称已经完成任何执行动作。",
         "每个计划步骤必须说明目的、预期产物、需要的操作类型和证据期望。",
-        "请只输出符合当前结构化计划草稿 schema 的结果。",
+        "请只输出符合当前结构化计划草稿格式的结果。",
     ]
 )
 
@@ -54,35 +54,38 @@ READONLY_DELIVERY_VERIFIER_ROLE_PROMPT = "\n".join(
 )
 
 SINGLE_AGENT_ADMISSION_REPAIR_PROMPT = (
-    "你是一名单轮动作准入修复员。\n"
-    "你只负责根据上一轮结果重新提交一个当前允许的动作。\n"
+    "你正在收到一次行动校正。\n"
+    "你只负责根据上一轮未被接受的结果，重新提交一个当前允许的动作。\n"
     "你需要保留用户目标、已确认事实、权限边界和失败原因，不扩写新需求，不假设用户已经授权。\n\n"
-    "提交一个可唯一识别的结构化动作；推荐使用 authority=harness.loop.model_action_request 的顶层 JSON action。"
+    "提交一个可唯一识别的本次行动；执行层会绑定本次动作身份。"
     "允许的 action_type 见修复输入，并且只能选择其中一个。"
-    "当前阶段如果工具通道关闭，就在允许动作中选择 respond、ask_user、block 或 request_task_run。"
+    "需要使用工具时，只按本轮工具行动合同提交当前允许的工具行动；不要额外写第二种工具请求。"
+    "当前阶段如果没有可执行工具动作，就在允许动作中选择 respond、ask_user、block 或 request_task_run。"
     "如果可以直接回答，使用 respond.final_answer；如果需要用户补充，使用 ask_user.user_question；如果边界不足，使用 block.blocking_reason。"
-    "可以用代码块或简短说明包住动作；包装文字不会作为用户正文，同一轮文本里必须只有一个 action-like 对象。"
+    "把公开判断和本次行动放在同一个结构化动作对象里；不要附加第二个动作或额外工具片段。"
 )
 
 SINGLE_AGENT_PROTOCOL_REPAIR_PROMPT = (
-    "你是一名动作修复员。\n"
+    "你正在收到一次行动校正。\n"
     "你只负责把上一轮输出修复为当前允许的合法动作。\n"
     "你需要保留用户当前请求、已确认事实和原始意图，不扩写用户目标，不引入新需求。\n"
-    "根据 allowed_action_types 提交一个可唯一识别的结构化动作；推荐使用顶层 JSON action。"
+    "根据 allowed_action_types 提交一个可唯一识别的结构化动作；执行层会绑定本次动作身份。"
+    "需要使用工具时，只按本轮工具行动合同提交当前允许的工具行动；不要额外写第二种工具请求。"
     "如果上一轮已经包含明确 action，请优先修正缺失或错层字段并保持同一语义。"
     "上一轮失败原因只用于你修复动作，不能写入 final_answer、user_question、blocking_reason、public_progress_note 或 public_action_state。\n"
-    "如果选择 respond、ask_user 或 block，用户可见字段只写用户目标、问题、阻塞、已知事实或下一步选择，用自然语言表达。"
-    "可以用代码块或简短说明包住动作；包装文字不会作为用户正文，同一轮文本里必须只有一个 action-like 对象，不能混入第二个控制动作。"
+    "如果选择 respond、ask_user 或 block，相关字段只写用户目标、问题、阻塞、已知事实或下一步选择，用自然语言表达。"
+    "把公开判断和本次行动放在同一个结构化动作对象里；不要附加第二个动作或额外工具片段。"
 )
 
 TASK_ACTION_JSON_REPAIR_PROMPT = (
-    "你负责修复任务执行模型上一轮未被接受的 action。"
+    "你正在收到一次任务执行行动校正。"
     "上一轮动作没有进入执行队列；你需要重新提交一个当前允许的动作。"
     "本轮提交一个可唯一识别的结构化动作，必须填写 action_type、public_action_state 和 public_progress_note。"
-    "如果使用 JSON action，顶层字段要直接表达动作，不要把 task_run_contract_seed 或 recovery_resume 塞进 payload 包装层。"
+    "顶层字段要直接表达动作，不要把 task_run_contract_seed 或 recovery_resume 塞进 payload 包装层。"
+    "需要使用工具时，只按本轮工具行动合同提交当前允许的工具行动；不要额外写第二种工具请求。"
     "如果上一轮是在生成文件、网页、脚本或长内容时失败，且 allowed_action_types 包含 tool_call，并且当前观察没有要求收口，可以选择 action_type=tool_call 继续执行。"
-    "如果当前观察要求暂停、停止或收口，选择 respond、ask_user 或 block，并把已知事实、影响和恢复条件写入对应用户可见字段。"
-    "可以用代码块或简短说明包住动作；包装文字不会作为用户正文，同一轮文本里必须只有一个 action-like 对象。"
+    "如果当前观察要求暂停、停止或收口，选择 respond、ask_user 或 block，并把已知事实、影响和恢复条件写入对应字段。"
+    "把公开判断和本次行动放在同一个结构化动作对象里；不要附加第二个动作或额外工具片段。"
 )
 
 MCP_SERVER_INSTRUCTIONS_PROMPT = (

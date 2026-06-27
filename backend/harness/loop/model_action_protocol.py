@@ -33,6 +33,7 @@ class ModelActionRequest:
     user_question: str = ""
     blocking_reason: str = ""
     tool_call: dict[str, Any] = field(default_factory=dict)
+    tool_calls: tuple[dict[str, Any], ...] = ()
     selected_skill_ids: tuple[str, ...] = ()
     task_run_contract_seed: dict[str, Any] = field(default_factory=dict)
     completion_contract: dict[str, Any] = field(default_factory=dict)
@@ -55,6 +56,7 @@ class ModelActionRequest:
         payload = asdict(self)
         payload["task_run_contract_seed"] = dict(self.task_run_contract_seed or {})
         payload["tool_call"] = dict(self.tool_call or {})
+        payload["tool_calls"] = [dict(item) for item in tuple(self.tool_calls or ())]
         payload["public_action_state"] = dict(self.public_action_state or {})
         payload["completion_contract"] = dict(self.completion_contract or {})
         payload["permission_request"] = dict(self.permission_request or {})
@@ -122,6 +124,7 @@ def model_action_request_from_payload(
         errors.append("turn_id_mismatch")
     request_id = str(raw.get("request_id") or f"model-action:{turn_id}:1")
     tool_call = raw.get("tool_call") or {}
+    tool_calls: tuple[dict[str, Any], ...] = ()
     raw_selected_skill_ids = _string_tuple(raw.get("selected_skill_ids"))
     legacy_task_contract_seed = raw.get("task_contract_seed") or {}
     task_run_contract_seed = raw.get("task_run_contract_seed") or legacy_task_contract_seed or {}
@@ -133,6 +136,8 @@ def model_action_request_from_payload(
     if not isinstance(tool_call, dict):
         errors.append("tool_call_must_be_object")
         tool_call = {}
+    if action_type != "tool_call" and _has_non_empty_value(raw.get("tool_calls")):
+        errors.append("tool_calls_not_allowed_for_action_type")
     if not isinstance(task_run_contract_seed, dict):
         errors.append("task_run_contract_seed_must_be_object")
         task_run_contract_seed = {}
@@ -148,6 +153,8 @@ def model_action_request_from_payload(
     if not isinstance(recovery_resume, dict):
         errors.append("recovery_resume_must_be_object")
         recovery_resume = {}
+    else:
+        recovery_resume = _normalize_recovery_resume(dict(recovery_resume))
     if not isinstance(pause_request, dict):
         errors.append("pause_request_must_be_object")
         pause_request = {}
@@ -169,9 +176,9 @@ def model_action_request_from_payload(
         contract_gaps: list[str] = list(seed_gaps)
     else:
         contract_gaps = []
-    final_answer = str(raw.get("final_answer") or "").strip()
-    user_question = str(raw.get("user_question") or "").strip()
-    blocking_reason = str(raw.get("blocking_reason") or "").strip()
+    final_answer = str(raw.get("final_answer") or raw.get("response") or raw.get("answer") or "").strip()
+    user_question = str(raw.get("user_question") or raw.get("question") or "").strip()
+    blocking_reason = str(raw.get("blocking_reason") or raw.get("reason") or "").strip()
     public_progress_note = _public_progress_note(raw.get("public_progress_note"))
     public_action_state = _public_action_state(raw.get("public_action_state"))
     has_model_public_response = _has_model_public_response(
@@ -187,7 +194,7 @@ def model_action_request_from_payload(
         public_action_state=public_action_state,
     ) and action_type != "request_task_run":
         errors.append("public_task_lifecycle_claim_requires_request_task_run")
-    if public_response_required and not has_model_public_response:
+    if public_response_required and action_type != "tool_call" and not has_model_public_response:
         errors.append("public_response_required")
     if require_public_progress_note and not public_progress_note:
         if not public_response_required:
@@ -215,13 +222,10 @@ def model_action_request_from_payload(
     if action_type == "block" and not blocking_reason:
         errors.append("blocking_reason_required_for_block")
     if action_type == "tool_call":
-        tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
-        tool_args = tool_call.get("args") or tool_call.get("tool_args") or {}
-        if not tool_name:
-            errors.append("tool_name_required_for_tool_call")
-        if not isinstance(tool_args, dict):
-            errors.append("tool_args_must_be_object")
-        tool_call = _ensure_tool_call_id(dict(tool_call), request_id=request_id)
+        tool_calls, tool_call_errors = model_action_tool_calls_from_payload(raw, default_request_id=request_id)
+        errors.extend(tool_call_errors)
+        if tool_calls:
+            tool_call = dict(tool_calls[0])
     if action_type == "request_task_run" and not task_run_contract_seed:
         errors.append("task_run_contract_seed_required_for_request_task_run")
     if action_type == "request_task_run":
@@ -282,6 +286,7 @@ def model_action_request_from_payload(
         user_question=user_question,
         blocking_reason=blocking_reason,
         tool_call=dict(tool_call),
+        tool_calls=tuple(dict(item) for item in tool_calls),
         selected_skill_ids=selected_skill_ids,
         task_run_contract_seed=dict(task_run_contract_seed),
         completion_contract=dict(completion_contract),
@@ -322,15 +327,17 @@ def task_execution_action_request_from_payload(
 ) -> tuple[TaskExecutionModelActionRequest | None, dict[str, Any]]:
     raw = dict(payload or {})
     task_tool_calls, tool_call_errors = _task_execution_tool_calls(raw)
+    single_action_raw = dict(raw)
     if task_tool_calls:
-        raw["tool_call"] = dict(task_tool_calls[0])
+        single_action_raw.pop("tool_calls", None)
+        single_action_raw["tool_call"] = dict(task_tool_calls[0])
     forbidden_errors = [
         f"field_not_allowed_for_task_execution:{field}"
         for field in _TASK_EXECUTION_CROSS_CONTEXT_FIELDS
         if _has_non_empty_value(raw.get(field))
     ]
     action_request, diagnostics = model_action_request_from_payload(
-        raw,
+        single_action_raw,
         turn_id=turn_id,
         require_public_progress_note=require_public_progress_note,
         require_public_action_state=require_public_action_state,
@@ -401,6 +408,28 @@ def _public_progress_note(value: Any) -> str:
         return ""
     text = " ".join(text.split())
     return text[:160].rstrip()
+
+
+def _normalize_recovery_resume(value: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(value or {})
+    work_ref = str(
+        payload.get("work_ref")
+        or payload.get("recoverable_work_ref")
+        or payload.get("task_ref")
+        or payload.get("task_run_id")
+        or ""
+    ).strip()
+    resume_ref = str(
+        payload.get("resume_ref")
+        or payload.get("continuation_ref")
+        or payload.get("continuation_id")
+        or ""
+    ).strip()
+    if work_ref and not str(payload.get("task_run_id") or "").strip():
+        payload["task_run_id"] = work_ref
+    if resume_ref and not str(payload.get("continuation_id") or "").strip():
+        payload["continuation_id"] = resume_ref
+    return payload
 
 
 _REQUEST_TASK_RUN_SYSTEM_SETTING_FIELDS = (
@@ -1092,7 +1121,11 @@ def _has_non_empty_value(value: Any) -> bool:
     return bool(value)
 
 
-def _task_execution_tool_calls(raw: dict[str, Any]) -> tuple[tuple[dict[str, Any], ...], list[str]]:
+def model_action_tool_calls_from_payload(
+    raw: dict[str, Any],
+    *,
+    default_request_id: str = "model-action",
+) -> tuple[tuple[dict[str, Any], ...], list[str]]:
     if str(raw.get("action_type") or "").strip() != "tool_call":
         return (), []
     errors: list[str] = []
@@ -1114,7 +1147,7 @@ def _task_execution_tool_calls(raw: dict[str, Any]) -> tuple[tuple[dict[str, Any
     else:
         calls = []
     normalized: list[dict[str, Any]] = []
-    request_id = str(raw.get("request_id") or "task-model-action").strip()
+    request_id = str(raw.get("request_id") or default_request_id or "model-action").strip()
     for index, item in enumerate(calls):
         if not isinstance(item, dict):
             errors.append(f"tool_calls[{index}]_must_be_object")
@@ -1138,3 +1171,7 @@ def _task_execution_tool_calls(raw: dict[str, Any]) -> tuple[tuple[dict[str, Any
     if not normalized:
         errors.append("tool_calls_required_for_tool_call")
     return tuple(normalized), errors
+
+
+def _task_execution_tool_calls(raw: dict[str, Any]) -> tuple[tuple[dict[str, Any], ...], list[str]]:
+    return model_action_tool_calls_from_payload(raw, default_request_id="task-model-action")

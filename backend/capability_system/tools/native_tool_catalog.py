@@ -276,6 +276,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             factory=lambda base_dir: ListDirTool(root_dir=base_dir),
             contract=ToolExecutionContract(
                 required_inputs=[],
+                optional_inputs=["path", "max_entries"],
                 owner_scope="explicit_path",
                 missing_binding_behavior="clarify",
                 context_policy="inline",
@@ -1083,4 +1084,3 @@ def build_tool_registry_payload() -> dict[str, Any]:
             if definition.operation_id not in operation_ids_in_packages
         ],
     }
-

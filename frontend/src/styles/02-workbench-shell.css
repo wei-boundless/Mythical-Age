@@ -1131,10 +1131,12 @@ button:hover {
   position: absolute;
   inset: 0 3px;
   background: transparent;
+  border-radius: 999px;
+  transition: background 140ms ease, opacity 140ms ease;
 }
 
 .workbench-resize-handle:hover::after {
-  background: var(--workbench-blue);
+  background: var(--console-resize-handle-hover);
 }
 
 .workbench-center {
@@ -1357,7 +1359,7 @@ button:hover {
 .system-page-shell .workspace-view {
   gap: 12px;
   padding: 12px;
-  scrollbar-color: var(--console-line-strong) transparent;
+  scrollbar-color: var(--console-scrollbar-thumb) transparent;
 }
 
 .system-page-shell .workspace-view__title {

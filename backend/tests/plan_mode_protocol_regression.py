@@ -35,9 +35,9 @@ def test_single_turn_plan_mode_is_visible_in_dynamic_runtime_and_output_contract
         },
     ).packet
 
-    stable_payload = _payload_after_title(packet, "Turn operating contract")
-    dynamic_payload = _payload_after_title(packet, "Current runtime control")
-    planning_cursor = dynamic_payload["runtime_context"]["planning"]
+    stable_payload = _payload_after_title(packet, "Operating Contract")
+    dynamic_payload = _payload_after_title(packet, "Current Runtime Boundary")
+    planning_cursor = dynamic_payload["runtime_context"]["planning_boundary"]
 
     assert "planning_protocol" not in stable_payload
     assert "planning_protocol" not in stable_payload["output_contract"]

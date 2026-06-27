@@ -104,14 +104,15 @@ def parse_json_object_with_diagnostics(content: Any) -> tuple[dict[str, Any], di
                 diagnostics["starts_with"] = text[:24]
                 diagnostics["ends_with"] = text[-24:] if text else ""
                 return {}, diagnostics
-            parsed, leading, trailing, parsed_from_markdown_fence = embedded
-            diagnostics["parsed_with_embedded_object_repair"] = True
-            diagnostics["ignored_leading_text"] = _compact_text(leading, limit=240)
-            if trailing:
-                diagnostics["ignored_trailing_text"] = _compact_text(trailing, limit=240)
-            if parsed_from_markdown_fence:
-                diagnostics["parsed_from_markdown_fence"] = True
-            diagnostics["embedded_json_repair_authority"] = "runtime.model_gateway.model_response_protocol"
+            else:
+                parsed, leading, trailing, parsed_from_markdown_fence = embedded
+                diagnostics["parsed_with_embedded_object_repair"] = True
+                diagnostics["ignored_leading_text"] = _compact_text(leading, limit=240)
+                if trailing:
+                    diagnostics["ignored_trailing_text"] = _compact_text(trailing, limit=240)
+                if parsed_from_markdown_fence:
+                    diagnostics["parsed_from_markdown_fence"] = True
+                diagnostics["embedded_json_repair_authority"] = "runtime.model_gateway.model_response_protocol"
         if repaired is not None:
             parsed, trailing = repaired
             diagnostics["parsed_with_trailing_repair"] = True
@@ -235,6 +236,7 @@ def _looks_like_model_action_object(payload: dict[str, Any]) -> bool:
         "action_type" in keys
         or "authority" in keys
         or "tool_call" in keys
+        or "tool_calls" in keys
         or "task_run_contract_seed" in keys
         or "task_contract_seed" in keys
         or "active_work_control" in keys

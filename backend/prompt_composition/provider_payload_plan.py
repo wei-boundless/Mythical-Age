@@ -69,17 +69,17 @@ def build_provider_payload_plan(
 def _tool_schema_boundary_status(manifest: ProviderPayloadManifest) -> dict[str, Any]:
     segments = [segment.to_dict() for segment in tuple(manifest.segments or ())]
     native = [segment for segment in segments if segment.get("transport_location") == "tools"]
-    stable_catalog = [
+    stable_capability_surface = [
         segment
         for segment in segments
-        if segment.get("kind") == "tool_schema_catalog"
+        if segment.get("kind") == "tool_index_stable"
         and segment.get("cache_role") in {"cacheable_prefix", "session_stable"}
         and segment.get("prefix_tier") not in {"volatile", "none"}
     ]
     return {
         "native_tool_schema_segment_count": len(native),
-        "stable_tool_schema_catalog_segment_count": len(stable_catalog),
+        "stable_tool_capability_surface_segment_count": len(stable_capability_surface),
         "native_tool_schema_cache_roles": [str(segment.get("cache_role") or "") for segment in native],
-        "stable_tool_schema_catalog_prefix_tiers": [str(segment.get("prefix_tier") or "") for segment in stable_catalog],
-        "status": "explained" if native or stable_catalog else "missing_tool_schema_segments",
+        "stable_tool_capability_surface_prefix_tiers": [str(segment.get("prefix_tier") or "") for segment in stable_capability_surface],
+        "status": "explained" if native or stable_capability_surface else "missing_tool_boundary_segments",
     }

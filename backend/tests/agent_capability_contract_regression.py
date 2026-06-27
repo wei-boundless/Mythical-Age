@@ -84,13 +84,13 @@ def test_task_runtime_boundary_projects_canonical_allowed_subagent_ids() -> None
         for item in list(packet.segment_plan.get("segments") or [])
         if dict(item).get("kind") == "task_runtime_boundary_dynamic"
     )
-    tool_boundary = boundary["runtime_context"]["tool_boundary"]
+    tool_capability_surface = boundary["runtime_context"]["tool_capability_surface"]
 
     assert boundary_segment["cache_scope"] == "none"
     assert boundary_segment["cache_role"] == "volatile"
     assert allowed_ids == ["agent:codebase_searcher", "agent:verifier"]
-    assert tool_boundary["allowed_subagent_ids"] == ["agent:codebase_searcher", "agent:verifier"]
-    assert "codebase_searcher" not in tool_boundary["allowed_subagent_ids"]
+    assert tool_capability_surface["allowed_subagent_ids"] == ["agent:codebase_searcher", "agent:verifier"]
+    assert "codebase_searcher" not in tool_capability_surface["allowed_subagent_ids"]
 
 
 def test_capability_directory_projects_contract_requested_groups_and_candidate_skills() -> None:

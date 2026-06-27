@@ -593,7 +593,10 @@ def _single_agent_turn_effective_control_capabilities(
         and set(visible_tool_names).intersection({"delegate_to_subagent", "subagent", "agent_delegate"})
     )
     effective["supports_json_action_protocol"] = supports_json_action_protocol
-    effective["requires_json_action_protocol"] = bool(effective.get("requires_json_action_protocol") is True)
+    effective["requires_json_action_protocol"] = bool(
+        effective.get("requires_json_action_protocol") is True
+        and effective.get("requires_json_action_protocol_explicit") is True
+    )
     effective["visible_tool_count"] = visible_tool_count
     effective["may_request_task_run"] = "request_task_run" in allowed
     effective["may_control_active_work"] = "active_work_control" in allowed

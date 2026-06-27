@@ -3853,19 +3853,20 @@ textarea,
 }
 
 .workbench-resize-handle {
-  background: var(--console-surface);
+  background: transparent;
 }
 
 .workbench-resize-handle::after {
   inset: 14px 3px;
   border-radius: 999px;
-  background: var(--console-line);
-  opacity: 0.72;
+  background: var(--console-resize-handle);
+  opacity: 0.3;
+  transition: background 140ms ease, opacity 140ms ease;
 }
 
 .workbench-resize-handle:hover::after {
-  background: var(--console-line-strong);
-  opacity: 0.95;
+  background: var(--console-resize-handle-hover);
+  opacity: 0.76;
 }
 
 .workbench-session-row,

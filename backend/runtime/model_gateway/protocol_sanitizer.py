@@ -41,12 +41,14 @@ class ProtocolSanitizer:
             "output_message_count": 0,
             "assistant_tool_call_count": 0,
             "tool_output_count": 0,
-            "injected_aborted_tool_outputs": 0,
             "dropped_orphan_tool_outputs": 0,
+            "dropped_incomplete_tool_rounds": 0,
+            "dropped_incomplete_tool_round_messages": 0,
             "dropped_empty_messages": 0,
             "dropped_invalid_role_messages": 0,
             "authority": self.authority,
         }
+        pending_round_start_index: int | None = None
         for raw in list(messages or []):
             message = _normalize_message(raw)
             if message is None:
@@ -60,21 +62,31 @@ class ProtocolSanitizer:
                     continue
                 if tool_call_id not in pending:
                     if pending:
-                        for call_id, call in list(pending.items()):
-                            sanitized.append(_aborted_tool_output(call_id=call_id, call=call, turn_id=turn_id))
-                            diagnostics["injected_aborted_tool_outputs"] += 1
+                        dropped = _drop_pending_tool_round(
+                            sanitized,
+                            pending_round_start_index=pending_round_start_index,
+                        )
+                        diagnostics["dropped_incomplete_tool_rounds"] += 1
+                        diagnostics["dropped_incomplete_tool_round_messages"] += dropped
                         pending.clear()
+                        pending_round_start_index = None
                     diagnostics["dropped_orphan_tool_outputs"] += 1
                     continue
                 sanitized.append(message)
                 pending.pop(tool_call_id, None)
                 diagnostics["tool_output_count"] += 1
+                if not pending:
+                    pending_round_start_index = None
                 continue
             if pending:
-                for call_id, call in list(pending.items()):
-                    sanitized.append(_aborted_tool_output(call_id=call_id, call=call, turn_id=turn_id))
-                    diagnostics["injected_aborted_tool_outputs"] += 1
+                dropped = _drop_pending_tool_round(
+                    sanitized,
+                    pending_round_start_index=pending_round_start_index,
+                )
+                diagnostics["dropped_incomplete_tool_rounds"] += 1
+                diagnostics["dropped_incomplete_tool_round_messages"] += dropped
                 pending.clear()
+                pending_round_start_index = None
             if role == "assistant":
                 provider_tool_calls = _provider_shaped_tool_calls(message.get("tool_calls"))
                 if provider_tool_calls:
@@ -83,6 +95,7 @@ class ProtocolSanitizer:
                         call_id = str(call.get("id") or "").strip()
                         if call_id:
                             pending[call_id] = call
+                    pending_round_start_index = len(sanitized) if pending else None
                     sanitized.append(message)
                     continue
                 tool_calls = _tool_calls(message.get("tool_calls"))
@@ -93,6 +106,7 @@ class ProtocolSanitizer:
                         call_id = str(call.get("id") or "").strip()
                         if call_id:
                             pending[call_id] = call
+                    pending_round_start_index = len(sanitized) if pending else None
                 elif not str(message.get("content") or "").strip() and not _has_reasoning_content_field(message):
                     diagnostics["dropped_empty_messages"] += 1
                     continue
@@ -101,8 +115,14 @@ class ProtocolSanitizer:
                 continue
             sanitized.append(message)
         for call_id, call in list(pending.items()):
-            sanitized.append(_aborted_tool_output(call_id=call_id, call=call, turn_id=turn_id))
-            diagnostics["injected_aborted_tool_outputs"] += 1
+            del call_id, call
+            dropped = _drop_pending_tool_round(
+                sanitized,
+                pending_round_start_index=pending_round_start_index,
+            )
+            diagnostics["dropped_incomplete_tool_rounds"] += 1
+            diagnostics["dropped_incomplete_tool_round_messages"] += dropped
+            break
         diagnostics["output_message_count"] = len(sanitized)
         return ProtocolSanitizerResult(messages=tuple(sanitized), diagnostics=diagnostics)
 
@@ -234,19 +254,19 @@ def _has_reasoning_content_field(message: dict[str, Any]) -> bool:
     return _explicit_reasoning_content(dict(message or {}).get("reasoning_content")) != ""
 
 
-def _aborted_tool_output(*, call_id: str, call: dict[str, Any], turn_id: str) -> dict[str, Any]:
-    function = call.get("function") if isinstance(call.get("function"), dict) else {}
-    message = {
-        "role": "tool",
-        "name": str(call.get("name") or function.get("name") or ""),
-        "tool_call_id": str(call_id or ""),
-        "content": "Tool call was aborted before an observation was recorded.",
-        "protocol_status": "aborted",
-        "authority": "runtime.model_gateway.protocol_sanitizer",
-    }
-    if turn_id:
-        message["turn_id"] = str(turn_id or "")
-    return message
+def _drop_pending_tool_round(
+    sanitized: list[dict[str, Any]],
+    *,
+    pending_round_start_index: int | None,
+) -> int:
+    if pending_round_start_index is None:
+        return 0
+    start = int(pending_round_start_index)
+    if start < 0 or start >= len(sanitized):
+        return 0
+    dropped = len(sanitized) - start
+    del sanitized[start:]
+    return dropped
 
 
 def _string_content(value: Any) -> str:

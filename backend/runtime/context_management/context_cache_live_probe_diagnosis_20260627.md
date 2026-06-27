@@ -169,7 +169,7 @@ fork child 继承 parent sealed context anchor，并有可验证物理 cache sco
 本项目当前缺口：
 
 1. `tool_catalog_manifest.input_schema_ref` 和 `provider_tool_bindings_for_available_tools()` 的 schema canonicalization 不统一。
-2. prompt 同时放入巨大 `tool_schema_catalog`、巨大 `tool_index_stable` 和 native tools sidecar，形成三份工具契约表达。
+2. prompt 同时放入巨大 `tool_schema_catalog`、巨大 `tool_index_stable` 和 provider sidecar，形成三份工具契约表达。
 3. dynamic tail 不是主因，但 1.25K 对 95% 目标已经偏大。
 4. fork 语义继承成功，但 child provider-visible ledger 没有直接物化 parent sealed entries，物理 cache inheritance 不完整。
 5. memory maintenance 使用同一 session 语境即时插入低命中调用，应隔离或调度到非交互 cache scope。
@@ -185,8 +185,8 @@ fork child 继承 parent sealed context anchor，并有可验证物理 cache sco
 
 优先级 2：瘦身工具稳定前缀
 
-- native tools sidecar 是 provider 工具调用的权威 schema。
-- prompt 里的 `tool_schema_catalog` 只保留工具语义、分组、admission contract、schema refs 和 catalog hash。
+- provider sidecar 是当前请求的 provider 工具绑定结构，不是稳定 message prefix。
+- message prefix 里的 `Tool Capability Surface` 只保留工具语义、分组、action permit 边界、schema refs 和 catalog hash。
 - 删除重复的大 JSON schema 文本，不再让 `tool_index_stable` 承担 15K+ token。
 - 目标是把 normal turn prompt 从 38K 降到 22K-28K 区间，或至少让可缓存稳定前缀在 provider 实际可读范围内完整覆盖。
 
@@ -350,8 +350,8 @@ predicted_tokens = 3974
 结论：
 
 1. 工具 schema drift 断点已修复，provider tools 不再被标记为 `provider_tools_do_not_match_tool_catalog_manifest`。
-2. 常态缓存仍未达 95%。第三轮仍只有 `0.8226`，说明剩余主因不是 schema ref mismatch，而是稳定前缀过胖、native tools sidecar 仍占约 3974 tokens 且不可作为 message prefix 命中、动态尾约 1247 tokens，以及稳定段在 provider 可读范围内未完整覆盖。
-3. 下一步应进入优先级 2：瘦身工具稳定前缀，删除 prompt 中重复的大 schema 表达，只保留语义目录、admission contract、schema refs 与 catalog hash；provider sidecar 继续作为真实工具调用权威。
+2. 常态缓存仍未达 95%。第三轮仍只有 `0.8226`，说明剩余主因不是 schema ref mismatch，而是稳定前缀过胖、provider sidecar 仍占约 3974 tokens 且不可作为 message prefix 命中、动态尾约 1247 tokens，以及稳定段在 provider 可读范围内未完整覆盖。
+3. 下一步应进入优先级 2：瘦身工具稳定前缀，删除 prompt 中重复的大 schema 表达，只保留语义目录、action permit 边界、schema refs 与 catalog hash；provider sidecar 只作为当前请求的工具绑定结构。
 
 ## 2026-06-27 追加判断：为什么稳定前缀没有全命中
 
@@ -445,3 +445,93 @@ DeepSeek 官方 Context Caching 规则与这个现象一致：
 4. prompt accounting 需要新增一个 provider-aware 指标：`request_boundary_cacheable_prefix`。当前的 `logical_stable_prefix` 对 DeepSeek automatic cache 来说过于乐观。
 
 只有这条物理链修正后，再做工具 schema/catalog 瘦身，95% 目标才有工程意义。否则即使瘦身，仍会出现“逻辑稳定、provider 只命中一部分”的断层。
+
+## 2026-06-27 语义空间优化记录：provider sidecar 隐藏适配化
+
+根据 `agent_semantic_space_context_design_20260627.md`，provider 工具 sidecar 已从稳定前缀语义中移出，重新定义为：
+
+```text
+current_turn_tool_binding_sidecar
+current_provider_request
+never_replay
+not_message_prefix_cacheable
+```
+
+### 已落地代码
+
+| 文件 | 改动 |
+| --- | --- |
+| `backend/harness/runtime/assembly.py` | 新增隐藏 `tool_transport_policy`：agent 可见语义固定为 `tool_call_action`，默认 `transport_mode=json_action`，只有 profile/runtime/model 明确指定时启用 `provider_native`。 |
+| `backend/harness/runtime/tool_transport_adapter.py` | 新增 provider sidecar adapter，只在 hidden policy 允许时把当前可见工具转换为 `model_request.tools`。 |
+| `backend/harness/loop/single_agent_turn.py` | 不再用 `_native_tools_for_packet() -> []` 硬关连线；改为读取 packet hidden policy 并按 policy 挂载或关闭 sidecar。agent 仍通过结构化 `tool_call` action 自主声明工具需求。 |
+| `backend/runtime/model_gateway/provider_payload.py` | `native_tool_binding_schema` 校验从“必须等于全量 stable tool index”改成“必须是 stable tool catalog 的合法子集且 schema_ref 一致”。 |
+| `backend/harness/runtime/provider_tool_schema.py` | 已删除旧 message catalog 生成器；不再生成 `tool_schema_catalog` message。 |
+| `backend/harness/runtime/tool_catalog_manifest.py` | `tool_index_stable` / `Tool Capability Surface` 不再输出完整 `input_schema_summary`，只保留 schema_ref、关键字段名和语义使用规则。 |
+
+边界修正：
+
+- 这不是让系统根据用户语义选择工具。
+- 系统不判断“该读、该写、该查、该继续执行”。
+- 工具调用决策属于 agent；系统只负责在 agent 提交 `tool_call` 后执行、拒绝或返回观察。
+- provider sidecar 是传输优化，不是 agent 思维空间。single-agent turn 默认走 `json_action`；需要切换到 `provider_native` transport 时，必须通过隐藏 `tool_transport_policy` 插线式开启，避免系统用 sidecar 反向塑造 agent 调度。
+
+### 实测证据
+
+在 `session-58c9b0dcc40e4e5c` 上对显式 no-tool turn 复测：
+
+| request | prompt_tokens | cached_tokens | hit_rate | tool sidecar |
+| --- | ---: | ---: | ---: | --- |
+| `...:17:single_agent_turn:1:1` | 47247 | 43776 | 0.9265 | `tool_segments=[]` |
+| `...:19:single_agent_turn:1:1` | 48981 | 43776 | 0.8937 | `tool_segments=[]` |
+
+对比 sidecar 清理前：
+
+| request | prompt_tokens | cached_tokens | hit_rate | sidecar tokens |
+| --- | ---: | ---: | ---: | ---: |
+| `...:15:single_agent_turn:1:1` | 50579 | 40832 | 0.8073 | ~3974 |
+
+结论：
+
+1. provider sidecar 是真实 cache miss 贡献项，不能继续作为 stable transport contract 来预期命中。
+2. 清理 sidecar 后命中率显著提高，但仍未稳定到 95%。
+3. 剩余 miss 主要来自每轮封存并回放的 runtime 控制块：
+
+```text
+dynamic_projection ≈ 1268 tokens / turn
+lifecycle_runtime_guidance ≈ 311 tokens / turn
+current_turn_user_context ≈ 199 tokens / turn
+```
+
+下一步优化重点应转向 `Current Runtime Boundary`：
+
+- durable runtime facts 应进入 sealed timeline 的小型历史事实。
+- 当前控制边界应只保留本轮最小 cursor。
+- runtime boundary 的 agent 可见语义必须说明“本轮有效，历史 replay 只表示过去状态”。
+
+## 2026-06-27 语义空间优化记录：工具能力表与运行边界收口
+
+本轮进一步修正了 agent 可见语义空间：
+
+| 旧结构 | 新结构 |
+| --- | --- |
+| `tool_schema_catalog` message + `tool_index_stable` message | 只保留 `Tool Capability Surface` / `tool_index_stable` |
+| `model_decision_contract` | `action_surface` |
+| `service_surface` | `tool_capability_surface` |
+| `planning` | `planning_boundary` |
+| `task_lifecycle` | `task_lifecycle_boundary` |
+| `operation_authorization` model-visible summary | `operation_permission_summary` |
+| `read_file duplicate-read gate` | `read_evidence_reuse` |
+
+关键边界：
+
+- 系统不根据用户文本替 agent 选择工具。
+- `Tool Capability Surface` 只告诉 agent 当前执行环境有哪些工具能力、关键字段和使用边界。
+- agent 通过结构化 `tool_call` 自主声明工具需求。
+- 系统在 action permit / tool execution 层校验工具名、参数、权限、副作用和 read evidence freshness。
+- `read_evidence_reuse` 只在收到具体 `read_file` 请求后判断旧 exact evidence 是否仍覆盖且未过期；它不是任务语义分类器。
+
+已执行静态验证：
+
+```powershell
+python -m py_compile backend\harness\runtime\compiler.py backend\harness\runtime\dynamic_context\runtime_delta_projector.py backend\harness\loop\admission.py backend\harness\loop\single_agent_turn.py backend\runtime\model_gateway\provider_payload.py backend\runtime\prompt_accounting\serializer.py backend\runtime\prompt_accounting\cache_planner.py backend\runtime\tool_runtime\read_evidence_reuse.py backend\runtime\tool_runtime\native_tools.py backend\prompt_composition\provider_payload_plan.py backend\prompt_composition\message_specs.py backend\prompt_composition\assembly_plan.py backend\prompt_composition\tracing.py backend\runtime\context_management\context_segment_policy.py backend\runtime\context_management\context_capability_policy.py backend\harness\runtime\assembly.py backend\harness\runtime\bound_task_context.py backend\harness\runtime\dynamic_context\evidence_index_cursor.py backend\harness\runtime\tool_catalog_manifest.py
+```

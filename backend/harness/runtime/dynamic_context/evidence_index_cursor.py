@@ -83,7 +83,7 @@ def build_evidence_index_cursor(
                 "file_state_source": file_state_source,
                 "files": files[-12:],
                 "read_resource": read_resource,
-                "policy_ref": "file_evidence_policy_stable.read_window_admission",
+                "policy_ref": "file_evidence_policy_stable.read_evidence_reuse_contract",
                 "projection": "ref_hash_range_freshness_only",
                 "authority": EVIDENCE_INDEX_AUTHORITY,
             }

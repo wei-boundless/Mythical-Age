@@ -228,7 +228,6 @@ _TOOL_CAPABILITY_SYSTEM_GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
             "task_goal_context",
             "task_plan_context",
             "task_todo_context",
-            "tool_schema_catalog",
             "single_agent_turn_tool_call",
             "tool_transcript_delta",
         ),
@@ -242,49 +241,49 @@ _TOOL_CAPABILITY_SYSTEM_GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
             "tool.guidance.read_persisted_tool_result",
             "tool.guidance.local_search",
         ),
-        "context_segments": ("tool_schema_catalog", "tool_index_stable", "read_evidence_context", "evidence_index_cursor", "editor_context_index"),
+        "context_segments": ("tool_index_stable", "read_evidence_context", "evidence_index_cursor", "editor_context_index"),
         "feedback_channels": ("file_read_result", "file_search_result", "file_evidence_repair"),
     },
     "artifact_generation": {
         "capability_groups": ("tool_context", "action_contracts", "repair_feedback"),
         "prompt_resources": ("tool.guidance.edit_file", "tool.guidance.batch_edit_file", "tool.guidance.write_file"),
-        "context_segments": ("tool_schema_catalog", "tool_index_stable", "read_evidence_context", "tool_transcript_delta"),
+        "context_segments": ("tool_index_stable", "read_evidence_context", "tool_transcript_delta"),
         "feedback_channels": ("artifact_write_result", "artifact_write_error", "edit_recovery"),
     },
     "shell_execution": {
         "capability_groups": ("tool_context", "action_contracts", "repair_feedback"),
         "prompt_resources": ("tool.guidance.terminal_powershell",),
-        "context_segments": ("tool_schema_catalog", "tool_index_stable", "single_agent_turn_tool_call", "tool_transcript_delta"),
+        "context_segments": ("tool_index_stable", "single_agent_turn_tool_call", "tool_transcript_delta"),
         "feedback_channels": ("shell_result", "shell_error", "shell_recovery"),
     },
     "source_control": {
         "capability_groups": ("tool_context", "evidence_context", "repair_feedback"),
         "prompt_resources": ("tool.guidance.git_read", "tool.guidance.git_write"),
-        "context_segments": ("tool_schema_catalog", "tool_index_stable", "read_evidence_context", "tool_transcript_delta"),
+        "context_segments": ("tool_index_stable", "read_evidence_context", "tool_transcript_delta"),
         "feedback_channels": ("git_result", "git_error", "git_recovery"),
     },
     "web_research": {
         "capability_groups": ("tool_context", "evidence_context", "repair_feedback"),
         "prompt_resources": ("tool.guidance.web_fetch",),
-        "context_segments": ("tool_schema_catalog", "tool_index_stable", "read_evidence_context"),
+        "context_segments": ("tool_index_stable", "read_evidence_context"),
         "feedback_channels": ("web_fetch_result", "web_fetch_error", "source_recovery"),
     },
     "browser_use": {
         "capability_groups": ("tool_context", "evidence_context", "current_dynamic_control", "repair_feedback"),
         "prompt_resources": ("tool.guidance.browser",),
-        "context_segments": ("tool_schema_catalog", "tool_index_stable", "read_evidence_context", "dynamic_projection"),
+        "context_segments": ("tool_index_stable", "read_evidence_context", "dynamic_projection"),
         "feedback_channels": ("browser_observation", "browser_error", "browser_recovery"),
     },
     "attachment_processing": {
         "capability_groups": ("tool_context", "evidence_context", "repair_feedback"),
         "prompt_resources": ("tool.guidance.attachment_extract_text",),
-        "context_segments": ("tool_schema_catalog", "tool_index_stable", "attachment_context_index", "read_evidence_context"),
+        "context_segments": ("tool_index_stable", "attachment_context_index", "read_evidence_context"),
         "feedback_channels": ("attachment_extract_result", "attachment_extract_error", "attachment_recovery"),
     },
     "subagent_delegation": {
         "capability_groups": ("action_contracts", "tool_context", "lifecycle_control", "repair_feedback"),
         "prompt_resources": ("tool.guidance.subagent", "runtime.rule.subagent_delegation", "runtime.rule.subagent_invocation_protocol"),
-        "context_segments": ("tool_schema_catalog", "tool_index_stable", "single_agent_turn_tool_call", "tool_transcript_delta"),
+        "context_segments": ("tool_index_stable", "single_agent_turn_tool_call", "tool_transcript_delta"),
         "feedback_channels": ("subagent_result", "subagent_failure", "subagent_closeout"),
     },
 }
@@ -353,6 +352,7 @@ class RuntimeAssembly:
     available_tools: tuple[dict[str, Any], ...] = ()
     tool_names: tuple[str, ...] = ()
     filtered_tools: tuple[dict[str, str], ...] = ()
+    tool_transport_policy: dict[str, Any] = field(default_factory=dict)
     control_capabilities: dict[str, Any] = field(default_factory=dict)
     operation_authorization: dict[str, Any] = field(default_factory=dict)
     system_wiring_manifest: dict[str, Any] = field(default_factory=dict)
@@ -366,6 +366,7 @@ class RuntimeAssembly:
         payload["available_tools"] = [dict(item) for item in self.available_tools]
         payload["tool_names"] = list(self.tool_names)
         payload["filtered_tools"] = [dict(item) for item in self.filtered_tools]
+        payload["tool_transport_policy"] = dict(self.tool_transport_policy)
         payload["control_capabilities"] = dict(self.control_capabilities)
         payload["operation_authorization"] = dict(self.operation_authorization)
         payload["system_wiring_manifest"] = dict(self.system_wiring_manifest)
@@ -472,6 +473,12 @@ def assemble_runtime(
         for name in visible_tool_names
         if definitions_by_name.get(name) is not None
     )
+    tool_transport_policy = _tool_transport_policy_for_runtime(
+        profile=profile,
+        runtime_contract=runtime_contract_payload,
+        model_selection=dict(model_selection or {}),
+        visible_tool_names=visible_tool_names,
+    )
     skill_runtime_views = _skill_runtime_views_for_profile(
         backend_dir=backend_dir,
         allowed_operations=tuple(sorted(allowed_operations)),
@@ -495,6 +502,7 @@ def assemble_runtime(
     system_wiring_manifest = _build_system_wiring_manifest(
         agent_runtime_profile=agent_runtime_profile,
         profile=profile,
+        prompt_mount_plan=prompt_mount_plan,
         runtime_contract=runtime_contract_payload,
         task_environment=task_environment,
         operation_authorization=operation_projection.to_dict(),
@@ -545,6 +553,7 @@ def assemble_runtime(
                 *visibility_filtered,
             ]
         ),
+        tool_transport_policy=tool_transport_policy,
         control_capabilities=control_capabilities,
         operation_authorization=operation_projection.to_dict(),
         system_wiring_manifest=system_wiring_manifest,
@@ -563,6 +572,7 @@ def assemble_runtime(
                 "denied_operation_count": len(operation_projection.denied_operations),
             },
             "control_capabilities": dict(control_capabilities),
+            "tool_transport_policy": dict(tool_transport_policy),
             "skill_runtime": {
                 "candidate_count": len(skill_runtime_views),
                 "skill_activation": dict(skill_activation),
@@ -851,6 +861,7 @@ def _build_system_wiring_manifest(
     *,
     agent_runtime_profile: Any | None,
     profile: RuntimeAssemblyProfile,
+    prompt_mount_plan: Any,
     runtime_contract: dict[str, Any],
     task_environment: dict[str, Any],
     operation_authorization: dict[str, Any],
@@ -868,6 +879,13 @@ def _build_system_wiring_manifest(
     """
 
     profile_payload = profile.to_dict()
+    prompt_mount_payload = (
+        prompt_mount_plan.to_dict()
+        if hasattr(prompt_mount_plan, "to_dict")
+        else dict(prompt_mount_plan or {})
+        if isinstance(prompt_mount_plan, dict)
+        else {}
+    )
     agent_profile_payload = (
         agent_runtime_profile.to_dict()
         if hasattr(agent_runtime_profile, "to_dict")
@@ -972,7 +990,7 @@ def _build_system_wiring_manifest(
             },
             prompt_resources=(
                 "runtime.rule.turn_decision_alignment",
-                *_lifecycle_prompt_refs(profile, "task_run_handoff"),
+                *_lifecycle_prompt_refs(prompt_mount_payload, "task_run_handoff"),
             ),
             context_segments=("task_run_contract_stable", "task_prompt_contract"),
             feedback_channels=("contract_gap_repair", "task_run_handoff_repair"),
@@ -998,7 +1016,7 @@ def _build_system_wiring_manifest(
                 "filtered_tool_count": len(filtered_tools),
             },
             prompt_resources=("tool.guidance.read_file", "tool.guidance.read_persisted_tool_result", "tool.guidance.edit_file", "tool.guidance.write_file", "tool.guidance.terminal_powershell"),
-            context_segments=("tool_schema_catalog", "tool_index_stable", "tool_transcript_delta"),
+            context_segments=("tool_index_stable", "tool_transcript_delta"),
             feedback_channels=("tool_result", "tool_error", "tool_permission_denial"),
         ),
         "skill_runtime": _system_group_manifest(
@@ -1026,7 +1044,7 @@ def _build_system_wiring_manifest(
             },
             prompt_resources=(
                 "tool.guidance.subagent",
-                *_lifecycle_prompt_refs(profile, "subagent_delegation", "subagent_result_integration"),
+                *_lifecycle_prompt_refs(prompt_mount_payload, "subagent_delegation", "subagent_result_integration"),
             ),
             context_segments=("single_agent_turn_tool_call", "tool_transcript_delta"),
             feedback_channels=("subagent_result", "subagent_failure", "subagent_closeout"),
@@ -1040,7 +1058,7 @@ def _build_system_wiring_manifest(
                 "history_scope": str(context_policy.get("history_scope") or ""),
                 "provider_visible_replay": True,
             },
-            prompt_resources=_lifecycle_prompt_refs(profile, "memory_read_context"),
+            prompt_resources=_lifecycle_prompt_refs(prompt_mount_payload, "memory_read_context"),
             context_segments=("context_memory_prefix", "context_append", "runtime_memory_context", "session_history", "task_state_replay_entry"),
             feedback_channels=("memory_read_recovery", "provider_visible_ledger_recovery"),
         ),
@@ -1054,7 +1072,7 @@ def _build_system_wiring_manifest(
                 "write_scope": str(memory_policy.get("write_scope") or ""),
                 "writeback_policy": str(memory_policy.get("writeback_policy") or memory_policy.get("write_scope") or ""),
             },
-            prompt_resources=_lifecycle_prompt_refs(profile, "memory_write_handoff"),
+            prompt_resources=_lifecycle_prompt_refs(prompt_mount_payload, "memory_write_handoff"),
             context_segments=("runtime_memory_context", "session_pinned_facts_context"),
             feedback_channels=("memory_write_candidate", "memory_write_rejected", "memory_conflict"),
         ),
@@ -1062,7 +1080,7 @@ def _build_system_wiring_manifest(
             enabled=evidence_read_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["evidence_read"],
             config={"exact_read_evidence": evidence_read_enabled},
-            prompt_resources=("tool.guidance.read_file", *_lifecycle_prompt_refs(profile, "verification_gate")),
+            prompt_resources=("tool.guidance.read_file", *_lifecycle_prompt_refs(prompt_mount_payload, "verification_gate")),
             context_segments=("read_evidence_context", "evidence_index_cursor", "attachment_context_index", "editor_context_index"),
             feedback_channels=("evidence_missing", "evidence_recovery"),
         ),
@@ -1105,7 +1123,7 @@ def _build_system_wiring_manifest(
                 "steer_append_only": True,
                 "resume_replay_required": True,
             },
-            prompt_resources=_lifecycle_prompt_refs(profile, "active_work_control", "user_steer_contract_revision"),
+            prompt_resources=_lifecycle_prompt_refs(prompt_mount_payload, "active_work_control", "user_steer_contract_revision"),
             context_segments=("single_agent_turn_user_steer_context", "user_steering_context_append", "runtime_control_signal_tail"),
             feedback_channels=("resume_recovery", "user_steer_repair", "closeout_control"),
         ),
@@ -1113,7 +1131,7 @@ def _build_system_wiring_manifest(
             enabled=output_projection_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["output_projection"],
             config={"final_commit_required": True, "activity_archive": True},
-            prompt_resources=_lifecycle_prompt_refs(profile, "finalization"),
+            prompt_resources=_lifecycle_prompt_refs(prompt_mount_payload, "finalization"),
             context_segments=("dynamic_projection",),
             feedback_channels=("final_answer_boundary", "projection_closeout"),
         ),
@@ -1121,7 +1139,7 @@ def _build_system_wiring_manifest(
             enabled=recovery_closeout_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["recovery_closeout"],
             config={"structured_failure_required": True, "recovery_package_allowed": True},
-            prompt_resources=_lifecycle_prompt_refs(profile, "tool_observation_recovery", "compaction_handoff"),
+            prompt_resources=_lifecycle_prompt_refs(prompt_mount_payload, "tool_observation_recovery", "compaction_handoff"),
             context_segments=("provider_visible_ledger_recovery_checkpoint", "recovery_context_package", "recent_work_outcome"),
             feedback_channels=("structured_failure", "recovery_package", "closeout_control"),
         ),
@@ -1130,7 +1148,7 @@ def _build_system_wiring_manifest(
         _tool_capability_system_group_manifests(
             tools_by_capability_group=tools_by_capability_group,
             may_call_tools=tool_runtime_enabled,
-            profile=profile,
+            prompt_mount_plan=prompt_mount_payload,
         )
     )
     context_capability_groups = _compiled_context_capability_groups(system_groups)
@@ -1245,7 +1263,7 @@ def _tool_capability_system_group_manifests(
     *,
     tools_by_capability_group: dict[str, list[dict[str, Any]]],
     may_call_tools: bool,
-    profile: RuntimeAssemblyProfile,
+    prompt_mount_plan: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for capability_group, config in _TOOL_CAPABILITY_SYSTEM_GROUPS.items():
@@ -1253,7 +1271,7 @@ def _tool_capability_system_group_manifests(
         group_id = f"tool_{capability_group}"
         prompt_resources = tuple(config.get("prompt_resources") or ())
         if capability_group == "task_planning":
-            prompt_resources = (*prompt_resources, *_lifecycle_prompt_refs(profile, "plan_gate"))
+            prompt_resources = (*prompt_resources, *_lifecycle_prompt_refs(prompt_mount_plan, "plan_gate"))
         result[group_id] = _system_group_manifest(
             enabled=bool(may_call_tools and tools),
             capability_groups=tuple(config.get("capability_groups") or ()),
@@ -1270,13 +1288,13 @@ def _tool_capability_system_group_manifests(
     return result
 
 
-def _lifecycle_prompt_refs(profile: RuntimeAssemblyProfile, *slots: str) -> tuple[str, ...]:
-    defaults = dict(dict(profile.prompt_policy or {}).get("lifecycle_prompt_defaults") or {})
-    overrides = dict(dict(profile.prompt_policy or {}).get("lifecycle_prompt_overrides") or {})
+def _lifecycle_prompt_refs(prompt_mount_plan: dict[str, Any], *slots: str) -> tuple[str, ...]:
+    defaults = dict(dict(prompt_mount_plan or {}).get("lifecycle_prompt_defaults") or {})
+    overrides = dict(dict(prompt_mount_plan or {}).get("lifecycle_prompt_overrides") or {})
     refs: list[str] = []
     for slot in slots:
         key = str(slot or "").strip()
-        ref = str(overrides.get(key) or defaults.get(key) or f"environment.general.lifecycle.{key}").strip()
+        ref = str(overrides.get(key) or defaults.get(key) or "").strip()
         if ref:
             refs.append(ref)
     return _dedupe_strings(tuple(refs))
@@ -1774,6 +1792,80 @@ def _control_capabilities_for_runtime(
         "has_explicit_contract": has_explicit_contract,
         "visible_tool_count": len(visible_tool_names),
     }
+
+
+def _tool_transport_policy_for_runtime(
+    *,
+    profile: RuntimeAssemblyProfile,
+    runtime_contract: dict[str, Any],
+    model_selection: dict[str, Any],
+    visible_tool_names: tuple[str, ...],
+) -> dict[str, Any]:
+    runtime_profile = dict(runtime_contract.get("runtime_profile") or {})
+    explicit = _merge_dicts(
+        dict(profile.tool_policy or {}).get("tool_transport_policy"),
+        dict(profile.tool_policy or {}).get("transport_policy"),
+        runtime_contract.get("tool_transport_policy"),
+        runtime_contract.get("tool_transport"),
+        runtime_profile.get("tool_transport_policy"),
+        runtime_profile.get("tool_transport"),
+        dict(model_selection or {}).get("tool_transport_policy"),
+        dict(model_selection or {}).get("tool_transport"),
+    )
+    requested_mode = _normalize_tool_transport_mode(
+        _first_string(
+            explicit.get("transport_mode"),
+            explicit.get("mode"),
+            explicit.get("tool_call_transport"),
+            explicit.get("ordinary_tool_transport"),
+        )
+    )
+    provider_native_explicit = (
+        "provider_native_tools_enabled" in explicit
+        or "native_tools_enabled" in explicit
+        or "provider_tools_enabled" in explicit
+    )
+    provider_native_requested = bool(
+        explicit.get("provider_native_tools_enabled")
+        or explicit.get("native_tools_enabled")
+        or explicit.get("provider_tools_enabled")
+    )
+    if requested_mode == "provider_native" or (not requested_mode and provider_native_explicit and provider_native_requested):
+        transport_mode = "provider_native"
+    else:
+        transport_mode = "json_action"
+    if provider_native_explicit and not provider_native_requested:
+        transport_mode = "json_action"
+    provider_native_enabled = bool(transport_mode == "provider_native" and visible_tool_names)
+    return {
+        "authority": "harness.runtime.tool_transport_policy",
+        "transport_contract_family": "tool_call_action",
+        "agent_visible_semantics": "tool_call_action",
+        "supported_transport_modes": ["json_action", "provider_native"],
+        "selected_transport_mode": transport_mode,
+        "transport_mode": transport_mode,
+        "provider_native_tools_enabled": provider_native_enabled,
+        "json_action_tool_call_enabled": bool(visible_tool_names),
+        "control_action_transport": "json_action",
+        "provider_native_control_actions_enabled": False,
+        "transport_sidecar_visibility": "runtime_private",
+        "transport_sidecar_scope": "current_provider_request",
+        "cache_contract": {
+            "message_prefix_component": False,
+            "context_memory_component": False,
+            "sidecar_cache_role": "never_replay_as_context",
+        },
+        "visible_tool_count": len(visible_tool_names),
+    }
+
+
+def _normalize_tool_transport_mode(value: Any) -> str:
+    text = str(value or "").strip().lower().replace("-", "_")
+    if text in {"provider_native", "native", "native_tools", "provider_tools", "tools_sidecar"}:
+        return "provider_native"
+    if text in {"json_action", "json", "structured_json", "tool_call_action", "assistant_message"}:
+        return "json_action"
+    return ""
 
 
 def _subagent_policy(*, agent_runtime_profile: Any | None, policy: dict[str, Any]) -> dict[str, Any]:

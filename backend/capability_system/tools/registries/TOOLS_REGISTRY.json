@@ -469,7 +469,10 @@
       "contract": {
         "required_inputs": [],
         "required_bindings": [],
-        "optional_inputs": [],
+        "optional_inputs": [
+          "path",
+          "max_entries"
+        ],
         "owner_scope": "explicit_path",
         "allow_catalog_default": false,
         "allow_history_binding": false,

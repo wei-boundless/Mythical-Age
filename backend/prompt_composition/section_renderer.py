@@ -2,20 +2,30 @@ from __future__ import annotations
 
 from typing import Any
 
+from .context_envelope import render_text_context_fragment
+
 
 def render_agent_prompt_instruction(agent_prompt_assembly: Any, *, invocation_kind: str = "") -> str:
     del invocation_kind
     content = str(getattr(agent_prompt_assembly, "content", "") or "").strip()
     if not content:
         return ""
-    return "\n当前职责：\n" + content + "\n"
+    return _render_instruction_fragment(
+        kind="agent_role_instruction",
+        title="当前职责",
+        content="\n当前职责：\n" + content + "\n",
+    )
 
 
 def render_personality_prompt_instruction(personality_prompt_assembly: Any) -> str:
     content = str(getattr(personality_prompt_assembly, "content", "") or "").strip()
     if not content:
         return ""
-    return "\n当前人格：\n" + content + "\n"
+    return _render_instruction_fragment(
+        kind="personality_instruction",
+        title="当前人格",
+        content="\n当前人格：\n" + content + "\n",
+    )
 
 
 def render_prompt_contract_instruction(prompt_contract_assembly: Any) -> str:
@@ -34,7 +44,11 @@ def render_prompt_contract_instruction(prompt_contract_assembly: Any) -> str:
             lines.append(f"{title}：\n{content}")
         else:
             lines.append(content)
-    return "\n\n".join(lines) + "\n"
+    return _render_instruction_fragment(
+        kind="task_contract_instruction",
+        title="当前任务执行要求",
+        content="\n\n".join(lines) + "\n",
+    )
 
 
 def render_environment_instruction(
@@ -71,15 +85,25 @@ def render_environment_instruction(
     if storage_note:
         detail_sections.append(storage_note.rstrip())
     if not detail_sections:
-        return "\n".join(identity_lines) + "\n"
-    return "\n".join(identity_lines) + "\n当前任务环境说明：\n" + "\n".join(detail_sections) + "\n"
+        content = "\n".join(identity_lines) + "\n"
+    else:
+        content = "\n".join(identity_lines) + "\n当前任务环境说明：\n" + "\n".join(detail_sections) + "\n"
+    return _render_instruction_fragment(
+        kind="environment_instruction",
+        title="当前任务环境",
+        content=content,
+    )
 
 
 def render_lifecycle_instruction(lifecycle_prompt_assembly: Any | None) -> str:
     content = _lifecycle_prompt_section_content(lifecycle_prompt_assembly)
     if not content:
         return ""
-    return "当前执行生命周期规则：\n" + content + "\n"
+    return _render_instruction_fragment(
+        kind="lifecycle_instruction",
+        title="当前执行生命周期规则",
+        content="当前执行生命周期规则：\n" + content + "\n",
+    )
 
 
 def _environment_prompt_section_content(environment_prompt_assembly: Any) -> str:
@@ -115,3 +139,15 @@ def _lifecycle_prompt_section_content(lifecycle_prompt_assembly: Any | None) -> 
         title = str(getattr(section, "title", "") or prompt_ref or "生命周期提示").strip()
         rendered.append(f"【生命周期提示：{title}】\n{str(getattr(section, 'content', '') or '').strip()}")
     return "\n\n".join(rendered).strip()
+
+
+def _render_instruction_fragment(*, kind: str, title: str, content: str) -> str:
+    text = str(content or "").strip()
+    if not text:
+        return ""
+    return render_text_context_fragment(
+        kind=kind,
+        title=title,
+        text=text,
+        role="system",
+    ) + "\n"

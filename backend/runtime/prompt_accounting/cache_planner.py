@@ -21,7 +21,6 @@ from .provider_payload_boundary import (
 CACHE_READ_REQUIRED_SEGMENT_KINDS = {
     "global_static",
     "action_schema_static",
-    "tool_schema_catalog",
     "tool_index_stable",
     "task_run_contract_stable",
 }
@@ -461,7 +460,7 @@ def _stable_segment_boundary_diagnostics(segment_map: PromptSegmentMap) -> dict[
 def _requires_provider_cache_read_coverage(*, segment_kind: str, metadata: dict[str, Any]) -> bool:
     if segment_kind in CACHE_READ_REQUIRED_SEGMENT_KINDS:
         return True
-    return str(metadata.get("authority_class") or "") == "provider_tool_schema_catalog"
+    return False
 
 
 def _provider_cache_read_coverage_diagnostics(

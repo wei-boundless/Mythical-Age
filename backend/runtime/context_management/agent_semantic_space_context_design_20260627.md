@@ -2,7 +2,7 @@
 
 日期：2026-06-27
 
-本文档用于约束后续上下文重构。它先定义 agent 实际收到并理解的语义空间，再约束物理拼接、缓存、工具准入和 fork 交接。目标不是机械压 token，而是把上下文组织成成熟 agent 能稳定工作的时间链。
+本文档用于约束后续上下文重构。它先定义 agent 实际收到并理解的语义空间，再约束物理拼接、缓存、工具能力、执行许可和 fork 交接。目标不是机械压 token，而是把上下文组织成成熟 agent 能稳定工作的时间链。
 
 ## 1. 核心结论
 
@@ -16,7 +16,7 @@ global_static_prefix
 
 最新实测证明旧 message hash 已经按前缀连续追加。但缓存命中仍不合格，根因不再是物理顺序，而是语义空间分配还不成熟：
 
-- 工具契约同时以 `tool_schema_catalog`、`tool_index_stable`、provider native tools sidecar 三份形式出现。
+- 工具契约同时以 `tool_schema_catalog`、`tool_index_stable`、provider sidecar 三份形式出现。
 - 旧上下文排在巨大工具/稳定前缀之后，DeepSeek 没有完整命中后半段旧上下文。
 - runtime control 被作为历史字节封存后，虽然物理连续，但语义上需要明确“只读历史，不是当前授权”。
 - provider 传输结构和 agent 可理解语义上下文混在一起，导致缓存和语义都变重。
@@ -25,7 +25,7 @@ global_static_prefix
 
 ```text
 Stable Operating Contract
--> Tool Admission Contract
+-> Tool Capability Surface
 -> Sealed Conversation Timeline
 -> Current Turn Delta
 -> Current Runtime Boundary
@@ -52,7 +52,7 @@ Agent 应该看到的是可执行语义：
 
 ```text
 Operating Contract
-Tool Admission Contract
+Tool Capability Surface
 Sealed Conversation Timeline
 Current User Request
 Current New Evidence
@@ -93,7 +93,7 @@ provider_visible_context_prefix
 
 ### 2.4 Provider 传输契约不是上下文记忆
 
-Provider native tools、tool choice options、request params 属于 API transport。
+Provider tool sidecar、tool choice options、request params 属于 API transport。
 
 它们可以参与 transport contract hash 和 provider payload manifest，但不应该作为大段 agent 记忆重复进入 message prefix。
 
@@ -140,20 +140,21 @@ static_prefix -> global_static_prefix
 - 应稳定命中。
 - 体积应克制，不能把工具 full schema、运行快照或 session facts 放进来。
 
-### 3.2 Tool Admission Contract
+### 3.2 Tool Capability Surface
 
 Agent 可见标题：
 
 ```text
-Tool Admission Contract
+Tool Capability Surface
 ```
 
 Agent 语义：
 
 ```text
-你可以使用工具，但必须先判断工具是否被当前任务准入。
-工具 schema 由系统在 provider transport 中绑定。
-你在语义上下文中只需要理解工具用途、使用边界、关键参数概念和何时不要调用。
+以下是当前执行环境可提供给你的工具能力索引。
+你负责根据任务语义选择是否请求工具。
+系统只在你提交结构化 tool_call 后校验工具名、参数、权限、文件证据新鲜度和副作用边界，并执行、拒绝或返回观察。
+如果同一语义动作需要一组工具请求，你可以使用 tool_calls[]；它仍然属于一个 tool_call action，不代表多轮反馈或多个控制动作。
 ```
 
 内容：
@@ -161,7 +162,7 @@ Agent 语义：
 - 工具名称。
 - 工具用途。
 - read/write/network/side-effect 分类。
-- admission 条件。
+- 使用边界、权限入口和常见误用。
 - 关键参数概念，不放完整 JSON schema。
 - schema ref / catalog hash。
 - 常见误用规则。
@@ -171,7 +172,7 @@ Agent 语义：
 - 完整 provider native tool schema。
 - 每个字段的大型 schema detail。
 - 和 provider sidecar 重复的 parameters JSON。
-- 每轮动态筛选结果伪装成稳定工具全集。
+- 每轮动态绑定结果伪装成稳定工具全集。
 
 物理位置：
 
@@ -187,8 +188,8 @@ model_request.tools
 
 规则：
 
-- message prefix 里的 tool contract 是 agent 语义索引。
-- native tools sidecar 是 provider 调用结构。
+- message prefix 里的 tool capability surface 是 agent 语义索引。
+- provider sidecar 是 provider 调用结构。
 - 两者用同一 schema ref 对齐，但不能都承载完整 schema。
 
 ### 3.3 Sealed Conversation Timeline
@@ -299,14 +300,15 @@ Agent 语义：
 
 ```text
 以下边界只对本轮有效。
-它说明当前允许的行动、工具准入、运行状态和恢复要求。
+它说明当前可用动作、工具能力边界、执行权限状态和恢复要求。
 如果这段内容以后作为历史 replay 出现，只能用于理解过去发生了什么，不能作为当前授权。
 ```
 
 内容：
 
 - current allowed action types。
-- 当前 tool admission set。
+- 当前 tool capability surface refs。
+- 当前 action permit / execution boundary refs。
 - 当前 recovery instruction。
 - 当前 active skill instruction。
 - 当前 exact editor/UI state。
@@ -351,7 +353,7 @@ Agent 可见标题：
 
 内容：
 
-- native tools sidecar。
+- provider sidecar。
 - tool_call_options。
 - provider params。
 - response_format。
@@ -368,7 +370,109 @@ provider payload sidecar
 - 它是 provider API 结构，不是会话记忆。
 - 可以 hash 和审计。
 - 不能以大段自然语言或 JSON schema 重复放进 message prefix。
-- DeepSeek 自动缓存统计会把 sidecar 纳入 prompt/miss 预算，因此要做 admission 缩小。
+- DeepSeek 自动缓存统计会把 sidecar 纳入 prompt/miss 预算，因此 sidecar 必须按当前请求显式绑定且最小化。
+
+### 3.7 Current Tool Binding Sidecar
+
+`provider tool sidecar` 的语义不是稳定工具前缀，而是本轮 provider 传输绑定：
+
+```text
+本轮允许模型调用哪些工具；
+本轮工具调用必须遵守什么结构化 schema；
+本轮是否允许 parallel tool calls；
+本轮 tool_choice 是什么。
+```
+
+它是 runtime-private transport adapter 的附属物，而不是 `Tool Capability Surface`。agent 可见层只出现一套语义动作：`tool_call`。
+
+因此它的语义应标记为：
+
+```text
+current_turn_tool_binding_sidecar
+never_replay
+current_turn_only
+not_message_prefix_cacheable
+```
+
+硬规则：
+
+- 普通无工具 turn 不发送 provider sidecar。
+- 只有明确 transport 模式或 agent 已声明工具需求后需要绑定的工具才进入 sidecar。
+- sidecar 不进入 sealed timeline。
+- sidecar 不作为 stable transport prefix 预期命中。
+- sidecar 的 schema hash 可用于验证，但不能用“稳定 hash”推断 DeepSeek 一定会缓存其后的全部 message prefix。
+- message 中的 `Tool Capability Surface` 只提供工具用途、能力边界、关键参数概念和 schema refs，不重复完整 schema。
+- 不允许用末端 `return []` 伪装关闭链路；是否绑定 sidecar 必须来自隐藏 `tool_transport_policy`。
+
+当前已确认的问题：
+
+```text
+provider wire body:
+tools sidecar -> messages stable prefix -> old context -> current tail
+
+local cache model:
+messages stable prefix -> old context
+tools sidecar is excluded from message prefix
+```
+
+这会让本地 prefix 账本和 DeepSeek 实际前缀缓存模型错位。优化方向不是把 sidecar 继续稳定化，而是把它移出 agent 语义空间，作为隐藏 adapter 的按需传输线。
+
+2026-06-27 已落地的语义裁决：
+
+| 项 | 旧逻辑 | 新逻辑 |
+|---|---|---|
+| sidecar 身份 | 稳定工具传输契约的一部分 | `current_turn_tool_binding_sidecar` |
+| sidecar 生命周期 | 每轮默认携带全量工具 schema，或在末端硬编码 `[]` 假装关闭 | `tool_transport_policy` 默认 `json_action`；只有 profile/runtime/model 明确切到 `provider_native` 时才绑定 provider sidecar |
+| sidecar 校验 | 必须 exact match 全量 `tool_index_stable` | 如果某个 transport 边界显式绑定 provider sidecar，它只能是稳定工具目录的合法子集，且每个 schema_ref 一致 |
+| message 工具前缀 | `tool_schema_catalog` 带完整 provider schema，`tool_index_stable` 带详细字段 schema | 删除 `tool_schema_catalog` message；由 `Tool Capability Surface` / `tool_index_stable` 单段承载工具名、用途、关键字段名、使用边界、schema_ref |
+| 普通 turn | 系统预先替 agent 选择工具 sidecar | agent 只看到 `tool_call` action；runtime 根据隐藏 transport policy 选择 JSON action 或 provider sidecar |
+
+当前代码权威：
+
+| 权责 | 文件 | 说明 |
+|---|---|---|
+| agent 工具决策 | `backend/harness/loop/model_action_protocol.py` | agent 通过 `action_type=tool_call` 和 `tool_call={tool_name,args}` 自主声明工具需求 |
+| hidden transport policy | `backend/harness/runtime/assembly.py` | 解析 profile/runtime/model 的 `tool_transport_policy`，默认 `json_action`，provider sidecar 只在明确选择时开启 |
+| provider sidecar adapter | `backend/harness/runtime/tool_transport_adapter.py` | 根据隐藏 policy 把当前可见工具绑定成 provider sidecar；不生成 agent-visible catalog message |
+| single-agent transport wiring | `backend/harness/loop/single_agent_turn.py` | 从 packet diagnostics 读取 hidden policy，按 policy 挂载或关闭 `model_request.tools`，不再写死空数组 |
+| provider schema 生成 | provider payload / shared canonical schema | 完整 schema 只服务 provider native binding；稳定 message 前缀只放 schema_ref |
+| 稳定工具目录 | `backend/harness/runtime/tool_catalog_manifest.py` | `model_visible_catalog` 不再输出完整 `input_schema_summary`，只输出 schema_ref 与瘦身后的工具能力 contract |
+| sidecar drift 诊断 | `backend/runtime/model_gateway/provider_payload.py` | `native_tool_binding_schema` 验证 actual sidecar 是 stable tool catalog 的合法子集 |
+
+实测证据：
+
+```text
+session-58c9b0dcc40e4e5c
+显式 no-tool turn 后：
+request 17: 47247 prompt / 43776 cached / hit_rate 0.9265 / miss 3471
+request 19: 48981 prompt / 43776 cached / hit_rate 0.8937 / miss 5205
+segment map: tool_segments=[]
+```
+
+这证明 provider sidecar 是实际 cache break 贡献项。第 15 轮同类请求在携带 sidecar 时约为：
+
+```text
+prompt_tokens=50579
+cached_tokens=40832
+hit_rate=0.8073
+native_tool_binding_schema≈3974 tokens
+```
+
+因此 sidecar 不能继续伪装成稳定前缀；它必须是 `Provider Transport Contract` 下的 current-turn tool binding。
+
+边界修正：
+
+```text
+系统不得根据当前用户文本替 agent 判断“该读、该写、该查、该继续执行”。
+系统只能提供工具语义索引、执行 agent 已声明的 tool_call、按权限/安全边界拒绝或返回观察。
+```
+
+因此本项目的工具链不能包含系统语义分类器。工具相关职责应拆分为：
+
+- `Tool Capability Surface`：稳定告诉 agent 当前执行环境有哪些工具能力。
+- `Action Permit`：agent 提交结构化 action 后，系统按权限、安全、副作用和运行状态执行或拒绝。
+- `Read Evidence Reuse Contract`：`read_file` 收到具体读取请求后，系统只判断既有 exact evidence 是否仍覆盖且新鲜；可复用则返回小型 unchanged observation，不重复全文。
+- `Current Tool Binding Sidecar`：provider transport 需要时绑定当前请求的结构化 schema；它不是会话记忆，也不是系统语义分类器。
 
 ## 4. 时序模型
 
@@ -403,29 +507,31 @@ Agent 时序前缀应显式表达：
 
 ## 5. 工具语义和工具传输的分离
 
-### 5.1 当前问题
+### 5.1 已修正的旧问题
 
-现状有三份工具表达：
+旧链路曾经有三份工具表达：
 
 ```text
 tool_schema_catalog message
 tool_index_stable message
-native tools sidecar
+provider sidecar
 ```
 
-这导致：
+这会导致：
 
 - message prefix 过胖。
 - provider sidecar 每轮增加 miss 预算。
-- agent 读到的工具信息像开发数据包，不像工具准入契约。
+- agent 读到的工具信息像开发数据包，不像工具能力索引。
 - DeepSeek 命中旧上下文前已经被大量工具契约占据 prefix 空间。
+
+当前主链已删除 `tool_schema_catalog` message。agent 可见工具语义只由 `Tool Capability Surface` / `tool_index_stable` 承载；provider sidecar 只作为当前请求 transport 绑定。
 
 ### 5.2 目标结构
 
 语义空间：
 
 ```text
-Tool Admission Contract
+Tool Capability Surface
 ```
 
 只包含：
@@ -437,82 +543,46 @@ Tool Admission Contract
 - when not to use。
 - key argument concepts。
 - schema_ref。
+- tool_contract_summary。
 
 Provider transport：
 
 ```text
-native tools sidecar
+current tool binding sidecar
 ```
 
-只包含当前准入的可调用工具 schema。
+只包含当前 provider 请求显式绑定的可调用工具 schema。它不是会话记忆，不进入 message prefix，不作为稳定缓存前缀。
 
-### 5.3 Tool Admission Set
+### 5.3 Tool Choice 与 Action Permit
 
-每轮不应默认发送全部工具 sidecar。应分两层：
+系统不得根据用户文本替 agent 选择工具。成熟链路应分四层：
 
-稳定工具宇宙：
+- `Tool Capability Surface`：稳定展示当前执行环境可用工具能力。
+- `Model Action`：agent 根据任务语义自主提交 `tool_call` 或其它 action。
+- `Action Permit`：系统只校验已提交 action 的工具名、参数、权限、副作用和运行边界。
+- `Tool Observation`：执行、拒绝或复用证据后返回观察，供 agent 继续判断。
+
+稳定工具能力：
 
 ```text
 tool universe / capability catalog
 ```
 
-当前可调用集合：
+当前工具执行请求：
 
 ```text
-admitted native tools for this turn
+agent_declared_tool_call
 ```
 
-Admission 依据：
-
-- 用户请求类型。
-- 当前任务阶段。
-- runtime permission mode。
-- 文件上下文是否存在。
-- 是否已有 read evidence。
-- 是否需要写入。
-- 是否处于 recovery / follow-up tool loop。
-
-例子：
-
-普通问答无文件操作：
-
-```text
-admitted_tools = []
-```
-
-已知文件路径，需要读：
-
-```text
-admitted_tools = [read_file, path_exists, stat_path]
-```
-
-需要查找文件：
-
-```text
-admitted_tools = [search_files, glob_paths, list_dir]
-```
-
-需要代码修改：
-
-```text
-admitted_tools = [read_file, search_text, edit_file, batch_edit_file]
-```
-
-需要 shell 真实验证：
-
-```text
-admitted_tools = [exec_command]
-```
-
-如果当前模型需要未准入工具，应通过 action request 或下一轮 runtime boundary 扩大 admission，而不是每轮预先发送全部 schema。
+如果 agent 请求的工具当前不可执行，系统返回 action permit denial / tool observation，而不是替 agent 改成另一个工具或另一个任务计划。
 
 ## 6. 上下文分配表
 
 | 语义层 | Agent 可见标题 | section | physical lane | 是否封存 | 缓存预期 |
 |---|---|---|---|---:|---|
 | 稳定运行契约 | `Operating Contract` | `static_prefix` | `global_static_prefix` | 否 | 应稳定命中 |
-| 工具准入契约 | `Tool Admission Contract` | `static_prefix` | `global_static_prefix` | 否 | 应稳定命中，必须瘦 |
-| provider native schema | 不进 message | sidecar | sidecar | 否 | DeepSeek 可能计入 miss，必须 admission |
+| 工具能力表 | `Tool Capability Surface` | `static_prefix` | `global_static_prefix` | 否 | 应稳定命中，必须瘦 |
+| provider native schema | 不进 message | sidecar | sidecar | 否 | Current Tool Binding，DeepSeek 可能计入 miss，必须按当前请求绑定 |
 | 已封存历史 | `Sealed Conversation Timeline` | `context_memory_prefix` | `provider_visible_context_prefix` | 已封存 | 应稳定命中 |
 | 本轮用户请求 | `Current User Request` | `context_append` | `current_turn_tail` | 成功后封存 | 本轮 miss |
 | 本轮工具结果 | `Current New Evidence` | `context_append` | `current_turn_tail` | 成功后封存 | 本轮 miss |
@@ -566,21 +636,21 @@ cached_tokens / prompt_tokens >= 0.95
 - current user delta。
 - current tool result delta。
 - minimal runtime boundary。
-- provider sidecar 的当前准入小集合。
+- provider sidecar 的当前请求绑定小集合。
 
 不允许长期 miss：
 
 - 旧 timeline。
 - 稳定 operating contract。
-- 稳定 tool admission contract。
+- 稳定 tool capability surface。
 - 大型 tool schema catalog。
 - 完整 runtime projection。
 - 完整重复 read result。
 
 当前要达标，需要优先降低：
 
-1. `tool_schema_catalog + tool_index_stable` message 体积。
-2. native tools sidecar 工具数量。
+1. `Tool Capability Surface` message 体积。
+2. provider sidecar 工具数量。
 3. runtime control 封存体积。
 4. memory maintenance current delta 体积和调度位置。
 
@@ -604,44 +674,53 @@ cached_tokens / prompt_tokens >= 0.95
 - provider messages 中出现 `Operating Contract`、`Sealed Conversation Timeline`、`Current Turn Delta`、`Current Runtime Boundary` 等语义标题。
 - 不出现开发标签作为 agent 主标题。
 
-### Phase S2：工具契约语义化瘦身
+### Phase S2：工具能力表单源化
 
 目标：
 
-- `tool_schema_catalog` 不再包含完整 schema。
-- `tool_index_stable` 不再重复 schema summary 大包。
-- message prefix 中只保留 tool admission contract、schema refs、关键使用规则。
+- 删除 `tool_schema_catalog` message。
+- `tool_index_stable` / `Tool Capability Surface` 不重复 schema summary 大包。
+- message prefix 中只保留工具能力、schema refs、关键使用规则。
 
 改动点：
 
-- `backend/harness/runtime/provider_tool_schema.py`
 - `backend/harness/runtime/tool_catalog_manifest.py`
 - `backend/harness/runtime/compiler.py`
 
 验收：
 
-- `tool_schema_catalog + tool_index_stable` 从约 20K tokens 降到可控范围。
+- `Tool Capability Surface` 从约 15K tokens 降到可控范围。
 - schema hash 仍 matched。
-- agent 能理解工具用途和准入边界。
+- agent 能理解工具用途和执行边界。
 
-### Phase S3：Native Tools Admission
+### Phase S3：Provider Tool Transport Boundary
 
 目标：
 
-- 不再每轮默认发送全部 native tools sidecar。
-- 根据当前 turn 语义选择 admitted tool set。
+- 不再每轮默认发送全部 provider sidecar。
+- single-agent turn 默认走 `json_action`，agent 使用结构化 `tool_call` action 自主声明工具需求。
+- 如果某个运行模式显式需要 `provider_native` transport，只能绑定当前可见工具集合，不能由系统根据用户文本推断工具选择。
+- 将 provider sidecar 诊断为 `current_turn_tool_binding_sidecar`，不再作为 stable transport prefix 组件预期命中。
 
 改动点：
 
 - `backend/harness/loop/single_agent_turn.py`
-- runtime tool plan / tool admission policy。
+- runtime tool plan / transport sidecar policy。
 - provider payload diagnostics。
+- `backend/harness/loop/model_action_protocol.py` 解析 `tool_call` / `tool_calls[]`，并为每个工具调用生成稳定 `tool_call_id`。
+- `backend/harness/runtime/compiler.py` 的反馈契约明确批量工具调用只需要批次级公开说明，观察返回后按语义变化汇总反馈。
+- `backend/prompt_library/rules.py` 的固定工具契约已统一为：`action_type=tool_call`，单工具用 `tool_call`，同一判断目标内的一组工具用 `tool_calls[]`；静态规则不再说持续任务不能批量工具 action。
+- runtime control / contract feedback 的 agent 可见文本必须写成行动语义：发生了什么、你现在可采取什么动作、是否需要自然回应、工具是否还能继续；不得把“系统反馈角色”“用户正文通道”“事实边界”等开发分类写给 agent。
+- 系统发给 agent 的纠错反馈属于 `current_turn_tail` 的行动校正段：它只能说明上一轮动作为何未被接受、当前允许动作、是否还能调用工具、用户可见回应应放在哪些字段；不能替 agent 选择计划、改写用户目标或暴露 provider/native/sidecar/transport 等隐藏适配器语言。
+- 合同反馈投影统一使用 `next_action_requirements`：允许动作、工具是否可用、是否只能提交一个动作、可写的用户可见字段。旧 `required_action_protocol` 只允许作为历史恢复包的内部读取 fallback，不能作为新 prompt 投影字段。
 
 验收：
 
 - 普通“只回复 OK / 无工具需求”turn 的 `tool_count` 应接近 0。
-- 文件任务只发送文件相关工具。
-- 写入任务才发送写入工具。
+- agent 仍可通过 JSON `tool_call` action 请求任何当前工具目录允许的工具；单个工具用 `tool_call`，同一语义动作内的一组工具用 `tool_calls[]`。
+- 不存在系统按用户语义强行收窄或放大 agent 工具调度空间的逻辑。
+- `public_progress_note` 描述这批工具共同要查证的公开事实，不逐工具列名；观察返回后由 agent 按是否形成新的公开结论、风险、阻塞、验收状态或下一步来反馈。
+- 所有恢复/修复/拒绝反馈都只提供 agent 可执行的行动语义，不用开发侧分类词替代角色、任务、输入、输出和下一步。
 
 ### Phase S4：Runtime Control 历史化
 
@@ -678,6 +757,70 @@ cached_tokens / prompt_tokens >= 0.95
 
 - normal turn 缓存诊断不被 maintenance records 混淆。
 - maintenance 使用独立 cache scope 或延后调度。
+
+## 9.1 运行期收口/恢复提示的物理归属
+
+2026-06-27 追加修复：`closeout`、`recovery`、`followup action contract`、`admission repair` 都不是旧上下文，也不是可封存记忆。它们的语义是：
+
+```text
+Current Runtime Boundary
+本轮执行反馈和下一步行动边界。
+它只帮助 agent 基于当前事实重新选择动作、收口、询问或说明阻塞。
+它不代表用户新请求，不进入 sealed timeline，不成为 fork anchor。
+```
+
+工程规则：
+
+- 这些消息出生时必须带内部 segment tag，例如 `runtime_control_signal_tail` 或 `single_agent_turn_followup_action_contract`。
+- 内部 tag 只给分段器和 ledger gate 使用，不能进入 provider message payload。
+- 分段器优先读内部 tag；中文提示词内容只能作为读取旧请求或异常路径的兜底识别。
+- policy 固定为 `dynamic_tail + never_commit + current_dynamic_tail_only`。
+- provider-visible ledger 只封存 user/current append/tool transcript 等 provider 成功确认的新上下文，不封存 closeout/recovery/action-contract 尾巴。
+
+为什么这样设计：
+
+- closeout/recovery 是“当前轮如何继续/如何停止”的行动反馈，不是历史事实本体。
+- 如果它被封存，下一轮会把旧的当前边界误读为新边界，fork 也会继承错误授权。
+- 如果它插在 sealed context 中，DeepSeek 的 prefix cache 会在旧 tail 与新 turn append 之间断开，导致本该稳定命中的上下文前缀变成部分命中。
+- 内部 tag 通道可以让工程分段稳定，而不会把 `source_ref`、`context_cache_section` 等内部字段发给大模型。
+
+## 9.2 自然回应与结构化动作的传输边界
+
+2026-06-27 追加修复：`supports_json_action_protocol` 只表示 agent 可以使用结构化动作，不表示本轮必须使用 JSON action。此前链路把“可用动作集合里包含 respond/tool_call/ask_user”误判为“必须输出结构化动作”，导致普通自然回答被当成协议错误，再触发 `runtime-control-recovery` 或 `agent-closeout`。这是系统在传输层过度控制 agent 表达，不是 agent 本身的问题。
+
+目标语义：
+
+```text
+自然回应：agent 直接写给用户看的回答；没有结构化动作时，它就是本轮普通回应。
+结构化动作：agent 明确请求工具、任务生命周期、运行控制、等待用户或阻塞状态时使用。
+```
+
+工程规则：
+
+- `supports_json_action_protocol=true`：agent 可选择结构化动作。
+- `requires_json_action_protocol=true`：只能来自显式运行边界，不能由工具可见性或 allowed action 自动推出。
+- 普通 single turn 默认 `natural_response_or_structured_action`：自然正文进入 final answer 候选；显式 JSON/native action 进入 action permit。
+- 工具 follow-up 的行动合同只说明“继续工具或改变运行状态时使用结构化动作”；已经足够回答时，agent 可以直接自然收口。
+- closeout 的职责是让 agent 根据当前停止事实给用户收口判断；它可以是自然正文，只有需要等待用户或阻塞状态时才需要结构化动作。
+- parser 只识别传输形状：明确 JSON action / provider-native tool call / 普通文本。它不能根据自然语言内容替 agent 判断“其实想调用工具”或“其实想 respond”。
+- 流式响应结束时，如果 provider chunk 聚合对象存在但 `content` 为空，而 `raw_content` 已经接到可见文本，必须把 `raw_content` 作为最终响应内容交给 commit gate；不能误触发 `single_agent_turn_empty_response` closeout。
+
+本次实测：
+
+```text
+session-67d85fabe4c34b03
+4 轮普通 no-tool turn 均直接返回 OK。
+provider calls: agent_runtime=4, closeout=0, repair=0
+第 3/4 轮 normal turn provider cache hit rate: 95.15%
+ledger: closeout/recovery/action-contract 未封存。
+```
+
+剩余优化不再是拼接断层，而是动态尾体积：
+
+- `dynamic_projection` 约 762 tokens。
+- `lifecycle_runtime_guidance` 约 360 tokens。
+- `current_turn_user_context` 约 72 tokens。
+- 后台 `memory_maintenance_current_delta` 可单独拉低总体统计，但不应混入 normal turn 命中率判断。
 
 ## 10. 最终验收
 

@@ -20,6 +20,7 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "contains_inline_pseudo_tool_call": ("runtime.output_boundary.boundary", "contains_inline_pseudo_tool_call"),
     "contains_internal_protocol": ("runtime.output_boundary.boundary", "contains_internal_protocol"),
     "contains_runtime_protocol_disclosure": ("runtime.output_boundary.boundary", "contains_runtime_protocol_disclosure"),
+    "could_be_internal_protocol_prefix": ("runtime.output_boundary.boundary", "could_be_internal_protocol_prefix"),
     "looks_like_procedural_promise_text": ("runtime.output_boundary.classifier", "looks_like_procedural_promise_text"),
     "looks_like_progress_text": ("runtime.output_boundary.classifier", "looks_like_progress_text"),
     "looks_like_tool_claim_without_receipt": ("runtime.output_boundary.classifier", "looks_like_tool_claim_without_receipt"),

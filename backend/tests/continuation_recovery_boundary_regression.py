@@ -592,7 +592,7 @@ def test_recovery_boundary_receipt_projection_requires_authority() -> None:
         },
     )
 
-    dynamic_payload = _message_payload_with_title(result.packet, "Current runtime control")
+    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
     projected = dict(dynamic_payload["recovery_boundary_receipt"])
 
     assert "resume_recoverable_work" in result.packet.allowed_action_types
@@ -635,7 +635,7 @@ def test_recovery_boundary_receipt_projection_accepts_trusted_resume_receipt() -
         },
     )
 
-    dynamic_payload = _message_payload_with_title(result.packet, "Current runtime control")
+    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
     projected = dict(dynamic_payload["recovery_boundary_receipt"])
 
     assert projected["operation_availability"]["resume_recoverable_work"] is True
@@ -756,7 +756,7 @@ def test_task_execution_packet_injects_authorized_recovery_packet_from_task_run_
         },
     )
 
-    dynamic_payload = _message_payload_with_title(result.packet, "Task execution runtime boundary")
+    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
     projected = dict(dynamic_payload["recovery_packet"])
     assert projected["continuation_id"] == record.continuation_id
     assert projected["task_run_id"] == record.task_run_id

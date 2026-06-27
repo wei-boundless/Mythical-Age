@@ -52,9 +52,9 @@ from runtime.tool_runtime.read_file_window import (
     build_read_file_error_result,
     build_read_file_window_result,
 )
-from runtime.tool_runtime.read_admission import (
+from runtime.tool_runtime.read_evidence_reuse import (
     ReadFileCurrentFacts,
-    decide_read_file_admission,
+    decide_read_evidence_reuse,
 )
 from runtime.shared.file_observation_policy import (
     READ_FILE_MAX_LINE_COUNT,
@@ -366,7 +366,7 @@ class NativeReadFileTool(_NativeToolBase):
             rel = files.relative_path(file_path)
             stat = file_path.stat()
             mtime_ns = int(stat.st_mtime_ns)
-            admission = decide_read_file_admission(
+            reuse_decision = decide_read_evidence_reuse(
                 file_evidence_scope=dict(getattr(context, "file_evidence_scope", {}) or {}),
                 storage_roots=_runtime_context_storage_roots(context),
                 path=rel,
@@ -380,12 +380,12 @@ class NativeReadFileTool(_NativeToolBase):
                     exists=True,
                 ),
             )
-            if admission.should_reuse:
+            if reuse_decision.should_reuse:
                 return self._envelope(
                     tool_args=args,
                     status="ok",
-                    text=admission.to_visible_text(),
-                    structured_payload={"tool_result": admission.to_tool_result()},
+                    text=reuse_decision.to_visible_text(),
+                    structured_payload={"tool_result": reuse_decision.to_tool_result()},
                     observed_paths=(rel,),
                     execution_receipt=context.execution_receipt,
                 )
@@ -454,7 +454,7 @@ class NativeReadFileTool(_NativeToolBase):
             target = _gateway_target_for_path(context, gateway, action="read", path=path)
             repository_id = target.repository_id
             display_path = target.display_path if target.external else target.logical_path
-            admission = decide_read_file_admission(
+            reuse_decision = decide_read_evidence_reuse(
                 file_evidence_scope=dict(getattr(context, "file_evidence_scope", {}) or {}),
                 storage_roots=_runtime_context_storage_roots(context),
                 path=display_path,
@@ -463,13 +463,13 @@ class NativeReadFileTool(_NativeToolBase):
                 read_intent=read_intent,
                 repository_id=repository_id,
             )
-            if admission.should_reuse:
+            if reuse_decision.should_reuse:
                 return self._envelope(
                     tool_args=args,
                     status="ok",
-                    text=admission.to_visible_text(),
+                    text=reuse_decision.to_visible_text(),
                     structured_payload={
-                        "tool_result": admission.to_tool_result(),
+                        "tool_result": reuse_decision.to_tool_result(),
                         "file_gateway": {
                             "access_decision": "reuse_unchanged",
                             "repository_id": repository_id,

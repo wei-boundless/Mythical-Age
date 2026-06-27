@@ -286,7 +286,7 @@ class _ActiveWorkDecisionModelRuntime:
         return SimpleNamespace(content=self._active_work_followup_answer(messages), tool_calls=[])
 
     def _allows_active_work_control(self, messages) -> bool:
-        marker = "Turn operating contract\n"
+        marker = "Operating Contract\n"
         for message in list(messages or []):
             if not isinstance(message, dict):
                 continue

@@ -72,7 +72,6 @@ STATIC_PREFIX_KINDS = {
     "task_prompt_contract",
     "task_stable",
     "tool_index_stable",
-    "tool_schema_catalog",
     "turn_stable",
 }
 
@@ -87,8 +86,6 @@ MEMORY_CONTEXT_KINDS = {
     "runtime_memory_context",
     "session_pinned_facts_context",
     "current_turn_user_context",
-    "single_agent_turn_followup_action_contract",
-    "single_agent_turn_followup_message",
     "single_agent_turn_tool_call",
     "single_agent_turn_user_steer_context",
     "task_start_inherited_context",
@@ -104,8 +101,6 @@ APPEND_ONLY_CONTEXT_KINDS = {
     "runtime_memory_context",
     "session_pinned_facts_context",
     "current_turn_user_context",
-    "single_agent_turn_followup_action_contract",
-    "single_agent_turn_followup_message",
     "single_agent_turn_tool_call",
     "single_agent_turn_user_steer_context",
     "task_state_replay_entry",
@@ -128,6 +123,8 @@ CURRENT_CONTROL_TAIL_KINDS = {
     "runtime_control_signal_tail",
     "semantic_compaction_request",
     "session_history_tail_context",
+    "single_agent_turn_followup_action_contract",
+    "single_agent_turn_followup_message",
     "task_goal_context",
     "task_plan_context",
     "task_runtime_boundary_dynamic",
@@ -289,11 +286,27 @@ def _install_builtin_policy_defaults() -> None:
         "lifecycle_runtime_guidance": "lifecycle_guidance",
         "runtime_control_signal_tail": "runtime_control_contract",
         "single_agent_turn_followup_action_contract": "action_contract",
+        "single_agent_turn_followup_message": "runtime_followup_contract",
         "partial_stream_recovery_instruction": "visible_prefix_recovery_contract",
         "partial_stream_recovery_visible_prefix": "visible_prefix_recovery_context",
         "provider_visible_ledger_recovery_checkpoint": "provider_visible_ledger_recovery",
     }.items():
         register_context_segment_policy_defaults(kind=kind, contract_slot=slot)
+    for kind, slot in {
+        "single_agent_turn_followup_action_contract": "action_contract",
+        "single_agent_turn_followup_message": "runtime_followup_contract",
+    }.items():
+        register_context_segment_policy_defaults(
+            kind=kind,
+            section=DYNAMIC_TAIL,
+            prefix_cache_scope="none",
+            prefix_cache_role="volatile",
+            prefix_tier="volatile",
+            semantic_slot=slot,
+            commit_policy="never_commit",
+            replay_policy="current_dynamic_tail_only",
+            identity_policy="current_invocation_only",
+        )
     for kind in {
         "partial_stream_recovery_instruction",
         "provider_visible_ledger_recovery_checkpoint",
@@ -596,10 +609,20 @@ def _cache_policy_for_section(
         if not scope or scope == "none":
             scope = "global" if role == "cacheable_prefix" else "session"
         return scope, role, _prefix_tier(prefix_tier, cache_scope=scope, cache_role=role)
-    if section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
+    if section == CONTEXT_MEMORY_PREFIX:
         role = _cache_role(cache_role)
         if role == "never_cache":
             return "none", "never_cache", "none"
+        if role not in {"cacheable_prefix", "session_stable"}:
+            role = "session_stable"
+        scope = str(cache_scope or "").strip() or "task"
+        return scope, role, _prefix_tier(prefix_tier, cache_scope=scope, cache_role=role)
+    if section == CONTEXT_APPEND:
+        role = _cache_role(cache_role)
+        if role == "never_cache":
+            return "none", "never_cache", "none"
+        if role == "volatile":
+            return "none", "volatile", "volatile"
         if role not in {"cacheable_prefix", "session_stable"}:
             role = "session_stable"
         scope = str(cache_scope or "").strip() or "task"

@@ -246,7 +246,7 @@ def test_compiler_does_not_project_active_work_controls_when_receipt_unavailable
     )
 
     assert "active_work_control" in result.packet.allowed_action_types
-    dynamic_payload = _message_payload_with_title(result.packet, "Current runtime control")
+    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
     projected_active_work = dict(dynamic_payload["active_work_context"])
     projected_receipt = dict(dynamic_payload["current_work_boundary_receipt"])
     active_control_contract = dict(dict(result.packet.output_contract["control_actions"])["active_work_control"])
@@ -286,7 +286,7 @@ def test_compiler_uses_current_work_boundary_receipt_as_state_observation() -> N
     assert result.packet.allowed_action_types == ("respond", "ask_user", "block", "request_task_run", "active_work_control")
     assert result.packet.diagnostics["current_work_boundary_receipt"]["receipt_id"] == "cwreceipt:active"
     assert result.packet.diagnostics["current_work_boundary_receipt"]["operation_availability"]["active_work_control"] is True
-    dynamic_payload = _message_payload_with_title(result.packet, "Current runtime control")
+    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
     projected_active_work = dict(dynamic_payload["active_work_context"])
     assert "continue_active_work" in projected_active_work["available_controls"]
     assert projected_active_work["read_only_context"] is False
@@ -318,7 +318,7 @@ def test_compiler_treats_shadow_current_work_receipt_true_as_read_only_state() -
     )
 
     packet_context = dict(result.packet.diagnostics["runtime_packet_context"])
-    dynamic_payload = _message_payload_with_title(result.packet, "Current runtime control")
+    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
     projected_active_work = dict(dynamic_payload["active_work_context"])
     projected_receipt = dict(dynamic_payload["current_work_boundary_receipt"])
 
@@ -361,7 +361,7 @@ def test_compiler_exposes_recoverable_work_as_model_decision_context_not_active_
     assert "resume_recoverable_work" in result.packet.allowed_action_types
     assert "active_work_control" in result.packet.allowed_action_types
     resume_contract = dict(dict(result.packet.output_contract["control_actions"])["resume_recoverable_work"])
-    dynamic_payload = _message_payload_with_title(result.packet, "Current runtime control")
+    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
     projected = dict(dynamic_payload["recoverable_work"])
     assert projected["continuation_id"] == "cont:recoverable:17:0"
     assert projected["task_run_id"] == "taskrun:recoverable"
@@ -400,7 +400,7 @@ def test_compiler_keeps_unresumable_recoverable_work_read_only_without_resume_ac
         },
     )
 
-    dynamic_payload = _message_payload_with_title(result.packet, "Current runtime control")
+    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
     projected = dict(dynamic_payload["recoverable_work"])
 
     assert "resume_recoverable_work" not in result.packet.allowed_action_types
@@ -454,7 +454,7 @@ def test_compiler_exposes_interrupted_turn_work_as_volatile_continuation_context
 
     assert "resume_recoverable_work" not in result.packet.allowed_action_types
     assert "active_work_control" in result.packet.allowed_action_types
-    dynamic_payload = _message_payload_with_title(result.packet, "Current runtime control")
+    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
     projected = dict(dynamic_payload["interrupted_turn_work"])
     assert projected["turn_run_id"] == "turnrun:interrupted"
     assert projected["state"] == "interrupted_continuation_context"
@@ -555,7 +555,7 @@ def test_compiler_exposes_agent_contract_feedback_inside_interrupted_turn_work()
         runtime_assembly=runtime_assembly,
     )
 
-    dynamic_payload = _message_payload_with_title(result.packet, "Current runtime control")
+    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
     projected = dict(dynamic_payload["interrupted_turn_work"])
     feedback = dict(projected["agent_contract_feedback"])
     protocol = dict(feedback["required_action_protocol"])

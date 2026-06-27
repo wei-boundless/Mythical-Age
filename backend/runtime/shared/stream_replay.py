@@ -15,6 +15,19 @@ PUBLIC_STREAM_EVENT_TYPE = "chat_stream_event"
 AGENT_LIVE_PROTOCOL = "agent-live.v1"
 _PUBLIC_PROJECTION_AUTHORITY = "harness.public_projection"
 _REQUIRED_PROJECTION_FRAME_KEYS = ("op", "slot", "main_visibility", "retention")
+_PUBLIC_RAW_PROTOCOL_KEYS = {
+    "detected_unexecuted_action",
+    "explicit_tool_transport",
+    "ignored_leading_text",
+    "ignored_trailing_text",
+    "parse_diagnostics",
+    "previous_invalid_response_preview",
+    "previous_response_preview",
+    "protocol_error",
+    "raw_content_preview",
+    "rejected_action_transport",
+    "rejected_json_action_payload",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,7 +227,8 @@ def canonical_public_projection_frame(frame: dict[str, Any] | None) -> dict[str,
 
 def sanitize_public_stream_event_data_for_replay(public_event_type: str, data: dict[str, Any]) -> dict[str, Any]:
     payload = _data_with_canonical_public_projection_frame(dict(data or {}))
-    return _data_with_sanitized_runtime_control_signal(public_event_type, payload)
+    payload = _data_with_sanitized_runtime_control_signal(public_event_type, payload)
+    return _without_raw_protocol_payload(payload)
 
 
 def _data_with_canonical_public_projection_frame(data: dict[str, Any]) -> dict[str, Any]:
@@ -235,27 +249,79 @@ def _data_with_sanitized_runtime_control_signal(event_name: str, data: dict[str,
         "task_runtime_control_signal_observed",
     }:
         return data
-    signal = _public_runtime_control_signal_index(data.get("runtime_control_signal"))
-    if signal:
-        return {**data, "runtime_control_signal": signal}
-    if "runtime_control_signal" not in data:
-        return data
     payload = dict(data)
+    raw_event = payload.get("event")
+    event_payload = dict(raw_event.get("payload") or {}) if isinstance(raw_event, dict) else {}
+    signal = _public_runtime_control_signal_index(
+        payload.get("runtime_control_signal") or event_payload.get("runtime_control_signal")
+    )
+    if isinstance(raw_event, dict):
+        payload.setdefault("runtime_event_id", str(raw_event.get("event_id") or ""))
+        payload.setdefault("source_event_id", str(raw_event.get("event_id") or ""))
+        try:
+            payload.setdefault("source_event_offset", int(raw_event.get("offset")))
+        except (TypeError, ValueError):
+            pass
+    payload.pop("event", None)
+    payload.pop("protocol_error", None)
+    payload.pop("previous_response_preview", None)
+    payload.pop("rejected_json_action_payload", None)
+    payload.pop("rejected_action_transport", None)
+    payload.pop("detected_unexecuted_action", None)
+    if signal:
+        return {**payload, "runtime_control_signal": signal}
     payload.pop("runtime_control_signal", None)
     return payload
 
 
-def _public_runtime_control_signal_index(value: Any) -> dict[str, str]:
+def _without_raw_protocol_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        cleaned: dict[str, Any] = {}
+        for key, item in value.items():
+            if str(key) in _PUBLIC_RAW_PROTOCOL_KEYS:
+                continue
+            cleaned[str(key)] = _without_raw_protocol_payload(item)
+        return cleaned
+    if isinstance(value, list):
+        return [_without_raw_protocol_payload(item) for item in value]
+    return value
+
+
+def _public_runtime_control_signal_index(value: Any) -> dict[str, Any]:
     signal = dict(value) if isinstance(value, dict) else {}
     if not signal:
         return {}
-    index: dict[str, str] = {}
+    index: dict[str, Any] = {}
     signal_ref = str(signal.get("runtime_control_signal_ref") or "").strip()
     signal_kind = str(signal.get("signal_kind") or "").strip()
+    state = str(signal.get("runtime_control_state") or "").strip()
+    phase = str(signal.get("phase") or "").strip()
+    protocol_error = dict(signal.get("protocol_error") or {}) if isinstance(signal.get("protocol_error"), dict) else {}
+    structured_signal = dict(signal.get("structured_signal") or {}) if isinstance(signal.get("structured_signal"), dict) else {}
+    code = str(protocol_error.get("code") or structured_signal.get("code") or "").strip()
+    reason = str(protocol_error.get("reason") or structured_signal.get("reason") or "").strip()
     if signal_ref:
         index["runtime_control_signal_ref"] = signal_ref
     if signal_kind:
         index["signal_kind"] = signal_kind
+    if state:
+        index["runtime_control_state"] = state
+    if phase:
+        index["phase"] = phase
+    if code:
+        index["code"] = code
+    if reason:
+        index["reason"] = reason
+    for key in (
+        "recovery_attempt",
+        "max_recovery_attempts",
+        "recovery_exhausted",
+        "fresh_agent_decision_required",
+        "public_response_required",
+        "tool_calls_allowed_after_signal",
+    ):
+        if key in signal:
+            index[key] = signal.get(key)
     return index
 
 

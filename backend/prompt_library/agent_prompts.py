@@ -114,14 +114,12 @@ def list_builtin_agent_prompt_resources() -> tuple[PromptResource, ...]:
             invocation_kind="semantic_compaction",
             title="context_compactor_agent semantic compaction work role",
             content=CONTEXT_COMPACTOR_SEMANTIC_COMPACTION_PROMPT,
-            allowed_agent_refs=("context_compactor_agent",),
         ),
         _agent_work_role_resource(
             prompt_id="agent.memory_system_agent.memory_maintenance.work_role",
             invocation_kind="memory_maintenance",
             title="memory_system_agent memory maintenance work role",
             content=MEMORY_SYSTEM_AGENT_MEMORY_MAINTENANCE_PROMPT,
-            allowed_agent_refs=("memory_system_agent",),
         ),
     )
 
@@ -132,7 +130,7 @@ def _agent_work_role_resource(
     invocation_kind: str,
     title: str,
     content: str,
-    allowed_agent_refs: tuple[str, ...] = ("main_interactive_agent",),
+    allowed_agent_refs: tuple[str, ...] = (),
 ) -> PromptResource:
     agent_refs = tuple(str(item).strip() for item in allowed_agent_refs if str(item).strip())
     return PromptResource(
@@ -160,7 +158,7 @@ def _agent_work_role_resource(
                 "prompt_ref": prompt_id,
                 "rule_kind": "agent.role",
                 "owner_layer": "agent",
-                "applies_to": [*agent_refs, invocation_kind],
+                "applies_to": [invocation_kind],
                 "allowed_invocation_kinds": [invocation_kind],
                 "allowed_agent_refs": list(agent_refs),
                 "cache_tier": "session_stable",

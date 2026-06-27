@@ -884,7 +884,7 @@
 }
 
 .agent-workbench .workbench-resize-handle:hover::after {
-  background: var(--console-blue);
+  background: var(--console-resize-handle-hover);
 }
 
 .agent-workbench .workbench-center-content,
@@ -937,7 +937,7 @@
 .agent-workbench .workspace-view {
   gap: 12px;
   padding: 12px;
-  scrollbar-color: var(--console-muted) transparent;
+  scrollbar-color: var(--console-scrollbar-thumb) transparent;
 }
 
 .agent-workbench .workspace-view__eyebrow,
@@ -2721,11 +2721,11 @@ select:focus-visible {
 }
 
 .workbench-resize-handle {
-  background: var(--console-bg);
+  background: transparent;
 }
 
 .workbench-resize-handle:hover::after {
-  background: var(--console-line-strong);
+  background: var(--console-resize-handle-hover);
 }
 
 .workbench-runtime-state {
@@ -2924,20 +2924,32 @@ select:focus-visible {
 .agent-workbench *,
 .system-page-shell * {
   scrollbar-width: thin;
-  scrollbar-color: var(--console-line-strong) transparent;
+  scrollbar-color: var(--console-scrollbar-thumb) transparent;
 }
 
 .agent-workbench *::-webkit-scrollbar,
 .system-page-shell *::-webkit-scrollbar {
-  width: 9px;
-  height: 9px;
+  width: 7px;
+  height: 7px;
 }
 
 .agent-workbench *::-webkit-scrollbar-thumb,
 .system-page-shell *::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 999px;
-  background: var(--console-line-strong);
+  background: var(--console-scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+.agent-workbench *::-webkit-scrollbar-thumb:hover,
+.system-page-shell *::-webkit-scrollbar-thumb:hover {
+  background: var(--console-scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+.agent-workbench *::-webkit-scrollbar-thumb:active,
+.system-page-shell *::-webkit-scrollbar-thumb:active {
+  background: var(--console-scrollbar-thumb-active);
   background-clip: padding-box;
 }
 
@@ -3342,11 +3354,12 @@ select:focus-visible {
   inset: 0 3px;
   border-radius: 999px;
   background: transparent;
+  transition: background 140ms ease, opacity 140ms ease;
 }
 
 .task-system-sidebar-resize-handle:hover::after,
 .task-system-sidebar-resize-handle:focus-visible::after {
-  background: var(--console-line-strong);
+  background: var(--console-resize-handle-hover);
 }
 
 .system-page-shell:not(.system-page-shell--removed-system) .task-system-database-sidebar,
@@ -3577,19 +3590,20 @@ body {
 }
 
 .workbench-resize-handle {
-  background: var(--console-bg);
+  background: transparent;
 }
 
 .workbench-resize-handle::after {
   inset: 14px 3px;
   border-radius: 999px;
-  background: var(--console-hover);
+  background: var(--console-resize-handle);
   opacity: 0;
+  transition: background 140ms ease, opacity 140ms ease;
 }
 
 .workbench-resize-handle:hover::after {
-  background: var(--console-line-strong);
-  opacity: 0.86;
+  background: var(--console-resize-handle-hover);
+  opacity: 0.72;
 }
 
 .workbench-panel-head,
@@ -6227,9 +6241,9 @@ body {
   top: 12px;
   bottom: 12px;
   left: 50%;
-  width: 3px;
+  width: 2px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--console-line) 72%, transparent);
+  background: var(--console-resize-handle);
   transform: translateX(-50%);
   transition: background 140ms ease, box-shadow 140ms ease;
 }
@@ -6237,8 +6251,8 @@ body {
 .center-workspace-diff__split-resizer:hover::before,
 .center-workspace-diff__split-resizer:focus-visible::before,
 .center-workspace-diff__body--resizing .center-workspace-diff__split-resizer::before {
-  background: var(--console-active-ring);
-  box-shadow: 0 0 0 5px rgba(29, 95, 211, 0.1);
+  background: var(--console-resize-handle-active);
+  box-shadow: 0 0 0 4px var(--console-resize-handle-shadow);
 }
 
 .center-workspace-diff__body--resizing,
@@ -6734,8 +6748,8 @@ body {
 .agent-workbench .center-workspace__split-resizer:hover::before,
 .agent-workbench .center-workspace__split-resizer:focus-visible::before,
 .agent-workbench .center-workspace--resizing .center-workspace__split-resizer::before {
-  background: var(--console-active-ring);
-  box-shadow: 0 0 0 3px rgba(29, 95, 211, 0.08);
+  background: var(--console-resize-handle-active);
+  box-shadow: 0 0 0 3px var(--console-resize-handle-shadow);
 }
 
 .agent-workbench .center-workspace--resizing,

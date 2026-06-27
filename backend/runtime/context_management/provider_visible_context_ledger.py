@@ -19,7 +19,7 @@ from .context_candidates import ContextCommitCandidate
 from .tool_transcript import is_tool_transcript_kind
 
 
-PROVIDER_VISIBLE_CONTEXT_LEDGER_SCHEMA_VERSION = 1
+PROVIDER_VISIBLE_CONTEXT_LEDGER_SCHEMA_VERSION = 2
 PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT = DEFAULT_PROVIDER_ADAPTER_CONTRACT
 PROVIDER_VISIBLE_CONTEXT_LEDGER_CONFIRMED_STATUS = "confirmed_provider_visible"
 PROVIDER_VISIBLE_CONTEXT_PREFIX = "provider_visible_context_prefix"
@@ -952,14 +952,89 @@ def _materialize_ledger_entries(
     recovery_payloads = [dict(item) for item in list(recovery_events or []) if isinstance(item, dict)]
     if recovery_payloads and not ordered_entries:
         result.append((0, _recovery_spec_from_failure(recovery_payloads[-1], scope=scope)))
-    for entry in ordered_entries:
+    index = 0
+    while index < len(ordered_entries):
+        entry = ordered_entries[index]
         order = _safe_int(entry.get("entry_index"))
         if order <= 0:
+            index += 1
             continue
         if not _ledger_entry_confirmed(entry):
+            index += 1
+            continue
+        message = _provider_visible_message(dict(entry.get("provider_visible_message") or {}))
+        if _provider_visible_message_role(message) == "tool":
+            index += 1
+            continue
+        expected_tool_call_ids = _provider_visible_assistant_tool_call_ids(message)
+        if expected_tool_call_ids:
+            group_entries, next_index = _closed_tool_round_entries(
+                ordered_entries,
+                start_index=index,
+                expected_tool_call_ids=expected_tool_call_ids,
+            )
+            if not group_entries:
+                index += 1
+                continue
+            for group_entry in group_entries:
+                group_order = _safe_int(group_entry.get("entry_index"))
+                if group_order > 0:
+                    result.append((group_order, _spec_from_ledger_entry(group_entry, scope=scope)))
+            index = next_index
             continue
         result.append((order, _spec_from_ledger_entry(entry, scope=scope)))
+        index += 1
     return result
+
+
+def _closed_tool_round_entries(
+    entries: list[dict[str, Any]],
+    *,
+    start_index: int,
+    expected_tool_call_ids: list[str],
+) -> tuple[list[dict[str, Any]], int]:
+    expected = [str(item).strip() for item in list(expected_tool_call_ids or []) if str(item).strip()]
+    if not expected or start_index < 0 or start_index >= len(entries):
+        return [], start_index + 1
+    group = [dict(entries[start_index])]
+    found: set[str] = set()
+    index = start_index + 1
+    while index < len(entries) and len(found) < len(set(expected)):
+        candidate = dict(entries[index])
+        if not _ledger_entry_confirmed(candidate):
+            index += 1
+            continue
+        message = _provider_visible_message(dict(candidate.get("provider_visible_message") or {}))
+        role = _provider_visible_message_role(message)
+        if role != "tool":
+            break
+        tool_call_id = str(message.get("tool_call_id") or "").strip()
+        if tool_call_id not in expected or tool_call_id in found:
+            break
+        group.append(candidate)
+        found.add(tool_call_id)
+        index += 1
+    if set(expected).issubset(found):
+        return group, index
+    return [], start_index + 1
+
+
+def _provider_visible_message_role(message: dict[str, Any]) -> str:
+    return str(dict(message or {}).get("role") or "").strip()
+
+
+def _provider_visible_assistant_tool_call_ids(message: dict[str, Any]) -> list[str]:
+    payload = dict(message or {})
+    if _provider_visible_message_role(payload) != "assistant":
+        return []
+    ids: list[str] = []
+    for raw_call in list(payload.get("tool_calls") or []):
+        if not isinstance(raw_call, dict):
+            continue
+        call_id = str(dict(raw_call).get("id") or "").strip()
+        if call_id and call_id not in ids:
+            ids.append(call_id)
+    return ids
 
 
 def _spec_from_ledger_entry(entry: dict[str, Any], *, scope: str) -> dict[str, Any]:

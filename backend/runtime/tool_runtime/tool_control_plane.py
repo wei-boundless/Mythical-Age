@@ -126,7 +126,7 @@ def _tool_handler_registry() -> ToolDispatchHandlerRegistry:
 
 @dataclass(slots=True)
 class RuntimeToolControlPlane:
-    """Runtime/session-level tool admission and observation boundary."""
+    """Runtime/session-level action permit, tool execution, and observation boundary."""
 
     tool_runtime_executor: Any | None = None
     tool_supervisor: Any | None = None

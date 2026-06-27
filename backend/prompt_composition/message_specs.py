@@ -37,6 +37,8 @@ def build_model_message_spec(
         "metadata": payload_metadata,
     }
     if prefix:
+        payload_metadata.setdefault("assistant_completion_prefix", True)
+        payload_metadata.setdefault("completion_prefix_role", "provider_chat_prefix_completion")
         payload["prefix"] = True
     return payload
 
@@ -74,7 +76,7 @@ def message_spec_content_source(*, kind: str, cache_role: str, source_ref: str) 
         return "runtime.dynamic_context_fragment"
     if normalized_kind in {"task_contract_stable"}:
         return "runtime.task_contract_manifest"
-    if normalized_kind in {"tool_index_stable", "tool_schema_catalog"}:
+    if normalized_kind in {"tool_index_stable"}:
         return "runtime.tool_catalog_manifest"
     if normalized_kind in {
         "agent_function_shared_stable",

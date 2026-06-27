@@ -102,6 +102,7 @@ def looks_like_procedural_promise_text(text: str) -> bool:
     )
     if len(lines) == 1 and re.fullmatch(r"(?:开始|开干|开始执行|开始处理)[。.!！…]*", lines[0]):
         return True
+    has_procedural_content = False
     for line in lines:
         line = _ACK_PREFIX_RE.sub("", line).strip()
         if not line:
@@ -120,7 +121,8 @@ def looks_like_procedural_promise_text(text: str) -> bool:
             return False
         if not any(token in compact for token in action_tokens):
             return False
-    return True
+        has_procedural_content = True
+    return has_procedural_content
 
 
 def looks_like_tool_claim_without_receipt(text: str) -> bool:
@@ -421,4 +423,3 @@ def _pdf_missing_answer_reason(rejected_candidates: list[OutputCandidate]) -> st
     metadata = dict(canonical_candidates[0].metadata or {})
     degraded_reason = str(metadata.get("pdf_degraded_reason", "") or "").strip()
     return degraded_reason or "pdf_missing_summary"
-

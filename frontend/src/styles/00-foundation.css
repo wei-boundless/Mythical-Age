@@ -43,6 +43,13 @@
   --console-control-height: 36px;
   --console-toolbar-height: 42px;
   --console-icon-button-size: 34px;
+  --console-scrollbar-thumb: color-mix(in srgb, var(--console-line-strong) 44%, transparent);
+  --console-scrollbar-thumb-hover: color-mix(in srgb, var(--console-line-strong) 66%, transparent);
+  --console-scrollbar-thumb-active: color-mix(in srgb, var(--console-line-strong) 78%, transparent);
+  --console-resize-handle: color-mix(in srgb, var(--console-line-strong) 28%, transparent);
+  --console-resize-handle-hover: color-mix(in srgb, var(--console-line-strong) 52%, transparent);
+  --console-resize-handle-active: color-mix(in srgb, var(--console-accent) 34%, transparent);
+  --console-resize-handle-shadow: color-mix(in srgb, var(--console-accent) 10%, transparent);
   --console-font-size-ui: 15px;
   --console-font-size-page: 16px;
   --console-font-size-body: 17px;

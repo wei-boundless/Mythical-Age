@@ -7,24 +7,60 @@ from typing import Any
 
 from prompt_library.tool_prompts import tool_guidance_payload_for_visible_tools
 from runtime.shared.tool_schema_canonical import (
-    canonical_provider_tool_input_schema,
     canonical_provider_tool_input_schema_ref,
 )
 
 _MODEL_VISIBLE_PROMPT_POLICIES = {"schema_only", "schema_plus_guidance"}
-_SPECIAL_CONTRACT_TOOL_NAMES = {
-    "agent_todo",
-    "write_file",
-    "edit_file",
-    "batch_edit_file",
-    "spawn_subagent",
-    "glob_paths",
-    "search_files",
-    "read_file",
-    "search_text",
-    "path_exists",
-    "stat_path",
-    "list_dir",
+
+_SYSTEM_INTERNAL_ARG_NAMES = {
+    "agent_invocation_id",
+    "event_log_id",
+    "input_schema_ref",
+    "operation_id",
+    "project_id",
+    "run_id",
+    "schema_ref",
+    "session_id",
+    "stable_tool_catalog_hash",
+    "stream_run_id",
+    "task_id",
+    "task_run_id",
+    "tool_catalog_hash",
+    "turn_id",
+    "turn_run_id",
+}
+
+_ARG_TYPE_HINTS = {
+    "allow_overwrite": "boolean",
+    "all_branches": "boolean",
+    "base_mtime_ns": "integer",
+    "case_sensitive": "boolean",
+    "context": "integer",
+    "dry_run": "boolean",
+    "head_limit": "integer",
+    "line_count": "integer",
+    "limit": "integer",
+    "max_bytes": "integer",
+    "max_entries": "integer",
+    "max_results": "integer",
+    "max_symbols": "integer",
+    "max_text_chars": "integer",
+    "offset": "integer",
+    "overwrite": "boolean",
+    "start_byte": "integer",
+    "start_line": "integer",
+    "timeout_ms": "integer",
+}
+
+_ARG_COLLECTION_HINTS = {
+    "collections",
+    "context_refs",
+    "edits",
+    "expected_outputs",
+    "items",
+    "paths",
+    "repositories",
+    "roots",
 }
 
 
@@ -44,12 +80,11 @@ class ToolCatalogManifest:
     tool_guidance_payload: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.runtime.tool_catalog_manifest"
 
-    def to_model_visible_payload(self, *, include_catalog_hash: bool) -> dict[str, Any]:
+    def to_model_visible_payload(self, *, include_catalog_hash: bool = False) -> dict[str, Any]:
+        del include_catalog_hash
         payload: dict[str, Any] = {
             "available_tools": [dict(item) for item in self.model_visible_catalog],
         }
-        if include_catalog_hash:
-            payload["tool_catalog_hash"] = self.tool_catalog_hash
         payload.update(_deepcopy_json_dict(self.tool_guidance_payload))
         return payload
 
@@ -72,11 +107,11 @@ def build_tool_catalog_manifest(
     tool_guidance_prompt_overrides: dict[str, str] | None = None,
 ) -> ToolCatalogManifest:
     raw_tools = tuple(dict(item) for item in list(tool_payloads or []) if isinstance(item, dict))
-    model_visible_catalog = tuple(_model_visible_tool_entry(item) for item in raw_tools)
+    model_visible_catalog = tuple(agent_visible_tool_contract_entry(item) for item in raw_tools)
     model_visible_catalog = tuple(item for item in model_visible_catalog if item)
     tool_names = tuple(str(item.get("tool_name") or "") for item in model_visible_catalog)
     guidance_payload = tool_guidance_payload_for_visible_tools(
-        model_visible_catalog,
+        raw_tools,
         guidance_prompt_defaults=tool_guidance_prompt_defaults,
         guidance_prompt_overrides=tool_guidance_prompt_overrides,
     )
@@ -86,11 +121,11 @@ def build_tool_catalog_manifest(
         exposure_policy_counts[policy] = exposure_policy_counts.get(policy, 0) + 1
     tool_schema_refs = tuple(
         {
-            "tool_name": str(item.get("tool_name") or ""),
-            "input_schema_ref": str(item.get("input_schema_ref") or ""),
+            "tool_name": str(item.get("tool_name") or item.get("name") or ""),
+            "input_schema_ref": canonical_provider_tool_input_schema_ref(item),
         }
-        for item in model_visible_catalog
-        if str(item.get("input_schema_ref") or "")
+        for item in raw_tools
+        if str(item.get("tool_name") or item.get("name") or "")
     )
     raw_catalog_hash = _stable_json_hash([dict(item) for item in raw_tools])
     stable_catalog_hash = _stable_json_hash([dict(item) for item in model_visible_catalog])
@@ -99,7 +134,6 @@ def build_tool_catalog_manifest(
         "source_ref": str(source_ref or ""),
         "tool_catalog_hash": raw_catalog_hash,
         "stable_tool_catalog_hash": stable_catalog_hash,
-        "tool_guidance_hash": str(guidance_payload.get("tool_guidance_hash") or ""),
     }
     return ToolCatalogManifest(
         manifest_id="toolcatalog:" + _digest(seed),
@@ -117,7 +151,7 @@ def build_tool_catalog_manifest(
     )
 
 
-def _model_visible_tool_entry(tool_payload: dict[str, Any]) -> dict[str, Any]:
+def agent_visible_tool_contract_entry(tool_payload: dict[str, Any]) -> dict[str, Any]:
     tool = dict(tool_payload or {})
     name = str(tool.get("tool_name") or tool.get("name") or "").strip()
     if not name:
@@ -125,28 +159,108 @@ def _model_visible_tool_entry(tool_payload: dict[str, Any]) -> dict[str, Any]:
     prompt_exposure_policy = str(tool.get("prompt_exposure_policy") or "schema_only").strip() or "schema_only"
     if prompt_exposure_policy not in _MODEL_VISIBLE_PROMPT_POLICIES:
         return {}
-    required_inputs = [str(value) for value in list(tool.get("required_inputs") or []) if str(value)]
-    optional_inputs = [str(value) for value in list(tool.get("optional_inputs") or []) if str(value)]
+    contract = dict(tool.get("contract") or {}) if isinstance(tool.get("contract"), dict) else {}
+    required_inputs = _agent_visible_arg_names(tool.get("required_inputs") or contract.get("required_inputs"))
+    optional_inputs = _agent_visible_arg_names(
+        tool.get("optional_inputs") or contract.get("optional_inputs"),
+        exclude=set(required_inputs),
+    )
     payload: dict[str, Any] = {
         "tool_name": name,
-        "operation_id": str(tool.get("operation_id") or ""),
     }
-    if prompt_exposure_policy:
-        payload["prompt_exposure_policy"] = prompt_exposure_policy
+    display_name = str(tool.get("display_name") or "").strip()
+    if display_name and display_name != name:
+        payload["title"] = display_name
+    description = str(tool.get("description") or "").strip()
+    if description:
+        payload["purpose"] = description
+    input_contract = _agent_visible_input_contract(
+        tool_name=name,
+        required_inputs=required_inputs,
+        optional_inputs=optional_inputs,
+    )
+    if input_contract:
+        payload["input_contract"] = input_contract
+    capability_tags = _agent_visible_list(tool.get("capability_tags"))
+    if capability_tags:
+        payload["capabilities"] = capability_tags
+    boundary = _agent_visible_tool_boundary(tool)
+    if boundary:
+        payload["boundary"] = boundary
+    output_contract = _agent_visible_output_contract(tool)
+    if output_contract:
+        payload["result_contract"] = output_contract
+    usage = _tool_usage_hint(name)
+    if usage:
+        payload["usage_hint"] = usage
+    return {key: _json_stable(value) for key, value in payload.items() if value not in ("", [], {})}
+
+
+def _agent_visible_arg_names(value: Any, *, exclude: set[str] | None = None) -> list[str]:
+    excluded = set(exclude or ())
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in list(value or []):
+        name = str(raw or "").strip()
+        if not name or name in seen or name in excluded or name in _SYSTEM_INTERNAL_ARG_NAMES:
+            continue
+        seen.add(name)
+        result.append(name)
+    return result
+
+
+def _agent_visible_input_contract(
+    *,
+    tool_name: str,
+    required_inputs: list[str],
+    optional_inputs: list[str],
+) -> dict[str, Any]:
+    accepted_inputs = [*required_inputs, *optional_inputs]
+    contract: dict[str, Any] = {
+        "args_must_be_object": True,
+        "args_rule": "只填写 accepted_args 中列出的业务参数；运行身份、执行路由和权限绑定由执行层根据本轮边界处理。",
+    }
     if required_inputs:
-        payload["required_inputs"] = required_inputs
+        contract["required_args"] = required_inputs
     if optional_inputs:
-        payload["optional_inputs"] = optional_inputs
-    owner_scope = str(tool.get("owner_scope") or "")
-    if owner_scope and owner_scope != "none":
-        payload["owner_scope"] = owner_scope
+        contract["optional_args"] = optional_inputs
+    if accepted_inputs:
+        contract["accepted_args"] = accepted_inputs
+        contract["arg_types"] = {
+            name: _semantic_arg_type(name)
+            for name in accepted_inputs
+            if _semantic_arg_type(name)
+        }
+    else:
+        contract["accepted_args"] = []
+    forbidden_fields = _tool_forbidden_fields(tool_name)
+    if forbidden_fields:
+        contract["forbidden_args"] = forbidden_fields
+    return {key: _json_stable(value) for key, value in contract.items() if value not in ("", [], {})}
+
+
+def _semantic_arg_type(name: str) -> str:
+    text = str(name or "").strip()
+    if not text:
+        return ""
+    if text in _ARG_TYPE_HINTS:
+        return _ARG_TYPE_HINTS[text]
+    if text in _ARG_COLLECTION_HINTS:
+        return "array"
+    if text == "args":
+        return "object"
+    return "string"
+
+
+def _agent_visible_tool_boundary(tool: dict[str, Any]) -> dict[str, Any]:
+    boundary: dict[str, Any] = {}
     if "read_only" in tool:
-        payload["read_only"] = bool(tool.get("read_only") is True)
+        boundary["read_only"] = bool(tool.get("read_only") is True)
     if "concurrency_safe" in tool:
-        payload["concurrency_safe"] = bool(tool.get("concurrency_safe") is True)
+        boundary["concurrency_safe"] = bool(tool.get("concurrency_safe") is True)
     path_policy = dict(tool.get("path_policy") or {}) if isinstance(tool.get("path_policy"), dict) else {}
     if path_policy:
-        payload["path_policy"] = {
+        boundary["path_boundary"] = {
             key: value
             for key, value in {
                 "path_field": str(path_policy.get("path_field") or ""),
@@ -154,344 +268,67 @@ def _model_visible_tool_entry(tool_payload: dict[str, Any]) -> dict[str, Any]:
             }.items()
             if value
         }
+    return boundary
+
+
+def _agent_visible_output_contract(tool: dict[str, Any]) -> dict[str, Any]:
     output_contract = dict(tool.get("output_contract") or {}) if isinstance(tool.get("output_contract"), dict) else {}
-    if output_contract:
-        payload["output_contract"] = {
-            key: value
-            for key, value in {
-                "display_mode": str(output_contract.get("display_mode") or ""),
-                "finalization_policy": str(output_contract.get("finalization_policy") or ""),
-                "persistence_policy": str(output_contract.get("persistence_policy") or ""),
-            }.items()
-            if value
-        }
-    input_schema = canonical_provider_tool_input_schema(tool)
-    if input_schema:
-        input_schema_summary = _input_schema_summary(input_schema)
-        payload["input_schema_summary"] = input_schema_summary
-        payload["input_schema_ref"] = canonical_provider_tool_input_schema_ref(tool)
-        tool_contract_summary = _special_tool_contract_summary(
-            tool_name=name,
-            input_schema_summary=input_schema_summary,
-        )
-        if tool_contract_summary:
-            payload["tool_contract_summary"] = tool_contract_summary
-    return payload
-
-
-def _input_schema_summary(schema: dict[str, Any]) -> dict[str, Any]:
-    properties = dict(schema.get("properties") or {})
-    summarized_properties: dict[str, str] = {}
-    property_details: dict[str, dict[str, Any]] = {}
-    for name, value in properties.items():
-        if not isinstance(value, dict):
-            continue
-        summarized_properties[str(name)] = _field_summary(value, root_schema=schema)
-        property_details[str(name)] = _field_detail(value, root_schema=schema)
-    summary: dict[str, Any] = {"properties": summarized_properties}
-    if property_details:
-        summary["property_details"] = property_details
-    field_paths = _schema_field_paths(properties, root_schema=schema)
-    if field_paths:
-        summary["field_paths"] = field_paths
-    schema_type = str(schema.get("type") or "object")
-    if schema_type != "object":
-        summary["type"] = schema_type
-    required = [str(item) for item in list(schema.get("required") or []) if str(item)]
-    if required:
-        summary["required"] = required
-    optional = [str(name) for name in summarized_properties if str(name) not in set(required)]
-    if optional:
-        summary["optional"] = optional
-    if "additionalProperties" in schema:
-        summary["additionalProperties"] = bool(schema.get("additionalProperties") is True)
-        summary["forbidden_unknown_fields"] = schema.get("additionalProperties") is False
-    return summary
-
-
-def _field_summary(schema: dict[str, Any], *, root_schema: dict[str, Any]) -> str:
-    field_schema = _resolve_schema_ref(schema, root_schema=root_schema)
-    field_type = _field_type_label(field_schema, root_schema=root_schema)
-    parts = [field_type]
-    if field_schema.get("format"):
-        parts.append(f"format={field_schema.get('format')}")
-    if "enum" in field_schema:
-        enum_values = [str(item) for item in list(field_schema.get("enum") or [])]
-        if enum_values:
-            parts.append("enum=" + "|".join(enum_values))
-    if "default" in field_schema:
-        parts.append("default=" + json.dumps(field_schema.get("default"), ensure_ascii=False, separators=(",", ":")))
-    return " ".join(parts)
-
-
-def _field_detail(schema: dict[str, Any], *, root_schema: dict[str, Any]) -> dict[str, Any]:
-    field_schema = _resolve_schema_ref(schema, root_schema=root_schema)
-    detail: dict[str, Any] = {"type": _field_type_label(field_schema, root_schema=root_schema)}
-    for key in ("format", "description"):
-        value = field_schema.get(key)
-        if value:
-            detail[key] = str(value)
-    if "enum" in field_schema:
-        enum_values = [str(item) for item in list(field_schema.get("enum") or [])]
-        if enum_values:
-            detail["enum"] = enum_values
-    if "default" in field_schema:
-        detail["default"] = field_schema.get("default")
-    for key in ("minimum", "maximum", "minLength", "maxLength"):
-        if key in field_schema:
-            detail[key] = field_schema.get(key)
-    if "additionalProperties" in field_schema:
-        detail["additionalProperties"] = bool(field_schema.get("additionalProperties") is True)
-        detail["forbidden_unknown_fields"] = field_schema.get("additionalProperties") is False
-    items = field_schema.get("items")
-    if isinstance(items, dict):
-        resolved_items = _resolve_schema_ref(items, root_schema=root_schema)
-        detail["items"] = _field_detail(resolved_items, root_schema=root_schema)
-    return {key: _json_stable(value) for key, value in detail.items() if value not in ("", [], {})}
-
-
-def _schema_field_paths(
-    properties: dict[str, Any],
-    *,
-    root_schema: dict[str, Any],
-    parent: str = "",
-    max_depth: int = 3,
-) -> dict[str, dict[str, Any]]:
-    if max_depth <= 0:
+    if not output_contract:
         return {}
-    result: dict[str, dict[str, Any]] = {}
-    for raw_name, raw_schema in properties.items():
-        if not isinstance(raw_schema, dict):
-            continue
-        name = str(raw_name or "").strip()
-        if not name:
-            continue
-        field_schema = _resolve_schema_ref(raw_schema, root_schema=root_schema)
-        path = f"{parent}.{name}" if parent else name
-        result[path] = _field_detail(field_schema, root_schema=root_schema)
-        items = field_schema.get("items")
-        if isinstance(items, dict):
-            item_schema = _resolve_schema_ref(items, root_schema=root_schema)
-            item_properties = dict(item_schema.get("properties") or {}) if isinstance(item_schema.get("properties"), dict) else {}
-            if item_properties:
-                result.update(
-                    _schema_field_paths(
-                        item_properties,
-                        root_schema=root_schema,
-                        parent=f"{path}[]",
-                        max_depth=max_depth - 1,
-                    )
-                )
-        child_properties = dict(field_schema.get("properties") or {}) if isinstance(field_schema.get("properties"), dict) else {}
-        if child_properties:
-            result.update(
-                _schema_field_paths(
-                    child_properties,
-                    root_schema=root_schema,
-                    parent=path,
-                    max_depth=max_depth - 1,
-                )
-            )
-    return result
-
-
-def _field_type_label(schema: dict[str, Any], *, root_schema: dict[str, Any]) -> str:
-    field_schema = _resolve_schema_ref(schema, root_schema=root_schema)
-    raw_type = field_schema.get("type")
-    if isinstance(raw_type, list):
-        field_type = "|".join(str(item) for item in raw_type if str(item)) or "any"
-    else:
-        field_type = str(raw_type or ("string" if field_schema.get("enum") else "any"))
-    items = field_schema.get("items")
-    if isinstance(items, dict):
-        item_schema = _resolve_schema_ref(items, root_schema=root_schema)
-        item_type = _field_type_label(item_schema, root_schema=root_schema)
-        field_type = f"{field_type}<{item_type}>"
-    return field_type
-
-
-def _resolve_schema_ref(schema: dict[str, Any], *, root_schema: dict[str, Any]) -> dict[str, Any]:
-    ref = str(schema.get("$ref") or "").strip()
-    if not ref.startswith("#/"):
-        return dict(schema)
-    target: Any = root_schema
-    for part in ref[2:].split("/"):
-        if not isinstance(target, dict):
-            return dict(schema)
-        target = target.get(part.replace("~1", "/").replace("~0", "~"))
-    if not isinstance(target, dict):
-        return dict(schema)
-    merged = dict(target)
-    for key, value in schema.items():
-        if key != "$ref":
-            merged[key] = value
-    return merged
-
-
-def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict[str, Any]) -> dict[str, Any]:
-    name = str(tool_name or "").strip()
-    if name not in _SPECIAL_CONTRACT_TOOL_NAMES:
-        return {}
-    summary: dict[str, Any] = {
-        "authority": "harness.runtime.tool_catalog_manifest.tool_contract_summary",
-        "required_inputs": [str(item) for item in list(input_schema_summary.get("required") or []) if str(item)],
-        "optional_inputs": [str(item) for item in list(input_schema_summary.get("optional") or []) if str(item)],
-        "forbidden_unknown_fields": bool(input_schema_summary.get("forbidden_unknown_fields") is True),
+    return {
+        key: value
+        for key, value in {
+            "display_mode": str(output_contract.get("display_mode") or ""),
+            "finalization_policy": str(output_contract.get("finalization_policy") or ""),
+            "persistence_policy": str(output_contract.get("persistence_policy") or ""),
+        }.items()
+        if value
     }
-    field_paths = dict(input_schema_summary.get("field_paths") or {})
-    if name == "agent_todo":
-        summary.update(
-            {
-                "critical_fields": {
-                    "items[].status": dict(field_paths.get("items[].status") or {}),
-                    "todo_id": dict(field_paths.get("todo_id") or {}),
-                    "status": dict(field_paths.get("status") or {}),
-                },
-                "forbidden_fields": ["id", "item_id", "todo", "todos"],
-                "forbidden_values": {"items[].status": ["active"], "status": ["active"]},
-            }
-        )
-    elif name == "spawn_subagent":
-        summary.update(
-            {
-                "critical_fields": {"target_agent_id": dict(field_paths.get("target_agent_id") or {})},
-                "runtime_constraint": "target_agent_id must be one of runtime_boundary.tool_boundary.allowed_subagent_ids.",
-                "forbidden_fields": ["agent_id", "target_subagent_id"],
-            }
-        )
-    elif name == "write_file":
-        summary.update(
-            {
-                "critical_fields": {
-                    "path": dict(field_paths.get("path") or {}),
-                    "content": dict(field_paths.get("content") or {}),
-                    "allow_overwrite": dict(field_paths.get("allow_overwrite") or {}),
-                    "expected_previous_sha256": dict(field_paths.get("expected_previous_sha256") or {}),
-                }
-            }
-        )
-    elif name == "edit_file":
-        summary.update(
-            {
-                "critical_fields": {
-                    "path": dict(field_paths.get("path") or {}),
-                    "old_text": dict(field_paths.get("old_text") or {}),
-                    "new_text": dict(field_paths.get("new_text") or {}),
-                }
-            }
-        )
-    elif name == "batch_edit_file":
-        summary.update(
-            {
-                "critical_fields": {
-                    "path": dict(field_paths.get("path") or {}),
-                    "edits": dict(field_paths.get("edits") or {}),
-                    "edits[].old_text": dict(field_paths.get("edits[].old_text") or {}),
-                    "edits[].new_text": dict(field_paths.get("edits[].new_text") or {}),
-                    "base_sha256": dict(field_paths.get("base_sha256") or {}),
-                    "base_mtime_ns": dict(field_paths.get("base_mtime_ns") or {}),
-                },
-                "usage_hint": (
-                    "Use for multiple precise edits to the same file planned from the same current read evidence. "
-                    "Do not split same-file independent edits into several edit_file calls. "
-                    "If rejected_edits is returned, only reread and retry those edit indexes."
-                ),
-            }
-        )
-    elif name == "read_file":
-        summary.update(
-            {
-                "critical_fields": {
-                    "path": dict(field_paths.get("path") or {}),
-                    "start_line": dict(field_paths.get("start_line") or {}),
-                    "line_count": dict(field_paths.get("line_count") or {}),
-                    "read_intent": dict(field_paths.get("read_intent") or {}),
-                },
-                "usage_hint": (
-                    "Use directly for known file paths, including file-like task_run_contract GoalContext/PlanContext/TodoContext working_scope target_objects, "
-                    "source_refs, workspace_refs, or bound/editor paths. line_count may be omitted; use returned window facts "
-                    "and the file evidence contract/read_resource_state before deciding whether another read is needed. "
-                    "has_more is a window fact, not a continuation command; continue only for target lines outside coverage, "
-                    "search recommendations, stale evidence, or an explicit need for broader context. "
-                    "Do not call search_files first for a known path."
-                ),
-                "output_facts": ["start_line", "end_line", "returned_lines", "line_count", "total_lines", "has_more", "next_start_line", "content_sha256", "exact_artifact_ref", "visible_exact"],
-            }
-        )
-    elif name == "path_exists":
-        summary.update(
-            {
-                "critical_fields": {"path": dict(field_paths.get("path") or {})},
-                "usage_hint": (
-                    "Use to confirm a known path from task_run_contract WorkModeContext working_scope, bound context, or editor context. "
-                    "It is a direct path check, not a search tool."
-                ),
-                "output_facts": ["path", "exists", "kind"],
-            }
-        )
-    elif name == "stat_path":
-        summary.update(
-            {
-                "critical_fields": {"path": dict(field_paths.get("path") or {})},
-                "usage_hint": "Use for metadata about a known path. Do not use search_files first when the path is already known.",
-                "output_facts": ["path", "exists", "kind", "size", "modified_at"],
-            }
-        )
-    elif name == "list_dir":
-        summary.update(
-            {
-                "critical_fields": {"path": dict(field_paths.get("path") or {})},
-                "usage_hint": "Use for a known directory path. Do not use search_files to rediscover an already known directory.",
-                "output_facts": ["path", "entries"],
-            }
-        )
-    elif name == "glob_paths":
-        summary.update(
-            {
-                "critical_fields": {"pattern": dict(field_paths.get("pattern") or {})},
-                "usage_hint": "Use for explicit wildcard path patterns such as *.html, **/*.py, or backend/**/*.ts. It returns paths, not file contents.",
-                "output_facts": ["pattern", "matches"],
-            }
-        )
-    elif name == "search_files":
-        summary.update(
-            {
-                "critical_fields": {
-                    "query": dict(field_paths.get("query") or {}),
-                    "roots": dict(field_paths.get("roots") or {}),
-                },
-                "usage_hint": (
-                    "Use for filename or path keywords only when the exact path is unknown. "
-                    "If task_run_contract GoalContext/PlanContext/TodoContext working_scope target_objects/source_refs/workspace_refs or bound/editor context already gives a file-like path, "
-                    "use path_exists/read_file directly instead of search_files."
-                ),
-                "output_facts": ["query", "matches", "searched_roots", "used_default_roots", "omitted_workspace_root", "search_meta"],
-            }
-        )
-    elif name == "search_text":
-        summary.update(
-            {
-                "critical_fields": {
-                    "query": dict(field_paths.get("query") or {}),
-                    "roots": dict(field_paths.get("roots") or {}),
-                    "paths": dict(field_paths.get("paths") or {}),
-                    "glob": dict(field_paths.get("glob") or {}),
-                    "output_mode": dict(field_paths.get("output_mode") or {}),
-                    "context": dict(field_paths.get("context") or {}),
-                    "head_limit": dict(field_paths.get("head_limit") or {}),
-                    "offset": dict(field_paths.get("offset") or {}),
-                },
-                "usage_hint": (
-                    "Use for file contents. Put known files in paths, directory scopes in roots, and file-type filters in glob. "
-                    "Do not use search_text to rediscover a known file-like target object; read_file is the direct path tool. "
-                    "paths accepts files only; directories must go in roots. Do not pass path or pattern. "
-                    "If recommended_read_windows are returned, treat them as candidate_read_windows and call read_file on a candidate only when exact source evidence is needed."
-                ),
-                "forbidden_fields": ["path", "pattern"],
-                "output_facts": ["matches", "recommended_read_windows", "applied_limit", "applied_offset"],
-            }
-        )
-    return {key: _json_stable(value) for key, value in summary.items() if value not in ("", [], {})}
+
+
+def _tool_usage_hint(tool_name: str) -> str:
+    hints = {
+        "batch_edit_file": (
+            "同一个文件需要多处精确修改时使用；如果部分修改被拒绝，只针对被拒绝的位置重新读取和重试。"
+        ),
+        "glob_paths": "用于明确通配符路径，例如 *.html、**/*.py 或 backend/**/*.ts；返回路径，不返回文件内容。",
+        "list_dir": "用于已知目录路径；不要用搜索工具重复发现已经知道的目录。",
+        "path_exists": "用于确认已知路径是否存在；它是直接路径检查，不是搜索工具。",
+        "read_file": (
+            "用于已知文件路径。需要修改、逐行引用或验收当前内容时，优先读取当前窗口；"
+            "has_more 只是窗口事实，只有目标行不在当前覆盖范围或确实需要更大上下文时再继续读取。"
+        ),
+        "search_files": "用于路径或文件名未知时按关键词找候选文件；搜索结果只是定位线索。",
+        "search_text": (
+            "用于搜索文件内容。已知具体文件时把文件放进 paths，目录范围放进 roots，文件类型范围放进 glob；"
+            "不要用搜索结果预览替代当前文件读取。"
+        ),
+        "stat_path": "用于已知路径的元数据；路径已知时不要先搜索。",
+        "web_search": "用于当前性、外部资料、官方文档、网页内容或需要来源的事实。",
+        "fetch_url": "用于读取明确 URL 的页面内容；网页内容只能作为外部资料证据。",
+    }
+    return hints.get(str(tool_name or "").strip(), "")
+
+
+def _tool_forbidden_fields(tool_name: str) -> list[str]:
+    mapping = {
+        "agent_todo": ["id", "item_id", "todo", "todos"],
+        "search_text": ["path", "pattern"],
+        "spawn_subagent": ["agent_id", "target_subagent_id"],
+    }
+    return mapping.get(str(tool_name or "").strip(), [])
+
+
+def _agent_visible_list(value: Any) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in list(value or []):
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
 
 
 def _stable_json_hash(value: Any) -> str:

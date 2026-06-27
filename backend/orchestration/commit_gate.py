@@ -335,7 +335,6 @@ def build_assistant_session_message_commit_decision(
         for flag in list(answer_leak_flags or [])
         if str(flag or "").strip()
     ]
-    answer_leak_blocked = bool(normalized_leak_flags)
     control_only_channel = normalized_channel in {
         "active_work_control",
         "opening_judgment",
@@ -343,7 +342,6 @@ def build_assistant_session_message_commit_decision(
         "runtime_control",
         "task_control",
     }
-    debug_only_output = normalized_persist_policy == "persist_debug_only" or normalized_state == "progress_only"
     replacement_stop = normalized_terminal_reason == "user_aborted" and source == "harness.loop.task_executor.replacement_stop"
     is_missing_fallback = (
         normalized_state == "missing_answer"
@@ -354,22 +352,16 @@ def build_assistant_session_message_commit_decision(
         bool(normalized)
         and bool(normalized_turn_id)
         and not is_missing_fallback
-        and not debug_only_output
         and not control_only_channel
         and not replacement_stop
-        and not answer_leak_blocked
     )
     reason = "assistant_session_message_allowed"
     if not normalized:
         reason = "empty_assistant_message_blocked"
     elif not normalized_turn_id:
         reason = "assistant_session_message_missing_turn_id"
-    elif answer_leak_blocked:
-        reason = "answer_leak_not_committable"
     elif control_only_channel:
         reason = "control_channel_not_committable"
-    elif debug_only_output:
-        reason = "debug_only_output_not_committable"
     elif is_missing_fallback:
         reason = "missing_answer_not_committable"
     elif replacement_stop:
@@ -423,8 +415,8 @@ def build_assistant_session_message_commit_decision(
             "artifact_write_allowed": False,
             "filesystem_write_allowed": False,
             "replacement_stop": replacement_stop,
-            "answer_leak_blocked": answer_leak_blocked,
-            "answer_leak_flags": list(normalized_leak_flags),
+            "answer_protocol_metadata_present": bool(normalized_leak_flags),
+            "answer_protocol_flags": list(normalized_leak_flags),
         },
     )
 
@@ -508,5 +500,3 @@ def _capsule_payload(capsule: Any | None) -> dict[str, Any]:
     data["resource_lock_refs"] = [str(item) for item in list(data.get("resource_lock_refs") or []) if str(item)]
     data["commit_policy"] = dict(data.get("commit_policy") or {})
     return data
-
-

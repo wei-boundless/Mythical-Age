@@ -5,6 +5,7 @@ from typing import Any
 
 from prompt_library import (
     ALL_ENVIRONMENT_LIFECYCLE_PROMPT_IDS,
+    ENVIRONMENT_LIFECYCLE_PROMPT_DEFAULTS_BY_ENVIRONMENT,
     ENVIRONMENT_LIFECYCLE_PROMPT_SLOTS,
 )
 
@@ -126,11 +127,18 @@ def build_base_prompt_mount_plan(
                 ref for ref in selected_refs if ref in lifecycle_ref_set
             ],
             "overlay_mode": "selected_environment_only",
+            "lifecycle_prompt_authority": "selected_environment",
             "lifecycle_prompt_default_count": len(lifecycle_defaults),
             "lifecycle_prompt_override_count": len(lifecycle_overrides),
+            "ignored_global_lifecycle_prompt_defaults": list(
+                _prompt_ref_map(prompt_policy_payload.get("lifecycle_prompt_defaults"))
+            ),
+            "ignored_global_lifecycle_prompt_overrides": list(
+                _prompt_ref_map(prompt_policy_payload.get("lifecycle_prompt_overrides"))
+            ),
             "tool_guidance_prompt_default_count": len(tool_guidance_defaults),
             "tool_guidance_prompt_override_count": len(tool_guidance_overrides),
-            "prompt_configuration_authority": "agent_runtime_profile.prompt_policy",
+            "prompt_configuration_authority": "selected_environment.prompt_policy",
             "personality": dict(personality_diagnostics or {}),
         },
     )
@@ -501,12 +509,12 @@ def _lifecycle_ref_set(defaults: dict[str, str], overrides: dict[str, str]) -> s
 
 
 def _lifecycle_prompt_defaults_for_environment(prompt_policy: dict[str, Any], *, environment_id: str) -> dict[str, str]:
+    environment_defaults = dict(ENVIRONMENT_LIFECYCLE_PROMPT_DEFAULTS_BY_ENVIRONMENT.get(environment_id) or {})
     by_environment = _environment_prompt_ref_map(
         prompt_policy.get("lifecycle_prompt_defaults_by_environment"),
         environment_id=environment_id,
     )
-    explicit = _prompt_ref_map(prompt_policy.get("lifecycle_prompt_defaults"))
-    return {**by_environment, **explicit}
+    return {**environment_defaults, **by_environment}
 
 
 def _lifecycle_prompt_overrides_for_environment(prompt_policy: dict[str, Any], *, environment_id: str) -> dict[str, str]:
@@ -514,8 +522,7 @@ def _lifecycle_prompt_overrides_for_environment(prompt_policy: dict[str, Any], *
         prompt_policy.get("lifecycle_prompt_overrides_by_environment"),
         environment_id=environment_id,
     )
-    explicit = _prompt_ref_map(prompt_policy.get("lifecycle_prompt_overrides"))
-    return {**by_environment, **explicit}
+    return by_environment
 
 
 def _environment_prompt_ref_map(value: Any, *, environment_id: str) -> dict[str, str]:

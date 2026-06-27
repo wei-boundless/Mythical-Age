@@ -873,8 +873,8 @@ def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts
         history=[],
         runtime_assembly=assembly,
     ).packet
-    stable_message = _message_content_with_title(packet, "Turn operating contract")
-    stable_payload = _payload_after_title(stable_message, "Turn operating contract")
+    stable_message = _message_content_with_title(packet, "Operating Contract")
+    stable_payload = _payload_after_title(stable_message, "Operating Contract")
     model_input = _model_input_text(packet)
     lifecycle_message = next(
         str(message.get("content") or "")
@@ -1139,18 +1139,18 @@ def test_runtime_compiler_stable_payload_keeps_environment_and_operation_project
     stable_message = _message_content_with_title(packet, "Task execution environment boundary")
     stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
     dynamic_payload = _payload_after_title(
-        _message_content_with_title(packet, "Task execution runtime boundary"),
-        "Task execution runtime boundary",
+        _message_content_with_title(packet, "Current Runtime Boundary"),
+        "Current Runtime Boundary",
     )
 
     assert "task_environment" in stable_payload
     assert "storage" in stable_payload["task_environment"]
     assert "resource_boundary" in stable_payload["task_environment"]
     assert "operation_authorization" not in stable_payload
-    operation_summary = dynamic_payload["operation_authorization"]
+    operation_summary = dynamic_payload["operation_permission_summary"]
     runtime_context = dynamic_payload["runtime_context"]
-    assert operation_summary["authority"] == "harness.runtime.operation_authorization.model_visible_summary"
-    assert operation_summary["allowed_operation_count"] == runtime_context["tool_boundary"]["allowed_operation_count"]
+    assert "authority" not in operation_summary
+    assert operation_summary["allowed_operation_count"] == runtime_context["tool_capability_surface"]["allowed_operation_count"]
     assert "allowed_operations" not in operation_summary
     assert "denied_operations" not in operation_summary
     assert operation_summary["omitted_denial_details"] is True
@@ -1708,8 +1708,8 @@ def test_runtime_contract_can_select_custom_personality_prompt(tmp_path: Path) -
         history=[],
         runtime_assembly=assembly,
     ).packet
-    stable_message = _message_content_with_title(packet, "Turn operating contract")
-    stable_payload = _payload_after_title(stable_message, "Turn operating contract")
+    stable_message = _message_content_with_title(packet, "Operating Contract")
+    stable_payload = _payload_after_title(stable_message, "Operating Contract")
     model_input = _model_input_text(packet)
     manifest = packet.diagnostics["prompt_manifest"]
 

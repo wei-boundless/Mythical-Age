@@ -10416,19 +10416,19 @@ def _model_protocol_repair_instruction(
     parse_diagnostics: dict[str, Any],
     response_diagnostics: dict[str, Any],
 ) -> str:
-    error_text = ", ".join(validation_errors) if validation_errors else "输出不是合法 action JSON"
+    error_text = ", ".join(validation_errors) if validation_errors else "输出不是合法结构化动作"
     limit_hit = bool(response_diagnostics.get("output_limit_hit_suspected") is True)
     parse_error = str(parse_diagnostics.get("parse_error") or "")
-    reason = "上一轮输出没有通过 action JSON 校验"
+    reason = "上一轮输出没有通过结构化动作校验"
     if limit_hit:
         reason = "上一轮输出疑似达到模型输出上限并被截断"
     elif parse_error:
-        reason = "上一轮输出不是可解析的 JSON 对象"
+        reason = "上一轮输出不是可解析的结构化对象"
     return (
         f"{reason}；上一轮动作没有进入执行队列。错误：{error_text}。"
         f"{TASK_ACTION_JSON_REPAIR_PROMPT}"
-        "此时在 tool_calls 数组中调用 write_file 或 terminal；"
-        "把交付物内容放入 tool_calls[0].args，或先写入完整可运行的紧凑版本再用后续工具增量完善。"
+        "如果需要继续执行且当前允许 tool_call，使用固定工具动作：单个工具填 tool_call，多工具填 tool_calls[]，参数写入 args。"
+        "如果目标是写入文件、运行命令或读取材料，选择相应工具并给出完成该动作所需的最小参数；不要把交付物当作自然正文绕过工具执行。"
     )
 
 

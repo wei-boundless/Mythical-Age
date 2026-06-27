@@ -99,10 +99,10 @@ def test_tool_catalog_manifest_renders_model_visible_tool_index_payload() -> Non
     assert payload["tool_catalog_hash"] == manifest.tool_catalog_hash
     assert payload["tool_guidance_refs"] == ["tool.guidance.read_file"]
     assert "input_schema" not in tool
+    assert "input_schema_summary" not in tool
     assert tool["input_schema_ref"].startswith("sha256:")
-    assert tool["input_schema_summary"]["properties"]["path"] == "string"
-    assert tool["input_schema_summary"]["properties"]["encoding"] == 'string default="utf-8"'
-    assert tool["input_schema_summary"]["required"] == ["path"]
+    assert tool["tool_contract_summary"]["required_inputs"] == ["path"]
+    assert tool["tool_contract_summary"]["critical_fields"] == ["path"]
     assert manifest.to_model_visible_payload(include_catalog_hash=False).get("tool_catalog_hash") is None
 
 
@@ -136,15 +136,15 @@ def test_tool_catalog_manifest_projects_optional_and_concurrency_contract() -> N
     )
 
     tool = manifest.to_model_visible_payload(include_catalog_hash=True)["available_tools"][0]
-    summary = dict(tool["input_schema_summary"])
+    summary = dict(tool["tool_contract_summary"])
 
     assert tool["optional_inputs"] == ["allow_overwrite", "expected_previous_sha256"]
     assert tool["read_only"] is False
     assert tool["concurrency_safe"] is False
-    assert summary["required"] == ["path", "content"]
-    assert summary["optional"] == ["allow_overwrite", "expected_previous_sha256"]
-    assert summary["properties"]["allow_overwrite"] == "boolean default=false"
-    assert summary["additionalProperties"] is False
+    assert summary["required_inputs"] == ["path", "content"]
+    assert summary["optional_inputs"] == ["allow_overwrite", "expected_previous_sha256"]
+    assert summary["critical_fields"] == ["path", "content", "allow_overwrite", "expected_previous_sha256"]
+    assert summary["forbidden_unknown_fields"] is True
 
 
 def test_prompt_library_does_not_reference_nonexistent_list_files_tool() -> None:
@@ -205,7 +205,7 @@ def test_single_agent_turn_renders_stable_tool_index_for_provider_cache() -> Non
     )
 
     packet = result.packet
-    stable_payload = _message_payload_with_title(packet, "Turn operating contract")
+    stable_payload = _message_payload_with_title(packet, "Operating Contract")
     tool_plan = build_runtime_tool_plan(
         runtime_assembly=runtime_assembly,
         invocation_kind="single_agent_turn",
@@ -217,17 +217,11 @@ def test_single_agent_turn_renders_stable_tool_index_for_provider_cache() -> Non
         source_ref="runtime_assembly.available_tools",
         tool_guidance_prompt_defaults=_TOOL_GUIDANCE_DEFAULTS,
     ).to_model_visible_payload(include_catalog_hash=True)
-    tool_index_payload = _message_payload_with_title(packet, "Available tool index")
-    tool_schema_payload = _message_payload_with_title(packet, "Tool schema catalog")
+    tool_index_payload = _message_payload_with_title(packet, "Tool Capability Surface")
     tool_segment = next(
         segment
         for segment in list(packet.segment_plan.get("segments") or [])
         if dict(segment).get("kind") == "tool_index_stable"
-    )
-    schema_segment = next(
-        segment
-        for segment in list(packet.segment_plan.get("segments") or [])
-        if dict(segment).get("kind") == "tool_schema_catalog"
     )
     turn_stable_segment = next(
         segment
@@ -239,16 +233,10 @@ def test_single_agent_turn_renders_stable_tool_index_for_provider_cache() -> Non
     assert "tool_catalog_hash" not in stable_payload
     assert "available_tools" not in stable_payload
     assert tool_index_payload == expected
-    assert tool_schema_payload["tool_binding_contract"]["native_binding"] == "model_request.tools"
-    assert tool_schema_payload["tool_binding_contract"]["contract_role"] == "cacheable_tool_contract_view"
-    assert tool_schema_payload["tools"][0]["name"] == "read_file"
-    assert tool_schema_payload["tools"][0]["schema"] == _tools()[0]["input_schema"]
     assert packet.tool_catalog_manifest["tool_catalog_hash"] == expected["tool_catalog_hash"]
     assert str(tool_segment.get("source_ref") or "").startswith("sha256:")
-    assert schema_segment["cache_role"] == "session_stable"
-    assert schema_segment["prefix_tier"] == "session"
-    assert int(schema_segment["ordinal"]) < int(tool_segment["ordinal"])
     assert int(tool_segment["ordinal"]) < int(turn_stable_segment["ordinal"])
+    assert "tool_schema_catalog" not in {str(dict(segment).get("kind") or "") for segment in list(packet.segment_plan.get("segments") or [])}
     assert prompt_manifest["tool_catalog_manifest"] == packet.tool_catalog_manifest
     assert packet.diagnostics["tool_catalog_manifest"] == packet.tool_catalog_manifest
 
@@ -277,16 +265,11 @@ def test_task_execution_tool_index_uses_tool_catalog_manifest_payload() -> None:
         source_ref="task_execution.available_tools",
         tool_guidance_prompt_defaults=_TOOL_GUIDANCE_DEFAULTS,
     ).to_model_visible_payload(include_catalog_hash=True)
-    tool_index_payload = _message_payload_with_title(packet, "Task execution tool index")
+    tool_index_payload = _message_payload_with_title(packet, "Tool Capability Surface")
     tool_segment = next(
         segment
         for segment in list(packet.segment_plan.get("segments") or [])
         if dict(segment).get("kind") == "tool_index_stable"
-    )
-    schema_segment = next(
-        segment
-        for segment in list(packet.segment_plan.get("segments") or [])
-        if dict(segment).get("kind") == "tool_schema_catalog"
     )
     action_schema_segment = next(
         segment
@@ -308,10 +291,10 @@ def test_task_execution_tool_index_uses_tool_catalog_manifest_payload() -> None:
     assert packet.tool_catalog_manifest["tool_catalog_hash"] == expected["tool_catalog_hash"]
     assert dict(packet.diagnostics["prompt_manifest"])["tool_catalog_manifest"] == packet.tool_catalog_manifest
     assert str(tool_segment.get("source_ref") or "").startswith("sha256:")
-    assert int(action_schema_segment["ordinal"]) < int(schema_segment["ordinal"])
-    assert int(schema_segment["ordinal"]) < int(tool_segment["ordinal"])
+    assert int(action_schema_segment["ordinal"]) < int(tool_segment["ordinal"])
     assert int(tool_segment["ordinal"]) < int(task_contract_segment["ordinal"])
     assert int(environment_segment["ordinal"]) < int(task_contract_segment["ordinal"])
+    assert "tool_schema_catalog" not in {str(dict(segment).get("kind") or "") for segment in list(packet.segment_plan.get("segments") or [])}
 
 
 def test_observation_followup_stable_contract_uses_tool_catalog_manifest_payload() -> None:
@@ -334,12 +317,7 @@ def test_observation_followup_stable_contract_uses_tool_catalog_manifest_payload
 
     packet = result.packet
     stable_payload = _message_payload_with_title(packet, "Tool observation follow-up contract")
-    tool_index_payload = _message_payload_with_title(packet, "Available tool index")
-    schema_segment = next(
-        segment
-        for segment in list(packet.segment_plan.get("segments") or [])
-        if dict(segment).get("kind") == "tool_schema_catalog"
-    )
+    tool_index_payload = _message_payload_with_title(packet, "Tool Capability Surface")
     tool_segment = next(
         segment
         for segment in list(packet.segment_plan.get("segments") or [])
@@ -355,8 +333,8 @@ def test_observation_followup_stable_contract_uses_tool_catalog_manifest_payload
     assert "available_tools" not in stable_payload
     assert tool_index_payload["tool_catalog_hash"] == packet.tool_catalog_manifest["tool_catalog_hash"]
     assert tool_index_payload["available_tools"] == packet.tool_catalog_manifest["model_visible_catalog"]
-    assert int(schema_segment["ordinal"]) < int(tool_segment["ordinal"])
     assert int(tool_segment["ordinal"]) < int(stable_segment["ordinal"])
+    assert "tool_schema_catalog" not in {str(dict(segment).get("kind") or "") for segment in list(packet.segment_plan.get("segments") or [])}
     assert dict(packet.diagnostics["prompt_manifest"])["tool_catalog_manifest"] == packet.tool_catalog_manifest
 
 
@@ -402,13 +380,13 @@ def test_provider_usage_keeps_estimated_required_stable_under_read_out_of_cache_
         for item in list(dict(cache_record.diagnostics or {}).get("provider_cache_read_required_segment_boundaries") or [])
     }
     predicted_total = int(dict(cache_record.diagnostics or {}).get("target_warm_cache_read_rate_total_tokens") or 1)
-    schema_boundary = math.ceil(
-        int(required_boundaries["tool_schema_catalog"]["cumulative_predicted_tokens"]) * provider_prompt_tokens / predicted_total
+    action_schema_boundary = math.ceil(
+        int(required_boundaries["action_schema_static"]["cumulative_predicted_tokens"]) * provider_prompt_tokens / predicted_total
     )
     tool_index_boundary = math.ceil(
         int(required_boundaries["tool_index_stable"]["cumulative_predicted_tokens"]) * provider_prompt_tokens / predicted_total
     )
-    cached_tokens = schema_boundary + 1
+    cached_tokens = action_schema_boundary + 1
     assert cached_tokens < tool_index_boundary
     usage = ModelTokenUsageRecord(
         usage_id="tokuse:tool-catalog-cache-coverage",
@@ -438,7 +416,7 @@ def test_provider_usage_keeps_estimated_required_stable_under_read_out_of_cache_
 
     assert diagnostics["provider_cache_read_required_coverage_status"] == "estimated_partial"
     assert diagnostics["provider_cache_read_required_coverage_evidence"] == "estimated_from_local_token_scale"
-    assert coverage_by_kind["tool_schema_catalog"]["covered_by_provider_scaled_boundary"] is True
+    assert coverage_by_kind["action_schema_static"]["covered_by_provider_scaled_boundary"] is True
     assert coverage_by_kind["tool_index_stable"]["covered_by_provider_scaled_boundary"] is False
     assert coverage_by_kind["tool_index_stable"]["coverage_evidence"] == "estimated_from_local_token_scale"
     assert "tool_index_stable" in diagnostics["provider_cache_read_uncovered_required_segments"]

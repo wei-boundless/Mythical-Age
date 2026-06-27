@@ -13,7 +13,11 @@ from runtime.model_gateway.assistant_stream_frame import (
     content_sha256,
     utf8_byte_length,
 )
-from runtime.output_boundary import contains_inline_pseudo_tool_call, contains_internal_protocol
+from runtime.output_boundary import (
+    contains_inline_pseudo_tool_call,
+    contains_internal_protocol,
+    could_be_internal_protocol_prefix,
+)
 
 
 _SOFT_PUNCTUATION = {",", ";", ":", "，", "、", "；", "："}
@@ -228,17 +232,21 @@ class AssistantStreamNormalizer:
     def _ensure_safety_gate(self) -> bool:
         if self.safety_gate_blocked:
             return False
-        if self.safety_gate_open:
-            return True
         text = self.observed_content.lstrip()
         if not text:
             return False
+        if contains_internal_protocol(text) or contains_inline_pseudo_tool_call(text):
+            return self._block_safety_gate()
+        if could_be_internal_protocol_prefix(text) or could_be_internal_protocol_prefix(self.pending_content):
+            if utf8_byte_length(text) >= self.safety_prefix_utf8_limit:
+                return self._block_safety_gate()
+            return False
+        if self.safety_gate_open:
+            return True
         lowered = text[:160].lower()
         if lowered.startswith(("{", "[", "```json")):
             return self._block_safety_gate()
         if any(marker in lowered for marker in ('"action_type"', '"tool_call"', '"authority"', "model_action_request")):
-            return self._block_safety_gate()
-        if contains_internal_protocol(text) or contains_inline_pseudo_tool_call(text):
             return self._block_safety_gate()
         if any(ch.isalnum() or "\u4e00" <= ch <= "\u9fff" for ch in text):
             self.safety_gate_open = True

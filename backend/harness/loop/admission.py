@@ -60,9 +60,9 @@ def admit_model_action(
         issue = _action_issue(
             action_request,
             category="protocol_violation",
-            code="action_not_in_model_decision_contract",
-            user_visible_summary="模型动作不在本轮开发者动作合同中，运行时未执行。",
-            repair_instruction="请按本轮 model_decision_contract.semantic_actions 选择一个合法动作。",
+            code="action_not_in_current_action_surface",
+            user_visible_summary="模型动作不在本轮可用动作范围中，运行时未执行。",
+            repair_instruction="请按本轮 action_surface.allowed_action_types 选择一个合法动作。",
             extra={
                 "allowed_action_types": sorted(allowed_actions),
                 "invocation_kind": str(invocation_kind or ""),
@@ -72,16 +72,16 @@ def admit_model_action(
             admission_id=f"admission:{action_request.request_id}",
             action_request_ref=action_request.request_id,
             decision="deny",
-            user_visible_reason="模型动作不在本轮动作合同中，运行时未执行。",
-            system_reason="action_not_in_model_decision_contract",
-            resource_errors=(f"action_not_in_model_decision_contract:{action_request.action_type}",),
+            user_visible_reason="模型动作不在本轮可用动作范围中，运行时未执行。",
+            system_reason="action_not_in_current_action_surface",
+            resource_errors=(f"action_not_in_current_action_surface:{action_request.action_type}",),
             permission_delta={
                 "action_type": action_request.action_type,
                 "allowed_action_types": sorted(allowed_actions),
                 "invocation_kind": str(invocation_kind or ""),
             },
             issue_category="protocol_violation",
-            issue_code="action_not_in_model_decision_contract",
+            issue_code="action_not_in_current_action_surface",
             action_issue=issue,
         )
     if action_request.action_type == "tool_call":
@@ -96,9 +96,9 @@ def admit_model_action(
             issue = _action_issue(
                 action_request,
                 category="service_unavailable",
-                code="tool_not_in_runtime_service_surface",
+                code="tool_not_in_runtime_tool_capability_surface",
                 requested_tool_name=tool_name,
-                user_visible_summary="请求的工具没有在本次运行时服务面中开放。",
+                user_visible_summary="请求的工具没有在本次运行时工具能力面中开放。",
                 repair_instruction="请改用当前可见工具，或在任务需要该服务时请求进入正确任务环境/持续任务。",
             )
             return AdmissionDecision(
@@ -109,7 +109,7 @@ def admit_model_action(
                 system_reason="tool_not_in_runtime_assembly",
                 resource_errors=(f"tool_not_in_runtime_assembly:{tool_name}",),
                 issue_category="service_unavailable",
-                issue_code="tool_not_in_runtime_service_surface",
+                issue_code="tool_not_in_runtime_tool_capability_surface",
                 action_issue=issue,
             )
         if definition is None:

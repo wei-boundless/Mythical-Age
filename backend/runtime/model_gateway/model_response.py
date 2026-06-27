@@ -549,16 +549,6 @@ class ModelResponseRuntimeExecutor:
             }
             return
         protocol_leak = detect_protocol_leak(raw_content)
-        if protocol_leak.detected and tools:
-            yield {
-                "type": "model_protocol_violation",
-                "content": raw_content,
-                "directive_ref": directive.directive_id,
-                "protocol_leak": protocol_leak.to_dict(),
-                "answer_channel": "orchestration_fail_closed",
-                "answer_source": "runtime_directive:model_response",
-            }
-            return
         output_boundary = AssistantOutputBoundary()
         _seed_boundary_with_prior_tool_receipts(output_boundary, model_messages)
         output_boundary.ingest_ai_update(raw_content, has_tool_calls=False)
@@ -634,6 +624,7 @@ class ModelResponseRuntimeExecutor:
                 "finalization_policy": output_response.finalization_policy,
                 "leak_flags": list(output_response.leak_flags),
                 "fallback_reason": output_response.fallback_reason,
+                "protocol_metadata": protocol_leak.to_dict() if protocol_leak.detected else {},
             },
         }
         yield {

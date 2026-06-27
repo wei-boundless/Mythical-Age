@@ -1,7 +1,7 @@
 # 上下文标准化与物理拼接优化总计划
 
 日期：2026-06-26
-状态：执行中。2026-06-27 已完成第一轮标准化落地：typed context pipeline 基础层、工具 transcript 统一 kind、compiler 主链收口、baseline refs 稳定前缀化、`read_file` 重复读取准入第一版。本文档整合此前两份文档：
+状态：执行中。2026-06-27 已完成第二轮语义空间收口：typed context pipeline 基础层、工具 transcript 统一 kind、compiler 主链收口、baseline refs 稳定前缀化、`read_file` 证据复用契约、工具能力表单源化、provider sidecar 隐藏适配化。本文档整合此前两份文档：
 
 - `backend/runtime/context_management/context_pipeline_standardization_refactor_plan.md`
 - `docs/context_physical_splicing_model.md`
@@ -10,7 +10,7 @@
 
 - `backend/runtime/context_management/agent_semantic_space_context_design_20260627.md`
 
-后续工具契约瘦身、native tools admission、runtime control 封存优化必须先满足该语义空间规范，再处理 token 和 provider cache 细节。
+后续工具能力表瘦身、provider sidecar 当前请求绑定、runtime boundary 封存优化必须先满足该语义空间规范，再处理 token 和 provider cache 细节。
 
 执行顺序锁定为：
 
@@ -38,14 +38,21 @@
 | `backend/runtime/context_management/context_segment_policy.py` | 清理 | `runtime_baseline_refs` 归入 `static_prefix`；`runtime_memory_context/read_evidence_context` 不再被强制 volatile |
 | `backend/runtime/prompt_accounting/cache_planner.py` | 清理 | replay token 诊断改按 `single_agent_turn_tool_call + tool_transcript_delta` |
 | `backend/harness/runtime/dynamic_context/task_state_projector.py` | 清理 | dynamic cursor 中 `recent_tool_observations` 改为 `recent_tool_result_refs`，只保留 ref/status，不重复 transcript |
-| `backend/runtime/tool_runtime/read_admission.py` | 新增 | 标准化 `read_file` admission：基于 file evidence scope、read range、mtime/hash、exact artifact/visible exact 判断 `allow_read` / `reuse_unchanged` |
-| `backend/runtime/tool_runtime/native_tools.py` | 接入 | 本地 `read_file` 先 stat 再 admission；重复且未变化的 exact range 返回小型 ref delta，不重发全文；gateway 路径在证据足够时同样可短路复用 |
+| `backend/runtime/tool_runtime/read_evidence_reuse.py` | 新增 | 标准化 `read_file` 证据复用：基于 file evidence scope、read range、mtime/hash、exact artifact/visible exact 判断 `allow_read` / `reuse_unchanged` |
+| `backend/runtime/tool_runtime/native_tools.py` | 接入 | 本地 `read_file` 先 stat 再检查证据复用；重复且未变化的 exact range 返回小型 ref delta，不重发全文；gateway 路径在证据足够时同样可短路复用 |
 | `backend/runtime/memory/tool_observation_ledger.py` | 语义升级 | `read_file_reuse` 不再按新文件文本处理，而是分类为 `freshness_confirmation` + `prior_file_window_reference` |
 | `backend/runtime/memory/evidence_delta_summary.py` | 语义升级 | 工具证据摘要透传 `semantic_delta`、`includes_file_text=false`、prior evidence refs |
 | `backend/harness/runtime/compiler.py` | 语义命名 | 工具动态 append 的 agent-facing 标题由 `Tool result delta` 改为 `Current turn tool result` |
 | `backend/runtime/context_management/context_candidates.py` | 类型化 | `ContextCommitCandidate` 补齐 ledger scope/item/provider/hash/lane/fork anchor 相关身份，并提供 provider payload segment -> typed candidate normalizer |
 | `backend/runtime/model_gateway/model_runtime.py` | 收口 | provider success confirm path 不再拼裸 dict，改为从 provider payload segment 生成 `ContextCommitCandidate` |
 | `backend/runtime/context_management/provider_visible_context_ledger.py` | 收口 | `confirm_provider_visible_context_entries` 只接受 `ContextCommitCandidate`，裸 dict 调用直接拒绝 |
+| `backend/harness/runtime/assembly.py` | 收口 | 新增 hidden `tool_transport_policy`，默认 `json_action`，provider sidecar 只通过 profile/runtime/model 明确切换 |
+| `backend/harness/runtime/tool_transport_adapter.py` | 新增 | provider sidecar adapter 集中负责 `model_request.tools` 绑定，不再由 single turn 末端硬编码 |
+| `backend/harness/loop/single_agent_turn.py` | 收口 | single-agent turn 按 hidden transport policy 挂载或关闭 provider sidecar；agent 仍只通过结构化 `tool_call` action 自主声明工具需求 |
+| `backend/runtime/model_gateway/provider_payload.py` | 语义修正 | `native_tool_binding_schema` 不再是 stable transport contract；存在 sidecar 时只校验它是稳定工具目录合法子集 |
+| `backend/harness/runtime/compiler.py` | 删除旧链 | 删除 `tool_schema_catalog` message；agent 可见工具能力由 `Tool Capability Surface` / `tool_index_stable` 单段承载 |
+| `backend/harness/runtime/tool_catalog_manifest.py` | 瘦身 | `tool_index_stable` 不再输出完整 `input_schema_summary`，只保留 schema_ref、关键字段名和使用边界 |
+| `backend/harness/runtime/dynamic_context/runtime_delta_projector.py` | 语义收口 | 输出 `action_surface`、`tool_capability_surface`、`planning_boundary`、`task_lifecycle_boundary`、`operation_permission_summary`，不再输出 `model_decision_contract` / `service_surface` |
 
 当前主链变为：
 
@@ -108,7 +115,8 @@ python backend/scripts/probe_deepseek_physical_dynamic_tail_cache.py --help
 python backend/scripts/probe_deepseek_physical_dynamic_tail_cache.py --stable-lines 900 --context-chars 1400 --tail-chars 700
 rg -n "single_agent_turn_tool_observation|tool_observations|recent_tool_observations" backend/harness backend/runtime backend/prompt_composition
 rg -n "_apply_provider_visible_context_ledger_to_specs|_apply_physical_context_plan_to_specs|_apply_context_capability_profile_to_source_specs" backend/harness/runtime/compiler.py backend/runtime/context_management
-python -m compileall backend/runtime/tool_runtime/read_admission.py backend/runtime/tool_runtime/native_tools.py backend/runtime/memory/file_state_authority.py backend/runtime/tool_runtime/tool_result_envelope.py
+python -m compileall backend/runtime/tool_runtime/read_evidence_reuse.py backend/runtime/tool_runtime/native_tools.py backend/runtime/memory/file_state_authority.py backend/runtime/tool_runtime/tool_result_envelope.py
+python -m py_compile backend/harness/loop/single_agent_turn.py backend/harness/runtime/tool_catalog_manifest.py backend/runtime/model_gateway/provider_payload.py backend/harness/runtime/dynamic_context/runtime_delta_projector.py
 ```
 
 临时真实逻辑探针：
@@ -136,9 +144,9 @@ confirm_provider_visible_context_entries([candidate.to_dict()]) -> TypeError typ
 Fork read evidence inheritance:
 parent session file_state contains sample.py:1-5 exact read evidence
 fork_session(parent -> child) -> child file_evidence_scope materialized from parent snapshot
-child read admission sample.py:1-5 with same hash/mtime -> reuse_unchanged
+child read evidence reuse sample.py:1-5 with same hash/mtime -> reuse_unchanged
 child reuse tool_result has no text field
-stale parent read range -> fork materialization skips stale range -> child read admission allow_read/no_prior_file_state
+stale parent read range -> fork materialization skips stale range -> child read evidence reuse allow_read/no_prior_file_state
 ```
 
 验证结果：
@@ -156,18 +164,25 @@ stale parent read range -> fork materialization skips stale range -> child read 
 - 旧工具 kind active 主链已清空；剩余命中仅为计划文档和 `tool_transcript.py` historical detector。
 - compiler 旧 capability/ledger/physical helper 已删除。
 - `skill_candidates` 未在 active backend prompt/runtime 路径中恢复。
-- `read_file` admission 第一版已落地：重复读取只有在单个 active exact read window 覆盖目标窗口、freshness 未漂移、且有 exact artifact 或 visible exact 证据时才返回 `reuse_unchanged`；返回内容是当前 tool call 配对的小型 semantic delta，不包含旧全文。
+- `read_file` evidence reuse 第一版已落地：重复读取只有在单个 active exact read window 覆盖目标窗口、freshness 未漂移、且有 exact artifact 或 visible exact 证据时才返回 `reuse_unchanged`；返回内容是当前 tool call 配对的小型 semantic delta，不包含旧全文。
 - 动态语义已升级：重复 read 的意义不是“又得到一条旧观察”，而是“旧 exact evidence 仍有效、本轮没有新文本、后续可引用 prior evidence 或在范围/文件变化时重新读取”。
 - provider success typed commit 已接入：`model_runtime` 只生成 `ContextCommitCandidate`，ledger confirm 只接受 typed candidate，避免裸 dict 字段继续作为封存主契约。
 - fork snapshot 已补齐工具/read/replacement 继承锚：`fork_point_tool_context_anchor`、`fork_point_read_evidence_state_ref`、`fork_point_content_replacement_state_ref` 进入 `forked_from`，compiler/context pipeline diagnostics 可见这些锚。
-- fork child 会在创建时把 parent session 的 file evidence snapshot 物化到 child session scope；后续 `read_file` admission 读取 child scope 即可复用 fork 点前未变化的 exact read window，不需要重新把旧全文放进动态尾。
+- fork child 会在创建时把 parent session 的 file evidence snapshot 物化到 child session scope；后续 `read_file` evidence reuse 读取 child scope 即可复用 fork 点前未变化的 exact read window，不需要重新把旧全文放进动态尾。
 - cache planner 已增加 expected miss budget 诊断：把低于 95% 的预测 miss 拆成 `current_context_append`、`dynamic_or_never_replay_tail`、`provider_transport_sidecar`、`uncategorized_non_prefix_payload`。前两类是正常新增/当前轮尾部成本，最后一类必须按 cache pollution 审查。
+- provider sidecar 已按语义空间改成 hidden current-turn transport adapter：single-agent turn 默认 `json_action`，profile/runtime/model 可切换 `provider_native`；工具调用决策由 agent 的结构化 `tool_call` action 表达；provider payload 只在存在 sidecar 时验证其 schema_ref 是否匹配稳定工具目录。
+- 稳定工具前缀已单源化：message prefix 不再生成 `tool_schema_catalog`，只保留 `Tool Capability Surface` / `tool_index_stable`，包含 agent 能理解的工具语义、关键字段名、使用边界和 schema_ref。
+- JSON action 工具协议已补齐 `tool_calls[]`：`model_action_protocol.py` 统一解析单个 `tool_call` 与批量 `tool_calls[]`，single-agent turn 将批量请求拆成同一轮的多个 tool action，并复用已有 `tool_batch_plan` 做 admission、资源锁规划、执行和 transcript 封存。
+- 反馈契约已同步升级：`tool_calls[]` 是一个语义动作内的一组工具请求，`public_progress_note` 只描述共同查证目标；工具观察返回后由 agent 按是否改变公开结论、风险、阻塞、验收状态或下一步来汇总反馈，不按工具条数逐项播报。
+- 固定工具契约已接入静态规则和恢复链：agent 可见工具动作只有 `action_type=tool_call`；单个工具用 `tool_call`，同一判断目标内的一组工具用 `tool_calls[]`，二者不要同时出现；task execution 不再保留“不能批量工具 action”的旧规则。
+- runtime control / agent contract feedback 已从开发式反馈改为行动语义投影：告诉 agent 发生了什么、现在可用动作、是否需要自然回应、工具是否可继续、批量观察如何合并判断；不把“系统反馈角色”“用户正文通道”“事实边界”等开发分类写进 prompt。
+- 系统纠错反馈已纳入同一语义链：`single_agent_turn`、`task_executor`、`compiler` 和 continuation projection 都以行动校正表达，统一投影 `next_action_requirements`，不再给 agent 展示 `required_action_protocol`、transport、sidecar、native 或通道分类词。
 
 仍未完成：
 
 - `read_file` 部分覆盖的 gap-only 读取尚未落地；当前第一版对“多个旧窗口拼接覆盖”或“部分缺口”保持 `allow_read`，避免制造组合文本断层。
 - fork anchor 已补齐显式字段与 child file_state 物化；还需要做真实 provider fork 首轮缓存命中验证，并把 transport/tool/read drift 诊断接入最终验收报告。
-- 内部字段 `agent_visible_runtime_projection` 仍作为 runtime delta projector 的输入对象名存在，但 projector 输出已经是 cursor，不是完整 dynamic tail；后续可做命名清理。
+- 内部字段 `agent_visible_runtime_projection` 仍作为 runtime delta projector 的输入对象名存在，但 projector 输出已经改为 action/capability/boundary cursor，不是完整 dynamic tail；后续可做更名清理。
 - 尚未做真实 no-tool follow-up、same follow-up、tool follow-up、fork child 的 provider cache 命中实测；需要 `probe_deepseek_physical_dynamic_tail_cache.py --live` 或真实前后端/模型链路。
 
 原因很简单：如果不先统一“信息从哪里来、如何归一、谁能裁决、谁能渲染、谁能封存”，直接改物理拼接只会继续在 `compiler.py`、dynamic context、prompt composition、policy、ledger 之间补洞，缓存和 fork 仍然会被旧链路拉断。
@@ -195,7 +210,7 @@ ContextSources
 - 旧上下文只能从 provider-visible ledger 原字节 replay，不能动一个字。
 - 新增上下文只能 append once，然后在 provider success 后封存。
 - 工具历史统一为 `tool_transcript`，物理上分 sealed prefix 和 current delta。
-- `read_file` 从“提示模型少读”升级为系统 admission 契约。
+- `read_file` 从“提示模型少读”升级为 read evidence reuse / observation acceptance 执行契约。
 - fork child 继承 cache spine、tool transcript、read evidence、content replacement state 和 transport contract anchor。
 - Agent 可见 prompt 使用语义标题，不暴露 `static_prefix`、`dynamic_tail`、`cache_spine` 这类开发标签。
 
@@ -213,8 +228,8 @@ ContextSources
 | `backend/runtime/context_management/provider_visible_context_ledger.py` | confirmed-entry ledger/fork inheritance | 方向正确，但 commit candidate 需要类型化 | 保留为唯一 sealed prefix authority |
 | `backend/prompt_composition/*` | slot/layer/source kind 映射 | 重复判断 layer/dynamic tier | 降级为渲染和 tracing |
 | `backend/runtime/prompt_accounting/cache_planner.py` | cache coverage 诊断 | 依赖 kind 列表 | 改按 physical lane / commit class 诊断 |
-| `backend/harness/runtime/dynamic_context/tool_result_projector.py` | 工具结果投影/read evidence policy | 有成熟方向，但仍像提示建议 | 拆出 tool transcript 与 read admission |
-| `backend/runtime/memory/file_state_authority.py` | file range/coverage/freshness | 可作为 read admission 事实源 | 接入 admission |
+| `backend/harness/runtime/dynamic_context/tool_result_projector.py` | 工具结果投影/read evidence policy | 有成熟方向，但仍像提示建议 | 拆出 tool transcript 与 read evidence reuse |
+| `backend/runtime/memory/file_state_authority.py` | file range/coverage/freshness | 可作为 read evidence reuse 事实源 | 接入 evidence reuse |
 
 核心故障模式：
 
@@ -638,7 +653,7 @@ transport_contract
 |---|---|---|---:|---|
 | global system / agent prompt / environment prompt | `static_prefix` | `global_static_prefix` | 否 | 版本化稳定 |
 | capability directory | `static_prefix` | `global_static_prefix` | 否 | 可选 skills/tools 清单权威 |
-| tool schema catalog / tool index | `static_prefix` | `global_static_prefix` | 否 | schema/order 变更即 transport drift |
+| tool capability surface / stable tool index | `static_prefix` | `global_static_prefix` | 否 | schema ref / order 变更即 transport drift |
 | output contract / action schema | `static_prefix` | `global_static_prefix` | 否 | 稳定契约 |
 | file evidence policy / read guidance | `static_prefix` | `global_static_prefix` | 否 | 稳定策略，不放当前 read |
 | runtime baseline refs | `static_prefix` | `global_static_prefix` | 否 | 稳定 refs，不重复 append |
@@ -657,13 +672,13 @@ Agent 可见标题必须是语义标题：
 
 | 内部用途 | Agent 可见标题 |
 |---|---|
-| stable runtime contract | `Turn operating contract` |
-| current user input | `Current user request` |
+| stable runtime contract | `Operating Contract` |
+| current user input | `Current Turn Delta` |
 | memory context | `Selected memory context` |
-| sealed tool transcript | `Tool conversation history` |
-| current tool delta | `New tool result context` |
-| runtime cursor | `Current runtime control` |
-| exact read evidence | `Task current exact read evidence` |
+| sealed tool transcript | `Sealed Conversation Timeline` |
+| current tool delta | `Current turn tool result` |
+| runtime cursor | `Current Runtime Boundary` |
+| exact read evidence | `Current File Evidence` |
 | active skill body | `Active skill instructions` |
 
 禁止在 model-visible title/preamble 中出现：
@@ -709,14 +724,14 @@ sealed tool transcript prefix
 - 因为来自不同 runtime 路径就生成两个 agent 可见观察块。
 - 对已封存工具结果重新摘要、重新排序、重新加标题再 replay。
 
-## 8. `read_file` Admission 契约
+## 8. `read_file` Evidence Reuse / Observation Acceptance 契约
 
 读取策略必须同时优化两层：
 
 1. Agent 侧：知道什么时候读、读多少、什么时候复用。
 2. 系统侧：只追加增量，旧内容从 sealed transcript / evidence refs / artifact ref 复用。
 
-系统侧决策顺序：
+执行层处理顺序：
 
 | 顺序 | 判断 | 输出 |
 |---:|---|---|
@@ -736,7 +751,7 @@ sealed tool transcript prefix
 - `read_evidence_injection` 保存当前 exact text，只能进 `never_replay_tail`。
 - fork child 继承 sealed transcript、read evidence refs、content replacement decision、file state anchor。
 
-已落地的第一版系统准入：
+已落地的第一版 read evidence reuse：
 
 | 条件 | 行为 |
 |---|---|
@@ -783,7 +798,7 @@ sealed tool transcript prefix
 |---|---|---|---:|---|
 | read tool schema / 参数说明 | `static_prefix` | `global_static_prefix` | 否 | 稳定工具定义 |
 | read tool agent guidance | `static_prefix` | `global_static_prefix` | 否 | 何时读、何时复用、何时 narrow |
-| file evidence policy stable | `static_prefix` | `global_static_prefix` | 否 | admission 原则、path boundary、rehydration 优先级 |
+| file evidence policy stable | `static_prefix` | `global_static_prefix` | 否 | evidence reuse 原则、path boundary、rehydration 优先级 |
 | 本轮 read_file tool call | `context_append` | `current_turn_tail` | 是 | provider tool protocol transcript 新增 call |
 | 本轮 read_file exact text / line window | `tool_transcript_delta` | `current_turn_tail` | 是 | 原始 tool result，成功后 sealed transcript |
 | 本轮必须即时可见的 exact evidence | `read_evidence_injection` | `never_replay_tail` | 否 | 只服务当前轮 |
@@ -915,7 +930,7 @@ parent latest provider_request_context_commit
 parent session file_evidence_scope snapshot
 -> forked_from.fork_point_read_evidence_state_ref
 -> FileStateAuthorityStore.materialize_snapshot_scope(child session scope)
--> child read_file admission uses child scope and returns reuse_unchanged when range/hash/mtime match
+-> child read_file evidence reuse uses child scope and returns reuse_unchanged when range/hash/mtime match
 
 parent content replacement refs
 -> forked_from.fork_point_content_replacement_state_ref
@@ -928,7 +943,7 @@ parent content replacement refs
 - fork 不把 parent old read text 塞进 child dynamic tail。
 - child file_state 是 fork 点的 read evidence 状态副本，后续 child 写入/读取只在 child scope 增量推进。
 - provider-visible sealed prefix 仍只由 parent ledger anchor 原字节 replay。
-- 如果 child 后续文件 freshness 变化，`read_file` admission 必须重新读取当前缺口，而不是继续复用 fork 点证据。
+- 如果 child 后续文件 freshness 变化，`read_file` evidence reuse 必须重新读取当前缺口，而不是继续复用 fork 点证据。
 
 ## 10. Transport Contract
 
@@ -1076,14 +1091,14 @@ parent content replacement refs
 
 - provider payload 从旧 section/cache_role 推断 lane。
 
-### Phase B2：工具 Transcript 与 Read Admission
+### Phase B2：工具 Transcript 与 Read Evidence Reuse
 
 目标：工具记忆和文件读取进入系统契约。
 
 影响文件：
 
 - 新增 `backend/runtime/context_management/tool_transcript.py`
-- 新增 `backend/runtime/tool_runtime/read_admission.py`
+- 新增 `backend/runtime/tool_runtime/read_evidence_reuse.py`
 - `backend/runtime/tool_runtime/native_tools.py`
 - `backend/runtime/tool_runtime/tool_result_envelope.py`
 - `backend/harness/runtime/dynamic_context/tool_result_projector.py`
@@ -1092,6 +1107,10 @@ parent content replacement refs
 完成条件：
 
 - tool call/result pairing 由 `tool_call_id` 校验。
+- JSON action 支持 `tool_call` / `tool_calls[]` 二选一；批量调用必须在同一 turn 内拆成多个带稳定 `tool_call_id` 的子 action，并进入同一个 batch planner。
+- 批量工具反馈按语义目标汇总：调用前一条批次级公开说明，观察后由 agent 根据语义变化决定是否反馈；系统不替 agent 生成用户语义文本。
+- 恢复/修复/拒绝反馈使用 agent 可执行语义，而不是开发分类：当前发生了什么、可采取什么动作、需要怎样回应用户、工具是否还能继续。
+- fork/continuation 恢复包中的合同反馈对 agent 只投影 `next_action_requirements` 和语义修复项；旧 `required_action_protocol` 只能作为历史包内部读取 fallback，不能作为新 prompt 字段继续传播。
 - 重复 read 未变化同 range 返回 `reuse_unchanged` / `read_evidence_reuse` 小 delta。
 - 缺口 range 只读缺口。
 - stale/changed/missing hash 才重新读取当前所需范围。
@@ -1166,7 +1185,7 @@ parent content replacement refs
 | `backend/runtime/context_management/context_candidate_registry.py` | 新增 | contributor contract，只产 candidate |
 | `backend/runtime/context_management/context_pipeline.py` | 新增 | 单入口 build context packet |
 | `backend/runtime/context_management/tool_transcript.py` | 新增 | call/result pairing、delta/replay normalizer |
-| `backend/runtime/tool_runtime/read_admission.py` | 新增 | read_file admission decision |
+| `backend/runtime/tool_runtime/read_evidence_reuse.py` | 新增 | read_file evidence reuse decision |
 | `backend/harness/runtime/dynamic_context/manager.py` | 收束 | 只输出 source facts/candidates |
 | `backend/harness/runtime/dynamic_context/tool_result_projector.py` | 收束 | read/tool projection 输出 canonical candidates |
 | `backend/harness/runtime/compiler.py` | 主链改造 | 调用 context pipeline，删除旧 message-spec helper |
@@ -1189,7 +1208,7 @@ parent content replacement refs
 
 ```powershell
 rg -n "skill_candidates|single_agent_turn_tool_observation|tool_observations" backend
-rg -n "agent_visible_runtime_projection|available_tools|tool_schema_catalog" backend/harness backend/runtime
+rg -n "agent_visible_runtime_projection|available_tools|Tool Capability Surface|tool_index_stable" backend/harness backend/runtime
 rg -n "physical_prefix_lane|context_cache_section|semantic_slot" backend/runtime backend/harness
 ```
 

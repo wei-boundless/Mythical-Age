@@ -24,7 +24,6 @@ RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
     "task_runtime_boundary_stable": "runtime_task_boundary",
     "task_state_replay_entry": "runtime_task_state_replay",
     "task_stable": "runtime_contract",
-    "tool_schema_catalog": "tool_catalog",
     "tool_index_stable": "tool_catalog",
     "turn_stable": "runtime_protocol",
     "attachment_context_index": "runtime_attachment_context_index",

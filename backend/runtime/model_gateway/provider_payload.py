@@ -5,6 +5,7 @@ import json
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
+from prompt_composition.context_envelope import parse_context_fragment_payload
 from runtime.prompt_accounting.cache_policy import (
     is_cache_eligible_prefix,
     is_prefix_eligible_for_tier,
@@ -280,7 +281,7 @@ def _tool_schema_cache_profile(
     message_index = _int(dict(tool_index.metadata or {}).get("message_index"), default=-1)
     if message_index < 0 or message_index >= len(messages):
         return _native_tool_binding_schema_never_cache("stable_tool_index_message_missing")
-    payload = _parse_titled_json_payload(str(dict(messages[message_index]).get("content") or ""))
+    payload = _parse_context_payload(str(dict(messages[message_index]).get("content") or ""))
     manifest_payload = dict(tool_catalog_manifest or {})
     manifest_ref = str(manifest_payload.get("manifest_id") or "")
     expected = _tool_catalog_manifest_fingerprint(manifest_payload) if manifest_payload else _tool_index_fingerprint(payload)
@@ -294,7 +295,8 @@ def _tool_schema_cache_profile(
             stable_tool_index_segment_id=tool_index.segment_id,
         )
     actual = _provider_tool_schema_fingerprint(tools)
-    if expected != actual:
+    subset_check = _tool_fingerprint_subset_check(expected, actual)
+    if not subset_check["matched"]:
         reason = (
             "provider_tools_do_not_match_tool_catalog_manifest"
             if manifest_payload
@@ -304,6 +306,7 @@ def _tool_schema_cache_profile(
             reason,
             expected_tool_names=list(expected.get("tool_names") or []),
             actual_tool_names=list(actual.get("tool_names") or []),
+            tool_subset_mismatch=list(subset_check.get("mismatches") or []),
             tool_catalog_manifest_ref=manifest_ref,
             stable_tool_index_segment_id=tool_index.segment_id,
         )
@@ -320,23 +323,29 @@ def _tool_schema_cache_profile(
         "prefix_tier": "none",
         "metadata": {
             "native_tool_binding_decision": (
-                "validated_against_tool_catalog_manifest"
+                "current_turn_tool_binding_validated_against_tool_catalog_manifest"
                 if manifest_payload
-                else "validated_against_stable_tool_index"
+                else "current_turn_tool_binding_validated_against_stable_tool_index"
             ),
             "cache_note": (
-                "native_tool_binding_schema_is_provider_sidecar_not_message_prefix_cacheable; stable schema is carried by tool_schema_catalog message"
+                "native_tool_binding_schema_is_current_turn_tool_binding_sidecar; it is provider transport, not message prefix cache"
                 if manifest_payload
-                else "native_tool_binding_schema_is_provider_sidecar_not_message_prefix_cacheable"
+                else "native_tool_binding_schema_is_current_turn_tool_binding_sidecar"
             ),
-            "stability_rule": "native tools sidecar is valid only while its schema fingerprint matches the stable tool catalog",
+            "stability_rule": "native tools sidecar is current-turn tool authorization and is never replayed as context memory",
+            "sidecar_semantic_role": "current_turn_tool_binding_sidecar",
+            "sidecar_validity_scope": "current_provider_request",
             "provider_payload_transport_location": "tools",
             "provider_payload_sidecar_component": True,
             "provider_payload_prefix_component": False,
-            "transport_contract_component": True,
-            "transport_contract_role": "stable_provider_tool_schema",
-            "transport_sidecar_role": "native_tool_binding_schema",
+            "transport_contract_component": False,
+            "transport_contract_role": "current_turn_tool_binding_sidecar",
+            "transport_sidecar_role": "current_turn_tool_binding_sidecar",
             "sidecar_drift_status": "matched",
+            "native_tool_binding_scope": "current_turn_bound_subset_of_stable_tool_catalog",
+            "native_tool_binding_tool_names": list(actual.get("tool_names") or []),
+            "native_tool_binding_expected_catalog_tool_count": len(list(expected.get("tool_names") or [])),
+            "native_tool_binding_bound_tool_count": len(list(actual.get("tool_names") or [])),
             "message_prefix_cacheable": False,
             "tool_catalog_manifest_ref": manifest_ref,
             "tool_catalog_manifest_hash": str(manifest_payload.get("tool_catalog_hash") or ""),
@@ -358,13 +367,15 @@ def _native_tool_binding_schema_never_cache(reason: str, **metadata: Any) -> dic
         "metadata": {
             "native_tool_binding_decision": "not_promoted",
             "native_tool_binding_reason": str(reason or "unknown"),
-            "cache_note": "native_tool_binding_schema_is_recorded_as_provider_sidecar_but_not_message_prefix_cacheable",
+            "cache_note": "native_tool_binding_schema_is_current_turn_tool_binding_sidecar_but_not_message_prefix_cacheable",
+            "sidecar_semantic_role": "current_turn_tool_binding_sidecar",
+            "sidecar_validity_scope": "current_provider_request",
             "provider_payload_transport_location": "tools",
             "provider_payload_sidecar_component": True,
             "provider_payload_prefix_component": False,
-            "transport_contract_component": True,
-            "transport_contract_role": "stable_provider_tool_schema_unvalidated",
-            "transport_sidecar_role": "native_tool_binding_schema",
+            "transport_contract_component": False,
+            "transport_contract_role": "current_turn_tool_binding_sidecar_unvalidated",
+            "transport_sidecar_role": "current_turn_tool_binding_sidecar",
             "sidecar_drift_status": _native_tool_sidecar_drift_status(reason),
             "message_prefix_cacheable": False,
             **dict(metadata),
@@ -383,10 +394,13 @@ def _native_tool_sidecar_drift_status(reason: str) -> str:
     return "not_validated"
 
 
-def _parse_titled_json_payload(content: str) -> Any | None:
+def _parse_context_payload(content: str) -> Any | None:
     text = str(content or "").strip()
     if not text:
         return None
+    envelope_payload = parse_context_fragment_payload(text)
+    if envelope_payload is not None:
+        return envelope_payload
     candidates = [text]
     if "\n" in text:
         candidates.append(text.split("\n", 1)[1].strip())
@@ -439,6 +453,33 @@ def _provider_tool_schema_fingerprint(tools: tuple[dict[str, Any], ...]) -> dict
     return {"tools": ordered, "tool_names": [item["name"] for item in ordered]}
 
 
+def _tool_fingerprint_subset_check(expected: dict[str, Any], actual: dict[str, Any]) -> dict[str, Any]:
+    expected_refs = {
+        str(item.get("name") or ""): str(item.get("input_schema_ref") or "")
+        for item in list(dict(expected or {}).get("tools") or [])
+        if isinstance(item, dict) and str(item.get("name") or "")
+    }
+    mismatches: list[dict[str, str]] = []
+    for item in list(dict(actual or {}).get("tools") or []):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "")
+        actual_ref = str(item.get("input_schema_ref") or "")
+        expected_ref = expected_refs.get(name)
+        if not expected_ref:
+            mismatches.append({"name": name, "reason": "tool_not_in_stable_catalog", "actual_ref": actual_ref})
+        elif expected_ref != actual_ref:
+            mismatches.append(
+                {
+                    "name": name,
+                    "reason": "schema_ref_mismatch",
+                    "expected_ref": expected_ref,
+                    "actual_ref": actual_ref,
+                }
+            )
+    return {"matched": not mismatches, "mismatches": mismatches}
+
+
 def _cache_boundary(
     segments: tuple[ProviderPayloadSegment, ...],
     *,
@@ -447,10 +488,10 @@ def _cache_boundary(
     transport = dict(transport_contract or {})
     transport_contract_hash = str(transport.get("contract_hash") or "")
     stable_message_prefix = _contiguous_stable_message_prefix(segments)
-    stable_tool_catalog_segments = [
+    stable_tool_capability_segments = [
         segment
         for segment in segments
-        if segment.kind == "tool_schema_catalog"
+        if segment.kind == "tool_index_stable"
         and is_cache_eligible_prefix(cache_role=segment.cache_role, prefix_tier=segment.prefix_tier)
     ]
     tier_prefixes = {
@@ -495,7 +536,7 @@ def _cache_boundary(
         ),
         "stable_message_prefix_segment_count": len(stable_message_prefix),
         "tool_catalog_hash": _segments_hash(tool_segments),
-        "stable_tool_catalog_hash": _segments_hash(stable_tool_catalog_segments),
+        "stable_tool_catalog_hash": _segments_hash(stable_tool_capability_segments),
         "cache_sensitive_params_hash": _segments_hash(cache_sensitive_segments),
         "provider_params_hash": _segments_hash(request_param_segments),
         "tool_call_options_hash": _segments_hash(tool_option_segments),
@@ -798,6 +839,8 @@ def _transport_stable_contract(
         if segment.transport_location == "messages":
             continue
         metadata = dict(segment.metadata or {})
+        if metadata.get("transport_contract_component") is False:
+            continue
         components.append(
             {
                 "kind": segment.kind,

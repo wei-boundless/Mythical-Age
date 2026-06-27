@@ -10,7 +10,7 @@ from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.shared.file_observation_policy import select_read_window
 
 
-READ_FILE_ADMISSION_AUTHORITY = "runtime.tool_runtime.read_admission.v1"
+READ_EVIDENCE_REUSE_AUTHORITY = "runtime.tool_runtime.read_evidence_reuse.v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,7 +27,7 @@ class ReadFileCurrentFacts:
 
 
 @dataclass(frozen=True, slots=True)
-class ReadFileAdmissionDecision:
+class ReadEvidenceReuseDecision:
     decision: str
     reason: str
     path: str
@@ -49,7 +49,7 @@ class ReadFileAdmissionDecision:
     next_start_line: int | None = None
     has_more: bool | None = None
     repository_id: str = ""
-    authority: str = READ_FILE_ADMISSION_AUTHORITY
+    authority: str = READ_EVIDENCE_REUSE_AUTHORITY
 
     @property
     def should_reuse(self) -> bool:
@@ -149,14 +149,14 @@ def allow_read_file_decision(
     line_count: int | None,
     read_intent: str = "",
     reason: str,
-) -> ReadFileAdmissionDecision:
+) -> ReadEvidenceReuseDecision:
     selection = select_read_window(
         total_lines=None,
         start_line=start_line,
         requested_line_count=line_count,
         read_intent=read_intent,
     )
-    return ReadFileAdmissionDecision(
+    return ReadEvidenceReuseDecision(
         decision="allow_read",
         reason=str(reason or "read_required"),
         path=_normalize_path(path),
@@ -167,7 +167,7 @@ def allow_read_file_decision(
     )
 
 
-def decide_read_file_admission(
+def decide_read_evidence_reuse(
     *,
     file_evidence_scope: dict[str, Any] | None,
     storage_roots: tuple[Path, ...] | list[Path],
@@ -177,7 +177,7 @@ def decide_read_file_admission(
     read_intent: str = "",
     current_facts: ReadFileCurrentFacts | None = None,
     repository_id: str = "",
-) -> ReadFileAdmissionDecision:
+) -> ReadEvidenceReuseDecision:
     normalized_path = _normalize_path(path)
     if not normalized_path:
         return allow_read_file_decision(
@@ -271,7 +271,7 @@ def decide_read_file_admission(
         current_facts=current_facts,
     )
     if segment is None:
-        return ReadFileAdmissionDecision(
+        return ReadEvidenceReuseDecision(
             decision="allow_read",
             reason="missing_exact_covering_read_window",
             path=normalized_path,
@@ -282,7 +282,7 @@ def decide_read_file_admission(
             total_lines=file_state.total_lines,
             repository_id=str(repository_id or getattr(current_facts, "repository_id", "") or ""),
         )
-    return ReadFileAdmissionDecision(
+    return ReadEvidenceReuseDecision(
         decision="reuse_unchanged",
         reason="exact_read_window_unchanged",
         path=normalized_path,
@@ -315,14 +315,14 @@ def _allow_from_state(
     read_intent: str,
     file_state: TaskFileState,
     reason: str,
-) -> ReadFileAdmissionDecision:
+) -> ReadEvidenceReuseDecision:
     selection = select_read_window(
         total_lines=file_state.total_lines,
         start_line=start_line,
         requested_line_count=line_count,
         read_intent=read_intent,
     )
-    return ReadFileAdmissionDecision(
+    return ReadEvidenceReuseDecision(
         decision="allow_read",
         reason=reason,
         path=path,

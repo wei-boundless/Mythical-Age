@@ -118,7 +118,7 @@ Hermes 还使用 deterministic tool call id，避免随机 UUID 进入 provider-
 
 Hermes 缓存 tool definitions，但返回 shallow copy，避免下游 mutation 污染缓存并累积重复工具名。它还对 open-weight 模型常见参数错误做工具执行前修复，例如 schema 期望 array 但模型给 scalar。
 
-对本项目的约束：tool catalog 一旦进入 cacheable prefix，就必须 canonical、稳定、不可被下游动态修改。工具 admission 和参数修复可以在模型调用后发生，但 provider-visible schema 字节不能每轮漂移。
+对本项目的约束：tool catalog 一旦进入 cacheable prefix，就必须 canonical、稳定、不可被下游动态修改。参数修复、action permit 和 observation acceptance 可以在模型提交动作后发生，但 provider-visible schema 字节不能每轮漂移。
 
 ## Pi Agent 源码结论
 
@@ -332,10 +332,10 @@ fresh read result
 
 - 旧 read result 如果已经发给 provider，就作为 sealed transcript 保留。
 - 模型再次要求读取时，工具仍应读取当前文件状态。
-- 如果同一 file/range/content hash 未变，tool admission 可以返回 compact handle 或 digest，并说明相对 observation X 未变化，而不是重复全量内容。
+- 如果同一 file/range/content hash 未变，read evidence reuse 可以返回 compact handle 或 digest，并说明相对 observation X 未变化，而不是重复全量内容。
 - 如果内容变化，新 read result 是新的 current-turn delta，provider 成功后再封存。
 
-这是 tool admission contract，不是 prompt 文案优化。
+这是 read evidence reuse / observation acceptance 执行契约，不是 prompt 文案优化。
 
 ### 不变量 5：reasoning replay 是 provider-facing state
 
@@ -408,7 +408,7 @@ never_replay_tail
 | `provider_visible_context_prefix` | 已确认进入 prefix 的旧 user/memory/tool/evidence/runtime replay-only 字节 | 应命中 | 只接收 confirmed entries，按 ledger entry index 线性插线 |
 | `current_turn_user_delta` | 当前用户请求和当前显式上下文 | 不承诺同轮命中 | provider 成功后可封存 |
 | `current_turn_tool_delta` | 当前执行循环中新产生的工具观察 | 不承诺同轮命中 | provider 成功后可封存 |
-| `current_turn_dynamic_tail` | 新鲜 projection、volatile runtime status、admission hints | 不承诺同轮命中 | 只有筛选后的事实可转成未来 sealed entry |
+| `current_turn_dynamic_tail` | 新鲜 projection、volatile runtime status、current boundary hints | 不承诺同轮命中 | 只有筛选后的事实可转成未来 sealed entry |
 | `never_replay_tail` | one-shot runtime controls | 不承诺命中 | 永不封存 |
 
 关键修正：上一轮成功确认的动态内容，下一轮不能仍停留在会变化的 dynamic tail 里。它要么作为 confirmed provider-visible entry 进入 `provider_visible_context_prefix`，要么被丢弃，不能以新位置重渲染。active、historical-only、tool transcript、runtime replay-only 只是语义 metadata，不允许拆成不同物理 lane。
@@ -436,15 +436,15 @@ cache_scope_id = provider_id + root_session_id + fork_point_commit_hash
 
 当 provider 支持 `prompt_cache_key` 或 session-affinity header 时，这个 lineage key 比完全随机 child session id 更利于 fork 后缓存继承。child session id 仍然保留，用于存储、UI 和审计。
 
-### 4. 工具 Admission Contract
+### 4. 工具 Observation Acceptance 与 Read Evidence Reuse
 
-工具结果进入上下文前需要 admission 决策：
+工具结果进入上下文前需要 observation acceptance 决策：
 
 ```text
 tool_call
 -> tool_result_observation
 -> observation_fingerprint
--> admission_decision
+-> observation_acceptance_decision
    -> full_delta
    -> digest_delta
    -> unchanged_reference
@@ -538,7 +538,7 @@ current_turn_delta_bytes
 never_replay_bytes
 ```
 
-### Phase 3 - Tool Observation Admission
+### Phase 3 - Tool Observation Acceptance
 
 目标：重复工具读取不再重复塞旧全量输出，同时旧观察保持不可变。
 
@@ -546,7 +546,7 @@ never_replay_bytes
 
 - tool transcript / observation model
 - read-file tool result handling
-- context admission policy
+- context observation acceptance policy
 
 完成标准：
 

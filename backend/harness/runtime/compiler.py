@@ -33,12 +33,14 @@ from prompt_composition import (
     materialize_prompt_packet,
     build_runtime_slot_prompt_composition_manifest,
     materialize_runtime_prompt_sources,
+    parse_context_fragments,
     render_agent_prompt_instruction,
     render_environment_instruction,
     render_lifecycle_instruction,
     render_model_messages_from_projection,
     render_personality_prompt_instruction,
     render_prompt_contract_instruction,
+    render_text_context_fragment,
 )
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, model_visible_artifact_refs, normalize_artifact_ref
 from agent_system.identity import normalize_agent_id_sequence
@@ -86,11 +88,11 @@ from .packet_assembler import (
 )
 from .prompt_segment_plan import build_prompt_segment_plan
 from .project_instructions import ProjectInstructionBundle, collect_project_instruction_bundle
-from .provider_tool_schema import stable_tool_schema_catalog_payload
 from .runtime_control_signal_projection import canonical_runtime_control_signal_projection
 from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
 from .task_contract_manifest import TaskContractManifest, build_task_contract_manifest_from_contract
-from .tool_catalog_manifest import ToolCatalogManifest, build_tool_catalog_manifest
+from .tool_catalog_manifest import ToolCatalogManifest, agent_visible_tool_contract_entry, build_tool_catalog_manifest
+from .tool_transport_adapter import build_tool_transport_contract
 
 
 _GRAPH_AUTHORIZED_INPUT_CONTENT_LIMIT = 16000
@@ -422,6 +424,12 @@ class RuntimeCompiler:
         model_selection = packet_context.model_selection
         single_turn_tool_plan = packet_context.tool_plan
         single_turn_tools = packet_context.model_visible_tools
+        tool_transport_policy = _hidden_tool_transport_policy_from_assembly(assembly_payload)
+        tool_transport_contract = build_tool_transport_contract(
+            available_tools=single_turn_tools,
+            allowed_action_types=allowed_actions,
+            tool_transport_policy=tool_transport_policy,
+        )
         planning_protocol = _planning_protocol_payload(
             invocation_kind="single_agent_turn",
             profile_payload=profile_payload,
@@ -441,6 +449,7 @@ class RuntimeCompiler:
             available_tools=single_turn_tools,
             permission_mode=permission_mode,
             tool_plan=single_turn_tool_plan,
+            tool_transport_contract=tool_transport_contract.to_model_visible_payload(),
         )
         envelope = RuntimeEnvelope(
             envelope_id=f"rtenv:{turn_id}:single_agent_turn",
@@ -548,10 +557,6 @@ class RuntimeCompiler:
             if single_turn_tools
             else {}
         )
-        tool_schema_catalog_payload = stable_tool_schema_catalog_payload(
-            tool_payloads=single_turn_tools,
-            tool_catalog_manifest=tool_catalog_manifest,
-        )
         packet_id = packet_context.packet_id
         turn_input_facts = dict(session_context_payload.get("turn_input_facts") or {})
         file_evidence_scope = packet_context.file_evidence_scope
@@ -633,6 +638,7 @@ class RuntimeCompiler:
         attachment_context_payload, current_request_payload = _extract_attachment_context_payload(current_request_payload)
         task_mode_tail_context_payload, current_request_payload = _extract_task_mode_tail_context_payload(current_request_payload)
         editor_context_payload, current_request_payload = _extract_editor_context_payload(current_request_payload)
+        current_turn_delta_payload = _current_turn_delta_model_payload(current_request_payload)
         provider_protocol_specs = _provider_protocol_message_specs(
             session_context,
             source_ref="single_agent_turn_api_transcript",
@@ -665,26 +671,11 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
-                    title="Tool schema catalog",
-                    payload=tool_schema_catalog_payload,
-                    kind="tool_schema_catalog",
-                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
-                    cache_scope="session",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                    metadata={
-                        "authority_class": "provider_tool_schema_catalog",
-                        "content_source": "harness.runtime.compiler.stable_tool_schema_catalog",
-                    },
-                )
-                if tool_schema_catalog_payload
-                else None,
-                _runtime_payload_spec(
-                    role="system",
-                    title="Available tool index",
+                    title="Tool Capability Surface",
                     payload=tool_index_payload,
                     kind="tool_index_stable",
-                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
+                    visible_kind="tool_capabilities",
+                    source_ref="agent_visible_tool_contract",
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -693,9 +684,10 @@ class RuntimeCompiler:
                 else None,
                 _runtime_payload_spec(
                     role="system",
-                    title="Turn operating contract",
+                    title="Operating Contract",
                     payload=stable_payload,
                     kind="turn_stable",
+                    visible_kind="operating_contract",
                     source_ref="single_agent_turn_stable_boundary",
                     cache_scope="session",
                     cache_role="session_stable",
@@ -706,7 +698,8 @@ class RuntimeCompiler:
                     title="File evidence policy",
                     payload=_file_evidence_policy_stable_payload(),
                     kind="file_evidence_policy_stable",
-                    source_ref="file_evidence_policy_stable.read_window_admission",
+                    visible_kind="file_evidence_reuse_policy",
+                    source_ref="file_evidence_policy_stable.read_evidence_reuse_contract",
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -760,9 +753,10 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
-                    title="Runtime baseline references",
+                    title="Runtime Identity References",
                     payload=runtime_baseline_refs_payload,
                     kind="runtime_baseline_refs",
+                    visible_kind="context_continuity",
                     source_ref=_runtime_baseline_refs_source_ref(runtime_baseline_refs_payload),
                     cache_scope="session",
                     cache_role="session_stable",
@@ -771,7 +765,7 @@ class RuntimeCompiler:
                         "authority_class": "runtime_baseline_refs",
                         "content_source": "harness.runtime.dynamic_context.runtime_baseline_refs",
                         "cache_impact": "session_prefix_runtime_baseline_refs",
-                        "stability_rule": "Only immutable runtime profile/environment refs are cacheable; runtime cursor deltas stay in dynamic_projection tail.",
+                        "stability_rule": "Only immutable runtime profile/environment refs are cacheable; current execution-boundary deltas stay in the current runtime boundary tail.",
                     },
                 )
                 if runtime_baseline_refs_payload
@@ -812,6 +806,7 @@ class RuntimeCompiler:
                     title="Selected memory context",
                     payload=runtime_memory_context_payload,
                     kind="runtime_memory_context",
+                    visible_kind="selected_memory_context",
                     source_ref=_runtime_memory_context_source_ref(runtime_memory_context_payload),
                     cache_scope="task",
                     cache_role="session_stable",
@@ -827,23 +822,25 @@ class RuntimeCompiler:
                 else None,
                 _runtime_payload_spec(
                     role="user",
-                    title="Current user request",
-                    payload=current_request_payload,
+                    title="Current Turn Delta",
+                    payload=current_turn_delta_payload,
                     kind="current_turn_user_context",
+                    visible_kind="current_user_request",
                     source_ref="single_agent_turn_current_request",
-                    cache_scope="task",
-                    cache_role="session_stable",
+                    cache_scope="none",
+                    cache_role="volatile",
                     compression_role="summarize",
                     metadata={
                         **_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
-                        **_current_user_context_append_metadata(current_request_payload),
+                        **_current_user_context_append_metadata(current_turn_delta_payload),
                     },
                 ),
                 _runtime_payload_spec(
                     role="system",
-                    title="Task current exact read evidence",
+                    title="Current File Evidence",
                     payload=_read_evidence_current_prompt_payload(read_evidence_prompt_payload),
                     kind="read_evidence_injection",
+                    visible_kind="current_file_evidence",
                     source_ref=_read_evidence_prompt_source_ref(read_evidence_prompt_payload, fallback=packet_id),
                     cache_scope="none",
                     cache_role="volatile",
@@ -860,15 +857,16 @@ class RuntimeCompiler:
                 else None,
                 _runtime_payload_spec(
                     role="system",
-                    title="Current runtime control",
+                    title="Current Runtime Boundary",
                     payload=dynamic_payload,
                     preamble=runtime_instruction,
                     kind="dynamic_projection",
+                    visible_kind="current_runtime_boundary",
                     source_ref="single_agent_turn_runtime_delta",
-                    cache_scope="task",
-                    cache_role="session_stable",
+                    cache_scope="none",
+                    cache_role="volatile",
                     compression_role="summarize",
-                    metadata=_provider_visible_replay_only_runtime_tail_metadata(
+                    metadata=_current_runtime_tail_metadata(
                         {
                             **_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
                             "authority_class": "runtime_delta_tail",
@@ -883,13 +881,14 @@ class RuntimeCompiler:
                     content=_runtime_control_context_content(
                         runtime_lifecycle_instruction,
                         validity_scope=turn_id,
+                        source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
                     ),
                     kind="lifecycle_runtime_guidance",
                     source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
-                    cache_scope="task",
-                    cache_role="session_stable",
+                    cache_scope="none",
+                    cache_role="volatile",
                     compression_role="preserve",
-                    metadata=_provider_visible_replay_only_runtime_tail_metadata(
+                    metadata=_current_runtime_tail_metadata(
                         {
                             "authority_class": "runtime_lifecycle_guidance",
                             "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
@@ -904,9 +903,10 @@ class RuntimeCompiler:
                 else None,
                 _runtime_payload_spec(
                     role="system",
-                    title="Current runtime signals",
+                    title="Current Runtime Signals",
                     payload=volatile_runtime_payload,
                     kind="volatile_runtime_state",
+                    visible_kind="current_runtime_signals",
                     source_ref="single_agent_turn_volatile_runtime_state",
                     cache_scope="none",
                     cache_role="volatile",
@@ -1032,6 +1032,8 @@ class RuntimeCompiler:
                 "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
                 "runtime_packet_context": packet_context.to_dict(),
                 "control_capabilities": dict(effective_control_capabilities),
+                "tool_transport_policy": dict(tool_transport_policy),
+                "tool_transport_contract": tool_transport_contract.to_dict(),
                 "active_work_context_present": bool(active_work_context),
                 "current_work_boundary_receipt": dict(current_work_boundary_receipt or {}),
                 "turn_input_facts_present": bool(turn_input_facts),
@@ -1310,10 +1312,6 @@ class RuntimeCompiler:
         if capability_directory_payload:
             environment_stable_payload["capability_directory"] = capability_directory_payload
         project_instruction_payload = _project_instruction_model_payload(project_instruction_bundle)
-        tool_schema_catalog_payload = stable_tool_schema_catalog_payload(
-            tool_payloads=tool_payloads,
-            tool_catalog_manifest=tool_catalog_manifest,
-        )
         tool_index_payload = tool_catalog_manifest.to_model_visible_payload(include_catalog_hash=True)
         packet_context = build_task_execution_packet_context(
             session_id=session_id,
@@ -1536,7 +1534,8 @@ class RuntimeCompiler:
                     title="Task execution file evidence policy",
                     payload=_file_evidence_policy_stable_payload(),
                     kind="file_evidence_policy_stable",
-                    source_ref="file_evidence_policy_stable.read_window_admission",
+                    visible_kind="file_evidence_reuse_policy",
+                    source_ref="file_evidence_policy_stable.read_evidence_reuse_contract",
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -1547,26 +1546,11 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
-                    title="Task execution tool schema catalog",
-                    payload=tool_schema_catalog_payload,
-                    kind="tool_schema_catalog",
-                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                    metadata={
-                        "authority_class": "provider_tool_schema_catalog",
-                        "content_source": "harness.runtime.compiler.stable_tool_schema_catalog",
-                    },
-                )
-                if tool_schema_catalog_payload
-                else None,
-                _runtime_payload_spec(
-                    role="system",
-                    title="Task execution tool index",
+                    title="Tool Capability Surface",
                     payload=tool_index_payload,
                     kind="tool_index_stable",
-                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
+                    visible_kind="tool_capabilities",
+                    source_ref="agent_visible_tool_contract",
                     cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -1711,15 +1695,16 @@ class RuntimeCompiler:
                 else None,
                 _runtime_payload_spec(
                     role="system",
-                    title="Task execution runtime boundary",
+                    title="Current Runtime Boundary",
                     payload=dynamic_payload,
                     preamble=runtime_instruction,
                     kind="task_runtime_boundary_dynamic",
+                    visible_kind="current_runtime_boundary",
                     source_ref="task_execution_runtime_delta",
-                    cache_scope="task",
-                    cache_role="session_stable",
+                    cache_scope="none",
+                    cache_role="volatile",
                     compression_role="preserve",
-                    metadata=_provider_visible_replay_only_runtime_tail_metadata(
+                    metadata=_current_runtime_tail_metadata(
                         {
                             "authority_class": "runtime_boundary",
                             "projection_strategy": "agent_visible_runtime_boundary",
@@ -1732,9 +1717,10 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
-                    title="Task current exact read evidence",
+                    title="Current File Evidence",
                     payload=_read_evidence_current_prompt_payload(read_evidence_prompt_payload),
                     kind="read_evidence_injection",
+                    visible_kind="current_file_evidence",
                     source_ref=_read_evidence_prompt_source_ref(read_evidence_prompt_payload, fallback=packet_id),
                     cache_scope="none",
                     cache_role="volatile",
@@ -1751,7 +1737,10 @@ class RuntimeCompiler:
                 else None,
                 _message_spec(
                     role="system",
-                    content=active_skill_instruction,
+                    content=_active_skill_context_content(
+                        active_skill_instruction,
+                        source_ref=",".join(active_skill_meta.get("source_refs") or ()),
+                    ),
                     kind="active_skills",
                     source_ref=",".join(active_skill_meta.get("source_refs") or ()),
                     cache_scope="none",
@@ -1770,13 +1759,14 @@ class RuntimeCompiler:
                     content=_runtime_control_context_content(
                         runtime_lifecycle_instruction,
                         validity_scope=f"{task_run_id}:{invocation_index}",
+                        source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
                     ),
                     kind="lifecycle_runtime_guidance",
                     source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
-                    cache_scope="task",
-                    cache_role="session_stable",
+                    cache_scope="none",
+                    cache_role="volatile",
                     compression_role="preserve",
-                    metadata=_provider_visible_replay_only_runtime_tail_metadata(
+                    metadata=_current_runtime_tail_metadata(
                         {
                             "authority_class": "runtime_lifecycle_guidance",
                             "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
@@ -1805,6 +1795,7 @@ class RuntimeCompiler:
                     title="Task selected memory context",
                     payload=runtime_memory_context_payload,
                     kind="runtime_memory_context",
+                    visible_kind="selected_memory_context",
                     source_ref=_runtime_memory_context_source_ref(runtime_memory_context_payload),
                     cache_scope="none",
                     cache_role="volatile",
@@ -2107,10 +2098,6 @@ class RuntimeCompiler:
             source_ref="tool_observation_followup.available_tools",
             prompt_mount_plan=prompt_mount_plan,
         )
-        tool_schema_catalog_payload = stable_tool_schema_catalog_payload(
-            tool_payloads=tool_payloads,
-            tool_catalog_manifest=tool_catalog_manifest,
-        )
         tool_index_payload = (
             tool_catalog_manifest.to_model_visible_payload(include_catalog_hash=True)
             if tool_payloads
@@ -2211,6 +2198,7 @@ class RuntimeCompiler:
         tool_observation_context_payload, current_request_payload = _extract_tool_observation_context_payload(
             current_request_payload
         )
+        current_turn_delta_payload = _current_turn_delta_model_payload(current_request_payload)
         provider_protocol_specs = _provider_protocol_message_specs(
             session_context,
             source_ref="observation_followup_api_transcript",
@@ -2243,26 +2231,11 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
-                    title="Tool schema catalog",
-                    payload=tool_schema_catalog_payload,
-                    kind="tool_schema_catalog",
-                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
-                    cache_scope="session",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                    metadata={
-                        "authority_class": "provider_tool_schema_catalog",
-                        "content_source": "harness.runtime.compiler.stable_tool_schema_catalog",
-                    },
-                )
-                if tool_schema_catalog_payload
-                else None,
-                _runtime_payload_spec(
-                    role="system",
-                    title="Available tool index",
+                    title="Tool Capability Surface",
                     payload=tool_index_payload,
                     kind="tool_index_stable",
-                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
+                    visible_kind="tool_capabilities",
+                    source_ref="agent_visible_tool_contract",
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -2274,6 +2247,7 @@ class RuntimeCompiler:
                     title="Tool observation follow-up contract",
                     payload=stable_payload,
                     kind="task_stable",
+                    visible_kind="operating_contract",
                     source_ref="observation_followup_stable_contract",
                     cache_scope="session",
                     cache_role="session_stable",
@@ -2293,7 +2267,8 @@ class RuntimeCompiler:
                     title="File evidence policy",
                     payload=_file_evidence_policy_stable_payload(),
                     kind="file_evidence_policy_stable",
-                    source_ref="file_evidence_policy_stable.read_window_admission",
+                    visible_kind="file_evidence_reuse_policy",
+                    source_ref="file_evidence_policy_stable.read_evidence_reuse_contract",
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -2338,9 +2313,10 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
-                    title="Tool observation baseline references",
+                    title="Runtime Identity References",
                     payload=runtime_baseline_refs_payload,
                     kind="runtime_baseline_refs",
+                    visible_kind="context_continuity",
                     source_ref=_runtime_baseline_refs_source_ref(runtime_baseline_refs_payload),
                     cache_scope="session",
                     cache_role="session_stable",
@@ -2349,7 +2325,7 @@ class RuntimeCompiler:
                         "authority_class": "runtime_baseline_refs",
                         "content_source": "harness.runtime.dynamic_context.runtime_baseline_refs",
                         "cache_impact": "session_prefix_runtime_baseline_refs",
-                        "stability_rule": "Only immutable runtime profile/environment refs are cacheable; runtime cursor deltas stay in dynamic_projection tail.",
+                        "stability_rule": "Only immutable runtime profile/environment refs are cacheable; current execution-boundary deltas stay in the current runtime boundary tail.",
                     },
                 )
                 if runtime_baseline_refs_payload
@@ -2387,15 +2363,16 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
-                    title="Tool observation follow-up control",
+                    title="Current Runtime Boundary",
                     payload=dynamic_payload,
                     preamble=runtime_instruction,
                     kind="dynamic_projection",
+                    visible_kind="current_runtime_boundary",
                     source_ref="observation_followup_runtime_delta",
-                    cache_scope="task",
-                    cache_role="session_stable",
+                    cache_scope="none",
+                    cache_role="volatile",
                     compression_role="summarize",
-                    metadata=_provider_visible_replay_only_runtime_tail_metadata(
+                    metadata=_current_runtime_tail_metadata(
                         {
                             **_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
                             "authority_class": "runtime_delta_tail",
@@ -2410,13 +2387,14 @@ class RuntimeCompiler:
                     content=_runtime_control_context_content(
                         runtime_lifecycle_instruction,
                         validity_scope=f"{turn_id}:observation_followup:{len(observations) + 1}",
+                        source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
                     ),
                     kind="lifecycle_runtime_guidance",
                     source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
-                    cache_scope="task",
-                    cache_role="session_stable",
+                    cache_scope="none",
+                    cache_role="volatile",
                     compression_role="preserve",
-                    metadata=_provider_visible_replay_only_runtime_tail_metadata(
+                    metadata=_current_runtime_tail_metadata(
                         {
                             "authority_class": "runtime_lifecycle_guidance",
                             "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
@@ -2431,9 +2409,10 @@ class RuntimeCompiler:
                 else None,
                 _runtime_payload_spec(
                     role="system",
-                    title="Task current exact read evidence",
+                    title="Current File Evidence",
                     payload=_read_evidence_current_prompt_payload(read_evidence_prompt_payload),
                     kind="read_evidence_injection",
+                    visible_kind="current_file_evidence",
                     source_ref=_read_evidence_prompt_source_ref(read_evidence_prompt_payload, fallback=packet_id),
                     cache_scope="none",
                     cache_role="volatile",
@@ -2453,6 +2432,7 @@ class RuntimeCompiler:
                     title="Tool observation selected memory context",
                     payload=runtime_memory_context_payload,
                     kind="runtime_memory_context",
+                    visible_kind="selected_memory_context",
                     source_ref=_runtime_memory_context_source_ref(runtime_memory_context_payload),
                     cache_scope="task",
                     cache_role="session_stable",
@@ -2468,16 +2448,17 @@ class RuntimeCompiler:
                 else None,
                 _runtime_payload_spec(
                     role="user",
-                    title="Tool observation current request",
-                    payload=current_request_payload,
+                    title="Current Turn Delta",
+                    payload=current_turn_delta_payload,
                     kind="current_turn_user_context",
+                    visible_kind="current_user_request",
                     source_ref="observation_followup_current_request",
-                    cache_scope="task",
-                    cache_role="session_stable",
+                    cache_scope="none",
+                    cache_role="volatile",
                     compression_role="ref_only",
                     metadata={
                         **_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
-                        **_current_user_context_append_metadata(current_request_payload),
+                        **_current_user_context_append_metadata(current_turn_delta_payload),
                     },
                 ),
             ],
@@ -2750,6 +2731,16 @@ def _system_wiring_manifest_from_runtime_assembly(assembly_payload: dict[str, An
     return dict(manifest) if isinstance(manifest, dict) else {}
 
 
+def _hidden_tool_transport_policy_from_assembly(assembly_payload: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(assembly_payload or {})
+    policy = payload.get("tool_transport_policy")
+    if isinstance(policy, dict) and policy:
+        return dict(policy)
+    diagnostics = dict(payload.get("diagnostics") or {})
+    diagnostic_policy = diagnostics.get("tool_transport_policy")
+    return dict(diagnostic_policy) if isinstance(diagnostic_policy, dict) else {}
+
+
 def _context_capability_profile_from_runtime_assembly(assembly_payload: dict[str, Any] | None) -> dict[str, Any]:
     system_wiring_manifest = _system_wiring_manifest_from_runtime_assembly(assembly_payload)
     compiled = dict(system_wiring_manifest.get("compiled") or {})
@@ -2824,14 +2815,14 @@ def _validate_prompt_rule_diagnostics(assembly: PromptAssemblyResult, *, invocat
 def model_action_request_schema(turn_id: str) -> dict[str, Any]:
     del turn_id
     return {
-        "authority": "harness.loop.model_action_request",
+        "contract_name": "model_turn_action",
         "action_type": "respond|ask_user|tool_call|request_task_run|active_work_control|resume_recoverable_work|block",
-        "json_action_shape_rules": [
-            "提交一个可唯一识别的结构化动作；推荐使用一个顶层 JSON 对象，Markdown 代码块或简短说明只会作为传输包装被忽略。",
+        "action_shape_rules": [
+            "提交一个可唯一识别的本次行动；推荐使用一个顶层结构化对象，Markdown 代码块或简短说明只作为传输包装。",
             "respond 必须把用户可见最终回复写在顶层 final_answer；不要写 payload.final_answer、payload.content、action.final_answer 或 action.content。",
-            "ask_user 必须把用户要回答的问题写在顶层 user_question；不要使用 provider-native ask_user 工具调用。",
+            "ask_user 必须把用户要回答的问题写在顶层 user_question；不要把询问用户伪装成工具调用。",
             "block 必须把真实阻塞原因写在顶层 blocking_reason。",
-            "tool_call 使用顶层 tool_call: {tool_name, args}；普通工具可以使用 provider-native tool_call；控制动作使用 JSON action 或 provider-native canonical control signal，但同一轮不要混入其它动作来源。",
+            "需要工具观察或执行时，action_type=tool_call，并使用顶层 tool_call 或 tool_calls，二选一：单个工具用 tool_call: {tool_name, args}；同一判断目标内需要一组工具时用 tool_calls: [{tool_name, args}]。工具名必须来自当前可用工具，args 必须是对象。",
             "公开反馈必须与 action_type 对齐：如果 public_progress_note、current_judgment 或 next_action 宣称要开启、申请、进入或创建持续任务生命周期，action_type 必须是 request_task_run。",
         ],
         "action_selection_rules": [
@@ -2844,16 +2835,15 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
             "如果用户当前输入是问题、质疑、追问、状态询问、纠错或询问为什么，必须先对这个输入给出公开回应；只有用户明确要求继续/执行/恢复当前任务时，才允许 active_work_control 只承接执行。",
             "如果公开反馈说要进入持续任务生命周期，结构化动作必须同步提交 request_task_run；如果你选择 tool_call，就把公开反馈改成真实的工具前置判断。",
         ],
-        "task_lifecycle_decision_contract": {
-            "authority": "harness.runtime.model_decision_contract",
+        "task_lifecycle_action_contract": {
             "role": "你负责选择本轮动作，并让公开反馈与动作保持一致。",
             "task_start_rule": "只有 action_type=request_task_run 且 task_run_contract_seed 合格时，才表示你选择启动持续任务生命周期。",
             "task_mode_definition": {
                 "identity": "任务模式是持续工作生命周期容器，不是更大的工具调用。Goal、Plan、Todo、Investigation、Recovery、Monitor 和 Open Work 是容器里的 Work Mode；你选择任务模式，是为了把身份、工作模式、阶段状态、恢复点、验收和收口放进同一个可追踪工作单元。",
                 "what_it_gives_you": [
-                    "stable_task_identity: 后续工具、阶段反馈、停止、恢复和最终收口都绑定到同一个 task_run_id。",
+                    "stable_work_identity: 后续工具、阶段反馈、停止、恢复和最终收口都绑定到同一个持续工作身份。",
                     "durable_work_state: 目标、范围、已完成项、未完成项和恢复点可以跨 turn 保留。",
-                    "work_mode_context: 可以只开启 Plan、Todo 或 Goal，也可以组合多个 Work Mode，但同一 task_run 内必须有且只有一个 primary Work Mode。",
+                    "work_mode_context: 可以只开启 Plan、Todo 或 Goal，也可以组合多个 Work Mode，但同一持续工作内必须有且只有一个 primary Work Mode。",
                     "stage_projection: 用户能看到阶段性进展、当前动作、阻塞和完成状态，而不只是一串普通工具调用。",
                     "control_surface: 当任务运行中，暂停、停止、恢复、继续和 replan 有明确对象。",
                     "acceptance_boundary: 完成标准、交付物、验证结果和失败原因有统一收口位置。",
@@ -2881,11 +2871,10 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
             "feedback_action_consistency": "公开反馈、public_action_state 和 action_type 必须描述同一个下一步。宣称开启 Task 时必须提交 request_task_run；选择普通工具时不得宣称已开启或即将开启持续任务。",
         },
         "public_response_obligation": {
-            "authority": "model_semantic_response",
             "rule": "你必须回应用户当前输入本身。回应可以是直接回答、解释你的公开判断、说明需要查证哪个事实才能判断、指出当前不能回答的原因，或说明会把用户的新要求并入本轮处理范围。内部工具、长期任务和结构化 action 只能服务这个回应，不能替代这个回应。",
             "first_visible_response": [
                 "如果已经足以回答，使用 respond/final_answer。",
-                "如果需要查证后才能判断，使用 tool_call/tool_calls，同时在 public_progress_note 中说明要查证的公开事实和为什么它关系到用户问题；public_action_state.current_judgment 可以补充当前公开判断，但不能替代空白回应；不要写工具名、动作字段或隐藏推理。",
+                "如果需要查证后才能判断，使用 tool_call/tool_calls，同时在 public_progress_note 中说明要查证的公开事实和为什么它关系到用户问题；tool_calls[] 是同一判断目标内的一批工具请求，public_progress_note 只写这一批请求共同服务的公开判断目标，不逐工具列名；public_action_state.current_judgment 可以补充当前公开判断，但不能替代空白回应；不要写隐藏推理。",
                 "如果用户是在追问为什么、哪里卡住、是否正常、为什么没回应，必须先解释当前已知状态或你需要核对的状态对象；不要直接继续旧任务。",
                 "如果用户只是明确说继续、恢复、接着执行，并且没有提出新问题，才可以用 active_work_control 或 request_task_run 承接执行。"
             ],
@@ -2896,14 +2885,16 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                     "观察结果改变下一步计划、任务范围、验收状态、风险或是否需要用户确认。",
                     "观察结果完成了用户可见阶段，需要让用户知道结论或下一步。",
                     "观察结果推翻了你先前的公开判断或暴露出不确定性。",
+                    "一批 tool_calls[] 的观察共同形成了新的公开结论、风险、阻塞、验收状态或下一步判断。",
                     "你已经连续跨多个文件、多个工具批次或多轮观察推进，或者刚处理过失败恢复、写入、验证、范围切换或阶段结束，继续请求工具前需要给用户一个阶段反馈。"
                 ],
                 "may_keep_internal_when": [
                     "观察只是短链路的低层文件读取、搜索、目录枚举或格式检查，且没有改变公开判断、风险、计划或用户问题的答案。",
+                    "一批 tool_calls[] 只是为同一个后续判断收集材料，单条观察没有独立用户价值，且批次尚未形成新的公开结论。",
                     "观察只是为后续工具调用准备上下文，单独展示不会帮助用户理解进展。",
                     "结构化工具槽已经足以表达动作状态，而没有新的语义结论。"
                 ],
-                "explanation_shape": "需要解释时，只说结论、依据的可见事实、影响和下一步；不要粘贴原始工具输出，不要暴露内部事件编号、动作字段、隐藏推理或无关路径。不要求每个低层工具都单独反馈，但不允许长时间任务只剩工具列表而没有你的阶段判断。"
+                "explanation_shape": "需要解释时，只说结论、依据的可见事实、影响和下一步；批量工具结果按共同语义目标汇总，不按工具条数逐项播报；不要粘贴原始工具输出，不要暴露内部事件编号、动作字段、隐藏推理或无关路径。不要求每个低层工具都单独反馈，但不允许长时间任务只剩工具列表而没有你的阶段判断。"
             },
             "non_response_examples": [
                 "只输出 tool_call、request_task_run 或 active_work_control，没有解释用户当前问题。",
@@ -2911,7 +2902,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                 "把工具名、动作字段或执行步骤列表当成给用户的回答。"
             ]
         },
-        "public_progress_note": "一句用户可理解的公开语义回应；用户输入触发的 tool_call、request_task_run 或 active_work_control 必须填写，用于回应用户当前输入或说明为什么需要先查证。不要写工具名、动作字段、内部事件、隐藏推理或泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
+        "public_progress_note": "一句用户可理解的公开语义回应；用户输入触发的 tool_call/tool_calls、request_task_run 或 active_work_control 必须填写，用于回应用户当前输入或说明为什么需要先查证。批量 tool_calls[] 只写这一批工具共同服务的公开判断目标，不逐工具列名。不要写内部事件、隐藏推理或泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
         "public_action_state": {
             "visible_status": "可选机器状态；thinking|waiting_for_tool|tool_returned|responding|blocked。不是用户可见正文；不要复制到 public_progress_note、current_judgment、next_action、final_answer 或 blocking_reason。",
             "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写本轮已经确定的事实或边界，不写隐藏推理。",
@@ -2923,12 +2914,15 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
         "final_answer": "",
         "user_question": "",
         "blocking_reason": "",
-        "tool_call": {"tool_name": "", "args": {}},
+        "tool_call": {"tool_name": "单工具调用时填写；批量时不要同时填写", "args": {}},
+        "tool_calls": [
+            {"tool_name": "批量工具调用时填写；与 tool_call 二选一", "args": {}}
+        ],
         "request_task_run_shape_rules": [
-            "request_task_run 必须是单个结构化控制信号；可以使用 JSON action，也可以使用 provider-native canonical request_task_run；如果文本里带代码块或简短说明，只提取唯一 action-like 对象执行。",
+            "request_task_run 必须是单个结构化控制信号；如果文本里带代码块或简短说明，只会提取唯一结构化动作对象执行。",
             "request_task_run 是启动 TaskRunContract 容器的合同，不是普通工具调用；同一动作里不要同时请求普通 tool_call。",
             "开启 Task 前先按 request_task_run_required_skeleton 自检；缺少任一必填路径时不要申请 Task，改用 ask_user 补齐关键合同缺口，或明确选择当前 turn 内处理。",
-            "不要使用 payload 包裹任务字段；顶层只能放 action_type、authority、public_progress_note、public_action_state、task_run_contract_seed、completion_contract、permission_request、diagnostics 等动作控制字段。",
+            "不要使用 payload 包裹任务字段；顶层只能放 action_type、public_progress_note、public_action_state、task_run_contract_seed、completion_contract、permission_request、diagnostics 等动作字段。",
             "task_run_contract_seed 的最小必填是 container_contract.entry_reason、container_contract.primary_work_mode_ref、container_contract.minimum_viable_next_step、一个且仅一个 mode_role=primary 的 Work Mode、acceptance_contract.acceptance_mode。",
             "Goal、Plan、Todo 是相互独立的 Work Mode；可以没有 goal 但有 plan，可以没有 plan 但有 todo，不要为了满足旧格式伪造目标。",
             "public_progress_note 要说明为什么你判断需要持续任务生命周期；public_action_state.next_action 应写进入任务执行流程，而不是普通工具动作。",
@@ -2944,7 +2938,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                 "失败、中断、停止或计划偏离时如何反馈、保留状态并收口。",
             ],
             "benefits_for_you": [
-                "后续动作绑定同一个 task_run_id，避免会话续接时丢失工作身份。",
+                "后续动作绑定同一个持续工作身份，避免会话续接时丢失工作边界。",
                 "GoalContext、PlanContext、TodoContext 分层保留，避免 todo 执行状态覆盖稳定目标或计划。",
                 "可以把阶段进展、阻塞、验证和完成状态投影给用户。",
                 "暂停、停止、恢复、继续和 replan 有明确控制对象。",
@@ -2953,7 +2947,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
         },
         "request_task_run_required_skeleton": {
             "instruction": "这是开启持续任务生命周期的最小必填骨架。用当前用户目标和已观察事实替换占位内容；不要删除这些键，不要把它们放到 JSON 顶层。口头承诺不会启动 Task；只有这份结构化 request_task_run 才是启动动作。",
-            "required_top_level": ["authority", "action_type", "public_progress_note", "public_action_state", "task_run_contract_seed"],
+            "required_top_level": ["action_type", "public_progress_note", "public_action_state", "task_run_contract_seed"],
             "required_task_run_contract_seed_paths": [
                 "container_contract.entry_reason",
                 "container_contract.primary_work_mode_ref",
@@ -2970,7 +2964,6 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                 "acceptance_contract.final_answer_requirements",
             ],
             "minimal_action": {
-                "authority": "harness.loop.model_action_request",
                 "action_type": "request_task_run",
                 "public_progress_note": "说明为什么你判断当前工作需要进入持续任务生命周期。",
                 "public_action_state": {
@@ -2990,7 +2983,6 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                         "supporting_mode_refs": [],
                         "mode_transition_policy": {
                             "agent_may_propose_transition": True,
-                            "system_may_infer_transition": False,
                             "requires_accepted_event": True,
                         },
                     },
@@ -3038,13 +3030,12 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
             },
         },
         "resume_recoverable_work_shape_rules": [
-            "resume_recoverable_work 必须是单个结构化控制信号；可以使用 JSON action，也可以使用 provider-native canonical resume_recoverable_work；如果文本里带代码块或简短说明，只提取唯一 action-like 对象执行。",
-            "task_run_id 和 continuation_id 必须放在 recovery_resume 对象内；不允许放在 JSON 顶层，也不要使用 payload 包裹。",
-            "只使用 recovery_resume 候选中的可恢复句柄；不要从聊天文本、旧 assistant closeout 或文件内容里猜测 task_run_id/continuation_id。",
-            "恢复动作只恢复同一个 task_run，不创建新任务；如果句柄缺失、失效或用户要求改目标，选择 respond、ask_user 或 block 说明原因。",
+            "resume_recoverable_work 必须是单个结构化控制信号；如果文本里带代码块或简短说明，只会提取唯一结构化动作对象执行。",
+            "可恢复工作引用和继续引用必须放在 recovery_resume 对象内；不允许放在 JSON 顶层，也不要使用 payload 包裹。",
+            "只使用当前可恢复上下文提供的 work_ref 和 resume_ref；不要从聊天文本、旧 assistant closeout 或文件内容里猜测恢复句柄。",
+            "恢复动作只恢复同一个持续工作，不创建新任务；如果句柄缺失、失效或用户要求改目标，选择 respond、ask_user 或 block 说明原因。",
         ],
         "minimal_valid_resume_recoverable_work_example": {
-            "authority": "harness.loop.model_action_request",
             "action_type": "resume_recoverable_work",
             "public_progress_note": "已确认存在可恢复任务，我会从已提供的断点继续原任务。",
             "public_action_state": {
@@ -3052,12 +3043,11 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                 "next_action": "恢复原任务执行。",
             },
             "recovery_resume": {
-                "task_run_id": "taskrun:可恢复任务 id",
-                "continuation_id": "cont:continuation id",
+                "work_ref": "当前可恢复工作的 work_ref",
+                "resume_ref": "当前可恢复上下文的 resume_ref",
             },
         },
         "minimal_valid_request_task_run_example": {
-            "authority": "harness.loop.model_action_request",
             "action_type": "request_task_run",
             "public_progress_note": "这项工作需要跨 turn 保存目标、计划、证据和验收状态，我会申请进入持续任务生命周期。",
             "public_action_state": {
@@ -3077,7 +3067,6 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                     "supporting_mode_refs": ["work-mode:todo:supporting"],
                     "mode_transition_policy": {
                         "agent_may_propose_transition": True,
-                        "system_may_infer_transition": False,
                         "requires_accepted_event": True,
                     },
                 },
@@ -3153,7 +3142,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                 "minimum_viable_next_step": "进入任务后第一步要推进的可执行动作，必填",
                 "primary_work_mode_ref": "必须指向 work_modes 中唯一 mode_role=primary 的 mode_instance_id",
                 "supporting_mode_refs": ["可选；辅助 Work Mode 引用"],
-                "mode_transition_policy": {"agent_may_propose_transition": True, "system_may_infer_transition": False, "requires_accepted_event": True},
+                "mode_transition_policy": {"agent_may_propose_transition": True, "requires_accepted_event": True},
             },
             "work_modes": [
                 {
@@ -3212,15 +3201,15 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
     )
     pause_for_user_steer_available = "pause_for_user_steer" in allowed
     schema = {
-        "authority": "harness.loop.model_action_request",
+        "contract_name": "task_execution_action",
         "action_type": "|".join(allowed),
         "allowed_action_types": list(allowed),
-        "json_action_shape_rules": [
-            "提交一个可唯一识别的结构化动作；推荐使用一个顶层 JSON 对象，Markdown 代码块或简短说明只会作为传输包装被忽略。",
+        "action_shape_rules": [
+            "提交一个可唯一识别的本次行动；推荐使用一个顶层结构化对象，Markdown 代码块或简短说明只作为传输包装。",
             "respond 必须把用户可见最终回复写在顶层 final_answer；不要写 payload.final_answer、payload.content、action.final_answer 或 action.content。",
-            "ask_user 必须把用户要回答的问题写在顶层 user_question；不要使用 provider-native ask_user 工具调用。",
+            "ask_user 必须把用户要回答的问题写在顶层 user_question；不要把询问用户伪装成工具调用。",
             "block 必须把真实阻塞原因写在顶层 blocking_reason。",
-            "tool_call 使用顶层 tool_calls 或 tool_call；普通工具可以使用 provider-native tool_call。控制动作必须是单个结构化控制信号，可用 JSON action 或 provider-native canonical control signal；同一轮不要混入其它动作来源。",
+            "需要工具观察或执行时，action_type=tool_call，并使用顶层 tool_call 或 tool_calls，二选一：单个工具用 tool_call: {tool_name, args}；同一判断目标内需要一组工具时用 tool_calls: [{tool_name, args}]。工具名必须来自当前可用工具，args 必须是对象。",
             *(
                 [
                     "pause_for_user_steer 只能在本轮 allowed_action_types 明确包含它时使用；它不是工具，也不是缺权限、缺资源、预算耗尽或普通不确定性的兜底。",
@@ -3231,11 +3220,10 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
             ),
         ],
         "public_response_obligation": {
-            "authority": "model_semantic_response",
             "rule": "你必须回应用户当前输入本身。回应可以是直接回答、解释你的公开判断、说明需要查证哪个事实才能判断、指出当前不能回答的原因，或说明会把用户的新要求并入本轮处理范围。持续任务执行时，内部工具可以不可见，但工具动作不能替代对用户输入的回应。",
             "first_visible_response": [
                 "如果已经足以回答，使用 respond/final_answer。",
-                "如果需要查证后才能判断，使用 tool_call/tool_calls，同时在 public_progress_note 中说明要查证的公开事实和为什么它关系到用户问题；public_action_state.current_judgment 可以补充当前公开判断，但不能替代空白回应；不要写工具名、动作字段或隐藏推理。",
+                "如果需要查证后才能判断，使用 tool_call/tool_calls，同时在 public_progress_note 中说明要查证的公开事实和为什么它关系到用户问题；tool_calls[] 是同一判断目标内的一批工具请求，public_progress_note 只写这一批请求共同服务的公开判断目标，不逐工具列名；public_action_state.current_judgment 可以补充当前公开判断，但不能替代空白回应；不要写隐藏推理。",
                 "如果用户是在追问为什么、哪里卡住、是否正常、为什么没回应，必须先解释当前已知状态或你需要核对的状态对象；不要直接继续旧任务。",
                 "如果用户只是明确说继续、恢复、接着执行，并且没有提出新问题，才可以只承接执行。"
             ],
@@ -3246,14 +3234,16 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
                     "观察结果改变下一步计划、任务范围、验收状态、风险或是否需要用户确认。",
                     "观察结果完成了用户可见阶段，需要让用户知道结论或下一步。",
                     "观察结果推翻了你先前的公开判断或暴露出不确定性。",
+                    "一批 tool_calls[] 的观察共同形成了新的公开结论、风险、阻塞、验收状态或下一步判断。",
                     "你已经连续跨多个文件、多个工具批次或多轮观察推进，或者刚处理过失败恢复、写入、验证、范围切换或阶段结束，继续请求工具前需要给用户一个阶段反馈。"
                 ],
                 "may_keep_internal_when": [
                     "观察只是短链路的低层文件读取、搜索、目录枚举或格式检查，且没有改变公开判断、风险、计划或用户问题的答案。",
+                    "一批 tool_calls[] 只是为同一个后续判断收集材料，单条观察没有独立用户价值，且批次尚未形成新的公开结论。",
                     "观察只是为后续工具调用准备上下文，单独展示不会帮助用户理解进展。",
                     "结构化工具槽已经足以表达动作状态，而没有新的语义结论。"
                 ],
-                "explanation_shape": "需要解释时，只说结论、依据的可见事实、影响和下一步；不要粘贴原始工具输出，不要暴露内部事件编号、动作字段、隐藏推理或无关路径。不要求每个低层工具都单独反馈，但不允许长时间任务只剩工具列表而没有你的阶段判断。"
+                "explanation_shape": "需要解释时，只说结论、依据的可见事实、影响和下一步；批量工具结果按共同语义目标汇总，不按工具条数逐项播报；不要粘贴原始工具输出，不要暴露内部事件编号、动作字段、隐藏推理或无关路径。不要求每个低层工具都单独反馈，但不允许长时间任务只剩工具列表而没有你的阶段判断。"
             },
             "non_response_examples": [
                 "只输出 tool_call 或 block，没有解释用户当前问题。",
@@ -3261,7 +3251,7 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
                 "把工具名、动作字段或执行步骤列表当成给用户的回答。"
             ]
         },
-        "public_progress_note": "一句用户可理解的公开语义回应；用户输入或用户 steer 触发的 tool_call 必须填写，用于回应用户当前输入或说明为什么需要先查证。不要写工具名、动作字段、内部事件、隐藏推理或泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
+        "public_progress_note": "一句用户可理解的公开语义回应；用户输入或用户 steer 触发的 tool_call/tool_calls 必须填写，用于回应用户当前输入或说明为什么需要先查证。批量 tool_calls[] 只写这一批工具共同服务的公开判断目标，不逐工具列名。不要写内部事件、隐藏推理或泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
         "public_action_state": {
             "visible_status": "机器状态；thinking|waiting_for_tool|tool_returned|responding|blocked。不是用户可见正文；不要复制到 public_progress_note、current_judgment、next_action、final_answer 或 blocking_reason。",
             "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写本轮已经确定的事实或边界，不写隐藏推理。",
@@ -3273,13 +3263,14 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
         "final_answer": "",
         "user_question": "",
         "blocking_reason": "",
+        "tool_call": {"tool_name": "单工具调用时填写；批量时不要同时填写", "args": {}},
         "tool_calls": [
-            {"tool_name": "本轮可见工具名", "args": {"参数名": "参数值"}}
+            {"tool_name": "批量工具调用时填写；与 tool_call 二选一", "args": {"参数名": "参数值"}}
         ],
         **(
             {
                 "pause_for_user_steer_shape_rules": [
-                    "只有当 pending_user_steers 中存在指向当前 task_run 的未消费用户 steer，并且继续原步骤会越过用户最新意图时，才可以提交 action_type=pause_for_user_steer。",
+                    "只有当 pending_user_steers 中存在指向当前持续工作的未消费用户 steer，并且继续原步骤会越过用户最新意图时，才可以提交 action_type=pause_for_user_steer。",
                     "暂停只记录可恢复边界和用户 steer 事实；恢复后仍由你判断继续、改计划、询问用户、写工具或阻塞。",
                     "不得用 pause_for_user_steer 处理缺工具权限、缺文件、外部事实不足、工具失败、上下文预算耗尽、普通犹豫或系统安全边界。",
                     "提交该动作时不要把 steer 标记为 consumed；这条 steer 需要在恢复后的任务上下文中继续保持可见，直到你真正处理它。",
@@ -3292,7 +3283,6 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
                     "requires_user_input": "可选布尔值；只有确实需要用户补充回答时才为 true",
                 },
                 "minimal_valid_pause_for_user_steer_example": {
-                    "authority": "harness.loop.model_action_request",
                     "action_type": "pause_for_user_steer",
                     "public_progress_note": "用户刚刚补充了会影响当前任务方向的要求，我会先停在可继续状态，恢复后先处理这条补充要求。",
                     "public_action_state": {
@@ -3348,19 +3338,43 @@ def _current_work_boundary_receipt_model_visible_payload(receipt: dict[str, Any]
         return {}
     decision = dict(dict(payload.get("diagnostics") or {}).get("decision") or {})
     operations = current_work_operation_availability_from_receipt(payload)
-    return {
-        "receipt_id": str(payload.get("receipt_id") or ""),
-        "boundary_decision": str(payload.get("boundary_decision") or ""),
-        "observation_state": str(payload.get("observation_state") or ""),
-        "operation_availability": operations,
-        "active_work_ref": dict(payload.get("active_work_ref") or {}),
-        "read_only_context": not bool(operations.get("active_work_control") is True),
-        "state_reason": str(payload.get("state_reason") or ""),
-        "reason": str(decision.get("reason") or ""),
-        "relation_to_current_work": str(decision.get("relation_to_current_work") or ""),
-        "boundary_code": "runtime_state_observation_only",
-        "authority": "harness.runtime.current_work_boundary_receipt_projection",
-    }
+    boundary_decision = str(payload.get("boundary_decision") or "")
+    active_work_ref = dict(payload.get("active_work_ref") or {})
+    if boundary_decision in {"", "no_current_work"} and not bool(operations.get("active_work_control") is True):
+        active_work_ref = {}
+    return _drop_empty_payload(
+        {
+            "boundary_decision": boundary_decision,
+            "observation_state": str(payload.get("observation_state") or ""),
+            "operation_availability": operations,
+            "active_work": _active_work_ref_model_visible_payload(active_work_ref),
+            "read_only_context": not bool(operations.get("active_work_control") is True),
+            "state_reason": str(payload.get("state_reason") or ""),
+            "reason": str(decision.get("reason") or ""),
+            "relation_to_current_work": str(decision.get("relation_to_current_work") or ""),
+        }
+    )
+
+
+def _active_work_ref_model_visible_payload(value: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(value or {})
+    if not payload:
+        return {}
+    return _drop_empty_payload(
+        {
+            "work_ref": str(
+                payload.get("work_ref")
+                or payload.get("task_ref")
+                or payload.get("task_run_ref")
+                or payload.get("task_run_id")
+                or ""
+            ),
+            "state": str(payload.get("state") or payload.get("status") or ""),
+            "user_visible_goal": str(payload.get("user_visible_goal") or ""),
+            "latest_progress": str(payload.get("latest_progress") or ""),
+            "relation_to_current_request": str(payload.get("relation_to_current_request") or ""),
+        }
+    )
 
 
 def _continuation_record_model_visible_payload(record: dict[str, Any] | None) -> dict[str, Any]:
@@ -3369,8 +3383,8 @@ def _continuation_record_model_visible_payload(record: dict[str, Any] | None) ->
         return {}
     return _drop_empty_payload(
         {
-            "continuation_id": str(payload.get("continuation_id") or ""),
-            "task_run_id": str(payload.get("task_run_id") or ""),
+            "resume_ref": str(payload.get("continuation_id") or ""),
+            "work_ref": str(payload.get("task_run_id") or ""),
             "state": str(payload.get("state") or ""),
             "resume_allowed": bool(payload.get("resume_allowed") is True),
             "resume_strategy": str(payload.get("resume_strategy") or ""),
@@ -3388,7 +3402,7 @@ def _continuation_record_model_visible_payload(record: dict[str, Any] | None) ->
             "model_visible_summary": str(payload.get("model_visible_summary") or ""),
             "task_disconnection_info": _drop_empty_payload(
                 {
-                    "task_run_id": str(payload.get("task_run_id") or ""),
+                    "work_ref": str(payload.get("task_run_id") or ""),
                     "task_status": str(payload.get("task_status") or ""),
                     "executor_status": str(payload.get("executor_status") or ""),
                     "control_state": str(payload.get("control_state") or ""),
@@ -3398,13 +3412,11 @@ def _continuation_record_model_visible_payload(record: dict[str, Any] | None) ->
                 }
             ),
             "followup_contract": [
-                "保持同一会话上下文连续；不要因为 task_run 断开就丢失已确认的目标、约束、进度和证据。",
-                "task_disconnection_info 是运行事实，不是语义裁决。你需要判断是原 task_run 续跑、重新规划新任务、只说明状态，还是先补充证据。",
+                "保持同一会话上下文连续；不要因为持续工作断开就丢失已确认的目标、约束、进度和证据。",
+                "这里给出的是可恢复工作的事实状态，不是对用户意图的裁决。你需要判断是续跑、重新规划、说明状态，还是先补充证据。",
                 "只有 same_run_resume_action_allowed 为 true 时，才可以发起 resume_recoverable_work；否则应通过普通回答、请求新任务、或向用户说明限制来继续。",
             ],
             "read_only_context": True,
-            "boundary_code": "recoverable_task_record_observation_only",
-            "authority": "harness.runtime.continuation_record_projection",
         }
     )
 
@@ -3428,8 +3440,6 @@ def _interrupted_turn_work_model_visible_payload(
     visible_prefix_payload = _drop_empty_payload(
         {
             "content": visible_prefix,
-            "content_sha256": str(payload.get("visible_assistant_prefix_sha256") or ""),
-            "content_utf8_bytes": _safe_int(payload.get("visible_assistant_prefix_utf8_bytes")),
             "truncated_from_start": bool(payload.get("visible_assistant_prefix_truncated") is True),
             "continuation_rule": (
                 "Do not repeat this already visible assistant prefix. Continue from the next useful token, "
@@ -3441,9 +3451,7 @@ def _interrupted_turn_work_model_visible_payload(
     )
     return _drop_empty_payload(
         {
-            "continuation_id": str(payload.get("continuation_id") or ""),
-            "turn_run_id": str(payload.get("turn_run_id") or ""),
-            "turn_id": str(payload.get("turn_id") or ""),
+            "resume_ref": str(payload.get("continuation_id") or ""),
             "state": "interrupted_continuation_context",
             "continuation_allowed": True,
             "resume_allowed": False,
@@ -3473,8 +3481,6 @@ def _interrupted_turn_work_model_visible_payload(
             "allowed_followup_posture": "ordinary_turn_continuation",
             "forbidden_action": "resume_recoverable_work",
             "read_only_context": False,
-            "boundary_code": "interrupted_single_agent_turn_continuation_context",
-            "authority": "harness.runtime.interrupted_turn_work_projection",
         }
     )
 
@@ -3483,15 +3489,13 @@ def _agent_contract_feedback_model_visible_payload(value: Any) -> dict[str, Any]
     payload = dict(value or {}) if isinstance(value, dict) else {}
     if not payload:
         return {}
-    protocol = dict(payload.get("required_action_protocol") or {})
+    requirements = dict(payload.get("next_action_requirements") or payload.get("required_action_protocol") or {})
     failure = dict(payload.get("contract_failure") or {})
     structured_signal = dict(payload.get("structured_signal") or {})
+    feedback_contract = _feedback_contract_model_visible_payload(payload.get("feedback_contract"))
     specific_feedback = [
         _drop_empty_payload(
             {
-                "category": str(item.get("category") or ""),
-                "code": str(item.get("code") or ""),
-                "reason": str(item.get("reason") or ""),
                 "situation_feedback": _compact_text(item.get("situation_feedback"), limit=1200),
                 "repair_instruction": _compact_text(item.get("repair_instruction"), limit=1200),
                 "expected_next_action": _compact_text(item.get("expected_next_action"), limit=1200),
@@ -3502,36 +3506,32 @@ def _agent_contract_feedback_model_visible_payload(value: Any) -> dict[str, Any]
     ]
     return _drop_empty_payload(
         {
-            "signal_kind": str(payload.get("signal_kind") or ""),
-            "lifecycle": str(payload.get("lifecycle") or ""),
-            "contract_feedback_state": str(payload.get("contract_feedback_state") or ""),
+            "situation": "上一轮输出没有形成可执行、可发布的下一步动作。",
             "phase": str(payload.get("phase") or ""),
-            "reason": str(payload.get("reason") or ""),
-            "triggering_signal_kind": str(payload.get("triggering_signal_kind") or ""),
-            "visible_assistant_message_allowed": payload.get("visible_assistant_message_allowed"),
-            "tool_calls_allowed_after_signal": payload.get("tool_calls_allowed_after_signal"),
-            "agent_closeout_required": payload.get("agent_closeout_required"),
+            "visible_response_needed": True,
+            "tool_action_available": payload.get("tool_calls_allowed_after_signal"),
+            "feedback_contract": feedback_contract,
             "agent_feedback": _compact_text(payload.get("agent_feedback"), limit=3000),
-            "required_action_protocol": _drop_empty_payload(
+            "next_action_requirements": _drop_empty_payload(
                 {
-                    "authority": str(protocol.get("authority") or ""),
                     "allowed_action_types": [
                         str(item)
-                        for item in list(protocol.get("allowed_action_types") or [])
+                        for item in list(requirements.get("allowed_action_types") or [])
                         if str(item or "").strip()
                     ],
-                    "tool_call_allowed": protocol.get("tool_call_allowed"),
-                    "structured_action_required": protocol.get("structured_action_required"),
-                    "text_transport_accepts_single_unambiguous_json_action": protocol.get("text_transport_accepts_single_unambiguous_json_action"),
-                    "visible_user_body_allowed_only_from_agent_action": protocol.get("visible_user_body_allowed_only_from_agent_action"),
+                    "tool_call_allowed": requirements.get("tool_call_allowed"),
+                    "one_action_only": requirements.get("one_action_only") if "one_action_only" in requirements else requirements.get("structured_action_required"),
+                    "visible_response_fields": [
+                        str(item)
+                        for item in list(requirements.get("visible_response_fields") or ["final_answer", "user_question", "blocking_reason"])
+                        if str(item or "").strip()
+                    ],
                 }
             ),
             "contract_failure": _drop_empty_payload(
                 {
-                    "kind": str(failure.get("kind") or ""),
                     "closeout_attempts": failure.get("closeout_attempts"),
                     "phase": str(failure.get("phase") or ""),
-                    "reason": str(failure.get("reason") or ""),
                     "facts": dict(failure.get("facts") or {}),
                     "specific_feedback": specific_feedback,
                 }
@@ -3539,12 +3539,36 @@ def _agent_contract_feedback_model_visible_payload(value: Any) -> dict[str, Any]
             "observed_facts": dict(payload.get("observed_facts") or {}),
             "structured_signal": _drop_empty_payload(
                 {
-                    "code": str(structured_signal.get("code") or ""),
                     "message": _compact_text(structured_signal.get("message"), limit=3000),
                     "retryable": structured_signal.get("retryable"),
                 }
             ),
-            "authority": "harness.runtime.interrupted_turn_contract_feedback_projection",
+        }
+    )
+
+
+def _feedback_contract_model_visible_payload(value: Any) -> dict[str, Any]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    if not payload:
+        return {}
+    return _drop_empty_payload(
+        {
+            "source": str(payload.get("source") or ""),
+            "situation": _compact_text(payload.get("situation"), limit=400),
+            "your_task": _compact_text(payload.get("your_task"), limit=600),
+            "visible_response_needed": payload.get("visible_response_needed"),
+            "tool_action_available": payload.get("tool_action_available"),
+            "available_actions": [
+                str(item)
+                for item in list(payload.get("available_actions") or [])
+                if str(item or "").strip()
+            ],
+            "response_slots": [
+                str(item)
+                for item in list(payload.get("response_slots") or [])
+                if str(item or "").strip()
+            ],
+            "tool_result_feedback": _compact_text(payload.get("tool_result_feedback"), limit=600),
         }
     )
 
@@ -3556,16 +3580,13 @@ def _recovery_boundary_receipt_model_visible_payload(receipt: dict[str, Any] | N
     operations = recovery_operation_availability_from_receipt(payload)
     return _drop_empty_payload(
         {
-            "receipt_id": str(payload.get("receipt_id") or ""),
             "boundary_decision": str(payload.get("boundary_decision") or ""),
-            "continuation_ref": str(payload.get("continuation_ref") or ""),
-            "task_run_ref": str(payload.get("task_run_ref") or ""),
+            "resume_ref": str(payload.get("continuation_ref") or ""),
+            "work_ref": str(payload.get("task_run_ref") or ""),
             "operation_availability": operations,
             "resume_execution_route": str(payload.get("resume_execution_route") or ""),
             "read_only_context": not bool(operations.get("resume_recoverable_work") is True),
             "state_reason": str(payload.get("state_reason") or ""),
-            "boundary_code": "recovery_boundary_receipt",
-            "authority": "harness.runtime.recovery_boundary_receipt_projection",
         }
     )
 
@@ -3576,9 +3597,8 @@ def _recovery_packet_model_visible_payload(packet: dict[str, Any] | None) -> dic
         return {}
     return _drop_empty_payload(
         {
-            "packet_id": str(payload.get("packet_id") or ""),
-            "continuation_id": str(payload.get("continuation_id") or ""),
-            "task_run_id": str(payload.get("task_run_id") or ""),
+            "resume_ref": str(payload.get("continuation_id") or ""),
+            "work_ref": str(payload.get("task_run_id") or ""),
             "resume_intent": str(payload.get("resume_intent") or ""),
             "user_resume_instruction": _compact_text(payload.get("user_resume_instruction") or "", limit=4000),
             "user_visible_goal": str(payload.get("user_visible_goal") or ""),
@@ -3601,7 +3621,6 @@ def _recovery_packet_model_visible_payload(packet: dict[str, Any] | None) -> dic
                 if str(item or "").strip()
             ][:8],
             "model_instruction": str(payload.get("model_instruction") or ""),
-            "authority": "harness.runtime.recovery_packet_projection",
         }
     )
 
@@ -3614,6 +3633,9 @@ def _runtime_observations_model_visible_payload(value: Any) -> dict[str, Any]:
             continue
         payload = dict(raw)
         payload_payload = dict(payload.get("payload") or {})
+        feedback_contract = _feedback_contract_model_visible_payload(
+            payload.get("feedback_contract") or payload_payload.get("feedback_contract")
+        )
         envelope = dict(payload_payload.get("result_envelope") or {})
         structured = dict(payload_payload.get("structured_payload") or envelope.get("structured_payload") or {})
         structured_error = (
@@ -3634,6 +3656,7 @@ def _runtime_observations_model_visible_payload(value: Any) -> dict[str, Any]:
                     "summary": str(payload.get("summary") or payload_payload.get("error") or envelope.get("text") or ""),
                     "contract_errors": list(payload_payload.get("contract_errors") or []),
                     "repair_instruction": str(payload_payload.get("repair_instruction") or structured_error.get("repair_instruction") or ""),
+                    "feedback_contract": feedback_contract,
                     "structured_error": _drop_empty_payload(
                         {
                             "code": str(structured_error.get("code") or ""),
@@ -3646,7 +3669,6 @@ def _runtime_observations_model_visible_payload(value: Any) -> dict[str, Any]:
                         }
                     ),
                     "needs_model_followup": bool(payload.get("needs_model_followup") is True),
-                    "authority": str(payload.get("authority") or ""),
                 }
             )
         )
@@ -3655,7 +3677,6 @@ def _runtime_observations_model_visible_payload(value: Any) -> dict[str, Any]:
     return {
         "observations": observations,
         "boundary_code": "agent_addressed_runtime_observations",
-        "authority": "harness.runtime.runtime_observations_projection",
     }
 
 
@@ -3693,7 +3714,7 @@ def _single_agent_turn_output_contract(
         action_selection_rules.extend(
             [
                 "如果需要 Task 但入口理由、primary Work Mode、最小下一步、约束或验收模式不足以形成 task_run_contract_seed，必须选择 ask_user 补齐关键缺口。",
-                "request_task_run 是持续工作生命周期容器的启动合同，不是普通工具调用；工具执行发生在 Task 被接受并绑定 task_run_id 之后。",
+                "request_task_run 是持续工作生命周期容器的启动合同，不是普通工具调用；工具执行发生在持续工作身份被接受并绑定之后。",
                 "如果当前 turn 可以通过有限工具调用完成、验证并收口，应继续使用 respond 或普通 tool_call，但不能把公开反馈写成任务启动。",
             ]
         )
@@ -3702,55 +3723,45 @@ def _single_agent_turn_output_contract(
             "如果当前工作确实需要持续 Task 但本轮没有挂载 request_task_run，必须用可用动作公开说明持续任务生命周期未挂载或补齐缺口；不能假装已经进入持续任务。"
         )
     return {
-        "format": "assistant_message_or_action",
+        "format": "natural_response_or_structured_action",
         "allowed_actions": list(allowed_actions),
         "forbidden": list(dict.fromkeys(forbidden)),
         "action_selection_rules": action_selection_rules,
         "action_protocol": {
             "single_control_action_per_turn": True,
-            "json_action": {
+            "structured_action": {
                 "enabled": json_action_enabled,
                 "required": json_action_required,
-                "required_for": "explicit_control_phase_only" if json_action_required else "control_or_task_action_only",
-                "authority": "harness.loop.model_action_request",
+                "required_for": "explicit_action_phase" if json_action_required else "execution_or_task_action",
+                "action_identity_bound_by_runtime": True,
             },
             "assistant_messages": {
                 "enabled": bool(control_capabilities.get("may_emit_assistant_message") is not False),
-                "transport": "assistant_message",
+                "transport": "natural_response",
                 "terminal_when_no_action": True,
                 "raw_text_is_not_a_control_action": True,
             },
             "ordinary_tool_calls": {
                 "enabled": "tool_call" in allowed_actions,
-                "transport": "provider_native_tool_call_or_json_tool_call",
-                "native_tool_transport_enabled": "tool_call" in allowed_actions,
+                "transport": "tool_action_contract",
                 "multi_tool_calls_allowed": True,
-                "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
+                "runtime_execution_policy": "工具请求会按权限、资源锁、依赖关系和副作用风险安排执行",
                 "boundary": "runtime_visible_tools_only",
                 "denied_or_failed_tool_calls_return_observations": True,
             },
             "control_actions": {
                 "enabled": json_action_enabled,
-                "transport": "json_action",
+                "transport": "structured_action",
                 "allowed_action_types": [
                     item
                     for item in ("respond", "ask_user", "block", "request_task_run", "active_work_control", "pause_for_user_steer")
                     if item in allowed_actions
                 ],
                 "parallel_allowed": False,
-                "native_tool_transport_enabled": False,
-            },
-            "native_tool_calls": {
-                "enabled": "tool_call" in allowed_actions,
-                "provider_multi_tool_calls_allowed": "tool_call" in allowed_actions,
-                "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
-                "control_actions_exposed_as_native_tools": False,
-                "visible_tool_boundary": "ordinary tool calls use the RuntimeToolPlan model-visible tool surface for this invocation",
             },
             "transport_decision_table": {
                 "control_actions": {
-                    "transport": "json_action",
-                    "native_tool_transport_enabled": False,
+                    "transport": "structured_action",
                     "allowed_action_types": [
                         item
                         for item in (
@@ -3766,9 +3777,8 @@ def _single_agent_turn_output_contract(
                     ],
                 },
                 "ordinary_tool_calls": {
-                    "transport": "provider_native_tool_call_or_json_tool_call",
-                    "native_tool_transport_enabled": "tool_call" in allowed_actions,
-                    "json_tool_call_enabled": json_action_enabled and "tool_call" in allowed_actions,
+                    "transport": "tool_action_contract",
+                    "tool_action_object_enabled": json_action_enabled and "tool_call" in allowed_actions,
                     "multi_tool_calls_allowed": "tool_call" in allowed_actions,
                 },
                 "assistant_body": {
@@ -3779,10 +3789,11 @@ def _single_agent_turn_output_contract(
             },
             "public_feedback_contract": {
                 "feedback_must_be_model_authored": True,
-                "system_must_not_synthesize_user_semantic_text": True,
                 "feedback_must_match_action_type": True,
                 "task_lifecycle_claim_requires_request_task_run": "如果公开反馈宣称开启、申请、进入或创建持续任务生命周期，本轮动作必须是 request_task_run。",
-                "json_action_feedback_fields": [
+                "tool_call_feedback_granularity": "tool_call/tool_calls 的公开反馈由 agent 按语义目标书写；tool_calls[] 表示一个语义动作内的一批工具请求，public_progress_note 描述共同查证目标，不逐工具播报。",
+                "tool_observation_feedback_granularity": "工具观察返回后，agent 按观察是否改变公开结论、风险、阻塞、验收状态或下一步来决定反馈；批量结果按共同语义目标汇总，不按工具条数逐项输出。",
+                "structured_action_feedback_fields": [
                     "public_progress_note",
                     "public_action_state.current_judgment",
                     "final_answer",
@@ -3791,17 +3802,9 @@ def _single_agent_turn_output_contract(
                 ],
                 "tool_events_are_not_user_responses": True,
             },
-            "native_tool_feedback_contract": {
-                "assistant_content_preamble_is_public_feedback": True,
-                "projection_target": "assistant_public_feedback",
-                "missing_preamble_policy": "record_contract_gap_without_synthesizing_body",
-                "low_level_tool_calls_may_omit_feedback": True,
-                "stage_change_or_failure_should_emit_feedback": True,
-                "task_lifecycle_claim_with_native_tool_call": "invalid_repairable_protocol_shape",
-            },
         },
         "planning_protocol": dict(planning_protocol or {}),
-        "native_actions": {
+        "semantic_tool_actions": {
             "tool_call": {
                 "enabled": "tool_call" in allowed_actions,
                 "boundary": "runtime_visible_tools_only",
@@ -3825,21 +3828,21 @@ def _single_agent_turn_output_contract(
             "resume_recoverable_work": {
                 "enabled": "resume_recoverable_work" in allowed_actions,
                 "operation_availability_gate": (
-                    "Use resume_recoverable_work only when the current runtime control payload reports "
+                    "Use resume_recoverable_work only when Current Runtime Boundary reports "
                     "recoverable_work.resume_allowed=true and the latest user message asks to resume that recoverable task. "
                     "The action must include "
-                    "recovery_resume.task_run_id and recovery_resume.continuation_id from recoverable_work. If a "
+                    "recovery_resume.work_ref and recovery_resume.resume_ref from recoverable_work. If a "
                     "recovery_boundary_receipt is present, its operation_availability.resume_recoverable_work must be true. "
                     "Do not use this action for interrupted_turn_work, recent_work_outcome, terminal_read_only records, "
                     "or ordinary current-work control."
                 ),
-                "required_fields": ["recovery_resume.task_run_id", "recovery_resume.continuation_id"],
-                "runtime_revalidation": "harness.continuation.recovery_boundary revalidates the handles before scheduling execution.",
+                "required_fields": ["recovery_resume.work_ref", "recovery_resume.resume_ref"],
+                "runtime_revalidation": "恢复边界会在执行前重新校验这些句柄。",
             },
             "active_work_control": {
                 "enabled": "active_work_control" in allowed_actions,
                 "operation_availability_gate": (
-                    "Before choosing active_work_control, check the current runtime control payload field "
+                    "Before choosing active_work_control, check Current Runtime Boundary field "
                     "current_work_boundary_receipt.operation_availability.active_work_control. Use active_work_control "
                     "only when that value is true; if it is false or missing, treat active_work_context "
                     "as read-only state and choose respond, ask_user, block, request_task_run, or another legal action."
@@ -3935,7 +3938,6 @@ def _active_work_model_visible_payload(
                 if controls_enabled
                 else "current_work_boundary_receipt_active_work_control_unavailable"
             ),
-            "boundary_code": "active_turn_bound_work_fact",
         }
     )
     if not controls_enabled:
@@ -3950,22 +3952,13 @@ def _turn_input_facts_model_visible_payload(facts: dict[str, Any] | None) -> dic
     active_turn = dict(payload.get("active_turn") or {})
     return _drop_empty_payload(
         {
-            "session_id": str(payload.get("session_id") or ""),
-            "turn_id": str(payload.get("turn_id") or ""),
-            "expected_active_turn_id": str(payload.get("expected_active_turn_id") or ""),
             "active_turn_input_policy": str(payload.get("active_turn_input_policy") or ""),
-            "expected_task_run_id": str(payload.get("expected_task_run_id") or ""),
-            "expected_continuation_id": str(payload.get("expected_continuation_id") or ""),
             "recovery_input_policy": str(payload.get("recovery_input_policy") or ""),
             "active_turn_present": bool(active_turn),
-            "active_turn_id": str(active_turn.get("turn_id") or ""),
             "active_turn_state": str(active_turn.get("state") or ""),
-            "active_turn_bound_task_run_id": str(active_turn.get("bound_task_run_id") or ""),
             "active_work_candidate_present": bool(payload.get("active_work_candidate")),
             "recoverable_work_candidate_present": bool(payload.get("recoverable_work_candidate")),
             "recent_work_outcome_candidate_present": bool(payload.get("recent_work_outcome_candidate")),
-            "boundary_code": "observable_request_facts_only",
-            "authority": "harness.runtime.turn_input_facts.model_projection",
         }
     )
 
@@ -3977,6 +3970,29 @@ def _split_volatile_request_payload(payload: dict[str, Any] | None) -> tuple[dic
     current_request.pop("history", None)
     session_history = dict(history_payload)
     return _drop_empty_payload(session_history), _drop_empty_payload(current_request)
+
+
+def _current_turn_delta_model_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
+    current = dict(payload or {})
+    user_message = str(current.pop("user_message", "") or "")
+    current.pop("runtime_envelope", None)
+    current.pop("turn_id", None)
+    allowed_context_keys = (
+        "attachment_context_index",
+        "current_editor_evidence_delta",
+        "editor_context_index",
+        "observations",
+    )
+    return _drop_empty_payload(
+        {
+            "user_message": user_message,
+            **{
+                key: current.get(key)
+                for key in allowed_context_keys
+                if current.get(key) not in ("", None, [], {})
+            },
+        }
+    )
 
 
 def _extract_editor_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -4482,9 +4498,6 @@ def _session_history_tail_context_payload(clean_payload: dict[str, Any]) -> dict
     return _drop_empty_payload(
         {
             "recent_work_outcome": recent_work_outcome,
-            "authority": "harness.runtime.dynamic_context.history_projection.tail_context"
-            if recent_work_outcome
-            else "",
         }
     )
 
@@ -4499,9 +4512,6 @@ def _session_history_pinned_facts_context_payload(clean_payload: dict[str, Any])
     return _drop_empty_payload(
         {
             "pinned_facts": pinned_facts,
-            "authority": "harness.runtime.dynamic_context.history_projection.pinned_facts_context"
-            if pinned_facts
-            else "",
         }
     )
 
@@ -4679,7 +4689,64 @@ def _provider_protocol_after_compaction_boundary(
 
 
 def _provider_protocol_hot_messages(transcript: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [message for message in list(transcript or []) if _is_provider_protocol_hot_message(message)]
+    return _provider_protocol_closed_tool_round_messages(transcript)
+
+
+_CONTROL_PROTOCOL_TOOL_CALL_NAMES = {
+    "respond",
+    "ask_user",
+    "block",
+    "request_task_run",
+    "active_work_control",
+    "resume_recoverable_work",
+    "pause_for_user_steer",
+    "task_run_request",
+}
+
+
+def _provider_protocol_closed_tool_round_messages(transcript: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    messages = [dict(item) for item in list(transcript or []) if isinstance(item, dict)]
+    result: list[dict[str, Any]] = []
+    index = 0
+    while index < len(messages):
+        message = messages[index]
+        role = str(message.get("role") or "").strip()
+        if role != "assistant":
+            index += 1
+            continue
+        tool_call_ids = _assistant_tool_call_id_list(message)
+        if not tool_call_ids:
+            if _explicit_provider_text(message.get("reasoning_content")):
+                result.append(message)
+            index += 1
+            continue
+        if _assistant_has_control_protocol_tool_call(message):
+            index += 1
+            continue
+        expected = list(tool_call_ids)
+        if len(expected) != len(set(expected)):
+            index += 1
+            continue
+        tool_messages: list[dict[str, Any]] = []
+        found: set[str] = set()
+        cursor = index + 1
+        while cursor < len(messages):
+            candidate = messages[cursor]
+            if str(candidate.get("role") or "").strip() != "tool":
+                break
+            tool_call_id = str(candidate.get("tool_call_id") or "").strip()
+            if tool_call_id not in set(tool_call_ids) or tool_call_id in found:
+                break
+            tool_messages.append(candidate)
+            found.add(tool_call_id)
+            cursor += 1
+        if set(tool_call_ids).issubset(found):
+            result.append(message)
+            result.extend(tool_messages)
+            index = cursor
+            continue
+        index += 1
+    return result
 
 
 def _provider_protocol_created_ats(
@@ -4737,10 +4804,35 @@ def _explicit_provider_text(value: Any) -> str:
 
 
 def _assistant_tool_call_ids(message: dict[str, Any]) -> set[str]:
+    return set(_assistant_tool_call_id_list(message))
+
+
+def _assistant_tool_call_id_list(message: dict[str, Any]) -> list[str]:
     if str(message.get("role") or "") != "assistant":
-        return set()
+        return []
     tool_calls = list(message.get("tool_calls") or []) if isinstance(message.get("tool_calls"), list) else []
-    return {str(call.get("id") or "").strip() for call in tool_calls if isinstance(call, dict) and str(call.get("id") or "").strip()}
+    return [
+        str(call.get("id") or "").strip()
+        for call in tool_calls
+        if isinstance(call, dict) and str(call.get("id") or "").strip()
+    ]
+
+
+def _assistant_has_control_protocol_tool_call(message: dict[str, Any]) -> bool:
+    if str(message.get("role") or "") != "assistant":
+        return False
+    tool_calls = list(message.get("tool_calls") or []) if isinstance(message.get("tool_calls"), list) else []
+    return any(_is_control_protocol_tool_call_name(_provider_tool_call_name(call)) for call in tool_calls if isinstance(call, dict))
+
+
+def _provider_tool_call_name(call: dict[str, Any]) -> str:
+    payload = dict(call or {})
+    function = payload.get("function") if isinstance(payload.get("function"), dict) else {}
+    return str(payload.get("name") or function.get("name") or "").strip()
+
+
+def _is_control_protocol_tool_call_name(name: str) -> bool:
+    return str(name or "").strip().lower() in _CONTROL_PROTOCOL_TOOL_CALL_NAMES
 
 
 def _provider_protocol_messages_chars(messages: list[dict[str, Any]]) -> int:
@@ -5142,10 +5234,16 @@ def _current_user_context_append_metadata(payload: dict[str, Any] | None) -> dic
         "authority_class": "current_user_context",
         "content_source": "harness.runtime.compiler.current_turn_user_context",
         "runtime_fragment_role": "current_user_request",
-        "cache_impact": "context_append_then_sealed_prefix",
+        "context_cache_section": CONTEXT_APPEND,
+        "context_prefix_cache_scope": "none",
+        "context_prefix_cache_role": "volatile",
+        "context_prefix_tier": "volatile",
+        "context_commit_policy": "append_then_seal",
+        "context_replay_policy": "current_append_commit_on_provider_success_then_next_ledger_replay",
+        "cache_impact": "current_context_append_promotes_to_next_prefix",
         "stability_rule": (
-            "current user input is rememberable context for this turn; tool followups must keep it "
-            "inside the cacheable prefix while only current execution control stays in the dynamic tail"
+            "current user input is new provider-visible context for this turn; it can be sealed after "
+            "provider success, but the current request must not count it as an already cached prefix"
         ),
         "append_only_context_package": "current_user_context",
         "append_only_context_stream": "current_user_context",
@@ -5154,7 +5252,7 @@ def _current_user_context_append_metadata(payload: dict[str, Any] | None) -> dic
     }
 
 
-def _provider_visible_replay_only_runtime_tail_metadata(
+def _current_runtime_tail_metadata(
     metadata: dict[str, Any] | None,
     *,
     semantic_slot: str,
@@ -5164,52 +5262,101 @@ def _provider_visible_replay_only_runtime_tail_metadata(
     slot = str(semantic_slot or "runtime_delta_tail").strip() or "runtime_delta_tail"
     return {
         **payload,
-        "context_cache_section": CONTEXT_APPEND,
-        "fixed_context_package": "context_memory_append",
-        "context_prefix_cache_scope": "task",
-        "context_prefix_cache_role": "session_stable",
-        "context_prefix_tier": "task",
+        "context_cache_section": DYNAMIC_TAIL,
+        "fixed_context_package": "current_turn_tail",
+        "context_prefix_cache_scope": "none",
+        "context_prefix_cache_role": "volatile",
+        "context_prefix_tier": "volatile",
         "context_semantic_slot": slot,
-        "context_commit_policy": "append_then_seal",
-        "context_replay_policy": "current_append_commit_on_provider_success_then_next_ledger_replay",
-        "context_identity_policy": "content_addressed_when_unkeyed",
-        "semantic_commit_class": "provider_visible_replay_only_runtime_tail",
-        "provider_visible_replay_only": True,
+        "context_commit_policy": "never_commit",
+        "context_replay_policy": "current_dynamic_tail_only",
+        "context_identity_policy": "turn_scope_runtime_tail",
+        "semantic_commit_class": "current_runtime_control",
         "semantic_memory_visible": False,
         "semantic_memory_commit_policy": "never_commit",
         "validity_scope": str(validity_scope or ""),
-        "provider_visible_after_validity": "historical_only_provider_visible_replay",
-        "append_only_context_package": "runtime_control_tail",
-        "append_only_context_stream": slot,
-        "cache_impact": "current_append_then_historical_replay_prefix",
+        "provider_visible_after_validity": "not_replayed_after_current_request",
+        "cache_impact": "current_dynamic_tail_only",
         "stability_rule": (
-            "This runtime-control block is current only at its original append point. "
-            "After provider success it may be replayed byte-for-byte as historical context so the next request "
-            "inherits the previous physical prefix; the latest runtime-control block later in the message stream "
-            "is the only current control boundary."
+            "This runtime-control block is valid only for the current provider request. "
+            "It is not sealed into provider-visible history; stable conversation memory is carried by "
+            "the append-only user, tool, file-evidence, and memory context lanes."
         ),
-        "provider_visible_history_authority": "harness.runtime.compiler.provider_visible_replay_only_runtime_tail",
     }
 
 
 def _runtime_control_context_notice(*, validity_scope: str = "") -> str:
     validity = str(validity_scope or "current-provider-request").strip()
     return (
-        "你正在阅读一段运行控制上下文。它第一次出现时描述当时请求的行动边界、可用动作和运行状态；"
+        "你正在阅读一段运行边界上下文。它第一次出现时描述当时请求的执行环境能力、行动边界和运行状态；"
         "如果同一段内容在后续请求的历史前缀中再次出现，它只用于理解过去发生过什么，"
-        "不得作为本轮新的行动授权或限制。本轮以消息流后方最新的运行控制上下文为准。\n"
+        "不得作为本轮新的行动授权或限制。本轮以消息流后方最新的运行边界上下文为准。\n"
         f"这段上下文的有效期标识：{validity}。"
     )
 
 
-def _runtime_control_context_content(content: str, *, validity_scope: str = "") -> str:
-    body = str(content or "").strip()
+def _runtime_control_context_content(content: str, *, validity_scope: str = "", source_ref: str = "") -> str:
+    body = _context_fragment_text_body(content)
     if not body:
         return ""
-    return _join_prompt_sections(
+    text = _join_prompt_sections(
         _runtime_control_context_notice(validity_scope=validity_scope),
         body,
     )
+    return render_text_context_fragment(
+        kind="lifecycle_runtime_guidance",
+        title="当前运行生命周期边界",
+        text=text,
+        role="system",
+        source_ref=source_ref,
+        cache_scope="none",
+        cache_role="volatile",
+        prefix_tier="volatile",
+        compression_role="preserve",
+        validity_scope=validity_scope,
+    )
+
+
+def _active_skill_context_content(content: str, *, source_ref: str = "") -> str:
+    body = _context_fragment_text_body(content)
+    if not body:
+        return ""
+    return render_text_context_fragment(
+        kind="active_skills",
+        title="当前激活技能",
+        text=body,
+        role="system",
+        source_ref=source_ref,
+        cache_scope="none",
+        cache_role="volatile",
+        prefix_tier="volatile",
+        compression_role="preserve",
+    )
+
+
+def _context_fragment_text_body(content: str) -> str:
+    text = str(content or "").strip()
+    if not text:
+        return ""
+    if not text.startswith("<context_fragment"):
+        return text
+    fragments = parse_context_fragments(text)
+    if not fragments:
+        return text
+    values: list[str] = []
+    for fragment in fragments:
+        body = fragment.get("body")
+        if not isinstance(body, dict):
+            continue
+        if "text" in body:
+            value = str(body.get("text") or "").strip()
+        elif "payload" in body:
+            value = json.dumps(_json_stable(body.get("payload")), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        else:
+            value = ""
+        if value:
+            values.append(value)
+    return _join_prompt_sections(*values)
 
 
 def _optional_dynamic_context_segment_metadata(
@@ -5640,11 +5787,10 @@ def _user_steer_model_payload(value: dict[str, Any]) -> dict[str, Any]:
 def _file_evidence_policy_stable_payload() -> dict[str, Any]:
     return {
         "file_evidence_policy": {
-            "policy_id": "file_evidence_policy_stable.read_window_admission",
-            "read_file_admission": {
+            "read_evidence_reuse_contract": {
                 "covered_non_stale_window": (
                     "如果目标行范围已经被当前未过期 read_file 窗口覆盖，应复用该窗口或对应 observation_ref；"
-                    "工具控制面会把重复 read_file 转成当前证据复用观察。"
+                    "当你提交的 read_file 与未过期窗口完全重合时，执行层会返回当前工具观察，说明旧证据仍可使用。"
                 ),
                 "rehydrate_omitted_window": (
                     "当已有窗口内容被省略且确实需要精确字节时，优先使用 rehydration_ref 或 reusable_result_ref 恢复；"
@@ -5656,12 +5802,11 @@ def _file_evidence_policy_stable_payload() -> dict[str, Any]:
                     "未知位置才使用 search_files、glob_paths 或 search_text。"
                 ),
             },
-            "dynamic_fact_refs": [
-                "evidence_index_cursor",
-                "bound_task_runtime_context.rehydration_refs",
+            "current_evidence_sources": [
+                "当前文件证据窗口",
+                "可恢复的读取结果句柄",
+                "已绑定的编辑器或任务工作范围",
             ],
-            "enforcement": "runtime.tool_runtime.file_evidence_admission",
-            "authority": "harness.runtime.file_evidence_policy_stable",
         }
     }
 
@@ -6092,6 +6237,7 @@ def _agent_visible_runtime_projection(
     permission_mode: str = "default",
     prompt_policy: dict[str, Any] | None = None,
     tool_plan: Any | None = None,
+    tool_transport_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     prompt_policy_payload = dict(prompt_policy or {})
     task_lifecycle = dict(profile_payload.get("task_lifecycle_policy") or {})
@@ -6119,11 +6265,12 @@ def _agent_visible_runtime_projection(
         if str(item.get("tool_name") or item.get("name") or "")
     ]
     task_scoped_tool_routes = _task_scoped_tool_routes_from_tool_plan(tool_plan)
-    service_surface = _service_surface_payload(
+    tool_capability_surface = _tool_capability_surface_payload(
         invocation_kind=invocation_kind,
         allowed_action_types=allowed_action_types,
         available_tools=available_tools,
         tool_plan=tool_plan,
+        tool_transport_contract=tool_transport_contract,
     )
     visible_tool_name_set = {name for name in tool_names if name}
     subagent_lifecycle_enabled = bool(subagent.get("enabled") is True) and bool(
@@ -6138,7 +6285,7 @@ def _agent_visible_runtime_projection(
         )
     )
     task_run_allowed = "request_task_run" in allowed_action_types and task_lifecycle.get("request_task_run") is not False
-    model_decision_contract = _model_decision_contract_payload(
+    action_surface = _action_surface_payload(
         invocation_kind=invocation_kind,
         allowed_action_types=allowed_action_types,
         task_run_allowed=task_run_allowed,
@@ -6149,18 +6296,17 @@ def _agent_visible_runtime_projection(
         permission_mode=permission_mode,
     )
     payload = {
-        "authority": "harness.runtime.agent_visible_runtime_projection",
         "invocation_kind": str(invocation_kind or ""),
-        "model_decision_contract": model_decision_contract,
-        "service_surface": service_surface,
+        "action_surface": action_surface,
+        "tool_capability_surface": tool_capability_surface,
         "execution_boundary": execution_boundary,
         "allowed_action_types": list(allowed_action_types),
-        "task_lifecycle": {
+        "task_lifecycle_boundary": {
             "request_task_run_allowed": task_run_allowed,
             "requires_completion_evidence": bool(task_lifecycle.get("requires_completion_evidence") is True),
             "artifact_evidence_required": bool(task_lifecycle.get("artifact_evidence_required") is True),
         },
-        "planning": {
+        "planning_boundary": {
             **planning_protocol,
             "specified_plan_allowed": bool(planning.get("specified_plan_allowed") is True),
             "todo_required_when_task_run": bool(planning.get("todo_required_when_task_run") is True),
@@ -6175,7 +6321,7 @@ def _agent_visible_runtime_projection(
             "enabled": bool(step_summary.get("enabled") is True),
             "detail": str(step_summary.get("detail") or ""),
         },
-        "tool_boundary": {
+        "tool_capability_boundary": {
             "visible_tool_count": len(tool_names),
             "visible_tool_names": tool_names,
             "task_scoped_tool_routes": task_scoped_tool_routes,
@@ -6193,15 +6339,14 @@ def _agent_visible_runtime_projection(
     }
     if _prompt_policy_visible(prompt_policy_payload, "runtime_environment_boundary_visibility", default=True):
         payload["environment_boundary"] = {
-            "task_environment_id": str(environment_payload.get("environment_id") or ""),
-            "artifact_root": str(artifact_scope.artifact_root or storage.get("artifact_root") or ""),
-            "environment_storage_root": str(storage.get("environment_storage_root") or ""),
-            "boundary_authority": str(environment_boundary.get("authority") or ""),
+            "environment_contract_present": bool(environment_payload.get("environment_id") or environment_boundary),
+            "artifact_workspace_available": bool(artifact_scope.artifact_root or storage.get("artifact_root")),
+            "persistent_environment_storage_available": bool(storage.get("environment_storage_root")),
         }
     return payload
 
 
-def _model_decision_contract_payload(
+def _action_surface_payload(
     *,
     invocation_kind: str,
     allowed_action_types: tuple[str, ...],
@@ -6215,25 +6360,24 @@ def _model_decision_contract_payload(
     ]
     pause_for_user_steer_allowed = "pause_for_user_steer" in semantic_actions
     return {
-        "authority": "harness.runtime.model_decision_contract",
-        "prompt_authority": "runtime_action_contract",
+        "contract_name": "current_action_surface",
         "invocation_kind": str(invocation_kind or ""),
         "semantic_actions": semantic_actions,
         "control_actions": control_actions,
-        "assistant_response_transport": "assistant_message",
-        "ordinary_tool_transport": "provider_native_tool_call_or_json_tool_call",
-        "control_action_transport": "json_action",
-        "json_action_required_for": "control_or_task_action_only",
+        "assistant_response_transport": "natural_response_when_no_action",
+        "ordinary_tool_transport": "tool_capability_surface.tool_action_contract",
+        "control_action_transport": "structured_action",
+        "structured_action_required_for": "actions_that_change_execution_or_task_state",
         "assistant_text_allowed_when_no_action": True,
-        "required_transport": "assistant_message_or_tool_call_or_json_action",
-        "json_action_shape": {
-            "authority": "harness.loop.model_action_request",
+        "required_transport": "natural_response_or_structured_action",
+        "tool_action_contract_ref": "tool_capability_surface.tool_action_contract",
+        "structured_action_shape": {
             "single_unambiguous_action_required": True,
             "markdown_fence_allowed_when_single_action": True,
             "wrapper_text_allowed_when_single_action": True,
-            "respond_requires_top_level_final_answer": "action_type=respond 时，最终给用户看的自然回复必须写在顶层 final_answer；不要放入 payload.content、payload.final_answer 或 action.content。",
-            "ask_user_requires_top_level_user_question": "action_type=ask_user 时，用户要回答的问题必须写在顶层 user_question；不要通过 provider-native ask_user 工具调用表达。",
-            "block_requires_top_level_blocking_reason": "action_type=block 时，真实阻塞原因必须写在顶层 blocking_reason。",
+            "respond_text_field": "action_type=respond 时，最终给用户看的自然回复放在顶层 final_answer；如果你使用 response 表达同一含义，系统会按 final_answer 接收。",
+            "ask_user_question_field": "action_type=ask_user 时，用户要回答的问题放在顶层 user_question；如果你使用 question 表达同一含义，系统会按 user_question 接收。",
+            "block_reason_field": "action_type=block 时，真实阻塞原因放在顶层 blocking_reason；如果你使用 reason 表达同一含义，系统会按 blocking_reason 接收。",
             **(
                 {
                     "pause_for_user_steer_requires_top_level_pause_request": (
@@ -6285,8 +6429,8 @@ def _model_decision_contract_payload(
                 "如果你判断需要持续任务生命周期但入口理由、primary Work Mode、最小下一步、约束或验收模式不足，提交 ask_user 补齐。"
             ),
             "single_turn_tool_call_boundary": (
-                "普通 tool_call 是有效路径，仅当你判断当前 turn 能保住目标、证据、反馈和收口；"
-                "选择普通工具时，公开反馈不得宣称开启持续任务生命周期。"
+                "tool_call 是当前 turn 内的有效路径，用于你判断有限工具观察即可回答、验证或推进的问题；"
+                "选择工具动作时，公开反馈应说明本次查证目标，不得宣称开启持续任务生命周期。"
             ),
             "request_task_run_minimum_contract": [
                 "task_run_contract_seed.container_contract.entry_reason",
@@ -6306,45 +6450,115 @@ def _model_decision_contract_payload(
     }
 
 
-def _service_surface_payload(
+def _tool_capability_surface_payload(
     *,
     invocation_kind: str,
     allowed_action_types: tuple[str, ...],
     available_tools: tuple[dict[str, Any], ...],
     tool_plan: Any | None,
+    tool_transport_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    mounted_tools: list[dict[str, str]] = []
+    mounted_tools: list[dict[str, Any]] = []
     for tool in available_tools:
         payload = dict(tool or {})
         tool_name = str(payload.get("tool_name") or payload.get("name") or "").strip()
         if not tool_name:
             continue
-        mounted_tools.append(
-            {
-                "tool_name": tool_name,
-                "operation_id": str(payload.get("operation_id") or tool_name),
-                "owner_scope": str(payload.get("owner_scope") or "none"),
-            }
-        )
+        mounted_tool = _mounted_tool_action_entry(payload, tool_name=tool_name)
+        if mounted_tool:
+            mounted_tools.append(mounted_tool)
+    transport_contract = dict(tool_transport_contract or {})
+    action_expression = _semantic_tool_action_expression(
+        transport_contract.get("tool_action_expression") or "tool_action_object"
+    )
     return {
-        "authority": "harness.runtime.service_surface",
         "invocation_kind": str(invocation_kind or ""),
-        "tool_call_transport_available": "tool_call" in set(allowed_action_types or ()),
+        "tool_call_action_available": "tool_call" in set(allowed_action_types or ()),
+        "tool_action_expression": action_expression if "tool_call" in set(allowed_action_types or ()) else "unavailable",
+        "tool_action_contract": _tool_action_contract_payload(
+            tool_call_allowed="tool_call" in set(allowed_action_types or ()),
+            mounted_tools=mounted_tools,
+            submission_mode=action_expression,
+        ),
         "mounted_tools": mounted_tools,
         "unmounted_services": [
             {
                 "service": str(issue.get("tool_name") or issue.get("operation_id") or ""),
                 "tool_name": str(issue.get("tool_name") or ""),
-                "operation_id": str(issue.get("operation_id") or ""),
                 "category": _tool_filter_issue_category(issue),
                 "reason": str(issue.get("reason") or ""),
                 "source": str(issue.get("source") or ""),
                 "required_action": str(dict(issue.get("metadata") or {}).get("required_action") or ""),
             }
             for issue in _tool_filter_issues_from_tool_plan(tool_plan)
-            if str(issue.get("tool_name") or issue.get("operation_id") or "").strip()
+            if str(issue.get("tool_name") or "").strip()
         ],
     }
+
+
+def _mounted_tool_action_entry(payload: dict[str, Any], *, tool_name: str) -> dict[str, Any]:
+    return agent_visible_tool_contract_entry({**dict(payload or {}), "tool_name": tool_name})
+
+
+def _tool_action_contract_payload(
+    *,
+    tool_call_allowed: bool,
+    mounted_tools: list[dict[str, Any]],
+    submission_mode: str = "action_object",
+) -> dict[str, Any]:
+    tool_names = [str(item.get("tool_name") or "") for item in list(mounted_tools or []) if str(item.get("tool_name") or "")]
+    normalized_submission = _semantic_tool_action_expression(submission_mode)
+    selector_expression = normalized_submission == "tool_selector"
+    payload: dict[str, Any] = {
+        "allowed": bool(tool_call_allowed and tool_names),
+        "meaning": "当你判断需要读取、搜索、查证、执行或验证时，提出一个工具行动；工具结果返回后再继续判断或回答。",
+        "tool_action_method": "select_visible_tool" if selector_expression else "submit_tool_action_object",
+        "tool_name_rule": "tool_name 必须精确使用 mounted_tools 中的 tool_name。",
+        "args_rule": "args 必须是对象；只填写 mounted_tools.input_contract.accepted_args 中列出的业务参数。",
+        "public_judgment_rule": "你可以先表达简短公开判断；如果下一步是工具行动，把该判断放入当前工具行动合同提供的公开进展位置。",
+        "unexecuted_action_rule": "工具动作只有在返回工具观察后才算执行；未返回观察前，不要说已经搜索、读取、验证或完成。",
+        "single_action_rule": "只提交当前工具行动合同要求的那一种工具请求，不要额外写第二个工具动作。",
+    }
+    if selector_expression:
+        payload["tool_selector"] = {
+            "tool_name": "从 mounted_tools.tool_name 中选择一个可用工具名。",
+            "args": "填写该工具需要的业务参数；参数字段见 mounted_tools.input_contract.accepted_args。",
+            "public_progress_note": "可以先给用户一个简短公开判断，说明本次工具行动要查证或完成什么。",
+            "do_not_duplicate_tool_action": True,
+        }
+        return payload
+    payload["json_action_rule"] = "选择工具行动时，本轮回复必须是一个可解析 JSON 对象；公开判断写入 public_progress_note 或 public_action_state.current_judgment。"
+    payload["public_text_rule"] = "如果需要先说明依据或判断，把它写入 public_progress_note 或 public_action_state.current_judgment；不要把它写在 JSON 对象外。"
+    payload["single_tool_shape"] = {
+        "action_type": "tool_call",
+        "public_progress_note": "向用户说明本次要查证的公开事实或行动目标，不预测结果。",
+        "public_action_state": {
+            "current_judgment": "",
+            "next_action": "调用一个可见工具获取证据。",
+            "completion_status": "working",
+        },
+        "tool_call": {"tool_name": "必须来自 mounted_tools.tool_name", "args": "对象；填写该工具需要的参数"},
+    }
+    payload["batch_tool_shape"] = {
+        "action_type": "tool_call",
+        "public_progress_note": "说明这一批工具共同服务的同一个判断目标。",
+        "public_action_state": {
+            "current_judgment": "",
+            "next_action": "调用一组可见工具获取证据。",
+            "completion_status": "working",
+        },
+        "tool_calls": [{"tool_name": "必须来自 mounted_tools.tool_name", "args": "对象"}],
+    }
+    return payload
+
+
+def _semantic_tool_action_expression(value: Any) -> str:
+    normalized = str(value or "tool_action_object").strip().lower().replace("-", "_")
+    if normalized in {"tool_selector", "select_visible_tool"}:
+        return "tool_selector"
+    if normalized in {"unavailable", "disabled", "none", "off"}:
+        return "unavailable"
+    return "tool_action_object"
 
 
 def _execution_boundary_payload(
@@ -6355,13 +6569,11 @@ def _execution_boundary_payload(
 ) -> dict[str, Any]:
     permission = dict(profile_payload.get("permission_policy") or {})
     return {
-        "authority": "harness.runtime.execution_boundary",
-        "safety_authority": "runtime.tooling.supervisor",
         "permission_mode": str(permission_mode or "default"),
         "permission_scope": str(permission.get("permission_scope") or permission.get("scope") or ""),
         "allowed_operation_count": len(list(operation_authorization.get("allowed_operations") or [])),
         "approval_required_operation_count": len(list(operation_authorization.get("requires_approval_operations") or [])),
-        "operation_gate_stage": "deferred_to_tool_supervisor_for_real_execution_risk",
+        "operation_gate_stage": "concrete tool actions are rechecked at execution time for permission and side-effect risk",
     }
 
 
@@ -6404,25 +6616,30 @@ def _task_scoped_tool_routes_from_tool_plan(tool_plan: Any | None) -> list[dict[
 def _runtime_projection_instruction(projection: dict[str, Any], *, validity_scope: str = "") -> str:
     if not projection:
         return ""
+    action_surface = dict(projection.get("action_surface") or {})
     allowed_actions = [
         str(item)
-        for item in list(projection.get("allowed_action_types") or [])
+        for item in list(action_surface.get("semantic_actions") or projection.get("allowed_action_types") or [])
         if str(item)
     ]
-    service_surface = dict(projection.get("service_surface") or {})
-    tool_boundary = dict(projection.get("tool_boundary") or {})
+    tool_capability_surface = dict(projection.get("tool_capability_surface") or {})
+    tool_capability_boundary = dict(projection.get("tool_capability_boundary") or {})
     try:
-        visible_tool_count = int(tool_boundary.get("visible_tool_count") or 0)
+        visible_tool_count = int(tool_capability_boundary.get("visible_tool_count") or 0)
     except (TypeError, ValueError):
         visible_tool_count = 0
-    native_tool_available = bool(service_surface.get("tool_call_transport_available") is True) and bool(
-        visible_tool_count > 0
-    )
-    allowed_text = "、".join(allowed_actions) if allowed_actions else "见 payload.allowed_action_types"
-    transport_ref = "native_tool_preamble" if native_tool_available else "json_action"
+    tool_action_available = bool(tool_capability_surface.get("tool_call_action_available") is True) and bool(visible_tool_count > 0)
+    allowed_text = "、".join(allowed_actions) if allowed_actions else "见本轮运行边界中的 allowed_action_types"
+    action_expression = _semantic_tool_action_expression(tool_capability_surface.get("tool_action_expression") or "tool_action_object")
+    if tool_action_available and action_expression == "tool_selector":
+        tool_text = "工具动作可用：从当前可用工具中选择工具名并填写参数；不要再额外提交工具行动对象。"
+    elif tool_action_available:
+        tool_text = "工具动作可用：单个工具填 tool_call；同一判断目标内的一组工具填 tool_calls[]。"
+    else:
+        tool_text = "本轮未开放工具动作。"
     return _join_prompt_sections(
         _runtime_control_context_notice(validity_scope=validity_scope),
-        f"本轮行动边界：可选动作={allowed_text}；动作规则=action_schema_static；传输方式={transport_ref}；本段只说明当前轮边界。",
+        f"本轮运行边界：可用动作={allowed_text}；{tool_text}系统只提供边界、执行动作和返回观察；下一步语义判断由你完成。",
     )
 
 
@@ -6466,21 +6683,13 @@ def _environment_model_visible_payload(
         if isinstance(item, dict) and str(item.get("prompt_id") or "").strip()
     )
     model_payload = {
-        "environment_id": str(payload.get("environment_id") or payload.get("task_environment_id") or ""),
         "title": str(payload.get("title") or ""),
         "environment_kind": str(payload.get("environment_kind") or ""),
         "storage": _drop_empty_payload(
             {
-                **(
-                    {
-                        "environment_storage_root": str(storage.get("environment_storage_root") or ""),
-                        "artifact_root": str(storage.get("artifact_root") or ""),
-                        "cache_root": str(storage.get("cache_root") or ""),
-                    }
-                    if include_runtime_storage_roots
-                    else {}
-                ),
-                "storage_namespace": str(storage.get("storage_namespace") or ""),
+                "artifact_workspace_available": bool(storage.get("artifact_root")),
+                "persistent_storage_available": bool(storage.get("environment_storage_root")),
+                "cache_available": bool(storage.get("cache_root")),
             }
         ),
         "resource_boundary": _drop_empty_payload(
@@ -6495,8 +6704,6 @@ def _environment_model_visible_payload(
         ),
         "prompt_mount_summary": _drop_empty_payload(
             {
-                "base_environment_id": mount_plan.base_environment_id,
-                "selected_environment_id": mount_plan.selected_environment_id,
                 "environment_prompt_count": len(prompt_refs),
                 "base_prompt_count": len(mount_plan.base_prompt_refs),
                 "overlay_prompt_count": len(mount_plan.overlay_prompt_refs),
@@ -6506,14 +6713,12 @@ def _environment_model_visible_payload(
         ),
         "boundary_contract": _drop_empty_payload(
             {
-                "tool_authority": str(boundary_contract.get("tool_authority") or ""),
-                "file_boundary_authority": str(boundary_contract.get("file_boundary_authority") or ""),
                 "environment_prompts_source": str(boundary_contract.get("environment_prompts_source") or ""),
                 "environment_prompt_role": str(boundary_contract.get("environment_prompt_role") or ""),
             }
         ),
-        "authority": "task_system.environment.model_visible_projection",
     }
+    _ = include_runtime_storage_roots
     return _drop_empty_payload(model_payload)
 
 
@@ -6544,6 +6749,7 @@ def _memory_context_model_visible_payload(memory_context: Any) -> dict[str, Any]
     diagnostics = dict(memory_context.get("diagnostics") or {}) if isinstance(memory_context.get("diagnostics"), dict) else {}
     if not visible_sections and not status and not diagnostics:
         return {}
+    has_visible_records = bool(visible_sections) or bool(status.get("has_model_visible_records") is True)
     return _drop_empty_payload(
         {
             "model_visible_sections": visible_sections,
@@ -6552,16 +6758,18 @@ def _memory_context_model_visible_payload(memory_context: Any) -> dict[str, Any]
                 for item in list(memory_context.get("selected_sections") or visible_sections.keys())
                 if str(item)
             ],
-            "memory_runtime_view_ref": str(memory_context.get("memory_runtime_view_ref") or ""),
-            "context_package_ref": str(memory_context.get("context_package_ref") or ""),
-            "memory_context_status": status,
-            "read_namespaces": list(diagnostics.get("read_namespaces") or ()),
-            "requested_memory_layers": list(diagnostics.get("requested_memory_layers") or ()),
-            "context_candidate_count": int(diagnostics.get("context_candidate_count") or 0),
-            "state_candidate_count": int(diagnostics.get("state_candidate_count") or 0),
-            "long_term_candidate_count": int(diagnostics.get("long_term_candidate_count") or 0),
+            "memory_context_status": _drop_empty_payload(
+                {
+                    "status": "available" if has_visible_records else str(status.get("status") or "empty"),
+                    "has_visible_records": has_visible_records,
+                    "visible_section_count": len(visible_sections),
+                    "agent_use_contract": str(
+                        status.get("agent_use_contract")
+                        or "Use listed memory records when present; if none are listed, do not infer facts from memory."
+                    ),
+                }
+            ),
             "requires_verification_before_use": True,
-            "authority": str(memory_context.get("authority") or "memory_system.runtime_memory_context"),
         }
     )
 
@@ -6579,7 +6787,6 @@ def _runtime_memory_context_source_ref(payload: dict[str, Any] | None) -> str:
 
 
 _RUNTIME_BASELINE_REF_KEYS = (
-    "runtime_baseline_hash",
     "agent_profile_ref",
     "task_environment_ref",
 )
@@ -6595,17 +6802,21 @@ def _runtime_baseline_refs_model_visible_payload(dynamic_context: DynamicContext
     if not baseline_refs:
         return {}
     return {
-        "runtime_baseline_refs": {
-            **baseline_refs,
-            "contract": "stable runtime profile/environment refs only; per-invocation runtime cursor is in dynamic_projection",
-            "authority": "harness.runtime.dynamic_context.runtime_baseline_refs",
+        "context_continuity": {
+            "stable_agent_role_present": bool(baseline_refs.get("agent_profile_ref")),
+            "stable_environment_contract_present": bool(baseline_refs.get("task_environment_ref")),
+            "current_runtime_boundary": "Per-invocation action and execution facts are provided later in the current runtime boundary.",
         }
     }
 
 
 def _runtime_baseline_refs_source_ref(payload: dict[str, Any] | None) -> str:
     refs = dict(dict(payload or {}).get("runtime_baseline_refs") or {})
-    value = str(refs.get("runtime_baseline_hash") or "").strip()
+    value = "|".join(
+        str(refs.get(key) or "").strip()
+        for key in ("agent_profile_ref", "task_environment_ref")
+        if str(refs.get(key) or "").strip()
+    )
     if value:
         return "runtime_baseline_refs:" + _short_hash(value)
     return "runtime_baseline_refs"
@@ -6712,7 +6923,6 @@ def _capability_directory_model_visible_payload(assembly_payload: dict[str, Any]
                 "candidate_tools": [
                     {
                         "tool_name": str(tool.get("tool_name") or "").strip(),
-                        "operation_id": str(tool.get("operation_id") or "").strip(),
                         "read_only": bool(tool.get("read_only") is True),
                     }
                     for tool in list(item.get("candidate_tools") or [])

@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 from core.project_layout import ProjectLayout
-from prompt_library import ENVIRONMENT_LIFECYCLE_PROMPT_DEFAULTS_BY_ENVIRONMENT
 from prompt_library.migrations import migrate_runtime_profile_prompt_metadata
 
 from ..registry.agent_registry import AgentRegistry
@@ -81,11 +80,10 @@ def _runtime_profile(**payload: Any) -> AgentRuntimeProfile:
 
 
 def _main_agent_runtime_policy(environment_id: str) -> dict[str, Any]:
-    lifecycle_defaults = dict(ENVIRONMENT_LIFECYCLE_PROMPT_DEFAULTS_BY_ENVIRONMENT.get(environment_id) or {})
     return {
+        "default_task_environment_id": environment_id,
         "prompt_policy": {
-            "lifecycle_prompt_defaults": lifecycle_defaults,
-            "lifecycle_prompt_authority": "agent_runtime_profile",
+            "lifecycle_prompt_authority": "selected_environment",
         }
     }
 

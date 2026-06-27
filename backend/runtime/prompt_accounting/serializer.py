@@ -94,12 +94,12 @@ class CanonicalPromptSerializer:
             tool_schema_prefix_component = bool(message_prefix_eligible_component and message_transport_prefix_open)
             segments.append(
                 PromptSegment(
-                    segment_id=_segment_id(request_id, ordinal, str(tool_schema_profile.get("kind") or "tool_schema_catalog"), segment_payload),
+                    segment_id=_segment_id(request_id, ordinal, str(tool_schema_profile.get("kind") or "native_tool_binding_schema"), segment_payload),
                     request_id=request_id,
                     run_id=canonical_run_id,
                     task_run_id=str(task_run_id or ""),
                     session_id=str(session_id or ""),
-                    kind=str(tool_schema_profile.get("kind") or "tool_schema_catalog"),
+                    kind=str(tool_schema_profile.get("kind") or "native_tool_binding_schema"),
                     ordinal=ordinal,
                     role="tool_schema",
                     content_hash=stable_text_hash(segment_payload),
@@ -457,9 +457,9 @@ def _unmanifested_tool_schema_profile(
             "provider_payload_transport_location": "tools",
             "provider_payload_sidecar_component": True,
             "provider_payload_prefix_component": False,
-            "transport_contract_component": True,
-            "transport_contract_role": "stable_provider_tool_schema_missing_manifest",
-            "transport_sidecar_role": "native_tool_binding_schema",
+            "transport_contract_component": False,
+            "transport_contract_role": "current_turn_tool_binding_sidecar_missing_manifest",
+            "transport_sidecar_role": "current_turn_tool_binding_sidecar",
             "sidecar_drift_status": "missing_manifest",
             "message_prefix_cacheable": False,
         },

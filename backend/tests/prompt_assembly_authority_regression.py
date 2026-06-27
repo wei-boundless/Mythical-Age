@@ -87,8 +87,8 @@ def test_prompt_assembly_reorders_stable_segment_before_dynamic_tail() -> None:
                 cache_role="volatile",
             ),
             _spec(
-                kind="tool_schema_catalog",
-                content="Tool schema catalog\n{\"tools\":[{\"name\":\"read_file\"}]}",
+                kind="tool_index_stable",
+                content="Tool Capability Surface\n{\"available_tools\":[{\"tool_name\":\"read_file\"}]}",
                 cache_scope="task",
                 cache_role="session_stable",
             ),
@@ -106,7 +106,7 @@ def test_prompt_assembly_reorders_stable_segment_before_dynamic_tail() -> None:
 
     assert [spec["kind"] for spec in materialized.message_specs] == [
         "global_static",
-        "tool_schema_catalog",
+        "tool_index_stable",
         "volatile_task_state",
     ]
     assert assembly_plan.diagnostics["segment_prefix_violations"] == []
@@ -255,16 +255,16 @@ def test_task_runtime_boundary_uses_protocol_refs_not_repeated_rule_text() -> No
         },
     )
 
-    runtime_boundary = _payload_with_title(result.packet, "Task execution runtime boundary")
+    runtime_boundary = _payload_with_title(result.packet, "Current Runtime Boundary")
     runtime_context = runtime_boundary["runtime_context"]
-    model_contract = runtime_context["model_decision_contract"]
-    service_surface = runtime_context["service_surface"]
+    action_surface = runtime_context["action_surface"]
+    tool_capability_surface = runtime_context["tool_capability_surface"]
     serialized = __import__("json").dumps(runtime_boundary, ensure_ascii=False)
 
-    assert model_contract["protocol_ref"] == "action_schema_static"
-    assert model_contract["action_contract_ref"] == "action_schema_static.action_type"
-    assert model_contract["json_action_contract_ref"] == "action_schema_static.json_action_shape_rules"
-    assert service_surface["mounted_tools_ref"] == "tool_index_stable.available_tools"
+    assert action_surface["protocol_ref"] == "action_schema_static"
+    assert action_surface["action_contract_ref"] == "action_schema_static.action_type"
+    assert action_surface["json_action_contract_ref"] == "action_schema_static.json_action_shape_rules"
+    assert tool_capability_surface["available_tools_ref"] == "tool_index_stable.available_tools"
     assert "authorization_hash" not in serialized
     assert "task_environment_id" not in serialized
     assert "task_entry_conditions" not in serialized

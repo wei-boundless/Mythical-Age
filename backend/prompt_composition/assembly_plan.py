@@ -224,8 +224,6 @@ def _slot_from_source(source: PromptSource, *, provider_profile: dict[str, Any])
         "assembly_decided_by": "prompt_composition.assembly_plan",
         **context_segment_policy_metadata(policy),
     }
-    if source.kind == "tool_schema_catalog":
-        metadata.setdefault("provider_tool_schema_cache_profile", dict(provider_profile or {}))
     return PromptAssemblySlot(
         slot_id=slot_id,
         source_id=source.source_id,
@@ -262,7 +260,7 @@ def _layer_for_source(source: PromptSource, *, cache_role: str, prefix_tier: str
     source_kind = str(source.source_kind or "")
     if prefix_tier == "provider_global" or cache_role == "cacheable_prefix":
         return "provider_global_stable"
-    if kind in {"action_schema_static", "tool_schema_catalog", "tool_index_stable"} or source_kind in {
+    if kind in {"action_schema_static", "tool_index_stable"} or source_kind in {
         "runtime_action_schema",
         "tool_catalog",
     }:

@@ -233,6 +233,6 @@ def allows_assistant_body_projection(
         return False
     if persist_policy in {"persist_debug_only", "do_not_persist"}:
         return False
-    if canonical_state in {"progress_only", "missing_answer"}:
+    if canonical_state == "missing_answer":
         return False
     return True

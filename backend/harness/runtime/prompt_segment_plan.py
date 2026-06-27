@@ -5,6 +5,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+from prompt_composition.context_envelope import parse_context_fragment_payload
 from runtime.prompt_accounting.serializer import canonical_json, normalize_messages
 
 
@@ -277,6 +278,9 @@ def _parse_segment_payload(content: str) -> Any | None:
     text = str(content or "").strip()
     if not text:
         return None
+    envelope_payload = parse_context_fragment_payload(text)
+    if envelope_payload is not None:
+        return envelope_payload
     candidates = [text]
     if "\n" in text:
         candidates.append(text.split("\n", 1)[1].strip())

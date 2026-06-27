@@ -299,10 +299,6 @@ def _resource_rejection_reason(resource: dict[str, Any], *, request: dict[str, A
     allowed_invocation_kinds = {str(item) for item in list(resource.get("allowed_invocation_kinds") or []) if str(item)}
     if allowed_invocation_kinds and invocation_kind not in allowed_invocation_kinds:
         return "resource_invocation_kind_mismatch"
-    agent_ref = str(request.get("agent_profile_ref") or "")
-    allowed_agent_refs = {str(item) for item in list(resource.get("allowed_agent_refs") or []) if str(item)}
-    if allowed_agent_refs and agent_ref and agent_ref not in allowed_agent_refs:
-        return "resource_agent_ref_mismatch"
     environment_ref = str(request.get("task_environment_ref") or "")
     allowed_environment_refs = {str(item) for item in list(resource.get("allowed_environment_refs") or []) if str(item)}
     if allowed_environment_refs and environment_ref and environment_ref not in allowed_environment_refs:
@@ -311,10 +307,6 @@ def _resource_rejection_reason(resource: dict[str, Any], *, request: dict[str, A
 
 
 def _pack_rejection_reason(pack: dict[str, Any], *, request: dict[str, Any]) -> str:
-    agent_ref = str(request.get("agent_profile_ref") or "")
-    allowed_agent_refs = {str(item) for item in list(pack.get("allowed_agent_refs") or []) if str(item)}
-    if allowed_agent_refs and agent_ref and agent_ref not in allowed_agent_refs:
-        return "pack_agent_ref_mismatch"
     environment_ref = str(request.get("task_environment_ref") or "")
     allowed_environment_refs = {str(item) for item in list(pack.get("allowed_environment_refs") or []) if str(item)}
     if allowed_environment_refs and environment_ref and environment_ref not in allowed_environment_refs:
