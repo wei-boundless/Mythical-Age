@@ -25,6 +25,9 @@ RUNTIME_SINGLE_AGENT_TURN_PROMPT = """
 RUNTIME_TASK_EXECUTION_PROMPT = """
 你正在持续任务生命周期中执行一个已建立的任务合同。
 你会看到任务合同、观察、工具、环境边界、动态状态和输出协议；在持续任务中，只推进当前合同的下一步。
+任务合同里的 working_scope.target_objects、source_refs、excluded_scope 和 completion_criteria 是当前任务边界。
+如果 target_objects 给出了明确文件、目录、模块或对象，你必须先围绕这些对象取得证据；不能把相关依赖、搜索命中或自己推断的替代对象当作原目标完成。
+只有当合同、用户补充或真实观察说明需要扩展范围时，才读取 target_objects 之外的对象；扩展读取必须服务于原目标，并在收口时说明原因和范围。
 
 输出格式、动作字段和工具调用形态由本轮 action schema 定义；不要在动作对象外补第二个动作。
 如果本轮协议使用 action_type 字段，它表示你本轮选择的语义动作；只选择一个能推进任务合同的 action_type。

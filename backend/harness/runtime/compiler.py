@@ -1421,6 +1421,11 @@ class RuntimeCompiler:
         )
         read_evidence_payload = packet_context.read_evidence_payload
         read_evidence_prompt_payload = _read_evidence_prompt_payload(read_evidence_payload)
+        current_task_attention_index_payload = _current_task_attention_index_payload(
+            task_contract_payload=task_contract_payload,
+            task_mode_tail_context_payload=task_mode_tail_context_payload,
+            task_state_payload=task_state_payload,
+        )
         incremental_context_frame_payload = build_task_execution_incremental_context_frame_payload(
             task_run_id=task_run_id,
             invocation_index=invocation_index,
@@ -1859,6 +1864,32 @@ class RuntimeCompiler:
                         "content_source": "harness.runtime.incremental_context_cursor",
                     },
                 ),
+                _runtime_payload_spec(
+                    role="system",
+                    title="Current Task Attention Index",
+                    payload=current_task_attention_index_payload,
+                    kind="current_task_attention_index",
+                    visible_kind="current_task_attention_index",
+                    source_ref=f"current_task_attention_index:{task_contract_manifest.source_ref}",
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="preserve",
+                    metadata=_current_runtime_tail_metadata(
+                        {
+                            "authority_class": "current_task_attention_index",
+                            "runtime_fragment_role": "current_task_anchor_index",
+                            "projection_strategy": "tail_attention_index_for_current_task",
+                            "content_source": "harness.runtime.task_contract_manifest_and_task_mode_tail_context",
+                            "volatility_reason": "current todo cursor and active execution focus may change each invocation",
+                            "cache_impact": "volatile_suffix_only",
+                            "stability_rule": "This index repeats current anchors for attention only; full authority remains in TaskRunContract, task mode tail context, runtime boundary, and tool observations.",
+                        },
+                        semantic_slot="current_task_attention_index",
+                        validity_scope=f"{task_run_id}:{invocation_index}",
+                    ),
+                )
+                if current_task_attention_index_payload
+                else None,
                 _runtime_payload_spec(
                     role="user",
                     title="User steering context for this task",

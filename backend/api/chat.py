@@ -1103,6 +1103,7 @@ def _create_and_schedule_run(runtime: Any, request: HarnessRuntimeRequest) -> Ru
         scheduler="api.chat",
         invocation_kind="single_turn",
         primary=True,
+        turn_id=str(request_runtime_profile.get("precommitted_user_message_turn_id") or ""),
         on_done=lambda _scope, _handle: _schedule_queued_input_dispatch(
             runtime,
             request.session_id,
