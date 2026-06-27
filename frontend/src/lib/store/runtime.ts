@@ -1295,6 +1295,7 @@ export class WorkspaceRuntime {
           sessionId,
           prev,
           hydratedProjection.activeProjectionsByKey,
+          visibleMessages,
         );
         const next: StoreState = {
           ...prev,
@@ -1408,13 +1409,15 @@ export class WorkspaceRuntime {
         hydratedProjection.messages,
         prev.messages,
       );
+      const visibleMessages = this.messagesForSessionDetailsRefresh(sessionId, prev, refreshedMessages);
       return {
         ...prev,
-        messages: this.messagesForSessionDetailsRefresh(sessionId, prev, refreshedMessages),
+        messages: visibleMessages,
         activeProjectionsByKey: this.activeProjectionsForSessionDetailsRefresh(
           sessionId,
           prev,
           hydratedProjection.activeProjectionsByKey,
+          visibleMessages,
         ),
       };
     });
@@ -1473,13 +1476,26 @@ export class WorkspaceRuntime {
     sessionId: string,
     current: StoreState,
     refreshedActiveProjections: StoreState["activeProjectionsByKey"],
+    visibleMessages: Message[] = [],
   ) {
     if (
       current.currentSessionId === sessionId
       && current.activeStreamSessionIds.includes(sessionId)
       && current.messages.length > 0
     ) {
-      return this.mergeActiveStreamProjectionState(current.activeProjectionsByKey, refreshedActiveProjections);
+      return this.projectionStateForVisibleMessages(
+        this.mergeActiveStreamProjectionState(current.activeProjectionsByKey, refreshedActiveProjections),
+        visibleMessages,
+      );
+    }
+    if (
+      current.currentSessionId === sessionId
+      && current.messages.some((message) => message.role === "assistant" && this.messageHasRuntimeVolatileState(message))
+    ) {
+      return this.projectionStateForVisibleMessages(
+        this.mergeActiveStreamProjectionState(current.activeProjectionsByKey, refreshedActiveProjections),
+        visibleMessages,
+      );
     }
     return refreshedActiveProjections;
   }
@@ -1575,6 +1591,28 @@ export class WorkspaceRuntime {
     return next;
   }
 
+  private projectionStateForVisibleMessages(
+    projections: StoreState["activeProjectionsByKey"],
+    visibleMessages: Message[],
+  ) {
+    const visibleProjectionKeys = new Set(
+      visibleMessages
+        .map((message) => String(message.projectionKeyString ?? "").trim())
+        .filter(Boolean),
+    );
+    if (!visibleProjectionKeys.size) {
+      return {};
+    }
+    const next: StoreState["activeProjectionsByKey"] = {};
+    for (const key of visibleProjectionKeys) {
+      const projection = projections[key];
+      if (projection) {
+        next[key] = projection;
+      }
+    }
+    return next;
+  }
+
   private projectionStateIsNewer(
     candidate: StoreState["activeProjectionsByKey"][string],
     current: StoreState["activeProjectionsByKey"][string],
@@ -1622,11 +1660,30 @@ export class WorkspaceRuntime {
       return {
         ...message,
         runtimeProgress: this.mergeMessageRuntimeProgress(message.runtimeProgress, current.runtimeProgress ?? []),
+        projectionKeyString: message.projectionKeyString ?? current.projectionKeyString,
+        projectionView: message.projectionView ?? current.projectionView,
         closeoutSummary: message.closeoutSummary ?? current.closeoutSummary,
         runtimeLogRef: message.runtimeLogRef ?? current.runtimeLogRef,
         toolEventCount: message.toolEventCount ?? current.toolEventCount,
         content: message.content || current.content,
         stageStatus: message.stageStatus ?? current.stageStatus,
+        sourceIndex: message.sourceIndex ?? current.sourceIndex,
+        sourceTurnId: message.sourceTurnId || current.sourceTurnId,
+        sourceStreamRunId: message.sourceStreamRunId || current.sourceStreamRunId,
+        sourceRunId: message.sourceRunId || current.sourceRunId,
+        sourceTaskRunId: message.sourceTaskRunId || current.sourceTaskRunId,
+        sourceTurnRunId: message.sourceTurnRunId || current.sourceTurnRunId,
+        answerChannel: message.answerChannel ?? current.answerChannel,
+        answerSource: message.answerSource ?? current.answerSource,
+        answerCanonicalState: message.answerCanonicalState ?? current.answerCanonicalState,
+        answerPersistPolicy: message.answerPersistPolicy ?? current.answerPersistPolicy,
+        answerFinalizationPolicy: message.answerFinalizationPolicy ?? current.answerFinalizationPolicy,
+        answerFallbackReason: message.answerFallbackReason ?? current.answerFallbackReason,
+        answerSelectedChannel: message.answerSelectedChannel ?? current.answerSelectedChannel,
+        answerSelectedSource: message.answerSelectedSource ?? current.answerSelectedSource,
+        answerLeakFlags: message.answerLeakFlags ?? current.answerLeakFlags,
+        image: message.image ?? current.image ?? null,
+        attachments: message.attachments?.length ? message.attachments : current.attachments,
       };
     });
     const refreshedMessageIds = new Set(refreshedWithMergedProgress.map((message) => message.id));
@@ -1649,7 +1706,23 @@ export class WorkspaceRuntime {
     return Boolean(
       message.runtimeProgress?.length
       || message.projectionKeyString
+      || message.projectionView
+      || message.closeoutSummary
+      || message.runtimeLogRef
+      || message.toolEventCount
+      || message.stageStatus
+      || this.messageHasRecoverableTransientAssistantContent(message)
     );
+  }
+
+  private messageHasRecoverableTransientAssistantContent(message: Message) {
+    if (message.role !== "assistant") {
+      return false;
+    }
+    if (!String(message.content || "").trim() && !String(message.image?.src || "").trim()) {
+      return false;
+    }
+    return this.messageRuntimeTurnIds(message).size > 0 || this.messageRuntimeRunIds(message).size > 0;
   }
 
   private findCurrentRuntimeMessageForRefresh(message: Message, candidates: Message[]) {
@@ -6774,6 +6847,4 @@ function clientNow() {
   }
   return Date.now();
 }
-
-
 

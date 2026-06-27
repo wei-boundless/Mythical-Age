@@ -6967,6 +6967,290 @@ def _capability_directory_model_visible_payload(assembly_payload: dict[str, Any]
     )
 
 
+def _current_task_attention_index_payload(
+    *,
+    task_contract_payload: dict[str, Any],
+    task_mode_tail_context_payload: dict[str, Any],
+    task_state_payload: dict[str, Any],
+) -> dict[str, Any]:
+    contract_root = dict(dict(task_contract_payload or {}).get("task_run_contract") or {})
+    if not contract_root:
+        return {}
+    task_run_context = dict(contract_root.get("task_run_context") or {})
+    container_contract = dict(task_run_context.get("container_contract") or {})
+    goal_contract = _task_attention_mode_contract(contract_root, "goal_context")
+    plan_contract = _task_attention_mode_contract(contract_root, "plan_context")
+    todo_contract = _task_attention_mode_contract(contract_root, "todo_context")
+    working_scope = _task_attention_working_scope(
+        goal_contract.get("working_scope"),
+        plan_contract.get("working_scope"),
+        todo_contract.get("working_scope"),
+    )
+    target_objects = _attention_ref_list(working_scope.get("target_objects"), limit=24)
+    workspace_refs = _attention_string_list(working_scope.get("workspace_refs"), limit=16)
+    source_refs = _attention_string_list(working_scope.get("source_refs"), limit=16)
+    file_like_targets = [
+        str(item)
+        for item in target_objects
+        if isinstance(item, str) and _looks_like_project_path(item)
+    ]
+    acceptance = dict(contract_root.get("acceptance_contract") or task_run_context.get("acceptance_contract") or {})
+    plan_focus = _task_attention_plan_focus(plan_contract, task_mode_tail_context_payload)
+    todo_focus = _task_attention_todo_focus(todo_contract, task_mode_tail_context_payload, task_state_payload)
+    return _drop_empty_payload(
+        {
+            "current_task_attention_index": _drop_empty_payload(
+                {
+                    "authority": "harness.runtime.current_task_attention_index",
+                    "agent_use_contract": (
+                        "Before choosing the next action, re-anchor on this current task index. "
+                        "Use it as an attention guide; full authority remains in TaskRunContract, "
+                        "Task Mode Context, Current Runtime Boundary, and tool observations."
+                    ),
+                    "task_goal": _compact_text(
+                        goal_contract.get("task_run_goal")
+                        or goal_contract.get("user_visible_goal")
+                        or plan_contract.get("strategy_summary")
+                        or container_contract.get("entry_reason")
+                        or "",
+                        limit=500,
+                    ),
+                    "minimum_viable_next_step": _compact_text(container_contract.get("minimum_viable_next_step"), limit=500),
+                    "required_target_objects": target_objects,
+                    "target_object_rule": (
+                        "Use these exact required_target_objects first. Do not substitute related paths, docs, or inferred names. "
+                        "For file-like targets, verify/read the listed path directly before searching alternatives."
+                    )
+                    if target_objects
+                    else "",
+                    "preferred_first_tools_for_file_like_targets": ["path_exists", "read_file"] if file_like_targets else [],
+                    "workspace_refs": workspace_refs,
+                    "source_refs": source_refs,
+                    "excluded_scope": _attention_string_list(working_scope.get("excluded_scope"), limit=12),
+                    "known_constraints": _attention_string_list(working_scope.get("known_constraints"), limit=12),
+                    "plan_focus": plan_focus,
+                    "todo_focus": todo_focus,
+                    "acceptance_focus": _task_attention_acceptance_focus(acceptance),
+                    "context_pointers": _drop_empty_payload(
+                        {
+                            "full_task_contract": "Task execution task contract",
+                            "long_plan_context": "Task Plan Context" if plan_focus else "",
+                            "current_todo_context": "Task Todo Context" if todo_focus else "",
+                            "current_runtime_boundary": "Current Runtime Boundary",
+                        }
+                    ),
+                    "cache_boundary": {
+                        "placement": "volatile_tail",
+                        "reason": "Current todo cursor and execution focus may change on every invocation; do not seal this index into the stable provider prefix.",
+                    },
+                }
+            )
+        }
+    )
+
+
+def _task_attention_mode_contract(contract_root: dict[str, Any], key: str) -> dict[str, Any]:
+    context = dict(contract_root.get(key) or {})
+    contract = dict(context.get("contract") or {}) if isinstance(context.get("contract"), dict) else {}
+    if not contract:
+        return {}
+    return _drop_empty_payload(
+        {
+            "mode_instance_id": str(context.get("mode_instance_id") or "").strip(),
+            "mode_kind": str(context.get("mode_kind") or "").strip(),
+            "mode_role": str(context.get("mode_role") or "").strip(),
+            **contract,
+        }
+    )
+
+
+def _task_attention_working_scope(*values: Any) -> dict[str, Any]:
+    result: dict[str, list[Any]] = {
+        "target_objects": [],
+        "workspace_refs": [],
+        "source_refs": [],
+        "excluded_scope": [],
+        "known_constraints": [],
+    }
+    for value in values:
+        scope = dict(value or {}) if isinstance(value, dict) else {}
+        if not scope:
+            continue
+        result["target_objects"].extend(_attention_ref_list(scope.get("target_objects"), limit=80))
+        for key in ("workspace_refs", "source_refs", "excluded_scope", "known_constraints"):
+            result[key].extend(_attention_string_list(scope.get(key), limit=80))
+    return _drop_empty_payload(
+        {
+            "target_objects": _dedupe_attention_refs(result["target_objects"])[:24],
+            "workspace_refs": _dedupe_strings_for_attention(result["workspace_refs"])[:16],
+            "source_refs": _dedupe_strings_for_attention(result["source_refs"])[:16],
+            "excluded_scope": _dedupe_strings_for_attention(result["excluded_scope"])[:12],
+            "known_constraints": _dedupe_strings_for_attention(result["known_constraints"])[:12],
+        }
+    )
+
+
+def _task_attention_plan_focus(plan_contract: dict[str, Any], task_mode_tail_context_payload: dict[str, Any]) -> dict[str, Any]:
+    plan_tail = dict(dict(task_mode_tail_context_payload or {}).get("task_plan_context") or {})
+    baseline = dict(plan_tail.get("task_plan_baseline") or {})
+    items = list(baseline.get("items") or plan_contract.get("major_steps") or [])
+    summarized_items = _attention_item_summaries(items, id_key="step_id", text_keys=("title", "content", "summary"), limit=6)
+    plan_id = str(baseline.get("plan_id") or plan_contract.get("plan_id") or "").strip()
+    strategy = _compact_text(baseline.get("strategy_summary") or plan_contract.get("strategy_summary") or "", limit=360)
+    if not any((plan_id, strategy, summarized_items)):
+        return {}
+    return _drop_empty_payload(
+        {
+            "plan_id": plan_id,
+            "plan_status": str(baseline.get("plan_status") or plan_contract.get("plan_status") or "").strip(),
+            "strategy_summary": strategy,
+            "visible_step_count": len(items),
+            "visible_steps_preview": summarized_items,
+            "agent_use_contract": (
+                "If the plan is long, use the full Task Plan Context or TaskRunContract for the full sequence. "
+                "This preview only reminds you that a plan exists."
+            ),
+        }
+    )
+
+
+def _task_attention_todo_focus(
+    todo_contract: dict[str, Any],
+    task_mode_tail_context_payload: dict[str, Any],
+    task_state_payload: dict[str, Any],
+) -> dict[str, Any]:
+    _ = task_state_payload
+    todo_tail = dict(dict(task_mode_tail_context_payload or {}).get("task_todo_context") or {})
+    baseline = dict(todo_tail.get("task_todo_baseline") or {})
+    cursor = dict(todo_tail.get("todo_cursor") or {})
+    baseline_items = list(baseline.get("items") or todo_contract.get("items") or [])
+    status_by_id = {
+        str(item.get("todo_id") or "").strip(): str(item.get("status") or "").strip()
+        for item in list(cursor.get("item_statuses") or [])
+        if isinstance(item, dict) and str(item.get("todo_id") or "").strip()
+    }
+    item_preview = []
+    for item in _attention_item_summaries(baseline_items, id_key="todo_id", text_keys=("content", "title", "summary"), limit=8):
+        todo_id = str(item.get("todo_id") or "").strip()
+        item_preview.append(_drop_empty_payload({**item, "status": status_by_id.get(todo_id)}))
+    active_item_id = str(cursor.get("active_item_id") or todo_contract.get("active_item_id") or "").strip()
+    if not any((baseline_items, cursor, active_item_id)):
+        return {}
+    return _drop_empty_payload(
+        {
+            "todo_list_id": str(baseline.get("todo_list_id") or todo_contract.get("todo_list_id") or "").strip(),
+            "active_item_id": active_item_id,
+            "active_item_ref": str(cursor.get("active_item_ref") or "").strip(),
+            "status_counts": dict(cursor.get("status_counts") or {}),
+            "completion_ready_signal": dict(cursor.get("completion_ready_signal") or {}) if isinstance(cursor.get("completion_ready_signal"), dict) else {},
+            "visible_item_count": len(baseline_items),
+            "visible_items_preview": item_preview,
+            "agent_use_contract": "Todo cursor is current execution state. Update it through agent_todo when task progress changes.",
+        }
+    )
+
+
+def _task_attention_acceptance_focus(acceptance: dict[str, Any]) -> dict[str, Any]:
+    return _drop_empty_payload(
+        {
+            "acceptance_mode": str(acceptance.get("acceptance_mode") or "").strip(),
+            "completion_criteria": _attention_string_list(acceptance.get("completion_criteria"), limit=10, text_limit=260),
+            "final_answer_requirements": _attention_string_list(acceptance.get("final_answer_requirements"), limit=10, text_limit=260),
+            "required_verification_count": len(list(acceptance.get("required_verifications") or [])),
+            "required_artifact_count": len(list(acceptance.get("required_artifacts") or [])),
+        }
+    )
+
+
+def _attention_item_summaries(
+    values: Any,
+    *,
+    id_key: str,
+    text_keys: tuple[str, ...],
+    limit: int,
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    raw_items = values if isinstance(values, (list, tuple)) else ([values] if values else [])
+    for index, raw in enumerate(raw_items[: max(0, limit)], start=1):
+        if isinstance(raw, dict):
+            item_id = str(raw.get(id_key) or raw.get("id") or raw.get("item_id") or f"item:{index}").strip()
+            text = ""
+            for key in text_keys:
+                text = _compact_text(raw.get(key), limit=220)
+                if text:
+                    break
+            summary = _drop_empty_payload(
+                {
+                    id_key: item_id,
+                    "title": text,
+                    "ref": str(raw.get("step_ref") or raw.get("todo_item_ref") or raw.get("ref") or "").strip(),
+                    "source": str(raw.get("source") or "").strip(),
+                }
+            )
+            if summary:
+                result.append(summary)
+            continue
+        text = _compact_text(raw, limit=220)
+        if text:
+            result.append({id_key: f"item:{index}", "title": text})
+    return result
+
+
+def _attention_ref_list(value: Any, *, limit: int, text_limit: int = 260) -> list[Any]:
+    raw_items = value if isinstance(value, (list, tuple)) else ([value] if value not in (None, "", [], {}) else [])
+    result: list[Any] = []
+    for raw in raw_items[: max(0, limit)]:
+        if isinstance(raw, dict):
+            cleaned = _drop_empty_payload(
+                {
+                    str(key): _compact_text(val, limit=text_limit) if not isinstance(val, (dict, list, tuple)) else val
+                    for key, val in raw.items()
+                    if str(key).strip() and val not in (None, "", [], {})
+                }
+            )
+            if cleaned:
+                result.append(cleaned)
+            continue
+        text = _compact_text(raw, limit=text_limit)
+        if text:
+            result.append(text)
+    return _dedupe_attention_refs(result)
+
+
+def _attention_string_list(value: Any, *, limit: int, text_limit: int = 260) -> list[str]:
+    return _dedupe_strings_for_attention(
+        [
+            _compact_text(item, limit=text_limit)
+            for item in (value if isinstance(value, (list, tuple)) else ([value] if value not in (None, "", [], {}) else []))
+            if _compact_text(item, limit=text_limit)
+        ]
+    )[: max(0, limit)]
+
+
+def _dedupe_attention_refs(values: list[Any]) -> list[Any]:
+    seen: set[str] = set()
+    result: list[Any] = []
+    for value in values:
+        marker = json.dumps(_json_stable(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        if marker in seen:
+            continue
+        seen.add(marker)
+        result.append(value)
+    return result
+
+
+def _dedupe_strings_for_attention(values: list[Any]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
 def _compact_text(value: Any, *, limit: int = 120) -> str:
     text = " ".join(str(value or "").split())
     if limit <= 0 or len(text) <= limit:

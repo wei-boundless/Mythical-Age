@@ -7,7 +7,6 @@ import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
 import { SessionTodoPanel } from "@/components/chat/SessionTodoPanel";
-import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
 import { openSessionProjectInVSCode } from "@/lib/api";
 import { publicRuntimeStatusText } from "@/lib/runtimeStatusText";
@@ -289,7 +288,6 @@ export function ChatPanel() {
             {suppressFooterActivity ? null : <SessionActivityBar activity={footerActivity} active={currentSessionActive} />}
           </div>
           <div className="chat-panel-status-row__right">
-            <ThemeToggle />
             <button
               aria-label={openingVSCode ? "正在打开 VS Code" : "打开 VS Code 项目"}
               className="chat-vscode-open-button"
