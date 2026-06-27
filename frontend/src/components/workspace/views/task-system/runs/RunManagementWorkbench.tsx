@@ -3,7 +3,7 @@
 import { RefreshCw } from "lucide-react";
 
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
-import type { RuntimeMonitorActionPayload } from "@/lib/api";
+import type { RunMonitorActionPayload } from "@/lib/api";
 import { selectRunMonitorTaskLane } from "@/lib/run-monitor/selectors";
 import type { RunMonitorSignal } from "@/lib/run-monitor/types";
 import { publicRuntimeStatusLabel, publicRuntimeStatusText } from "@/lib/runtimeStatusText";
@@ -38,7 +38,7 @@ export function RunManagementWorkbench({ activePage }: { activePage: RunManageme
   const queueRows = queue.length ? queue : fallbackTasks.filter((signal) => signal.state !== "completed");
   const recordRows = [...recent, ...hidden];
 
-  async function handleAction(payload: RuntimeMonitorActionPayload) {
+  async function handleAction(payload: RunMonitorActionPayload) {
     if (payload.action === "delete_record") {
       const approved = await confirm({
         title: "删除运行记录",
@@ -144,7 +144,7 @@ function RunManagementRows({
 }: {
   actionLoading: string;
   emptyText: string;
-  onAction: (payload: RuntimeMonitorActionPayload) => void;
+  onAction: (payload: RunMonitorActionPayload) => void;
   onOpenLog: (signal: RunMonitorSignal) => void;
   onOpen: (signalId: string) => void;
   rows: RunMonitorSignal[];
@@ -183,7 +183,7 @@ function RunManagementActions({
   signal,
 }: {
   loadingAction: string;
-  onAction: (payload: RuntimeMonitorActionPayload) => void;
+  onAction: (payload: RunMonitorActionPayload) => void;
   onOpenLog: (signal: RunMonitorSignal) => void;
   signal: RunMonitorSignal;
 }) {

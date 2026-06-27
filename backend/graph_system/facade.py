@@ -517,7 +517,7 @@ class GraphSystem:
                         "requested_by": "user",
                         "requested_at": event_time,
                         "reason": reason,
-                        "authority": "orchestration.graph_run_control",
+                        "authority": "graph_system.graph_run_control",
                     },
                 },
             },
@@ -624,7 +624,7 @@ class GraphSystem:
             "graph_run": graph_run or {},
             "task_run": _task_run_summary(task_run) if task_run_id else None,
             "task_run_monitor": task_run_monitor or None,
-            "runtime_monitor": task_run_monitor or None,
+            "run_monitor": task_run_monitor or None,
             "graph_config": config_payload,
             "graph_loop_state": _loop_state_public_view(state) if state is not None else {},
             "active_node_work_orders": active_work_orders,
@@ -736,7 +736,7 @@ def _graph_run_runtime_control(task_run: Any) -> dict[str, Any]:
         "requested_by": str(control.get("requested_by") or ""),
         "requested_at": float(control.get("requested_at") or 0.0),
         "reason": str(control.get("reason") or ""),
-        "authority": str(control.get("authority") or "orchestration.graph_run_control"),
+        "authority": str(control.get("authority") or "graph_system.graph_run_control"),
     }
 
 
@@ -759,7 +759,7 @@ def _graph_run_control_diagnostics(
             "requested_by": requested_by or "user",
             "requested_at": float(requested_at or time.time()),
             "reason": reason,
-            "authority": "orchestration.graph_run_control",
+            "authority": "graph_system.graph_run_control",
         },
         "executor_status": latest_step_status,
         "latest_step": latest_step,

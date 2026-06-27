@@ -176,7 +176,7 @@ _PROFILES: dict[str, TaskGoalProfile] = {
         task_domain="task_graph",
         task_goal_type="task_graph_node_execution",
         title="Task Graph Node Execution",
-        description="Execute one orchestration-owned node contract and return typed node output.",
+        description="Execute one graph-system-owned node contract and return typed node output.",
         default_core_deliverables=("node_contract_output", "artifact_refs_or_structured_output", "blocking_issue_if_any"),
         default_reasoning_steps=(
             "read_node_contract_packet",
@@ -185,7 +185,7 @@ _PROFILES: dict[str, TaskGoalProfile] = {
             "report_blocking_issue_if_contract_cannot_be_satisfied",
         ),
         required_actions=("execute_node_contract", "produce_contract_output"),
-        forbidden_actions=(*_COMMON_FORBIDDEN, "override_node_role_with_chat_intent", "treat_orchestration_artifact_write_as_code_patch"),
+        forbidden_actions=(*_COMMON_FORBIDDEN, "override_node_role_with_chat_intent", "treat_harness_artifact_write_as_code_patch"),
         validator_profile_id="deliverable.task_graph_node_execution",
     ),
     "test_report_triage": TaskGoalProfile(

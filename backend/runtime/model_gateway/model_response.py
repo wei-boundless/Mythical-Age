@@ -75,7 +75,7 @@ class ModelResponseRuntimeExecutor:
                 "content": "运行中断",
                 "code": "invalid_directive_executor_type",
                 "reason": "invalid_directive_executor_type",
-                "answer_channel": "orchestration_fail_closed",
+                "answer_channel": "harness_fail_closed",
                 "answer_source": "runtime_directive_executor",
             }
             return
@@ -88,7 +88,7 @@ class ModelResponseRuntimeExecutor:
                 "content": "运行中断",
                 "code": "model_runtime_unavailable",
                 "reason": "model_runtime_unavailable",
-                "answer_channel": "orchestration_fail_closed",
+                "answer_channel": "harness_fail_closed",
                 "answer_source": "runtime_directive_executor",
             }
             return
@@ -259,7 +259,7 @@ class ModelResponseRuntimeExecutor:
                         "provider": exc.provider,
                         "model": exc.model,
                         "detail": exc.detail,
-                        "answer_channel": "orchestration_fail_closed",
+                        "answer_channel": "harness_fail_closed",
                         "answer_source": "runtime_directive_executor",
                     }
                     return
@@ -285,7 +285,7 @@ class ModelResponseRuntimeExecutor:
                             "provider": exc.provider,
                             "model": exc.model,
                             "detail": exc.detail,
-                            "answer_channel": "orchestration_fail_closed",
+                            "answer_channel": "harness_fail_closed",
                             "answer_source": "runtime_directive_executor",
                         }
                         return
@@ -338,7 +338,7 @@ class ModelResponseRuntimeExecutor:
                             "provider": exc.provider,
                             "model": exc.model,
                             "detail": f"non-stream fallback exceeded {fallback_timeout_seconds:g}s",
-                            "answer_channel": "orchestration_fail_closed",
+                            "answer_channel": "harness_fail_closed",
                             "answer_source": "runtime_directive_executor",
                         }
                         return
@@ -364,7 +364,7 @@ class ModelResponseRuntimeExecutor:
                             "provider": fallback_exc.provider,
                             "model": fallback_exc.model,
                             "detail": fallback_exc.detail,
-                            "answer_channel": "orchestration_fail_closed",
+                            "answer_channel": "harness_fail_closed",
                             "answer_source": "runtime_directive_executor",
                         }
                         return
@@ -387,7 +387,7 @@ class ModelResponseRuntimeExecutor:
                             "content": "运行中断",
                             "code": "model_runtime_error",
                             "reason": str(fallback_exc) or "model_runtime_error",
-                            "answer_channel": "orchestration_fail_closed",
+                            "answer_channel": "harness_fail_closed",
                             "answer_source": "runtime_directive_executor",
                         }
                         return
@@ -412,7 +412,7 @@ class ModelResponseRuntimeExecutor:
                         "provider": exc.provider,
                         "model": exc.model,
                         "detail": exc.detail,
-                        "answer_channel": "orchestration_fail_closed",
+                        "answer_channel": "harness_fail_closed",
                         "answer_source": "runtime_directive_executor",
                     }
                     return
@@ -426,7 +426,7 @@ class ModelResponseRuntimeExecutor:
                     "provider": exc.provider,
                     "model": exc.model,
                     "detail": exc.detail,
-                    "answer_channel": "orchestration_fail_closed",
+                    "answer_channel": "harness_fail_closed",
                     "answer_source": "runtime_directive_executor",
                 }
                 return
@@ -469,7 +469,7 @@ class ModelResponseRuntimeExecutor:
                         "detail": f"model response exceeded {response_timeout_seconds:g}s after partial output",
                         "timeout_seconds": response_timeout_seconds,
                         "partial_delta_count": public_delta_count,
-                        "answer_channel": "orchestration_fail_closed",
+                        "answer_channel": "harness_fail_closed",
                         "answer_source": "runtime_directive_executor",
                         "answer_persist_policy": "runtime_status_only",
                     }
@@ -485,7 +485,7 @@ class ModelResponseRuntimeExecutor:
                     "model": str(getattr(effective_model_spec, "model", "") or ""),
                     "detail": f"model response exceeded {response_timeout_seconds:g}s",
                     "timeout_seconds": response_timeout_seconds,
-                    "answer_channel": "orchestration_fail_closed",
+                    "answer_channel": "harness_fail_closed",
                     "answer_source": "runtime_directive_executor",
                 }
                 return
@@ -496,7 +496,7 @@ class ModelResponseRuntimeExecutor:
                 "content": "运行中断",
                 "code": "model_runtime_error",
                 "reason": str(exc) or "model_runtime_error",
-                "answer_channel": "orchestration_fail_closed",
+                "answer_channel": "harness_fail_closed",
                 "answer_source": "runtime_directive_executor",
             }
             return
@@ -542,9 +542,9 @@ class ModelResponseRuntimeExecutor:
                 "protocol_leak": {
                     "detected": True,
                     "markers": ["provider_tool_call_without_bound_tools"],
-                    "authority": "orchestration.protocol_boundary",
+                    "authority": "task_system.protocol_boundary",
                 },
-                "answer_channel": "orchestration_fail_closed",
+                "answer_channel": "harness_fail_closed",
                 "answer_source": "runtime_directive:model_response",
             }
             return
@@ -576,7 +576,7 @@ class ModelResponseRuntimeExecutor:
                 "content": "运行中断",
                 "code": "model_response_empty",
                 "reason": "model_response_empty",
-                "answer_channel": "orchestration_fail_closed",
+                "answer_channel": "harness_fail_closed",
                 "answer_source": "runtime_directive:model_response",
                 "answer_persist_policy": "runtime_status_only",
                 "output": {
@@ -1092,7 +1092,7 @@ async def _recover_visible_prefix_stream(
             "partial_utf8_bytes": visible_prefix_utf8_bytes(raw_content),
             "recovery_mode": VISIBLE_PREFIX_RECOVERY_MODE,
             "recovery_call_status": "failed",
-            "answer_channel": "orchestration_fail_closed",
+            "answer_channel": "harness_fail_closed",
             "answer_source": "runtime_directive_executor",
             "answer_persist_policy": "runtime_status_only",
             "directive_ref": directive_ref,

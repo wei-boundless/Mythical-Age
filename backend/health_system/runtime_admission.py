@@ -25,7 +25,7 @@ class HealthCommandRuntimeAdmission:
     resource_policy_ref: str
     status: str
     task_execution_assembly_ref: str = ""
-    task_body_orchestration_ref: str = ""
+    task_body_assembly_ref: str = ""
     runtime_spec_ref: str = ""
     blocked_reasons: tuple[str, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -71,7 +71,7 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
             runtime_lane="",
             resource_policy_ref="",
             task_execution_assembly_ref="",
-            task_body_orchestration_ref="",
+            task_body_assembly_ref="",
             runtime_spec_ref="",
             status="blocked",
             blocked_reasons=("health_issue_missing",),
@@ -90,7 +90,7 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
         "flow": dict(plan.flow),
         "binding": dict(plan.binding),
         "task_execution_assembly": dict(plan.task_execution_assembly),
-        "task_body_orchestration": dict(plan.task_body_orchestration),
+        "task_body_assembly": dict(plan.task_body_assembly),
         "agent_runtime_spec": dict(plan.agent_runtime_spec),
         "config": dict(plan.diagnostics),
     }
@@ -142,7 +142,7 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
         runtime_lane=plan.runtime_lane,
         resource_policy_ref=plan.resource_policy_ref,
         task_execution_assembly_ref=str(plan.task_execution_assembly.get("assembly_id") or ""),
-        task_body_orchestration_ref=str(plan.task_body_orchestration.get("orchestration_id") or ""),
+        task_body_assembly_ref=str(plan.task_body_assembly.get("task_body_assembly_id") or ""),
         runtime_spec_ref=str(plan.agent_runtime_spec.get("runtime_spec_id") or ""),
         status=status,
         blocked_reasons=unique_blocked,

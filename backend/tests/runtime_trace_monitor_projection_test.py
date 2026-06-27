@@ -4,7 +4,7 @@ from harness.runtime.single_agent_host import SingleAgentRuntimeHost
 from runtime.shared.models import TaskRun
 
 
-def test_runtime_monitor_projects_fact_trace_summaries_without_raw_payload(tmp_path) -> None:
+def test_run_monitor_projects_fact_trace_summaries_without_raw_payload(tmp_path) -> None:
     host = SingleAgentRuntimeHost(tmp_path)
     task_run_id = "taskrun:monitor-trace"
     session_id = "session:monitor-trace"
@@ -58,7 +58,7 @@ def test_runtime_monitor_projects_fact_trace_summaries_without_raw_payload(tmp_p
         refs={"task_run_ref": task_run_id, "trace_id": trace.trace_id},
     )
 
-    monitor = host.runtime_monitor_service.get_task_run_live_monitor(task_run_id)
+    monitor = host.run_monitor_service.get_task_run_live_monitor(task_run_id)
 
     assert monitor is not None
     assert monitor["fact_summary"]["available"] is True
@@ -81,7 +81,7 @@ def test_runtime_monitor_projects_fact_trace_summaries_without_raw_payload(tmp_p
     assert any(item["kind"] == "fact_scope" for item in monitor["diagnostic_signal_refs"])
 
 
-def test_runtime_monitor_uses_observability_query_for_trace_summary(tmp_path) -> None:
+def test_run_monitor_uses_observability_query_for_trace_summary(tmp_path) -> None:
     host = SingleAgentRuntimeHost(tmp_path)
     task_run_id = "taskrun:monitor-observability-query"
     session_id = "session:monitor-observability-query"
@@ -97,11 +97,11 @@ def test_runtime_monitor_uses_observability_query_for_trace_summary(tmp_path) ->
         )
     )
     query = _TraceSummaryQueryStub()
-    host.runtime_monitor_service.projector.observability_query = query
-    host.runtime_monitor_service.projector.fact_ledger = None
-    host.runtime_monitor_service.projector.trace_service = None
+    host.run_monitor_service.projector.observability_query = query
+    host.run_monitor_service.projector.fact_ledger = None
+    host.run_monitor_service.projector.trace_service = None
 
-    monitor = host.runtime_monitor_service.get_task_run_live_monitor(task_run_id)
+    monitor = host.run_monitor_service.get_task_run_live_monitor(task_run_id)
 
     assert monitor is not None
     assert query.calls == [
@@ -112,14 +112,14 @@ def test_runtime_monitor_uses_observability_query_for_trace_summary(tmp_path) ->
             "hydrate": True,
         }
     ]
-    assert monitor["trace_summary"]["authority"] == "runtime_monitor.trace_summary"
+    assert monitor["trace_summary"]["authority"] == "run_monitor.trace_summary"
     assert monitor["trace_summary"]["source_authority"] == "runtime.observability.trace_summary"
     assert monitor["trace_summary"]["trace_id"] == "trace:from-observability-query"
     assert monitor["trace_summary"]["latest_span"]["name"] == "tool.read_file"
     assert any(item["kind"] == "trace" and item["trace_id"] == "trace:from-observability-query" for item in monitor["diagnostic_signal_refs"])
 
 
-def test_runtime_monitor_global_signal_reuses_compact_projection_summary(tmp_path) -> None:
+def test_run_monitor_global_signal_reuses_compact_projection_summary(tmp_path) -> None:
     host = SingleAgentRuntimeHost(tmp_path)
     task_run_id = "taskrun:monitor-signal"
     session_id = "session:monitor-signal"
@@ -150,7 +150,7 @@ def test_runtime_monitor_global_signal_reuses_compact_projection_summary(tmp_pat
         refs={"task_run_ref": task_run_id, "trace_id": trace.trace_id},
     )
 
-    monitor = host.runtime_monitor_service.collect_global_runtime_monitor(limit=10)
+    monitor = host.run_monitor_service.collect_global_run_monitor(limit=10)
     signal = next(item for item in monitor["signals"] if item["task_run_id"] == task_run_id)
 
     assert signal["fact_summary"]["available"] is False
@@ -164,7 +164,7 @@ def test_runtime_monitor_global_signal_reuses_compact_projection_summary(tmp_pat
     assert "latest_span" not in signal["trace_summary"]
     assert signal["diagnostic_signal_refs"] == []
 
-    detail = host.runtime_monitor_service.get_task_run_live_monitor(task_run_id)
+    detail = host.run_monitor_service.get_task_run_live_monitor(task_run_id)
     assert detail is not None
     assert detail["fact_summary"]["available"] is True
     assert detail["fact_summary"]["fact_type_counts"]["trace_run"] == 1
@@ -174,7 +174,7 @@ def test_runtime_monitor_global_signal_reuses_compact_projection_summary(tmp_pat
     assert any(item["kind"] == "trace" and item["trace_id"] == trace.trace_id for item in detail["diagnostic_signal_refs"])
 
 
-def test_runtime_monitor_summarizes_graph_run_scoped_facts(tmp_path) -> None:
+def test_run_monitor_summarizes_graph_run_scoped_facts(tmp_path) -> None:
     host = SingleAgentRuntimeHost(tmp_path)
     task_run_id = "taskrun:monitor-graph"
     session_id = "session:monitor-graph"
@@ -212,7 +212,7 @@ def test_runtime_monitor_summarizes_graph_run_scoped_facts(tmp_path) -> None:
         created_at=102.0,
     )
 
-    monitor = host.runtime_monitor_service.get_task_run_live_monitor(task_run_id)
+    monitor = host.run_monitor_service.get_task_run_live_monitor(task_run_id)
 
     assert monitor is not None
     assert monitor["fact_summary"]["graph_run_id"] == graph_run_id

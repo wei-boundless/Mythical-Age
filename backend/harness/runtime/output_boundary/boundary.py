@@ -518,7 +518,7 @@ _DEBUG_ONLY_FINAL_TEXT_CHANNELS = {
     "active_work_control",
     "opening_judgment",
     "task_control",
-    "orchestration_fail_closed",
+    "harness_fail_closed",
     "runtime_control",
 }
 _PROGRESS_ONLY_FINAL_TEXT_CHANNELS = {"progress_text", "procedural_promise"}

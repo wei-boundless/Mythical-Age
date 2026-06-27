@@ -148,7 +148,7 @@ export function taskSystemOptionLabel(value: string) {
     agent_harness_chain: "Agent 管控链",
     task_graph_chain: "任务图管控链",
     graph_run_loop: "图运行循环",
-    orchestration_default: "按 Agent 默认策略选择",
+    agent_system_default: "按 Agent 默认策略选择",
     fixed_agent: "固定 Agent",
     graph_node_binding: "按图模块绑定",
     standard: "标准任务",
@@ -443,3 +443,4 @@ export function TaskSystemMultiSelectField({
     </TaskSystemField>
   );
 }
+

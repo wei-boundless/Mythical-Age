@@ -150,11 +150,11 @@ class RuntimeEvent:
     created_at: float
     payload: dict[str, Any] = field(default_factory=dict)
     refs: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.runtime_event"
+    authority: str = "runtime.runtime_event"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.runtime_event":
-            raise ValueError("RuntimeEvent authority must be orchestration.runtime_event")
+        if self.authority != "runtime.runtime_event":
+            raise ValueError("RuntimeEvent authority must be runtime.runtime_event")
         if not self.event_id:
             raise ValueError("RuntimeEvent requires event_id")
         if not self.run_id:

@@ -3,8 +3,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from harness.runtime.run_monitor import RuntimeMonitorActionService, RuntimeMonitorProjector, RuntimeMonitorService
-from harness.runtime.run_monitor.signals import build_runtime_monitor_envelope
+from harness.runtime.run_monitor import RunMonitorActionService, RunMonitorProjector, RunMonitorService
+from harness.runtime.run_monitor.signals import build_run_monitor_envelope
 
 
 class EventLogStub:
@@ -84,7 +84,7 @@ class StateIndexStub:
         if normalized:
             self.deleted_task_run_ids.append(normalized)
         return {
-            "authority": "orchestration.runtime_state_index.task_run_deletion_tombstone",
+            "authority": "runtime.state_index.task_run_deletion_tombstone",
             "task_run_id": normalized,
             "recorded": bool(normalized),
         }
@@ -210,7 +210,7 @@ def test_session_task_summary_uses_top_level_session_task_not_child_runs():
         event_log=EventLogStub(),
         backend_dir=Path.cwd(),
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
     summary = service.get_session_task_summary("session-dev")
 
@@ -239,7 +239,7 @@ def test_session_task_summary_does_not_fetch_graph_runtime_detail():
         event_log=EventLogStub(),
         backend_dir=Path.cwd(),
     )
-    service = RuntimeMonitorService(
+    service = RunMonitorService(
         runtime_host=runtime_host,
         graph_system=graph_system,
         freshness_seconds=300.0,
@@ -275,7 +275,7 @@ def test_session_live_monitor_exposes_active_turn_snapshot():
             )
         ),
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
     monitor = service.get_session_live_monitor("session-dev")
 
@@ -306,7 +306,7 @@ def test_session_live_monitor_reads_bounded_recent_task_summaries():
         backend_dir=Path.cwd(),
         active_turn_registry=ActiveTurnRegistryStub(None),
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
     monitor = service.get_session_live_monitor("session-heavy", limit=10)
 
@@ -337,7 +337,7 @@ def test_global_monitor_includes_active_turn_when_task_run_not_started_yet():
             )
         ),
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
     monitor = service.list_global_live_monitor(limit=20)
 
@@ -369,11 +369,11 @@ def test_run_monitor_projects_active_turn_as_primary_signal():
             )
         ),
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
-    monitor = service.collect_global_runtime_monitor(limit=20)
+    monitor = service.collect_global_run_monitor(limit=20)
 
-    assert monitor["authority"] == "runtime_monitor"
+    assert monitor["authority"] == "run_monitor"
     assert monitor["summary"]["active"] == 1
     assert monitor["primary"][0]["signal_id"] == "turnrun:session-dev:1"
     assert monitor["primary"][0]["source_kind"] == "turn_run"
@@ -431,9 +431,9 @@ def test_run_monitor_active_turn_replaces_stale_task_from_same_session(tmp_path)
             )
         ),
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=60.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=60.0)
 
-    monitor = service.collect_global_runtime_monitor(limit=20)
+    monitor = service.collect_global_run_monitor(limit=20)
     signal_ids = {item["signal_id"] for item in monitor["signals"]}
     lane_ids = {
         item["signal_id"]
@@ -474,9 +474,9 @@ def test_run_monitor_global_collection_uses_state_index_summaries():
         event_log=EventLogStub(),
         backend_dir=Path.cwd(),
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
-    monitor = service.collect_global_runtime_monitor(limit=20)
+    monitor = service.collect_global_run_monitor(limit=20)
 
     assert monitor["signals"][0]["signal_id"] == "taskrun:summary"
     assert monitor["signals"][0]["line"] == "等待执行器"
@@ -485,7 +485,7 @@ def test_run_monitor_global_collection_uses_state_index_summaries():
 
 
 def test_run_monitor_waiting_state_wins_over_running_bucket_residue():
-    monitor = build_runtime_monitor_envelope(
+    monitor = build_run_monitor_envelope(
         items=[
             {
                 "task_run_id": "taskrun:waiting",
@@ -513,7 +513,7 @@ def test_run_monitor_waiting_state_wins_over_running_bucket_residue():
 
 
 def test_user_aborted_projects_as_stopped_not_failed():
-    monitor = build_runtime_monitor_envelope(
+    monitor = build_run_monitor_envelope(
         items=[
             {
                 "task_run_id": "taskrun:stopped",
@@ -540,7 +540,7 @@ def test_user_aborted_projects_as_stopped_not_failed():
     assert monitor["recent"][0]["tone"] == "neutral"
 
 
-def test_runtime_monitor_actions_use_activity_control_capability(tmp_path):
+def test_run_monitor_actions_use_activity_control_capability(tmp_path):
     now = time.time()
     waiting = task_run(
         task_run_id="taskrun:waiting",
@@ -583,9 +583,9 @@ def test_runtime_monitor_actions_use_activity_control_capability(tmp_path):
             else None
         ),
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
-    monitor = service.collect_global_runtime_monitor(limit=20)
+    monitor = service.collect_global_run_monitor(limit=20)
     signals = {item["signal_id"]: item for item in monitor["signals"]}
 
     waiting_signal = signals["taskrun:waiting"]
@@ -621,7 +621,7 @@ def test_runtime_monitor_actions_use_activity_control_capability(tmp_path):
     assert stopped_actions["stop_task"]["enabled"] is False
 
 
-def test_runtime_monitor_execute_control_intent_uses_gateway_not_projection_action(tmp_path, monkeypatch):
+def test_run_monitor_execute_control_intent_uses_gateway_not_projection_action(tmp_path, monkeypatch):
     running_without_claim = task_run(
         task_run_id="taskrun:projection-disabled-pause",
         session_id="session-projection-disabled-pause",
@@ -633,12 +633,12 @@ def test_runtime_monitor_execute_control_intent_uses_gateway_not_projection_acti
         event_log=EventLogStub(),
         backend_dir=tmp_path / "backend",
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
     runtime = SimpleNamespace(
         base_dir=tmp_path / "backend",
         harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host),
     )
-    action_service = RuntimeMonitorActionService(runtime=runtime, monitor_service=service)
+    action_service = RunMonitorActionService(runtime=runtime, monitor_service=service)
 
     preflight = asyncio.run(
         action_service.preflight(
@@ -674,7 +674,7 @@ def test_runtime_monitor_execute_control_intent_uses_gateway_not_projection_acti
     assert pause_calls == [(runtime_host, "taskrun:projection-disabled-pause", "operator_control_intent", "user")]
 
 
-def test_runtime_monitor_summary_counts_only_running_graph_tasks(tmp_path):
+def test_run_monitor_summary_counts_only_running_graph_tasks(tmp_path):
     now = time.time()
     running_graph = task_run(
         task_run_id="taskrun:graph-running",
@@ -711,9 +711,9 @@ def test_runtime_monitor_summary_counts_only_running_graph_tasks(tmp_path):
         event_log=EventLogStub(),
         backend_dir=tmp_path / "backend",
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
-    monitor = service.collect_global_runtime_monitor(limit=20)
+    monitor = service.collect_global_run_monitor(limit=20)
 
     assert [item["signal_id"] for item in monitor["projects"]] == ["grun:running"]
     assert [item["visibility"]["lane"] for item in monitor["projects"]] == ["projects"]
@@ -744,9 +744,9 @@ def test_run_monitor_projects_waiting_active_turn_as_waiting_signal():
             )
         ),
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
-    monitor = service.collect_global_runtime_monitor(limit=20)
+    monitor = service.collect_global_run_monitor(limit=20)
 
     assert monitor["summary"]["active"] == 0
     assert monitor["summary"]["waiting"] == 1
@@ -755,7 +755,7 @@ def test_run_monitor_projects_waiting_active_turn_as_waiting_signal():
     assert monitor["management"]["lanes"]["attention"][0]["state"] == "waiting"
 
 
-def test_runtime_monitor_dedupes_waiting_bound_active_turn_against_task_run(tmp_path):
+def test_run_monitor_dedupes_waiting_bound_active_turn_against_task_run(tmp_path):
     now = time.time()
     bound_task = task_run(
         task_run_id="taskrun:bound-wait",
@@ -787,9 +787,9 @@ def test_runtime_monitor_dedupes_waiting_bound_active_turn_against_task_run(tmp_
             )
         ),
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
-    monitor = service.collect_global_runtime_monitor(limit=20)
+    monitor = service.collect_global_run_monitor(limit=20)
 
     assert monitor["summary"]["total"] == 1
     assert monitor["summary"]["waiting"] == 1
@@ -797,7 +797,7 @@ def test_runtime_monitor_dedupes_waiting_bound_active_turn_against_task_run(tmp_
     assert monitor["signals"][0]["activity_state"] == "waiting"
 
 
-def test_runtime_monitor_management_includes_recent_terminal_records(tmp_path):
+def test_run_monitor_management_includes_recent_terminal_records(tmp_path):
     completed = task_run(
         task_run_id="taskrun:completed",
         status="completed",
@@ -810,10 +810,10 @@ def test_runtime_monitor_management_includes_recent_terminal_records(tmp_path):
         event_log=EventLogStub(),
         backend_dir=tmp_path / "backend",
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
     live_monitor = service.list_global_live_monitor(limit=20)
-    monitor = service.collect_global_runtime_monitor(limit=20)
+    monitor = service.collect_global_run_monitor(limit=20)
 
     assert live_monitor["task_runs"] == []
     assert monitor["summary"]["recent"] == 1
@@ -824,7 +824,7 @@ def test_runtime_monitor_management_includes_recent_terminal_records(tmp_path):
     assert delete_action["enabled"] is True
 
 
-def test_runtime_monitor_management_omits_terminal_graph_records(tmp_path):
+def test_run_monitor_management_omits_terminal_graph_records(tmp_path):
     completed_graph = task_run(
         task_run_id="taskrun:graph-completed",
         task_id="task.graph.done",
@@ -846,10 +846,10 @@ def test_runtime_monitor_management_omits_terminal_graph_records(tmp_path):
         event_log=EventLogStub(),
         backend_dir=tmp_path / "backend",
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
     live_monitor = service.list_global_live_monitor(limit=20)
-    monitor = service.collect_global_runtime_monitor(limit=20)
+    monitor = service.collect_global_run_monitor(limit=20)
 
     assert live_monitor["task_runs"] == []
     assert monitor["signals"] == []
@@ -859,7 +859,7 @@ def test_runtime_monitor_management_omits_terminal_graph_records(tmp_path):
     assert monitor["management"]["lanes"]["recent"] == []
 
 
-def test_runtime_monitor_clear_action_hides_signal_without_deleting_record(tmp_path):
+def test_run_monitor_clear_action_hides_signal_without_deleting_record(tmp_path):
     completed = task_run(
         task_run_id="taskrun:completed",
         status="completed",
@@ -872,12 +872,12 @@ def test_runtime_monitor_clear_action_hides_signal_without_deleting_record(tmp_p
         event_log=EventLogStub(),
         backend_dir=tmp_path / "backend",
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
     runtime = SimpleNamespace(
         base_dir=tmp_path / "backend",
         harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host),
     )
-    action_service = RuntimeMonitorActionService(runtime=runtime, monitor_service=service)
+    action_service = RunMonitorActionService(runtime=runtime, monitor_service=service)
 
     import asyncio
 
@@ -890,7 +890,7 @@ def test_runtime_monitor_clear_action_hides_signal_without_deleting_record(tmp_p
     assert result["monitor"]["management"]["lanes"]["recent"] == []
 
 
-def test_runtime_monitor_action_uses_current_signal_authority_with_stale_source_revision(tmp_path):
+def test_run_monitor_action_uses_current_signal_authority_with_stale_source_revision(tmp_path):
     completed = task_run(
         task_run_id="taskrun:completed",
         status="completed",
@@ -903,12 +903,12 @@ def test_runtime_monitor_action_uses_current_signal_authority_with_stale_source_
         event_log=EventLogStub(),
         backend_dir=tmp_path / "backend",
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
     runtime = SimpleNamespace(
         base_dir=tmp_path / "backend",
         harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host),
     )
-    action_service = RuntimeMonitorActionService(runtime=runtime, monitor_service=service)
+    action_service = RunMonitorActionService(runtime=runtime, monitor_service=service)
 
     result = asyncio.run(
         action_service.execute(
@@ -926,7 +926,7 @@ def test_runtime_monitor_action_uses_current_signal_authority_with_stale_source_
     assert runtime_host.state_index.get_task_run("taskrun:completed") is completed
 
 
-def test_runtime_monitor_capacity_eviction_is_projection_only_without_hidden_store_write(tmp_path):
+def test_run_monitor_capacity_eviction_is_projection_only_without_hidden_store_write(tmp_path):
     tasks = [
         task_run(
             task_run_id=f"taskrun:completed:{index}",
@@ -944,9 +944,9 @@ def test_runtime_monitor_capacity_eviction_is_projection_only_without_hidden_sto
         event_log=EventLogStub(),
         backend_dir=tmp_path / "backend",
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
-    monitor = service.collect_global_runtime_monitor(limit=20)
+    monitor = service.collect_global_run_monitor(limit=20)
 
     lanes = monitor["management"]["lanes"]
     assert len(lanes["recent"]) == 12
@@ -955,7 +955,7 @@ def test_runtime_monitor_capacity_eviction_is_projection_only_without_hidden_sto
     assert not service.retention_store.hidden_path.exists()
 
 
-def test_runtime_monitor_management_projects_stale_waiting_executor_as_closeable(tmp_path):
+def test_run_monitor_management_projects_stale_waiting_executor_as_closeable(tmp_path):
     now = time.time()
     stale_waiting = task_run(
         task_run_id="taskrun:stale-waiting",
@@ -970,9 +970,9 @@ def test_runtime_monitor_management_projects_stale_waiting_executor_as_closeable
         event_log=EventLogStub(),
         backend_dir=tmp_path / "backend",
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=60.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=60.0)
 
-    monitor = service.collect_global_runtime_monitor(limit=20)
+    monitor = service.collect_global_run_monitor(limit=20)
     signal = monitor["signals"][0]
     actions = {item["action"]: item for item in signal["actions"]}
 
@@ -987,7 +987,7 @@ def test_runtime_monitor_management_projects_stale_waiting_executor_as_closeable
     assert actions["stop_task"]["enabled"] is False
 
 
-def test_runtime_monitor_management_projects_stale_running_as_closeable_not_pausable(tmp_path):
+def test_run_monitor_management_projects_stale_running_as_closeable_not_pausable(tmp_path):
     now = time.time()
     stale_running = task_run(
         task_run_id="taskrun:stale-running",
@@ -1002,9 +1002,9 @@ def test_runtime_monitor_management_projects_stale_running_as_closeable_not_paus
         event_log=EventLogStub(),
         backend_dir=tmp_path / "backend",
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=60.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=60.0)
 
-    monitor = service.collect_global_runtime_monitor(limit=20)
+    monitor = service.collect_global_run_monitor(limit=20)
     signal = monitor["signals"][0]
     actions = {item["action"]: item for item in signal["actions"]}
 
@@ -1018,7 +1018,7 @@ def test_runtime_monitor_management_projects_stale_running_as_closeable_not_paus
     assert actions["close_runtime"]["enabled"] is True
 
 
-def test_runtime_monitor_management_omits_stale_graph_from_monitor(tmp_path):
+def test_run_monitor_management_omits_stale_graph_from_monitor(tmp_path):
     now = time.time()
     stale_graph = task_run(
         task_run_id="taskrun:stale-graph",
@@ -1042,9 +1042,9 @@ def test_runtime_monitor_management_omits_stale_graph_from_monitor(tmp_path):
         event_log=EventLogStub(),
         backend_dir=tmp_path / "backend",
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=60.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=60.0)
 
-    monitor = service.collect_global_runtime_monitor(limit=20)
+    monitor = service.collect_global_run_monitor(limit=20)
 
     assert monitor["signals"] == []
     assert monitor["summary"]["active"] == 0
@@ -1052,7 +1052,7 @@ def test_runtime_monitor_management_omits_stale_graph_from_monitor(tmp_path):
     assert monitor["management"]["lanes"]["projects"] == []
 
 
-def test_runtime_monitor_close_runtime_stops_and_hides_signal(tmp_path, monkeypatch):
+def test_run_monitor_close_runtime_stops_and_hides_signal(tmp_path, monkeypatch):
     now = time.time()
     stale_waiting = task_run(
         task_run_id="taskrun:stale-close",
@@ -1067,12 +1067,12 @@ def test_runtime_monitor_close_runtime_stops_and_hides_signal(tmp_path, monkeypa
         event_log=EventLogStub(),
         backend_dir=tmp_path / "backend",
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=60.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=60.0)
     runtime = SimpleNamespace(
         base_dir=tmp_path / "backend",
         harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host),
     )
-    action_service = RuntimeMonitorActionService(runtime=runtime, monitor_service=service)
+    action_service = RunMonitorActionService(runtime=runtime, monitor_service=service)
     stop_calls = []
 
     def fake_stop_task_run(self, task_run_id, *, reason="", requested_by="user"):
@@ -1093,12 +1093,12 @@ def test_runtime_monitor_close_runtime_stops_and_hides_signal(tmp_path, monkeypa
 
     assert result["accepted"] is True
     assert result["effects"]["stop"]["accepted"] is True
-    assert stop_calls == [(runtime_host, "taskrun:stale-close", "runtime_monitor_close_runtime", "user")]
+    assert stop_calls == [(runtime_host, "taskrun:stale-close", "run_monitor_close_runtime", "user")]
     hidden = result["monitor"]["management"]["lanes"]["hidden"]
     assert [item["signal_id"] for item in hidden] == ["taskrun:stale-close"]
 
 
-def test_runtime_monitor_resume_action_is_not_a_backend_control_path(tmp_path, monkeypatch):
+def test_run_monitor_resume_action_is_not_a_backend_control_path(tmp_path, monkeypatch):
     paused = task_run(
         task_run_id="taskrun:paused-resume",
         session_id="session-paused-resume",
@@ -1112,7 +1112,7 @@ def test_runtime_monitor_resume_action_is_not_a_backend_control_path(tmp_path, m
         event_log=EventLogStub(),
         backend_dir=tmp_path / "backend",
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
     class HarnessRuntimeStub:
         single_agent_runtime_host = runtime_host
@@ -1131,7 +1131,7 @@ def test_runtime_monitor_resume_action_is_not_a_backend_control_path(tmp_path, m
         base_dir=tmp_path / "backend",
         harness_runtime=HarnessRuntimeStub(),
     )
-    action_service = RuntimeMonitorActionService(runtime=runtime, monitor_service=service)
+    action_service = RunMonitorActionService(runtime=runtime, monitor_service=service)
     schedule_calls = []
 
     def fake_resume_paused_task_run(host, task_run_id, *, reason="", requested_by="user"):
@@ -1147,7 +1147,7 @@ def test_runtime_monitor_resume_action_is_not_a_backend_control_path(tmp_path, m
     assert schedule_calls == []
 
 
-def test_runtime_monitor_delete_action_queues_physical_cleanup_and_hides_signal(tmp_path):
+def test_run_monitor_delete_action_queues_physical_cleanup_and_hides_signal(tmp_path):
     completed = task_run(
         task_run_id="taskrun:completed",
         status="completed",
@@ -1192,12 +1192,12 @@ def test_runtime_monitor_delete_action_queues_physical_cleanup_and_hides_signal(
         background_task_running=background_task_running,
         spawn_background_task=spawn_background_task,
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
     runtime = SimpleNamespace(
         base_dir=tmp_path / "backend",
         harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host),
     )
-    action_service = RuntimeMonitorActionService(runtime=runtime, monitor_service=service)
+    action_service = RunMonitorActionService(runtime=runtime, monitor_service=service)
 
     result = asyncio.run(action_service.execute({"action": "delete_record", "signal_id": "taskrun:completed"}))
 
@@ -1213,7 +1213,7 @@ def test_runtime_monitor_delete_action_queues_physical_cleanup_and_hides_signal(
 
 
 def test_run_monitor_orders_same_priority_by_last_activity():
-    monitor = build_runtime_monitor_envelope(
+    monitor = build_run_monitor_envelope(
         items=[
             {
                 "task_run_id": "taskrun:old",
@@ -1261,9 +1261,9 @@ def test_run_monitor_keeps_bound_active_turn_when_task_run_is_not_visible():
             )
         ),
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
-    monitor = service.collect_global_runtime_monitor(limit=20)
+    monitor = service.collect_global_run_monitor(limit=20)
 
     assert monitor["summary"]["active"] == 1
     assert monitor["primary"][0]["signal_id"] == "turnrun:session-dev:1"
@@ -1293,7 +1293,7 @@ def test_turn_run_monitor_detail_is_available_for_active_turn_placeholder():
             )
         ),
     )
-    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    service = RunMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
     detail = service.get_task_run_live_monitor("turnrun:session-dev:1")
 
@@ -1304,7 +1304,7 @@ def test_turn_run_monitor_detail_is_available_for_active_turn_placeholder():
 
 
 def test_global_monitor_excludes_terminal_history_from_live_items():
-    projector = RuntimeMonitorProjector(EventLogStub())
+    projector = RunMonitorProjector(EventLogStub())
     monitor = projector.build_global_monitor(
         [
             task_run(
@@ -1331,7 +1331,7 @@ def test_global_monitor_excludes_terminal_history_from_live_items():
 
 
 def test_running_monitor_items_are_dynamic_and_tick_with_now():
-    projector = RuntimeMonitorProjector(EventLogStub())
+    projector = RunMonitorProjector(EventLogStub())
 
     first = projector.project_task_run(task_run(), now=130.0)
     second = projector.project_task_run(task_run(), now=150.0)
@@ -1344,7 +1344,7 @@ def test_running_monitor_items_are_dynamic_and_tick_with_now():
 
 
 def test_terminal_monitor_items_are_static_and_duration_is_frozen():
-    projector = RuntimeMonitorProjector(EventLogStub())
+    projector = RunMonitorProjector(EventLogStub())
     run = task_run(status="completed", updated_at=135.0)
 
     first = projector.project_task_run(run, now=150.0)
@@ -1358,7 +1358,7 @@ def test_terminal_monitor_items_are_static_and_duration_is_frozen():
 
 
 def test_stale_waiting_executor_moves_to_diagnostics_not_running():
-    projector = RuntimeMonitorProjector(EventLogStub(), freshness_seconds=60.0)
+    projector = RunMonitorProjector(EventLogStub(), freshness_seconds=60.0)
     run = task_run(status="waiting_executor", updated_at=120.0)
 
     item = projector.project_task_run(run, now=300.0)
@@ -1370,7 +1370,7 @@ def test_stale_waiting_executor_moves_to_diagnostics_not_running():
 
 
 def test_fresh_waiting_executor_uses_waiting_bucket_not_running():
-    projector = RuntimeMonitorProjector(EventLogStub(), freshness_seconds=60.0)
+    projector = RunMonitorProjector(EventLogStub(), freshness_seconds=60.0)
     run = task_run(status="waiting_executor", updated_at=120.0)
 
     item = projector.project_task_run(run, now=140.0)
@@ -1384,7 +1384,7 @@ def test_fresh_waiting_executor_uses_waiting_bucket_not_running():
 
 
 def test_user_paused_waiting_executor_is_actionable_not_stale():
-    projector = RuntimeMonitorProjector(EventLogStub(), freshness_seconds=60.0)
+    projector = RunMonitorProjector(EventLogStub(), freshness_seconds=60.0)
     run = task_run(
         status="waiting_executor",
         updated_at=120.0,
@@ -1409,7 +1409,7 @@ def test_user_paused_waiting_executor_is_actionable_not_stale():
 
 
 def test_waiting_approval_moves_to_diagnostics_and_freezes_duration():
-    projector = RuntimeMonitorProjector(EventLogStub(), freshness_seconds=60.0)
+    projector = RunMonitorProjector(EventLogStub(), freshness_seconds=60.0)
     run = task_run(status="waiting_approval", updated_at=120.0)
 
     first = projector.project_task_run(run, now=300.0)
@@ -1424,7 +1424,7 @@ def test_waiting_approval_moves_to_diagnostics_and_freezes_duration():
 
 
 def test_blocked_moves_to_diagnostics_and_freezes_duration():
-    projector = RuntimeMonitorProjector(EventLogStub(), freshness_seconds=60.0)
+    projector = RunMonitorProjector(EventLogStub(), freshness_seconds=60.0)
     run = task_run(status="blocked", updated_at=125.0)
 
     first = projector.project_task_run(run, now=300.0)
@@ -1439,7 +1439,7 @@ def test_blocked_moves_to_diagnostics_and_freezes_duration():
 
 
 def test_internal_titles_are_not_exposed_and_route_is_authoritative():
-    projector = RuntimeMonitorProjector(EventLogStub())
+    projector = RunMonitorProjector(EventLogStub())
     run = task_run(
         task_run_id="taskrun:graph",
         task_id="taskinst:internal",
@@ -1468,7 +1468,7 @@ def test_monitor_keeps_step_summary_as_monitor_state_without_public_projection_f
         created_at=125.0,
         payload={"step": "tool_result", "status": "completed", "summary": "已读取文件。"},
     )
-    projector = RuntimeMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": [event]}))
+    projector = RunMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": [event]}))
 
     item = projector.project_task_run(task_run(), now=150.0)
 
@@ -1491,7 +1491,7 @@ def test_project_task_run_exposes_monitor_progress_without_backend_public_timeli
             "public_progress_note": "我先确认当前反馈链路，再收敛到单一页面投影。",
         },
     )
-    projector = RuntimeMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": [event]}))
+    projector = RunMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": [event]}))
 
     item = projector.project_task_run(task_run(), now=150.0)
 
@@ -1513,7 +1513,7 @@ def test_system_tool_status_does_not_become_monitor_public_progress():
             "tool_status": "执行 2 个工具调用：搜索文件 mario、读取文件 mario.html。",
         },
     )
-    projector = RuntimeMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": [event]}))
+    projector = RunMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": [event]}))
 
     item = projector.project_task_run(task_run(), now=150.0)
 
@@ -1558,12 +1558,12 @@ def test_project_task_run_exposes_session_output_commit_ack_from_event_log():
             },
         ),
     ]
-    projector = RuntimeMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": events}))
+    projector = RunMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": events}))
 
     item = projector.project_task_run(task_run(status="completed", updated_at=130.0), now=150.0)
 
     assert item["session_output_commit"] == {
-        "authority": "runtime_monitor.session_output_commit",
+        "authority": "run_monitor.session_output_commit",
         "state": "committed",
         "session_id": "session-a",
         "turn_id": "turn:session-a:1",
@@ -1579,7 +1579,7 @@ def test_project_task_run_exposes_session_output_commit_ack_from_event_log():
 
 
 def test_project_task_run_rejects_diagnostics_output_commit_shadow_receipt():
-    projector = RuntimeMonitorProjector(EventLogStub())
+    projector = RunMonitorProjector(EventLogStub())
     run = task_run(
         status="completed",
         updated_at=130.0,
@@ -1606,7 +1606,7 @@ def test_project_task_run_rejects_diagnostics_output_commit_shadow_receipt():
 
 
 def test_project_task_run_does_not_infer_session_output_commit_from_completed_final_answer():
-    projector = RuntimeMonitorProjector(EventLogStub())
+    projector = RunMonitorProjector(EventLogStub())
     run = task_run(
         status="completed",
         updated_at=130.0,
@@ -1622,7 +1622,7 @@ def test_project_task_run_does_not_infer_session_output_commit_from_completed_fi
 
 
 def test_project_task_run_does_not_infer_session_output_commit_from_status_only():
-    projector = RuntimeMonitorProjector(EventLogStub())
+    projector = RunMonitorProjector(EventLogStub())
     run = task_run(
         status="completed",
         updated_at=130.0,
@@ -1663,7 +1663,7 @@ def test_latest_public_action_state_is_exposed_and_kept_separate_from_wait_heart
             payload={"step": "task_model_action_waiting:4", "status": "running", "wait_round": 1},
         ),
     ]
-    projector = RuntimeMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": events}))
+    projector = RunMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": events}))
 
     item = projector.project_task_run(task_run(updated_at=140.0), now=150.0)
 
@@ -1681,7 +1681,7 @@ def test_stale_model_wait_reports_diagnostic_cause_not_generic_waiting():
         created_at=125.0,
         payload={"step": "model_action_waiting:1", "status": "running", "summary": "正在思考。"},
     )
-    projector = RuntimeMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": [event]}), freshness_seconds=60.0)
+    projector = RunMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": [event]}), freshness_seconds=60.0)
 
     item = projector.project_task_run(task_run(updated_at=125.0), now=300.0)
 
@@ -1693,7 +1693,7 @@ def test_stale_model_wait_reports_diagnostic_cause_not_generic_waiting():
 
 
 def test_active_task_steer_and_executor_sequence_diagnostics_are_exposed():
-    projector = RuntimeMonitorProjector(EventLogStub())
+    projector = RunMonitorProjector(EventLogStub())
     run = task_run(
         diagnostics={
             "pending_user_steer_count": 2,
@@ -1716,7 +1716,7 @@ def test_active_task_steer_and_executor_sequence_diagnostics_are_exposed():
 
 
 def test_missing_time_fields_enter_diagnostics():
-    projector = RuntimeMonitorProjector(EventLogStub())
+    projector = RunMonitorProjector(EventLogStub())
     run = task_run(created_at=0.0, updated_at=0.0)
 
     item = projector.project_task_run(run, now=150.0)
@@ -1726,7 +1726,7 @@ def test_missing_time_fields_enter_diagnostics():
 
 
 def test_task_graph_route_without_graph_id_enters_diagnostics():
-    projector = RuntimeMonitorProjector(EventLogStub())
+    projector = RunMonitorProjector(EventLogStub())
     run = task_run(
         task_run_id="taskrun:graph",
         diagnostics={"graph_run_id": "grun:graph", "graph_config_id": "ghcfg:graph"},
@@ -1739,7 +1739,7 @@ def test_task_graph_route_without_graph_id_enters_diagnostics():
 
 
 def test_unknown_status_enters_diagnostics():
-    projector = RuntimeMonitorProjector(EventLogStub())
+    projector = RunMonitorProjector(EventLogStub())
     run = task_run(status="repairing")
 
     item = projector.project_task_run(run, now=150.0)
@@ -1749,7 +1749,7 @@ def test_unknown_status_enters_diagnostics():
 
 
 def test_global_monitor_filters_child_runs_and_applies_per_bucket_limit():
-    projector = RuntimeMonitorProjector(EventLogStub())
+    projector = RunMonitorProjector(EventLogStub())
     runs = [
         task_run(task_run_id="taskrun:running-1", updated_at=140.0),
         task_run(task_run_id="taskrun:running-2", updated_at=130.0),
@@ -1776,7 +1776,7 @@ def test_global_monitor_filters_child_runs_and_applies_per_bucket_limit():
 
 
 def test_global_monitor_keeps_one_current_task_per_session():
-    projector = RuntimeMonitorProjector(EventLogStub())
+    projector = RunMonitorProjector(EventLogStub())
     stale_blocked = task_run(
         task_run_id="taskrun:turn:session-a:1:old",
         session_id="session-a",
@@ -1807,7 +1807,7 @@ def test_global_monitor_keeps_one_current_task_per_session():
 
 
 def test_global_monitor_keeps_one_current_graph_task_per_project_scope():
-    projector = RuntimeMonitorProjector(EventLogStub())
+    projector = RunMonitorProjector(EventLogStub())
     stale_graph_run = task_run(
         task_run_id="taskrun:graph:old",
         session_id="session-old",
@@ -1861,7 +1861,7 @@ def test_global_monitor_keeps_one_current_graph_task_per_project_scope():
 
 
 def test_main_chat_taskinst_task_run_remains_monitorable():
-    projector = RuntimeMonitorProjector(EventLogStub())
+    projector = RunMonitorProjector(EventLogStub())
     run = task_run(
         task_run_id="taskrun:turn:session-a:1:formal-task",
         task_id="taskinst:turn:session-a:1:formal-task",
@@ -1896,7 +1896,7 @@ def test_main_chat_taskinst_task_run_remains_monitorable():
 
 
 def test_monitor_navigation_uses_owning_task_environment_session_scope():
-    projector = RuntimeMonitorProjector(
+    projector = RunMonitorProjector(
         EventLogStub(),
         session_scope_resolver=lambda session_id: {
             "workspace_view": "task_environment",
@@ -1974,7 +1974,7 @@ def test_global_monitor_uses_summary_projection_without_event_or_child_detail_fe
         "graph_loop_state": {"status": "running", "ready_node_ids": [], "node_states": {"draft": {"status": "running"}}},
         "node_runtime_views": [{"node_id": "draft", "status": "running", "node_executor_task_run_id": "gtask:draft"}],
     })
-    projector = RuntimeMonitorProjector(event_log, resource_resolver=resolver)
+    projector = RunMonitorProjector(event_log, resource_resolver=resolver)
     run = task_run(
         task_run_id="taskrun:graph-root",
         diagnostics={
@@ -2016,13 +2016,13 @@ def test_task_monitor_detail_keeps_technical_trace_deferred_by_default():
             )
         ]
     })
-    projector = RuntimeMonitorProjector(event_log, freshness_seconds=60.0)
+    projector = RunMonitorProjector(event_log, freshness_seconds=60.0)
 
     detail = projector.build_task_monitor(task_run(), now=130.0)
     visible = str(detail)
 
     assert detail["scope"] == "task_run"
-    assert detail["trace_summary"]["authority"] == "runtime_monitor.trace_summary"
+    assert detail["trace_summary"]["authority"] == "run_monitor.trace_summary"
     assert "events" not in detail
     assert "provider_protocol_messages" not in visible
     assert "prompt_slots" not in visible
@@ -2034,7 +2034,7 @@ def test_project_task_run_marks_stale_graph_root_without_fetching_graph_detail()
         "active_node_work_orders": [{"node_id": "world_design"}],
         "node_runtime_views": [{"node_id": "world_design", "status": "running"}],
     }
-    projector = RuntimeMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub(graph_monitor), freshness_seconds=60.0)
+    projector = RunMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub(graph_monitor), freshness_seconds=60.0)
     run = task_run(
         task_run_id="taskrun:graph-root",
         execution_runtime_kind="",
@@ -2063,7 +2063,7 @@ def test_global_monitor_omits_stale_graph_root_without_fetching_graph_detail():
         "active_node_work_orders": [{"node_id": "world_design"}],
         "node_runtime_views": [{"node_id": "world_design", "status": "running"}],
     }
-    projector = RuntimeMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub(graph_monitor), freshness_seconds=60.0)
+    projector = RunMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub(graph_monitor), freshness_seconds=60.0)
     run = task_run(
         task_run_id="taskrun:graph-root",
         execution_runtime_kind="",
@@ -2089,7 +2089,7 @@ def test_task_graph_detail_uses_active_graph_loop_to_avoid_false_stale_diagnosti
         "active_node_work_orders": [{"node_id": "world_design"}],
         "node_runtime_views": [{"node_id": "world_design", "status": "running"}],
     }
-    projector = RuntimeMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub(graph_monitor), freshness_seconds=60.0)
+    projector = RunMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub(graph_monitor), freshness_seconds=60.0)
     run = task_run(
         task_run_id="taskrun:graph-root",
         execution_runtime_kind="",
@@ -2128,7 +2128,7 @@ def test_task_graph_monitor_item_uses_graph_run_as_task_instance_and_navigation_
             }
         ],
     }
-    projector = RuntimeMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub(graph_monitor))
+    projector = RunMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub(graph_monitor))
     run = task_run(
         task_run_id="taskrun:graph-root",
         diagnostics={
@@ -2160,7 +2160,7 @@ def test_task_graph_monitor_item_uses_graph_run_as_task_instance_and_navigation_
 
 
 def test_missing_graph_config_is_resource_availability_not_frontend_404_control_flow():
-    projector = RuntimeMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub())
+    projector = RunMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub())
     run = task_run(
         task_run_id="taskrun:graph-root",
         diagnostics={

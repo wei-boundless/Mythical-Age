@@ -119,7 +119,7 @@ class MonitorResourceResolver:
                 "reason": "" if state == "available" else f"{kind}_missing",
                 "checked_at": time.time(),
             },
-            "detail_endpoint": f"/api/orchestration/runtime-monitor/resources/{kind}:{normalized_id}" if normalized_id else "",
+            "detail_endpoint": f"/api/harness/run-monitor/resources/{kind}:{normalized_id}" if normalized_id else "",
         }
 
 

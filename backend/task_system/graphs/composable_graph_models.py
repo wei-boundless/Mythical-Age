@@ -10,7 +10,7 @@ ComposableUnitType = Literal[
     "resource",
     "human_gate",
     "tool",
-    "runtime_monitor",
+    "run_monitor",
 ]
 UnitPortDirection = Literal["input", "output"]
 

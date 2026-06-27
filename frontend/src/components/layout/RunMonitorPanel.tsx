@@ -5,7 +5,7 @@ import { useMemo } from "react";
 
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import { RunTaskLane } from "@/components/layout/RunTaskLane";
-import type { RuntimeMonitorActionPayload } from "@/lib/api";
+import type { RunMonitorActionPayload } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 import { selectRunMonitorTaskLane } from "@/lib/run-monitor/selectors";
 import type { RunMonitorSignal } from "@/lib/run-monitor/types";
@@ -40,7 +40,7 @@ export function RunMonitorPanel({ embedded = false }: { embedded?: boolean } = {
         ? "断开"
       : "离线";
 
-  async function handleAction(payload: RuntimeMonitorActionPayload) {
+  async function handleAction(payload: RunMonitorActionPayload) {
     const action = String(payload.action || "").trim();
     if (action === "delete_record") {
       const approved = await confirm({

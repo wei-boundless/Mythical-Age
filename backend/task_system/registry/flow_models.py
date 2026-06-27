@@ -173,7 +173,7 @@ class TaskExecutionPolicy:
             )
         payload["execution_chain_type"] = execution_chain_type
         payload["authority"] = "task_system.task_execution_policy"
-        payload["runtime_agent_selection_policy"] = str(metadata.get("runtime_agent_selection_policy") or "orchestration_default")
+        payload["runtime_agent_selection_policy"] = str(metadata.get("runtime_agent_selection_policy") or "agent_system_default")
         payload["task_level"] = str(metadata.get("task_level") or "standard")
         payload["task_privilege"] = str(metadata.get("task_privilege") or "bounded")
         return payload
@@ -333,5 +333,6 @@ class AgentTaskConnectionProfile:
         ):
             payload[key] = list(payload[key])
         return payload
+
 
 

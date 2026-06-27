@@ -39,7 +39,7 @@ class MemoryContextCandidate:
     """Candidate-only memory material for ContextPolicy.
 
     Memory reads are never current-turn truth by themselves. ContextPolicy may
-    include them in a package, and OrchestrationSystem may adopt compatible
+    include them in a package, and Harness may adopt compatible
     state candidates, but this object cannot grant decision authority.
     """
 
@@ -81,7 +81,7 @@ class StateMemoryRestoreCandidate:
     observed_at: str = ""
     confidence: float = 0.0
     stale_after: str = ""
-    promotion_rule: str = "orchestration_must_validate_against_task_contract"
+    promotion_rule: str = "harness_must_validate_against_task_contract"
     can_promote_to_current_fact: bool = False
     rejection_reason: str = ""
     authority: str = "candidate_only"

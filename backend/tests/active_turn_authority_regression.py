@@ -11,9 +11,9 @@ from types import SimpleNamespace
 from fastapi import HTTPException
 import pytest
 
-import api.orchestration_harness as orchestration_harness
+import api.harness as harness_api
 import harness.runtime.task_run_control_gateway as task_run_control_gateway
-from api.orchestration_harness import _assert_expected_active_turn, _schedule_result_allows_progress
+from api.harness import _assert_expected_active_turn, _schedule_result_allows_progress
 from harness.entrypoint.models import HarnessRuntimeRequest
 from harness.runtime import SingleAgentRuntimeHost
 from harness.runtime.control_events import runtime_signal_from_event_payload
@@ -407,16 +407,16 @@ def test_execute_task_run_rejects_mismatched_active_turn(tmp_path: Path, monkeyp
         schedule_or_recover_task_run_executor=lambda *_args, **_kwargs: pytest.fail("execute scheduled despite active turn mismatch"),
     )
     monkeypatch.setattr(
-        orchestration_harness,
+        harness_api,
         "require_runtime",
         lambda: SimpleNamespace(harness_runtime=harness_runtime),
     )
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(
-            orchestration_harness.execute_harness_task_run(
+            harness_api.execute_harness_task_run(
                 "taskrun:current",
-                orchestration_harness.TaskRunExecuteRequest(expected_active_turn_id="turn:session:test:old"),
+                harness_api.TaskRunExecuteRequest(expected_active_turn_id="turn:session:test:old"),
             )
         )
 
@@ -464,7 +464,7 @@ def test_api_resume_rejects_bare_recovery_action_without_scheduling(tmp_path: Pa
         pytest.fail("bare recovery action must not reach scheduler")
 
     monkeypatch.setattr(
-        orchestration_harness,
+        harness_api,
         "require_runtime",
         lambda: SimpleNamespace(
             harness_runtime=SimpleNamespace(
@@ -475,7 +475,7 @@ def test_api_resume_rejects_bare_recovery_action_without_scheduling(tmp_path: Pa
     )
 
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(orchestration_harness.resume_harness_task_run(task_run.task_run_id))
+        asyncio.run(harness_api.resume_harness_task_run(task_run.task_run_id))
 
     assert exc.value.status_code == 409
     assert exc.value.detail == "task_run_not_resumable:waiting_executor"
@@ -507,7 +507,7 @@ def test_api_resume_uses_control_gateway_before_scheduling(tmp_path: Path, monke
         return {"ok": True, "scheduled": True, "reason": "scheduled", "task_run_id": task_run_id}
 
     monkeypatch.setattr(
-        orchestration_harness,
+        harness_api,
         "require_runtime",
         lambda: SimpleNamespace(
             harness_runtime=SimpleNamespace(
@@ -518,9 +518,9 @@ def test_api_resume_uses_control_gateway_before_scheduling(tmp_path: Path, monke
     )
 
     response = asyncio.run(
-        orchestration_harness.resume_harness_task_run(
+        harness_api.resume_harness_task_run(
             task_run.task_run_id,
-            orchestration_harness.TaskRunExecuteRequest(max_steps=7),
+            harness_api.TaskRunExecuteRequest(max_steps=7),
         )
     )
 
@@ -566,7 +566,7 @@ def test_api_approval_resume_does_not_schedule_when_resume_is_rejected(
         pytest.fail("approval path must not schedule after resume rejection")
 
     monkeypatch.setattr(
-        orchestration_harness,
+        harness_api,
         "require_runtime",
         lambda: SimpleNamespace(
             harness_runtime=SimpleNamespace(
@@ -582,7 +582,7 @@ def test_api_approval_resume_does_not_schedule_when_resume_is_rejected(
     )
 
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(orchestration_harness.approve_harness_task_run_tool_call(task_run.task_run_id))
+        asyncio.run(harness_api.approve_harness_task_run_tool_call(task_run.task_run_id))
 
     assert exc.value.status_code == 409
     assert exc.value.detail == "task_run_resume_boundary_rejected"
@@ -615,7 +615,7 @@ def test_api_approval_resume_uses_control_gateway_before_scheduling(
         return {"ok": True, "scheduled": True, "reason": "scheduled", "task_run_id": task_run_id}
 
     monkeypatch.setattr(
-        orchestration_harness,
+        harness_api,
         "require_runtime",
         lambda: SimpleNamespace(
             harness_runtime=SimpleNamespace(
@@ -626,9 +626,9 @@ def test_api_approval_resume_uses_control_gateway_before_scheduling(
     )
 
     response = asyncio.run(
-        orchestration_harness.approve_harness_task_run_tool_call(
+        harness_api.approve_harness_task_run_tool_call(
             task_run.task_run_id,
-            orchestration_harness.TaskRunApprovalRequest(max_steps=9, reason="user approved"),
+            harness_api.TaskRunApprovalRequest(max_steps=9, reason="user approved"),
         )
     )
 
@@ -999,3 +999,5 @@ def _pending_tool_approval(task_run_id: str) -> dict[str, object]:
         "tool_args_hash": f"hash:{task_run_id}",
         "created_at": 1.0,
     }
+
+

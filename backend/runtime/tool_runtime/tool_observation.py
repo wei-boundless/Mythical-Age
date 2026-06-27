@@ -71,7 +71,7 @@ class ToolObservation:
             "content_chars": len(self.text),
             "payload": self.to_dict(),
             "needs_model_followup": needs_model_followup,
-            "authority": "orchestration.runtime_observation",
+            "authority": "runtime.runtime_observation",
         }
 
     def to_turn_observation_event(self) -> dict[str, Any]:

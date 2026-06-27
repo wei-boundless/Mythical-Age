@@ -18,11 +18,11 @@ class SubagentMessage:
     content: str = ""
     refs: dict[str, Any] = field(default_factory=dict)
     created_at: float = 0.0
-    authority: str = "orchestration.subagent_message"
+    authority: str = "harness.subagent_message"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.subagent_message":
-            raise ValueError("SubagentMessage authority must be orchestration.subagent_message")
+        if self.authority != "harness.subagent_message":
+            raise ValueError("SubagentMessage authority must be harness.subagent_message")
         if not self.message_id:
             raise ValueError("SubagentMessage requires message_id")
         if not self.task_run_id:

@@ -22,7 +22,7 @@ DEFAULT_PROMPT_TEMPLATE_ID = "prompt_template.general.agent_runtime"
 
 
 def _storage_root(base_dir: Path) -> Path:
-    return ProjectLayout.from_backend_dir(base_dir).orchestration_dir
+    return ProjectLayout.from_backend_dir(base_dir).agent_system_dir
 
 
 def _profiles_path(base_dir: Path) -> Path:
@@ -710,7 +710,7 @@ def _profile_from_dict(payload: dict[str, Any]) -> AgentRuntimeProfile:
         subagent_policy=_subagent_policy_from_payload(payload),
         approval_policy=str(payload.get("approval_policy") or "default"),
         trace_policy=str(payload.get("trace_policy") or "runtime_event_log"),
-        lifecycle_policy=str(payload.get("lifecycle_policy") or "orchestration_managed"),
+        lifecycle_policy=str(payload.get("lifecycle_policy") or "agent_system_managed"),
         model_profile=parse_agent_model_profile(payload.get("model_profile")),
         metadata=metadata,
     )
@@ -838,7 +838,7 @@ class AgentRuntimeRegistry:
         subagent_policy: SubagentPolicy | dict[str, Any] | None = None,
         approval_policy: str = "default",
         trace_policy: str = "runtime_event_log",
-        lifecycle_policy: str = "orchestration_managed",
+        lifecycle_policy: str = "agent_system_managed",
         model_profile: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> AgentRuntimeProfile:
@@ -877,7 +877,7 @@ class AgentRuntimeRegistry:
             ),
             approval_policy=str(approval_policy or "default").strip() or "default",
             trace_policy=str(trace_policy or "runtime_event_log").strip() or "runtime_event_log",
-            lifecycle_policy=str(lifecycle_policy or "orchestration_managed").strip() or "orchestration_managed",
+            lifecycle_policy=str(lifecycle_policy or "agent_system_managed").strip() or "agent_system_managed",
             model_profile=parse_agent_model_profile(model_profile if model_profile is not None else (current.model_profile.to_dict() if current else {})),
             metadata=metadata_payload,
         )
@@ -915,7 +915,7 @@ class AgentRuntimeRegistry:
             bucket["profile_ids"].append(profile.agent_profile_id)
             bucket["lifecycle_policies"].add(profile.lifecycle_policy)
         return {
-            "authority": "orchestration.agent_runtime_registry",
+            "authority": "agent_system.agent_runtime_registry",
             "agents": [
                 {
                     **agent.to_dict(),
@@ -1177,4 +1177,6 @@ def _without_allowed_operations(blocked_operations: Any, *, allowed_operations: 
         seen.add(value)
         result.append(value)
     return tuple(result)
+
+
 

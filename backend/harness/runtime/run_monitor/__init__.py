@@ -3,41 +3,41 @@ from __future__ import annotations
 from typing import Any
 
 __all__ = [
-    "RuntimeMonitorActionService",
-    "RuntimeMonitorManagementProjector",
-    "RuntimeMonitorProjector",
-    "RuntimeMonitorRetentionStore",
-    "RuntimeMonitorService",
+    "RunMonitorActionService",
+    "RunMonitorManagementProjector",
+    "RunMonitorProjector",
+    "RunMonitorRetentionStore",
+    "RunMonitorService",
     "TaskRunLifecycleRetention",
 ]
 
 
 def __getattr__(name: str) -> Any:
-    if name == "RuntimeMonitorActionService":
-        from .actions import RuntimeMonitorActionService
+    if name == "RunMonitorActionService":
+        from .actions import RunMonitorActionService
 
-        globals()[name] = RuntimeMonitorActionService
-        return RuntimeMonitorActionService
-    if name == "RuntimeMonitorManagementProjector":
-        from .management import RuntimeMonitorManagementProjector
+        globals()[name] = RunMonitorActionService
+        return RunMonitorActionService
+    if name == "RunMonitorManagementProjector":
+        from .management import RunMonitorManagementProjector
 
-        globals()[name] = RuntimeMonitorManagementProjector
-        return RuntimeMonitorManagementProjector
-    if name == "RuntimeMonitorProjector":
-        from .projector import RuntimeMonitorProjector
+        globals()[name] = RunMonitorManagementProjector
+        return RunMonitorManagementProjector
+    if name == "RunMonitorProjector":
+        from .projector import RunMonitorProjector
 
-        globals()[name] = RuntimeMonitorProjector
-        return RuntimeMonitorProjector
-    if name == "RuntimeMonitorRetentionStore":
-        from .retention_store import RuntimeMonitorRetentionStore
+        globals()[name] = RunMonitorProjector
+        return RunMonitorProjector
+    if name == "RunMonitorRetentionStore":
+        from .retention_store import RunMonitorRetentionStore
 
-        globals()[name] = RuntimeMonitorRetentionStore
-        return RuntimeMonitorRetentionStore
-    if name == "RuntimeMonitorService":
-        from .service import RuntimeMonitorService
+        globals()[name] = RunMonitorRetentionStore
+        return RunMonitorRetentionStore
+    if name == "RunMonitorService":
+        from .service import RunMonitorService
 
-        globals()[name] = RuntimeMonitorService
-        return RuntimeMonitorService
+        globals()[name] = RunMonitorService
+        return RunMonitorService
     if name == "TaskRunLifecycleRetention":
         from ..task_run_retention import TaskRunLifecycleRetention
 

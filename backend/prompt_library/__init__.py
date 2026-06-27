@@ -24,6 +24,7 @@ from .registry import PromptLibraryRegistry
 from .rules import PromptRuleCompiler, list_builtin_prompt_rule_resources
 from .system_prompts import FOUNDATION_PROMPT_REFS, list_builtin_system_prompt_resources
 from .tool_prompts import list_builtin_tool_prompt_resources, tool_guidance_payload_for_visible_tools
+from .strategy_prototypes import StrategyPrototype, get_strategy_prototype, strategy_prototype_for_task_goal
 from .utility_prompts import (
     DURABLE_MEMORY_RECALL_SELECTOR_PROMPT,
     EVIDENCE_DISTILLER_PROMPT,
@@ -56,6 +57,9 @@ __all__ = [
     "list_builtin_environment_lifecycle_prompt_resources",
     "list_builtin_tool_prompt_resources",
     "tool_guidance_payload_for_visible_tools",
+    "StrategyPrototype",
+    "get_strategy_prototype",
+    "strategy_prototype_for_task_goal",
     "list_builtin_utility_prompt_resources",
     "RAG_FINALIZER_SYSTEM_PROMPT",
     "EVIDENCE_DISTILLER_PROMPT",
@@ -92,4 +96,3 @@ __all__ = [
     "RuntimePromptManifest",
     "build_runtime_prompt_manifest",
 ]
-

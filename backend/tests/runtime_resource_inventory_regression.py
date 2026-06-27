@@ -27,7 +27,7 @@ def test_runtime_resource_inventory_marks_only_current_turn_and_obligation_as_si
         "resource.execution_obligation",
         "resource.task_domains",
         "resource.task_graphs",
-        "resource.orchestration_agents",
+        "resource.agent_system_agents",
         "resource.runtime_checkpoint",
     }
     assert items["resource.runtime_checkpoint"].authority_layer == "L7_persistent_state"
@@ -40,7 +40,7 @@ def test_runtime_resource_inventory_paths_are_resolved_from_backend_layout(tmp_p
 
     assert str(items["resource.task_domains"].path).startswith(str(tmp_path))
     assert str(items["resource.task_graphs"].path).startswith(str(tmp_path))
-    assert str(items["resource.orchestration_agents"].path).startswith(str(tmp_path))
+    assert str(items["resource.agent_system_agents"].path).startswith(str(tmp_path))
     assert str(items["resource.runtime_checkpoint"].path).startswith(str(tmp_path))
 
 

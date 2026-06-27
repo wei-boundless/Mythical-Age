@@ -31,7 +31,7 @@ class ToolObservationRecord:
     debug_hints: dict[str, Any] = field(default_factory=dict)
     runtime_freshness: dict[str, Any] = field(default_factory=dict)
     structured_error: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.tool_observation_record"
+    authority: str = "runtime.tool_observation_record"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -51,7 +51,7 @@ class ToolObservationLedger:
     ledger_id: str
     task_run_id: str
     records: tuple[ToolObservationRecord, ...] = ()
-    authority: str = "orchestration.tool_observation_ledger"
+    authority: str = "runtime.tool_observation_ledger"
 
     def append(self, record: ToolObservationRecord) -> "ToolObservationLedger":
         return ToolObservationLedger(
@@ -450,7 +450,7 @@ def _subagent_result_metadata(
             "evidence_refs": evidence_refs,
             "observation_refs": observation_refs,
             "limitations": limitations,
-            "authority": "orchestration.subagent_result_projection",
+            "authority": "harness.subagent_result_projection",
         }
     )
     return {"subagent_result": subagent_result} if subagent_result else {}

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from request_intent.frame_access import (
+from runtime.request_signals.frame_access import (
     capability_needs,
     turn_signals,
 )
@@ -281,7 +281,7 @@ def _task_graph_node_execution_obligation_payload(payload: dict[str, Any]) -> di
     item["required_verifications"] = []
     item["required_deliverables"] = ["node_contract_output"]
     item["forbidden_actions"] = []
-    item["task_graph_node_policy"] = "orchestration_owned_side_effects"
+    item["task_graph_node_policy"] = "graph_system_owned_side_effects"
     item["extraction_evidence"] = {
         **evidence,
         "task_graph_node_runtime": True,

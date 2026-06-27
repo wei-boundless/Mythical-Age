@@ -1102,7 +1102,7 @@ class RuntimeConfigManager:
         self._default_config = {
             "rag_mode": False,
             "permission_mode": "default",
-            "orchestration_plan_mode": "primary",
+            "agent_system_plan_mode": "primary",
             "context_budget_preset": "deepseek_1m",
             "attachments": dict(ATTACHMENTS_DEFAULT_CONFIG),
             "image_ocr": dict(IMAGE_OCR_DEFAULT_CONFIG),
@@ -1180,11 +1180,11 @@ class RuntimeConfigManager:
         normalized = _normalize_runtime_permission_mode(mode)
         return self.save({"permission_mode": normalized})
 
-    def get_orchestration_plan_mode(self) -> str:
+    def get_agent_system_plan_mode(self) -> str:
         return "primary"
 
-    def set_orchestration_plan_mode(self, mode: str) -> dict[str, Any]:
-        return self.save({"orchestration_plan_mode": "primary"})
+    def set_agent_system_plan_mode(self, mode: str) -> dict[str, Any]:
+        return self.save({"agent_system_plan_mode": "primary"})
 
     def get_context_budget_preset(self) -> str:
         from context_system.budget.presets import normalize_context_budget_preset_id

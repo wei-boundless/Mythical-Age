@@ -261,7 +261,7 @@ def _runtime_control(diagnostics: dict[str, Any], monitor: dict[str, Any]) -> di
         "requested_by": str(control.get("requested_by") or ""),
         "requested_at": float(control.get("requested_at") or 0.0),
         "reason": str(control.get("reason") or ""),
-        "authority": str(control.get("authority") or "orchestration.task_run_control"),
+        "authority": str(control.get("authority") or "harness.task_run_control"),
         **(
             {"runtime_control_signal_ref": str(control.get("runtime_control_signal_ref") or "")}
             if str(control.get("runtime_control_signal_ref") or "").strip()

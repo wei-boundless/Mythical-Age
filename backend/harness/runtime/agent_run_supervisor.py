@@ -79,7 +79,13 @@ class AgentRunSupervisor:
                     session_id,
                     excluding_task_run_id=task_run_id,
                 )
-                if active_primary is not None:
+                if active_primary is not None and not _is_current_turn_task_handoff(
+                    self.runtime_host,
+                    active_primary,
+                    session_id=session_id,
+                    task_run_id=task_run_id,
+                    turn_id=turn_id or scope.turn_id,
+                ):
                     self._publish_cell_event(
                         "agent_runtime_cell_backpressure",
                         scope,
@@ -862,6 +868,42 @@ def _supervisor_result(
         **({"error": error} if error else {}),
         "authority": "harness.runtime.agent_run_supervisor",
     }
+
+
+def _is_current_turn_task_handoff(
+    runtime_host: Any,
+    active_primary: AgentRuntimeCell,
+    *,
+    session_id: str,
+    task_run_id: str,
+    turn_id: str,
+) -> bool:
+    scope = active_primary.scope
+    normalized_session_id = str(session_id or "").strip()
+    normalized_task_run_id = str(task_run_id or "").strip()
+    normalized_turn_id = str(turn_id or "").strip()
+    if scope.invocation_kind != "single_turn":
+        return False
+    if not normalized_session_id or scope.session_id != normalized_session_id:
+        return False
+    if not normalized_turn_id or scope.turn_id != normalized_turn_id:
+        return False
+    if str(scope.task_run_id or "").strip():
+        return False
+    registry = getattr(runtime_host, "active_turn_registry", None)
+    snapshot = getattr(registry, "snapshot", None)
+    if not callable(snapshot):
+        return False
+    try:
+        active_turn = snapshot(normalized_session_id)
+    except Exception:
+        return False
+    if active_turn is None:
+        return False
+    return (
+        str(getattr(active_turn, "turn_id", "") or "").strip() == normalized_turn_id
+        and str(getattr(active_turn, "bound_task_run_id", "") or "").strip() == normalized_task_run_id
+    )
 
 
 def _counts_against_active_limit(cell: AgentRuntimeCell) -> bool:

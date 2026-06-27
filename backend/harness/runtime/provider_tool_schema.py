@@ -15,13 +15,16 @@ def provider_tool_bindings_for_available_tools(
         if not name:
             continue
         schema = _provider_input_schema(tool)
-        bindings.append(
-            {
-                "name": name,
-                "description": str(tool.get("description") or tool.get("display_name") or name),
-                "input_schema": schema,
-            }
-        )
+        binding = {
+            "name": name,
+            "description": str(tool.get("description") or tool.get("display_name") or name),
+            "input_schema": schema,
+        }
+        if "strict" in tool and tool.get("strict") is not None:
+            binding["strict"] = bool(tool.get("strict"))
+        if isinstance(tool.get("metadata"), dict):
+            binding["metadata"] = dict(tool.get("metadata") or {})
+        bindings.append(binding)
     return sorted(bindings, key=lambda item: str(item.get("name") or ""))
 
 

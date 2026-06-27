@@ -20,11 +20,11 @@ class ToolUseSummary:
     evidence_refs: tuple[str, ...] = ()
     artifact_refs: tuple[str, ...] = ()
     next_actions: tuple[str, ...] = ()
-    authority: str = "orchestration.tool_use_summary"
+    authority: str = "runtime.tool_use_summary"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.tool_use_summary":
-            raise ValueError("ToolUseSummary authority must be orchestration.tool_use_summary")
+        if self.authority != "runtime.tool_use_summary":
+            raise ValueError("ToolUseSummary authority must be runtime.tool_use_summary")
         if not self.summary_id:
             raise ValueError("ToolUseSummary requires summary_id")
 

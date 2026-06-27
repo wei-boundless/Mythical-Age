@@ -3,7 +3,7 @@
 import { Activity, AlertTriangle, CheckCircle2, Clock3, ScrollText, TimerReset, Workflow } from "lucide-react";
 import React from "react";
 
-import type { RuntimeMonitorActionPayload } from "@/lib/api";
+import type { RunMonitorActionPayload } from "@/lib/api";
 import type { RunMonitorSignal } from "@/lib/run-monitor/types";
 import { publicRuntimeStatusLabel, publicRuntimeStatusText } from "@/lib/runtimeStatusText";
 
@@ -11,7 +11,7 @@ type RunTaskLaneProps = {
   signals: RunMonitorSignal[];
   loading: boolean;
   actionLoading: string;
-  onAction: (payload: RuntimeMonitorActionPayload) => void;
+  onAction: (payload: RunMonitorActionPayload) => void;
   onOpenLog?: (signal: RunMonitorSignal) => void;
   onOpen: (signalId: string) => void;
 };
@@ -160,7 +160,7 @@ function RunTaskLaneActions({
 }: {
   actions: RunTaskLaneAction[];
   loadingAction: string;
-  onAction: (payload: RuntimeMonitorActionPayload) => void;
+  onAction: (payload: RunMonitorActionPayload) => void;
   onOpenLog?: (signal: RunMonitorSignal) => void;
   signal: RunMonitorSignal;
 }) {

@@ -15,7 +15,7 @@ from permissions.operations import build_default_operation_registry
 from capability_system.tools.authorization import ToolAuthorizationIndex, build_tool_authorization_index
 from permissions import OperationGate
 from core.project_layout import ProjectLayout
-from harness.runtime.run_monitor import RuntimeMonitorService
+from harness.runtime.run_monitor import RunMonitorService
 from graph_system.langgraph_checkpoint_store import LangGraphCheckpointStore
 from runtime.memory.state_index import RuntimeStateIndex
 from runtime.facts import RuntimeFactLedger
@@ -94,8 +94,8 @@ class SingleAgentRuntimeHost:
         self.tool_authorization_index = tool_authorization_index or build_tool_authorization_index(
             tuple(tool_definitions or ())
         )
-        self.runtime_monitor_service = RuntimeMonitorService(runtime_host=self)
-        self.monitor_projector = self.runtime_monitor_service.projector
+        self.run_monitor_service = RunMonitorService(runtime_host=self)
+        self.monitor_projector = self.run_monitor_service.projector
         self.agent_run_supervisor = AgentRunSupervisor(
             runtime_host=self,
             runtime_gateway=self.runtime_gateway,
@@ -471,16 +471,16 @@ class SingleAgentRuntimeHost:
         }
 
     def list_global_live_monitor(self, limit: int = 20) -> dict[str, Any]:
-        return self.runtime_monitor_service.list_global_live_monitor(limit=limit)
+        return self.run_monitor_service.list_global_live_monitor(limit=limit)
 
     def get_session_live_monitor(self, session_id: str) -> dict[str, Any]:
-        return self.runtime_monitor_service.get_session_live_monitor(session_id)
+        return self.run_monitor_service.get_session_live_monitor(session_id)
 
     def get_task_run_live_monitor(self, task_run_id: str) -> dict[str, Any] | None:
-        return self.runtime_monitor_service.get_task_run_live_monitor(task_run_id)
+        return self.run_monitor_service.get_task_run_live_monitor(task_run_id)
 
     def run_task_run_retention_maintenance(self, *, limit: int = 240) -> dict[str, Any]:
-        return self.runtime_monitor_service.run_lifecycle_retention_maintenance(limit=limit)
+        return self.run_monitor_service.run_lifecycle_retention_maintenance(limit=limit)
 
     def get_trace(
         self,

@@ -20,7 +20,7 @@ def _session_task_summary(session_id: Any, runtime: Any) -> dict[str, Any]:
     if not target_session_id:
         return {}
     host = getattr(getattr(runtime, "harness_runtime", None), "single_agent_runtime_host", None)
-    service = getattr(host, "runtime_monitor_service", None)
+    service = getattr(host, "run_monitor_service", None)
     summary = getattr(service, "get_session_task_summary", None)
     if not callable(summary):
         return {}

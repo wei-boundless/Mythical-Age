@@ -51,7 +51,16 @@ from harness.runtime.incremental_context_frame import (
 )
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan, stable_model_message_hash, stable_text_hash
 from harness.runtime.provider_tool_schema import provider_tool_bindings_for_available_tools
-from harness.runtime.tool_call_contract import provider_tools_enabled_from_contract
+from harness.runtime.control_action_schema import (
+    CONTROL_ACTION_TOOL_NAMES,
+    control_action_request_payload_from_native_tool_call,
+    is_control_action_tool_name,
+    provider_control_action_bindings,
+)
+from harness.runtime.tool_call_contract import (
+    provider_control_tools_enabled_from_contract,
+    provider_tools_enabled_from_contract,
+)
 from harness.runtime.public_progress import public_runtime_progress_summary
 from harness.runtime.sandbox_artifacts import (
     logical_path_publish_allowed,
@@ -80,6 +89,10 @@ from runtime.context_management.tool_transcript import (
     is_tool_transcript_kind,
 )
 from runtime.prompt_accounting import ContextUsageMeter
+from runtime.prompt_accounting.provider_lane import (
+    PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
+    PROVIDER_LANE_AGENT_TOOL_LOOP,
+)
 from runtime.model_gateway.assistant_stream_frame import (
     ASSISTANT_STREAM_REPAIR_EVENT,
     ASSISTANT_TEXT_DELTA_EVENT,
@@ -186,7 +199,7 @@ _RUNTIME_CONTEXT_SEGMENT_SOURCES: dict[str, tuple[str, str, str]] = {
         "tool_followup_action_contract",
     ),
 }
-_CONTROL_ACTION_NAMES = {"request_task_run", "active_work_control", "resume_recoverable_work", "ask_user", "block"}
+_CONTROL_ACTION_NAMES = set(CONTROL_ACTION_TOOL_NAMES)
 _ACTIVE_WORK_CONTROL_ACTIONS = {
     "continue_active_work",
     "pause_active_work",
@@ -198,13 +211,13 @@ _LEGACY_CONTROL_ACTION_NAMES = {"task_run_request"}
 _ACTION_OBJECT_ONLY_ACTION_HINTS = {
     "task_run_request": "request_task_run",
 }
-_ACTION_OBJECT_ONLY_ACTION_NAMES = _CONTROL_ACTION_NAMES | {"respond"} | _LEGACY_CONTROL_ACTION_NAMES
+_ACTION_OBJECT_ONLY_ACTION_NAMES = _LEGACY_CONTROL_ACTION_NAMES
 _INTERNAL_MODEL_RESPONSE_EVENT = "__single_agent_model_response"
 
 
 def _is_model_action_native_tool_name(value: Any) -> bool:
     normalized = str(value or "").strip().lower()
-    return bool(normalized and normalized in _ACTION_OBJECT_ONLY_ACTION_NAMES)
+    return bool(normalized and (normalized in _ACTION_OBJECT_ONLY_ACTION_NAMES or is_control_action_tool_name(normalized)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -372,7 +385,7 @@ def _agent_visible_action_fields(allowed_action_types: tuple[str, ...] | list[st
     if "block" in allowed:
         fields["block"] = "blocking_reason"
     if "request_task_run" in allowed:
-        fields["request_task_run"] = "task_run_contract_seed"
+        fields["request_task_run"] = "compact TaskStartIntent in task_run_contract_seed"
     if "tool_call" in allowed:
         fields["tool_call"] = "tool_call or tool_calls"
     if "active_work_control" in allowed:
@@ -478,6 +491,67 @@ def _agent_authored_closeout_content_from_structured_payload(
             terminal_status="blocked",
         )
     return None
+
+
+def _agent_authored_closeout_content_from_response(
+    response: Any,
+    *,
+    turn_id: str,
+    packet_ref: str,
+    closeout_attempt: int,
+    phase: str,
+) -> tuple[AgentAuthoredCloseoutContent | None, dict[str, Any]]:
+    action_parse = _single_agent_action_request_from_response(
+        response,
+        request_id=f"model-response:{packet_ref}:agent-closeout:{phase}:{closeout_attempt}",
+        turn_id=turn_id,
+        packet_ref=packet_ref,
+        iteration=closeout_attempt,
+        allowed_action_types=_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES,
+        phase=f"agent_closeout:{phase}",
+        output_contract=_single_agent_output_channel_contract(action_transport_required=False),
+        allow_model_tool_calls=True,
+    )
+    if action_parse.error:
+        return None, {
+            "status": "closeout_action_not_consumed",
+            "reason": str(dict(action_parse.error or {}).get("reason") or dict(action_parse.error or {}).get("code") or "closeout_action_not_consumed"),
+            "protocol_error": dict(action_parse.error or {}),
+            "native_tool_call_count": len(action_parse.native_tool_calls or []),
+            "authority": "harness.loop.single_agent_turn.agent_closeout_response_boundary",
+        }
+    action_request = action_parse.control_action or action_parse.action_request
+    if action_request is not None:
+        if action_request.action_type == "respond":
+            return AgentAuthoredCloseoutContent(content=str(action_request.final_answer or "").strip()), {}
+        if action_request.action_type == "ask_user":
+            return AgentAuthoredCloseoutContent(
+                content=str(action_request.user_question or "").strip(),
+                answer_channel="ask_user",
+            ), {}
+        if action_request.action_type == "block":
+            return AgentAuthoredCloseoutContent(
+                content=str(action_request.blocking_reason or "").strip(),
+                answer_channel="blocked",
+                terminal_status="blocked",
+            ), {}
+        return None, {
+            "status": "closeout_action_not_consumed",
+            "reason": f"closeout_action_not_consumed:{action_request.action_type}",
+            "action_type": str(action_request.action_type or ""),
+            "authority": "harness.loop.single_agent_turn.agent_closeout_response_boundary",
+        }
+    content = str(action_parse.assistant_final_text or stringify_content(getattr(response, "content", response))).strip()
+    structured_content = _agent_authored_closeout_content_from_structured_payload(content, turn_id=turn_id)
+    if structured_content is not None:
+        return structured_content, {}
+    if content:
+        return AgentAuthoredCloseoutContent(content=content), {}
+    return None, {
+        "status": "closeout_empty_response",
+        "reason": "closeout_empty_response",
+        "authority": "harness.loop.single_agent_turn.agent_closeout_response_boundary",
+    }
 
 
 def _tool_limit_closeout_control_signal(
@@ -817,7 +891,7 @@ def _tool_followup_action_contract_messages(
         },
         "output": {
             "natural_response": "事实已经足够回答用户时，可以直接写给用户看的自然回应；这表示你选择结束本轮普通对话。",
-            "structured_action": "需要继续工具、请求任务生命周期、控制当前工作、显式询问或显式阻塞时，提交一个结构化动作对象；执行层会绑定本次动作身份。",
+            "structured_action": "需要继续工具、请求任务生命周期、控制当前工作、显式询问或显式阻塞时，选择本轮允许的动作；provider 工具/控制动作可用时直接选择对应动作并填写参数。",
             "respond": "如果你使用结构化 respond，把用户可见自然语言正文写入 final_answer。",
             "ask_user": "需要让本轮停在等待用户补充的状态时，提交 action_type=ask_user，并填写 user_question。",
             "block": "事实、权限或环境不足以可靠继续，需要让本轮停在阻塞状态时，提交 action_type=block，并填写 blocking_reason。",
@@ -847,17 +921,17 @@ def _tool_followup_action_contract_messages(
     )
     instruction = (
         "你是正在根据刚才工具观察决定下一步的 coding agent。\n"
-        "请根据观察决定下一步：可以直接给用户自然回应，也可以提交一个结构化动作对象。\n"
+        "请根据观察决定下一步：可以直接给用户自然回应，也可以选择一个本轮允许的工具或控制动作。\n"
         f"{json.dumps(payload, ensure_ascii=False, sort_keys=True)}\n\n"
         f"{evidence_instruction}"
-        "如果已经足够回答用户，可以直接写完整自然语言回复；如果使用结构化 respond，把正文写入 final_answer。\n"
+        "如果已经足够回答用户，可以直接写完整自然语言回复；如果使用 respond 控制动作或结构化 respond，把正文写入 final_answer。\n"
         "如果需要用户补充，可以直接提出问题；如果需要让本轮停在等待用户补充的状态，提交 action_type=ask_user，并填写 user_question。\n"
         "如果当前事实或权限不足，可以直接说明阻塞；如果需要让本轮停在阻塞状态，提交 action_type=block，并填写 blocking_reason。\n"
         "如果你判断需要任务模式提供的稳定任务身份、跨 turn 状态、阶段反馈、停止/恢复控制、验收边界或失败恢复，提交 action_type=request_task_run。\n"
-        "task_run_contract_seed 必须先写 TaskRunContract 容器，再选择一个 primary Work Mode：goal、plan、todo、investigation、recovery、monitor 或 open_work。"
+        "request_task_run 只填写紧凑 TaskStartIntent：entry_reason、primary_mode、minimum_viable_next_step、working_scope、acceptance、mode_payload；内部 TaskRunContract 由运行时生成。"
         "如果仍需工具观察且本轮允许 tool_call，只按本轮工具行动合同发起工具行动；"
-        "工具前置说明可以作为公开进展，但不能宣称已经或即将启动 Task；task_run_contract_seed 必须留在 request_task_run 动作对象内。\n"
-        "不要同时给出自然回应和结构化动作；如果需要工具观察，请在本次工具行动中写清工具名和参数。"
+        "工具前置说明可以作为公开进展，但不能宣称已经或即将启动 Task；TaskStartIntent 必须留在 request_task_run 动作对象内。\n"
+        "不要同时给出自然回应和动作；如果需要工具观察，请在本次工具行动中写清工具名和参数。"
     )
     return _append_model_messages_without_rewriting_context(
         model_messages,
@@ -1095,7 +1169,14 @@ def _public_validation_error_reasons(errors: list[str]) -> list[str]:
         "task_run_contract_seed_required_for_request_task_run",
         "task_run_contract_seed_must_be_object",
     }.intersection(normalized):
-        reasons.append("任务运行合同缺失或不是对象")
+        reasons.append("任务启动意图缺失或不是对象")
+    if {
+        "compact_task_start_intent.entry_reason_required",
+        "compact_task_start_intent.minimum_viable_next_step_required",
+        "compact_task_start_intent.working_scope_required",
+        "compact_task_start_intent.acceptance_mode_required",
+    }.intersection(normalized) or any(item.startswith("compact_task_start_intent.primary_mode_unsupported") for item in normalized):
+        reasons.append("任务启动意图缺少入口理由、主工作模式、最小下一步、范围或验收模式")
     if {
         "container_contract.entry_reason_required_for_request_task_run",
         "container_contract.minimum_viable_next_step_required_for_request_task_run",
@@ -1103,9 +1184,9 @@ def _public_validation_error_reasons(errors: list[str]) -> list[str]:
         "work_modes_required_for_request_task_run",
         "container_contract.primary_work_mode_ref_must_point_to_primary_work_mode",
     }.intersection(normalized):
-        reasons.append("TaskRunContract 容器或 primary Work Mode 不完整")
+        reasons.append("任务启动意图无法生成完整的主工作模式")
     if any(item.startswith("primary_") and item.endswith("_required_for_request_task_run") for item in normalized):
-        reasons.append("primary Work Mode 的最低可执行内容不完整")
+        reasons.append("主工作模式的最低可执行内容不完整")
     if "acceptance_contract.acceptance_mode_required_for_request_task_run" in normalized:
         reasons.append("缺少验收模式")
     if {
@@ -1416,7 +1497,7 @@ def _situation_feedback_for_contract_code(code: str, *, requested_action: str = 
         return f"上一轮表达了工具行动意图{tool_hint}，但没有进入当前可执行工具队列；这次工具请求尚未执行。"
     if normalized == "action_object_required_for_control_action":
         action_hint = f"（{requested_action}）" if requested_action else ""
-        return f"你把动作选择{action_hint}放在了工具请求位置；它需要作为本轮结构化动作提交。"
+        return f"你把动作选择{action_hint}放在了错误的工具请求位置；它需要作为本轮控制动作提交。"
     if normalized in {"multiple_native_action_sources"}:
         return "同一轮出现了多个动作决定，无法判断哪一个才是你的唯一真实决策。"
     if normalized in {"single_agent_turn_multiple_action_sources"}:
@@ -1441,7 +1522,7 @@ def _repair_instruction_for_contract_code(code: str, *, requested_action: str = 
         tool_hint = f"（刚才请求的是 {requested_tool}）" if requested_tool else ""
         return f"保留同一个观察目标{tool_hint}，按本轮工具行动合同重新提交工具行动；如果事实已经足够，使用 respond.final_answer。"
     if normalized == "action_object_required_for_control_action":
-        return "保留原动作意图，把它放入结构化动作对象；回答用 respond，询问用 ask_user，阻塞用 block，启动持续任务用 request_task_run。"
+        return "保留原动作意图，选择对应控制动作并填写参数；启动持续任务时只填写紧凑 TaskStartIntent。"
     if normalized in {"multiple_native_action_sources"}:
         return "只保留一个普通工具动作集合；不要在同一轮混合多个决策。"
     if normalized in {"single_agent_turn_multiple_action_sources"}:
@@ -1464,7 +1545,7 @@ def _expected_next_action_for_contract_code(code: str, *, requested_action: str 
     if normalized == "tool_action_intent_not_in_current_connection":
         return "按当前工具行动合同重新提交同一个观察目标，或基于已有事实收口。"
     if normalized == "action_object_required_for_control_action":
-        return "提交同等语义的结构化动作对象。"
+        return "提交同等语义的控制动作。"
     if normalized in {"multiple_native_action_sources"}:
         return "删掉冲突动作，只提交一个可执行的结构化决定。"
     if normalized in {"single_agent_turn_multiple_action_sources"}:
@@ -1836,6 +1917,13 @@ async def run_single_agent_turn(
         )
         reasoning_projection_public_visible = _turn_reasoning_projection_public_enabled(runtime_assembly)
 
+        def current_native_tools_transport() -> list[dict[str, Any]]:
+            return _native_tools_for_packet(
+                current_allowed_action_types,
+                available_tools=current_available_tools,
+                tool_call_contract=current_tool_call_contract,
+            )
+
         def memory_maintenance_main_context_for_commit() -> dict[str, Any]:
             return _memory_maintenance_main_context_payload(
                 packet_context=dict(compilation.packet.diagnostics.get("runtime_packet_context") or {}),
@@ -2007,19 +2095,21 @@ async def run_single_agent_turn(
                         "turn_id": turn_id,
                         "packet_ref": current_packet_ref,
                         "source": _AGENT_CLOSEOUT_SOURCE,
+                        "provider_lane": PROVIDER_LANE_AGENT_TOOL_LOOP,
                         "segment_plan": closeout_segment_plan,
                         "provider_visible_append_only_context": True,
                         "reasoning_projection_public_visible": reasoning_projection_public_visible,
                         "prompt_manifest": {
                             **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
                             "invocation_kind": "single_agent_turn_agent_authored_closeout",
+                            "provider_lane": PROVIDER_LANE_AGENT_TOOL_LOOP,
                             "closeout_phase": phase,
                             "closeout_reason": reason,
                             "attempt": attempt,
                             "segment_plan_ref": str(closeout_segment_plan.get("segment_plan_id") or ""),
                         },
                     },
-                    native_tools=[],
+                    native_tools=current_native_tools_transport(),
                     allow_assistant_text_delta=False,
                     output_contract=_single_agent_output_channel_contract(action_transport_required=False),
                 ):
@@ -2031,12 +2121,22 @@ async def run_single_agent_turn(
                     yield model_event
                 if isinstance(closeout_response, dict) and closeout_response.get("type") == "error":
                     break
-                content = stringify_content(getattr(closeout_response, "content", closeout_response)).strip()
-                closeout_content = _agent_authored_closeout_content_from_structured_payload(content, turn_id=turn_id)
+                closeout_content, closeout_parse_issue = _agent_authored_closeout_content_from_response(
+                    closeout_response,
+                    turn_id=turn_id,
+                    packet_ref=current_packet_ref,
+                    closeout_attempt=attempt,
+                    phase=phase,
+                )
+                if closeout_content is None:
+                    previous_invalid_response = json.dumps(
+                        closeout_parse_issue,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )[:1200]
+                    continue
                 answer_channel = "conversation"
                 terminal_status = "completed"
-                if closeout_content is None:
-                    closeout_content = AgentAuthoredCloseoutContent(content=content)
                 content = closeout_content.content
                 answer_channel = closeout_content.answer_channel
                 terminal_status = closeout_content.terminal_status
@@ -2246,16 +2346,16 @@ async def run_single_agent_turn(
                 "turn_id": turn_id,
                 "packet_ref": compilation.packet.packet_id,
                 "source": "harness.single_agent_turn",
+                "provider_lane": PROVIDER_LANE_AGENT_TOOL_LOOP,
                 "segment_plan": dict(compilation.packet.segment_plan or {}),
                 "provider_visible_append_only_context": True,
                 "reasoning_projection_public_visible": reasoning_projection_public_visible,
-                "prompt_manifest": dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
+                "prompt_manifest": {
+                    **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
+                    "provider_lane": PROVIDER_LANE_AGENT_TOOL_LOOP,
+                },
             },
-            native_tools=_native_tools_for_packet(
-                compilation.packet.allowed_action_types,
-                available_tools=compilation.packet.available_tools,
-                tool_call_contract=current_tool_call_contract,
-            ),
+            native_tools=current_native_tools_transport(),
             allow_assistant_text_delta=_output_channel_allows_direct_visible_text(initial_output_contract),
             output_contract=initial_output_contract,
         ):
@@ -2303,22 +2403,20 @@ async def run_single_agent_turn(
                         "turn_id": turn_id,
                         "packet_ref": current_packet_ref,
                         "source": "harness.single_agent_turn.active_turn_steer",
+                        "provider_lane": PROVIDER_LANE_AGENT_TOOL_LOOP,
                         "segment_plan": steer_segment_plan,
                         "provider_visible_append_only_context": True,
                         "reasoning_projection_public_visible": reasoning_projection_public_visible,
                         "prompt_manifest": {
                             **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
                             "invocation_kind": "single_agent_turn_active_turn_steer",
+                            "provider_lane": PROVIDER_LANE_AGENT_TOOL_LOOP,
                             "steer_phase": "before_model_action",
                             "queued_user_steer_count": len(active_turn_steer_batch.items),
                             "segment_plan_ref": str(steer_segment_plan.get("segment_plan_id") or ""),
                         },
                     },
-                    native_tools=_native_tools_for_packet(
-                        current_allowed_action_types,
-                        available_tools=current_available_tools,
-                        tool_call_contract=current_tool_call_contract,
-                    ),
+                    native_tools=current_native_tools_transport(),
                     allow_assistant_text_delta=False,
                     output_contract=current_output_contract,
                 ):
@@ -2427,6 +2525,7 @@ async def run_single_agent_turn(
                             if recovery_exhausted
                             else "harness.single_agent_turn.runtime_control_signal_recovery"
                         ),
+                        "provider_lane": PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
                         "segment_plan": recovery_segment_plan,
                         "provider_visible_append_only_context": True,
                         "reasoning_projection_public_visible": reasoning_projection_public_visible,
@@ -2437,6 +2536,7 @@ async def run_single_agent_turn(
                                 if recovery_exhausted
                                 else "single_agent_turn_runtime_control_signal_recovery"
                             ),
+                            "provider_lane": PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
                             "recovery_phase": "tool_loop",
                             "signal_kind": "model_protocol_violation",
                             "recovery_attempt": protocol_recovery_attempts,
@@ -2991,7 +3091,7 @@ async def run_single_agent_turn(
                     "evidence_alignment_system_group_enabled": evidence_alignment_enabled,
                     "evidence_delta_summary_included": bool(evidence_delta_summary),
                     "assistant_body_form": "natural_response_or_action_object_final_answer",
-                    "control_action_submission": "action_object_when_control_action_is_chosen",
+                    "control_action_submission": "provider_tool_selection_when_available",
                     "output_channel_contract": current_output_contract.to_dict(),
                     "natural_response_terminal_when_no_action": True,
                     "synthetic_incremental_context_frame": "omitted_from_provider_visible_messages",
@@ -3019,6 +3119,7 @@ async def run_single_agent_turn(
             followup_prompt_manifest = {
                 **dict(followup_prompt_manifest or {}),
                 "segment_plan_ref": str(followup_segment_plan.get("segment_plan_id") or ""),
+                "provider_lane": PROVIDER_LANE_AGENT_TOOL_LOOP,
                 "append_only_followup_order": True,
                 "physical_message_order": "append_only_context_including_dynamic_tail",
             }
@@ -3035,6 +3136,7 @@ async def run_single_agent_turn(
                     "turn_id": turn_id,
                     "packet_ref": followup_packet_ref,
                     "source": "harness.single_agent_turn.tool_followup",
+                    "provider_lane": PROVIDER_LANE_AGENT_TOOL_LOOP,
                     "segment_plan": followup_segment_plan,
                     "provider_visible_append_only_context": True,
                     "provider_visible_context_ledger_storage_root": str(provider_visible_followup_ledger.get("storage_root") or ""),
@@ -3042,11 +3144,7 @@ async def run_single_agent_turn(
                     "reasoning_projection_public_visible": reasoning_projection_public_visible,
                     "prompt_manifest": followup_prompt_manifest,
                 },
-                native_tools=_native_tools_for_packet(
-                    current_allowed_action_types,
-                    available_tools=current_available_tools,
-                    tool_call_contract=current_tool_call_contract,
-                ),
+                native_tools=current_native_tools_transport(),
                 allow_assistant_text_delta=False,
                 output_contract=current_output_contract,
             ):
@@ -3172,6 +3270,7 @@ async def run_single_agent_turn(
                             if recovery_exhausted
                             else "harness.single_agent_turn.runtime_control_signal_recovery"
                         ),
+                        "provider_lane": PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
                         "segment_plan": recovery_segment_plan,
                         "provider_visible_append_only_context": True,
                         "reasoning_projection_public_visible": reasoning_projection_public_visible,
@@ -3182,6 +3281,7 @@ async def run_single_agent_turn(
                                 if recovery_exhausted
                                 else "single_agent_turn_runtime_control_signal_recovery"
                             ),
+                            "provider_lane": PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
                             "recovery_phase": "final",
                             "signal_kind": "model_protocol_violation",
                             "recovery_attempt": protocol_recovery_attempts,
@@ -3259,8 +3359,12 @@ async def run_single_agent_turn(
                         "turn_id": turn_id,
                         "packet_ref": current_packet_ref,
                         "source": "harness.single_agent_turn.admission_repair",
+                        "provider_lane": PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
                         "segment_plan": dict(model_messages_segment_plan or {}),
-                        "prompt_manifest": dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
+                        "prompt_manifest": {
+                            **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
+                            "provider_lane": PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
+                        },
                         "provider_visible_context_ledger_storage_root": str(provider_visible_followup_ledger.get("storage_root") or ""),
                         "provider_visible_context_scope": str(provider_visible_followup_ledger.get("provider_visible_context_scope") or ""),
                     },
@@ -3754,7 +3858,7 @@ async def _invoke_single_turn_model(
     plain_invoker = getattr(model_runtime, "invoke_messages", None)
     if native_tools and callable(tool_invoker):
         try:
-            tool_call_options = build_round_tool_call_options(max_tool_calls=len(native_tools))
+            tool_call_options = _round_tool_call_options_for_native_tools(native_tools)
             return await tool_invoker(
                 model_messages,
                 native_tools,
@@ -3848,11 +3952,30 @@ def _model_selection_with_json_object_contract(model_selection: dict[str, Any]) 
     return selection
 
 
-def _model_selection_for_native_tool_protocol(model_selection: dict[str, Any]) -> dict[str, Any]:
+def _model_selection_for_native_tool_protocol(
+    model_selection: dict[str, Any],
+    *,
+    native_tools: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
+) -> dict[str, Any]:
     selection = dict(model_selection or {})
     selection.pop("structured_output", None)
     selection.pop("response_format", None)
+    if _native_tools_include_strict(native_tools):
+        provider_extensions = dict(selection.get("provider_extensions") or {})
+        provider_extensions["strict_tool_schema"] = True
+        selection["provider_extensions"] = provider_extensions
     return selection
+
+
+def _native_tools_include_strict(native_tools: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> bool:
+    return any(bool(dict(item or {}).get("strict") is True) for item in tuple(native_tools or ()))
+
+
+def _round_tool_call_options_for_native_tools(
+    native_tools: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+):
+    max_tool_calls = 1 if _native_tools_include_strict(native_tools) else len(list(native_tools or []))
+    return build_round_tool_call_options(max_tool_calls=max_tool_calls)
 
 
 def _model_selection_with_action_budget(model_selection: dict[str, Any]) -> dict[str, Any]:
@@ -3890,11 +4013,11 @@ async def _invoke_single_turn_model_with_stream_events(
         )
     if channel_contract.provider_json_object_required:
         if native_tools:
-            model_selection = _model_selection_for_native_tool_protocol(model_selection)
+            model_selection = _model_selection_for_native_tool_protocol(model_selection, native_tools=native_tools)
         else:
             model_selection = _model_selection_with_json_object_contract(model_selection)
     elif native_tools:
-        model_selection = _model_selection_for_native_tool_protocol(model_selection)
+        model_selection = _model_selection_for_native_tool_protocol(model_selection, native_tools=native_tools)
     stream_policy = dict(dict(model_selection or {}).get("stream_policy") or {})
     stream_enabled = bool(stream_policy.get("enabled") is True)
     if not stream_enabled:
@@ -3977,7 +4100,7 @@ async def _invoke_single_turn_model_with_stream_events(
     aggregated_response: Any = None
     try:
         if native_tools and callable(tool_streamer):
-            tool_call_options = build_round_tool_call_options(max_tool_calls=len(native_tools))
+            tool_call_options = _round_tool_call_options_for_native_tools(native_tools)
             async for stream_item_kind, chunk in iterate_stream_with_due_ticks(
                 tool_streamer(
                     model_messages,
@@ -4063,6 +4186,7 @@ async def _invoke_single_turn_model_with_stream_events(
                 **dict(accounting_context or {}),
                 "request_id": f"{stream_ref}:partial-stream-recovery",
                 "source": _PARTIAL_STREAM_RECOVERY_SOURCE,
+                "provider_lane": PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
                 "stream_recovery": {
                     "mode": VISIBLE_PREFIX_RECOVERY_MODE,
                     "visible_prefix_utf8_bytes": visible_prefix_utf8_bytes(raw_content),
@@ -4106,6 +4230,7 @@ async def _invoke_single_turn_model_with_stream_events(
                         "prompt_manifest": {
                             **dict(recovery_context.get("prompt_manifest") or {}),
                             "invocation_kind": "single_agent_turn_partial_stream_recovery",
+                            "provider_lane": PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
                             "segment_plan_ref": str(recovery_segment_plan.get("segment_plan_id") or ""),
                         },
                         "stream_recovery": {
@@ -4183,6 +4308,7 @@ async def _invoke_single_turn_model_with_stream_events(
                         "prompt_manifest": {
                             **dict(recovery_context.get("prompt_manifest") or {}),
                             "invocation_kind": "single_agent_turn_partial_stream_plain_continuation",
+                            "provider_lane": PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
                             "segment_plan_ref": str(plain_recovery_segment_plan.get("segment_plan_id") or ""),
                         },
                         "stream_recovery": {
@@ -4402,11 +4528,13 @@ async def _repair_single_agent_admission_failure(
             **dict(accounting_context or {}),
             "request_id": request_id,
             "source": "harness.single_agent_turn.admission_repair",
+            "provider_lane": PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
             "segment_plan": repair_segment_plan,
             "provider_visible_append_only_context": True,
             "prompt_manifest": {
                 **dict(dict(accounting_context or {}).get("prompt_manifest") or {}),
                 "invocation_kind": "single_agent_turn_admission_repair",
+                "provider_lane": PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
                 "repair_phase": phase,
                 "original_admission_decision": admission.decision,
                 "original_admission_reason": admission.system_reason,
@@ -4832,6 +4960,31 @@ def _single_agent_action_request_from_response(
             ),
         )
     tool_actions = tuple(item for item in sidecar_actions if item.action_type == "tool_call")
+    control_actions = tuple(item for item in sidecar_actions if item.action_type != "tool_call")
+    if tool_actions and control_actions:
+        return SingleAgentActionParse(
+            action_request=None,
+            native_tool_calls=native_tool_calls,
+            error=_single_agent_protocol_error(
+                code="single_agent_turn_mixed_native_action_planes",
+                reason="mixed_native_tool_and_control_actions",
+                diagnostics={
+                    "native_tool_call_count": len(native_tool_calls),
+                    "tool_names": [str(call.get("name") or "") for call in native_tool_calls],
+                    "tool_action_count": len(tool_actions),
+                    "control_action_count": len(control_actions),
+                    "action_issue": _protocol_action_issue(
+                        category="protocol_violation",
+                        code="mixed_native_tool_and_control_actions",
+                        repair_instruction=(
+                            "本轮只能选择一个语义动作平面：要么选择普通工具观察，要么选择一个控制动作。"
+                            "如果要启动持续任务，请只提交 request_task_run。"
+                        ),
+                    ),
+                    "phase": phase,
+                },
+            ),
+        )
     if tool_actions:
         if "tool_call" not in set(allowed_action_types or ()):
             action_issue = _protocol_action_issue(
@@ -4860,6 +5013,33 @@ def _single_agent_action_request_from_response(
             action_request=tool_actions[0] if len(tool_actions) == 1 else None,
             native_tool_calls=native_tool_calls,
             tool_actions=tool_actions,
+            packet_public_progress_note=packet_public_progress_note,
+        )
+    if control_actions:
+        if len(control_actions) != 1:
+            return SingleAgentActionParse(
+                action_request=None,
+                native_tool_calls=native_tool_calls,
+                error=_single_agent_protocol_error(
+                    code="single_agent_turn_multiple_control_actions",
+                    reason="multiple_control_actions",
+                    diagnostics={
+                        "native_tool_call_count": len(native_tool_calls),
+                        "tool_names": [str(call.get("name") or "") for call in native_tool_calls],
+                        "control_action_count": len(control_actions),
+                        "action_issue": _protocol_action_issue(
+                            category="protocol_violation",
+                            code="multiple_control_actions",
+                            repair_instruction="本轮只能选择一个控制动作；请保留最能表达下一步的那个动作并重新提交。",
+                        ),
+                        "phase": phase,
+                    },
+                ),
+            )
+        return SingleAgentActionParse(
+            action_request=control_actions[0],
+            native_tool_calls=native_tool_calls,
+            control_action=control_actions[0],
             packet_public_progress_note=packet_public_progress_note,
         )
     if require_json_action:
@@ -5102,16 +5282,53 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
         if action_object_only_error is not None:
             errors.append(action_object_only_error)
             continue
-        action = _tool_action_request_from_native_tool_calls(
-            [call],
-            turn_id=turn_id,
-            packet_ref=packet_ref,
-            iteration=iteration,
-        )
-        error = None
-        if error is not None:
-            errors.append(error)
-            continue
+        if is_control_action_tool_name(tool_name):
+            payload = control_action_request_payload_from_native_tool_call(
+                call,
+                turn_id=turn_id,
+                packet_ref=packet_ref,
+                iteration=iteration,
+            )
+            action, parse_diagnostics = model_action_request_from_payload(
+                payload,
+                turn_id=turn_id,
+                allowed_action_types=allowed_action_types,
+                public_response_required=public_response_required,
+            )
+            validation_errors = [
+                str(item)
+                for item in list(dict(parse_diagnostics or {}).get("validation_errors") or [])
+                if str(item)
+            ]
+            if action is None or validation_errors:
+                errors.append(
+                    {
+                        "authority": "harness.loop.single_agent_turn.native_action_parser",
+                        "code": "native_control_action_invalid",
+                        "reason": "native_control_action_invalid",
+                        "native_tool_call": _native_tool_call_diagnostics(call),
+                        "validation_errors": validation_errors,
+                        "action_issue": _protocol_action_issue(
+                            category="protocol_violation",
+                            code="native_control_action_invalid",
+                            requested_action_type=tool_name,
+                            requested_tool_name=tool_name,
+                            repair_instruction=(
+                                "请重新选择本轮允许的控制动作并按 provider 参数 schema 填写；"
+                                "request_task_run 只填写紧凑 TaskStartIntent，不要手写内部 TaskRunContract。"
+                            ),
+                        ),
+                        "repairable": True,
+                    }
+                )
+                continue
+        else:
+            action = _tool_action_request_from_native_tool_calls(
+                [call],
+                turn_id=turn_id,
+                packet_ref=packet_ref,
+                iteration=iteration,
+            )
         if action is None:
             errors.append(
                 {
@@ -5335,54 +5552,31 @@ def _request_task_run_minimal_repair_action() -> dict[str, Any]:
             "next_action": "进入持续任务执行流程。",
         },
         "task_run_contract_seed": {
-            "container_contract": {
-                "entry_reason": "说明为什么当前工作需要持续任务生命周期。",
-                "continuity_required": True,
-                "control_required": True,
-                "projection_required": True,
-                "checkpoint_required": True,
-                "minimum_viable_next_step": "进入任务后第一步要做什么。",
-                "primary_work_mode_ref": "work-mode:plan:primary",
-                "supporting_mode_refs": [],
-                "mode_transition_policy": {
-                    "agent_may_propose_transition": True,
-                    "requires_accepted_event": True,
-                },
+            "contract_shape": "compact_task_start_intent_v1",
+            "entry_reason": "说明为什么当前 turn 不足以稳定承载这项工作。",
+            "primary_mode": "plan",
+            "minimum_viable_next_step": "进入任务后第一步要推进的可执行动作。",
+            "working_scope": {
+                "target_objects": ["要处理的文件、模块、目录、对象或问题域"],
+                "workspace_refs": [],
+                "source_refs": ["用户消息或已观察证据"],
+                "excluded_scope": [],
+                "known_constraints": ["用户明确约束、质量要求或排除项"],
             },
-            "work_modes": [
-                {
-                    "mode_instance_id": "work-mode:plan:primary",
-                    "mode_kind": "plan",
-                    "mode_role": "primary",
-                    "status": "draft",
-                    "depends_on_mode_refs": [],
-                    "contract": {
-                        "strategy_summary": "当前可执行路线。",
-                        "major_steps": ["第一步"],
-                        "plan_status": "agent_managed",
-                        "working_scope": {
-                            "target_objects": ["要处理的文件、模块、目录、对象或问题域"],
-                            "source_refs": ["用户消息或已观察证据"],
-                            "excluded_scope": [],
-                            "known_constraints": ["用户明确约束、质量要求或排除项"],
-                        },
-                    },
-                }
-            ],
-            "lifecycle_contract": {
-                "pause_policy": {"allowed": True, "state_to_preserve": ["current_goal", "completed_steps", "open_risks", "next_resume_step"]},
-                "resume_policy": {"resume_from": "latest_preserved_state_and_user_steer"},
-                "stop_policy": {"on_stop": "停止后说明已完成内容、未完成内容和可恢复状态。"},
-                "replan_policy": {"when": "目标、风险、证据或验证结果显著偏离原计划时先反馈。"},
-                "failure_recovery_policy": {"on_tool_failure": "说明失败原因、保留已完成证据并停止或请求用户裁决。"},
-                "terminal_policy": {"final_report_required": True, "include_unfinished_work": True},
-            },
-            "feedback_contract": {
-                "feedback_sources": ["tool_observation", "runtime_observation", "lifecycle_signal", "verification_signal"],
-            },
-            "acceptance_contract": {
-                "acceptance_mode": "checkpoint",
+            "acceptance": {
+                "mode": "checkpoint",
+                "criteria": ["完成这项任务所需满足的可观察标准"],
                 "final_answer_requirements": ["说明完成内容、验证结果、未完成项和风险"],
+            },
+            "mode_payload": {
+                "summary": "当前可执行路线。",
+                "steps": ["第一步"],
+                "items": [],
+                "success_definition": "",
+                "question": "",
+                "recovery_handle": "",
+                "monitor_target": "",
+                "notes": [],
             },
         },
     }
@@ -5416,7 +5610,8 @@ def _with_request_task_run_repair_template(prefix: str) -> str:
     return (
         f"{str(prefix or '').strip()} "
         "任务模式用于承载可追踪的持续工作生命周期：稳定任务身份、跨 turn 状态、阶段反馈、停止/恢复控制、验收边界和失败恢复。"
-        "最小合法骨架如下；用你的当前任务目标、范围、完成证据和生命周期边界替换占位文本，但保留这些键和层级：\n"
+        "request_task_run 只提交紧凑 TaskStartIntent；运行时会生成内部 TaskRunContract。"
+        "最小合法意图如下；用当前任务目标、范围、完成证据和验收边界替换占位文本，但保留这些键和层级：\n"
         f"{_request_task_run_repair_template_text()}"
     ).strip()
 
@@ -5438,7 +5633,7 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
     if "public_task_lifecycle_claim_requires_request_task_run" in errors:
         return (
             "你的公开反馈宣称要开启或进入持续任务生命周期，但结构化动作不是 request_task_run。"
-            "请重新选择一个一致动作：如果你确实判断需要任务模式，提交 action_type=request_task_run 并填写 task_run_contract_seed；"
+            "请重新选择一个一致动作：如果你确实判断需要任务模式，提交 action_type=request_task_run 并填写紧凑 TaskStartIntent；"
             "如果你只是要在当前 turn 内继续工具处理，请使用 action_type=tool_call，并改写公开反馈，不要宣称启动 Task。"
         )
     if action_type == "resume_recoverable_work":
@@ -5481,11 +5676,21 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
         return _with_request_task_run_repair_template(
             "request_task_run 的任务运行合同字段放错层级。不要把 "
             f"{misplaced} 放在动作对象顶层，也不要使用 payload 包裹。"
-            "请保留 action_type=request_task_run，把 TaskRunContract 容器和 primary Work Mode 放入 task_run_contract_seed 内。"
+            "请保留 action_type=request_task_run，把紧凑 TaskStartIntent 放入 task_run_contract_seed 内。"
         )
     if any(str(item).startswith("system_execution_field_not_allowed_in_task_run_contract") for item in errors):
         return _with_request_task_run_repair_template(
-            "request_task_run 的任务运行合同只描述容器、工作模式、生命周期、反馈、记忆和验收；请删除工具、模型、环境或执行授权字段。"
+            "request_task_run 的任务启动意图只描述入口理由、主工作模式、最小下一步、范围和验收；请删除工具、模型、环境或执行授权字段。"
+        )
+    if (
+        "compact_task_start_intent.entry_reason_required" in errors
+        or "compact_task_start_intent.minimum_viable_next_step_required" in errors
+        or "compact_task_start_intent.working_scope_required" in errors
+        or "compact_task_start_intent.acceptance_mode_required" in errors
+        or any(item.startswith("compact_task_start_intent.primary_mode_unsupported") for item in errors)
+    ):
+        return _with_request_task_run_repair_template(
+            "request_task_run 的紧凑 TaskStartIntent 不完整。请补齐 entry_reason、primary_mode、minimum_viable_next_step、working_scope 和 acceptance.mode。"
         )
     if (
         "container_contract.entry_reason_required_for_request_task_run" in errors
@@ -5495,21 +5700,21 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
         or "container_contract.primary_work_mode_ref_must_point_to_primary_work_mode" in errors
     ):
         return _with_request_task_run_repair_template(
-            "request_task_run 必须提交完整 task_run_contract_seed。请补齐 container_contract.entry_reason、"
-            "minimum_viable_next_step、primary_work_mode_ref，并提供且只提供一个 mode_role=primary 的 WorkModeContract。"
+            "request_task_run 必须提交紧凑 TaskStartIntent。请补齐 entry_reason、primary_mode、"
+            "minimum_viable_next_step、working_scope、acceptance 和 mode_payload。"
         )
     if "task_run_contract_seed_required_for_request_task_run" in errors:
         return _with_request_task_run_repair_template(
-            "request_task_run 必须包含 task_run_contract_seed，且 TaskRunContract 容器和 primary Work Mode 都必须放在 task_run_contract_seed 内。"
+            "request_task_run 必须包含 task_run_contract_seed，且紧凑 TaskStartIntent 必须放在 task_run_contract_seed 内。"
         )
     if any(item.startswith("primary_") and item.endswith("_required_for_request_task_run") for item in errors):
         return (
-            "primary Work Mode 的最低可执行内容不完整。"
-            "如果当前是 Goal Mode，请给出目标/成功定义和 scope/evidence；如果是 Plan Mode，请给出路线或阶段；"
-            "如果是 Todo Mode，请给出 items。不要用 goal 字段冒充 plan 或 todo。"
+            "TaskStartIntent 的 mode_payload 最低可执行内容不完整。"
+            "如果 primary_mode=goal，请给出 summary 或 success_definition；如果 primary_mode=plan，请给出 summary 或 steps；"
+            "如果 primary_mode=todo，请给出 items。不要用 goal 字段冒充 plan 或 todo。"
         )
     if "acceptance_contract.acceptance_mode_required_for_request_task_run" in errors:
-        return _with_request_task_run_repair_template("request_task_run 必须声明 acceptance_contract.acceptance_mode，例如 checkpoint、user_review、best_effort 或 strict。")
+        return _with_request_task_run_repair_template("request_task_run 必须声明 acceptance.mode，例如 checkpoint、user_review、best_effort 或 strict。")
     if (
         "public_progress_note_required_for_request_task_run" in errors
         or "public_action_state_required_for_request_task_run" in errors
@@ -5544,17 +5749,23 @@ def _native_tools_for_packet(
     tool_call_contract: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     allowed = set(allowed_action_types or ())
-    if "tool_call" not in allowed:
-        return []
-    if not provider_tools_enabled_from_contract(tool_call_contract):
-        return []
-    executable_tools = tuple(
-        dict(item)
-        for item in tuple(available_tools or ())
-        if isinstance(item, dict)
-        and not _is_model_action_native_tool_name(item.get("tool_name") or item.get("name"))
-    )
-    return provider_tool_bindings_for_available_tools(executable_tools)
+    bindings: list[dict[str, Any]] = []
+    if "tool_call" in allowed and provider_tools_enabled_from_contract(tool_call_contract):
+        executable_tools = tuple(
+            dict(item)
+            for item in tuple(available_tools or ())
+            if isinstance(item, dict)
+            and not _is_model_action_native_tool_name(item.get("tool_name") or item.get("name"))
+        )
+        bindings.extend(provider_tool_bindings_for_available_tools(executable_tools))
+    if provider_control_tools_enabled_from_contract(tool_call_contract):
+        bindings.extend(provider_control_action_bindings(tuple(allowed)))
+    deduped: dict[str, dict[str, Any]] = {}
+    for binding in bindings:
+        name = str(dict(binding or {}).get("name") or "").strip()
+        if name:
+            deduped[name] = dict(binding or {})
+    return [deduped[name] for name in sorted(deduped)]
 
 
 def _model_tool_calls_allowed_for_packet(
@@ -5635,7 +5846,7 @@ def _tool_action_request_from_native_tool_calls(
 ) -> ModelActionRequest | None:
     for call in tool_calls:
         tool_name = str(call.get("name") or "").strip()
-        if not tool_name or tool_name.lower() in _ACTION_OBJECT_ONLY_ACTION_NAMES:
+        if not tool_name or tool_name.lower() in _ACTION_OBJECT_ONLY_ACTION_NAMES or is_control_action_tool_name(tool_name):
             continue
         args = dict(call.get("args") or {})
         call_id = str(call.get("id") or "").strip()

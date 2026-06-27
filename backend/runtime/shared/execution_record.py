@@ -42,11 +42,11 @@ class ExecutionReceipt:
     reused_previous_result: bool = False
     result_ref: str = ""
     error: str = ""
-    authority: str = "orchestration.execution_receipt"
+    authority: str = "runtime.execution_receipt"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.execution_receipt":
-            raise ValueError("ExecutionReceipt authority must be orchestration.execution_receipt")
+        if self.authority != "runtime.execution_receipt":
+            raise ValueError("ExecutionReceipt authority must be runtime.execution_receipt")
         if not self.execution_id:
             raise ValueError("ExecutionReceipt requires execution_id")
         if not self.request_ref:
@@ -76,11 +76,11 @@ class OperationExecutionRecord:
     created_at: float = 0.0
     updated_at: float = 0.0
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.operation_execution_record"
+    authority: str = "runtime.operation_execution_record"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.operation_execution_record":
-            raise ValueError("OperationExecutionRecord authority must be orchestration.operation_execution_record")
+        if self.authority != "runtime.operation_execution_record":
+            raise ValueError("OperationExecutionRecord authority must be runtime.operation_execution_record")
         if not self.execution_id:
             raise ValueError("OperationExecutionRecord requires execution_id")
         if not self.task_run_id:
@@ -306,7 +306,7 @@ class RuntimeExecutionStore:
                 continue
             deleted.append(task_run_id)
         return {
-            "authority": "orchestration.execution_store.prune_task_runs",
+            "authority": "runtime.execution_store.prune_task_runs",
             "requested_task_run_ids": sorted(targets),
             "deleted_task_run_ids": deleted,
             "deleted_count": len(deleted),

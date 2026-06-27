@@ -1,14 +1,14 @@
 import type {
-  OrchestrationSnapshot,
+  HarnessTurnSnapshot,
   GraphRunMonitorView,
   ModelProviderConfig,
   PublicChatTimelineItem,
   PublicProjectionFrame,
   RetrievalResult,
   RuntimeLogScope,
-  RuntimeMonitorActionPayload,
-  RuntimeMonitorActionResult,
-  RuntimeMonitorEnvelope,
+  RunMonitorActionPayload,
+  RunMonitorActionResult,
+  RunMonitorEnvelope,
   ImageAssetConfig,
   HarnessTaskRunLiveMonitor,
   SessionScope,
@@ -102,7 +102,7 @@ export type AssistantTextSegmentState = {
 };
 
 export type SessionActivityLevel = "idle" | "running" | "waiting" | "success" | "warning" | "error" | "stopped";
-export type RuntimeMonitorStreamStatus = "connecting" | "connected" | "disconnected" | "closed";
+export type RunMonitorStreamStatus = "connecting" | "connected" | "disconnected" | "closed";
 export type ChatStreamConnectionState = "idle" | "streaming" | "reconnecting" | "reconnected" | "failed" | "stopped" | "paused";
 
 export type ChatStreamConnectionStatus = {
@@ -258,7 +258,7 @@ export type WorkspaceView =
   | "health-system"
   | "capability-system"
   | "task-system"
-  | "orchestration"
+  | "agent-system"
   | "system-config";
 
 export type ChatModelSelection = {
@@ -286,14 +286,14 @@ export type MemoryInspectorTarget = {
   reason?: string;
 };
 
-export type OrchestrationInspectorTarget = {
+export type AgentSystemInspectorTarget = {
   source: "task-system" | "live-session" | "manual";
   runId?: string;
   turnId?: string;
   turnIndex?: number;
   artifactPath?: string;
   reason?: string;
-  orchestrationLayer?: "registry" | "groups" | "runtime" | "permissions" | "model_runtime" | "context" | "eligibility";
+  agentSystemLayer?: "registry" | "groups" | "runtime" | "permissions" | "model_runtime" | "context" | "eligibility";
   agentId?: string;
   agentProfileId?: string;
   graphId?: string;
@@ -507,11 +507,11 @@ export type StoreState = {
   inspectorWidth: number;
   tokenStats: TokenStats | null;
   memoryInspectorTarget: MemoryInspectorTarget | null;
-  orchestrationSnapshot: OrchestrationSnapshot | null;
+  harnessTurnSnapshot: HarnessTurnSnapshot | null;
   taskGraphMonitorBinding: TaskGraphMonitorBinding | null;
   activeTurnSnapshot: ActiveTurnSnapshot | null;
   taskGraphLiveMonitor: HarnessTaskRunLiveMonitor | null;
-  runMonitor: RuntimeMonitorEnvelope | null;
+  runMonitor: RunMonitorEnvelope | null;
   runMonitorRevision: string;
   runMonitorSelectedSignalId: string;
   runMonitorSelectedTaskRunId: string;
@@ -519,9 +519,9 @@ export type StoreState = {
   runMonitorSelectedGraphMonitor: GraphRunMonitorView | null;
   runMonitorLoading: boolean;
   runMonitorError: string;
-  runMonitorStreamStatus: RuntimeMonitorStreamStatus;
+  runMonitorStreamStatus: RunMonitorStreamStatus;
   runMonitorActionLoading: string;
-  runMonitorLastActionResult: RuntimeMonitorActionResult | null;
+  runMonitorLastActionResult: RunMonitorActionResult | null;
   taskGraphBoundRunMonitor: GraphRunMonitorView | null;
   taskGraphMonitorLoading: boolean;
   taskGraphMonitorActionLoading: boolean;
@@ -529,7 +529,7 @@ export type StoreState = {
   taskGraphAutoAdvancePending: boolean;
   taskGraphMonitorError: string;
   taskGraphRunInteractionOpen: boolean;
-  orchestrationInspectorTarget: OrchestrationInspectorTarget | null;
+  agentSystemInspectorTarget: AgentSystemInspectorTarget | null;
   taskSelection: TaskSelectionState | null;
   chatTaskEnvironmentBinding: ChatTaskEnvironmentBinding | null;
   taskGraphWorkspaceTarget: TaskGraphWorkspaceTarget | null;
@@ -573,8 +573,8 @@ export type StoreActions = {
   setSidebarWidth: (width: number) => void;
   setInspectorWidth: (width: number) => void;
   setMemoryInspectorTarget: (target: MemoryInspectorTarget | null) => void;
-  setOrchestrationInspectorTarget: (target: OrchestrationInspectorTarget | null) => void;
-  setOrchestrationSnapshot: (snapshot: OrchestrationSnapshot | null) => void;
+  setAgentSystemInspectorTarget: (target: AgentSystemInspectorTarget | null) => void;
+  setHarnessTurnSnapshot: (snapshot: HarnessTurnSnapshot | null) => void;
   bindTaskGraphMonitorRun: (binding: Omit<TaskGraphMonitorBinding, "bound_at"> & { bound_at?: number }) => void;
   clearTaskGraphMonitorRun: () => void;
   setTaskGraphRunInteractionOpen: (open: boolean) => void;
@@ -591,7 +591,7 @@ export type StoreActions = {
   clearChatTaskEnvironmentBinding: () => void;
   openRunMonitorSignal: (signalId: string) => void;
   refreshRunMonitor: () => Promise<void>;
-  runMonitorAction: (payload: RuntimeMonitorActionPayload) => Promise<RuntimeMonitorActionResult | null>;
+  runMonitorAction: (payload: RunMonitorActionPayload) => Promise<RunMonitorActionResult | null>;
   openTaskGraphWorkspace: (target?: Omit<TaskGraphWorkspaceTarget, "layer" | "requested_at">) => void;
   openWorkspaceFile: (path: string, options?: { lineNumber?: number }) => void;
   openFileChangeDiff: (target: Omit<FileChangeDiffCenterWorkspaceTarget, "layer" | "requested_at">) => void;
@@ -605,3 +605,5 @@ export type AppStore = StoreState &
   StoreActions & {
     editableFiles: string[];
   };
+
+

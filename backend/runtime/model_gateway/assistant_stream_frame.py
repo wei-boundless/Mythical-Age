@@ -13,7 +13,7 @@ ASSISTANT_STREAM_REPAIR_EVENT = "assistant_stream_repair"
 _BODY_BLOCKED_ANSWER_CHANNELS = {
     "active_work_control",
     "opening_judgment",
-    "orchestration_fail_closed",
+    "harness_fail_closed",
     "runtime_control",
     "task_control",
 }

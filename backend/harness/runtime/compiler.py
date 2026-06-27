@@ -2876,8 +2876,8 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
             "先识别用户当前输入本身要你回应什么：提问、质疑、状态追问、纠错、继续执行、修改目标、请求交付或闲聊。任何 action 都不能绕过这个输入意图。",
             "你需要自己判断是否进入持续任务生命周期；口头承诺不等于动作，只有结构化 request_task_run 才表示你选择启动 Task。",
             "先判断目标是否需要持久工作生命周期：跨 turn 状态记录、暂停/恢复/停止/replan、明确完成证据、长期执行、工具或上下文预算恢复、独立验收、阶段投影、资源隔离或失败收口。",
-            "如果你判断当前工作需要持续任务生命周期，并且已经足够形成 task_run_contract_seed（TaskRunContract 容器 + 一个 primary Work Mode），下一步必须提交 request_task_run；不要先用普通 tool_call 代替任务启动。",
-            "如果你判断需要 Task 但 task_run_contract_seed 缺少入口理由、primary Work Mode、最小下一步或验收模式，必须 ask_user 补齐；不要假装已经进入 Task。",
+            "如果你判断当前工作需要持续任务生命周期，并且已经足够形成紧凑 TaskStartIntent，下一步必须提交 request_task_run；不要先用普通 tool_call 代替任务启动。",
+            "如果你判断需要 Task 但 TaskStartIntent 缺少入口理由、主工作模式、最小下一步、范围或验收模式，必须 ask_user 补齐；不要假装已经进入 Task。",
             "如果你判断当前 turn 能直接完成、验证并收口，可以使用普通 tool_call 或 respond；此时公开反馈必须表明这是当前 turn 内的直接处理，不能宣称开启长任务或进入持续任务生命周期。",
             "如果用户当前输入是问题、质疑、追问、状态询问、纠错或询问为什么，必须先对这个输入给出公开回应；只有用户明确要求继续/执行/恢复当前任务时，才允许 active_work_control 只承接执行。",
             "如果公开反馈说要进入持续任务生命周期，结构化动作必须同步提交 request_task_run；如果你选择 tool_call，就把公开反馈改成真实的工具前置判断。",
@@ -2890,7 +2890,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                 "what_it_gives_you": [
                     "stable_work_identity: 后续工具、阶段反馈、停止、恢复和最终收口都绑定到同一个持续工作身份。",
                     "durable_work_state: 目标、范围、已完成项、未完成项和恢复点可以跨 turn 保留。",
-                    "work_mode_context: 可以只开启 Plan、Todo 或 Goal，也可以组合多个 Work Mode，但同一持续工作内必须有且只有一个 primary Work Mode。",
+                    "work_mode_context: 你只需要选择一个 primary_mode；运行时会把它归一化为唯一主工作模式。",
                     "stage_projection: 用户能看到阶段性进展、当前动作、阻塞和完成状态，而不只是一串普通工具调用。",
                     "control_surface: 当任务运行中，暂停、停止、恢复、继续和 replan 有明确对象。",
                     "acceptance_boundary: 完成标准、交付物、验证结果和失败原因有统一收口位置。",
@@ -2906,12 +2906,12 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                 "do_not_use_when": [
                     "当前 turn 能直接查证、修改、验证并收口。",
                     "只是短链路读取、单次工具调用或一次性回答。",
-                    "连入口理由、primary Work Mode、最小下一步或验收模式都不足以写成 task_run_contract_seed；这种情况先 ask_user。",
+                    "连入口理由、primary_mode、最小下一步、范围或验收模式都不足以写成 TaskStartIntent；这种情况先 ask_user。",
                 ],
             },
             "decision_options": {
-                "request_task_run": "你判断需要持续任务生命周期，且 task_run_contract_seed 足够启动。",
-                "ask_user": "你判断需要持续任务生命周期，但入口理由、primary Work Mode、最小下一步、约束或验收模式不足。",
+                "request_task_run": "你判断需要持续任务生命周期，且紧凑 TaskStartIntent 足够启动。",
+                "ask_user": "你判断需要持续任务生命周期，但入口理由、primary_mode、最小下一步、约束或验收模式不足。",
                 "tool_call_or_respond": "你判断当前 turn 可以直接完成、验证并收口。",
                 "block": "你判断当前条件不能安全启动或继续，并需要说明真实阻塞。",
             },
@@ -2967,22 +2967,23 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
         ],
         "request_task_run_shape_rules": [
             "request_task_run 必须是单个结构化控制信号；如果文本里带代码块或简短说明，只会提取唯一结构化动作对象执行。",
-            "request_task_run 是启动 TaskRunContract 容器的合同，不是普通工具调用；同一动作里不要同时请求普通 tool_call。",
-            "开启 Task 前先按 request_task_run_required_skeleton 自检；缺少任一必填路径时不要申请 Task，改用 ask_user 补齐关键合同缺口，或明确选择当前 turn 内处理。",
+            "request_task_run 是启动持续任务生命周期的控制动作，不是普通工具调用；同一动作里不要同时请求普通 tool_call。",
+            "开启 Task 前只提交紧凑 TaskStartIntent；内部 TaskRunContract、WorkModeContract、生命周期、反馈和记忆合同由运行时生成。",
+            "开启 Task 前先按 request_task_run_intent_contract 自检；缺少入口理由、主工作模式、最小下一步、范围或验收时不要申请 Task，改用 ask_user 补齐关键缺口，或明确选择当前 turn 内处理。",
             "不要使用 payload 包裹任务字段；顶层只能放 action_type、public_progress_note、public_action_state、task_run_contract_seed、completion_contract、permission_request、diagnostics 等动作字段。",
-            "task_run_contract_seed 的最小必填是 container_contract.entry_reason、container_contract.primary_work_mode_ref、container_contract.minimum_viable_next_step、一个且仅一个 mode_role=primary 的 Work Mode、acceptance_contract.acceptance_mode。",
-            "Goal、Plan、Todo 是相互独立的 Work Mode；可以没有 goal 但有 plan，可以没有 plan 但有 todo，不要为了满足旧格式伪造目标。",
+            "task_run_contract_seed 的最小必填是 contract_shape、entry_reason、primary_mode、minimum_viable_next_step、working_scope、acceptance 和 mode_payload。",
+            "primary_mode 只能是 goal、plan、todo、investigation、recovery、monitor 或 open_work；不要为了满足旧格式伪造 goal/plan/todo。",
             "public_progress_note 要说明为什么你判断需要持续任务生命周期；public_action_state.next_action 应写进入任务执行流程，而不是普通工具动作。",
         ],
         "task_mode_contract": {
-            "definition": "任务模式把一次持续工作绑定成可追踪生命周期容器。TaskRunContract 只定义容器、控制、反馈、记忆和验收；Goal、Plan、Todo 等工作语义进入独立 WorkModeContract。",
+            "definition": "任务模式把一次持续工作绑定成可追踪生命周期容器。你只提交 TaskStartIntent；运行时把它归一化为 TaskRunContract 和 primary WorkModeContract。",
             "start_action": "如果你选择进入任务模式，提交 action_type=request_task_run；不要同时调用普通工具。",
             "minimum_decision": [
                 "为什么当前 turn 不足以稳定承载这项工作。",
                 "应该以哪类 Work Mode 作为 primary：goal、plan、todo、investigation、recovery、monitor 或 open_work。",
-                "primary Work Mode 的合同是否足以支持下一步执行。",
+                "mode_payload 是否足以支持下一步执行。",
                 "进入容器后的最小可行下一步是什么。",
-                "失败、中断、停止或计划偏离时如何反馈、保留状态并收口。",
+                "验收方式和最终回答需要说明什么。",
             ],
             "benefits_for_you": [
                 "后续动作绑定同一个持续工作身份，避免会话续接时丢失工作边界。",
@@ -2992,23 +2993,26 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                 "失败时可以保留已完成证据和恢复点，而不是空白收口。",
             ],
         },
-        "request_task_run_required_skeleton": {
-            "instruction": "这是开启持续任务生命周期的最小必填骨架。用当前用户目标和已观察事实替换占位内容；不要删除这些键，不要把它们放到动作对象顶层。口头承诺不会启动 Task；只有这份结构化 request_task_run 才是启动动作。",
+        "request_task_run_intent_contract": {
+            "instruction": "这是开启持续任务生命周期的最小 TaskStartIntent。用当前用户目标和已观察事实替换占位内容；不要删除这些键，不要把它们放到动作对象顶层。口头承诺不会启动 Task；只有这份结构化 request_task_run 才是启动动作。",
             "required_top_level": ["action_type", "public_progress_note", "public_action_state", "task_run_contract_seed"],
-            "required_task_run_contract_seed_paths": [
-                "container_contract.entry_reason",
-                "container_contract.primary_work_mode_ref",
-                "container_contract.minimum_viable_next_step",
-                "work_modes[one mode_role=primary]",
-                "acceptance_contract.acceptance_mode",
+            "required_task_start_intent_paths": [
+                "contract_shape",
+                "entry_reason",
+                "primary_mode",
+                "minimum_viable_next_step",
+                "working_scope",
+                "acceptance.mode",
+                "mode_payload",
             ],
-            "recommended_task_run_contract_seed_paths": [
-                "container_contract.mode_transition_policy",
-                "work_modes[].contract.working_scope",
-                "lifecycle_contract.failure_recovery_policy",
-                "feedback_contract.feedback_sources",
-                "memory_contract.preserve_on_pause",
-                "acceptance_contract.final_answer_requirements",
+            "recommended_task_start_intent_paths": [
+                "working_scope.target_objects",
+                "working_scope.source_refs",
+                "working_scope.known_constraints",
+                "acceptance.criteria",
+                "acceptance.final_answer_requirements",
+                "mode_payload.summary",
+                "mode_payload.steps",
             ],
             "minimal_action": {
                 "action_type": "request_task_run",
@@ -3018,60 +3022,31 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                     "next_action": "进入持续任务执行流程。",
                 },
                 "task_run_contract_seed": {
-                    "contract_version": "task_run_contract_v1",
-                    "container_contract": {
-                        "entry_reason": "说明为什么当前 turn 不足以稳定承载这项工作。",
-                        "continuity_required": True,
-                        "control_required": True,
-                        "projection_required": True,
-                        "checkpoint_required": True,
-                        "minimum_viable_next_step": "进入任务后第一步要推进的可执行动作。",
-                        "primary_work_mode_ref": "work-mode:plan:primary",
-                        "supporting_mode_refs": [],
-                        "mode_transition_policy": {
-                            "agent_may_propose_transition": True,
-                            "requires_accepted_event": True,
-                        },
+                    "contract_shape": "compact_task_start_intent_v1",
+                    "entry_reason": "说明为什么当前 turn 不足以稳定承载这项工作。",
+                    "primary_mode": "plan",
+                    "minimum_viable_next_step": "进入任务后第一步要推进的可执行动作。",
+                    "working_scope": {
+                        "target_objects": ["要处理的文件、模块、目录、对象或问题域"],
+                        "workspace_refs": [],
+                        "source_refs": ["用户消息或已观察证据"],
+                        "excluded_scope": [],
+                        "known_constraints": ["用户明确约束、质量要求或排除项"],
                     },
-                    "work_modes": [
-                        {
-                            "mode_instance_id": "work-mode:plan:primary",
-                            "mode_kind": "plan",
-                            "mode_role": "primary",
-                            "status": "draft",
-                            "depends_on_mode_refs": [],
-                            "contract": {
-                                "strategy_summary": "用一句话说明进入任务后的总体推进策略。",
-                                "major_steps": ["第一阶段", "第二阶段", "验证与收口"],
-                                "plan_status": "agent_managed",
-                                "working_scope": {
-                                    "target_objects": ["要处理的文件、模块、目录、对象或问题域"],
-                                    "source_refs": ["用户消息或已观察证据"],
-                                    "excluded_scope": [],
-                                    "known_constraints": ["用户明确约束、质量要求或排除项"],
-                                },
-                            },
-                        }
-                    ],
-                    "lifecycle_contract": {
-                        "pause_policy": {"allowed": True, "state_to_preserve": ["current_goal", "completed_steps", "open_risks", "next_resume_step"]},
-                        "resume_policy": {"resume_from": "latest_preserved_state_and_user_steer"},
-                        "stop_policy": {"on_stop": "停止后说明已完成内容、未完成内容和可恢复状态。"},
-                        "replan_policy": {"when": "目标、风险、证据或验证结果显著偏离原计划时先反馈。"},
-                        "failure_recovery_policy": {
-                            "on_tool_failure": "说明失败后要反馈原因、保留已完成证据并停止或请求用户裁决。",
-                        },
-                        "terminal_policy": {"final_report_required": True, "include_unfinished_work": True},
-                    },
-                    "feedback_contract": {
-                        "feedback_sources": ["tool_observation", "runtime_observation", "lifecycle_signal", "verification_signal"],
-                    },
-                    "memory_contract": {
-                        "preserve_on_pause": ["container_contract", "active_work_mode_refs", "completed_steps", "open_risks", "next_resume_step"],
-                    },
-                    "acceptance_contract": {
-                        "acceptance_mode": "checkpoint",
+                    "acceptance": {
+                        "mode": "checkpoint",
+                        "criteria": ["完成这项任务所需满足的可观察标准"],
                         "final_answer_requirements": ["说明完成内容、验证结果、未完成项和风险"],
+                    },
+                    "mode_payload": {
+                        "summary": "用一句话说明进入任务后的总体推进策略。",
+                        "steps": ["第一阶段", "第二阶段", "验证与收口"],
+                        "items": [],
+                        "success_definition": "",
+                        "question": "",
+                        "recovery_handle": "",
+                        "monitor_target": "",
+                        "notes": [],
                     },
                 },
             },
@@ -3102,130 +3077,60 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                 "next_action": "进入持续任务执行流程。",
             },
             "task_run_contract_seed": {
-                "contract_version": "task_run_contract_v1",
-                "container_contract": {
-                    "entry_reason": "这项审查需要跨多个模块保持计划、证据、验证和失败收口状态。",
-                    "continuity_required": True,
-                    "control_required": True,
-                    "projection_required": True,
-                    "checkpoint_required": True,
-                    "minimum_viable_next_step": "读取入口契约和关键投影链路，确认当前执行边界。",
-                    "primary_work_mode_ref": "work-mode:plan:primary",
-                    "supporting_mode_refs": ["work-mode:todo:supporting"],
-                    "mode_transition_policy": {
-                        "agent_may_propose_transition": True,
-                        "requires_accepted_event": True,
-                    },
+                "contract_shape": "compact_task_start_intent_v1",
+                "entry_reason": "这项审查需要跨多个模块保持计划、证据、验证和失败收口状态。",
+                "primary_mode": "plan",
+                "minimum_viable_next_step": "读取入口契约和关键投影链路，确认当前执行边界。",
+                "working_scope": {
+                    "target_objects": ["要审查的目录、模块、文件或子系统"],
+                    "workspace_refs": ["项目或工作区引用"],
+                    "source_refs": ["用户消息、已观察到的文件清单或资料引用"],
+                    "excluded_scope": ["明确不处理的范围"],
+                    "known_constraints": ["用户明确的质量标准和边界"],
                 },
-                "work_modes": [
-                    {
-                        "mode_instance_id": "work-mode:plan:primary",
-                        "mode_kind": "plan",
-                        "mode_role": "primary",
-                        "status": "draft",
-                        "depends_on_mode_refs": [],
-                        "contract": {
-                            "strategy_summary": "读取指定系统、核对契约链路、修复结构问题并完成真实验证。",
-                            "major_steps": ["读取入口和契约", "核对事件链路", "落地修复", "验证并收口"],
-                            "plan_status": "agent_managed",
-                            "replan_policy": {"when": "发现目标结构或风险显著偏离时先反馈用户"},
-                            "working_scope": {
-                                "target_objects": ["要审查的目录、模块、文件或子系统"],
-                                "workspace_refs": ["项目或工作区引用"],
-                                "source_refs": ["用户消息、已观察到的文件清单或资料引用"],
-                                "excluded_scope": ["明确不处理的范围"],
-                                "known_constraints": ["用户明确的质量标准和边界"],
-                            },
-                        },
-                    },
-                    {
-                        "mode_instance_id": "work-mode:todo:supporting",
-                        "mode_kind": "todo",
-                        "mode_role": "supporting",
-                        "status": "draft",
-                        "depends_on_mode_refs": ["work-mode:plan:primary"],
-                        "contract": {
-                            "items": [
-                                {"todo_id": "todo:inspect", "content": "读取入口和契约"},
-                                {"todo_id": "todo:fix", "content": "落地必要修复"},
-                                {"todo_id": "todo:verify", "content": "验证并收口"},
-                            ],
-                            "completion_policy": "checkpoint_only",
-                            "source_mode_ref": "work-mode:plan:primary",
-                        },
-                    },
-                ],
-                "lifecycle_contract": {
-                    "pause_policy": {"allowed": True, "state_to_preserve": ["container_contract", "active_work_mode_refs", "completed_steps", "open_risks", "next_resume_step"]},
-                    "resume_policy": {"resume_from": "latest_preserved_state_and_user_steer"},
-                    "stop_policy": {"on_stop": "停止后说明已完成内容、未完成内容和可恢复状态。"},
-                    "replan_policy": {"when": "目标、风险、证据或验证结果显著偏离原计划时先反馈"},
-                    "failure_recovery_policy": {"on_tool_failure": "公开说明失败原因和已完成范围，不输出空收口"},
-                    "terminal_policy": {"final_report_required": True, "include_unfinished_work": True},
-                },
-                "feedback_contract": {
-                    "feedback_sources": ["tool_observation", "runtime_observation", "lifecycle_signal", "verification_signal"],
-                    "verification_feedback_policy": {"report_failed_verification": True},
-                },
-                "memory_contract": {
-                    "preserve_on_pause": ["container_contract", "active_work_mode_refs", "completed_steps", "open_risks", "next_resume_step"],
-                    "preserve_on_stop": ["final_status", "unfinished_work", "resume_hint"],
-                },
-                "acceptance_contract": {
-                    "acceptance_mode": "checkpoint",
+                "acceptance": {
+                    "mode": "checkpoint",
+                    "criteria": ["修复结构问题", "完成真实验证", "说明剩余风险"],
                     "final_answer_requirements": ["说明完成项", "说明验证结果", "列出剩余风险"],
-                    "evidence_refs_required": True,
+                },
+                "mode_payload": {
+                    "summary": "读取指定系统、核对契约链路、修复结构问题并完成真实验证。",
+                    "steps": ["读取入口和契约", "核对事件链路", "落地修复", "验证并收口"],
+                    "items": [],
+                    "success_definition": "",
+                    "question": "",
+                    "recovery_handle": "",
+                    "monitor_target": "",
+                    "notes": [],
                 },
             },
         },
         "task_run_contract_seed": {
-            "contract_version": "task_run_contract_v1",
-            "container_contract": {
-                "entry_reason": "为什么当前 turn 需要进入持续任务生命周期，必填",
-                "continuity_required": True,
-                "control_required": True,
-                "projection_required": True,
-                "checkpoint_required": True,
-                "minimum_viable_next_step": "进入任务后第一步要推进的可执行动作，必填",
-                "primary_work_mode_ref": "必须指向 work_modes 中唯一 mode_role=primary 的 mode_instance_id",
-                "supporting_mode_refs": ["可选；辅助 Work Mode 引用"],
-                "mode_transition_policy": {"agent_may_propose_transition": True, "requires_accepted_event": True},
+            "contract_shape": "compact_task_start_intent_v1",
+            "entry_reason": "为什么当前 turn 需要进入持续任务生命周期，必填",
+            "primary_mode": "goal|plan|todo|investigation|recovery|monitor|open_work",
+            "minimum_viable_next_step": "进入任务后第一步要推进的可执行动作，必填",
+            "working_scope": {
+                "target_objects": ["要处理的文件、模块、目录、对象或问题域"],
+                "workspace_refs": ["可选；项目、目录或工作区引用"],
+                "source_refs": ["用户消息或已观察证据"],
+                "excluded_scope": ["明确不处理的范围"],
+                "known_constraints": ["用户明确约束、质量要求或排除项"],
             },
-            "work_modes": [
-                {
-                    "mode_instance_id": "work-mode:plan:primary",
-                    "mode_kind": "goal|plan|todo|investigation|recovery|monitor|open_work",
-                    "mode_role": "primary|supporting",
-                    "status": "draft|active|paused|completed",
-                    "depends_on_mode_refs": [],
-                    "contract": "与 mode_kind 匹配的 WorkModeContract；primary mode 必须有足够内容支撑下一步。",
-                }
-            ],
-            "lifecycle_contract": {
-                "pause_policy": {"allowed": True, "state_to_preserve": ["暂停时要保留的状态"]},
-                "resume_policy": {"resume_from": "恢复时依据的状态或用户指令"},
-                "stop_policy": {"on_stop": "停止时如何说明已完成、未完成和可恢复状态"},
-                "replan_policy": {"when": "计划偏离、风险扩大或证据推翻预期时如何处理"},
-                "failure_recovery_policy": {"on_failure": "失败时如何反馈、停止、恢复或请求用户裁决"},
-                "terminal_policy": {"final_report_required": True, "include_unfinished_work": True},
-            },
-            "feedback_contract": {
-                "feedback_sources": ["tool_observation", "runtime_observation", "lifecycle_signal", "verification_signal"],
-                "verification_feedback_policy": {"report_failed_verification": True},
-            },
-            "memory_contract": {
-                "preserve_on_pause": ["container_contract", "active_work_mode_refs", "completed_steps", "open_risks", "next_resume_step"],
-                "preserve_on_stop": ["final_status", "unfinished_work", "resume_hint"],
-            },
-            "acceptance_contract": {
-                "acceptance_mode": "checkpoint|strict|best_effort",
+            "acceptance": {
+                "mode": "checkpoint|user_review|best_effort|strict|none_yet",
+                "criteria": ["完成这项任务所需满足的可观察标准"],
                 "final_answer_requirements": ["最终收口必须说明的内容"],
-                "evidence_refs_required": True,
             },
-            "runtime_requirements": {
-                "permission_requirements": {},
-                "resource_requirements": {},
-                "safety_boundaries": [],
+            "mode_payload": {
+                "summary": "primary_mode 的紧凑语义摘要",
+                "steps": ["plan/investigation/monitor 模式可填写的阶段或触发条件"],
+                "items": ["todo 模式可填写的事项"],
+                "success_definition": "goal 模式可填写的成功定义",
+                "question": "investigation 模式可填写的问题",
+                "recovery_handle": "recovery 模式可填写的恢复句柄或旧状态",
+                "monitor_target": "monitor 模式可填写的监控对象",
+                "notes": ["其他与主工作模式有关的公开约束或证据"],
             },
         },
         "completion_contract": {
@@ -3753,14 +3658,14 @@ def _single_agent_turn_output_contract(
     action_selection_rules = [
         "由你判断当前目标是否需要持续任务生命周期；口头承诺不等于动作，只有结构化 request_task_run 才表示你选择启动 Task。",
         "先判断当前 turn 是否能稳定承载目标、计划、状态、恢复、验收、审计、用户可追踪阶段反馈、资源隔离和失败收口。",
-        "如果你判断需要持久工作生命周期，并且 task_run_contract_seed 足够，下一步提交 request_task_run；不要先用普通 tool_call 代替任务启动。",
+        "如果你判断需要持久工作生命周期，并且紧凑 TaskStartIntent 足够，下一步提交 request_task_run；不要先用普通 tool_call 代替任务启动。",
         "普通 tool_call 只适用于你判断当前 turn 能直接完成、验证并收口的场景；此时公开反馈必须说明这是当前 turn 内的直接处理。",
         "公开反馈和动作必须一致：宣称要开启、申请、进入或创建持续任务生命周期时，action_type 必须是 request_task_run。",
     ]
     if "request_task_run" in allowed_actions:
         action_selection_rules.extend(
             [
-                "如果需要 Task 但入口理由、primary Work Mode、最小下一步、约束或验收模式不足以形成 task_run_contract_seed，必须选择 ask_user 补齐关键缺口。",
+                "如果需要 Task 但入口理由、primary_mode、最小下一步、约束或验收模式不足以形成 TaskStartIntent，必须选择 ask_user 补齐关键缺口。",
                 "request_task_run 是持续工作生命周期容器的启动合同，不是普通工具调用；工具执行发生在持续工作身份被接受并绑定之后。",
                 "如果当前 turn 可以通过有限工具调用完成、验证并收口，应继续使用 respond 或普通 tool_call，但不能把公开反馈写成任务启动。",
             ]
@@ -3870,11 +3775,13 @@ def _single_agent_turn_output_contract(
             "request_task_run": {
                 "enabled": "request_task_run" in allowed_actions,
                 "required_fields": [
-                    "task_run_contract_seed.container_contract.entry_reason",
-                    "task_run_contract_seed.container_contract.primary_work_mode_ref",
-                    "task_run_contract_seed.container_contract.minimum_viable_next_step",
-                    "task_run_contract_seed.work_modes[one mode_role=primary]",
-                    "task_run_contract_seed.acceptance_contract.acceptance_mode",
+                    "task_run_contract_seed.contract_shape",
+                    "task_run_contract_seed.entry_reason",
+                    "task_run_contract_seed.primary_mode",
+                    "task_run_contract_seed.minimum_viable_next_step",
+                    "task_run_contract_seed.working_scope",
+                    "task_run_contract_seed.acceptance.mode",
+                    "task_run_contract_seed.mode_payload",
                 ],
                 "operation_boundary": "request_task_run is available only when the current action contract exposes a new task lifecycle. It does not control, resume, pause, replace, or mutate active_work_context.",
             },
@@ -6459,6 +6366,7 @@ def _model_decision_contract_payload(
     pause_for_user_steer_allowed = "pause_for_user_steer" in semantic_actions
     tool_contract = tool_call_contract.to_hidden_control_payload() if tool_call_contract is not None else {}
     ordinary_tool_submission = str(tool_contract.get("ordinary_tool_submission") or "none")
+    control_action_submission = str(tool_contract.get("control_action_submission") or "none")
     return {
         "authority": "harness.runtime.model_decision_contract",
         "prompt_authority": "runtime_action_contract",
@@ -6469,8 +6377,8 @@ def _model_decision_contract_payload(
         "ordinary_tool_action": "choose_available_tool_and_fill_arguments"
         if ordinary_tool_submission != "none"
         else "not_available",
-        "control_action_submission": "action_object" if control_actions else "none",
-        "action_object_required_for": "control_or_task_action_only",
+        "control_action_submission": control_action_submission if control_actions else "none",
+        "action_object_required_for": "non_provider_control_fallback_only",
         "assistant_text_allowed_when_no_action": True,
         "required_action_form": "assistant_message_or_tool_action_or_control_action",
         "action_object_shape": {
@@ -6481,6 +6389,10 @@ def _model_decision_contract_payload(
             "respond_requires_top_level_final_answer": "action_type=respond 时，最终给用户看的自然回复必须写在顶层 final_answer；不要放入 payload.content、payload.final_answer 或 action.content。",
             "ask_user_requires_top_level_user_question": "action_type=ask_user 时，用户要回答的问题必须写在顶层 user_question；不要通过工具调用表达。",
             "block_requires_top_level_blocking_reason": "action_type=block 时，真实阻塞原因必须写在顶层 blocking_reason。",
+            "request_task_run_uses_compact_task_start_intent": (
+                "action_type=request_task_run 时，只填写紧凑 TaskStartIntent；"
+                "内部 TaskRunContract 和 WorkModeContract 由运行时生成。"
+            ),
             **(
                 {
                     "pause_for_user_steer_requires_top_level_pause_request": (
@@ -6525,22 +6437,24 @@ def _model_decision_contract_payload(
                 "工具或上下文预算已触达边界，需要保存证据、未完成项和恢复点后继续。",
             ],
             "request_task_run_required_when_agent_decides_lifecycle": (
-                "如果你判断需要持续任务生命周期，并且 task_run_contract_seed 足够，提交 action_type=request_task_run；"
+                "如果你判断需要持续任务生命周期，并且紧凑 TaskStartIntent 足够，提交 action_type=request_task_run；"
                 "不要先用普通工具调用替代任务启动。"
             ),
             "ask_user_required_when_lifecycle_contract_incomplete": (
-                "如果你判断需要持续任务生命周期但入口理由、primary Work Mode、最小下一步、约束或验收模式不足，提交 ask_user 补齐。"
+                "如果你判断需要持续任务生命周期但入口理由、主工作模式、最小下一步、约束或验收模式不足，提交 ask_user 补齐。"
             ),
             "single_turn_tool_call_boundary": (
                 "tool_call 是当前 turn 内的有效路径，用于你判断有限工具观察即可回答、验证或推进的问题；"
                 "选择工具动作时，公开反馈应说明本次查证目标，不得宣称开启持续任务生命周期。"
             ),
             "request_task_run_minimum_contract": [
-                "task_run_contract_seed.container_contract.entry_reason",
-                "task_run_contract_seed.container_contract.primary_work_mode_ref",
-                "task_run_contract_seed.container_contract.minimum_viable_next_step",
-                "task_run_contract_seed.work_modes 内有且只有一个 mode_role=primary 的 Work Mode",
-                "task_run_contract_seed.acceptance_contract.acceptance_mode",
+                "task_run_contract_seed.contract_shape=compact_task_start_intent_v1",
+                "task_run_contract_seed.entry_reason",
+                "task_run_contract_seed.primary_mode",
+                "task_run_contract_seed.minimum_viable_next_step",
+                "task_run_contract_seed.working_scope",
+                "task_run_contract_seed.acceptance.mode",
+                "task_run_contract_seed.mode_payload",
             ],
         },
         "feedback_obligation": {

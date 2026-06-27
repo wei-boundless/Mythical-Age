@@ -6,10 +6,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-import api.runtime_monitor as runtime_monitor_api
+import api.harness_run_monitor as run_monitor_api
 from harness.runtime.dynamic_context.replacement_store import ReplacementStore
 from harness.runtime.agent_scope import build_agent_run_scope
-from harness.runtime.run_monitor import RuntimeMonitorService
+from harness.runtime.run_monitor import RunMonitorService
 from runtime.cache_manager import RuntimeCacheManager
 from runtime.memory.file_evidence_scope import task_run_file_evidence_scope
 from runtime.memory.file_state_store import FileStateAuthorityStore
@@ -128,12 +128,12 @@ def test_monitor_read_methods_do_not_run_retention_sweep(tmp_path: Path) -> None
     host = _RuntimeHost(tmp_path / "runtime_state")
     task_run_id = "taskrun:monitor-read-only"
     host.state_index.upsert_task_run(_task_run(task_run_id, status="blocked", updated_at=100.0))
-    service = RuntimeMonitorService(runtime_host=host, freshness_seconds=300)
+    service = RunMonitorService(runtime_host=host, freshness_seconds=300)
     probe = _RetentionSweepProbe()
     service.lifecycle_retention = probe  # type: ignore[assignment]
 
     service.list_global_live_monitor(limit=20)
-    service.collect_global_runtime_monitor(limit=20)
+    service.collect_global_run_monitor(limit=20)
     service.get_session_live_monitor(f"session:{task_run_id}", limit=20)
     service.get_session_task_summary(f"session:{task_run_id}")
     service.get_task_run_live_monitor(task_run_id)
@@ -145,7 +145,7 @@ def test_monitor_read_methods_do_not_run_retention_sweep(tmp_path: Path) -> None
     assert probe.calls == []
 
 
-def test_runtime_monitor_retention_maintenance_api_invokes_explicit_service(monkeypatch) -> None:
+def test_run_monitor_retention_maintenance_api_invokes_explicit_service(monkeypatch) -> None:
     calls: list[dict[str, int]] = []
 
     class _Service:
@@ -158,11 +158,11 @@ def test_runtime_monitor_retention_maintenance_api_invokes_explicit_service(monk
                 "stop_request_count": 0,
             }
 
-    monkeypatch.setattr(runtime_monitor_api, "_service", lambda: _Service())
+    monkeypatch.setattr(run_monitor_api, "_service", lambda: _Service())
 
     response = asyncio.run(
-        runtime_monitor_api.run_runtime_monitor_task_run_retention(
-            runtime_monitor_api.RuntimeMonitorMaintenanceRequest(limit=17)
+        run_monitor_api.run_run_monitor_task_run_retention(
+            run_monitor_api.RunMonitorMaintenanceRequest(limit=17)
         )
     )
 
@@ -206,8 +206,8 @@ def test_retention_stops_old_blocked_and_releases_ephemeral_state(tmp_path: Path
         tool_name="read_file",
     )
 
-    service = RuntimeMonitorService(runtime_host=host, freshness_seconds=300)
-    read_only_monitor = service.collect_global_runtime_monitor(limit=20)
+    service = RunMonitorService(runtime_host=host, freshness_seconds=300)
+    read_only_monitor = service.collect_global_run_monitor(limit=20)
     before_maintenance = host.state_index.get_task_run(task_run_id)
 
     assert before_maintenance is not None
@@ -217,7 +217,7 @@ def test_retention_stops_old_blocked_and_releases_ephemeral_state(tmp_path: Path
     assert sandbox.exists()
 
     service.run_lifecycle_retention_maintenance(now=120.0, limit=20)
-    monitor = service.collect_global_runtime_monitor(limit=20)
+    monitor = service.collect_global_run_monitor(limit=20)
     updated = host.state_index.get_task_run(task_run_id)
 
     assert updated is not None
@@ -253,7 +253,7 @@ def test_retention_active_claim_stop_preserves_gateway_signal_identity(tmp_path:
         executor_epoch=9,
     )
 
-    sweep = RuntimeMonitorService(runtime_host=host, freshness_seconds=300).run_lifecycle_retention_maintenance(now=120.0, limit=20)
+    sweep = RunMonitorService(runtime_host=host, freshness_seconds=300).run_lifecycle_retention_maintenance(now=120.0, limit=20)
     current = host.state_index.get_task_run(task_run_id)
     requested = [
         dict(dict(event.payload or {}).get("signal") or {})
@@ -298,7 +298,7 @@ def test_retention_active_claim_stop_fails_closed_without_runtime_gateway(tmp_pa
     )
     host.runtime_gateway = None
 
-    sweep = RuntimeMonitorService(runtime_host=host, freshness_seconds=300).run_lifecycle_retention_maintenance(now=120.0, limit=20)
+    sweep = RunMonitorService(runtime_host=host, freshness_seconds=300).run_lifecycle_retention_maintenance(now=120.0, limit=20)
     current = host.state_index.get_task_run(task_run_id)
     stop_request = dict(sweep["stop_request_failures"][0])
 
@@ -336,7 +336,7 @@ def test_retention_active_claim_ignores_bare_stop_requested_without_gateway_iden
         executor_epoch=11,
     )
 
-    sweep = RuntimeMonitorService(runtime_host=host, freshness_seconds=300).run_lifecycle_retention_maintenance(now=120.0, limit=20)
+    sweep = RunMonitorService(runtime_host=host, freshness_seconds=300).run_lifecycle_retention_maintenance(now=120.0, limit=20)
     current = host.state_index.get_task_run(task_run_id)
     requested = [
         dict(dict(event.payload or {}).get("signal") or {})
@@ -373,7 +373,7 @@ def test_retention_does_not_skip_shadow_pause_request_without_gateway_identity(t
         )
     )
 
-    sweep = RuntimeMonitorService(runtime_host=host, freshness_seconds=300).run_lifecycle_retention_maintenance(now=120.0, limit=20)
+    sweep = RunMonitorService(runtime_host=host, freshness_seconds=300).run_lifecycle_retention_maintenance(now=120.0, limit=20)
     current = host.state_index.get_task_run(task_run_id)
 
     assert current is not None
@@ -390,7 +390,7 @@ def test_retention_keeps_fresh_blocked_visible(tmp_path: Path) -> None:
     task_run_id = "taskrun:blocked-fresh"
     host.state_index.upsert_task_run(_task_run(task_run_id, status="blocked", updated_at=time.time()))
 
-    monitor = RuntimeMonitorService(runtime_host=host, freshness_seconds=300).collect_global_runtime_monitor(limit=20)
+    monitor = RunMonitorService(runtime_host=host, freshness_seconds=300).collect_global_run_monitor(limit=20)
     current = host.state_index.get_task_run(task_run_id)
 
     assert current is not None
@@ -411,7 +411,7 @@ def test_retention_does_not_auto_stop_paused_task(tmp_path: Path) -> None:
         )
     )
 
-    RuntimeMonitorService(runtime_host=host, freshness_seconds=300).run_lifecycle_retention_maintenance(now=120.0, limit=20)
+    RunMonitorService(runtime_host=host, freshness_seconds=300).run_lifecycle_retention_maintenance(now=120.0, limit=20)
     current = host.state_index.get_task_run(task_run_id)
 
     assert current is not None
@@ -432,7 +432,7 @@ def test_retention_stops_old_waiting_executor_and_clears_recovery(tmp_path: Path
         )
     )
 
-    RuntimeMonitorService(runtime_host=host, freshness_seconds=300).run_lifecycle_retention_maintenance(now=120.0, limit=20)
+    RunMonitorService(runtime_host=host, freshness_seconds=300).run_lifecycle_retention_maintenance(now=120.0, limit=20)
     current = host.state_index.get_task_run(task_run_id)
 
     assert current is not None
@@ -454,7 +454,7 @@ def test_retention_expires_old_waiting_approval(tmp_path: Path) -> None:
         )
     )
 
-    RuntimeMonitorService(runtime_host=host, freshness_seconds=300).run_lifecycle_retention_maintenance(now=120.0, limit=20)
+    RunMonitorService(runtime_host=host, freshness_seconds=300).run_lifecycle_retention_maintenance(now=120.0, limit=20)
     current = host.state_index.get_task_run(task_run_id)
 
     assert current is not None
@@ -465,7 +465,7 @@ def test_retention_expires_old_waiting_approval(tmp_path: Path) -> None:
 
 def test_monitor_service_throttles_retention_sweep_between_projection_refreshes(tmp_path: Path) -> None:
     host = _RuntimeHost(tmp_path / "runtime_state")
-    service = RuntimeMonitorService(
+    service = RunMonitorService(
         runtime_host=host,
         freshness_seconds=300,
         retention_sweep_interval_seconds=30,

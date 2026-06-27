@@ -13,8 +13,8 @@ from harness.runtime.task_record_lifecycle import (
 from harness.runtime.task_run_control_gateway import TaskRunControlGateway
 
 
-class RuntimeMonitorActionService:
-    authority = "runtime_monitor.actions"
+class RunMonitorActionService:
+    authority = "harness.run_monitor.actions"
 
     def __init__(self, *, runtime: Any, monitor_service: Any) -> None:
         self.runtime = runtime
@@ -23,7 +23,7 @@ class RuntimeMonitorActionService:
 
     async def preflight(self, payload: dict[str, Any]) -> dict[str, Any]:
         action = _action_name(payload)
-        monitor = self.monitor_service.collect_global_runtime_monitor(limit=80)
+        monitor = self.monitor_service.collect_global_run_monitor(limit=80)
         signal = _find_signal(monitor, payload)
         revision_check = _source_revision_check(payload=payload, monitor=monitor)
         check = self._action_check(action=action, payload=payload, signal=signal)
@@ -101,7 +101,7 @@ class RuntimeMonitorActionService:
             "effects": effects,
             "disabled_reason": "" if accepted else str(effects.get("error") or "action_failed"),
             "receipt": _receipt(action=action, accepted=accepted, mode="execute", reason=str(effects.get("error") or "")),
-            "monitor": self.monitor_service.collect_global_runtime_monitor(limit=80),
+            "monitor": self.monitor_service.collect_global_run_monitor(limit=80),
             "updated_at": time.time(),
         }
 
@@ -169,7 +169,7 @@ class RuntimeMonitorActionService:
                 return {"error": "task_run_not_found", "task_run_id": task_run_id}
             status = str(getattr(task_run, "status", "") or "")
             return {
-                "authority": "runtime_monitor.actions.delete_record_preview",
+                "authority": "harness.run_monitor.actions.delete_record_preview",
                 "task_run_id": task_run_id,
                 "status": status,
                 "terminal": status in {"completed", "failed", "aborted"},
@@ -180,7 +180,7 @@ class RuntimeMonitorActionService:
                     "execution_store": "task_run_scope",
                 },
             }
-        return {"authority": "runtime_monitor.actions.preflight", "action": action}
+        return {"authority": "harness.run_monitor.actions.preflight", "action": action}
 
     def _clear_from_monitor(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
         signal_id = _signal_id(payload=payload, signal=signal)
@@ -192,25 +192,25 @@ class RuntimeMonitorActionService:
             hidden_by="user",
             source_revision=str(payload.get("source_revision") or ""),
         )
-        return {"authority": "runtime_monitor.actions.clear_from_monitor", "hidden": row}
+        return {"authority": "harness.run_monitor.actions.clear_from_monitor", "hidden": row}
 
     def _restore_to_monitor(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
         row = self.monitor_service.retention_store.unhide_signal(
             signal_id=_signal_id(payload=payload, signal=signal),
             reason=str(payload.get("reason") or "user_restored"),
         )
-        return {"authority": "runtime_monitor.actions.restore_to_monitor", "restored": row}
+        return {"authority": "harness.run_monitor.actions.restore_to_monitor", "restored": row}
 
     def _close_runtime(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
         task_run_id = _task_run_id(payload=payload, signal=signal)
-        reason = str(payload.get("reason") or "runtime_monitor_close_runtime")
+        reason = str(payload.get("reason") or "harness.run_monitor_close_runtime")
         stop_result = self._stop_task(
             payload={**payload, "reason": reason},
             signal=signal,
         )
         if stop_result.get("error") or stop_result.get("ok") is False:
             return {
-                "authority": "runtime_monitor.actions.close_runtime",
+                "authority": "harness.run_monitor.actions.close_runtime",
                 "task_run_id": task_run_id,
                 "stop": stop_result,
                 "error": str(stop_result.get("error") or "runtime_close_rejected"),
@@ -225,7 +225,7 @@ class RuntimeMonitorActionService:
             source_revision=str(payload.get("source_revision") or ""),
         )
         return {
-            "authority": "runtime_monitor.actions.close_runtime",
+            "authority": "harness.run_monitor.actions.close_runtime",
             "task_run_id": task_run_id,
             "stop": stop_result,
             "hidden": hidden,
@@ -265,7 +265,7 @@ class RuntimeMonitorActionService:
             )
             cleanup_queued = True
         return {
-            "authority": "runtime_monitor.actions.delete_record",
+            "authority": "harness.run_monitor.actions.delete_record",
             "mode": "queued_cleanup",
             "task_run_id": task_run_id,
             "deleted": False,
@@ -280,7 +280,7 @@ class RuntimeMonitorActionService:
             return await asyncio.to_thread(manager.cleanup_single_task_record, task_run)
         except Exception as exc:
             return {
-                "authority": "runtime_monitor.actions.delete_record.cleanup",
+                "authority": "harness.run_monitor.actions.delete_record.cleanup",
                 "task_run_id": str(getattr(task_run, "task_run_id", "") or ""),
                 "error": str(exc),
             }
@@ -396,7 +396,7 @@ def _graph_run_id(*, payload: dict[str, Any], signal: dict[str, Any] | None) -> 
 
 def _receipt(*, action: str, accepted: bool, mode: str, reason: str = "") -> dict[str, Any]:
     return {
-        "authority": "runtime_monitor.action_receipt",
+        "authority": "harness.run_monitor.action_receipt",
         "action": action,
         "accepted": bool(accepted),
         "mode": mode,
@@ -410,3 +410,5 @@ def _background_task_running(host: Any, name: str) -> bool:
     if not callable(checker):
         raise RuntimeError("runtime monitor cleanup requires host.background_task_running")
     return bool(checker(name))
+
+

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from request_intent.frame_access import (
+from runtime.request_signals.frame_access import (
     capability_needs,
     context_binding,
     explicit_task_selected,

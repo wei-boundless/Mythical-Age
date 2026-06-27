@@ -4,13 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { BookOpen } from "lucide-react";
 import {
   createGraphTaskInstance,
-  getOrchestrationAgents,
+  getAgentSystemAgents,
   getTaskSystemOverview,
   getTaskSystemTaskGraph,
   listGraphTaskInstances,
   upsertTaskSystemTaskGraph,
   type GraphTaskInstanceSummary,
-  type OrchestrationAgentRuntimeCatalog,
+  type AgentSystemAgentRuntimeCatalog,
   type TaskGraphRecord,
   type TaskSystemOverview,
 } from "@/lib/api";
@@ -62,7 +62,7 @@ export function GraphRepositoryPage({
 }) {
   const [activeContext, setActiveContext] = useState<TaskGraphWorkbenchContext>("editor");
   const [overview, setOverview] = useState<TaskSystemOverview | null>(null);
-  const [agentCatalog, setAgentCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
+  const [agentCatalog, setAgentCatalog] = useState<AgentSystemAgentRuntimeCatalog | null>(null);
   const [templates, setTemplates] = useState<GraphTemplateRecord[]>(() => listGraphTemplates());
   const [draft, setDraft] = useState<TaskGraphDraftV2>(() => initialDraft());
   const [dirty, setDirty] = useState(false);
@@ -112,7 +112,7 @@ export function GraphRepositoryPage({
     try {
       const [nextOverview, nextAgentCatalog] = await Promise.all([
         getTaskSystemOverview(),
-        getOrchestrationAgents().catch(() => null),
+        getAgentSystemAgents().catch(() => null),
       ]);
       setOverview(nextOverview);
       setAgentCatalog(nextAgentCatalog);
@@ -500,3 +500,4 @@ export function GraphRepositoryPage({
     </section>
   );
 }
+

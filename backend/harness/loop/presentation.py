@@ -143,7 +143,7 @@ def error_event(
         "error": public_content,
         "code": code,
         "content": public_content,
-        "answer_channel": "orchestration_fail_closed",
+        "answer_channel": "harness_fail_closed",
         "answer_source": "harness.loop.single_agent",
         **dict(extra or {}),
     }

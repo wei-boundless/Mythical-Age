@@ -83,7 +83,7 @@ def test_health_command_admission_rejects_blocked_operation(tmp_path) -> None:
     admission = dict(response["receipt"]["diagnostics"]["admission"])
     assert admission["agent_id"] == "agent:3"
     assert admission["task_execution_assembly_ref"] == ""
-    assert admission["task_body_orchestration_ref"] == ""
+    assert admission["task_body_assembly_ref"] == ""
     assert admission["runtime_spec_ref"] == ""
 
 
@@ -114,7 +114,7 @@ def test_health_agent_run_preview_does_not_expose_projection_instance(tmp_path) 
     assert "projection_instance" not in preview
     assert preview["reason"] == "health_agent_config_not_rebuilt"
     assert preview["task_execution_assembly"] == {}
-    assert preview["task_body_orchestration"] == {}
+    assert preview["task_body_assembly"] == {}
     assert preview["agent_runtime_spec"] == {}
 
 
@@ -161,7 +161,7 @@ def test_agent3_identity_and_health_runtime_profile_are_available(tmp_path) -> N
     assert all(not item.workflow_id.startswith("workflow.health.") for item in registry.workflow_registry.list_workflows())
 
 
-def test_health_conversation_session_uses_orchestration_config_not_payload_overrides(tmp_path) -> None:
+def test_health_conversation_session_uses_agent_system_config_not_payload_overrides(tmp_path) -> None:
     registry = HealthRegistry(tmp_path)
     issue = registry.create_issue(
         {

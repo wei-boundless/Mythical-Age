@@ -6,11 +6,11 @@ from typing import Any
 from .activity import project_runtime_activity, signal_state_from_activity
 
 
-MONITOR_AUTHORITY = "runtime_monitor"
-SIGNAL_AUTHORITY = "runtime_monitor.signal"
+MONITOR_AUTHORITY = "harness.run_monitor"
+SIGNAL_AUTHORITY = "harness.run_monitor.signal"
 
 
-def build_runtime_monitor_envelope(*, items: list[dict[str, Any]], now: float, limit: int = 30) -> dict[str, Any]:
+def build_run_monitor_envelope(*, items: list[dict[str, Any]], now: float, limit: int = 30) -> dict[str, Any]:
     requested_limit = max(1, min(int(limit or 30), 100))
     signals = sorted(
         [project_monitor_signal(item, now=now) for item in items if isinstance(item, dict)],
@@ -319,3 +319,5 @@ def _diagnostic_revision_part(item: dict[str, Any]) -> str:
             str(fact_summary.get("fact_count") or ""),
         ]
     )
+
+

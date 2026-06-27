@@ -49,7 +49,7 @@ class MemoryScopePolicy:
     allow_working_memory_read: bool = True
     allow_cross_task_memory: bool = False
     writeback_policy: str = "task_default"
-    authority: str = "orchestration.memory_scope_policy"
+    authority: str = "memory_system.memory_scope_policy"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

@@ -1,4 +1,4 @@
-import type { OrchestrationCapabilityItem, TaskNodeConfigurationSpec } from "@/lib/api";
+import type { AgentSystemCapabilityItem, TaskNodeConfigurationSpec } from "@/lib/api";
 
 export function nodeConfigTitle(spec: TaskNodeConfigurationSpec | null | undefined) {
   if (!spec) return "未选择节点配置";
@@ -61,6 +61,7 @@ export function recordId(value: Record<string, unknown>, keys: string[]) {
   return "";
 }
 
-export function capabilityLabel(item: OrchestrationCapabilityItem) {
+export function capabilityLabel(item: AgentSystemCapabilityItem) {
   return item.title ? `${item.title} · ${item.capability_id}` : item.capability_id;
 }
+

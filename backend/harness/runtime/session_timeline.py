@@ -693,6 +693,8 @@ def _display_state_for_stream_run(
     )
     if closed:
         return {"display_state": "task_closed", "main_chat_surface": _CLOSEOUT_SUMMARY_SURFACE}
+    if str(getattr(run, "status", "") or "").strip().lower() == "orphaned":
+        return {"display_state": "log_only", "main_chat_surface": _LOG_ONLY_SURFACE}
     return {"display_state": "task_live", "main_chat_surface": _LIVE_TIMELINE_SURFACE}
 
 

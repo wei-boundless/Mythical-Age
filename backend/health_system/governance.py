@@ -19,7 +19,7 @@ class HealthGovernanceBuilder:
         self.state_index = self.runtime_host.state_index
         self.prompt_accounting_ledger = getattr(self.runtime_host, "prompt_accounting_ledger", None)
         self.token_counter = TokenCounterRegistry()
-        self.monitor_projector = getattr(self.runtime_host, "monitor_projector", None) or _runtime_monitor_projector(self.runtime_host.event_log)
+        self.monitor_projector = getattr(self.runtime_host, "monitor_projector", None) or _run_monitor_projector(self.runtime_host.event_log)
         self.now = time.time()
         self.store = self._build_store()
         self._recent_task_runs_cache: dict[int, list[Any]] = {}
@@ -718,7 +718,7 @@ class HealthGovernanceBuilder:
             "latest_risk_event": latest_risk,
             "supervision_count": len(supervision_records),
             "latest_event_type": str(event_dicts[-1].get("event_type") if event_dicts else ""),
-            "monitor_ref": f"runtime_monitor:{task_run_id}",
+            "monitor_ref": f"run_monitor:{task_run_id}",
             "record_refs": {
                 "task_run": task_run_id,
                 "task_contract": str(task_run.task_contract_ref or ""),
@@ -901,7 +901,7 @@ class HealthGovernanceBuilder:
             risks.append(self._risk("token", "warning", task_run_id, "会话 token 压力偏高", "该任务所在会话 token 使用较高，可能需要摘要或上下文裁剪。"))
         if self._is_resumable_record(task) and not self._has_work_rollout(task_run_id):
             risks.append(self._risk("task", "warning", task_run_id, "缺少可恢复历史", "该任务具备恢复语义，但没有对应 WorkRollout 记录，继续时上下文可能不完整。", risk_code="missing_rollout_for_resumable_task"))
-        graph_task_monitor = dict(graph_monitor.get("task_run_monitor") or graph_monitor.get("runtime_monitor") or {})
+        graph_task_monitor = dict(graph_monitor.get("task_run_monitor") or graph_monitor.get("run_monitor") or {})
         if str(graph_task_monitor.get("bucket") or "") == "failed":
             risks.append(self._risk("task", "critical", task_run_id, "任务图运行失败", "任务图监控显示运行失败。"))
         if bool(monitor.get("action_required") is True):
@@ -928,14 +928,14 @@ class HealthGovernanceBuilder:
         risks: list[dict[str, Any]] = []
         summary = dict(monitor.get("summary") or {})
         if monitor.get("error"):
-            risks.append(self._risk("system", "high", "runtime_monitor", "运行监控读取失败", str(monitor.get("error") or "")))
+            risks.append(self._risk("system", "high", "run_monitor", "运行监控读取失败", str(monitor.get("error") or "")))
         task_runs = [dict(item) for item in list(monitor.get("task_runs") or []) if isinstance(item, dict)]
         stale_count = sum(1 for item in task_runs if item.get("stale"))
         action_required_count = int(summary.get("action_required") or 0) or sum(1 for item in task_runs if item.get("action_required"))
         if stale_count > 0:
-            risks.append(self._risk("system", "warning", "runtime_monitor", "存在停滞运行", f"{stale_count} 个运行长时间未更新。"))
+            risks.append(self._risk("system", "warning", "run_monitor", "存在停滞运行", f"{stale_count} 个运行长时间未更新。"))
         if action_required_count > 0:
-            risks.append(self._risk("task", "high", "runtime_monitor", "存在等待处理任务", f"{action_required_count} 个任务正在等待确认或人工处理。"))
+            risks.append(self._risk("task", "high", "run_monitor", "存在等待处理任务", f"{action_required_count} 个任务正在等待确认或人工处理。"))
         if include_environment:
             risks.extend(self._environment_risks())
             risks.extend(self._instrumentation_risks())
@@ -993,7 +993,7 @@ class HealthGovernanceBuilder:
                 "action_required": len(action_required),
             },
             "risk_escalations": [
-                self._risk("system", "warning", str(item.get("task_run_id") or "runtime_monitor"), "运行监控诊断项", ", ".join(str(reason) for reason in list(item.get("diagnostic_reasons") or [])) or "运行监控发现诊断项。")
+                self._risk("system", "warning", str(item.get("task_run_id") or "run_monitor"), "运行监控诊断项", ", ".join(str(reason) for reason in list(item.get("diagnostic_reasons") or [])) or "运行监控发现诊断项。")
                 for item in diagnostics[:20]
             ],
             "recommended_actions": recommended_actions,
@@ -1691,10 +1691,10 @@ def _project_runtime_activity(payload: dict[str, Any]) -> dict[str, Any]:
     return dict(project_runtime_activity(payload))
 
 
-def _runtime_monitor_projector(event_log: Any) -> Any:
-    from harness.runtime.run_monitor import RuntimeMonitorProjector
+def _run_monitor_projector(event_log: Any) -> Any:
+    from harness.runtime.run_monitor import RunMonitorProjector
 
-    return RuntimeMonitorProjector(event_log)
+    return RunMonitorProjector(event_log)
 
 
 def _runtime_connection_health(*, workspace_root: Any) -> Any:

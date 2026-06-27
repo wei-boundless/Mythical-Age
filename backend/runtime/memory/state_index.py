@@ -28,7 +28,7 @@ _STATE_INDEX_WRITE_LOCK = threading.RLock()
 GLOBAL_RECENT_TASK_RUN_INDEX_ID = "default"
 GLOBAL_RECENT_TASK_RUN_LIMIT = 240
 ACTIVE_EXECUTOR_TASK_RUN_INDEX_ID = "default"
-TASK_RUN_SUMMARY_AUTHORITY = "orchestration.task_run.monitor_summary"
+TASK_RUN_SUMMARY_AUTHORITY = "runtime.task_run.monitor_summary"
 
 TASK_RUN_SUMMARY_DIAGNOSTIC_KEYS = {
     "active_contract_revision_count",
@@ -526,7 +526,7 @@ class RuntimeStateIndex:
         normalized = str(session_id or "").strip()
         if not normalized:
             return {
-                "authority": "orchestration.runtime_state_index.session_deletion_tombstone",
+                "authority": "runtime.state_index.session_deletion_tombstone",
                 "session_id": "",
                 "recorded": False,
                 "reason": "missing_session_id",
@@ -538,12 +538,12 @@ class RuntimeStateIndex:
                 "session_id": normalized,
                 "deleted_at": float(existing.get("deleted_at") or now),
                 "updated_at": now,
-                "authority": "orchestration.runtime_state_index.session_deletion_tombstone",
+                "authority": "runtime.state_index.session_deletion_tombstone",
             }
             self._atomic_write_path(self._deleted_session_path(normalized), payload)
             self._touch_meta(updated_at=now)
         return {
-            "authority": "orchestration.runtime_state_index.session_deletion_tombstone",
+            "authority": "runtime.state_index.session_deletion_tombstone",
             "session_id": normalized,
             "recorded": True,
             "deleted_at": float(payload["deleted_at"]),
@@ -557,7 +557,7 @@ class RuntimeStateIndex:
         normalized = str(task_run_id or "").strip()
         if not normalized:
             return {
-                "authority": "orchestration.runtime_state_index.task_run_deletion_tombstone",
+                "authority": "runtime.state_index.task_run_deletion_tombstone",
                 "task_run_id": "",
                 "recorded": False,
                 "reason": "missing_task_run_id",
@@ -567,7 +567,7 @@ class RuntimeStateIndex:
             payload = self._mark_task_run_deleted_unlocked(normalized, now=now)
             self._touch_meta(updated_at=now)
         return {
-            "authority": "orchestration.runtime_state_index.task_run_deletion_tombstone",
+            "authority": "runtime.state_index.task_run_deletion_tombstone",
             "task_run_id": normalized,
             "recorded": True,
             "deleted_at": float(payload["deleted_at"]),
@@ -577,7 +577,7 @@ class RuntimeStateIndex:
         targets = {str(item).strip() for item in task_run_ids if str(item).strip()}
         if not targets:
             return {
-                "authority": "orchestration.runtime_state_index.prune_task_runs",
+                "authority": "runtime.state_index.prune_task_runs",
                 "requested_task_run_ids": [],
                 "deleted_task_run_ids": [],
                 "deleted_counts": {},
@@ -607,7 +607,7 @@ class RuntimeStateIndex:
                 self._refresh_session_task_indexes(session_id)
             self._touch_meta(updated_at=time.time())
             return {
-                "authority": "orchestration.runtime_state_index.prune_task_runs",
+                "authority": "runtime.state_index.prune_task_runs",
                 "requested_task_run_ids": sorted(targets),
                 "deleted_task_run_ids": sorted(deleted_task_run_ids),
                 "deleted_counts": deleted_counts,
@@ -617,7 +617,7 @@ class RuntimeStateIndex:
         targets = {str(item).strip() for item in turn_run_ids if str(item).strip()}
         if not targets:
             return {
-                "authority": "orchestration.runtime_state_index.prune_turn_runs",
+                "authority": "runtime.state_index.prune_turn_runs",
                 "requested_turn_run_ids": [],
                 "deleted_turn_run_ids": [],
                 "deleted_counts": {},
@@ -639,7 +639,7 @@ class RuntimeStateIndex:
                 self._refresh_session_turn_indexes(session_id)
             self._touch_meta(updated_at=time.time())
             return {
-                "authority": "orchestration.runtime_state_index.prune_turn_runs",
+                "authority": "runtime.state_index.prune_turn_runs",
                 "requested_turn_run_ids": sorted(targets),
                 "deleted_turn_run_ids": sorted(deleted_turn_run_ids),
                 "deleted_counts": deleted_counts,
@@ -649,7 +649,7 @@ class RuntimeStateIndex:
         normalized = str(session_id or "").strip()
         if not normalized:
             return {
-                "authority": "orchestration.runtime_state_index.prune_session_runtime_records",
+                "authority": "runtime.state_index.prune_session_runtime_records",
                 "session_id": "",
                 "deleted_counts": {},
             }
@@ -658,7 +658,7 @@ class RuntimeStateIndex:
         task_effect = self.prune_task_runs(task_run_ids)
         turn_effect = self.prune_turn_runs(turn_run_ids)
         return {
-            "authority": "orchestration.runtime_state_index.prune_session_runtime_records",
+            "authority": "runtime.state_index.prune_session_runtime_records",
             "session_id": normalized,
             "task_run_ids": sorted(task_run_ids),
             "turn_run_ids": sorted(turn_run_ids),
@@ -674,7 +674,7 @@ class RuntimeStateIndex:
             "task_run_id": task_run_id,
             "deleted_at": float(existing.get("deleted_at") or now),
             "updated_at": now,
-            "authority": "orchestration.runtime_state_index.task_run_deletion_tombstone",
+            "authority": "runtime.state_index.task_run_deletion_tombstone",
         }
         self._atomic_write_path(self._deleted_task_run_path(task_run_id), payload)
         return payload
@@ -1044,7 +1044,7 @@ class RuntimeStateIndex:
             "storage_mode": "sharded_runtime_state_index",
             "updated_at": float(updated_at if updated_at is not None else time.time()),
             "migrated_from": migrated_from or str(current.get("migrated_from") or ""),
-            "authority": "orchestration.runtime_state_index",
+            "authority": "runtime.state_index",
         }
         self._atomic_write_path(self.meta_path, payload)
 
@@ -1288,7 +1288,7 @@ class RuntimeStateIndex:
             "task_run_count": task_run_count,
             "latest_task_run_id": latest_task_run_id,
             "updated_at": float(updated_at or current.get("updated_at") or time.time()),
-            "authority": "orchestration.runtime_state_index.session_live_view",
+            "authority": "runtime.state_index.session_live_view",
         }
         self._atomic_write_path(self._session_live_view_path(session_id), payload)
 
@@ -1493,7 +1493,7 @@ def _task_run_monitor_summary_payload(payload: dict[str, Any]) -> dict[str, Any]
         "latest_checkpoint_ref": str(payload.get("latest_checkpoint_ref") or ""),
         "terminal_reason": payload.get("terminal_reason", ""),
         "diagnostics": diagnostics,
-        "authority": str(payload.get("authority") or "orchestration.task_run"),
+        "authority": str(payload.get("authority") or "runtime.task_run"),
         "summary_authority": TASK_RUN_SUMMARY_AUTHORITY,
     }
 

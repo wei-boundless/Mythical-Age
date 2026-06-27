@@ -18,7 +18,7 @@ from memory_system.layout import durable_memory_namespace_id_for_task_environmen
 from memory_system.runtime_services import MemoryRuntimeServices
 from memory_system.storage_layout import MemoryStorageLayout
 from core.project_layout import ProjectLayout
-from request_intent.memory_intent import analyze_memory_intent
+from runtime.request_signals.memory_intent import analyze_memory_intent
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 
 router = APIRouter()

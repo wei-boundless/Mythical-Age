@@ -1729,7 +1729,7 @@ def _execution_receipt(record: Any | None, *, error: str = "") -> dict[str, Any]
         "replay_decision": str(getattr(record, "replay_policy", "") or ""),
         "result_ref": str(getattr(record, "result_ref", "") or ""),
         "error": str(error or ""),
-        "authority": "orchestration.execution_receipt",
+        "authority": "runtime.execution_receipt",
     }
 
 

@@ -6,7 +6,7 @@ from typing import Any
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from capability_system.skills.registry import SkillRegistry
 from permissions.resource_policy_builder import RuntimeApprovalContext
-from request_intent.frame_access import capability_needs
+from runtime.request_signals.frame_access import capability_needs
 from task_system.contracts.capability_requirements import build_operation_requirement
 
 from task_system.services.assembly_models import TaskExecutionAssembly
@@ -494,7 +494,7 @@ def _normalize_current_turn_for_registered_task(
     payload["suppress_bundle_projection"] = True
     payload.setdefault("semantic_task_type", "task_graph_node_execution")
     payload.setdefault("task_goal_type", "task_graph_node_execution")
-    payload.setdefault("execution_obligation_policy", "orchestration_owns_task_graph_node_side_effects")
+    payload.setdefault("execution_obligation_policy", "graph_system_owns_task_graph_node_side_effects")
     return payload
 
 

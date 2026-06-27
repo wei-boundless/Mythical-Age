@@ -25,7 +25,7 @@ VALID_MEMORY_LAYERS: tuple[str, ...] = ("conversation", "state", "working", "lon
 
 @dataclass(slots=True, frozen=True)
 class MemoryRuntimeView:
-    """Read-only runtime view consumed by orchestration/context policy."""
+    """Read-only runtime view consumed by harness/context policy."""
 
     view_id: str
     session_id: str

@@ -31,7 +31,7 @@ class CompiledLengthBudget:
     acceptance_policy: dict[str, Any] = field(default_factory=dict)
     source_chain: tuple[str, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.length_budget"
+    authority: str = "task_system.length_budget"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

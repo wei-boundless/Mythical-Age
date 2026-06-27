@@ -1,8 +1,8 @@
 import {
   taskGraphRunIdsFromTrace,
-  type OrchestrationEdge,
-  type OrchestrationNode,
-  type OrchestrationSnapshot,
+  type HarnessTurnEdge,
+  type HarnessTurnNode,
+  type HarnessTurnSnapshot,
   type RetrievalResult,
   type HarnessTaskRunTrace,
   type ChatAttachment,
@@ -42,7 +42,7 @@ const TOOL_ITEM_STARTED_EVENT = "tool_item_started";
 const TOOL_ITEM_COMPLETED_EVENT = "tool_item_completed";
 const TURN_COMPLETED_EVENT = "turn_completed";
 
-const PROJECTION_OWNED_ORCHESTRATION_EVENTS = new Set([
+const PROJECTION_OWNED_HARNESS_TURN_EVENTS = new Set([
   "token",
   "assistant_text_delta",
   "assistant_text_final",
@@ -54,7 +54,7 @@ const PROJECTION_OWNED_ORCHESTRATION_EVENTS = new Set([
   TOOL_ITEM_COMPLETED_EVENT,
 ]);
 
-const ORCHESTRATION_NODES: Array<{ id: string; label: string; description: string }> = [
+const HARNESS_TURN_NODES: Array<{ id: string; label: string; description: string }> = [
   { id: "input", label: "用户输入", description: "接收本轮用户请求，并绑定当前会话。" },
   { id: "runtime", label: "运行时装配", description: "装配当前 agent、环境、权限、工具和上下文边界。" },
   { id: "agent-turn", label: "模型行动", description: "模型输出回复或发起结构化行动请求。" },
@@ -68,7 +68,7 @@ const ORCHESTRATION_NODES: Array<{ id: string; label: string; description: strin
   { id: "persistence", label: "写回状态", description: "写回会话、运行事件、任务状态和产物引用。" }
 ];
 
-const ORCHESTRATION_EDGES: Array<{ id: string; from: string; to: string; label: string }> = [
+const HARNESS_TURN_EDGES: Array<{ id: string; from: string; to: string; label: string }> = [
   { id: "input-runtime", from: "input", to: "runtime", label: "提交请求" },
   { id: "runtime-agent-turn", from: "runtime", to: "agent-turn", label: "进入 agent 判断" },
   { id: "agent-task-lifecycle", from: "agent-turn", to: "task-lifecycle", label: "需要长任务" },
@@ -87,9 +87,9 @@ function stringValue(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function isProjectionOwnedOrchestrationEvent(event: string) {
+function isProjectionOwnedHarnessTurnEvent(event: string) {
   const normalized = stringValue(event);
-  return PROJECTION_OWNED_ORCHESTRATION_EVENTS.has(normalized)
+  return PROJECTION_OWNED_HARNESS_TURN_EVENTS.has(normalized)
     || normalized === "tool_call"
     || normalized === "tool_result"
     || normalized.startsWith("tool_");
@@ -795,8 +795,8 @@ function stageStatusForRuntimeEvent(eventType: string) {
   return "";
 }
 
-function makeOrchestrationSnapshot(state: StoreState, userContent: string): OrchestrationSnapshot {
-  const nodes = ORCHESTRATION_NODES.map((node, index): OrchestrationNode => ({
+function makeHarnessTurnSnapshot(state: StoreState, userContent: string): HarnessTurnSnapshot {
+  const nodes = HARNESS_TURN_NODES.map((node, index): HarnessTurnNode => ({
     ...node,
     index: index + 1,
     status: node.id === "input" ? "success" : "idle",
@@ -812,14 +812,14 @@ function makeOrchestrationSnapshot(state: StoreState, userContent: string): Orch
     summary: "当前请求正在进入执行链路。",
     problem_node_id: "",
     nodes,
-    edges: deriveOrchestrationEdges(nodes),
+    edges: deriveHarnessTurnEdges(nodes),
     events: []
   };
 }
 
-function deriveOrchestrationEdges(nodes: OrchestrationNode[]): OrchestrationEdge[] {
+function deriveHarnessTurnEdges(nodes: HarnessTurnNode[]): HarnessTurnEdge[] {
   const statusById = new Map(nodes.map((node) => [node.id, node.status]));
-  return ORCHESTRATION_EDGES.map((edge) => {
+  return HARNESS_TURN_EDGES.map((edge) => {
     const from = statusById.get(edge.from) ?? "idle";
     const to = statusById.get(edge.to) ?? "idle";
     const status = from === "failed" || to === "failed"
@@ -833,21 +833,21 @@ function deriveOrchestrationEdges(nodes: OrchestrationNode[]): OrchestrationEdge
   });
 }
 
-function normalizeSnapshotEdges(snapshot: OrchestrationSnapshot): OrchestrationSnapshot {
+function normalizeSnapshotEdges(snapshot: HarnessTurnSnapshot): HarnessTurnSnapshot {
   return {
     ...snapshot,
-    edges: snapshot.edges?.length ? snapshot.edges : deriveOrchestrationEdges(snapshot.nodes)
+    edges: snapshot.edges?.length ? snapshot.edges : deriveHarnessTurnEdges(snapshot.nodes)
   };
 }
 
 function eventNodeId(event: string) {
-  if (event === "orchestration_plan") {
+  if (event === "harness_plan") {
     return "task-lifecycle";
   }
-  if (event === "orchestration_diff") {
+  if (event === "harness_diff") {
     return "output";
   }
-  if (event === "orchestration_runtime_control") {
+  if (event === "harness_runtime_control") {
     return "agent-turn";
   }
   if (event === "active_task_steer_accepted") {
@@ -889,7 +889,7 @@ function eventNodeId(event: string) {
   return "agent-turn";
 }
 
-function resolveSnapshotNodeId(snapshot: OrchestrationSnapshot, event: string) {
+function resolveSnapshotNodeId(snapshot: HarnessTurnSnapshot, event: string) {
   const preferred = eventNodeId(event);
   if (snapshot.nodes.some((node) => node.id === preferred)) {
     return preferred;
@@ -916,13 +916,13 @@ function resolveSnapshotNodeId(snapshot: OrchestrationSnapshot, event: string) {
 }
 
 function eventSummary(event: string, data: Record<string, unknown>) {
-  if (isProjectionOwnedOrchestrationEvent(event)) {
+  if (isProjectionOwnedHarnessTurnEvent(event)) {
     return "";
   }
-  if (event === "orchestration_plan") {
+  if (event === "harness_plan") {
     return "已形成处理计划。";
   }
-  if (event === "orchestration_runtime_control") {
+  if (event === "harness_runtime_control") {
     const warnings = Array.isArray(data.warnings) ? data.warnings.map((item) => String(item)) : [];
     const reason = warnings.map(runtimeControlWarningLabel).filter(Boolean)[0];
     if (reason) {
@@ -933,7 +933,7 @@ function eventSummary(event: string, data: Record<string, unknown>) {
     }
     return "处理流程已更新。";
   }
-  if (event === "orchestration_diff") {
+  if (event === "harness_diff") {
     return "处理计划已更新。";
   }
   if (event === "behavior_trace") {
@@ -966,9 +966,9 @@ function publicStreamEventLabel(event: string) {
     error: "处理失败",
     harness_loop_event: "运行事件已记录",
     memory_context: "已读取相关记忆",
-    orchestration_diff: "处理计划已更新",
-    orchestration_plan: "已形成处理计划",
-    orchestration_runtime_control: "处理流程已更新",
+    harness_diff: "处理计划已更新",
+    harness_plan: "已形成处理计划",
+    harness_runtime_control: "处理流程已更新",
     output_boundary: "输出边界已检查",
     prompt_manifest: "上下文已整理",
     retrieval: "检索证据",
@@ -997,7 +997,7 @@ function runtimeControlWarningLabel(warning: string) {
 
 function runtimeEventToUiEvent(eventType: string) {
   if (eventType === "loop_terminal") return TURN_COMPLETED_EVENT;
-  if (eventType === "task_contract_built") return "orchestration_plan";
+  if (eventType === "task_contract_built") return "harness_plan";
   if (eventType === "runtime_directive_issued" || eventType === "operation_gate_checked") return "harness_loop_event";
   if (eventType === "context_snapshot_built" || eventType === "context_invariant_checked") return "context_management";
   if (eventType === "memory_runtime_view_built") return "memory_context";
@@ -1017,8 +1017,8 @@ function summarizeRuntimeEvent(eventType: string, data: Record<string, unknown>)
   return summaryByEventType || eventType;
 }
 
-function makeRuntimeTraceSnapshot(sessionId: string): OrchestrationSnapshot {
-  const nodes = ORCHESTRATION_NODES.map((node, index): OrchestrationNode => ({
+function makeRuntimeTraceSnapshot(sessionId: string): HarnessTurnSnapshot {
+  const nodes = HARNESS_TURN_NODES.map((node, index): HarnessTurnNode => ({
     ...node,
     index: index + 1,
     status: node.id === "input" ? "success" : "idle",
@@ -1034,12 +1034,12 @@ function makeRuntimeTraceSnapshot(sessionId: string): OrchestrationSnapshot {
     summary: "已载入运行态轨迹。",
     problem_node_id: "",
     nodes,
-    edges: deriveOrchestrationEdges(nodes),
+    edges: deriveHarnessTurnEdges(nodes),
     events: []
   };
 }
 
-export function buildSnapshotFromHarnessTrace(trace: HarnessTaskRunTrace): OrchestrationSnapshot {
+export function buildSnapshotFromHarnessTrace(trace: HarnessTaskRunTrace): HarnessTurnSnapshot {
   const taskRun = (trace.task_run ?? {}) as Record<string, unknown>;
   const sessionId = String(taskRun.session_id ?? "");
   let snapshot = makeRuntimeTraceSnapshot(sessionId);
@@ -1056,7 +1056,7 @@ export function buildSnapshotFromHarnessTrace(trace: HarnessTaskRunTrace): Orche
       _runtime_refs: runtimeEvent.refs ?? {},
     };
     const previousEventCount = snapshot.events.length;
-    const nextSnapshot = updateOrchestrationSnapshot(snapshot, uiEvent, eventData) ?? snapshot;
+    const nextSnapshot = updateHarnessTurnSnapshot(snapshot, uiEvent, eventData) ?? snapshot;
     if (nextSnapshot.events.length === previousEventCount) {
       snapshot = nextSnapshot;
       continue;
@@ -1078,7 +1078,7 @@ export function buildSnapshotFromHarnessTrace(trace: HarnessTaskRunTrace): Orche
     };
   }
   return {
-    ...(snapshot as OrchestrationSnapshot),
+    ...(snapshot as HarnessTurnSnapshot),
     source: "runtime-trace",
     task_run_id: String(taskRun["task_run_id"] ?? ""),
     graph_run_ids: taskGraphRunIdsFromTrace(trace),
@@ -1088,16 +1088,16 @@ export function buildSnapshotFromHarnessTrace(trace: HarnessTaskRunTrace): Orche
   };
 }
 
-function updateOrchestrationSnapshot(
-  snapshot: OrchestrationSnapshot | null,
+function updateHarnessTurnSnapshot(
+  snapshot: HarnessTurnSnapshot | null,
   event: string,
   data: Record<string, unknown>
-): OrchestrationSnapshot | null {
+): HarnessTurnSnapshot | null {
   if (!snapshot) {
     return snapshot;
   }
   if (event === "behavior_trace") {
-    const nextSnapshot = data.snapshot as OrchestrationSnapshot | undefined;
+    const nextSnapshot = data.snapshot as HarnessTurnSnapshot | undefined;
     if (!nextSnapshot?.nodes?.length) {
       return snapshot;
     }
@@ -1117,7 +1117,7 @@ function updateOrchestrationSnapshot(
     };
   }
   const nodeId = resolveSnapshotNodeId(snapshot, event);
-  if (isProjectionOwnedOrchestrationEvent(event)) {
+  if (isProjectionOwnedHarnessTurnEvent(event)) {
     return snapshot;
   }
   const summary = eventSummary(event, data);
@@ -1168,7 +1168,7 @@ function updateOrchestrationSnapshot(
         : summary || snapshot.summary,
     problem_node_id: event === "error" ? nodeId : snapshot.problem_node_id,
     nodes: nextNodes,
-    edges: snapshot.edges?.length ? snapshot.edges : deriveOrchestrationEdges(nextNodes),
+    edges: snapshot.edges?.length ? snapshot.edges : deriveHarnessTurnEdges(nextNodes),
     events
   };
 }
@@ -1229,7 +1229,7 @@ export function startStreamingTurn(
         assistantMessage
       ],
       sessionActivity: silentSessionActivity(Date.now()),
-      orchestrationSnapshot: makeOrchestrationSnapshot(state, userContent)
+      harnessTurnSnapshot: makeHarnessTurnSnapshot(state, userContent)
     },
     session: {
       assistantId: assistantMessage.id,
@@ -1258,17 +1258,17 @@ export function reduceStreamEvent(
   const projectionFrame = projectionFrameFromRecord(data.public_projection_frame);
   const boundSession = bindStreamSessionAnchor(session, data);
   const stateWithStreamAnchor = patchAssistantStreamAnchor(state, boundSession);
-  const withOrchestration = updateOrchestrationSnapshot(stateWithStreamAnchor.orchestrationSnapshot, event, data);
-  const stateWithOrchestrationBase = withOrchestration === stateWithStreamAnchor.orchestrationSnapshot
+  const withHarnessTurn = updateHarnessTurnSnapshot(stateWithStreamAnchor.harnessTurnSnapshot, event, data);
+  const stateWithHarnessTurnBase = withHarnessTurn === stateWithStreamAnchor.harnessTurnSnapshot
     ? stateWithStreamAnchor
-    : { ...stateWithStreamAnchor, orchestrationSnapshot: withOrchestration };
+    : { ...stateWithStreamAnchor, harnessTurnSnapshot: withHarnessTurn };
   const stateWithProjection = projectionFrame
-    ? applyProjectionFrame(stateWithOrchestrationBase, projectionFrame, {
+    ? applyProjectionFrame(stateWithHarnessTurnBase, projectionFrame, {
         assistantId: boundSession.assistantId,
         streamAnchor: streamAnchorFromSession(boundSession),
         deferViewBuild: options.deferProjectionViewBuild === true,
       })
-    : stateWithOrchestrationBase;
+    : stateWithHarnessTurnBase;
   const stateWithTimelineDraft = applyChatStreamConnectionStatus(
     patchActiveTaskTurnGate(stateWithProjection, boundSession, event, data),
     event,
@@ -1460,3 +1460,4 @@ function finiteNumber(value: unknown) {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : undefined;
 }
+

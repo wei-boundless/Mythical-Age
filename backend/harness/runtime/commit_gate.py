@@ -365,7 +365,7 @@ def build_assistant_session_message_commit_decision(
     control_only_channel = normalized_channel in {
         "active_work_control",
         "opening_judgment",
-        "orchestration_fail_closed",
+        "harness_fail_closed",
         "runtime_control",
         "task_control",
     }

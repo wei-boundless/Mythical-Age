@@ -29,7 +29,7 @@ class RuntimeLaneDescriptor:
     deprecated: bool = False
     replacement_lane_id: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.runtime_lane_registry"
+    authority: str = "health_system.runtime_lane_registry"
 
     def __post_init__(self) -> None:
         if not self.lane_id:
@@ -484,7 +484,7 @@ class RuntimeLaneRegistry:
 
     def catalog_payload(self) -> dict[str, Any]:
         return {
-            "authority": "orchestration.runtime_lane_registry",
+            "authority": "health_system.runtime_lane_registry",
             "runtime_lanes": [item.to_dict() for item in self.list_lanes()],
             "runtime_lane_options": self.option_payloads(include_non_requestable=False),
         }

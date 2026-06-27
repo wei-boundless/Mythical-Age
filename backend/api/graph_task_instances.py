@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from api.orchestration import (
+from api.graph_system import (
     GRAPH_TASK_WORKSPACE_VIEW,
     TaskGraphRunStartRequest,
     start_task_graph_system_run,
@@ -82,7 +82,7 @@ WRITING_CHAPTER_ACTION_DECISIONS = {
 }
 
 
-@router.get("/orchestration/graph-tasks")
+@router.get("/graph-system/graph-tasks")
 async def list_graph_tasks() -> dict[str, Any]:
     runtime = require_runtime()
     registry = TaskFlowRegistry(runtime.base_dir)
@@ -106,7 +106,7 @@ async def list_graph_tasks() -> dict[str, Any]:
     }
 
 
-@router.get("/orchestration/graph-tasks/{graph_id}/instances")
+@router.get("/graph-system/graph-tasks/{graph_id}/instances")
 async def list_graph_task_instances(graph_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     registry = TaskFlowRegistry(runtime.base_dir)
@@ -122,7 +122,7 @@ async def list_graph_task_instances(graph_id: str) -> dict[str, Any]:
     }
 
 
-@router.post("/orchestration/graph-tasks/{graph_id}/instances")
+@router.post("/graph-system/graph-tasks/{graph_id}/instances")
 async def create_graph_task_instance(graph_id: str, payload: GraphTaskInstanceCreateRequest) -> dict[str, Any]:
     runtime = require_runtime()
     registry = TaskFlowRegistry(runtime.base_dir)
@@ -162,14 +162,14 @@ async def create_graph_task_instance(graph_id: str, payload: GraphTaskInstanceCr
     }
 
 
-@router.get("/orchestration/graph-task-instances/{instance_id}")
+@router.get("/graph-system/graph-task-instances/{instance_id}")
 async def get_graph_task_instance(instance_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     instance = _require_instance(runtime, instance_id)
     return _instance_detail(runtime, instance.graph_task_instance_id)
 
 
-@router.patch("/orchestration/graph-task-instances/{instance_id}")
+@router.patch("/graph-system/graph-task-instances/{instance_id}")
 async def patch_graph_task_instance(instance_id: str, payload: GraphTaskInstancePatchRequest) -> dict[str, Any]:
     runtime = require_runtime()
     patch = {
@@ -181,7 +181,7 @@ async def patch_graph_task_instance(instance_id: str, payload: GraphTaskInstance
     return {"authority": "api.graph_task_instances.patch", "instance": instance.to_dict()}
 
 
-@router.post("/orchestration/graph-task-instances/{instance_id}/runs")
+@router.post("/graph-system/graph-task-instances/{instance_id}/runs")
 async def start_graph_task_instance_run(instance_id: str, payload: GraphTaskInstanceRunStartRequest) -> dict[str, Any]:
     runtime = require_runtime()
     repo = GraphTaskInstanceRepository(runtime.base_dir)
@@ -249,7 +249,7 @@ async def start_graph_task_instance_run(instance_id: str, payload: GraphTaskInst
     }
 
 
-@router.get("/orchestration/graph-task-instances/{instance_id}/monitor")
+@router.get("/graph-system/graph-task-instances/{instance_id}/monitor")
 async def get_graph_task_instance_monitor(
     instance_id: str,
     event_limit: int = Query(default=40, ge=1, le=240),
@@ -269,7 +269,7 @@ async def get_graph_task_instance_monitor(
     }
 
 
-@router.get("/orchestration/writing-graph-instances/{instance_id}/desk")
+@router.get("/graph-system/writing-graph-instances/{instance_id}/desk")
 async def get_writing_graph_instance_desk(
     instance_id: str,
     event_limit: int = Query(default=80, ge=1, le=240),
@@ -294,7 +294,7 @@ async def get_writing_graph_instance_desk(
     }
 
 
-@router.post("/orchestration/writing-graph-instances/{instance_id}/chapter-actions")
+@router.post("/graph-system/writing-graph-instances/{instance_id}/chapter-actions")
 async def submit_writing_graph_chapter_action(
     instance_id: str,
     payload: WritingChapterActionRequest,
@@ -338,7 +338,7 @@ async def submit_writing_graph_chapter_action(
     }
 
 
-@router.get("/orchestration/graph-task-instances/{instance_id}/node-sessions")
+@router.get("/graph-system/graph-task-instances/{instance_id}/node-sessions")
 async def list_graph_task_instance_node_sessions(instance_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     instance = _require_instance(runtime, instance_id)
@@ -351,7 +351,7 @@ async def list_graph_task_instance_node_sessions(instance_id: str) -> dict[str, 
     }
 
 
-@router.get("/orchestration/graph-task-instances/{instance_id}/files/tree")
+@router.get("/graph-system/graph-task-instances/{instance_id}/files/tree")
 async def get_graph_task_instance_file_tree(
     instance_id: str,
     path: str = "",
@@ -367,7 +367,7 @@ async def get_graph_task_instance_file_tree(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.get("/orchestration/graph-task-instances/{instance_id}/files")
+@router.get("/graph-system/graph-task-instances/{instance_id}/files")
 async def read_graph_task_instance_file(instance_id: str, path: str) -> dict[str, Any]:
     runtime = require_runtime()
     try:
@@ -378,7 +378,7 @@ async def read_graph_task_instance_file(instance_id: str, path: str) -> dict[str
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.put("/orchestration/graph-task-instances/{instance_id}/files")
+@router.put("/graph-system/graph-task-instances/{instance_id}/files")
 async def write_graph_task_instance_file(instance_id: str, payload: GraphTaskInstanceFileWriteRequest) -> dict[str, Any]:
     runtime = require_runtime()
     try:
@@ -387,13 +387,13 @@ async def write_graph_task_instance_file(instance_id: str, payload: GraphTaskIns
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.get("/orchestration/graph-task-instances/{instance_id}/artifacts")
+@router.get("/graph-system/graph-task-instances/{instance_id}/artifacts")
 async def list_graph_task_instance_artifacts(instance_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     return GraphTaskInstanceFileService(runtime.base_dir).artifacts(instance_id)
 
 
-@router.get("/orchestration/graph-task-instances/{instance_id}/human-edge-decisions")
+@router.get("/graph-system/graph-task-instances/{instance_id}/human-edge-decisions")
 async def list_graph_task_instance_human_edge_decisions(
     instance_id: str,
     limit: int = Query(default=100, ge=1, le=500),
@@ -405,7 +405,7 @@ async def list_graph_task_instance_human_edge_decisions(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/orchestration/graph-task-instances/{instance_id}/human-edge-decisions")
+@router.post("/graph-system/graph-task-instances/{instance_id}/human-edge-decisions")
 async def submit_graph_task_instance_human_edge_decision(
     instance_id: str,
     payload: HumanEdgeDecisionSubmitRequest,

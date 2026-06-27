@@ -15,8 +15,8 @@ export function getApiBase() {
   return "http://127.0.0.1:8003/api";
 }
 
-export function getRuntimeMonitorEventStreamUrl(limit = 40) {
-  return `${getApiBase()}/orchestration/runtime-monitor/events?limit=${encodeURIComponent(String(limit))}`;
+export function getRunMonitorEventStreamUrl(limit = 40) {
+  return `${getApiBase()}/harness/run-monitor/events?limit=${encodeURIComponent(String(limit))}`;
 }
 
 export function getRuntimeLogEventStreamUrl(
@@ -64,9 +64,9 @@ function requestTimeoutMs(path: string) {
   }
   if (
     path === "/tasks/overview"
-    || path === "/orchestration/agents"
-    || path.startsWith("/orchestration/harness/")
-    || path.startsWith("/orchestration/runtime-monitor/")
+    || path.startsWith("/agent-system/")
+    || path.startsWith("/graph-system/")
+    || path.startsWith("/harness/")
   ) {
     return 30000;
   }

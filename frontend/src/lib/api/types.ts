@@ -395,7 +395,7 @@ export type SessionRuntimeAttachment = {
   tool_event_count?: number;
   closeout_summary?: string;
   log_ref?: string;
-  session_output_commit?: RuntimeMonitorSignal["session_output_commit"];
+  session_output_commit?: RunMonitorSignal["session_output_commit"];
   projection_anchor?: {
     session_id?: string;
     anchor_turn_id?: string;
@@ -602,7 +602,7 @@ export type TaskSystemAgentUpsertPayload = {
   metadata?: Record<string, unknown>;
 };
 
-export type OrchestrationAgentUpsertPayload = TaskSystemAgentUpsertPayload;
+export type AgentSystemAgentUpsertPayload = TaskSystemAgentUpsertPayload;
 
 export type TaskSystemNextIds = {
   authority: string;
@@ -1143,7 +1143,7 @@ export type UnitInterfaceSpec = {
 
 export type ComposableUnitSpec = {
   unit_id: string;
-  unit_type: "node" | "graph" | "resource" | "human_gate" | "tool" | "runtime_monitor" | string;
+  unit_type: "node" | "graph" | "resource" | "human_gate" | "tool" | "run_monitor" | string;
   title: string;
   ref?: Record<string, unknown>;
   interface_id?: string;
@@ -1868,7 +1868,7 @@ export type ToolPackageSelection = {
   exclude_operations: string[];
 };
 
-export type OrchestrationAgentRuntimeProfile = {
+export type AgentSystemAgentRuntimeProfile = {
   agent_profile_id: string;
   agent_id: string;
   allowed_tool_packages?: ToolPackageSelection[];
@@ -1878,15 +1878,15 @@ export type OrchestrationAgentRuntimeProfile = {
   blocked_operations: string[];
   allowed_memory_scopes: string[];
   allowed_context_sections: string[];
-  subagent_policy: OrchestrationSubagentPolicy;
+  subagent_policy: AgentSystemSubagentPolicy;
   approval_policy: string;
   trace_policy: string;
   lifecycle_policy: string;
-  model_profile?: OrchestrationAgentModelProfile;
+  model_profile?: AgentSystemAgentModelProfile;
   metadata?: Record<string, unknown>;
 };
 
-export type OrchestrationAgentModelProfile = {
+export type AgentSystemAgentModelProfile = {
   profile_id?: string;
   display_name?: string;
   provider?: string;
@@ -1905,7 +1905,7 @@ export type OrchestrationAgentModelProfile = {
   metadata?: Record<string, unknown>;
 };
 
-export type OrchestrationAgentGroup = {
+export type AgentSystemAgentGroup = {
   group_id: string;
   title: string;
   group_kind: string;
@@ -1916,7 +1916,7 @@ export type OrchestrationAgentGroup = {
   metadata?: Record<string, unknown>;
 };
 
-export type OrchestrationOption = {
+export type AgentSystemOption = {
   id: string;
   value: string;
   label: string;
@@ -1960,7 +1960,7 @@ export type PersonalitySelectorCatalog = {
   options_by_dimension?: Record<string, PersonalitySelectorOption[]>;
 };
 
-export type OrchestrationCapabilityItem = {
+export type AgentSystemCapabilityItem = {
   capability_id: string;
   capability_kind: "skill" | "tool" | "mcp" | "operation" | string;
   title: string;
@@ -1979,11 +1979,11 @@ export type OrchestrationCapabilityItem = {
   }>;
 };
 
-export type OrchestrationAgentRuntimeCatalog = {
+export type AgentSystemAgentRuntimeCatalog = {
   authority: string;
-  agents: Array<Record<string, unknown> & { runtime_profile?: Partial<OrchestrationAgentRuntimeProfile> }>;
-  agent_groups?: OrchestrationAgentGroup[];
-  profiles: OrchestrationAgentRuntimeProfile[];
+  agents: Array<Record<string, unknown> & { runtime_profile?: Partial<AgentSystemAgentRuntimeProfile> }>;
+  agent_groups?: AgentSystemAgentGroup[];
+  profiles: AgentSystemAgentRuntimeProfile[];
   summary: Record<string, number>;
   options: {
     operations: OperationDescriptor[];
@@ -1993,28 +1993,28 @@ export type OrchestrationAgentRuntimeCatalog = {
     system_groups?: string[];
     approval_policies: string[];
     trace_policies: string[];
-    operation_options?: OrchestrationOption[];
-    task_graph_options?: OrchestrationOption[];
-    memory_scope_options?: OrchestrationOption[];
-    context_section_options?: OrchestrationOption[];
-    system_group_options?: OrchestrationOption[];
-    approval_policy_options?: OrchestrationOption[];
-    trace_policy_options?: OrchestrationOption[];
+    operation_options?: AgentSystemOption[];
+    task_graph_options?: AgentSystemOption[];
+    memory_scope_options?: AgentSystemOption[];
+    context_section_options?: AgentSystemOption[];
+    system_group_options?: AgentSystemOption[];
+    approval_policy_options?: AgentSystemOption[];
+    trace_policy_options?: AgentSystemOption[];
     worker_blueprints?: Array<Record<string, unknown>>;
-    capability_items?: OrchestrationCapabilityItem[];
+    capability_items?: AgentSystemCapabilityItem[];
     tool_packages?: ToolPackageDefinition[];
     model_provider_catalog?: ModelProviderCatalog;
     personality_options?: PersonalitySelectorCatalog;
   };
 };
 
-export type OrchestrationAgentRuntimeProfileUpsertPayload =
-  Omit<OrchestrationAgentRuntimeProfile, "agent_id" | "allowed_operations" | "final_allowed_operations"> & {
+export type AgentSystemAgentRuntimeProfileUpsertPayload =
+  Omit<AgentSystemAgentRuntimeProfile, "agent_id" | "allowed_operations" | "final_allowed_operations"> & {
     allowed_tool_packages: ToolPackageSelection[];
     extra_allowed_operations: string[];
   };
 
-export type OrchestrationAgentGroupUpsertPayload = OrchestrationAgentGroup;
+export type AgentSystemAgentGroupUpsertPayload = AgentSystemAgentGroup;
 
 export type TaskWorkflowCatalog = {
   authority: string;
@@ -2468,14 +2468,14 @@ export type HealthAgentRunStart = HealthAgentRunPreview & {
   trace?: Record<string, unknown> | null;
 };
 
-export type OrchestrationNodeStatus = "idle" | "visited" | "warning" | "failed" | "success" | "blocked" | "skipped";
+export type HarnessTurnNodeStatus = "idle" | "visited" | "warning" | "failed" | "success" | "blocked" | "skipped";
 
-export type OrchestrationNode = {
+export type HarnessTurnNode = {
   id: string;
   index: number;
   label: string;
   description: string;
-  status: OrchestrationNodeStatus;
+  status: HarnessTurnNodeStatus;
   summary: string;
   source_event: string;
   source_module?: string;
@@ -2485,16 +2485,16 @@ export type OrchestrationNode = {
   refs?: Record<string, unknown>;
 };
 
-export type OrchestrationEdge = {
+export type HarnessTurnEdge = {
   id: string;
   from: string;
   to: string;
   label: string;
-  status: OrchestrationNodeStatus;
+  status: HarnessTurnNodeStatus;
   summary: string;
 };
 
-export type OrchestrationEvent = {
+export type HarnessTurnEvent = {
   index: number;
   event: string;
   node_id: string;
@@ -2503,7 +2503,7 @@ export type OrchestrationEvent = {
   data: Record<string, unknown>;
 };
 
-export type OrchestrationSnapshot = {
+export type HarnessTurnSnapshot = {
   source: "live-session" | "test-turn" | "inferred" | "dry-run" | string;
   session_id: string;
   run_id?: string;
@@ -2516,14 +2516,14 @@ export type OrchestrationSnapshot = {
   status: "idle" | "running" | "success" | "warning" | "failed" | string;
   summary: string;
   problem_node_id?: string;
-  nodes: OrchestrationNode[];
-  edges: OrchestrationEdge[];
-  events: OrchestrationEvent[];
+  nodes: HarnessTurnNode[];
+  edges: HarnessTurnEdge[];
+  events: HarnessTurnEvent[];
   artifacts?: Record<string, string>;
   decision_trace?: Record<string, unknown>;
   dry_run?: Record<string, unknown>;
-  orchestration_plan?: Record<string, unknown>;
-  orchestration_diff?: Record<string, unknown>;
+  harness_plan?: Record<string, unknown>;
+  harness_diff?: Record<string, unknown>;
 };
 
 export type HarnessTraceEvent = {
@@ -2559,7 +2559,7 @@ export type HarnessSessionTaskRuns = {
   task_runs: HarnessTaskRunSummary[];
 };
 
-export type RuntimeMonitorSignal = {
+export type RunMonitorSignal = {
   authority: string;
   signal_id: string;
   source_kind: "task_run" | "turn_run" | "runtime_run" | "graph_run" | "diagnostic" | string;
@@ -2633,32 +2633,32 @@ export type RuntimeMonitorSignal = {
     hidden_at?: number;
     expires_at?: number;
   };
-  actions?: RuntimeMonitorSignalAction[];
+  actions?: RunMonitorSignalAction[];
 };
 
-export type RuntimeMonitorSignalAction = {
+export type RunMonitorSignalAction = {
   action: string;
   label: string;
   enabled: boolean;
   disabled_reason?: string;
 };
 
-export type RuntimeMonitorManagement = {
+export type RunMonitorManagement = {
   authority: string;
   policy: Record<string, unknown>;
   summary: Record<string, number>;
   lanes: {
-    current?: RuntimeMonitorSignal[];
-    attention?: RuntimeMonitorSignal[];
-    projects?: RuntimeMonitorSignal[];
-    recent?: RuntimeMonitorSignal[];
-    hidden?: RuntimeMonitorSignal[];
+    current?: RunMonitorSignal[];
+    attention?: RunMonitorSignal[];
+    projects?: RunMonitorSignal[];
+    recent?: RunMonitorSignal[];
+    hidden?: RunMonitorSignal[];
   };
   capacity?: Record<string, number>;
   updated_at?: number;
 };
 
-export type RuntimeMonitorEnvelope = {
+export type RunMonitorEnvelope = {
   authority: string;
   revision: string;
   updated_at: number;
@@ -2672,15 +2672,15 @@ export type RuntimeMonitorEnvelope = {
     hidden?: number;
     total: number;
   };
-  primary: RuntimeMonitorSignal[];
-  attention: RuntimeMonitorSignal[];
-  recent: RuntimeMonitorSignal[];
-  projects: RuntimeMonitorSignal[];
-  signals: RuntimeMonitorSignal[];
-  management?: RuntimeMonitorManagement;
+  primary: RunMonitorSignal[];
+  attention: RunMonitorSignal[];
+  recent: RunMonitorSignal[];
+  projects: RunMonitorSignal[];
+  signals: RunMonitorSignal[];
+  management?: RunMonitorManagement;
 };
 
-export type RuntimeMonitorActionPayload = {
+export type RunMonitorActionPayload = {
   action: string;
   signal_id?: string;
   task_run_id?: string;
@@ -2690,7 +2690,7 @@ export type RuntimeMonitorActionPayload = {
   max_steps?: number;
 };
 
-export type RuntimeMonitorActionResult = {
+export type RunMonitorActionResult = {
   authority: string;
   mode?: "preflight" | "execute" | string;
   accepted: boolean;
@@ -2699,13 +2699,13 @@ export type RuntimeMonitorActionResult = {
   effects: Record<string, unknown>;
   disabled_reason?: string;
   receipt?: Record<string, unknown>;
-  monitor: RuntimeMonitorEnvelope;
+  monitor: RunMonitorEnvelope;
   updated_at: number;
 };
 
 export type RunMonitorEventPayload = {
   source?: string;
-  monitor?: RuntimeMonitorEnvelope;
+  monitor?: RunMonitorEnvelope;
   file_change_record?: FileChangeRecord | Record<string, unknown>;
   event_type?: string;
   event_id?: string;
@@ -2751,9 +2751,9 @@ export type HarnessTurnRunTrace = {
   event_window?: Record<string, unknown>;
 };
 
-export type OrchestrationRuntimeOptionsPayload = {
+export type AgentSystemRuntimeOptionsPayload = {
   authority: string;
-  options: OrchestrationAgentRuntimeCatalog["options"];
+  options: AgentSystemAgentRuntimeCatalog["options"];
 };
 
 export type HarnessTaskRunLiveMonitor = {
@@ -2944,7 +2944,7 @@ export type GraphRunMonitorView = {
   graph_run: Record<string, unknown>;
   task_run: Record<string, unknown> | null;
   task_run_monitor?: HarnessTaskRunLiveMonitor | Record<string, unknown> | null;
-  runtime_monitor?: HarnessTaskRunLiveMonitor | Record<string, unknown> | null;
+  run_monitor?: HarnessTaskRunLiveMonitor | Record<string, unknown> | null;
   graph_config: ExecutableGraphConfigPayload | Record<string, unknown>;
   graph_loop_state: Record<string, unknown>;
   active_node_work_orders: Array<Record<string, unknown>>;
@@ -3253,7 +3253,7 @@ export type GraphRunControlResult = {
   control: Record<string, unknown>;
 };
 
-export type OrchestrationCatalogSkill = {
+export type AgentSystemCatalogSkill = {
   runtime: {
     name: string;
     title: string;
@@ -3281,7 +3281,7 @@ export type OrchestrationCatalogSkill = {
   };
 };
 
-export type OrchestrationCatalogTool = {
+export type AgentSystemCatalogTool = {
   name: string;
   display_name: string;
   operation_id: string;
@@ -3303,17 +3303,17 @@ export type OrchestrationCatalogTool = {
   is_concurrency_safe: boolean;
 };
 
-export type OrchestrationCatalog = {
+export type AgentSystemCatalog = {
   permission_mode: string;
   supported_permission_modes: string[];
   tool_invocation_validation_mode: string;
-  orchestration_plan_mode: string;
-  supported_orchestration_plan_modes: string[];
-  skills: OrchestrationCatalogSkill[];
-  tools: OrchestrationCatalogTool[];
+  agent_system_plan_mode: string;
+  supported_agent_system_plan_modes: string[];
+  skills: AgentSystemCatalogSkill[];
+  tools: AgentSystemCatalogTool[];
 };
 
-export type OperationSkill = OrchestrationCatalogSkill & {
+export type OperationSkill = AgentSystemCatalogSkill & {
   prompt_block: string;
   content: string;
   validation_errors: string[];
@@ -3334,7 +3334,7 @@ export type OperationDescriptor = {
   requires_approval_by_default: boolean;
 };
 
-export type OperationTool = OrchestrationCatalogTool & {
+export type OperationTool = AgentSystemCatalogTool & {
   operation_metadata: {
     tool_type: string;
     note: string;
@@ -4177,7 +4177,7 @@ export type ToolPackageDefinition = {
   metadata?: Record<string, unknown>;
 };
 
-export type OrchestrationSubagentPolicy = {
+export type AgentSystemSubagentPolicy = {
   enabled: boolean;
   allowed_subagent_ids: string[];
   max_subagent_runs_per_task: number;
@@ -4186,3 +4186,4 @@ export type OrchestrationSubagentPolicy = {
   result_policy: string;
   allow_nested_subagents: boolean;
 };
+

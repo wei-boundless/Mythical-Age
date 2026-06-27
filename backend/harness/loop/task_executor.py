@@ -3597,7 +3597,7 @@ def _runtime_control_signal_observation(
         "payload": payload,
         "needs_model_followup": True,
         "created_at": time.time(),
-        "authority": "orchestration.runtime_observation",
+        "authority": "runtime.runtime_observation",
     }
 
 
@@ -3887,7 +3887,7 @@ def _mark_runtime_control_signal_delivered(
             "requested_by": str(control.get("requested_by") or signal.requested_by or "system"),
             "requested_at": float(control.get("requested_at") or signal.requested_at or now),
             "reason": str(control.get("reason") or signal.reason or ""),
-            "authority": "orchestration.task_run_control",
+            "authority": "harness.task_run_control",
             "runtime_control_signal_kind": str(signal.kind or ""),
             "runtime_control_signal_fingerprint": fingerprint,
             "runtime_control_signal_observation_ref": str(observation.get("observation_id") or ""),
@@ -4003,7 +4003,7 @@ def _repeated_tool_failure_observation(
         },
         "needs_model_followup": not block_after_observation,
         "created_at": time.time(),
-        "authority": "orchestration.runtime_observation",
+        "authority": "runtime.runtime_observation",
         "error": "repeated_failure_limit_exceeded",
     }
 
@@ -4706,8 +4706,8 @@ async def _execute_task_tool_call(
         caller_resource_scope={
             "task_id": task_run.task_id,
             "step_id": f"task-step:{action_request.request_id}",
-            "plan_ref": f"orchplan:{task_run.task_run_id}:single-agent-task",
-            "stage_ref": f"orchstage:{task_run.task_run_id}:step",
+            "plan_ref": f"harness-plan:{task_run.task_run_id}:single-agent-task",
+            "stage_ref": f"harness-stage:{task_run.task_run_id}:step",
             "execution_graph_ref": f"execgraph:{task_run.task_run_id}:single-agent-task",
             "resource_policy_ref": f"respol:{task_run.task_run_id}:tool:{action_request.request_id}",
         },
@@ -6651,7 +6651,7 @@ def _pause_executor_for_model_recovery(
         "payload": error_payload,
         "needs_model_followup": False,
         "created_at": now,
-        "authority": "orchestration.runtime_observation",
+        "authority": "runtime.runtime_observation",
         "error": str(error_payload.get("code") or "model_call_failed"),
     }
     runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
@@ -7694,7 +7694,7 @@ def _budget_exhausted_runtime_control_observation(*, task_run: Any, max_steps: i
         },
         "needs_model_followup": True,
         "created_at": now,
-        "authority": "orchestration.runtime_observation",
+        "authority": "runtime.runtime_observation",
     }
 
 
@@ -8699,7 +8699,7 @@ def _packet_observations_from_records(records: list[dict[str, Any]]) -> list[dic
                     "runtime_freshness": dict(record.get("runtime_freshness") or {}),
                     "structured_error": dict(record.get("structured_error") or {}),
                     "result_preview": _record_summary(record),
-                    "authority": "orchestration.tool_observation_record.historical_summary",
+                    "authority": "runtime.tool_observation_record.historical_summary",
                 }
             )
     return packet[-24:]
@@ -8729,7 +8729,7 @@ def _dedupe_observations(observations: list[dict[str, Any]]) -> list[dict[str, A
     for item in observations:
         if not isinstance(item, dict):
             continue
-        if str(item.get("authority") or "") == "orchestration.tool_observation_record":
+        if str(item.get("authority") or "") == "runtime.tool_observation_record":
             continue
         key = str(item.get("observation_id") or item.get("observation_ref") or item.get("request_ref") or json.dumps(item, ensure_ascii=False, sort_keys=True))
         if key in seen:
@@ -9149,7 +9149,7 @@ def _runtime_control_payload(task_run: Any, *, runtime_host: Any | None = None) 
         "requested_by": str(control.get("requested_by") or ""),
         "requested_at": float(control.get("requested_at") or 0.0),
         "reason": str(control.get("reason") or ""),
-        "authority": "orchestration.task_run_control",
+        "authority": "harness.task_run_control",
         **({"runtime_control_signal_ref": signal_ref} if signal_ref else {}),
         **({"runtime_control_event_ref": event_ref} if event_ref else {}),
         **_runtime_control_optional_projection(control),
@@ -9163,7 +9163,7 @@ def _diagnostics_for_executor_start(diagnostics: dict[str, Any]) -> dict[str, An
         payload[_TASK_RUN_CONTROL_KEY] = {
             **dict(control),
             "state": "running",
-            "authority": "orchestration.task_run_control",
+            "authority": "harness.task_run_control",
         }
     return payload
 
@@ -9188,7 +9188,7 @@ def _diagnostics_with_runtime_control(
         "reason": reason,
         **_executor_control_signal_trace_payload(control_signal),
         **_runtime_control_optional_projection(dict(extra_control or {})),
-        "authority": "orchestration.task_run_control",
+        "authority": "harness.task_run_control",
     }
     return {
         **dict(diagnostics or {}),
@@ -9231,7 +9231,7 @@ def _completion_repair_observation(*, task_run_id: str, packet_ref: str, action_
         "payload": {"error_code": "completion_evidence_missing", "verdict": verdict, "rejected_action_request": action_request.to_dict()},
         "needs_model_followup": True,
         "created_at": time.time(),
-        "authority": "orchestration.runtime_observation",
+        "authority": "runtime.runtime_observation",
         "error": "completion_evidence_missing",
     }
 
@@ -9312,7 +9312,7 @@ def _active_subagent_completion_repair_observation(
         },
         "needs_model_followup": True,
         "created_at": time.time(),
-        "authority": "orchestration.runtime_observation",
+        "authority": "runtime.runtime_observation",
         "error": "active_subagents_pending",
     }
 
@@ -9347,7 +9347,7 @@ def _active_steer_completion_repair_observation(
         },
         "needs_model_followup": True,
         "created_at": time.time(),
-        "authority": "orchestration.runtime_observation",
+        "authority": "runtime.runtime_observation",
         "error": "pending_user_steer_unconsumed",
     }
 
@@ -9405,7 +9405,7 @@ def _model_action_admission_recovery_observation(
         "payload": recovery.payload,
         "needs_model_followup": True,
         "created_at": time.time(),
-        "authority": "orchestration.runtime_observation",
+        "authority": "runtime.runtime_observation",
         "error": recovery.error_code,
     }
 
@@ -9498,7 +9498,7 @@ def _model_protocol_repair_observation(
         },
         "needs_model_followup": True,
         "created_at": time.time(),
-        "authority": "orchestration.runtime_observation",
+        "authority": "runtime.runtime_observation",
         "error": "model_action_invalid",
     }
 
@@ -9611,7 +9611,7 @@ def _executor_error_observation(
         "diagnostics": diagnostics,
         "needs_model_followup": False,
         "created_at": time.time(),
-        "authority": "orchestration.runtime_observation",
+        "authority": "runtime.runtime_observation",
         "error": error,
     }
 
@@ -9710,7 +9710,7 @@ def _duplicate_read_only_tool_call_observation(
         },
         "needs_model_followup": True,
         "created_at": time.time(),
-        "authority": "orchestration.runtime_observation",
+        "authority": "runtime.runtime_observation",
         "error": error_code,
     }
 

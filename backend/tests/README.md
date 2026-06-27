@@ -31,7 +31,7 @@ python -m pytest
 ## Focused Commands
 
 ```powershell
-python -m pytest backend/tests/runtime_monitor_projection_test.py -q
+python -m pytest backend/tests/run_monitor_projection_test.py -q
 python -m pytest backend/tests/context_compaction_api_regression.py -q
 python -m pytest backend/tests/system_eval/long_scenarios_regression.py -q
 ```

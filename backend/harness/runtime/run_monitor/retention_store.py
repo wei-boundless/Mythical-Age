@@ -12,12 +12,12 @@ from typing import Any, BinaryIO, Iterator
 from core.project_layout import ProjectLayout
 
 
-class RuntimeMonitorRetentionStore:
-    authority = "runtime_monitor.retention_store"
+class RunMonitorRetentionStore:
+    authority = "harness.run_monitor.retention_store"
 
     def __init__(self, *, backend_dir: str | Path | None) -> None:
         layout = ProjectLayout.from_backend_dir(backend_dir or Path.cwd())
-        self.store_dir = layout.runtime_state_dir / "runtime_monitor"
+        self.store_dir = layout.runtime_state_dir / "harness_run_monitor"
         self.hidden_path = self.store_dir / "hidden_signals.jsonl"
 
     def hidden_index(self, *, now: float | None = None) -> dict[str, dict[str, Any]]:
@@ -178,4 +178,5 @@ def _lock_handle(handle: BinaryIO) -> None:
 def _unlock_handle(handle: BinaryIO) -> None:
     handle.seek(0)
     msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
 

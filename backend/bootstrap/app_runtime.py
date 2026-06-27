@@ -22,6 +22,7 @@ from health_system.graph_breakpoint_supervisor import GraphBreakpointSupervisor
 from sessions import SessionManager
 from runtime import ModelRuntime
 from runtime.prompt_accounting import PromptAccountingLedger
+from runtime.prompt_accounting.provider_lane import PROVIDER_LANE_AGENT_TOOL_LOOP, normalize_provider_lane
 from core.project_layout import ProjectLayout
 
 
@@ -152,13 +153,19 @@ class AppRuntime:
         records = ledger.list_prompt_cache(run_id=run_id, task_run_id=task_run_id, session_id=session_id)
         if not records:
             return {"cache_temperature": "unknown", "source": "app_runtime.prompt_cache_empty"}
-        latest = records[-1]
+        agent_tool_loop_records = [
+            record
+            for record in records
+            if normalize_provider_lane(dict(getattr(record, "diagnostics", {}) or {}).get("provider_lane")) == PROVIDER_LANE_AGENT_TOOL_LOOP
+        ]
+        latest = (agent_tool_loop_records or records)[-1]
         cached_tokens = max(int(getattr(latest, "cached_tokens", 0) or 0), int(getattr(latest, "cache_read_tokens", 0) or 0))
         return {
             "cache_temperature": "warm" if str(getattr(latest, "status", "") or "") == "hit" or cached_tokens > 0 else "cold",
             "cache_record_id": str(getattr(latest, "cache_record_id", "") or ""),
             "cache_key": str(getattr(latest, "cache_key", "") or ""),
             "prefix_hash": str(getattr(latest, "prefix_hash", "") or ""),
+            "provider_lane": normalize_provider_lane(dict(getattr(latest, "diagnostics", {}) or {}).get("provider_lane")),
             "status": str(getattr(latest, "status", "") or ""),
             "cached_tokens": cached_tokens,
             "provider_cache_editing_supported": False,

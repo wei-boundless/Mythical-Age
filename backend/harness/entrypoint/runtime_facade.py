@@ -100,7 +100,7 @@ _CONVERSATION_TASK_EXECUTION_STEPS = 50
 class HarnessRuntimeFacade:
     """Thin API adapter for the agent runtime chain.
 
-    The old query layer used to own planning, tool routing, worker orchestration,
+    The old query layer used to own planning, tool routing, worker coordination,
     follow-up execution, context restore, and writeback. Those responsibilities
     are intentionally gone from this class. HarnessRuntimeFacade now only accepts API
     input, emits stream events, and calls the admitted agent harness.
@@ -182,7 +182,7 @@ class HarnessRuntimeFacade:
         self.graph_system = GraphSystem(
             services=self.agent_runtime_services,
         )
-        self.single_agent_runtime_host.runtime_monitor_service.attach_graph_system(self.graph_system)
+        self.single_agent_runtime_host.run_monitor_service.attach_graph_system(self.graph_system)
         self.task_executor_recovery = self.task_executor_controller.recover_interrupted_executor_leases()
         self.runtime_components = {
             "harness.entrypoint": "application_runtime_facade",

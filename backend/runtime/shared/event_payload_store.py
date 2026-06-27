@@ -21,7 +21,7 @@ class RuntimeEventPayloadStore:
     a public preview.
     """
 
-    authority = "orchestration.runtime_event_payload_store"
+    authority = "runtime.runtime_event_payload_store"
 
     def __init__(self, root_dir: Path, *, inline_bytes: int = DEFAULT_EVENT_PAYLOAD_INLINE_BYTES) -> None:
         self.root_dir = Path(root_dir)

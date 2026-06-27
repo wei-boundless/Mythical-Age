@@ -91,7 +91,7 @@ _GENERAL_AGENT_PROMPT_TEMPLATE_POLICY: dict[str, Any] = {
     },
 }
 
-_PROMPT_ORCHESTRATION_TEMPLATE_POLICIES: dict[str, dict[str, Any]] = {
+_PROMPT_TEMPLATE_POLICIES: dict[str, dict[str, Any]] = {
     "prompt_template.general.agent_runtime": _GENERAL_AGENT_PROMPT_TEMPLATE_POLICY,
 }
 
@@ -1532,7 +1532,7 @@ def _resolved_runtime_policy(
         runtime_contract.get("runtime_policy"),
         runtime_contract.get("execution_policy"),
     )
-    template_policy = _prompt_orchestration_template_policy(
+    template_policy = _prompt_template_policy(
         agent_runtime_profile=agent_runtime_profile,
         runtime_contract=runtime_contract,
         explicit_policy=explicit_policy,
@@ -1544,7 +1544,7 @@ def _resolved_runtime_policy(
     )
 
 
-def _prompt_orchestration_template_policy(
+def _prompt_template_policy(
     *,
     agent_runtime_profile: Any | None,
     runtime_contract: dict[str, Any],
@@ -1567,7 +1567,7 @@ def _prompt_orchestration_template_policy(
     )
     if not template_id:
         return {}
-    template = _PROMPT_ORCHESTRATION_TEMPLATE_POLICIES.get(template_id)
+    template = _PROMPT_TEMPLATE_POLICIES.get(template_id)
     if not template:
         return {}
     policy = _deep_merge_dicts(template)
@@ -1612,7 +1612,7 @@ def _prompt_template_selection_source(
         return "runtime_policy.prompt_policy.template_id"
     if str(profile_metadata.get("prompt_template_id") or "").strip() == template_id:
         return "agent_runtime_profile.metadata.prompt_template_id"
-    return "prompt_orchestration_template"
+    return "prompt_template"
 
 
 def _resolve_runtime_task_environment(

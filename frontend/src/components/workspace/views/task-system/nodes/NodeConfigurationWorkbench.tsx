@@ -11,7 +11,7 @@ import {
 import { Metric } from "@/components/workspace/views/task-system/managementPrimitives";
 import type {
   ContractSpec,
-  OrchestrationAgentRuntimeCatalog,
+  AgentSystemAgentRuntimeCatalog,
   TaskNodeConfigurationSpec,
   TaskSystemOverview,
 } from "@/lib/api";
@@ -60,7 +60,7 @@ export function NodeConfigurationWorkbench({
   activePage?: "catalog" | "detail" | "capability" | "preview";
   contractSpecs: ContractSpec[];
   environmentItems: NonNullable<TaskSystemOverview["task_environment_management"]>["environments"];
-  nodeRuntimeCatalog: OrchestrationAgentRuntimeCatalog | null;
+  nodeRuntimeCatalog: AgentSystemAgentRuntimeCatalog | null;
   onDeleteNodeConfiguration: (nodeConfigId: string) => Promise<void>;
   onPreviewNodeConfiguration: (nodeConfigId: string, environmentId?: string) => Promise<Record<string, unknown>>;
   onSaveNodeConfiguration: (spec: TaskNodeConfigurationSpec) => Promise<void>;
@@ -312,3 +312,4 @@ export function NodeConfigurationWorkbench({
     </main>
   );
 }
+

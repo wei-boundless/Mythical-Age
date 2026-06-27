@@ -6,7 +6,7 @@ from typing import Any
 from .lifecycle import GLOBAL_MONITOR_BUCKETS
 
 
-MONITOR_AUTHORITY = "runtime_monitor.v1"
+MONITOR_AUTHORITY = "harness.run_monitor.v1"
 
 
 def monitor_revision(items: list[dict[str, Any]], *, now: float) -> str:
@@ -141,3 +141,4 @@ def _navigation_scope(session_scope: dict[str, Any] | None) -> dict[str, str]:
     if project_id:
         payload["project_id"] = project_id
     return payload
+

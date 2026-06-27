@@ -4,7 +4,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from prompting.strategy_prototypes import strategy_prototype_for_task_goal
+from prompt_library.strategy_prototypes import strategy_prototype_for_task_goal
 from task_system.goal_profiles import bind_task_goal_profile, get_task_goal_profile
 
 
@@ -763,7 +763,7 @@ def _contract_deliverables(*, task_goal_type: str, obligation: dict[str, Any]) -
 
 def _required_actions_for_obligation(obligation: dict[str, Any]) -> list[str]:
     item = dict(obligation or {})
-    if str(item.get("task_graph_node_policy") or "").strip() == "orchestration_owned_side_effects":
+    if str(item.get("task_graph_node_policy") or "").strip() == "graph_system_owned_side_effects":
         return []
     actions: list[str] = []
     if list(item.get("required_reads") or []):

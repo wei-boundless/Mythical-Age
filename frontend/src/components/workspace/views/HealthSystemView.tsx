@@ -170,7 +170,7 @@ export function HealthSystemView() {
 
           <section className="health-system-grid">
             <article className="health-system-card">
-              <PanelHead title="监控汇总" subtitle={monitorGovernance?.status || "RuntimeMonitor"} />
+              <PanelHead title="监控汇总" subtitle={monitorGovernance?.status || "RunMonitor"} />
               <div className="health-overview-metrics">
                 <Metric label="运行中" value={monitorSummary.running ?? 0} />
                 <Metric label="等待处理" value={monitorSummary.action_required ?? monitorSummary.waiting ?? 0} danger={numberValue(monitorSummary.action_required ?? monitorSummary.waiting) > 0} />

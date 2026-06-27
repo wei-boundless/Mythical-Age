@@ -6,18 +6,18 @@ import time
 from typing import Any
 
 from .contract import build_envelope
-from .management import RuntimeMonitorManagementProjector
-from .projector import RuntimeMonitorProjector
-from .retention_store import RuntimeMonitorRetentionStore
+from .management import RunMonitorManagementProjector
+from .projector import RunMonitorProjector
+from .retention_store import RunMonitorRetentionStore
 from .resource_resolver import MonitorResourceResolver
-from .signals import build_runtime_monitor_envelope
+from .signals import build_run_monitor_envelope
 from .lifecycle import TERMINAL_TASK_RUN_STATUSES
 from ..task_run_retention import TaskRunLifecycleRetention
 
 SESSION_MONITOR_TASK_RUN_CANDIDATE_LIMIT = 240
 
 
-class RuntimeMonitorService:
+class RunMonitorService:
     def __init__(
         self,
         *,
@@ -40,7 +40,7 @@ class RuntimeMonitorService:
             graph_system=graph_system,
             base_dir=getattr(runtime_host, "backend_dir", None),
         )
-        self.projector = RuntimeMonitorProjector(
+        self.projector = RunMonitorProjector(
             runtime_host.event_log,
             runtime_host=runtime_host,
             freshness_seconds=freshness_seconds,
@@ -50,10 +50,10 @@ class RuntimeMonitorService:
             fact_ledger=getattr(runtime_host, "fact_ledger", None),
             trace_service=getattr(runtime_host, "trace_service", None),
         )
-        self.retention_store = RuntimeMonitorRetentionStore(
+        self.retention_store = RunMonitorRetentionStore(
             backend_dir=getattr(runtime_host, "backend_dir", None),
         )
-        self.management_projector = RuntimeMonitorManagementProjector(
+        self.management_projector = RunMonitorManagementProjector(
             retention_store=self.retention_store,
         )
         self.lifecycle_retention = TaskRunLifecycleRetention(runtime_host=runtime_host)
@@ -67,7 +67,7 @@ class RuntimeMonitorService:
         items = self._global_live_items(requested_limit=requested_limit, now=now)
         return build_envelope(scope="global", items=items, now=now, limit=requested_limit)
 
-    def collect_global_runtime_monitor(self, limit: int = 30) -> dict[str, Any]:
+    def collect_global_run_monitor(self, limit: int = 30) -> dict[str, Any]:
         requested_limit = max(1, min(int(limit or 30), 100))
         now = time.time()
         revision = self._global_monitor_revision()
@@ -79,7 +79,7 @@ class RuntimeMonitorService:
             now=now,
             include_recent_terminal=True,
         )
-        envelope = build_runtime_monitor_envelope(items=items, now=now, limit=requested_limit)
+        envelope = build_run_monitor_envelope(items=items, now=now, limit=requested_limit)
         monitor = self.management_projector.apply_management(envelope, now=now, source_items=items)
         self._write_global_monitor_cache(limit=requested_limit, revision=revision, now=time.time(), monitor=monitor)
         return monitor
@@ -270,7 +270,7 @@ class RuntimeMonitorService:
         )
         if not task_runs:
             return {
-                "authority": "runtime_monitor.v1.session_task_summary",
+                "authority": "harness.run_monitor.v1.session_task_summary",
                 "available": False,
                 "task_run_count": 0,
                 "latest_task_run_id": "",
@@ -295,7 +295,7 @@ class RuntimeMonitorService:
         )
         selected = active or items[0]
         return {
-            "authority": "runtime_monitor.v1.session_task_summary",
+            "authority": "harness.run_monitor.v1.session_task_summary",
             "available": True,
             "selection": "active" if active else "latest",
             "task_run_count": len(items),
@@ -459,3 +459,5 @@ class RuntimeMonitorService:
 
     def _session_task_run_summaries(self, session_id: str, *, limit: int | None = None) -> list[Any]:
         return list(self.runtime_host.state_index.list_session_task_run_summaries(session_id, limit=limit) or [])
+
+

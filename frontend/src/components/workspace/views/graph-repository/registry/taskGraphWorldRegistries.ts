@@ -1,4 +1,4 @@
-import type { OrchestrationAgentRuntimeCatalog, TaskGraphNodeRecord } from "@/lib/api";
+import type { AgentSystemAgentRuntimeCatalog, TaskGraphNodeRecord } from "@/lib/api";
 
 export type AgentWorldRegistration = {
   agent_id: string;
@@ -28,7 +28,7 @@ export type ResourceWorldRegistration = {
   };
 };
 
-export function agentWorldRegistrationsFromCatalog(catalog: OrchestrationAgentRuntimeCatalog | null | undefined): AgentWorldRegistration[] {
+export function agentWorldRegistrationsFromCatalog(catalog: AgentSystemAgentRuntimeCatalog | null | undefined): AgentWorldRegistration[] {
   const agents = catalog?.agents ?? [];
   if (!agents.length) return defaultAgentWorldRegistrations;
   return agents.map((agent, index) => {
@@ -153,3 +153,4 @@ function agentCategory(value: string): AgentWorldRegistration["category"] {
   if (/writer|writing|写作/i.test(value)) return "writer";
   return "custom";
 }
+

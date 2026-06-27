@@ -231,22 +231,22 @@
   max-width: 100%;
 }
 
-.orchestration-permission-workbench {
+.agent-system-permission-workbench {
   grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
 }
 
-.orchestration-permission-matrix-shell {
+.agent-system-permission-matrix-shell {
   gap: 0.62rem;
   min-width: 0;
 }
 
-.orchestration-permission-summary {
+.agent-system-permission-summary {
   display: flex;
   flex-wrap: wrap;
   gap: 0.42rem;
 }
 
-.orchestration-permission-summary span {
+.agent-system-permission-summary span {
   display: inline-flex;
   align-items: center;
   gap: 0.34rem;
@@ -260,13 +260,13 @@
   padding: 0.18rem 0.48rem;
 }
 
-.orchestration-permission-summary b {
+.agent-system-permission-summary b {
   color: var(--console-text);
   font-family: var(--font-mono), monospace;
   font-size: 0.72rem;
 }
 
-.orchestration-tool-package-manager {
+.agent-system-tool-package-manager {
   display: grid;
   gap: 0.62rem;
   border: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
@@ -275,43 +275,43 @@
   padding: 0.68rem;
 }
 
-.orchestration-tool-package-manager__head {
+.agent-system-tool-package-manager__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.72rem;
 }
 
-.orchestration-tool-package-manager__head > div {
+.agent-system-tool-package-manager__head > div {
   display: grid;
   gap: 0.18rem;
 }
 
-.orchestration-tool-package-manager__head strong {
+.agent-system-tool-package-manager__head strong {
   color: var(--console-text);
   font-size: 0.82rem;
 }
 
-.orchestration-tool-package-manager__head span {
+.agent-system-tool-package-manager__head span {
   color: var(--console-muted);
   font-size: 0.68rem;
 }
 
-.orchestration-tool-package-layout {
+.agent-system-tool-package-layout {
   display: grid;
   grid-template-columns: minmax(220px, 0.82fr) minmax(320px, 1.18fr);
   gap: 0.62rem;
   min-width: 0;
 }
 
-.orchestration-tool-package-list,
-.orchestration-package-operation-list {
+.agent-system-tool-package-list,
+.agent-system-package-operation-list {
   display: grid;
   gap: 0.38rem;
   min-width: 0;
 }
 
-.orchestration-tool-package-row {
+.agent-system-tool-package-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.16rem 0.5rem;
@@ -326,19 +326,19 @@
   transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
 }
 
-.orchestration-tool-package-row:hover,
-.orchestration-tool-package-row:focus-visible,
-.orchestration-tool-package-row--active {
+.agent-system-tool-package-row:hover,
+.agent-system-tool-package-row:focus-visible,
+.agent-system-tool-package-row--active {
   outline: 0;
   border-color: color-mix(in srgb, var(--console-accent) 48%, var(--console-line));
   background: color-mix(in srgb, var(--console-accent) 8%, transparent);
 }
 
-.orchestration-tool-package-row--enabled {
+.agent-system-tool-package-row--enabled {
   box-shadow: inset 0 0 0 1px var(--console-active-ring);
 }
 
-.orchestration-tool-package-row span {
+.agent-system-tool-package-row span {
   display: inline-flex;
   align-items: center;
   gap: 0.34rem;
@@ -348,13 +348,13 @@
   font-weight: 900;
 }
 
-.orchestration-tool-package-row small {
+.agent-system-tool-package-row small {
   min-width: 0;
   color: var(--console-muted);
   font-size: 0.64rem;
 }
 
-.orchestration-tool-package-row em {
+.agent-system-tool-package-row em {
   grid-column: 2;
   grid-row: 1 / span 2;
   align-self: center;
@@ -367,12 +367,12 @@
   padding: 0.16rem 0.42rem;
 }
 
-.orchestration-tool-package-row--enabled em {
+.agent-system-tool-package-row--enabled em {
   border-color: rgba(103, 220, 154, 0.42);
   color: var(--console-success);
 }
 
-.orchestration-tool-package-detail {
+.agent-system-tool-package-detail {
   display: grid;
   align-content: start;
   gap: 0.58rem;
@@ -382,31 +382,31 @@
   padding: 0.58rem;
 }
 
-.orchestration-tool-package-detail > header {
+.agent-system-tool-package-detail > header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.62rem;
 }
 
-.orchestration-tool-package-detail > header > div {
+.agent-system-tool-package-detail > header > div {
   display: grid;
   gap: 0.2rem;
   min-width: 0;
 }
 
-.orchestration-tool-package-detail > header strong {
+.agent-system-tool-package-detail > header strong {
   color: var(--console-text);
   font-size: 0.82rem;
 }
 
-.orchestration-tool-package-detail > header span {
+.agent-system-tool-package-detail > header span {
   color: var(--console-muted);
   font-size: 0.68rem;
   line-height: 1.45;
 }
 
-.orchestration-tool-package-detail > header button {
+.agent-system-tool-package-detail > header button {
   flex: 0 0 auto;
   min-height: 1.8rem;
   border: 1px solid color-mix(in srgb, var(--console-accent) 22%, var(--console-line));
@@ -419,12 +419,12 @@
   padding: 0.28rem 0.55rem;
 }
 
-.orchestration-tool-package-detail > header button.is-active {
+.agent-system-tool-package-detail > header button.is-active {
   border-color: rgba(255, 140, 125, 0.42);
   color: var(--console-danger);
 }
 
-.orchestration-package-operation {
+.agent-system-package-operation {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
@@ -438,25 +438,25 @@
   padding: 0.3rem 0.46rem;
 }
 
-.orchestration-package-operation--enabled {
+.agent-system-package-operation--enabled {
   border-color: color-mix(in srgb, var(--console-accent) 30%, var(--console-line));
   background: color-mix(in srgb, var(--console-accent) 7%, transparent);
   color: var(--console-muted);
 }
 
-.orchestration-package-operation input {
+.agent-system-package-operation input {
   width: 0.92rem;
   height: 0.92rem;
 }
 
-.orchestration-package-operation span {
+.agent-system-package-operation span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.orchestration-permission-matrix {
+.agent-system-permission-matrix {
   display: grid;
   min-width: 0;
   overflow: auto;
@@ -464,8 +464,8 @@
   border-radius: 8px;
 }
 
-.orchestration-permission-matrix__head,
-.orchestration-permission-row {
+.agent-system-permission-matrix__head,
+.agent-system-permission-row {
   display: grid;
   grid-template-columns: 92px minmax(180px, 1.15fr) minmax(120px, 0.72fr) 72px minmax(92px, 0.56fr) 82px 148px;
   align-items: center;
@@ -473,7 +473,7 @@
   min-width: 850px;
 }
 
-.orchestration-permission-matrix__head {
+.agent-system-permission-matrix__head {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -488,7 +488,7 @@
   text-transform: uppercase;
 }
 
-.orchestration-permission-row {
+.agent-system-permission-row {
   min-height: 2.9rem;
   border-bottom: 1px solid color-mix(in srgb, var(--console-accent) 8%, var(--console-line));
   color: var(--console-muted);
@@ -497,76 +497,76 @@
   transition: background 140ms ease, box-shadow 140ms ease, color 140ms ease;
 }
 
-.orchestration-permission-row:last-child {
+.agent-system-permission-row:last-child {
   border-bottom: 0;
 }
 
-.orchestration-permission-row:hover,
-.orchestration-permission-row:focus-visible {
+.agent-system-permission-row:hover,
+.agent-system-permission-row:focus-visible {
   outline: 0;
   background: color-mix(in srgb, var(--console-accent) 7%, transparent);
 }
 
-.orchestration-permission-row--active {
+.agent-system-permission-row--active {
   background: color-mix(in srgb, var(--console-accent) 11%, transparent);
   box-shadow: inset 0 0 0 1px var(--console-active-ring);
 }
 
-.orchestration-permission-row--allowed .orchestration-permission-row__status em {
+.agent-system-permission-row--allowed .agent-system-permission-row__status em {
   border-color: rgba(103, 220, 154, 0.42);
   color: var(--console-success);
 }
 
-.orchestration-permission-row--blocked {
+.agent-system-permission-row--blocked {
   opacity: 0.72;
 }
 
-.orchestration-permission-row--empty {
+.agent-system-permission-row--empty {
   cursor: default;
   opacity: 0.72;
 }
 
-.orchestration-permission-row--empty:hover,
-.orchestration-permission-row--empty:focus-visible {
+.agent-system-permission-row--empty:hover,
+.agent-system-permission-row--empty:focus-visible {
   background: transparent;
   box-shadow: none;
 }
 
-.orchestration-permission-row--blocked .orchestration-permission-row__status em,
-.orchestration-permission-row--conflict .orchestration-permission-row__status em {
+.agent-system-permission-row--blocked .agent-system-permission-row__status em,
+.agent-system-permission-row--conflict .agent-system-permission-row__status em {
   border-color: rgba(255, 140, 125, 0.42);
   color: var(--console-danger);
 }
 
-.orchestration-permission-row--partial .orchestration-permission-row__status em {
+.agent-system-permission-row--partial .agent-system-permission-row__status em {
   border-color: rgba(255, 215, 107, 0.42);
   color: var(--console-warning);
 }
 
-.orchestration-permission-row > span,
-.orchestration-permission-row strong {
+.agent-system-permission-row > span,
+.agent-system-permission-row strong {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.orchestration-permission-row strong {
+.agent-system-permission-row strong {
   color: var(--console-text);
   font-size: 0.76rem;
 }
 
-.orchestration-permission-row span {
+.agent-system-permission-row span {
   color: var(--console-muted);
   font-size: 0.68rem;
 }
 
-.orchestration-permission-row__type {
+.agent-system-permission-row__type {
   color: var(--console-accent);
   font-weight: 900;
 }
 
-.orchestration-permission-row__status em {
+.agent-system-permission-row__status em {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -580,15 +580,15 @@
   padding: 0.16rem 0.4rem;
 }
 
-.orchestration-permission-row__actions {
+.agent-system-permission-row__actions {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
   gap: 0.32rem;
 }
 
-.orchestration-permission-row__actions button,
-.orchestration-permission-inspector__actions button {
+.agent-system-permission-row__actions button,
+.agent-system-permission-inspector__actions button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -604,76 +604,76 @@
   padding: 0.26rem 0.4rem;
 }
 
-.orchestration-permission-row__actions button:disabled,
-.orchestration-permission-inspector__actions button:disabled {
+.agent-system-permission-row__actions button:disabled,
+.agent-system-permission-inspector__actions button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
 
-.orchestration-permission-row__actions button.is-active,
-.orchestration-permission-inspector__actions button:first-child {
+.agent-system-permission-row__actions button.is-active,
+.agent-system-permission-inspector__actions button:first-child {
   border-color: rgba(103, 220, 154, 0.5);
   color: var(--console-success);
 }
 
-.orchestration-permission-row__actions button.is-danger-active,
-.orchestration-permission-inspector__actions button:last-child {
+.agent-system-permission-row__actions button.is-danger-active,
+.agent-system-permission-inspector__actions button:last-child {
   border-color: rgba(255, 140, 125, 0.45);
   color: var(--console-danger);
 }
 
-.orchestration-permission-inspector {
+.agent-system-permission-inspector {
   position: sticky;
   top: 0.75rem;
   align-self: start;
 }
 
-.orchestration-permission-inspector__hero {
+.agent-system-permission-inspector__hero {
   display: grid;
   gap: 0.36rem;
   border-bottom: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
   padding-bottom: 0.64rem;
 }
 
-.orchestration-permission-inspector__hero span {
+.agent-system-permission-inspector__hero span {
   color: var(--console-accent);
   font-size: 0.68rem;
   font-weight: 900;
 }
 
-.orchestration-permission-inspector__hero h4 {
+.agent-system-permission-inspector__hero h4 {
   margin: 0;
   color: var(--console-text);
   font-size: 1rem;
 }
 
-.orchestration-permission-inspector__hero p,
-.orchestration-permission-detail-block p {
+.agent-system-permission-inspector__hero p,
+.agent-system-permission-detail-block p {
   margin: 0;
   color: var(--console-muted);
   font-size: 0.74rem;
   line-height: 1.52;
 }
 
-.orchestration-permission-detail-block {
+.agent-system-permission-detail-block {
   display: grid;
   gap: 0.48rem;
   border-top: 1px solid color-mix(in srgb, var(--console-accent) 12%, transparent);
   padding-top: 0.64rem;
 }
 
-.orchestration-permission-detail-block > strong {
+.agent-system-permission-detail-block > strong {
   color: var(--console-text);
   font-size: 0.8rem;
 }
 
-.orchestration-permission-detail-block div {
+.agent-system-permission-detail-block div {
   display: flex;
   flex-wrap: wrap;
   gap: 0.34rem;
 }
 
-.orchestration-permission-detail-block div > span {
+.agent-system-permission-detail-block div > span {
   max-width: 100%;
   border: 1px solid color-mix(in srgb, var(--console-accent) 14%, var(--console-line));
   border-radius: 999px;
@@ -683,61 +683,61 @@
   overflow-wrap: anywhere;
 }
 
-.orchestration-permission-detail-block p {
+.agent-system-permission-detail-block p {
   display: grid;
   gap: 0.16rem;
   width: 100%;
 }
 
-.orchestration-permission-detail-block p span {
+.agent-system-permission-detail-block p span {
   color: var(--console-muted);
   font-size: 0.66rem;
   font-weight: 850;
 }
 
-.orchestration-permission-detail-block p b {
+.agent-system-permission-detail-block p b {
   color: var(--console-muted);
   font-size: 0.72rem;
   font-weight: 700;
   overflow-wrap: anywhere;
 }
 
-.orchestration-permission-inspector__actions {
+.agent-system-permission-inspector__actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.46rem;
 }
 
-.orchestration-permission-raw {
+.agent-system-permission-raw {
   border: 1px dashed color-mix(in srgb, var(--console-accent) 16%, var(--console-line));
   border-radius: 8px;
   padding: 0.58rem;
 }
 
-.orchestration-permission-raw summary {
+.agent-system-permission-raw summary {
   color: var(--console-muted);
   cursor: pointer;
   font-size: 0.72rem;
   font-weight: 850;
 }
 
-.orchestration-permission-raw .boundary-option-selection {
+.agent-system-permission-raw .boundary-option-selection {
   margin-top: 0.58rem;
 }
 
-.orchestration-memory-boundary {
+.agent-system-memory-boundary {
   display: grid;
   gap: 0.68rem;
   margin-top: 0.72rem;
 }
 
-.orchestration-memory-boundary__actions {
+.agent-system-memory-boundary__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.46rem;
 }
 
-.orchestration-memory-boundary__actions button {
+.agent-system-memory-boundary__actions button {
   display: inline-flex;
   align-items: center;
   gap: 0.34rem;
@@ -751,12 +751,12 @@
   padding: 0.42rem 0.58rem;
 }
 
-.orchestration-memory-boundary__actions button:hover {
+.agent-system-memory-boundary__actions button:hover {
   border-color: color-mix(in srgb, var(--console-accent) 48%, var(--console-line));
   transform: translateY(-1px);
 }
 
-.orchestration-context-workbench {
+.agent-system-context-workbench {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: 0.72rem;
@@ -764,27 +764,27 @@
   min-width: 0;
 }
 
-.orchestration-context-config-card,
-.orchestration-memory-interface-card,
-.orchestration-context-summary-card {
+.agent-system-context-config-card,
+.agent-system-memory-interface-card,
+.agent-system-context-summary-card {
   min-width: 0;
 }
 
-.orchestration-memory-interface-card {
+.agent-system-memory-interface-card {
   align-self: stretch;
 }
 
-.orchestration-memory-readiness-grid {
+.agent-system-memory-readiness-grid {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr));
 }
 
-.orchestration-memory-lane-grid {
+.agent-system-memory-lane-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 145px), 1fr));
   gap: 0.52rem;
 }
 
-.orchestration-memory-lane {
+.agent-system-memory-lane {
   display: grid;
   gap: 0.28rem;
   min-width: 0;
@@ -794,7 +794,7 @@
   padding: 0.62rem;
 }
 
-.orchestration-memory-lane span {
+.agent-system-memory-lane span {
   display: inline-flex;
   align-items: center;
   gap: 0.32rem;
@@ -804,27 +804,27 @@
   line-height: 1.25;
 }
 
-.orchestration-memory-lane strong {
+.agent-system-memory-lane strong {
   color: var(--console-text);
   font-size: 0.86rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
 
-.orchestration-memory-lane small {
+.agent-system-memory-lane small {
   color: var(--console-muted);
   font-size: 0.72rem;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
 
-.orchestration-memory-path {
+.agent-system-memory-path {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
 }
 
-.orchestration-memory-path span {
+.agent-system-memory-path span {
   border: 1px dashed color-mix(in srgb, var(--console-line) 80%, transparent);
   border-radius: 999px;
   color: var(--console-muted);
@@ -833,14 +833,14 @@
   padding: 0.22rem 0.5rem;
 }
 
-.orchestration-memory-path span.is-on {
+.agent-system-memory-path span.is-on {
   border-style: solid;
   border-color: color-mix(in srgb, var(--console-success) 38%, var(--console-line));
   color: var(--console-success);
 }
 
 @media (max-width: 1320px) {
-  .orchestration-context-workbench {
+  .agent-system-context-workbench {
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
   }
 }
@@ -1008,14 +1008,14 @@
   }
 
   .boundary-workbench,
-.orchestration-workbench,
+.agent-system-workbench,
 .task-environment-policy-strip,
 .task-environment-loadout-form,
 .boundary-layer-grid,
 .boundary-layer-grid--wide,
-.orchestration-context-workbench,
+.agent-system-context-workbench,
 .boundary-form,
-.orchestration-memory-lane-grid,
+.agent-system-memory-lane-grid,
 .boundary-task-table button,
 .boundary-flowline article,
 .boundary-kv p {
@@ -2672,7 +2672,7 @@
   padding: 0;
 }
 
-.system-page-shell--orchestration .orchestration-console {
+.system-page-shell--orchestration .agent-system-console {
   --agent-page-line: var(--console-line);
   --agent-page-line-soft: var(--console-line-soft);
   --agent-page-panel: var(--console-surface);
@@ -2708,28 +2708,28 @@
   -webkit-font-smoothing: subpixel-antialiased;
 }
 
-.system-page-shell--orchestration .orchestration-console *,
-.system-page-shell--orchestration .orchestration-console *::before,
-.system-page-shell--orchestration .orchestration-console *::after {
+.system-page-shell--orchestration .agent-system-console *,
+.system-page-shell--orchestration .agent-system-console *::before,
+.system-page-shell--orchestration .agent-system-console *::after {
   text-shadow: none;
 }
 
-.system-page-shell--orchestration .orchestration-console button,
-.system-page-shell--orchestration .orchestration-console input,
-.system-page-shell--orchestration .orchestration-console select,
-.system-page-shell--orchestration .orchestration-console textarea {
+.system-page-shell--orchestration .agent-system-console button,
+.system-page-shell--orchestration .agent-system-console input,
+.system-page-shell--orchestration .agent-system-console select,
+.system-page-shell--orchestration .agent-system-console textarea {
   font: inherit;
 }
 
-.system-page-shell--orchestration .orchestration-console button {
+.system-page-shell--orchestration .agent-system-console button {
   cursor: pointer;
 }
 
-.system-page-shell--orchestration .orchestration-console button:disabled {
+.system-page-shell--orchestration .agent-system-console button:disabled {
   cursor: not-allowed;
 }
 
-.system-page-shell--orchestration .orchestration-console-head {
+.system-page-shell--orchestration .agent-system-console-head {
   display: grid;
   grid-template-columns: minmax(260px, 0.9fr) minmax(420px, 1.45fr) auto;
   align-items: stretch;
@@ -2738,7 +2738,7 @@
   padding: 0;
 }
 
-.system-page-shell--orchestration .orchestration-console-head__title {
+.system-page-shell--orchestration .agent-system-console-head__title {
   display: grid;
   align-content: center;
   gap: 5px;
@@ -2749,7 +2749,7 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-line) 72%, transparent);
 }
 
-.system-page-shell--orchestration .orchestration-console-head__title span {
+.system-page-shell--orchestration .agent-system-console-head__title span {
   color: var(--agent-page-blue);
   font-size: 13px;
   font-weight: 600;
@@ -2757,27 +2757,27 @@
   text-transform: none;
 }
 
-.system-page-shell--orchestration .orchestration-console-head__title h2 {
+.system-page-shell--orchestration .agent-system-console-head__title h2 {
   color: var(--agent-page-text);
   font-size: 24px;
   font-weight: 700;
   line-height: 1.18;
 }
 
-.system-page-shell--orchestration .orchestration-console-head__title p {
+.system-page-shell--orchestration .agent-system-console-head__title p {
   max-width: 620px;
   color: var(--agent-page-muted);
   font-size: 14px;
   line-height: 1.48;
 }
 
-.system-page-shell--orchestration .orchestration-console-head__summary {
+.system-page-shell--orchestration .agent-system-console-head__summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
-.system-page-shell--orchestration .orchestration-console-head__summary > div {
+.system-page-shell--orchestration .agent-system-console-head__summary > div {
   display: grid;
   align-content: center;
   gap: 5px;
@@ -2789,14 +2789,14 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-line) 92%, transparent);
 }
 
-.system-page-shell--orchestration .orchestration-console-head__summary span {
+.system-page-shell--orchestration .agent-system-console-head__summary span {
   color: var(--console-muted);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.28;
 }
 
-.system-page-shell--orchestration .orchestration-console-head__summary strong {
+.system-page-shell--orchestration .agent-system-console-head__summary strong {
   display: block;
   overflow: hidden;
   color: var(--agent-page-text);
@@ -2807,7 +2807,7 @@
   white-space: nowrap;
 }
 
-.system-page-shell--orchestration .orchestration-console-head__summary small {
+.system-page-shell--orchestration .agent-system-console-head__summary small {
   display: -webkit-box;
   overflow: hidden;
   color: var(--console-text);
@@ -2817,7 +2817,7 @@
   -webkit-line-clamp: 2;
 }
 
-.system-page-shell--orchestration .orchestration-console-head__actions {
+.system-page-shell--orchestration .agent-system-console-head__actions {
   align-self: stretch;
   display: grid;
   align-content: center;
@@ -2828,15 +2828,15 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-line) 92%, transparent);
 }
 
-.system-page-shell--orchestration .orchestration-console-head__actions .boundary-button {
+.system-page-shell--orchestration .agent-system-console-head__actions .boundary-button {
   width: 100%;
   min-height: 38px;
   justify-content: center;
 }
 
 .system-page-shell--orchestration .boundary-workbench,
-.system-page-shell--orchestration .orchestration-workbench,
-.system-page-shell--orchestration .orchestration-definition-center {
+.system-page-shell--orchestration .agent-system-workbench,
+.system-page-shell--orchestration .agent-system-definition-center {
   grid-template-columns: minmax(282px, 316px) minmax(0, 1fr);
   gap: 12px;
   min-height: 0;
@@ -2865,12 +2865,12 @@
   overflow: hidden;
 }
 
-.system-page-shell--orchestration .orchestration-practical-rail {
+.system-page-shell--orchestration .agent-system-practical-rail {
   grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
 }
 
 .system-page-shell--orchestration .boundary-rail__head,
-.system-page-shell--orchestration .orchestration-directory-head {
+.system-page-shell--orchestration .agent-system-directory-head {
   min-height: 34px;
   padding: 0 2px 2px;
 }
@@ -2878,7 +2878,7 @@
 .system-page-shell--orchestration .boundary-rail__head strong,
 .system-page-shell--orchestration .boundary-panel-head strong,
 .system-page-shell--orchestration .boundary-card > header strong,
-.system-page-shell--orchestration .orchestration-directory-head strong {
+.system-page-shell--orchestration .agent-system-directory-head strong {
   color: var(--agent-page-text);
   font-size: 14.5px;
   font-weight: 700;
@@ -2916,13 +2916,13 @@
   color: var(--agent-page-faint);
 }
 
-.system-page-shell--orchestration .orchestration-directory-switcher {
+.system-page-shell--orchestration .agent-system-directory-switcher {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
 
-.system-page-shell--orchestration .orchestration-directory-switcher__item {
+.system-page-shell--orchestration .agent-system-directory-switcher__item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -2938,19 +2938,19 @@
   transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
 }
 
-.system-page-shell--orchestration .orchestration-directory-switcher__item:hover,
-.system-page-shell--orchestration .orchestration-directory-switcher__item:focus-visible {
+.system-page-shell--orchestration .agent-system-directory-switcher__item:hover,
+.system-page-shell--orchestration .agent-system-directory-switcher__item:focus-visible {
   border-color: var(--agent-page-active-line);
   background: var(--agent-page-hover);
 }
 
-.system-page-shell--orchestration .orchestration-directory-switcher__item--active {
+.system-page-shell--orchestration .agent-system-directory-switcher__item--active {
   border-color: var(--agent-page-active-line);
   background: var(--agent-page-active);
   color: var(--agent-page-text);
 }
 
-.system-page-shell--orchestration .orchestration-directory-switcher__item span {
+.system-page-shell--orchestration .agent-system-directory-switcher__item span {
   grid-column: 1;
   color: inherit;
   font-size: 13px;
@@ -2958,7 +2958,7 @@
   line-height: 1.2;
 }
 
-.system-page-shell--orchestration .orchestration-directory-switcher__item strong {
+.system-page-shell--orchestration .agent-system-directory-switcher__item strong {
   grid-column: 2;
   align-self: center;
   color: var(--agent-page-text);
@@ -2967,7 +2967,7 @@
   line-height: 1;
 }
 
-.system-page-shell--orchestration .orchestration-section-title {
+.system-page-shell--orchestration .agent-system-section-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2976,21 +2976,21 @@
   padding: 0 2px;
 }
 
-.system-page-shell--orchestration .orchestration-section-title span {
+.system-page-shell--orchestration .agent-system-section-title span {
   color: var(--agent-page-text);
   font-size: 13px;
   font-weight: 700;
   text-transform: none;
 }
 
-.system-page-shell--orchestration .orchestration-section-title small {
+.system-page-shell--orchestration .agent-system-section-title small {
   color: var(--agent-page-muted);
   font-size: 13px;
   line-height: 1.3;
   text-align: right;
 }
 
-.system-page-shell--orchestration .orchestration-practical-list,
+.system-page-shell--orchestration .agent-system-practical-list,
 .system-page-shell--orchestration .boundary-list--scroll {
   align-content: start;
   gap: 5px;
@@ -2998,11 +2998,11 @@
 }
 
 .system-page-shell--orchestration .boundary-list-row,
-.system-page-shell--orchestration .orchestration-agent-row,
-.system-page-shell--orchestration .orchestration-subagent-row,
-.system-page-shell--orchestration .orchestration-member-row,
-.system-page-shell--orchestration .orchestration-tool-package-row,
-.system-page-shell--orchestration .orchestration-package-operation {
+.system-page-shell--orchestration .agent-system-agent-row,
+.system-page-shell--orchestration .agent-system-subagent-row,
+.system-page-shell--orchestration .agent-system-member-row,
+.system-page-shell--orchestration .agent-system-tool-package-row,
+.system-page-shell--orchestration .agent-system-package-operation {
   border: 1px solid transparent;
   border-radius: 13px;
   background: transparent;
@@ -3013,27 +3013,27 @@
 
 .system-page-shell--orchestration .boundary-list-row:hover,
 .system-page-shell--orchestration .boundary-list-row:focus-visible,
-.system-page-shell--orchestration .orchestration-subagent-row:hover,
-.system-page-shell--orchestration .orchestration-member-row:hover,
-.system-page-shell--orchestration .orchestration-tool-package-row:hover,
-.system-page-shell--orchestration .orchestration-tool-package-row:focus-visible,
-.system-page-shell--orchestration .orchestration-package-operation:hover {
+.system-page-shell--orchestration .agent-system-subagent-row:hover,
+.system-page-shell--orchestration .agent-system-member-row:hover,
+.system-page-shell--orchestration .agent-system-tool-package-row:hover,
+.system-page-shell--orchestration .agent-system-tool-package-row:focus-visible,
+.system-page-shell--orchestration .agent-system-package-operation:hover {
   border-color: var(--agent-page-active-line);
   background: var(--agent-page-hover);
 }
 
 .system-page-shell--orchestration .boundary-list-row--active,
-.system-page-shell--orchestration .orchestration-subagent-row--active,
-.system-page-shell--orchestration .orchestration-member-row--selected,
-.system-page-shell--orchestration .orchestration-tool-package-row--active,
-.system-page-shell--orchestration .orchestration-package-operation--enabled {
+.system-page-shell--orchestration .agent-system-subagent-row--active,
+.system-page-shell--orchestration .agent-system-member-row--selected,
+.system-page-shell--orchestration .agent-system-tool-package-row--active,
+.system-page-shell--orchestration .agent-system-package-operation--enabled {
   border-color: var(--agent-page-active-line);
   background: var(--agent-page-active);
   color: var(--agent-page-text);
   box-shadow: none;
 }
 
-.system-page-shell--orchestration .orchestration-agent-row {
+.system-page-shell--orchestration .agent-system-agent-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   min-height: 58px;
@@ -3041,31 +3041,31 @@
   text-align: left;
 }
 
-.system-page-shell--orchestration .orchestration-agent-row > div {
+.system-page-shell--orchestration .agent-system-agent-row > div {
   display: grid;
   gap: 3px;
   min-width: 0;
 }
 
-.system-page-shell--orchestration .orchestration-agent-row strong,
-.system-page-shell--orchestration .orchestration-subagent-row__main strong,
-.system-page-shell--orchestration .orchestration-member-row__body strong {
+.system-page-shell--orchestration .agent-system-agent-row strong,
+.system-page-shell--orchestration .agent-system-subagent-row__main strong,
+.system-page-shell--orchestration .agent-system-member-row__body strong {
   color: var(--agent-page-text);
   font-size: 14px;
   font-weight: 700;
   line-height: 1.28;
 }
 
-.system-page-shell--orchestration .orchestration-agent-row span,
-.system-page-shell--orchestration .orchestration-agent-row small,
-.system-page-shell--orchestration .orchestration-subagent-row__main span,
-.system-page-shell--orchestration .orchestration-member-row__body span {
+.system-page-shell--orchestration .agent-system-agent-row span,
+.system-page-shell--orchestration .agent-system-agent-row small,
+.system-page-shell--orchestration .agent-system-subagent-row__main span,
+.system-page-shell--orchestration .agent-system-member-row__body span {
   color: var(--agent-page-muted);
   font-size: 13px;
   line-height: 1.32;
 }
 
-.system-page-shell--orchestration .orchestration-practical-group {
+.system-page-shell--orchestration .agent-system-practical-group {
   display: grid;
   gap: 7px;
   border: 1px solid transparent;
@@ -3075,13 +3075,13 @@
   box-shadow: inset 0 0 0 1px var(--agent-page-line-soft);
 }
 
-.system-page-shell--orchestration .orchestration-practical-group--active {
+.system-page-shell--orchestration .agent-system-practical-group--active {
   border-color: var(--agent-page-active-line);
   background: var(--agent-page-active);
   box-shadow: none;
 }
 
-.system-page-shell--orchestration .orchestration-practical-group__head {
+.system-page-shell--orchestration .agent-system-practical-group__head {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
@@ -3096,18 +3096,18 @@
   text-align: left;
 }
 
-.system-page-shell--orchestration .orchestration-practical-group__head strong {
+.system-page-shell--orchestration .agent-system-practical-group__head strong {
   color: var(--agent-page-text);
   font-size: 14px;
   font-weight: 700;
 }
 
-.system-page-shell--orchestration .orchestration-practical-group__head span {
+.system-page-shell--orchestration .agent-system-practical-group__head span {
   color: var(--agent-page-muted);
   font-size: 13px;
 }
 
-.system-page-shell--orchestration .orchestration-subagent-row {
+.system-page-shell--orchestration .agent-system-subagent-row {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -3115,7 +3115,7 @@
   padding: 3px;
 }
 
-.system-page-shell--orchestration .orchestration-subagent-row__main {
+.system-page-shell--orchestration .agent-system-subagent-row__main {
   display: grid;
   gap: 2px;
   flex: 1 1 auto;
@@ -3129,8 +3129,8 @@
   text-align: left;
 }
 
-.system-page-shell--orchestration .orchestration-subagent-row__delete,
-.system-page-shell--orchestration .orchestration-member-row__action {
+.system-page-shell--orchestration .agent-system-subagent-row__delete,
+.system-page-shell--orchestration .agent-system-member-row__action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3143,13 +3143,13 @@
   box-shadow: inset 0 0 0 1px var(--agent-page-line-soft);
 }
 
-.system-page-shell--orchestration .orchestration-subagent-row__delete:hover,
-.system-page-shell--orchestration .orchestration-member-row__action--danger:hover {
+.system-page-shell--orchestration .agent-system-subagent-row__delete:hover,
+.system-page-shell--orchestration .agent-system-member-row__action--danger:hover {
   background: var(--console-danger-soft);
   color: var(--agent-page-red);
 }
 
-.system-page-shell--orchestration .orchestration-subagent-create-row {
+.system-page-shell--orchestration .agent-system-subagent-create-row {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3164,38 +3164,38 @@
   font-weight: 600;
 }
 
-.system-page-shell--orchestration .orchestration-subagent-create-row:hover {
+.system-page-shell--orchestration .agent-system-subagent-create-row:hover {
   border-color: var(--agent-page-active-line);
   background: var(--agent-page-hover);
   color: var(--agent-page-blue);
 }
 
-.system-page-shell--orchestration .orchestration-directory-actions--practical {
+.system-page-shell--orchestration .agent-system-directory-actions--practical {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
   padding-top: 2px;
 }
 
-.system-page-shell--orchestration .orchestration-config-main {
+.system-page-shell--orchestration .agent-system-config-main {
   gap: 12px;
 }
 
-.system-page-shell--orchestration .orchestration-assembly-nav {
+.system-page-shell--orchestration .agent-system-assembly-nav {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   padding: 0;
 }
 
-.system-page-shell--orchestration .orchestration-assembly-nav__group {
+.system-page-shell--orchestration .agent-system-assembly-nav__group {
   display: grid;
   align-content: start;
   gap: 6px;
   min-width: 0;
 }
 
-.system-page-shell--orchestration .orchestration-assembly-nav__group > span {
+.system-page-shell--orchestration .agent-system-assembly-nav__group > span {
   color: var(--agent-page-muted);
   font-size: 13px;
   font-weight: 700;
@@ -3203,14 +3203,14 @@
   text-transform: none;
 }
 
-.system-page-shell--orchestration .orchestration-assembly-nav__group > div {
+.system-page-shell--orchestration .agent-system-assembly-nav__group > div {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
   gap: 6px;
   min-width: 0;
 }
 
-.system-page-shell--orchestration .orchestration-assembly-nav__item {
+.system-page-shell--orchestration .agent-system-assembly-nav__item {
   display: grid;
   align-content: center;
   gap: 3px;
@@ -3226,27 +3226,27 @@
   transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
 }
 
-.system-page-shell--orchestration .orchestration-assembly-nav__item:hover,
-.system-page-shell--orchestration .orchestration-assembly-nav__item:focus-visible {
+.system-page-shell--orchestration .agent-system-assembly-nav__item:hover,
+.system-page-shell--orchestration .agent-system-assembly-nav__item:focus-visible {
   border-color: var(--agent-page-active-line);
   background: var(--agent-page-hover);
 }
 
-.system-page-shell--orchestration .orchestration-assembly-nav__item--active {
+.system-page-shell--orchestration .agent-system-assembly-nav__item--active {
   border-color: var(--agent-page-active-line);
   background: var(--agent-page-active);
   color: var(--agent-page-text);
   box-shadow: none;
 }
 
-.system-page-shell--orchestration .orchestration-assembly-nav__item strong {
+.system-page-shell--orchestration .agent-system-assembly-nav__item strong {
   color: inherit;
   font-size: 14px;
   font-weight: 700;
   line-height: 1.22;
 }
 
-.system-page-shell--orchestration .orchestration-assembly-nav__item small {
+.system-page-shell--orchestration .agent-system-assembly-nav__item small {
   color: var(--agent-page-muted);
   font-size: 13px;
   line-height: 1.25;
@@ -3271,42 +3271,42 @@
   gap: 12px;
 }
 
-.system-page-shell--orchestration .orchestration-identity-note,
-.system-page-shell--orchestration .orchestration-permission-inspector__hero,
-.system-page-shell--orchestration .orchestration-permission-detail-block,
-.system-page-shell--orchestration .orchestration-tool-package-manager,
-.system-page-shell--orchestration .orchestration-tool-package-detail,
-.system-page-shell--orchestration .orchestration-permission-raw,
+.system-page-shell--orchestration .agent-system-identity-note,
+.system-page-shell--orchestration .agent-system-permission-inspector__hero,
+.system-page-shell--orchestration .agent-system-permission-detail-block,
+.system-page-shell--orchestration .agent-system-tool-package-manager,
+.system-page-shell--orchestration .agent-system-tool-package-detail,
+.system-page-shell--orchestration .agent-system-permission-raw,
 .system-page-shell--orchestration .boundary-option-selection,
 .system-page-shell--orchestration .boundary-readiness,
 .system-page-shell--orchestration .boundary-kv p,
-.system-page-shell--orchestration .orchestration-memory-lane,
-.system-page-shell--orchestration .orchestration-memory-path,
-.system-page-shell--orchestration .orchestration-group-summary-row {
+.system-page-shell--orchestration .agent-system-memory-lane,
+.system-page-shell--orchestration .agent-system-memory-path,
+.system-page-shell--orchestration .agent-system-group-summary-row {
   border: 0;
   border-radius: 14px;
   background: var(--agent-page-panel-muted);
   box-shadow: inset 0 0 0 1px var(--agent-page-line-soft);
 }
 
-.system-page-shell--orchestration .orchestration-identity-note {
+.system-page-shell--orchestration .agent-system-identity-note {
   display: grid;
   gap: 4px;
   margin-bottom: 10px;
   padding: 10px 12px;
 }
 
-.system-page-shell--orchestration .orchestration-identity-note span,
-.system-page-shell--orchestration .orchestration-identity-note strong {
+.system-page-shell--orchestration .agent-system-identity-note span,
+.system-page-shell--orchestration .agent-system-identity-note strong {
   font-size: 13px;
   line-height: 1.44;
 }
 
-.system-page-shell--orchestration .orchestration-identity-note span {
+.system-page-shell--orchestration .agent-system-identity-note span {
   color: var(--agent-page-muted);
 }
 
-.system-page-shell--orchestration .orchestration-identity-note strong {
+.system-page-shell--orchestration .agent-system-identity-note strong {
   color: var(--agent-page-text);
   font-weight: 600;
 }
@@ -3362,10 +3362,10 @@
 }
 
 .system-page-shell--orchestration .boundary-button,
-.system-page-shell--orchestration .orchestration-memory-boundary__actions button,
-.system-page-shell--orchestration .orchestration-permission-row__actions button,
-.system-page-shell--orchestration .orchestration-permission-inspector__actions button,
-.system-page-shell--orchestration .orchestration-tool-package-detail > header button,
+.system-page-shell--orchestration .agent-system-memory-boundary__actions button,
+.system-page-shell--orchestration .agent-system-permission-row__actions button,
+.system-page-shell--orchestration .agent-system-permission-inspector__actions button,
+.system-page-shell--orchestration .agent-system-tool-package-detail > header button,
 .system-page-shell--orchestration .boundary-chip,
 .system-page-shell--orchestration .boundary-selected-token {
   min-height: 34px;
@@ -3378,12 +3378,12 @@
   font-weight: 600;
 }
 
-.system-page-shell--orchestration .orchestration-subagent-row__delete {
+.system-page-shell--orchestration .agent-system-subagent-row__delete {
   width: 32px;
   height: 32px;
 }
 
-.system-page-shell--orchestration .orchestration-group-members {
+.system-page-shell--orchestration .agent-system-group-members {
   display: grid;
   gap: 5px;
   max-width: 100%;
@@ -3391,10 +3391,10 @@
 }
 
 .system-page-shell--orchestration .boundary-button:hover:not(:disabled),
-.system-page-shell--orchestration .orchestration-memory-boundary__actions button:hover:not(:disabled),
-.system-page-shell--orchestration .orchestration-permission-row__actions button:hover:not(:disabled),
-.system-page-shell--orchestration .orchestration-permission-inspector__actions button:hover:not(:disabled),
-.system-page-shell--orchestration .orchestration-tool-package-detail > header button:hover:not(:disabled),
+.system-page-shell--orchestration .agent-system-memory-boundary__actions button:hover:not(:disabled),
+.system-page-shell--orchestration .agent-system-permission-row__actions button:hover:not(:disabled),
+.system-page-shell--orchestration .agent-system-permission-inspector__actions button:hover:not(:disabled),
+.system-page-shell--orchestration .agent-system-tool-package-detail > header button:hover:not(:disabled),
 .system-page-shell--orchestration .boundary-chip:hover,
 .system-page-shell--orchestration .boundary-selected-token:hover {
   border-color: var(--agent-page-active-line);
@@ -3403,24 +3403,24 @@
 }
 
 .system-page-shell--orchestration .boundary-button--primary,
-.system-page-shell--orchestration .orchestration-permission-row__actions button.is-active,
-.system-page-shell--orchestration .orchestration-permission-inspector__actions button:first-child {
+.system-page-shell--orchestration .agent-system-permission-row__actions button.is-active,
+.system-page-shell--orchestration .agent-system-permission-inspector__actions button:first-child {
   border-color: var(--agent-page-blue);
   background: var(--agent-page-blue);
   color: var(--agent-page-panel);
 }
 
 .system-page-shell--orchestration .boundary-button--danger,
-.system-page-shell--orchestration .orchestration-permission-row__actions button.is-danger-active,
-.system-page-shell--orchestration .orchestration-permission-inspector__actions button:last-child {
+.system-page-shell--orchestration .agent-system-permission-row__actions button.is-danger-active,
+.system-page-shell--orchestration .agent-system-permission-inspector__actions button:last-child {
   border-color: var(--console-danger-soft);
   background: var(--console-danger-soft);
   color: var(--agent-page-red);
 }
 
 .system-page-shell--orchestration .boundary-badge,
-.system-page-shell--orchestration .orchestration-permission-row__status em,
-.system-page-shell--orchestration .orchestration-tool-package-row em {
+.system-page-shell--orchestration .agent-system-permission-row__status em,
+.system-page-shell--orchestration .agent-system-tool-package-row em {
   border: 1px solid var(--console-line);
   border-radius: 999px;
   background: var(--console-surface);
@@ -3431,33 +3431,33 @@
 }
 
 .system-page-shell--orchestration .boundary-badge--ok,
-.system-page-shell--orchestration .orchestration-permission-row--allowed .orchestration-permission-row__status em,
-.system-page-shell--orchestration .orchestration-tool-package-row--enabled em {
+.system-page-shell--orchestration .agent-system-permission-row--allowed .agent-system-permission-row__status em,
+.system-page-shell--orchestration .agent-system-tool-package-row--enabled em {
   border-color: var(--console-success-soft);
   background: var(--console-success-soft);
   color: var(--agent-page-green);
 }
 
 .system-page-shell--orchestration .boundary-badge--warn,
-.system-page-shell--orchestration .orchestration-permission-row--partial .orchestration-permission-row__status em {
+.system-page-shell--orchestration .agent-system-permission-row--partial .agent-system-permission-row__status em {
   border-color: var(--console-warning-soft);
   background: var(--console-warning-soft);
   color: var(--agent-page-amber);
 }
 
 .system-page-shell--orchestration .boundary-badge--danger,
-.system-page-shell--orchestration .orchestration-permission-row--blocked .orchestration-permission-row__status em,
-.system-page-shell--orchestration .orchestration-permission-row--conflict .orchestration-permission-row__status em {
+.system-page-shell--orchestration .agent-system-permission-row--blocked .agent-system-permission-row__status em,
+.system-page-shell--orchestration .agent-system-permission-row--conflict .agent-system-permission-row__status em {
   border-color: var(--console-danger-soft);
   background: var(--console-danger-soft);
   color: var(--agent-page-red);
 }
 
-.system-page-shell--orchestration .orchestration-permission-workbench {
+.system-page-shell--orchestration .agent-system-permission-workbench {
   grid-template-columns: minmax(0, 1fr) minmax(292px, 340px);
 }
 
-.system-page-shell--orchestration .orchestration-permission-matrix {
+.system-page-shell--orchestration .agent-system-permission-matrix {
   overflow: hidden;
   border: 0;
   border-radius: 15px;
@@ -3465,96 +3465,96 @@
   box-shadow: inset 0 0 0 1px var(--agent-page-line-soft);
 }
 
-.system-page-shell--orchestration .orchestration-permission-matrix__head,
-.system-page-shell--orchestration .orchestration-permission-row {
+.system-page-shell--orchestration .agent-system-permission-matrix__head,
+.system-page-shell--orchestration .agent-system-permission-row {
   border-bottom: 1px solid var(--agent-page-line-soft);
 }
 
-.system-page-shell--orchestration .orchestration-permission-matrix__head {
+.system-page-shell--orchestration .agent-system-permission-matrix__head {
   background: var(--agent-page-panel-muted);
   color: var(--agent-page-muted);
   font-size: 13px;
 }
 
-.system-page-shell--orchestration .orchestration-permission-row {
+.system-page-shell--orchestration .agent-system-permission-row {
   min-height: 46px;
   background: var(--agent-page-panel);
   color: var(--agent-page-text);
 }
 
-.system-page-shell--orchestration .orchestration-permission-row:hover,
-.system-page-shell--orchestration .orchestration-permission-row:focus-visible,
-.system-page-shell--orchestration .orchestration-permission-row--active {
+.system-page-shell--orchestration .agent-system-permission-row:hover,
+.system-page-shell--orchestration .agent-system-permission-row:focus-visible,
+.system-page-shell--orchestration .agent-system-permission-row--active {
   background: var(--agent-page-hover);
 }
 
-.system-page-shell--orchestration .orchestration-permission-row--active,
-.system-page-shell--orchestration .orchestration-tool-package-row--enabled {
+.system-page-shell--orchestration .agent-system-permission-row--active,
+.system-page-shell--orchestration .agent-system-tool-package-row--enabled {
   box-shadow: none;
 }
 
-.system-page-shell--orchestration .orchestration-permission-row > span,
-.system-page-shell--orchestration .orchestration-permission-row strong,
-.system-page-shell--orchestration .orchestration-tool-package-row span,
-.system-page-shell--orchestration .orchestration-tool-package-row small,
-.system-page-shell--orchestration .orchestration-tool-package-row em,
-.system-page-shell--orchestration .orchestration-tool-package-detail > header span,
-.system-page-shell--orchestration .orchestration-permission-detail-block p {
+.system-page-shell--orchestration .agent-system-permission-row > span,
+.system-page-shell--orchestration .agent-system-permission-row strong,
+.system-page-shell--orchestration .agent-system-tool-package-row span,
+.system-page-shell--orchestration .agent-system-tool-package-row small,
+.system-page-shell--orchestration .agent-system-tool-package-row em,
+.system-page-shell--orchestration .agent-system-tool-package-detail > header span,
+.system-page-shell--orchestration .agent-system-permission-detail-block p {
   font-size: 13px;
   line-height: 1.35;
 }
 
-.system-page-shell--orchestration .orchestration-permission-row strong,
-.system-page-shell--orchestration .orchestration-tool-package-manager__head strong,
-.system-page-shell--orchestration .orchestration-tool-package-detail > header strong,
-.system-page-shell--orchestration .orchestration-permission-inspector__hero h4,
-.system-page-shell--orchestration .orchestration-permission-detail-block > strong {
+.system-page-shell--orchestration .agent-system-permission-row strong,
+.system-page-shell--orchestration .agent-system-tool-package-manager__head strong,
+.system-page-shell--orchestration .agent-system-tool-package-detail > header strong,
+.system-page-shell--orchestration .agent-system-permission-inspector__hero h4,
+.system-page-shell--orchestration .agent-system-permission-detail-block > strong {
   color: var(--agent-page-text);
   font-size: 14px;
   font-weight: 700;
 }
 
-.system-page-shell--orchestration .orchestration-tool-package-manager,
-.system-page-shell--orchestration .orchestration-tool-package-detail {
+.system-page-shell--orchestration .agent-system-tool-package-manager,
+.system-page-shell--orchestration .agent-system-tool-package-detail {
   padding: 10px;
 }
 
-.system-page-shell--orchestration .orchestration-tool-package-list,
-.system-page-shell--orchestration .orchestration-package-operation-list {
+.system-page-shell--orchestration .agent-system-tool-package-list,
+.system-page-shell--orchestration .agent-system-package-operation-list {
   gap: 5px;
 }
 
-.system-page-shell--orchestration .orchestration-tool-package-row,
-.system-page-shell--orchestration .orchestration-package-operation {
+.system-page-shell--orchestration .agent-system-tool-package-row,
+.system-page-shell--orchestration .agent-system-package-operation {
   min-height: 42px;
   padding: 8px 10px;
 }
 
-.system-page-shell--orchestration .orchestration-permission-inspector,
-.system-page-shell--orchestration .orchestration-context-summary-card {
+.system-page-shell--orchestration .agent-system-permission-inspector,
+.system-page-shell--orchestration .agent-system-context-summary-card {
   align-self: start;
 }
 
-.system-page-shell--orchestration .orchestration-group-summary {
+.system-page-shell--orchestration .agent-system-group-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
-.system-page-shell--orchestration .orchestration-group-main {
+.system-page-shell--orchestration .agent-system-group-main {
   align-content: start;
   min-height: min(620px, 100%);
 }
 
-.system-page-shell--orchestration .orchestration-group-summary-row {
+.system-page-shell--orchestration .agent-system-group-summary-row {
   display: grid;
   gap: 4px;
   min-width: 0;
   padding: 10px 12px;
 }
 
-.system-page-shell--orchestration .orchestration-group-summary-row span,
-.system-page-shell--orchestration .orchestration-group-summary-row small,
+.system-page-shell--orchestration .agent-system-group-summary-row span,
+.system-page-shell--orchestration .agent-system-group-summary-row small,
 .system-page-shell--orchestration .boundary-kv p span,
 .system-page-shell--orchestration .boundary-kv p strong,
 .system-page-shell--orchestration .boundary-readiness span,
@@ -3564,32 +3564,32 @@
   line-height: 1.35;
 }
 
-.system-page-shell--orchestration .orchestration-group-summary-row strong,
+.system-page-shell--orchestration .agent-system-group-summary-row strong,
 .system-page-shell--orchestration .boundary-readiness strong,
 .system-page-shell--orchestration .boundary-kv p strong {
   color: var(--agent-page-text);
   font-weight: 700;
 }
 
-.system-page-shell--orchestration .orchestration-member-workbench {
+.system-page-shell--orchestration .agent-system-member-workbench {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
-.system-page-shell--orchestration .orchestration-member-column {
+.system-page-shell--orchestration .agent-system-member-column {
   display: grid;
   align-content: start;
   gap: 8px;
   min-width: 0;
 }
 
-.system-page-shell--orchestration .orchestration-member-list {
+.system-page-shell--orchestration .agent-system-member-list {
   display: grid;
   gap: 5px;
 }
 
-.system-page-shell--orchestration .orchestration-member-row {
+.system-page-shell--orchestration .agent-system-member-row {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -3597,7 +3597,7 @@
   padding: 7px 8px 7px 10px;
 }
 
-.system-page-shell--orchestration .orchestration-member-row__body {
+.system-page-shell--orchestration .agent-system-member-row__body {
   display: grid;
   gap: 2px;
   flex: 1 1 auto;
@@ -3628,26 +3628,26 @@
   box-shadow: inset 0 0 0 1px var(--console-danger-soft);
 }
 
-.system-page-shell--orchestration .orchestration-memory-boundary,
-.system-page-shell--orchestration .orchestration-context-workbench {
+.system-page-shell--orchestration .agent-system-memory-boundary,
+.system-page-shell--orchestration .agent-system-context-workbench {
   gap: 12px;
 }
 
-.system-page-shell--orchestration .orchestration-memory-path span {
+.system-page-shell--orchestration .agent-system-memory-path span {
   border-radius: 999px;
   background: var(--console-surface);
 }
 
 @media (max-width: 1120px) {
-  .system-page-shell--orchestration .orchestration-console-head {
+  .system-page-shell--orchestration .agent-system-console-head {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .system-page-shell--orchestration .orchestration-console-head__summary {
+  .system-page-shell--orchestration .agent-system-console-head__summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .system-page-shell--orchestration .orchestration-console-head__actions {
+  .system-page-shell--orchestration .agent-system-console-head__actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     min-width: 0;
   }
@@ -3658,40 +3658,40 @@
     padding: 0;
   }
 
-  .system-page-shell--orchestration .orchestration-console {
+  .system-page-shell--orchestration .agent-system-console {
     padding: 12px;
     overflow: auto;
   }
 
   .system-page-shell--orchestration .boundary-workbench,
-  .system-page-shell--orchestration .orchestration-workbench,
-  .system-page-shell--orchestration .orchestration-definition-center,
+  .system-page-shell--orchestration .agent-system-workbench,
+  .system-page-shell--orchestration .agent-system-definition-center,
   .system-page-shell--orchestration .boundary-layer-grid,
   .system-page-shell--orchestration .boundary-layer-grid--wide,
-  .system-page-shell--orchestration .orchestration-permission-workbench,
-  .system-page-shell--orchestration .orchestration-member-workbench {
+  .system-page-shell--orchestration .agent-system-permission-workbench,
+  .system-page-shell--orchestration .agent-system-member-workbench {
     grid-template-columns: 1fr;
   }
 
-  .system-page-shell--orchestration .orchestration-assembly-nav {
+  .system-page-shell--orchestration .agent-system-assembly-nav {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 680px) {
-  .system-page-shell--orchestration .orchestration-console-head__actions,
-  .system-page-shell--orchestration .orchestration-directory-switcher,
-  .system-page-shell--orchestration .orchestration-assembly-nav {
+  .system-page-shell--orchestration .agent-system-console-head__actions,
+  .system-page-shell--orchestration .agent-system-directory-switcher,
+  .system-page-shell--orchestration .agent-system-assembly-nav {
     grid-template-columns: 1fr;
   }
 
-  .system-page-shell--orchestration .orchestration-console-head__summary {
+  .system-page-shell--orchestration .agent-system-console-head__summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 360px) {
-  .system-page-shell--orchestration .orchestration-console-head__summary {
+  .system-page-shell--orchestration .agent-system-console-head__summary {
     grid-template-columns: 1fr;
   }
 }
@@ -3802,9 +3802,9 @@ textarea,
 .chat-send-button,
 .chat-stop-button,
 .boundary-list-row,
-.orchestration-agent-row,
-.orchestration-subagent-row,
-.orchestration-member-row,
+.agent-system-agent-row,
+.agent-system-subagent-row,
+.agent-system-member-row,
 .task-system-segmented__item,
 .task-system-object-row,
 .task-system-toolbar-button {
@@ -3871,9 +3871,9 @@ textarea,
 
 .workbench-session-row,
 .boundary-list-row,
-.orchestration-agent-row,
-.orchestration-subagent-row,
-.orchestration-member-row,
+.agent-system-agent-row,
+.agent-system-subagent-row,
+.agent-system-member-row,
 .task-system-object-row,
 .task-system-nav-card,
 .capability-group-card,
@@ -3883,9 +3883,9 @@ textarea,
 
 .workbench-session-row,
 .boundary-list-row,
-.orchestration-agent-row,
-.orchestration-subagent-row,
-.orchestration-member-row,
+.agent-system-agent-row,
+.agent-system-subagent-row,
+.agent-system-member-row,
 .workbench-project-scope-row,
 .workbench-project-tree-row,
 .task-system-object-row {
@@ -3898,11 +3898,11 @@ textarea,
 .workbench-session-row--active,
 .boundary-list-row:hover,
 .boundary-list-row--active,
-.orchestration-agent-row:hover,
-.orchestration-subagent-row:hover,
-.orchestration-subagent-row--active,
-.orchestration-member-row:hover,
-.orchestration-member-row--selected,
+.agent-system-agent-row:hover,
+.agent-system-subagent-row:hover,
+.agent-system-subagent-row--active,
+.agent-system-member-row:hover,
+.agent-system-member-row--selected,
 .workbench-project-scope-row:hover,
 .workbench-project-scope-row--active,
 .workbench-project-tree-row:hover,
@@ -4020,7 +4020,7 @@ textarea:focus-visible {
 }
 
 :root[data-workbench-density="compact"] .boundary-list-row small,
-:root[data-workbench-density="compact"] .orchestration-agent-row small,
+:root[data-workbench-density="compact"] .agent-system-agent-row small,
 :root[data-workbench-density="compact"] .task-system-object-row small {
   display: none;
 }

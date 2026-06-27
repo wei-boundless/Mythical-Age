@@ -15,13 +15,13 @@ import {
   getImageAssetConfig,
   getTaskEnvironmentCatalog,
   getWorkspaceContext,
-  getOrchestrationHarnessSessionLiveMonitor,
-  approveOrchestrationHarnessTaskRunLaunch,
-  approveOrchestrationHarnessTaskRunToolCall,
-  pauseOrchestrationHarnessTaskRun,
+  getHarnessSessionLiveMonitor,
+  approveHarnessTaskRunLaunch,
+  approveHarnessTaskRunToolCall,
+  pauseHarnessTaskRun,
   pauseGraphRun,
   getPermissionMode,
-  resumeOrchestrationHarnessTaskRun,
+  resumeHarnessTaskRun,
   resumeGraphRun,
   setPermissionMode as setRuntimePermissionMode,
   setSessionActiveTaskEnvironment,
@@ -49,7 +49,7 @@ import {
   createProjectWorkspaceSession,
   selectManagedFileForOpen,
   selectProjectWorkspaceDirectory,
-  stopOrchestrationHarnessTaskRun,
+  stopHarnessTaskRun,
   clearChatStreamCursor,
   clearWorkbenchCurrentSession,
   readChatStreamCursor,
@@ -58,7 +58,7 @@ import {
   truncateSessionMessages,
   uploadChatAttachment
 } from "@/lib/api";
-import type { ChatAttachment, ChatRun, ChatStreamCursor, FileChangeRecord, ManagedFileTarget, PublicProjectionFrame, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, RuntimeMonitorSignal, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
+import type { ChatAttachment, ChatRun, ChatStreamCursor, FileChangeRecord, ManagedFileTarget, PublicProjectionFrame, RunMonitorEventPayload, RunMonitorActionPayload, RunMonitorActionResult, RunMonitorEnvelope, RunMonitorSignal, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
 import { publicRuntimeProgressText } from "@/lib/runtimeStatusText";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
@@ -115,7 +115,7 @@ import { errorDetailMessage, runtimeText } from "./runtime/text";
 import type { ActiveMainAgentSelection, ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, FileChangeDiffCenterWorkspaceTarget, Message, PermissionMode, RuntimeLogCenterWorkspaceTarget, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionProjectionCenterWorkspaceTarget, SessionRef, StoreActions, StoreState, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
 
-type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
+type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getHarnessSessionLiveMonitor>>["monitor"]>;
 type ActiveChatStreamBinding = {
   streamRunId: string;
   taskRunId: string;
@@ -165,7 +165,7 @@ export class WorkspaceRuntime {
   private sessionRuntimeProjectionTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionTokenStatsTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionHistoryInFlight = new Map<string, Promise<Awaited<ReturnType<typeof getSessionHistory>>>>();
-  private orchestrationHydrateRequest = 0;
+  private harnessTurnHydrateRequest = 0;
   private workspaceTreeRequest = 0;
   private workspaceTreeInFlightKey = "";
   private workspaceTreeInFlightPromise: Promise<void> | null = null;
@@ -174,7 +174,7 @@ export class WorkspaceRuntime {
   private sessionListFailureNotifiedAt = 0;
   private tokenStatsRefreshInFlight = false;
   private lastMonitorTokenStatsRefreshAt = 0;
-  private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "activeProjectionsByKey" | "orchestrationSnapshot" | "activeTurnSnapshot">>();
+  private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "activeProjectionsByKey" | "harnessTurnSnapshot" | "activeTurnSnapshot">>();
   private activeChatStreamBindings = new Map<string, ActiveChatStreamBinding>();
   private chatStreamEpochBySession = new Map<string, number>();
   private pendingChatStreamInterruptions = new Map<string, PendingChatStreamInterruption>();
@@ -224,7 +224,7 @@ export class WorkspaceRuntime {
       bindTaskEnvironmentContext: (taskEnvironmentId, options) => this.bindTaskEnvironmentContext(taskEnvironmentId, options),
       workspaceViewForTaskEnvironment: (taskEnvironmentId) => this.workspaceViewForTaskEnvironment(taskEnvironmentId),
       refreshSessionDetails: (sessionId) => this.refreshSessionDetails(sessionId),
-      hydrateLatestOrchestrationSnapshot: (sessionId) => this.hydrateLatestOrchestrationSnapshot(sessionId),
+      hydrateLatestHarnessTurnSnapshot: (sessionId) => this.hydrateLatestHarnessTurnSnapshot(sessionId),
       syncWorkspaceViewUrl: (view) => this.syncWorkspaceViewUrl(view),
       onStreamPayload: (payload) => this.afterRunMonitorStreamPayload(payload),
     });
@@ -337,11 +337,11 @@ export class WorkspaceRuntime {
       setMemoryInspectorTarget: (target) => {
         this.setMemoryInspectorTarget(target);
       },
-      setOrchestrationInspectorTarget: (target) => {
-        this.setOrchestrationInspectorTarget(target);
+      setAgentSystemInspectorTarget: (target) => {
+        this.setAgentSystemInspectorTarget(target);
       },
-      setOrchestrationSnapshot: (snapshot) => {
-        this.setOrchestrationSnapshot(snapshot);
+      setHarnessTurnSnapshot: (snapshot) => {
+        this.setHarnessTurnSnapshot(snapshot);
       },
       bindTaskGraphMonitorRun: (binding) => {
         this.bindTaskGraphMonitorRun(binding);
@@ -599,7 +599,7 @@ export class WorkspaceRuntime {
       const reattached = await this.reattachChatRunForSession(summary.id);
       if (!reattached) {
         void this.refreshSessionDetails(summary.id).catch(() => undefined);
-        void this.hydrateLatestOrchestrationSnapshot(summary.id).catch(() => undefined);
+        void this.hydrateLatestHarnessTurnSnapshot(summary.id).catch(() => undefined);
       }
     }
     this.store.setState((prev) => ({
@@ -736,7 +736,7 @@ export class WorkspaceRuntime {
           const reattached = await this.reattachChatRunForSession(sessionId);
           if (!reattached) {
             void this.refreshSessionDetails(sessionId).catch(() => undefined);
-            void this.hydrateLatestOrchestrationSnapshot(sessionId).catch(() => undefined);
+            void this.hydrateLatestHarnessTurnSnapshot(sessionId).catch(() => undefined);
           }
         }
       }
@@ -749,7 +749,7 @@ export class WorkspaceRuntime {
         const reattached = await this.reattachChatRunForSession(currentSession.id);
         if (!reattached) {
           void this.refreshSessionDetails(currentSession.id).catch(() => undefined);
-          void this.hydrateLatestOrchestrationSnapshot(currentSession.id).catch(() => undefined);
+          void this.hydrateLatestHarnessTurnSnapshot(currentSession.id).catch(() => undefined);
         }
       }
     }
@@ -981,7 +981,7 @@ export class WorkspaceRuntime {
       const reattached = await this.reattachChatRunForSession(nextSession.id);
       if (!reattached) {
         void this.refreshSessionDetails(nextSession.id).catch(() => undefined);
-        void this.hydrateLatestOrchestrationSnapshot(nextSession.id).catch(() => undefined);
+        void this.hydrateLatestHarnessTurnSnapshot(nextSession.id).catch(() => undefined);
       }
     }
   }
@@ -1121,7 +1121,7 @@ export class WorkspaceRuntime {
     const reattached = await this.reattachChatRunForSession(session.id);
     if (!reattached) {
       void this.refreshSessionDetails(session.id).catch(() => undefined);
-      void this.hydrateLatestOrchestrationSnapshot(session.id).catch(() => undefined);
+      void this.hydrateLatestHarnessTurnSnapshot(session.id).catch(() => undefined);
     }
   }
 
@@ -2117,7 +2117,7 @@ export class WorkspaceRuntime {
       ...prev,
       messages: mergedMessages,
       activeProjectionsByKey: visibleStreamState.activeProjectionsByKey,
-      orchestrationSnapshot: visibleStreamState.orchestrationSnapshot,
+      harnessTurnSnapshot: visibleStreamState.harnessTurnSnapshot,
       activeTurnSnapshot: visibleStreamState.activeTurnSnapshot,
       taskGraphLiveMonitor: options.preserveTaskGraphLiveMonitor ? prev.taskGraphLiveMonitor : null,
       activeStreamSessionIds,
@@ -2136,7 +2136,7 @@ export class WorkspaceRuntime {
       this.streamingSessionCache.set(latency.sessionId, {
         messages: mergedMessages,
         activeProjectionsByKey: visibleStreamState.activeProjectionsByKey,
-        orchestrationSnapshot: visibleStreamState.orchestrationSnapshot,
+        harnessTurnSnapshot: visibleStreamState.harnessTurnSnapshot,
         activeTurnSnapshot: visibleStreamState.activeTurnSnapshot,
       });
     }
@@ -2368,7 +2368,7 @@ export class WorkspaceRuntime {
         selectedChatModelId,
         selectedChatMode: this.resolveSelectedChatMode(selectedChatModelId, prev.modelProviderConfig),
         messages: [],
-        orchestrationSnapshot: null,
+        harnessTurnSnapshot: null,
         taskGraphLiveMonitor: null,
         activeTurnSnapshot: null,
         tokenStats: null
@@ -2446,7 +2446,7 @@ export class WorkspaceRuntime {
       activeSessionScope: createdScope ?? null,
       activeSessionRef: createdRef,
       messages: [],
-      orchestrationSnapshot: null,
+      harnessTurnSnapshot: null,
       taskGraphLiveMonitor: null,
       activeTurnSnapshot: null,
       tokenStats: null
@@ -2480,7 +2480,7 @@ export class WorkspaceRuntime {
       return;
     }
     await this.refreshSessionDetails(normalized.sessionId).catch(() => undefined);
-    await this.hydrateLatestOrchestrationSnapshot(normalized.sessionId).catch(() => false);
+    await this.hydrateLatestHarnessTurnSnapshot(normalized.sessionId).catch(() => false);
   }
 
   private sessionScopeForSession(sessionId: string): Partial<SessionScope> | undefined {
@@ -2889,7 +2889,7 @@ export class WorkspaceRuntime {
         selectedChatMode: this.resolveSelectedChatMode(selectedChatModelId, prev.modelProviderConfig),
         messages: streamingCache.messages,
         activeProjectionsByKey: streamingCache.activeProjectionsByKey,
-        orchestrationSnapshot: streamingCache.orchestrationSnapshot,
+        harnessTurnSnapshot: streamingCache.harnessTurnSnapshot,
         activeTurnSnapshot: streamingCache.activeTurnSnapshot,
         taskGraphLiveMonitor: null,
         tokenStats: null
@@ -2918,7 +2918,7 @@ export class WorkspaceRuntime {
       selectedChatMode: this.resolveSelectedChatMode(selectedChatModelId, prev.modelProviderConfig),
       messages: [],
       activeProjectionsByKey: {},
-      orchestrationSnapshot: null,
+      harnessTurnSnapshot: null,
       activeTurnSnapshot: null,
       taskGraphLiveMonitor: null,
       tokenStats: null
@@ -3335,7 +3335,7 @@ export class WorkspaceRuntime {
     let streamState: StoreState = {
       ...this.store.getState(),
       messages,
-      orchestrationSnapshot: null,
+      harnessTurnSnapshot: null,
       activeStreamSessionIds,
       isStreaming: activeStreamSessionIds.length > 0,
       sessionActivity: {
@@ -3357,7 +3357,7 @@ export class WorkspaceRuntime {
     this.streamingSessionCache.set(sessionId, {
       messages: streamState.messages,
       activeProjectionsByKey: streamState.activeProjectionsByKey,
-      orchestrationSnapshot: streamState.orchestrationSnapshot,
+      harnessTurnSnapshot: streamState.harnessTurnSnapshot,
       activeTurnSnapshot: streamState.activeTurnSnapshot,
     });
     this.updateActiveChatStreamBinding(
@@ -3410,7 +3410,7 @@ export class WorkspaceRuntime {
               this.streamingSessionCache.set(sessionId, {
                 messages: streamState.messages,
                 activeProjectionsByKey: streamState.activeProjectionsByKey,
-                orchestrationSnapshot: streamState.orchestrationSnapshot,
+                harnessTurnSnapshot: streamState.harnessTurnSnapshot,
                 activeTurnSnapshot: streamState.activeTurnSnapshot,
               });
               if (isCurrentStreamSession) {
@@ -3465,7 +3465,7 @@ export class WorkspaceRuntime {
         this.streamingSessionCache.set(sessionId, {
           messages: streamState.messages,
           activeProjectionsByKey: streamState.activeProjectionsByKey,
-          orchestrationSnapshot: streamState.orchestrationSnapshot,
+          harnessTurnSnapshot: streamState.harnessTurnSnapshot,
           activeTurnSnapshot: streamState.activeTurnSnapshot,
         });
         if (this.store.getState().currentSessionId === sessionId) {
@@ -3516,7 +3516,7 @@ export class WorkspaceRuntime {
           && !streamEndedWithError
           && this.store.getState().currentSessionId === sessionId
         ) {
-          await this.hydrateLatestOrchestrationSnapshot(sessionId);
+          await this.hydrateLatestHarnessTurnSnapshot(sessionId);
           await this.refreshRunMonitor();
         }
         this.refreshMainSessionPoolInBackground();
@@ -3634,11 +3634,11 @@ export class WorkspaceRuntime {
     const preflightState = this.store.getState();
     this.store.setState((prev) => ({
       ...prev,
-      orchestrationSnapshot: null,
+      harnessTurnSnapshot: null,
       taskGraphLiveMonitor: null,
-      orchestrationInspectorTarget: prev.orchestrationInspectorTarget?.source === "live-session"
+      agentSystemInspectorTarget: prev.agentSystemInspectorTarget?.source === "live-session"
         ? null
-        : prev.orchestrationInspectorTarget,
+        : prev.agentSystemInspectorTarget,
     }));
     let transition = startStreamingTurn(this.store.getState(), trimmed, { existingUserMessageId: options.queuedUserMessageId, attachments });
     const nextSourceIndex = this.nextMessageSourceIndex(this.store.getState().messages);
@@ -3671,7 +3671,7 @@ export class WorkspaceRuntime {
     this.streamingSessionCache.set(sessionId, {
       messages: streamState.messages,
       activeProjectionsByKey: streamState.activeProjectionsByKey,
-      orchestrationSnapshot: streamState.orchestrationSnapshot,
+      harnessTurnSnapshot: streamState.harnessTurnSnapshot,
       activeTurnSnapshot: streamState.activeTurnSnapshot,
     });
     this.addActiveStreamSession(sessionId);
@@ -3752,7 +3752,7 @@ export class WorkspaceRuntime {
             this.streamingSessionCache.set(sessionId, {
               messages: streamState.messages,
               activeProjectionsByKey: streamState.activeProjectionsByKey,
-              orchestrationSnapshot: streamState.orchestrationSnapshot,
+              harnessTurnSnapshot: streamState.harnessTurnSnapshot,
               activeTurnSnapshot: streamState.activeTurnSnapshot,
             });
             if (isCurrentStreamSession) {
@@ -3804,7 +3804,7 @@ export class WorkspaceRuntime {
       this.streamingSessionCache.set(sessionId, {
         messages: streamState.messages,
         activeProjectionsByKey: streamState.activeProjectionsByKey,
-        orchestrationSnapshot: streamState.orchestrationSnapshot,
+        harnessTurnSnapshot: streamState.harnessTurnSnapshot,
         activeTurnSnapshot: streamState.activeTurnSnapshot,
       });
       if (this.store.getState().currentSessionId === sessionId) {
@@ -3856,7 +3856,7 @@ export class WorkspaceRuntime {
         && !isImageGenerationTurn
         && this.store.getState().currentSessionId === sessionId
       ) {
-        await this.hydrateLatestOrchestrationSnapshot(sessionId);
+        await this.hydrateLatestHarnessTurnSnapshot(sessionId);
         await this.refreshRunMonitor();
       }
       this.refreshMainSessionPoolInBackground();
@@ -3996,7 +3996,7 @@ export class WorkspaceRuntime {
       await this.refreshActiveSessionMonitor();
       const currentSessionId = this.store.getState().currentSessionId;
       if (currentSessionId) {
-        await this.hydrateLatestOrchestrationSnapshot(currentSessionId);
+        await this.hydrateLatestHarnessTurnSnapshot(currentSessionId);
       }
       this.setChatInterruptionActivity({
         level: "idle",
@@ -4092,7 +4092,7 @@ export class WorkspaceRuntime {
       event: "active_task_pause_requested",
     });
     try {
-      await pauseOrchestrationHarnessTaskRun(taskRunId, "user_pause_from_chat", expectedTurnId);
+      await pauseHarnessTaskRun(taskRunId, "user_pause_from_chat", expectedTurnId);
       await this.refreshActiveSessionMonitor();
     } catch (error) {
       this.setActiveTaskControlError("pause", taskRunId, error);
@@ -4122,11 +4122,11 @@ export class WorkspaceRuntime {
     });
     try {
       if (approvingLaunchGate) {
-        await approveOrchestrationHarnessTaskRunLaunch(taskRunId, "user_approve_launch_from_chat", 12, expectedTurnId);
+        await approveHarnessTaskRunLaunch(taskRunId, "user_approve_launch_from_chat", 12, expectedTurnId);
       } else if (approvingToolCall) {
-        await approveOrchestrationHarnessTaskRunToolCall(taskRunId, "user_approve_tool_from_chat", 12, expectedTurnId);
+        await approveHarnessTaskRunToolCall(taskRunId, "user_approve_tool_from_chat", 12, expectedTurnId);
       } else {
-        await resumeOrchestrationHarnessTaskRun(taskRunId, 12, expectedTurnId);
+        await resumeHarnessTaskRun(taskRunId, 12, expectedTurnId);
       }
       await this.refreshActiveSessionMonitor();
     } catch (error) {
@@ -4150,7 +4150,7 @@ export class WorkspaceRuntime {
       event: "active_task_stop_requested",
     });
     try {
-      await stopOrchestrationHarnessTaskRun(taskRunId, "user_stop_from_chat", expectedTurnId);
+      await stopHarnessTaskRun(taskRunId, "user_stop_from_chat", expectedTurnId);
       await this.refreshActiveSessionMonitor();
     } catch (error) {
       this.setActiveTaskControlError("stop", taskRunId, error);
@@ -4413,7 +4413,7 @@ export class WorkspaceRuntime {
     if (!sessionId) {
       return;
     }
-    await this.hydrateLatestOrchestrationSnapshot(sessionId);
+    await this.hydrateLatestHarnessTurnSnapshot(sessionId);
     await this.refreshRunMonitor();
   }
 
@@ -4438,7 +4438,7 @@ export class WorkspaceRuntime {
     const visibleMessageIndex = state.messages.findIndex((message) => message.id === messageId);
     const truncateIndex = this.truncateMessageIndexForResend(targetMessage);
     const previousMessages = state.messages;
-    const previousOrchestrationSnapshot = state.orchestrationSnapshot;
+    const previousHarnessTurnSnapshot = state.harnessTurnSnapshot;
     const previousTaskGraphLiveMonitor = state.taskGraphLiveMonitor;
     const previousTokenStats = state.tokenStats;
     this.store.setState((prev) => ({
@@ -4446,7 +4446,7 @@ export class WorkspaceRuntime {
       messages: prev.currentSessionId === sessionId && visibleMessageIndex > -1
         ? prev.messages.slice(0, visibleMessageIndex)
         : prev.messages,
-      orchestrationSnapshot: prev.currentSessionId === sessionId ? null : prev.orchestrationSnapshot,
+      harnessTurnSnapshot: prev.currentSessionId === sessionId ? null : prev.harnessTurnSnapshot,
       taskGraphLiveMonitor: prev.currentSessionId === sessionId ? null : prev.taskGraphLiveMonitor,
       tokenStats: prev.currentSessionId === sessionId ? null : prev.tokenStats,
     }));
@@ -4463,9 +4463,9 @@ export class WorkspaceRuntime {
       this.store.setState((prev) => ({
         ...prev,
         messages: prev.currentSessionId === sessionId && !truncateCommitted ? previousMessages : prev.messages,
-        orchestrationSnapshot: prev.currentSessionId === sessionId && !truncateCommitted
-          ? previousOrchestrationSnapshot
-          : prev.orchestrationSnapshot,
+        harnessTurnSnapshot: prev.currentSessionId === sessionId && !truncateCommitted
+          ? previousHarnessTurnSnapshot
+          : prev.harnessTurnSnapshot,
         taskGraphLiveMonitor: prev.currentSessionId === sessionId && !truncateCommitted
           ? previousTaskGraphLiveMonitor
           : prev.taskGraphLiveMonitor,
@@ -4710,7 +4710,8 @@ export class WorkspaceRuntime {
   }
 
   private chatRuntimeContractPayload(state: StoreState): Record<string, unknown> {
-    const publicVisible = Boolean(state.thinkingProjectionEnabled);
+    const publicVisible = normalizeChatThinkingMode(state.chatThinkingMode) === "thinking"
+      && Boolean(state.thinkingProjectionEnabled);
     const runtimeProfile = this.chatRuntimeProfilePayload(state);
     return {
       runtime_profile: runtimeProfile,
@@ -5166,7 +5167,7 @@ export class WorkspaceRuntime {
       activeSessionScope: null,
       activeSessionRef: null,
       messages: [],
-      orchestrationSnapshot: null,
+      harnessTurnSnapshot: null,
       taskGraphLiveMonitor: null,
       activeTurnSnapshot: null,
       tokenStats: null,
@@ -5854,12 +5855,12 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => ({ ...prev, memoryInspectorTarget: target }));
   }
 
-  private setOrchestrationInspectorTarget(target: StoreState["orchestrationInspectorTarget"]) {
-    this.store.setState((prev) => ({ ...prev, orchestrationInspectorTarget: target }));
+  private setAgentSystemInspectorTarget(target: StoreState["agentSystemInspectorTarget"]) {
+    this.store.setState((prev) => ({ ...prev, agentSystemInspectorTarget: target }));
   }
 
-  private setOrchestrationSnapshot(snapshot: StoreState["orchestrationSnapshot"]) {
-    this.store.setState((prev) => ({ ...prev, orchestrationSnapshot: snapshot }));
+  private setHarnessTurnSnapshot(snapshot: StoreState["harnessTurnSnapshot"]) {
+    this.store.setState((prev) => ({ ...prev, harnessTurnSnapshot: snapshot }));
   }
 
   private bindTaskGraphMonitorRun(binding: Omit<TaskGraphMonitorBinding, "bound_at"> & { bound_at?: number }) {
@@ -5946,7 +5947,7 @@ export class WorkspaceRuntime {
       taskGraphMonitorError: "",
     }));
     try {
-      await stopOrchestrationHarnessTaskRun(taskRunId, "user_stop_graph_run", "");
+      await stopHarnessTaskRun(taskRunId, "user_stop_graph_run", "");
       await this.runMonitorController.evaluateBoundGraphMonitor().catch(() => undefined);
       await this.refreshRunMonitor();
     } catch (error) {
@@ -5970,8 +5971,8 @@ export class WorkspaceRuntime {
       : {};
     const taskRunMonitor = (monitor?.task_run_monitor && typeof monitor.task_run_monitor === "object" && !Array.isArray(monitor.task_run_monitor)
       ? monitor.task_run_monitor
-      : monitor?.runtime_monitor && typeof monitor.runtime_monitor === "object" && !Array.isArray(monitor.runtime_monitor)
-        ? monitor.runtime_monitor
+      : monitor?.run_monitor && typeof monitor.run_monitor === "object" && !Array.isArray(monitor.run_monitor)
+        ? monitor.run_monitor
         : {}) as Record<string, unknown>;
     return String(
       state.taskGraphMonitorBinding?.task_run_id
@@ -5990,8 +5991,8 @@ export class WorkspaceRuntime {
       : {};
     const taskRunMonitor = (monitor?.task_run_monitor && typeof monitor.task_run_monitor === "object" && !Array.isArray(monitor.task_run_monitor)
       ? monitor.task_run_monitor
-      : monitor?.runtime_monitor && typeof monitor.runtime_monitor === "object" && !Array.isArray(monitor.runtime_monitor)
-        ? monitor.runtime_monitor
+      : monitor?.run_monitor && typeof monitor.run_monitor === "object" && !Array.isArray(monitor.run_monitor)
+        ? monitor.run_monitor
         : {}) as Record<string, unknown>;
     const monitorControl = taskRunMonitor.runtime_control && typeof taskRunMonitor.runtime_control === "object" && !Array.isArray(taskRunMonitor.runtime_control)
       ? taskRunMonitor.runtime_control as Record<string, unknown>
@@ -6055,15 +6056,15 @@ export class WorkspaceRuntime {
     await this.refreshRunMonitor();
   }
 
-  private async hydrateLatestOrchestrationSnapshot(sessionId: string): Promise<boolean> {
+  private async hydrateLatestHarnessTurnSnapshot(sessionId: string): Promise<boolean> {
     const targetSessionId = sessionId.trim();
-    const requestId = ++this.orchestrationHydrateRequest;
+    const requestId = ++this.harnessTurnHydrateRequest;
     if (!targetSessionId) {
       this.store.setState((prev) => ({ ...prev, taskGraphLiveMonitor: null }));
       return false;
     }
     try {
-      const liveMonitor = await getOrchestrationHarnessSessionLiveMonitor(targetSessionId);
+      const liveMonitor = await getHarnessSessionLiveMonitor(targetSessionId);
       const liveMonitorRecord = liveMonitor && typeof liveMonitor === "object" && !Array.isArray(liveMonitor)
         ? liveMonitor as Record<string, unknown>
         : {};
@@ -6071,7 +6072,7 @@ export class WorkspaceRuntime {
       const activeTurnSnapshot = this.activeTurnSnapshotFromPayload(liveMonitorRecord.active_turn_snapshot);
       const activeMonitor = this.activeHarnessSessionMonitor(liveMonitor);
       if (!activeMonitor) {
-        if (this.store.getState().currentSessionId === targetSessionId && this.orchestrationHydrateRequest === requestId) {
+        if (this.store.getState().currentSessionId === targetSessionId && this.harnessTurnHydrateRequest === requestId) {
           this.store.setState((prev) => ({
             ...prev,
             activeTurnSnapshot: activeTurnSnapshot ?? (
@@ -6102,7 +6103,7 @@ export class WorkspaceRuntime {
         controlState,
         activeMonitor as Record<string, unknown>,
       );
-      if (this.store.getState().currentSessionId === targetSessionId && this.orchestrationHydrateRequest === requestId) {
+      if (this.store.getState().currentSessionId === targetSessionId && this.harnessTurnHydrateRequest === requestId) {
         this.store.setState((prev) => {
           const nextActiveTurnSnapshot = activeTurnSnapshot ?? prev.activeTurnSnapshot;
           return {
@@ -6119,7 +6120,7 @@ export class WorkspaceRuntime {
     }
   }
 
-  private activeHarnessSessionMonitor(liveMonitor: Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>) {
+  private activeHarnessSessionMonitor(liveMonitor: Awaited<ReturnType<typeof getHarnessSessionLiveMonitor>>) {
     if (!liveMonitor) {
       return null;
     }
@@ -6244,12 +6245,12 @@ export class WorkspaceRuntime {
     }
   }
 
-  private async runMonitorAction(payload: RuntimeMonitorActionPayload): Promise<RuntimeMonitorActionResult | null> {
+  private async runMonitorAction(payload: RunMonitorActionPayload): Promise<RunMonitorActionResult | null> {
     return await this.runMonitorController.runAction(payload);
   }
 
   applyRunMonitorSnapshot(
-    monitor: RuntimeMonitorEnvelope,
+    monitor: RunMonitorEnvelope,
     options: { selectedSignalId?: string } = {},
   ) {
     this.runMonitorController.applySnapshot(monitor, options);
@@ -6293,7 +6294,7 @@ export class WorkspaceRuntime {
     );
   }
 
-  private currentSessionActivitySignal(monitor: RuntimeMonitorEnvelope, currentSessionId: string): RuntimeMonitorSignal | null {
+  private currentSessionActivitySignal(monitor: RunMonitorEnvelope, currentSessionId: string): RunMonitorSignal | null {
     const candidates = allRunMonitorSignals(monitor)
       .filter((signal) => this.runMonitorSignalSessionId(signal) === currentSessionId)
       .filter((signal) => !this.runMonitorSignalHidden(signal))
@@ -6308,21 +6309,21 @@ export class WorkspaceRuntime {
     )[0] ?? null;
   }
 
-  private runMonitorSignalSessionId(signal: RuntimeMonitorSignal) {
+  private runMonitorSignalSessionId(signal: RunMonitorSignal) {
     const navigation = signal.navigation_target && typeof signal.navigation_target === "object" && !Array.isArray(signal.navigation_target)
       ? signal.navigation_target as Record<string, unknown>
       : {};
     return runtimeText(navigation.session_id || signal.session_id || signal.raw_refs?.session_id);
   }
 
-  private runMonitorSignalHidden(signal: RuntimeMonitorSignal) {
+  private runMonitorSignalHidden(signal: RunMonitorSignal) {
     const visibility = signal.visibility && typeof signal.visibility === "object" && !Array.isArray(signal.visibility)
       ? signal.visibility
       : {};
     return visibility.hidden === true || visibility.visible === false;
   }
 
-  private shouldSyncRunMonitorSignalActivity(signal: RuntimeMonitorSignal) {
+  private shouldSyncRunMonitorSignalActivity(signal: RunMonitorSignal) {
     const activityState = runtimeText(signal.activity_state || signal.activity?.activity_state);
     const status = runtimeText(signal.status);
     const lifecycle = runtimeText(signal.lifecycle);
@@ -6340,7 +6341,7 @@ export class WorkspaceRuntime {
       || ["waiting", "diagnostics", "failed"].includes(bucket);
   }
 
-  private runMonitorSignalActivityRank(signal: RuntimeMonitorSignal) {
+  private runMonitorSignalActivityRank(signal: RunMonitorSignal) {
     const activityState = runtimeText(signal.activity_state || signal.activity?.activity_state);
     const status = runtimeText(signal.status);
     const state = runtimeText(signal.state);
@@ -6355,7 +6356,7 @@ export class WorkspaceRuntime {
     return 10;
   }
 
-  private runMonitorSignalControlState(signal: RuntimeMonitorSignal) {
+  private runMonitorSignalControlState(signal: RunMonitorSignal) {
     const activity = signal.activity && typeof signal.activity === "object" && !Array.isArray(signal.activity)
       ? signal.activity
       : {};
@@ -6773,4 +6774,6 @@ function clientNow() {
   }
   return Date.now();
 }
+
+
 

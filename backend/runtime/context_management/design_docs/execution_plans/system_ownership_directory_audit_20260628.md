@@ -218,14 +218,14 @@ storage/                     Runtime data root, not a source system
 
 | 旧泛用前缀 | 目标前缀 |
 |---|---|
-| `orchestration.task_run` | `harness.task_run` 或 `runtime.shared.task_run_record`，按对象决定 |
-| `orchestration.runtime_observation` | `harness.feedback` 或 `runtime.observation`，按是否 agent feedback 决定 |
-| `orchestration.execution_receipt` | `runtime.execution_receipt` |
+| `runtime.task_run` | `harness.task_run` 或 `runtime.shared.task_run_record`，按对象决定 |
+| `runtime.runtime_observation` | `harness.feedback` 或 `runtime.observation`，按是否 agent feedback 决定 |
+| `runtime.execution_receipt` | `runtime.execution_receipt` |
 | `orchestration.runtime_commit_gate` | `harness.output_commit` |
-| `orchestration.graph_run_control` | `graph_system.run_control` |
+| `graph_system.graph_run_control` | `graph_system.run_control` |
 | `orchestration.agent_registry` | `agent_system.registry` |
-| `orchestration.memory_scope_policy` | `memory_system.scope_policy` |
-| `orchestration.protocol_boundary` | `runtime.model_gateway.protocol_boundary` 或 `harness.action_feedback.protocol_repair` |
+| `memory_system.memory_scope_policy` | `memory_system.scope_policy` |
+| `task_system.protocol_boundary` | `runtime.model_gateway.protocol_boundary` 或 `harness.action_feedback.protocol_repair` |
 
 迁移原则：不要只改字符串。authority 改名必须和文件归属、模型归属、写入点、读取点同阶段 cutover。
 

@@ -715,7 +715,7 @@ def test_old_cell_tool_observation_is_rejected_before_observation_write(tmp_path
             },
         },
         "needs_model_followup": False,
-        "authority": "orchestration.runtime_observation",
+        "authority": "runtime.runtime_observation",
     }
 
     async def _late_group_result(group, *, invocation_rows, **_kwargs):
@@ -837,7 +837,7 @@ def test_closed_cell_tool_observation_is_rejected_before_observation_write(tmp_p
             },
         },
         "needs_model_followup": False,
-        "authority": "orchestration.runtime_observation",
+        "authority": "runtime.runtime_observation",
     }
 
     async def _late_group_result(group, *, invocation_rows, **_kwargs):

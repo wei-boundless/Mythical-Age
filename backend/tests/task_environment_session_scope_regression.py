@@ -70,7 +70,7 @@ def test_graph_run_start_rejects_session_scope_that_does_not_match_session() -> 
         session_id = created.json()["id"]
 
         response = client.post(
-            "/api/orchestration/harness/task-graphs/creation.writing.honghuang/start",
+            "/api/graph-system/task-graphs/creation.writing.honghuang/start",
             json={
                 "session_id": session_id,
                 "session_scope": {

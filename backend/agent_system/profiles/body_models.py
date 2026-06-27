@@ -13,11 +13,11 @@ class AgentBodyProfile:
     default_output_boundary_profile_id: str
     default_operation_policy_mode: str = "fail_closed"
     metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.agent_body_profile"
+    authority: str = "agent_system.agent_body_profile"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.agent_body_profile":
-            raise ValueError("AgentBodyProfile authority must be orchestration.agent_body_profile")
+        if self.authority != "agent_system.agent_body_profile":
+            raise ValueError("AgentBodyProfile authority must be agent_system.agent_body_profile")
         if not self.body_profile_id:
             raise ValueError("AgentBodyProfile requires body_profile_id")
         if not self.agent_id:
@@ -36,11 +36,11 @@ class PromptStructureProfile:
     stage_projection_policy: str = "projection_snapshot_required"
     model_visible_rules: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.prompt_structure_profile"
+    authority: str = "agent_system.prompt_structure_profile"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.prompt_structure_profile":
-            raise ValueError("PromptStructureProfile authority must be orchestration.prompt_structure_profile")
+        if self.authority != "agent_system.prompt_structure_profile":
+            raise ValueError("PromptStructureProfile authority must be agent_system.prompt_structure_profile")
         if not self.profile_id:
             raise ValueError("PromptStructureProfile requires profile_id")
 
@@ -61,11 +61,11 @@ class MemoryScopeProfile:
     token_budget_policy: str = "context_package"
     restore_policy: str = "session_state_first"
     metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.memory_scope_profile"
+    authority: str = "agent_system.memory_scope_profile"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.memory_scope_profile":
-            raise ValueError("MemoryScopeProfile authority must be orchestration.memory_scope_profile")
+        if self.authority != "agent_system.memory_scope_profile":
+            raise ValueError("MemoryScopeProfile authority must be agent_system.memory_scope_profile")
         if not self.profile_id:
             raise ValueError("MemoryScopeProfile requires profile_id")
 
@@ -83,11 +83,11 @@ class OutputBoundaryProfile:
     artifact_commit_policy: str
     finalization_policy: str
     metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.output_boundary_profile"
+    authority: str = "agent_system.output_boundary_profile"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.output_boundary_profile":
-            raise ValueError("OutputBoundaryProfile authority must be orchestration.output_boundary_profile")
+        if self.authority != "agent_system.output_boundary_profile":
+            raise ValueError("OutputBoundaryProfile authority must be agent_system.output_boundary_profile")
         if not self.profile_id:
             raise ValueError("OutputBoundaryProfile requires profile_id")
 
@@ -95,5 +95,6 @@ class OutputBoundaryProfile:
         payload = asdict(self)
         payload["allowed_output_contracts"] = list(self.allowed_output_contracts)
         return payload
+
 
 

@@ -42,7 +42,7 @@ def _normalize_provider_with_payload_hints(provider: str, model: str | None, bas
 @dataclass(frozen=True, slots=True)
 class RuntimeSettingsSnapshot:
     rag_mode: bool
-    orchestration_plan_mode: str
+    agent_system_plan_mode: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,7 +102,7 @@ class AppSettingsService:
         payload = runtime_config.load()
         return RuntimeSettingsSnapshot(
             rag_mode=bool(payload.get("rag_mode", False)),
-            orchestration_plan_mode="primary",
+            agent_system_plan_mode="primary",
         )
 
     def policy_snapshot(self) -> PolicySettingsSnapshot:
@@ -131,18 +131,18 @@ class AppSettingsService:
         current["permission_mode"] = mode
         return runtime_config.save(current)
 
-    def get_orchestration_plan_mode(self) -> str:
-        getter = getattr(runtime_config, "get_orchestration_plan_mode", None)
+    def get_agent_system_plan_mode(self) -> str:
+        getter = getattr(runtime_config, "get_agent_system_plan_mode", None)
         if callable(getter):
             return str(getter() or "primary")
         return "primary"
 
-    def set_orchestration_plan_mode(self, mode: str) -> dict[str, Any]:
-        setter = getattr(runtime_config, "set_orchestration_plan_mode", None)
+    def set_agent_system_plan_mode(self, mode: str) -> dict[str, Any]:
+        setter = getattr(runtime_config, "set_agent_system_plan_mode", None)
         if callable(setter):
             return setter(mode)
         current = runtime_config.load()
-        current["orchestration_plan_mode"] = "primary"
+        current["agent_system_plan_mode"] = "primary"
         return runtime_config.save(current)
 
     def get_context_budget_preset(self) -> str:

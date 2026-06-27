@@ -3,13 +3,13 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { getOrchestrationAgents } from "@/lib/api/orchestration";
-import type { OrchestrationAgentRuntimeCatalog } from "@/lib/api/types";
+import { getAgentSystemAgents } from "@/lib/api/agentSystem";
+import type { AgentSystemAgentRuntimeCatalog } from "@/lib/api/types";
 import { useAppStore } from "@/lib/store";
 import type { ActiveMainAgentSelection } from "@/lib/store/types";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
-type CatalogAgent = OrchestrationAgentRuntimeCatalog["agents"][number];
+type CatalogAgent = AgentSystemAgentRuntimeCatalog["agents"][number];
 
 const FALLBACK_MAIN_AGENTS: ActiveMainAgentSelection[] = [
   {
@@ -77,7 +77,7 @@ function mainAgentOption(agent: CatalogAgent): ActiveMainAgentSelection | null {
     main_agent_kind: mainAgentKind || "main",
     default_task_environment_id: environmentId || "env.general.workspace",
     default_task_environment_label: taskEnvironmentDisplayName(environmentId),
-    source: "orchestration_agent_catalog",
+    source: "agent_system_agent_catalog",
   };
 }
 
@@ -119,7 +119,7 @@ export function WorkspaceModeSwitcher({
     activeMainAgent,
     setActiveMainAgent,
   } = useAppStore();
-  const [catalog, setCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
+  const [catalog, setCatalog] = useState<AgentSystemAgentRuntimeCatalog | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -127,7 +127,7 @@ export function WorkspaceModeSwitcher({
     let cancelled = false;
     setLoading(true);
     setError("");
-    getOrchestrationAgents({ includeOptions: false })
+    getAgentSystemAgents({ includeOptions: false })
       .then((payload) => {
         if (!cancelled) {
           setCatalog(payload);
@@ -190,3 +190,4 @@ export function WorkspaceModeSwitcher({
     </label>
   );
 }
+

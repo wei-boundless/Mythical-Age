@@ -16,7 +16,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "build_capability_endpoints": (".endpoint_projection", "build_capability_endpoints"),
     "build_capability_units": (".unit_projection", "build_capability_units"),
     "build_base_unit_catalog": (".catalog_projection", "build_base_unit_catalog"),
-    "build_orchestration_capability_items": (".catalog_projection", "build_orchestration_capability_items"),
+    "build_agent_system_capability_items": (".catalog_projection", "build_agent_system_capability_items"),
     "build_operation_catalog": (".catalog_projection", "build_capability_catalog"),
     "build_resource_runtime_views": (".permission_projection", "build_resource_runtime_views"),
     "default_tool_type": (".catalog_projection", "default_tool_type"),

@@ -74,7 +74,7 @@ INTERNAL_PROTOCOL_INPUT_PREFIXES = (
     "__",
     "graph_module_runtime.",
     "importing_",
-    "orchestration_protocol.",
+    "harness_protocol.",
     "runtime_protocol.",
 )
 
@@ -83,7 +83,7 @@ INTERNAL_PROTOCOL_INPUT_PREFIXES = (
 class ProtocolLeakResult:
     detected: bool
     markers: tuple[str, ...] = ()
-    authority: str = "orchestration.protocol_boundary"
+    authority: str = "task_system.protocol_boundary"
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)

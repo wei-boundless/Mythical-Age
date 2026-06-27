@@ -28,7 +28,7 @@ import type {
 
 export async function getProjectRuntimeStatus(projectId: string) {
   return request<ProjectRuntimeStatusView>(
-    `/orchestration/projects/${encodeURIComponent(projectId)}/runtime-status`
+    `/harness/projects/${encodeURIComponent(projectId)}/runtime-status`
   );
 }
 
@@ -49,7 +49,7 @@ export async function startTaskGraphSystemRun(
   }
 ) {
   return request<TaskGraphRunStartResult>(
-    `/orchestration/harness/task-graphs/${encodeURIComponent(graphId)}/start`,
+    `/graph-system/task-graphs/${encodeURIComponent(graphId)}/start`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -59,7 +59,7 @@ export async function startTaskGraphSystemRun(
 
 export async function getPublishedTaskExecutableGraphConfig(graphId: string) {
   return request<ExecutableGraphConfigPayload>(
-    `/orchestration/harness/task-graphs/${encodeURIComponent(graphId)}/published-config`
+    `/graph-system/task-graphs/${encodeURIComponent(graphId)}/published-config`
   );
 }
 
@@ -77,7 +77,7 @@ export async function submitGraphRunUntilIdle(
   }
 ) {
   return request<GraphRunBackgroundSubmitResult>(
-    `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/run-until-idle/background`,
+    `/graph-system/graph-runs/${encodeURIComponent(graphRunId)}/run-until-idle/background`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -94,7 +94,7 @@ export async function pauseGraphRun(
   }
 ) {
   return request<GraphRunControlResult>(
-    `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/pause`,
+    `/graph-system/graph-runs/${encodeURIComponent(graphRunId)}/pause`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -111,7 +111,7 @@ export async function resumeGraphRun(
   }
 ) {
   return request<GraphRunControlResult>(
-    `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/resume`,
+    `/graph-system/graph-runs/${encodeURIComponent(graphRunId)}/resume`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -134,17 +134,17 @@ export async function getGraphRunMonitor(
   if (sessionScope?.project_id) params.set("project_id", sessionScope.project_id);
   params.set("event_limit", String(Math.max(1, Math.min(Number(eventLimit || 80), 240))));
   return request<GraphRunMonitorView>(
-    `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/monitor?${params.toString()}`
+    `/graph-system/graph-runs/${encodeURIComponent(graphRunId)}/monitor?${params.toString()}`
   );
 }
 
 export async function listGraphTasks() {
-  return request<GraphTaskDefinitionList>("/orchestration/graph-tasks");
+  return request<GraphTaskDefinitionList>("/graph-system/graph-tasks");
 }
 
 export async function listGraphTaskInstances(graphId: string) {
   return request<GraphTaskInstanceList>(
-    `/orchestration/graph-tasks/${encodeURIComponent(graphId)}/instances`
+    `/graph-system/graph-tasks/${encodeURIComponent(graphId)}/instances`
   );
 }
 
@@ -159,7 +159,7 @@ export async function createGraphTaskInstance(
   }
 ) {
   return request<GraphTaskInstanceCreateResult>(
-    `/orchestration/graph-tasks/${encodeURIComponent(graphId)}/instances`,
+    `/graph-system/graph-tasks/${encodeURIComponent(graphId)}/instances`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -169,7 +169,7 @@ export async function createGraphTaskInstance(
 
 export async function getGraphTaskInstance(instanceId: string) {
   return request<GraphTaskInstanceDetail>(
-    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}`
+    `/graph-system/graph-task-instances/${encodeURIComponent(instanceId)}`
   );
 }
 
@@ -186,7 +186,7 @@ export async function startGraphTaskInstanceRun(
   } = {}
 ) {
   return request<GraphTaskInstanceRunStartResult>(
-    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/runs`,
+    `/graph-system/graph-task-instances/${encodeURIComponent(instanceId)}/runs`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -198,7 +198,7 @@ export async function getGraphTaskInstanceMonitor(instanceId: string, eventLimit
   const params = new URLSearchParams();
   params.set("event_limit", String(Math.max(1, Math.min(Number(eventLimit || 80), 240))));
   return request<GraphTaskInstanceMonitor>(
-    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/monitor?${params.toString()}`
+    `/graph-system/graph-task-instances/${encodeURIComponent(instanceId)}/monitor?${params.toString()}`
   );
 }
 
@@ -215,7 +215,7 @@ export async function getWritingGraphInstanceDesk(
   if (options.includeRuntime !== undefined) params.set("include_runtime", String(options.includeRuntime));
   if (options.includeFileTree !== undefined) params.set("include_file_tree", String(options.includeFileTree));
   return request<WritingGraphInstanceDesk>(
-    `/orchestration/writing-graph-instances/${encodeURIComponent(instanceId)}/desk?${params.toString()}`
+    `/graph-system/writing-graph-instances/${encodeURIComponent(instanceId)}/desk?${params.toString()}`
   );
 }
 
@@ -224,7 +224,7 @@ export async function submitWritingGraphChapterAction(
   payload: WritingChapterActionRequest
 ) {
   return request<WritingChapterActionSubmitResult>(
-    `/orchestration/writing-graph-instances/${encodeURIComponent(instanceId)}/chapter-actions`,
+    `/graph-system/writing-graph-instances/${encodeURIComponent(instanceId)}/chapter-actions`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -239,7 +239,7 @@ export async function listGraphTaskInstanceNodeSessions(instanceId: string) {
     sessions: SessionSummary[];
     summary?: Record<string, unknown>;
   }>(
-    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/node-sessions`
+    `/graph-system/graph-task-instances/${encodeURIComponent(instanceId)}/node-sessions`
   );
 }
 
@@ -257,20 +257,20 @@ export async function getGraphTaskInstanceFileTree(
   if (options.maxEntries !== undefined) params.set("max_entries", String(options.maxEntries));
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return request<GraphTaskInstanceFileTree>(
-    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/files/tree${suffix}`
+    `/graph-system/graph-task-instances/${encodeURIComponent(instanceId)}/files/tree${suffix}`
   );
 }
 
 export async function readGraphTaskInstanceFile(instanceId: string, path: string) {
   const params = new URLSearchParams({ path });
   return request<GraphTaskInstanceFileReadResult>(
-    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/files?${params.toString()}`
+    `/graph-system/graph-task-instances/${encodeURIComponent(instanceId)}/files?${params.toString()}`
   );
 }
 
 export async function writeGraphTaskInstanceFile(instanceId: string, path: string, content: string) {
   return request<GraphTaskInstanceFileWriteResult>(
-    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/files`,
+    `/graph-system/graph-task-instances/${encodeURIComponent(instanceId)}/files`,
     {
       method: "PUT",
       body: JSON.stringify({ path, content }),
@@ -280,7 +280,7 @@ export async function writeGraphTaskInstanceFile(instanceId: string, path: strin
 
 export async function listGraphTaskInstanceArtifacts(instanceId: string) {
   return request<GraphTaskInstanceArtifacts>(
-    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/artifacts`
+    `/graph-system/graph-task-instances/${encodeURIComponent(instanceId)}/artifacts`
   );
 }
 
@@ -293,7 +293,7 @@ export async function listGraphTaskInstanceHumanEdgeDecisions(instanceId: string
     decisions: Array<Record<string, unknown>>;
     summary?: Record<string, unknown>;
   }>(
-    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/human-edge-decisions?${params.toString()}`
+    `/graph-system/graph-task-instances/${encodeURIComponent(instanceId)}/human-edge-decisions?${params.toString()}`
   );
 }
 
@@ -302,7 +302,7 @@ export async function submitGraphTaskInstanceHumanEdgeDecision(
   payload: HumanEdgeDecisionSubmitRequest
 ) {
   return request<HumanEdgeDecisionSubmitResult>(
-    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/human-edge-decisions`,
+    `/graph-system/graph-task-instances/${encodeURIComponent(instanceId)}/human-edge-decisions`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -319,7 +319,7 @@ export async function dispatchGraphRunReadyNodes(
   }
 ) {
   return request<GraphRunDispatchReadyResult>(
-    `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/dispatch-ready`,
+    `/graph-system/graph-runs/${encodeURIComponent(graphRunId)}/dispatch-ready`,
     {
       method: "POST",
       body: JSON.stringify(payload),

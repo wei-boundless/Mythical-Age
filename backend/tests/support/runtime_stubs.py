@@ -57,7 +57,7 @@ class PrimarySettingsStub:
     def get_rag_mode(self) -> bool:
         return False
 
-    def get_orchestration_plan_mode(self) -> str:
+    def get_agent_system_plan_mode(self) -> str:
         return "primary"
 
 

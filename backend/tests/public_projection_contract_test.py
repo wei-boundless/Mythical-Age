@@ -2176,8 +2176,8 @@ def test_lifecycle_closes_completion_by_tool_call_id_even_when_completion_permis
             "event_offset": 1,
             "tool_call_id": "call:read",
             "tool_name": "read_file",
-            "target": "backend/harness/graph/flow_edges.py",
-            "arguments_preview": "path=backend/harness/graph/flow_edges.py, line_count=80",
+            "target": "backend/graph_system/flow_edges.py",
+            "arguments_preview": "path=backend/graph_system/flow_edges.py, line_count=80",
         },
         session_id="session:test",
         sequence=1,
@@ -2229,6 +2229,6 @@ def test_lifecycle_closes_completion_by_tool_call_id_even_when_completion_permis
     assert frame["tool_call_id"] == "call:read"
     assert frame["permission_decision_id"] == "admission:request:read"
     assert frame["tool_name"] == "read_file"
-    assert frame["target"] == "backend/harness/graph/flow_edges.py"
-    assert frame["arguments_preview"] == "path=backend/harness/graph/flow_edges.py, line_count=80"
+    assert frame["target"] == "backend/graph_system/flow_edges.py"
+    assert frame["arguments_preview"] == "path=backend/graph_system/flow_edges.py, line_count=80"
     assert "diagnostics" not in frame

@@ -31,8 +31,8 @@ import {
   deleteTaskSystemEnvironment,
   deleteTaskSystemEnvironmentKindTemplate,
   deleteTaskSystemNodeConfiguration,
-  getOrchestrationAgents,
-  getOrchestrationCapabilityItems,
+  getAgentSystemAgents,
+  getAgentSystemCapabilityItems,
   getTaskSystemOverview,
   previewTaskSystemNodeConfigurationRuntime,
   upsertTaskSystemContract,
@@ -42,7 +42,7 @@ import {
   upsertTaskSystemNodeConfiguration,
   upsertTaskSystemTaskAssignment,
   type ContractSpec,
-  type OrchestrationAgentRuntimeCatalog,
+  type AgentSystemAgentRuntimeCatalog,
   type TaskEnvironmentKindTemplate,
   type TaskNodeConfigurationSpec,
   type TaskSystemOverview,
@@ -80,7 +80,7 @@ export function TaskSystemView() {
     setChatTaskEnvironmentBinding,
   } = useAppStore();
   const [consolePayload, setConsolePayload] = useState<TaskSystemOverview | null>(null);
-  const [nodeRuntimeCatalog, setNodeRuntimeCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
+  const [nodeRuntimeCatalog, setNodeRuntimeCatalog] = useState<AgentSystemAgentRuntimeCatalog | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState("");
   const [notice, setNotice] = useState("");
@@ -109,8 +109,8 @@ export function TaskSystemView() {
     const run = (async () => {
       try {
         const [catalog, capabilityItems] = await Promise.all([
-          getOrchestrationAgents(),
-          getOrchestrationCapabilityItems().catch(() => ({ capability_items: [] })),
+          getAgentSystemAgents(),
+          getAgentSystemCapabilityItems().catch(() => ({ capability_items: [] })),
         ]);
         setNodeRuntimeCatalog({
           ...catalog,
@@ -606,3 +606,4 @@ export function TaskSystemView() {
     </TaskSystemShell>
   );
 }
+

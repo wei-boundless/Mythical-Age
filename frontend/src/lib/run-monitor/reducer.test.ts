@@ -21,7 +21,7 @@ function signal(patch: Partial<RunMonitorSignal>): RunMonitorSignal {
 
 function monitor(lanes: NonNullable<RunMonitorEnvelope["management"]>["lanes"]): RunMonitorEnvelope {
   return {
-    authority: "runtime_monitor",
+    authority: "run_monitor",
     revision: "rtmon:1:test",
     updated_at: 1,
     summary: {},
@@ -37,7 +37,7 @@ function monitor(lanes: NonNullable<RunMonitorEnvelope["management"]>["lanes"]):
     projects: lanes.projects ?? [],
     recent: lanes.recent ?? [],
     management: {
-      authority: "runtime_monitor.management",
+      authority: "run_monitor.management",
       lanes,
     },
   } as RunMonitorEnvelope;

@@ -85,7 +85,7 @@ ProjectRuntimeHealth = Literal[
 
 @dataclass(frozen=True, slots=True)
 class TaskRun:
-    """A durable single-agent task run owned by OrchestrationSystem."""
+    """A durable single-agent task run owned by Harness."""
 
     task_run_id: str
     session_id: str
@@ -102,11 +102,11 @@ class TaskRun:
     latest_checkpoint_ref: str = ""
     terminal_reason: RuntimeTerminalReason = ""
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.task_run"
+    authority: str = "runtime.task_run"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.task_run":
-            raise ValueError("TaskRun authority must be orchestration.task_run")
+        if self.authority != "runtime.task_run":
+            raise ValueError("TaskRun authority must be runtime.task_run")
         if not self.task_run_id:
             raise ValueError("TaskRun requires task_run_id")
         if not self.session_id:
@@ -139,11 +139,11 @@ class TurnRun:
     latest_event_offset: int = -1
     terminal_reason: RuntimeTerminalReason = ""
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.turn_run"
+    authority: str = "runtime.turn_run"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.turn_run":
-            raise ValueError("TurnRun authority must be orchestration.turn_run")
+        if self.authority != "runtime.turn_run":
+            raise ValueError("TurnRun authority must be runtime.turn_run")
         if not self.turn_run_id:
             raise ValueError("TurnRun requires turn_run_id")
         if not self.session_id:
@@ -176,11 +176,11 @@ class AgentRun:
     created_at: float = 0.0
     updated_at: float = 0.0
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.agent_run"
+    authority: str = "runtime.agent_run"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.agent_run":
-            raise ValueError("AgentRun authority must be orchestration.agent_run")
+        if self.authority != "runtime.agent_run":
+            raise ValueError("AgentRun authority must be runtime.agent_run")
         if not self.agent_run_id:
             raise ValueError("AgentRun requires agent_run_id")
         if not self.task_run_id:
@@ -208,11 +208,11 @@ class AgentRunResult:
     artifact_refs: tuple[str, ...] = ()
     created_at: float = 0.0
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.agent_run_result"
+    authority: str = "runtime.agent_run_result"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.agent_run_result":
-            raise ValueError("AgentRunResult authority must be orchestration.agent_run_result")
+        if self.authority != "runtime.agent_run_result":
+            raise ValueError("AgentRunResult authority must be runtime.agent_run_result")
         if not self.agent_run_result_id:
             raise ValueError("AgentRunResult requires agent_run_result_id")
         if not self.agent_run_id:
@@ -250,11 +250,11 @@ class ProjectProgressLedger:
     last_repair_action: dict[str, Any] = field(default_factory=dict)
     updated_at: float = 0.0
     created_at: float = 0.0
-    authority: str = "orchestration.project_progress_ledger"
+    authority: str = "runtime.project_progress_ledger"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.project_progress_ledger":
-            raise ValueError("ProjectProgressLedger authority must be orchestration.project_progress_ledger")
+        if self.authority != "runtime.project_progress_ledger":
+            raise ValueError("ProjectProgressLedger authority must be runtime.project_progress_ledger")
         if not self.ledger_id:
             raise ValueError("ProjectProgressLedger requires ledger_id")
         if not self.project_id:
@@ -288,11 +288,11 @@ class SupervisionRecord:
     followup_status: str = "recorded"
     created_at: float = 0.0
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.supervision_record"
+    authority: str = "runtime.supervision_record"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.supervision_record":
-            raise ValueError("SupervisionRecord authority must be orchestration.supervision_record")
+        if self.authority != "runtime.supervision_record":
+            raise ValueError("SupervisionRecord authority must be runtime.supervision_record")
         if not self.supervision_record_id:
             raise ValueError("SupervisionRecord requires supervision_record_id")
         if not self.supervision_session_id:
@@ -328,11 +328,11 @@ class ProjectRuntimeStatus:
     latest_event_at: float = 0.0
     last_effective_output_at: float = 0.0
     updated_at: float = 0.0
-    authority: str = "orchestration.project_runtime_status"
+    authority: str = "runtime.project_runtime_status"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.project_runtime_status":
-            raise ValueError("ProjectRuntimeStatus authority must be orchestration.project_runtime_status")
+        if self.authority != "runtime.project_runtime_status":
+            raise ValueError("ProjectRuntimeStatus authority must be runtime.project_runtime_status")
         if not self.project_id:
             raise ValueError("ProjectRuntimeStatus requires project_id")
         if not self.session_id:

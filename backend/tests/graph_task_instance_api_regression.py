@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from api import graph_task_instances as instance_api
-import api.orchestration as orchestration_api
+import api.graph_system as graph_system_api
 from harness import AgentRuntimeServices, GraphSystem
 from harness.runtime import SingleAgentRuntimeHost
 from core.project_layout import ProjectLayout
@@ -237,9 +237,9 @@ def test_graph_task_instance_run_owns_graph_scope_without_environment(tmp_path: 
     instance = repo.patch(instance.graph_task_instance_id, {"root_session_id": str(root_session["id"])})
 
     original_instance_runtime = instance_api.require_runtime
-    original_orchestration_runtime = orchestration_api.require_runtime
+    original_graph_system_runtime = graph_system_api.require_runtime
     instance_api.require_runtime = lambda: runtime  # type: ignore[assignment]
-    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    graph_system_api.require_runtime = lambda: runtime  # type: ignore[assignment]
     try:
         result = asyncio.run(
             instance_api.start_graph_task_instance_run(
@@ -252,7 +252,7 @@ def test_graph_task_instance_run_owns_graph_scope_without_environment(tmp_path: 
         )
     finally:
         instance_api.require_runtime = original_instance_runtime  # type: ignore[assignment]
-        orchestration_api.require_runtime = original_orchestration_runtime  # type: ignore[assignment]
+        graph_system_api.require_runtime = original_graph_system_runtime  # type: ignore[assignment]
 
     updated = result["instance"]
     start = result["start"]
@@ -284,9 +284,9 @@ def test_writing_graph_instance_run_uses_saved_project_brief_config(tmp_path: Pa
     project_brief = "题材：东方玄幻。世界核心：群星坠落后，凡人可借星骸修行。主角：边城少年，目标是重建家族。风格：热血升级。"
 
     original_instance_runtime = instance_api.require_runtime
-    original_orchestration_runtime = orchestration_api.require_runtime
+    original_graph_system_runtime = graph_system_api.require_runtime
     instance_api.require_runtime = lambda: runtime  # type: ignore[assignment]
-    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    graph_system_api.require_runtime = lambda: runtime  # type: ignore[assignment]
     try:
         created = asyncio.run(
             instance_api.create_graph_task_instance(
@@ -309,7 +309,7 @@ def test_writing_graph_instance_run_uses_saved_project_brief_config(tmp_path: Pa
         )
     finally:
         instance_api.require_runtime = original_instance_runtime  # type: ignore[assignment]
-        orchestration_api.require_runtime = original_orchestration_runtime  # type: ignore[assignment]
+        graph_system_api.require_runtime = original_graph_system_runtime  # type: ignore[assignment]
 
     graph_run_id = result["start"]["graph_run_id"]
     state = runtime.harness_runtime.graph_system.graph_loop.get_state(graph_run_id)
@@ -329,9 +329,9 @@ def test_writing_graph_instance_desk_maps_human_edges_to_chapter_actions(tmp_pat
     instance = GraphTaskInstanceRepository(backend_dir).create(graph_id=graph.graph_id, title="人工审核投影项目")
 
     original_instance_runtime = instance_api.require_runtime
-    original_orchestration_runtime = orchestration_api.require_runtime
+    original_graph_system_runtime = graph_system_api.require_runtime
     instance_api.require_runtime = lambda: runtime  # type: ignore[assignment]
-    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    graph_system_api.require_runtime = lambda: runtime  # type: ignore[assignment]
     try:
         asyncio.run(
             instance_api.start_graph_task_instance_run(
@@ -345,7 +345,7 @@ def test_writing_graph_instance_desk_maps_human_edges_to_chapter_actions(tmp_pat
         desk = asyncio.run(instance_api.get_writing_graph_instance_desk(instance.graph_task_instance_id))
     finally:
         instance_api.require_runtime = original_instance_runtime  # type: ignore[assignment]
-        orchestration_api.require_runtime = original_orchestration_runtime  # type: ignore[assignment]
+        graph_system_api.require_runtime = original_graph_system_runtime  # type: ignore[assignment]
 
     actions = desk["chapter_actions"]
     assert [(item["action"], item["decision"], item["label"]) for item in actions] == [
@@ -365,9 +365,9 @@ def test_graph_task_instance_human_replace_decision_writes_file_and_advances_edg
     instance = GraphTaskInstanceRepository(backend_dir).create(graph_id=graph.graph_id, title="人工替写项目")
 
     original_instance_runtime = instance_api.require_runtime
-    original_orchestration_runtime = orchestration_api.require_runtime
+    original_graph_system_runtime = graph_system_api.require_runtime
     instance_api.require_runtime = lambda: runtime  # type: ignore[assignment]
-    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    graph_system_api.require_runtime = lambda: runtime  # type: ignore[assignment]
     try:
         start_result = asyncio.run(
             instance_api.start_graph_task_instance_run(
@@ -401,7 +401,7 @@ def test_graph_task_instance_human_replace_decision_writes_file_and_advances_edg
         )
     finally:
         instance_api.require_runtime = original_instance_runtime  # type: ignore[assignment]
-        orchestration_api.require_runtime = original_orchestration_runtime  # type: ignore[assignment]
+        graph_system_api.require_runtime = original_graph_system_runtime  # type: ignore[assignment]
 
     assert decision_result["decision"]["status"] == "applied"
     assert decision_result["decision"]["content_submission"]["path"] == "chapters/chapter-001.md"
@@ -431,9 +431,9 @@ def test_writing_chapter_action_approve_normalizes_to_human_edge_decision(tmp_pa
     instance = GraphTaskInstanceRepository(backend_dir).create(graph_id=graph.graph_id, title="写作通过项目")
 
     original_instance_runtime = instance_api.require_runtime
-    original_orchestration_runtime = orchestration_api.require_runtime
+    original_graph_system_runtime = graph_system_api.require_runtime
     instance_api.require_runtime = lambda: runtime  # type: ignore[assignment]
-    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    graph_system_api.require_runtime = lambda: runtime  # type: ignore[assignment]
     try:
         start_result = asyncio.run(
             instance_api.start_graph_task_instance_run(
@@ -472,7 +472,7 @@ def test_writing_chapter_action_approve_normalizes_to_human_edge_decision(tmp_pa
         )
     finally:
         instance_api.require_runtime = original_instance_runtime  # type: ignore[assignment]
-        orchestration_api.require_runtime = original_orchestration_runtime  # type: ignore[assignment]
+        graph_system_api.require_runtime = original_graph_system_runtime  # type: ignore[assignment]
 
     assert result["authority"] == "api.graph_task_instances.writing_chapter_action"
     assert result["chapter_action"]["action"] == "approve"
@@ -497,9 +497,9 @@ def test_writing_chapter_action_replace_writes_project_file_and_advances_edge(tm
     instance = GraphTaskInstanceRepository(backend_dir).create(graph_id=graph.graph_id, title="写作替写项目")
 
     original_instance_runtime = instance_api.require_runtime
-    original_orchestration_runtime = orchestration_api.require_runtime
+    original_graph_system_runtime = graph_system_api.require_runtime
     instance_api.require_runtime = lambda: runtime  # type: ignore[assignment]
-    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    graph_system_api.require_runtime = lambda: runtime  # type: ignore[assignment]
     try:
         asyncio.run(
             instance_api.start_graph_task_instance_run(
@@ -527,7 +527,7 @@ def test_writing_chapter_action_replace_writes_project_file_and_advances_edge(tm
         )
     finally:
         instance_api.require_runtime = original_instance_runtime  # type: ignore[assignment]
-        orchestration_api.require_runtime = original_orchestration_runtime  # type: ignore[assignment]
+        graph_system_api.require_runtime = original_graph_system_runtime  # type: ignore[assignment]
 
     decision_result = result["decision_result"]
     assert result["summary"]["decision"] == "replace"
@@ -544,4 +544,5 @@ def test_writing_chapter_action_replace_writes_project_file_and_advances_edge(tm
         "chapters/chapter-001.md",
     )
     assert file_payload["content"] == "用户改写后的第一章正文"
+
 

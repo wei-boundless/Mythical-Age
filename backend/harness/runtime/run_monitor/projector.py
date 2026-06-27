@@ -36,7 +36,7 @@ TRACE_ONLY_PRESENTATION_SOURCES = {
 }
 
 
-class RuntimeMonitorProjector:
+class RunMonitorProjector:
     def __init__(
         self,
         event_log: Any,
@@ -75,7 +75,7 @@ class RuntimeMonitorProjector:
             events,
             diagnostics=diagnostics,
             task_run=task_run,
-            authority="runtime_monitor.session_output_commit",
+            authority="harness.run_monitor.session_output_commit",
         )
         latest_event = _public_runtime_event(events[-1]) if events else {}
         latest_step = self._latest_step_summary(events) if include_runtime_details else self._latest_step_from_diagnostics(diagnostics)
@@ -206,7 +206,7 @@ class RuntimeMonitorProjector:
             "evidence_refs": [],
             "summary": summary,
             "agent_brief": agent_brief,
-            "source": "runtime_diagnostic" if diagnostic_summary else "runtime_monitor",
+            "source": "runtime_diagnostic" if diagnostic_summary else "harness.run_monitor",
         }
         navigation_target = build_navigation_target(
             kind=kind,
@@ -311,7 +311,7 @@ class RuntimeMonitorProjector:
             "project_runtime_status": None,
             "has_graph_run": has_graph_run,
             "event_count": event_count,
-            "authority": "runtime_monitor.v1.item",
+            "authority": "harness.run_monitor.v1.item",
         }
         return with_runtime_activity(item)
 
@@ -528,7 +528,7 @@ class RuntimeMonitorProjector:
             "project_runtime_status": None,
             "has_graph_run": False,
             "event_count": 0,
-            "authority": "runtime_monitor.v1.item",
+            "authority": "harness.run_monitor.v1.item",
         }
         return with_runtime_activity(
             item,
@@ -587,7 +587,7 @@ class RuntimeMonitorProjector:
         scope_ref = _fact_scope_ref(task_run_id=task_run_id, session_id=session_id, graph_run_id=graph_run_id)
         if self.fact_ledger is None or not scope_ref.get("scope_key"):
             return {
-                "authority": "runtime_monitor.fact_summary",
+                "authority": "harness.run_monitor.fact_summary",
                 "available": False,
                 "task_run_id": task_run_id,
                 "session_id": session_id,
@@ -607,7 +607,7 @@ class RuntimeMonitorProjector:
         except Exception:
             records = []
         return {
-            "authority": "runtime_monitor.fact_summary",
+            "authority": "harness.run_monitor.fact_summary",
             "available": True,
             "task_run_id": task_run_id,
             "session_id": session_id,
@@ -620,7 +620,7 @@ class RuntimeMonitorProjector:
 
     def _deferred_fact_summary(self, *, task_run_id: str, session_id: str, graph_run_id: str) -> dict[str, Any]:
         return {
-            "authority": "runtime_monitor.fact_summary",
+            "authority": "harness.run_monitor.fact_summary",
             "available": False,
             "deferred": True,
             "task_run_id": task_run_id,
@@ -650,13 +650,13 @@ class RuntimeMonitorProjector:
             if summary:
                 return {
                     **summary,
-                    "authority": "runtime_monitor.trace_summary",
+                    "authority": "harness.run_monitor.trace_summary",
                     "source_authority": str(summary.get("authority") or ""),
                 }
         trace_fact = self._latest_trace_run_fact(task_run_id=task_run_id, session_id=session_id, graph_run_id=graph_run_id)
         trace_id = _record_ref(trace_fact, "trace_id") if trace_fact is not None else ""
         base = {
-            "authority": "runtime_monitor.trace_summary",
+            "authority": "harness.run_monitor.trace_summary",
             "available": bool(trace_id),
             "hydrated": False,
             "trace_id": trace_id,
@@ -690,7 +690,7 @@ class RuntimeMonitorProjector:
 
     def _deferred_trace_summary(self, *, task_run_id: str, session_id: str, graph_run_id: str) -> dict[str, Any]:
         return {
-            "authority": "runtime_monitor.trace_summary",
+            "authority": "harness.run_monitor.trace_summary",
             "available": False,
             "deferred": True,
             "hydrated": False,
@@ -1688,3 +1688,4 @@ def _graph_next_action(*, status: str, ready_count: int, failed_count: int, bloc
     if status in {"completed", "success", "succeeded"}:
         return "已完成"
     return "等待进展"
+

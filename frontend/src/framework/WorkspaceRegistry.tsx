@@ -12,7 +12,7 @@ const CapabilitySystemView = lazy(() => import("@/components/workspace/views/Cap
 const GraphTaskSystemView = lazy(() => import("@/components/workspace/views/GraphTaskSystemView").then((module) => ({ default: module.GraphTaskSystemView })));
 const HealthSystemView = lazy(() => import("@/components/workspace/views/HealthSystemView").then((module) => ({ default: module.HealthSystemView })));
 const MemoryView = lazy(() => import("@/components/workspace/views/MemoryView").then((module) => ({ default: module.MemoryView })));
-const OrchestrationView = lazy(() => import("@/components/workspace/views/OrchestrationView").then((module) => ({ default: module.OrchestrationView })));
+const AgentSystemView = lazy(() => import("@/components/workspace/views/AgentSystemView").then((module) => ({ default: module.AgentSystemView })));
 const SystemConfigView = lazy(() => import("@/components/workspace/views/SystemConfigView").then((module) => ({ default: module.SystemConfigView })));
 const TaskSystemView = lazy(() => import("@/components/workspace/views/TaskSystemView").then((module) => ({ default: module.TaskSystemView })));
 
@@ -80,14 +80,14 @@ export const WORKSPACE_REGISTRY: Record<WorkspaceView, WorkspaceViewDefinition> 
     ),
     view: "task-system",
   },
-  orchestration: {
+  "agent-system": {
     label: "Agent 管理系统",
     render: () => (
-      <SystemPageShell label="Agent 管理系统" view="orchestration">
-        <LazyView><OrchestrationView /></LazyView>
+      <SystemPageShell label="Agent 管理系统" view="agent-system">
+        <LazyView><AgentSystemView /></LazyView>
       </SystemPageShell>
     ),
-    view: "orchestration",
+    view: "agent-system",
   },
   "health-system": {
     label: "健康系统",
@@ -141,3 +141,4 @@ export function WorkspaceRegistry({
   const definition = resolveWorkspaceView(view);
   return <>{definition.render({ centerTaskEnvironmentId, view: definition.view })}</>;
 }
+

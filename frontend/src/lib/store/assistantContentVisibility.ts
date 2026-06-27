@@ -18,7 +18,7 @@ const CONTROL_CHANNELS = new Set([
   "active_work_control",
   "missing_answer",
   "opening_judgment",
-  "orchestration_fail_closed",
+  "harness_fail_closed",
   "runtime_control",
   "task_control",
 ]);
@@ -114,3 +114,4 @@ function normalizedList(value: unknown) {
   const text = normalized(value);
   return text ? [text] : [];
 }
+

@@ -187,7 +187,7 @@ class TaskFlowContractBindingUpsertRequest(BaseModel):
 class TaskExecutionPolicyUpsertRequest(BaseModel):
     task_id: str = Field(..., min_length=3, max_length=160)
     execution_chain_type: str = Field(default="agent_harness_chain", max_length=120)
-    runtime_agent_selection_policy: str = Field(default="orchestration_default", max_length=120)
+    runtime_agent_selection_policy: str = Field(default="agent_system_default", max_length=120)
     default_agent_id: str = Field(default="agent:0", max_length=160)
     task_level: str = Field(default="standard", max_length=80)
     task_privilege: str = Field(default="bounded", max_length=80)
@@ -2032,3 +2032,4 @@ async def upsert_task_system_communication_protocol(
 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _task_system_payload(runtime.base_dir)
+

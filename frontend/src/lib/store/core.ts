@@ -105,7 +105,7 @@ export function getDefaultState(): StoreState {
     inspectorWidth: 340,
     tokenStats: null,
     memoryInspectorTarget: null,
-    orchestrationSnapshot: null,
+    harnessTurnSnapshot: null,
     taskGraphMonitorBinding: null,
     activeTurnSnapshot: null,
     taskGraphLiveMonitor: null,
@@ -127,10 +127,11 @@ export function getDefaultState(): StoreState {
     taskGraphAutoAdvancePending: false,
     taskGraphMonitorError: "",
     taskGraphRunInteractionOpen: false,
-    orchestrationInspectorTarget: null,
+    agentSystemInspectorTarget: null,
     taskSelection: null,
     chatTaskEnvironmentBinding: null,
     taskGraphWorkspaceTarget: null,
     centerWorkspaceTarget: null
   };
 }
+

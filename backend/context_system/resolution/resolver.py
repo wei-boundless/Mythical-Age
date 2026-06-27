@@ -4,7 +4,7 @@ from typing import Any
 
 import re
 
-from request_intent.frame_access import explicit_paths, material_kinds, target_domain_hints, turn_signals
+from runtime.request_signals.frame_access import explicit_paths, material_kinds, target_domain_hints, turn_signals
 from context_system.current_turn.turn_binding import BundleItem, TurnBinding, ResolvedBinding
 
 

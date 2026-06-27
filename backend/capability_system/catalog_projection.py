@@ -705,7 +705,7 @@ def _capability_risk_from_operation(operation: dict[str, Any] | None) -> dict[st
     return {"risk_label": "中性风险", "risk_tone": "neutral", "risk_items": items}
 
 
-def build_orchestration_capability_items(catalog: dict[str, Any]) -> list[dict[str, Any]]:
+def build_agent_system_capability_items(catalog: dict[str, Any]) -> list[dict[str, Any]]:
     operations = [item for item in list(catalog.get("operations") or []) if isinstance(item, dict)]
     operation_by_id = {
         str(item.get("operation_id") or "").strip(): item

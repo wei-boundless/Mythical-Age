@@ -11,6 +11,7 @@ from typing import Any
 from .cache_baseline import PromptCacheBaselineRecord, PromptCacheBaselineTracker
 from .cache_break_detector import PromptCacheBreakRecord
 from .models import ModelTokenUsageRecord, PromptCacheRecord, PromptSegment, PromptSegmentMap
+from .provider_lane import PROVIDER_LANE_AGENT_TOOL_LOOP, normalize_provider_lane
 from .stability_models import PromptStabilityReport
 
 
@@ -2013,6 +2014,9 @@ def _context_usage_snapshot_from_record(
     current_context_tokens = _context_tokens_from_usage_record(record)
     request_started = _positive_float(request_started_at, float(record.created_at or 0.0))
     observed = _positive_float(observed_at, time.time())
+    diagnostics = dict(record.diagnostics or {})
+    provider_lane = normalize_provider_lane(diagnostics.get("provider_lane"))
+    physical_payload_family_hash = str(diagnostics.get("physical_payload_family_hash") or "")
     return {
         "authority": "runtime.prompt_accounting.latest_context_usage_snapshot",
         "version": 1,
@@ -2023,6 +2027,8 @@ def _context_usage_snapshot_from_record(
         "usage_id": str(record.usage_id or ""),
         "provider": str(record.provider or ""),
         "model": str(record.model or ""),
+        "provider_lane": provider_lane,
+        "physical_payload_family_hash": physical_payload_family_hash,
         "source": str(record.source or ""),
         "current_context_tokens": int(current_context_tokens),
         "prompt_tokens": int(record.prompt_tokens or 0),
@@ -2039,6 +2045,9 @@ def _context_usage_snapshot_from_record(
         "diagnostics": {
             "usage_record_authority": str(record.authority or ""),
             "usage_record_source": str(record.source or ""),
+            "provider_lane": provider_lane,
+            "physical_payload_family_hash": physical_payload_family_hash,
+            "physical_payload_family": dict(diagnostics.get("physical_payload_family") or {}),
         },
     }
 
@@ -2057,6 +2066,8 @@ def _context_tokens_from_usage_record(record: ModelTokenUsageRecord) -> int:
 def _context_usage_snapshot_should_replace(current: dict[str, Any], candidate: dict[str, Any]) -> bool:
     current_request = str(current.get("request_id") or "")
     candidate_request = str(candidate.get("request_id") or "")
+    current_lane = normalize_provider_lane(current.get("provider_lane") or dict(current.get("diagnostics") or {}).get("provider_lane"))
+    candidate_lane = normalize_provider_lane(candidate.get("provider_lane") or dict(candidate.get("diagnostics") or {}).get("provider_lane"))
     current_started = _positive_float(current.get("request_started_at"), 0.0)
     candidate_started = _positive_float(candidate.get("request_started_at"), 0.0)
     if current_request and candidate_request and current_request == candidate_request:
@@ -2065,6 +2076,10 @@ def _context_usage_snapshot_should_replace(current: dict[str, Any], candidate: d
         if candidate_priority != current_priority:
             return candidate_priority > current_priority
         return _positive_float(candidate.get("observed_at"), 0.0) >= _positive_float(current.get("observed_at"), 0.0)
+    if current_lane == PROVIDER_LANE_AGENT_TOOL_LOOP and candidate_lane != PROVIDER_LANE_AGENT_TOOL_LOOP:
+        return False
+    if current_lane != PROVIDER_LANE_AGENT_TOOL_LOOP and candidate_lane == PROVIDER_LANE_AGENT_TOOL_LOOP:
+        return True
     if current_started > 0 and candidate_started > 0 and candidate_started != current_started:
         return candidate_started > current_started
     return _positive_float(candidate.get("observed_at"), 0.0) >= _positive_float(current.get("observed_at"), 0.0)

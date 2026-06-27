@@ -426,7 +426,7 @@ class SubagentControl:
             "output_contract": {"kind": "subagent_result", "required_refs": list(expected_outputs)},
             "origin": {
                 "origin_kind": "subagent_spawned",
-                "origin_authority": "orchestration.subagent_control",
+                "origin_authority": "harness.subagent_control",
                 "parent_task_run_id": str(parent_task_run.task_run_id),
                 "parent_agent_run_ref": str(child_agent_run.parent_agent_run_ref),
             },
@@ -450,7 +450,7 @@ class SubagentControl:
                 "model_selection": dict(dict(parent_task_run.diagnostics or {}).get("model_selection") or {}),
                 "origin": {
                     "origin_kind": "subagent_spawned",
-                    "origin_authority": "orchestration.subagent_control",
+                    "origin_authority": "harness.subagent_control",
                     "parent_task_run_id": str(parent_task_run.task_run_id),
                     "parent_agent_run_ref": str(child_agent_run.parent_agent_run_ref),
                 },
@@ -693,7 +693,7 @@ def _child_result_payload(runtime_host: Any, child: AgentRun) -> dict[str, Any]:
         "summary": str(payload.get("summary") or final_answer[:500]).strip(),
         "artifact_refs": artifact_refs,
         "observation_refs": list(payload.get("observation_refs") or []) if isinstance(payload.get("observation_refs"), list) else [],
-        "authority": "orchestration.subagent_result_projection",
+        "authority": "harness.subagent_result_projection",
     }
 
 

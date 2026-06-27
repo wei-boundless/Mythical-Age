@@ -198,7 +198,7 @@ def stage_business_acceptance(
             "policy": "protocol_boundary",
             "issues": ["protocol_boundary:pseudo_tool_output"],
             "protocol_leak_detected": True,
-            "authority": "orchestration.stage_business_acceptance",
+            "authority": "task_system.stage_business_acceptance",
         }
     length_budget = dict(contract.get("length_budget") or {})
     quality_policy = dict(contract.get("quality_retry_policy") or {})
@@ -227,7 +227,7 @@ def stage_business_acceptance(
                 "stage_id": stage_id,
                 "policy": "length_budget+sectioned_text_batch_quality",
                 **content_quality,
-                "authority": "orchestration.stage_business_acceptance",
+                "authority": "task_system.stage_business_acceptance",
             }
         content_quality = length_quality
         return {
@@ -238,7 +238,7 @@ def stage_business_acceptance(
             "stage_id": stage_id,
             "policy": "length_budget",
             **content_quality,
-            "authority": "orchestration.stage_business_acceptance",
+            "authority": "task_system.stage_business_acceptance",
         }
     if "sectioned_text_batch_quality" in accepted_policies:
         content_quality = sectioned_text_batch_quality_gate(
@@ -254,7 +254,7 @@ def stage_business_acceptance(
             "stage_id": stage_id,
             "policy": "sectioned_text_batch_quality",
             **content_quality,
-            "authority": "orchestration.stage_business_acceptance",
+            "authority": "task_system.stage_business_acceptance",
         }
     node_type = str(contract.get("node_type") or "").strip()
     review_policy = dict(contract.get("review_gate_policy") or {})
@@ -268,7 +268,7 @@ def stage_business_acceptance(
                 "artifact_ok": artifact_ok,
                 "stage_id": stage_id,
                 "policy": "technical_completion",
-                "authority": "orchestration.stage_business_acceptance",
+                "authority": "task_system.stage_business_acceptance",
             }
         return {
             "accepted": base_accepted,
@@ -276,7 +276,7 @@ def stage_business_acceptance(
             "artifact_ok": artifact_ok,
             "stage_id": stage_id,
             "policy": "technical_completion",
-            "authority": "orchestration.stage_business_acceptance",
+            "authority": "task_system.stage_business_acceptance",
         }
     verdict = _extract_review_verdict(final_content)
     allowed_to_commit = _extract_review_commit_permission(final_content)
@@ -297,7 +297,7 @@ def stage_business_acceptance(
         "policy": "review_gate_verdict",
         "verdict": verdict,
         "allowed_to_commit": allowed_to_commit,
-        "authority": "orchestration.stage_business_acceptance",
+        "authority": "task_system.stage_business_acceptance",
     }
 
 

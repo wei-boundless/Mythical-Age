@@ -231,7 +231,7 @@ class WorkerAgentFactory:
             allowed_context_sections=blueprint.allowed_context_sections,
             approval_policy=blueprint.approval_policy,
             trace_policy=blueprint.trace_policy,
-            lifecycle_policy="orchestration_managed",
+            lifecycle_policy="agent_system_managed",
             metadata={
                 **dict(blueprint.metadata),
                 "runtime_template_id": str(blueprint.blueprint_id or "").strip(),
@@ -255,5 +255,6 @@ class WorkerAgentFactory:
             runtime_profile=runtime_profile,
             spawn_result=spawn_result,
         )
+
 
 

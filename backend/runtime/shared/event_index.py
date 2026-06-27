@@ -24,7 +24,7 @@ class RuntimeEventCursor:
     file_size_bytes: int = 0
     mtime: float = 0.0
     updated_at: float = field(default_factory=time.time)
-    authority: str = "orchestration.runtime_event_cursor"
+    authority: str = "runtime.runtime_event_cursor"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -52,7 +52,7 @@ class RuntimeEventCursor:
 class RuntimeEventIndex:
     """Sidecar cursor and tail index for append-only runtime JSONL files."""
 
-    authority = "orchestration.runtime_event_index"
+    authority = "runtime.runtime_event_index"
 
     def __init__(self, root_dir: Path, *, tail_limit: int = DEFAULT_TAIL_LIMIT) -> None:
         self.root_dir = Path(root_dir)
@@ -180,7 +180,7 @@ class RuntimeEventIndex:
                 "event_count": len(events),
                 "events": list(events[-self.tail_limit :]),
                 "updated_at": time.time(),
-                "authority": "orchestration.runtime_event_tail_index",
+                "authority": "runtime.runtime_event_tail_index",
             },
         )
 
@@ -315,7 +315,7 @@ def compact_event_for_tail(event: dict[str, Any]) -> dict[str, Any]:
         "created_at": float(event.get("created_at") or 0.0),
         "payload": compact_payload,
         "refs": _compact_refs(dict(event.get("refs") or {})),
-        "authority": "orchestration.runtime_event",
+        "authority": "runtime.runtime_event",
     }
 
 

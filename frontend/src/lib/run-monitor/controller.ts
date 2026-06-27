@@ -14,7 +14,7 @@ import {
   fetchRunMonitor,
   fetchRunMonitorGraphDetail,
   fetchRunMonitorTaskDetail,
-  getRuntimeMonitorEventStreamUrl,
+  getRunMonitorEventStreamUrl,
 } from "./api";
 import {
   applyRunMonitorSnapshot,
@@ -22,7 +22,7 @@ import {
   selectRunMonitorSignal,
   signalDetailTaskRunId,
 } from "./reducer";
-import type { RuntimeMonitorActionPayload, RuntimeMonitorActionResult } from "@/lib/api";
+import type { RunMonitorActionPayload, RunMonitorActionResult } from "@/lib/api";
 import type { RunMonitorEnvelope, RunMonitorSignal } from "./types";
 
 const GRAPH_TASK_WORKSPACE_VIEW = "graph_task";
@@ -38,7 +38,7 @@ type RunMonitorHost = {
   ) => void;
   workspaceViewForTaskEnvironment: (taskEnvironmentId: string) => WorkspaceView;
   refreshSessionDetails: (sessionId: string) => Promise<void>;
-  hydrateLatestOrchestrationSnapshot: (sessionId: string) => Promise<boolean>;
+  hydrateLatestHarnessTurnSnapshot: (sessionId: string) => Promise<boolean>;
   syncWorkspaceViewUrl: (view: StoreState["activeWorkspaceView"]) => void;
   onStreamPayload: (payload: RunMonitorEventPayload | null) => void;
 };
@@ -110,7 +110,7 @@ export class RunMonitorController {
     }
   }
 
-  async runAction(payload: RuntimeMonitorActionPayload): Promise<RuntimeMonitorActionResult | null> {
+  async runAction(payload: RunMonitorActionPayload): Promise<RunMonitorActionResult | null> {
     const action = String(payload.action || "").trim();
     if (!action) return null;
     this.store.setState((prev) => ({
@@ -347,7 +347,7 @@ export class RunMonitorController {
   private openStream() {
     this.closeStream();
     this.store.setState((prev) => ({ ...prev, runMonitorStreamStatus: "connecting" }));
-    const source = new EventSource(getRuntimeMonitorEventStreamUrl(40));
+    const source = new EventSource(getRunMonitorEventStreamUrl(40));
     this.eventSource = source;
     source.onopen = () => {
       this.reconnectAttempts = 0;
@@ -362,9 +362,9 @@ export class RunMonitorController {
       }));
       this.scheduleReconnect();
     };
-    source.addEventListener("runtime_monitor_snapshot", (event) => this.handleStreamMessage(event));
-    source.addEventListener("runtime_monitor_file_change", (event) => this.handleStreamMessage(event));
-    source.addEventListener("runtime_monitor_heartbeat", () => {
+    source.addEventListener("run_monitor_snapshot", (event) => this.handleStreamMessage(event));
+    source.addEventListener("run_monitor_file_change", (event) => this.handleStreamMessage(event));
+    source.addEventListener("run_monitor_heartbeat", () => {
       this.store.setState((prev) => ({ ...prev, runMonitorStreamStatus: "connected" }));
     });
   }
@@ -466,7 +466,7 @@ export class RunMonitorController {
     if (sessionId) {
       this.host.applySelectedSessionShell(sessionId, { workspace_view: workspaceView || "chat", task_environment_id: taskEnvironmentId });
       void this.host.refreshSessionDetails(sessionId).catch(() => undefined);
-      void this.host.hydrateLatestOrchestrationSnapshot(sessionId).catch(() => false);
+      void this.host.hydrateLatestHarnessTurnSnapshot(sessionId).catch(() => false);
     }
     this.host.syncWorkspaceViewUrl(owningTaskEnvironmentView);
     this.store.setState((prev) => ({ ...prev, activeWorkspaceView: owningTaskEnvironmentView }));
@@ -615,8 +615,8 @@ function graphTaskRunId(monitor: GraphRunMonitorView | null, binding: TaskGraphM
     : {};
   const taskRunMonitor = (monitor?.task_run_monitor && typeof monitor.task_run_monitor === "object" && !Array.isArray(monitor.task_run_monitor)
     ? monitor.task_run_monitor
-    : monitor?.runtime_monitor && typeof monitor.runtime_monitor === "object" && !Array.isArray(monitor.runtime_monitor)
-      ? monitor.runtime_monitor
+    : monitor?.run_monitor && typeof monitor.run_monitor === "object" && !Array.isArray(monitor.run_monitor)
+      ? monitor.run_monitor
       : {}) as Record<string, unknown>;
   return String(
     binding?.task_run_id
@@ -633,8 +633,8 @@ function graphTaskControlState(monitor: GraphRunMonitorView | null) {
     : {};
   const taskRunMonitor = (monitor?.task_run_monitor && typeof monitor.task_run_monitor === "object" && !Array.isArray(monitor.task_run_monitor)
     ? monitor.task_run_monitor
-    : monitor?.runtime_monitor && typeof monitor.runtime_monitor === "object" && !Array.isArray(monitor.runtime_monitor)
-      ? monitor.runtime_monitor
+    : monitor?.run_monitor && typeof monitor.run_monitor === "object" && !Array.isArray(monitor.run_monitor)
+      ? monitor.run_monitor
       : {}) as Record<string, unknown>;
   const runtimeControl = taskRunMonitor.runtime_control && typeof taskRunMonitor.runtime_control === "object" && !Array.isArray(taskRunMonitor.runtime_control)
     ? taskRunMonitor.runtime_control as Record<string, unknown>
@@ -672,4 +672,5 @@ function runMonitorErrorMessage(error: unknown, fallback: string) {
   if (/failed to fetch|networkerror|load failed/i.test(message)) return `${fallback}（连接中断）`;
   return message;
 }
+
 

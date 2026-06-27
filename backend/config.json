@@ -1,7 +1,7 @@
 {
   "rag_mode": false,
   "permission_mode": "full_access",
-  "orchestration_plan_mode": "primary",
+  "agent_system_plan_mode": "primary",
   "context_budget_preset": "deepseek_1m",
   "attachments": {
     "enabled": true,

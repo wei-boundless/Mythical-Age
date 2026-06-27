@@ -3923,30 +3923,37 @@ body {
 }
 
 .agent-workbench .public-run-activity__reasoning-window {
-  --reasoning-panel-bg: color-mix(in srgb, var(--console-surface) 94%, var(--console-bg-raised));
-  --reasoning-panel-hover: color-mix(in srgb, var(--console-surface-muted) 58%, var(--console-surface));
-  --reasoning-panel-line: color-mix(in srgb, var(--console-line) 78%, transparent);
-  --reasoning-panel-line-strong: color-mix(in srgb, var(--console-line-strong) 52%, var(--console-line));
-  --reasoning-reader-bg: color-mix(in srgb, var(--console-bg-raised) 72%, var(--console-surface));
+  --reasoning-panel-bg: color-mix(in srgb, var(--console-surface) 88%, var(--console-bg));
+  --reasoning-panel-hover: color-mix(in srgb, var(--console-accent-soft) 42%, var(--console-surface));
+  --reasoning-panel-line: color-mix(in srgb, var(--console-line) 72%, transparent);
+  --reasoning-panel-line-strong: color-mix(in srgb, var(--console-accent) 42%, var(--console-line));
+  --reasoning-reader-bg: color-mix(in srgb, var(--console-surface) 72%, var(--console-bg-raised));
+  position: relative;
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--reasoning-panel-line);
-  border-radius: var(--console-radius-lg);
-  background: var(--reasoning-panel-bg);
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--console-surface) 80%, transparent);
+  border-left: 3px solid var(--reasoning-panel-line-strong);
+  border-radius: 13px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--reasoning-panel-bg) 96%, white), var(--reasoning-panel-bg)),
+    var(--console-surface);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.055);
 }
 
 .agent-workbench .public-run-activity__reasoning-window--running {
-  border-color: color-mix(in srgb, var(--console-accent) 34%, var(--reasoning-panel-line));
+  border-color: color-mix(in srgb, var(--console-accent) 30%, var(--reasoning-panel-line));
+  border-left-color: color-mix(in srgb, var(--console-accent) 72%, var(--console-line));
 }
 
 .agent-workbench .public-run-activity__reasoning-window--waiting {
-  border-color: color-mix(in srgb, var(--console-warning) 34%, var(--reasoning-panel-line));
+  border-color: color-mix(in srgb, var(--console-warning) 28%, var(--reasoning-panel-line));
+  border-left-color: color-mix(in srgb, var(--console-warning) 72%, var(--console-line));
 }
 
 .agent-workbench .public-run-activity__reasoning-window--soft_error,
 .agent-workbench .public-run-activity__reasoning-window--stopped {
-  border-color: color-mix(in srgb, var(--console-danger) 28%, var(--reasoning-panel-line));
+  border-color: color-mix(in srgb, var(--console-danger) 24%, var(--reasoning-panel-line));
+  border-left-color: color-mix(in srgb, var(--console-danger) 64%, var(--console-line));
 }
 
 .agent-workbench .public-run-activity__tool-window--nested {
@@ -3993,12 +4000,12 @@ body {
 
 .agent-workbench .public-run-activity__reasoning-window > summary {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) 28px;
+  grid-template-columns: 32px minmax(0, 1fr) 30px;
   align-items: center;
-  gap: 10px;
-  min-height: 52px;
-  border-radius: calc(var(--console-radius-lg) - 1px);
-  padding: 10px 12px;
+  gap: 11px;
+  min-height: 50px;
+  border-radius: 10px 12px 12px 10px;
+  padding: 8px 10px 8px 9px;
   color: var(--console-text-soft);
   cursor: pointer;
   font-size: 13px;
@@ -4021,9 +4028,9 @@ body {
 }
 
 .agent-workbench .public-run-activity__reasoning-window[open] > summary {
-  border-bottom: 1px solid var(--reasoning-panel-line);
-  border-radius: calc(var(--console-radius-lg) - 1px) calc(var(--console-radius-lg) - 1px) 0 0;
-  background: color-mix(in srgb, var(--console-surface) 72%, var(--console-bg-raised));
+  border-radius: 10px 12px 0 0;
+  background: color-mix(in srgb, var(--console-surface) 86%, var(--console-bg-raised));
+  box-shadow: inset 0 -1px 0 var(--reasoning-panel-line);
 }
 
 .agent-workbench .public-run-activity__tool-window-icon,
@@ -4043,11 +4050,11 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid color-mix(in srgb, var(--console-accent) 26%, var(--reasoning-panel-line));
-  border-radius: var(--console-radius-sm);
-  background: color-mix(in srgb, var(--console-accent-soft) 74%, var(--console-surface));
+  width: 30px;
+  height: 30px;
+  border: 1px solid color-mix(in srgb, var(--console-accent) 32%, var(--reasoning-panel-line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--console-accent-soft) 58%, var(--console-surface));
   color: var(--console-accent);
   opacity: 1;
 }
@@ -4137,11 +4144,11 @@ body {
   align-items: baseline;
   min-width: 0;
   color: var(--console-text);
-  font-weight: 760;
+  font-weight: 740;
   flex-wrap: wrap;
   gap: 7px;
   overflow: visible;
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.35;
   white-space: normal;
 }
@@ -4155,12 +4162,12 @@ body {
 }
 
 .agent-workbench .public-run-activity__reasoning-title .public-run-activity__tool-window-status {
-  min-height: 20px;
-  border: 1px solid color-mix(in srgb, var(--console-line) 76%, transparent);
+  min-height: 19px;
+  border: 1px solid color-mix(in srgb, var(--console-line) 66%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--console-surface) 78%, transparent);
+  background: color-mix(in srgb, var(--console-surface) 82%, transparent);
   padding: 0 7px;
-  font-size: 11px;
+  font-size: 10.5px;
 }
 
 .agent-workbench .public-run-activity__tool-window-subtitle {
@@ -4194,7 +4201,7 @@ body {
   justify-content: center;
   width: 28px;
   height: 28px;
-  border-radius: var(--console-radius-sm);
+  border-radius: 9px;
   color: var(--console-muted);
   transition: background 140ms ease, color 140ms ease, transform 140ms ease;
 }
@@ -4332,17 +4339,19 @@ body {
 .agent-workbench .public-run-activity__reasoning-body {
   box-sizing: border-box;
   min-width: 0;
-  width: auto;
-  max-height: clamp(220px, 38vh, 460px);
-  margin: 12px;
+  width: calc(100% - 62px);
+  max-height: clamp(210px, 34vh, 380px);
+  margin: 0 12px 12px 50px;
   overflow: auto;
   scrollbar-gutter: stable;
   scrollbar-color: var(--reasoning-panel-line-strong) transparent;
   border: 1px solid var(--reasoning-panel-line);
-  border-radius: var(--console-radius-md);
-  background: var(--reasoning-reader-bg);
+  border-radius: 11px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--reasoning-reader-bg) 94%, white), var(--reasoning-reader-bg)),
+    var(--console-surface);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--console-surface) 82%, transparent);
-  padding: 14px 16px;
+  padding: 13px 15px;
 }
 
 .agent-workbench .public-run-activity__reasoning-text {
@@ -4352,7 +4361,7 @@ body {
   font-family: var(--console-text-font);
   font-size: 13px;
   font-weight: 480;
-  line-height: 1.68;
+  line-height: 1.7;
   overflow-wrap: break-word;
   white-space: normal;
 }

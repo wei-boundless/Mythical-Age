@@ -10,7 +10,7 @@ import {
 } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
 import { JsonObjectEditor } from "@/components/workspace/views/task-system/managementPrimitives";
 import type {
-  OrchestrationCapabilityItem,
+  AgentSystemCapabilityItem,
   TaskNodeConfigurationSpec,
 } from "@/lib/api";
 
@@ -38,7 +38,7 @@ export function NodeDetailTab({
       <div className="boundary-form">
         <TaskSystemField label="节点配置 ID"><input value={draft.node_config_id} onChange={(event) => onChange({ ...draft, node_config_id: event.target.value })} /></TaskSystemField>
         <TaskSystemField label="名称"><input value={draft.title} onChange={(event) => onChange({ ...draft, title: event.target.value })} /></TaskSystemField>
-        <TaskSystemSelectField label="节点类型" value={draft.node_kind || "agent"} options={["agent", "coordinator", "review_gate", "tool", "manual_gate", "runtime_monitor"]} onChange={(node_kind) => onChange({ ...draft, node_kind })} />
+        <TaskSystemSelectField label="节点类型" value={draft.node_kind || "agent"} options={["agent", "coordinator", "review_gate", "tool", "manual_gate", "run_monitor"]} onChange={(node_kind) => onChange({ ...draft, node_kind })} />
         <label className="boundary-check"><input checked={draft.enabled !== false} onChange={(event) => onChange({ ...draft, enabled: event.target.checked })} type="checkbox" />启用节点配置</label>
         <TaskSystemField label="说明" wide><textarea value={draft.description || ""} onChange={(event) => onChange({ ...draft, description: event.target.value })} /></TaskSystemField>
         <TaskSystemField label="适用环境" wide>
@@ -113,7 +113,7 @@ export function NodeExecutionTab({
           <TaskSystemSelectField
             label="选择策略"
             value={String(executorRef.agent_selection_policy ?? "explicit_agent")}
-            options={["explicit_agent", "profile_match", "orchestration_default"]}
+            options={["explicit_agent", "profile_match", "agent_system_default"]}
             onChange={(agent_selection_policy) => patchExecutor({ agent_selection_policy })}
           />
         </div>
@@ -242,13 +242,13 @@ export function NodeCapabilityTab({
   draft,
   onChange,
 }: {
-  capabilityItems: OrchestrationCapabilityItem[];
+  capabilityItems: AgentSystemCapabilityItem[];
   draft: TaskNodeConfigurationSpec;
   onChange: (draft: TaskNodeConfigurationSpec) => void;
 }) {
   const toolPolicy = draft.tool_policy ?? {};
   const operationSet = new Set((Array.isArray(toolPolicy.allowed_operations) ? toolPolicy.allowed_operations : []).map((item) => String(item)));
-  function toggleOperations(item: OrchestrationCapabilityItem) {
+  function toggleOperations(item: AgentSystemCapabilityItem) {
     const next = new Set(operationSet);
     for (const operationId of item.operation_ids ?? []) {
       if (next.has(operationId)) next.delete(operationId);
@@ -350,3 +350,5 @@ export function NodePreviewTab({
     </div>
   );
 }
+
+

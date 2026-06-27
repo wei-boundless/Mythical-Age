@@ -29,7 +29,7 @@ RESOURCE_NODE_TYPES = {
 }
 TOOL_NODE_TYPES = {"tool"}
 HUMAN_GATE_NODE_TYPES = {"manual_gate", "review_gate"}
-RUNTIME_MONITOR_NODE_TYPES = {"runtime_monitor"}
+RUN_MONITOR_NODE_TYPES = {"run_monitor"}
 
 
 def build_composable_graph_view(
@@ -510,8 +510,8 @@ def _unit_type_from_node_type(node_type: str) -> str:
         return "human_gate"
     if node_type in TOOL_NODE_TYPES:
         return "tool"
-    if node_type in RUNTIME_MONITOR_NODE_TYPES:
-        return "runtime_monitor"
+    if node_type in RUN_MONITOR_NODE_TYPES:
+        return "run_monitor"
     return "node"
 
 

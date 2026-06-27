@@ -488,7 +488,7 @@ def _subagent_result_projection(value: dict[str, Any], *, include_final_answer: 
             "evidence_refs": [str(item) for item in list(value.get("evidence_refs") or [])[:24] if str(item).strip()],
             "observation_refs": [str(item) for item in list(value.get("observation_refs") or [])[:24] if str(item).strip()],
             "limitations": [str(item) for item in list(value.get("limitations") or [])[:24] if str(item).strip()],
-            "authority": str(value.get("authority") or "orchestration.subagent_result_projection"),
+            "authority": str(value.get("authority") or "harness.subagent_result_projection"),
         }
     )
     return projected

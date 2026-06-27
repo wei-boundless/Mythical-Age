@@ -1,6 +1,6 @@
 "use client";
 
-import { BrainCircuit, ChevronDown } from "lucide-react";
+import { ChevronDown, Sparkles } from "lucide-react";
 import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -256,7 +256,7 @@ function ReasoningWindow({ entry }: { entry: ActivityEntry }) {
     >
       <summary>
         <span className="public-run-activity__reasoning-icon" aria-hidden="true">
-          <BrainCircuit size={15} />
+          <Sparkles size={15} />
         </span>
         <span className="public-run-activity__reasoning-copy">
           <span className="public-run-activity__reasoning-title">

@@ -14,11 +14,11 @@ class AgentGroup:
     description: str = ""
     lifecycle_state: str = "enabled"
     metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.agent_group"
+    authority: str = "agent_system.agent_group"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.agent_group":
-            raise ValueError("AgentGroup authority must be orchestration.agent_group")
+        if self.authority != "agent_system.agent_group":
+            raise ValueError("AgentGroup authority must be agent_system.agent_group")
         if not self.group_id:
             raise ValueError("AgentGroup requires group_id")
 
@@ -26,5 +26,6 @@ class AgentGroup:
         payload = asdict(self)
         payload["member_agent_ids"] = list(self.member_agent_ids)
         return payload
+
 
 

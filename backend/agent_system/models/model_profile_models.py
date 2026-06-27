@@ -102,7 +102,7 @@ class ResolvedModelSpec:
 
     def to_public_dict(self) -> dict[str, Any]:
         return {
-            "authority": "orchestration.model_profile_resolver",
+            "authority": "agent_system.model_profile_resolver",
             "provider": self.provider,
             "model": self.model,
             "base_url_configured": bool(self.base_url),
@@ -266,5 +266,6 @@ def _unique_texts(value: Any) -> list[str]:
         seen.add(text)
         result.append(text)
     return result
+
 
 

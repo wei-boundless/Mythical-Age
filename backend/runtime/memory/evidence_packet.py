@@ -20,11 +20,11 @@ class EvidencePacket:
     deliverable_coverage: dict[str, Any] = field(default_factory=dict)
     limitations: tuple[str, ...] = ()
     confidence: str = "medium"
-    authority: str = "orchestration.evidence_packet"
+    authority: str = "runtime.evidence_packet"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.evidence_packet":
-            raise ValueError("EvidencePacket authority must be orchestration.evidence_packet")
+        if self.authority != "runtime.evidence_packet":
+            raise ValueError("EvidencePacket authority must be runtime.evidence_packet")
         if not self.packet_id:
             raise ValueError("EvidencePacket requires packet_id")
 

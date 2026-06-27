@@ -231,9 +231,9 @@ describe("chronological projection frame reducer contract", () => {
       tool_call_id: "call:read-flow-edges",
       tool_lifecycle_id: "call:read-flow-edges",
       tool_name: "read_file",
-      title: "读取文件：backend/harness/graph/flow_edges.py",
-      target: "backend/harness/graph/flow_edges.py",
-      arguments_preview: "path=backend/harness/graph/flow_edges.py, line_count=80",
+      title: "读取文件：backend/graph_system/flow_edges.py",
+      target: "backend/graph_system/flow_edges.py",
+      arguments_preview: "path=backend/graph_system/flow_edges.py, line_count=80",
       state: "running",
     });
     transition = project(transition, {
@@ -254,9 +254,9 @@ describe("chronological projection frame reducer contract", () => {
     const tool = latestProjection(transition.state)?.blocks.find((block) => block.kind === "tool_event");
     expect(tool).toMatchObject({
       kind: "tool_event",
-      target: "backend/harness/graph/flow_edges.py",
-      commandLine: "read_file backend/harness/graph/flow_edges.py path=backend/harness/graph/flow_edges.py, line_count=80",
-      output: "读取文件完成：backend/harness/graph/flow_edges.py",
+      target: "backend/graph_system/flow_edges.py",
+      commandLine: "read_file backend/graph_system/flow_edges.py path=backend/graph_system/flow_edges.py, line_count=80",
+      output: "读取文件完成：backend/graph_system/flow_edges.py",
       state: "done",
     });
     expect(tool?.commandLine).not.toBe("read_file");

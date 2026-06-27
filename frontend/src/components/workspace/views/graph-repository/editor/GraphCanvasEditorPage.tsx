@@ -15,7 +15,7 @@ import {
   PanelRight,
   Settings2,
 } from "lucide-react";
-import type { OrchestrationAgentRuntimeCatalog, TaskGraphEdgeRecord, TaskGraphNodeRecord } from "@/lib/api";
+import type { AgentSystemAgentRuntimeCatalog, TaskGraphEdgeRecord, TaskGraphNodeRecord } from "@/lib/api";
 
 import { inferTaskGraphBoundaryNodes, type TaskGraphDraftV2 } from "../../task-system/taskGraphDraftV2";
 import { createEdgeFromRelation, taskGraphEdgeRelationRegistrations } from "../registry/taskGraphEdgeRelationRegistry";
@@ -58,7 +58,7 @@ export function GraphCanvasEditorPage({
   worldMode = "edit",
   worldPanel = null,
 }: {
-  agentCatalog: OrchestrationAgentRuntimeCatalog | null;
+  agentCatalog: AgentSystemAgentRuntimeCatalog | null;
   dirty: boolean;
   draft: TaskGraphDraftV2;
   notice: string;
@@ -705,3 +705,4 @@ function buildGraphDiagnostics(draft: TaskGraphDraftV2, layout: GraphEditorLayou
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
+

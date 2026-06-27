@@ -44,10 +44,6 @@ def test_obsolete_runtime_control_packages_are_removed() -> None:
     assert [path for path in removed_paths if (BACKEND_DIR / path).exists()] == []
 
 
-def test_obsolete_runtime_loop_api_module_is_removed() -> None:
-    assert not (BACKEND_DIR / "api" / "orchestration_runtime_loop.py").exists()
-
-
 def test_test_support_does_not_reuse_core_harness_module_name() -> None:
     assert not (BACKEND_DIR / "tests" / "harness").exists()
 

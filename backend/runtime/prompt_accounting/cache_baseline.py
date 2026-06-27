@@ -11,6 +11,7 @@ from runtime.prompt_accounting.cache_policy import is_cache_eligible_prefix, is_
 
 from .cache_planner import stable_text_hash
 from .models import PromptSegment, PromptSegmentMap
+from .provider_lane import normalize_provider_lane
 from .provider_payload_boundary import (
     provider_payload_boundary_diagnostics,
     provider_payload_cache_boundary,
@@ -33,6 +34,8 @@ class PromptCacheBaselineRecord:
     provider: str = ""
     model: str = ""
     invocation_kind: str = ""
+    provider_lane: str = "legacy_unscoped"
+    physical_payload_family_hash: str = ""
     status: PromptCacheBaselineStatus = "active"
     generation: int = 0
     stable_prefix_hash: str = ""
@@ -63,6 +66,7 @@ class PromptCacheBaselineRecord:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "PromptCacheBaselineRecord":
+        diagnostics = dict(payload.get("diagnostics") or {})
         return cls(
             baseline_id=str(payload.get("baseline_id") or ""),
             request_id=str(payload.get("request_id") or ""),
@@ -72,6 +76,8 @@ class PromptCacheBaselineRecord:
             provider=str(payload.get("provider") or ""),
             model=str(payload.get("model") or ""),
             invocation_kind=str(payload.get("invocation_kind") or ""),
+            provider_lane=normalize_provider_lane(payload.get("provider_lane") or diagnostics.get("provider_lane")),
+            physical_payload_family_hash=str(payload.get("physical_payload_family_hash") or diagnostics.get("physical_payload_family_hash") or ""),
             status=_baseline_status(payload.get("status")),
             generation=_int(payload.get("generation")),
             stable_prefix_hash=str(payload.get("stable_prefix_hash") or ""),
@@ -91,7 +97,7 @@ class PromptCacheBaselineRecord:
             reset_reason=str(payload.get("reset_reason") or ""),
             reset_ref=str(payload.get("reset_ref") or ""),
             created_at=float(payload.get("created_at") or 0.0),
-            diagnostics=dict(payload.get("diagnostics") or {}),
+            diagnostics=diagnostics,
             authority=str(payload.get("authority") or "runtime.prompt_accounting.prompt_cache_baseline"),
         )
 
@@ -109,11 +115,15 @@ class PromptCacheBaselineTracker:
     ) -> PromptCacheBaselineRecord:
         timestamp = time.time() if created_at is None else float(created_at or 0.0)
         invocation_kind = _invocation_kind(segment_map)
+        provider_lane = _provider_lane(segment_map)
+        physical_payload_family_hash = _physical_payload_family_hash(segment_map)
         provider = str(segment_map.provider or "")
         model = str(segment_map.model or "")
         previous, generation = self.resolve_previous_active(
             previous_records,
             invocation_kind=invocation_kind,
+            provider_lane=provider_lane,
+            physical_payload_family_hash=physical_payload_family_hash,
             provider=provider,
             model=model,
         )
@@ -128,6 +138,8 @@ class PromptCacheBaselineTracker:
             previous_records,
             provider=provider,
             model=model,
+            provider_lane=provider_lane,
+            physical_payload_family_hash=physical_payload_family_hash,
         )
         latest_provider_prefix_continuity = _provider_prefix_continuity(
             previous=latest_provider_baseline,
@@ -148,6 +160,8 @@ class PromptCacheBaselineTracker:
             provider=provider,
             model=model,
             invocation_kind=invocation_kind,
+            provider_lane=provider_lane,
+            physical_payload_family_hash=physical_payload_family_hash,
             status="active",
             generation=generation,
             stable_prefix_hash=hashes["stable"],
@@ -174,6 +188,9 @@ class PromptCacheBaselineTracker:
                 "provider_prefix_seal": provider_prefix_seal,
                 "provider_prefix_continuity": provider_prefix_continuity,
                 "provider_prefix_continuity_latest": latest_provider_prefix_continuity,
+                "provider_lane": provider_lane,
+                "physical_payload_family_hash": physical_payload_family_hash,
+                "physical_payload_family": dict(dict(segment_map.metadata or {}).get("physical_payload_family") or {}),
                 "reset_seen": previous is None and generation > 0,
                 "has_previous_active_baseline": previous is not None,
                 "has_previous_provider_baseline": latest_provider_baseline is not None,
@@ -189,6 +206,8 @@ class PromptCacheBaselineTracker:
         task_run_id: str = "",
         session_id: str = "",
         invocation_kind: str = "",
+        provider_lane: str = "",
+        physical_payload_family_hash: str = "",
         provider: str = "",
         model: str = "",
         reason: str,
@@ -200,6 +219,8 @@ class PromptCacheBaselineTracker:
         previous, previous_generation = self.resolve_previous_active(
             previous_records,
             invocation_kind=invocation_kind,
+            provider_lane=provider_lane,
+            physical_payload_family_hash=physical_payload_family_hash,
             provider=provider,
             model=model,
         )
@@ -223,6 +244,8 @@ class PromptCacheBaselineTracker:
             provider=str(provider or ""),
             model=str(model or ""),
             invocation_kind=str(invocation_kind or ""),
+            provider_lane=normalize_provider_lane(provider_lane),
+            physical_payload_family_hash=str(physical_payload_family_hash or ""),
             status="invalidated",
             generation=generation,
             previous_baseline_ref=previous.baseline_id if previous is not None else "",
@@ -237,13 +260,22 @@ class PromptCacheBaselineTracker:
         records: list[PromptCacheBaselineRecord] | tuple[PromptCacheBaselineRecord, ...],
         *,
         invocation_kind: str,
+        provider_lane: str = "",
+        physical_payload_family_hash: str = "",
         provider: str,
         model: str,
     ) -> tuple[PromptCacheBaselineRecord | None, int]:
         relevant = [
             record
             for record in list(records or [])
-            if _record_matches(record, invocation_kind=invocation_kind, provider=provider, model=model)
+            if _record_matches(
+                record,
+                invocation_kind=invocation_kind,
+                provider_lane=provider_lane,
+                physical_payload_family_hash=physical_payload_family_hash,
+                provider=provider,
+                model=model,
+            )
         ]
         if not relevant:
             return None, 0
@@ -545,11 +577,15 @@ def _record_matches(
     record: PromptCacheBaselineRecord,
     *,
     invocation_kind: str,
+    provider_lane: str = "",
+    physical_payload_family_hash: str = "",
     provider: str,
     model: str,
 ) -> bool:
     return (
         _matches_or_wildcard(record.invocation_kind, invocation_kind)
+        and _matches_or_wildcard(normalize_provider_lane(record.provider_lane), normalize_provider_lane(provider_lane))
+        and _matches_or_wildcard(record.physical_payload_family_hash, physical_payload_family_hash)
         and _matches_or_wildcard(record.provider, provider)
         and _matches_or_wildcard(record.model, model)
     )
@@ -566,13 +602,18 @@ def _latest_active_provider_baseline(
     *,
     provider: str,
     model: str,
+    provider_lane: str = "",
+    physical_payload_family_hash: str = "",
 ) -> PromptCacheBaselineRecord | None:
+    normalized_lane = normalize_provider_lane(provider_lane)
     relevant = [
         record
         for record in list(records or [])
         if record.status == "active"
         and _matches_or_wildcard(record.provider, provider)
         and _matches_or_wildcard(record.model, model)
+        and _matches_or_wildcard(normalize_provider_lane(record.provider_lane), normalized_lane)
+        and _matches_or_wildcard(record.physical_payload_family_hash, physical_payload_family_hash)
     ]
     if not relevant:
         return None
@@ -582,6 +623,16 @@ def _latest_active_provider_baseline(
 def _invocation_kind(segment_map: PromptSegmentMap) -> str:
     metadata = dict(segment_map.metadata or {})
     return str(metadata.get("source") or metadata.get("call_kind") or "")
+
+
+def _provider_lane(segment_map: PromptSegmentMap) -> str:
+    metadata = dict(segment_map.metadata or {})
+    return normalize_provider_lane(metadata.get("provider_lane"))
+
+
+def _physical_payload_family_hash(segment_map: PromptSegmentMap) -> str:
+    metadata = dict(segment_map.metadata or {})
+    return str(metadata.get("physical_payload_family_hash") or "")
 
 
 def _baseline_id(*, request_id: str, status: str, generation: int, created_at: float) -> str:

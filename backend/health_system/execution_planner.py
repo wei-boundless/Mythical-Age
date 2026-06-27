@@ -27,7 +27,7 @@ class HealthAgentExecutionPlan:
     resource_policy_ref: str
     task_contract_ref: str
     task_execution_assembly: dict[str, Any]
-    task_body_orchestration: dict[str, Any]
+    task_body_assembly: dict[str, Any]
     agent_runtime_spec: dict[str, Any]
     task_contract: dict[str, Any] = field(default_factory=dict)
     operation_requirement: dict[str, Any] = field(default_factory=dict)
@@ -66,7 +66,7 @@ def build_health_agent_execution_plan(
         resource_policy_ref="",
         task_contract_ref="",
         task_execution_assembly={},
-        task_body_orchestration={},
+        task_body_assembly={},
         agent_runtime_spec={},
         task_contract={},
         operation_requirement={},
@@ -86,7 +86,7 @@ def build_health_agent_run_preview(plan: HealthAgentExecutionPlan, *, issue: Hea
         "flow": dict(plan.flow),
         "binding": dict(plan.binding),
         "task_execution_assembly": dict(plan.task_execution_assembly),
-        "task_body_orchestration": dict(plan.task_body_orchestration),
+        "task_body_assembly": dict(plan.task_body_assembly),
         "agent_runtime_spec": dict(plan.agent_runtime_spec),
         "blocked_reasons": blocked,
         "reason": blocked[0] if blocked else "",
@@ -97,7 +97,7 @@ def build_health_agent_run_preview(plan: HealthAgentExecutionPlan, *, issue: Hea
             "agent_profile_id": plan.agent_profile_id,
             "task_id": plan.task_id,
             "task_execution_assembly_ref": str(plan.task_execution_assembly.get("assembly_id") or ""),
-            "task_body_orchestration_ref": str(plan.task_body_orchestration.get("orchestration_id") or ""),
+            "task_body_assembly_ref": str(plan.task_body_assembly.get("task_body_assembly_id") or ""),
             "runtime_spec_ref": str(plan.agent_runtime_spec.get("runtime_spec_id") or ""),
             "memory_scope": str(dict(plan.binding).get("memory_scope") or ""),
             "output_contract_id": str(plan.agent_runtime_spec.get("output_contract_ref") or dict(plan.binding).get("output_contract_id") or ""),

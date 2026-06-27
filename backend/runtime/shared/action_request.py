@@ -36,11 +36,11 @@ class RuntimeActionRequest:
     operation_id: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
     created_at: float = 0.0
-    authority: str = "orchestration.runtime_action_request"
+    authority: str = "runtime.runtime_action_request"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.runtime_action_request":
-            raise ValueError("RuntimeActionRequest authority must be orchestration.runtime_action_request")
+        if self.authority != "runtime.runtime_action_request":
+            raise ValueError("RuntimeActionRequest authority must be runtime.runtime_action_request")
         if not self.request_id:
             raise ValueError("RuntimeActionRequest requires request_id")
         if not self.task_run_id:
@@ -64,11 +64,11 @@ class RuntimeObservation:
     payload: dict[str, Any] = field(default_factory=dict)
     needs_model_followup: bool = False
     created_at: float = 0.0
-    authority: str = "orchestration.runtime_observation"
+    authority: str = "runtime.runtime_observation"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.runtime_observation":
-            raise ValueError("RuntimeObservation authority must be orchestration.runtime_observation")
+        if self.authority != "runtime.runtime_observation":
+            raise ValueError("RuntimeObservation authority must be runtime.runtime_observation")
         if not self.observation_id:
             raise ValueError("RuntimeObservation requires observation_id")
         if not self.task_run_id:

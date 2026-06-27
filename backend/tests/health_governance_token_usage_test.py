@@ -4,7 +4,7 @@ import time
 from types import SimpleNamespace
 
 from health_system.governance import HealthGovernanceBuilder
-from harness.runtime.run_monitor import RuntimeMonitorProjector
+from harness.runtime.run_monitor import RunMonitorProjector
 from runtime.prompt_accounting import ModelTokenUsageRecord, PromptAccountingLedger
 from runtime.shared.models import TaskRun
 
@@ -81,7 +81,7 @@ class StateIndexStub:
         self.deleted_task_run_ids.extend(sorted(existing))
         self.task_runs = [item for item in self.task_runs if item.task_run_id not in existing]
         return {
-            "authority": "orchestration.runtime_state_index.prune_task_runs",
+            "authority": "runtime.state_index.prune_task_runs",
             "requested_task_run_ids": sorted(targets),
             "deleted_task_run_ids": sorted(existing),
             "deleted_counts": {"task_runs": len(existing)} if existing else {},
@@ -760,7 +760,7 @@ def test_health_governance_does_not_treat_waiting_executor_as_resumable_without_
         "taskrun:missing-rollout": [EventStub("step_summary_recorded", {"summary": "waiting"})],
         "taskrun:failed-terminal": [EventStub("loop_error", {"error": "failed"})],
     })
-    monitor_projector = RuntimeMonitorProjector(event_log)
+    monitor_projector = RunMonitorProjector(event_log)
     runtime_host = SimpleNamespace(
         state_index=state_index,
         event_log=event_log,

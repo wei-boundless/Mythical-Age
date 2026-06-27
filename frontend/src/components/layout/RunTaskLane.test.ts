@@ -8,7 +8,7 @@ import type { RunMonitorSignal } from "@/lib/run-monitor/types";
 function signal(patch: Partial<RunMonitorSignal>): RunMonitorSignal {
   const signalId = patch.signal_id || patch.task_run_id || "taskrun:test";
   return {
-    authority: "runtime_monitor.signal",
+    authority: "run_monitor.signal",
     signal_id: signalId,
     source_kind: "task_run",
     work_kind: "agent_task",

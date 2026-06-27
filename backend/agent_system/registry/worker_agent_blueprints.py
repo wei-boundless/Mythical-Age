@@ -20,11 +20,11 @@ class WorkerAgentBlueprint:
     approval_policy: str = "default"
     trace_policy: str = "runtime_event_log"
     metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.worker_agent_blueprint"
+    authority: str = "agent_system.worker_agent_blueprint"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.worker_agent_blueprint":
-            raise ValueError("WorkerAgentBlueprint authority must be orchestration.worker_agent_blueprint")
+        if self.authority != "agent_system.worker_agent_blueprint":
+            raise ValueError("WorkerAgentBlueprint authority must be agent_system.worker_agent_blueprint")
         if not self.blueprint_id:
             raise ValueError("WorkerAgentBlueprint requires blueprint_id")
         if self.prompt_ref and not str(self.prompt_ref).startswith("worker.prompt."):
@@ -54,11 +54,11 @@ class WorkerAgentSpawnRequest:
     spawn_reason: str
     requested_at: float = 0.0
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.worker_agent_spawn_request"
+    authority: str = "agent_system.worker_agent_spawn_request"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.worker_agent_spawn_request":
-            raise ValueError("WorkerAgentSpawnRequest authority must be orchestration.worker_agent_spawn_request")
+        if self.authority != "agent_system.worker_agent_spawn_request":
+            raise ValueError("WorkerAgentSpawnRequest authority must be agent_system.worker_agent_spawn_request")
         if not self.spawn_request_id:
             raise ValueError("WorkerAgentSpawnRequest requires spawn_request_id")
         if not self.task_run_id:
@@ -85,11 +85,11 @@ class WorkerAgentSpawnResult:
     status: WorkerSpawnStatus = "spawned"
     created_at: float = 0.0
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.worker_agent_spawn_result"
+    authority: str = "agent_system.worker_agent_spawn_result"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.worker_agent_spawn_result":
-            raise ValueError("WorkerAgentSpawnResult authority must be orchestration.worker_agent_spawn_result")
+        if self.authority != "agent_system.worker_agent_spawn_result":
+            raise ValueError("WorkerAgentSpawnResult authority must be agent_system.worker_agent_spawn_result")
         if not self.spawn_result_id:
             raise ValueError("WorkerAgentSpawnResult requires spawn_result_id")
         if not self.spawn_request_id:
@@ -103,5 +103,6 @@ class WorkerAgentSpawnResult:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
 
 

@@ -500,7 +500,7 @@ def _root_control_boundary(services: Any, state: Any | None) -> dict[str, Any]:
                 "requested_by": str(control.get("requested_by") or ""),
                 "requested_at": float(control.get("requested_at") or 0.0),
                 "reason": str(control.get("reason") or ""),
-                "authority": str(control.get("authority") or "orchestration.graph_run_control"),
+                "authority": str(control.get("authority") or "graph_system.graph_run_control"),
             },
         }
     return {}

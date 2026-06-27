@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Archive, BadgeCheck, Bot, Database, FileOutput, FolderTree, GitBranch, Plus, ShieldCheck, Wrench } from "lucide-react";
-import type { OrchestrationAgentRuntimeCatalog } from "@/lib/api";
+import type { AgentSystemAgentRuntimeCatalog } from "@/lib/api";
 
 import { taskGraphNodeRegistrations, type TaskGraphNodeRegistration } from "../registry/taskGraphNodeRegistry";
 import {
@@ -18,7 +18,7 @@ export function GraphTaskToolPanel({
   onAddNode,
   onAddResource,
 }: {
-  agentCatalog: OrchestrationAgentRuntimeCatalog | null;
+  agentCatalog: AgentSystemAgentRuntimeCatalog | null;
   onAddAgent: (agent: AgentWorldRegistration) => void;
   onAddNode: (registration: TaskGraphNodeRegistration) => void;
   onAddResource: (resource: ResourceWorldRegistration) => void;
@@ -121,3 +121,4 @@ function iconForName(name: string) {
   if (name === "wrench") return Wrench;
   return Bot;
 }
+

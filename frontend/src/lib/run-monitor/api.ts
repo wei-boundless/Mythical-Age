@@ -1,11 +1,11 @@
 import {
   executeRunMonitorAction,
   getGraphRunMonitor,
-  getOrchestrationHarnessTaskRunLiveMonitor,
+  getHarnessTaskRunLiveMonitor,
   getRunMonitor,
-  getRuntimeMonitorEventStreamUrl,
+  getRunMonitorEventStreamUrl,
   preflightRunMonitorAction,
-  type RuntimeMonitorActionPayload,
+  type RunMonitorActionPayload,
   type SessionScope,
 } from "@/lib/api";
 
@@ -13,16 +13,16 @@ export async function fetchRunMonitor(limit = 40) {
   return getRunMonitor(limit);
 }
 
-export async function preflightRunMonitorSignalAction(payload: RuntimeMonitorActionPayload) {
+export async function preflightRunMonitorSignalAction(payload: RunMonitorActionPayload) {
   return preflightRunMonitorAction(payload);
 }
 
-export async function executeRunMonitorSignalAction(payload: RuntimeMonitorActionPayload) {
+export async function executeRunMonitorSignalAction(payload: RunMonitorActionPayload) {
   return executeRunMonitorAction(payload);
 }
 
 export async function fetchRunMonitorTaskDetail(taskRunId: string) {
-  return getOrchestrationHarnessTaskRunLiveMonitor(taskRunId);
+  return getHarnessTaskRunLiveMonitor(taskRunId);
 }
 
 export async function fetchRunMonitorGraphDetail(
@@ -33,5 +33,6 @@ export async function fetchRunMonitorGraphDetail(
   return getGraphRunMonitor(graphRunId, graphConfigId, 80, sessionScope);
 }
 
-export { getRuntimeMonitorEventStreamUrl };
+export { getRunMonitorEventStreamUrl };
+
 

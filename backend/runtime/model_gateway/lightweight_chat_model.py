@@ -247,14 +247,26 @@ def provider_tool_payloads(tools: list[Any], *, strict: Any = None) -> list[dict
             "description": _tool_description(tool, fallback=name),
             "parameters": parameters,
         }
+        tool_strict = _tool_strict(tool)
         if strict is not None:
             function_payload["strict"] = bool(strict)
+        elif tool_strict is not None:
+            function_payload["strict"] = bool(tool_strict)
         payloads.append({"type": "function", "function": function_payload})
     return sorted(payloads, key=lambda item: str(dict(item.get("function") or {}).get("name") or ""))
 
 
 def provider_message_payloads(messages: list[Any]) -> list[dict[str, Any]]:
     return [_message_to_provider_payload(message) for message in list(messages or [])]
+
+
+def _tool_strict(tool: Any) -> bool | None:
+    if isinstance(tool, dict) and "strict" in tool and tool.get("strict") is not None:
+        return bool(tool.get("strict"))
+    value = getattr(tool, "strict", None)
+    if value is not None:
+        return bool(value)
+    return None
 
 
 def _message_from_completion_response(

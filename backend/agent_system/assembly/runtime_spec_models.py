@@ -5,8 +5,8 @@ from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
-class TaskBodyOrchestration:
-    orchestration_id: str
+class AgentTaskBodyAssembly:
+    task_body_assembly_id: str
     task_id: str
     agent_id: str
     task_execution_assembly_ref: str
@@ -20,17 +20,17 @@ class TaskBodyOrchestration:
     fallback_plan: dict[str, Any] = field(default_factory=dict)
     prompt_manifest: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.task_body_orchestration"
+    authority: str = "agent_system.task_body_assembly"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.task_body_orchestration":
-            raise ValueError("TaskBodyOrchestration authority must be orchestration.task_body_orchestration")
-        if not self.orchestration_id:
-            raise ValueError("TaskBodyOrchestration requires orchestration_id")
+        if self.authority != "agent_system.task_body_assembly":
+            raise ValueError("AgentTaskBodyAssembly authority must be agent_system.task_body_assembly")
+        if not self.task_body_assembly_id:
+            raise ValueError("AgentTaskBodyAssembly requires task_body_assembly_id")
         if not self.task_id:
-            raise ValueError("TaskBodyOrchestration requires task_id")
+            raise ValueError("AgentTaskBodyAssembly requires task_id")
         if not self.agent_id:
-            raise ValueError("TaskBodyOrchestration requires agent_id")
+            raise ValueError("AgentTaskBodyAssembly requires agent_id")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -43,18 +43,18 @@ class AgentRuntimeSpec:
     session_id: str
     agent_id: str
     task_execution_assembly_ref: str
-    task_body_orchestration_ref: str
+    task_body_assembly_ref: str
     context_input_refs: tuple[str, ...] = ()
     resource_policy_candidate_ref: str = ""
     input_contract_ref: str = ""
     output_contract_ref: str = ""
     runtime_executable: bool = True
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.agent_runtime_spec"
+    authority: str = "agent_system.agent_runtime_spec"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.agent_runtime_spec":
-            raise ValueError("AgentRuntimeSpec authority must be orchestration.agent_runtime_spec")
+        if self.authority != "agent_system.agent_runtime_spec":
+            raise ValueError("AgentRuntimeSpec authority must be agent_system.agent_runtime_spec")
         if not self.runtime_spec_id:
             raise ValueError("AgentRuntimeSpec requires runtime_spec_id")
         if not self.task_id:
@@ -68,5 +68,6 @@ class AgentRuntimeSpec:
         payload = asdict(self)
         payload["context_input_refs"] = list(self.context_input_refs)
         return payload
+
 
 

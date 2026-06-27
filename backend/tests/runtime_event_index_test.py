@@ -22,7 +22,7 @@ def test_runtime_event_log_uses_cursor_after_initial_index_build(tmp_path, monke
                     "created_at": float(index),
                     "payload": {"summary": f"step {index}"},
                     "refs": {},
-                    "authority": "orchestration.runtime_event",
+                    "authority": "runtime.runtime_event",
                 }
             )
             for index in range(3)
@@ -89,7 +89,7 @@ def test_runtime_event_log_recent_events_can_read_tail_without_full_index_rebuil
                     "created_at": float(index),
                     "payload": {"summary": f"step {index}"},
                     "refs": {},
-                    "authority": "orchestration.runtime_event",
+                    "authority": "runtime.runtime_event",
                 }
             )
             for index in range(12)

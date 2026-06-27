@@ -130,8 +130,8 @@ class ProjectLayout:
         return self.storage_root / "tasks"
 
     @property
-    def orchestration_dir(self) -> Path:
-        return self.storage_root / "orchestration"
+    def agent_system_dir(self) -> Path:
+        return self.storage_root / "agent_system"
 
     @property
     def test_system_dir(self) -> Path:
@@ -170,7 +170,7 @@ class ProjectLayout:
             self.modality_artifacts_dir,
             self.capability_system_dir,
             self.tasks_dir,
-            self.orchestration_dir,
+            self.agent_system_dir,
             self.test_system_dir,
             self.knowledge_storage_dir,
         ):

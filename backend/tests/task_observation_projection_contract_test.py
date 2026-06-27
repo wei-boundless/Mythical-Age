@@ -185,7 +185,7 @@ def test_subagent_ref_error_result_envelope_reaches_model_visible_observation_pr
             },
         },
         "needs_model_followup": True,
-        "authority": "orchestration.runtime_observation",
+        "authority": "runtime.runtime_observation",
     }
     host.event_log.append(
         task_run_id,
@@ -303,7 +303,7 @@ def test_task_observation_projection_ignores_already_projected_pending_records()
                 "tool_name": "read_file",
                 "status": "ok",
                 "runtime_freshness": {"visibility": "active"},
-                "authority": "orchestration.tool_observation_record",
+                "authority": "runtime.tool_observation_record",
             }
         ],
     )

@@ -3,14 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .retention_store import RuntimeMonitorRetentionStore
+from .retention_store import RunMonitorRetentionStore
 
 
-MANAGEMENT_AUTHORITY = "runtime_monitor.management"
+MANAGEMENT_AUTHORITY = "harness.run_monitor.management"
 
 
 @dataclass(frozen=True, slots=True)
-class RuntimeMonitorManagementPolicy:
+class RunMonitorManagementPolicy:
     active_max: int = 5
     attention_max: int = 12
     project_max: int = 8
@@ -20,7 +20,7 @@ class RuntimeMonitorManagementPolicy:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "authority": "runtime_monitor.management_policy",
+            "authority": "harness.run_monitor.management_policy",
             "active_max": self.active_max,
             "attention_max": self.attention_max,
             "project_max": self.project_max,
@@ -30,15 +30,15 @@ class RuntimeMonitorManagementPolicy:
         }
 
 
-class RuntimeMonitorManagementProjector:
+class RunMonitorManagementProjector:
     def __init__(
         self,
         *,
-        retention_store: RuntimeMonitorRetentionStore,
-        policy: RuntimeMonitorManagementPolicy | None = None,
+        retention_store: RunMonitorRetentionStore,
+        policy: RunMonitorManagementPolicy | None = None,
     ) -> None:
         self.retention_store = retention_store
-        self.policy = policy or RuntimeMonitorManagementPolicy()
+        self.policy = policy or RunMonitorManagementPolicy()
 
     def apply_management(
         self,
@@ -279,3 +279,4 @@ def _signal_id(signal: dict[str, Any]) -> str:
 def _last_activity(signal: dict[str, Any]) -> float:
     timestamps = dict(signal.get("timestamps") or {})
     return float(timestamps.get("last_activity_at") or timestamps.get("updated_at") or 0.0)
+

@@ -14,7 +14,7 @@ AGENT_CATEGORIES = {"main_agent", "builtin_agent", "custom_agent"}
 
 
 def _storage_root(base_dir: Path) -> Path:
-    return ProjectLayout.from_backend_dir(base_dir).orchestration_dir
+    return ProjectLayout.from_backend_dir(base_dir).agent_system_dir
 
 
 def _read_json(path: Path, fallback: dict[str, Any]) -> dict[str, Any]:
@@ -381,7 +381,7 @@ class AgentRegistry:
     def build_catalog(self) -> dict[str, Any]:
         agents = self.list_agents()
         return {
-            "authority": "orchestration.agent_registry",
+            "authority": "agent_system.agent_registry",
             "agents": [agent.to_dict() for agent in agents],
             "summary": {
                 "agent_count": len(agents),
@@ -560,6 +560,7 @@ def _enforce_system_builtin_payload(
         ),
     }
     return enforced
+
 
 
 

@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .models import ModelTokenUsageRecord, PromptCacheRecord
+from .provider_lane import normalize_provider_lane
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +140,9 @@ def _build_break_record(
         created_at=timestamp,
         diagnostics={
             "provider_usage_ref": provider_usage.usage_id,
+            "provider_lane": _record_provider_lane(cache_record),
+            "physical_payload_family_hash": _record_physical_payload_family_hash(cache_record),
+            "physical_payload_family": dict(dict(cache_record.diagnostics or {}).get("physical_payload_family") or {}),
             "previous_request_ids": [record.request_id for record in previous_repeated_records[-5:]],
             "previous_comparable_request_id": latest_previous.request_id if latest_previous is not None else "",
             "boundary_segment_id": cache_record.boundary_segment_id,
@@ -160,6 +164,14 @@ def _record_scope_matches(previous: PromptCacheRecord, current: PromptCacheRecor
         return False
     if previous.model and current.model and previous.model != current.model:
         return False
+    previous_lane = _record_provider_lane(previous)
+    current_lane = _record_provider_lane(current)
+    if previous_lane != current_lane:
+        return False
+    previous_family = _record_physical_payload_family_hash(previous)
+    current_family = _record_physical_payload_family_hash(current)
+    if (previous_family or current_family) and previous_family != current_family:
+        return False
     if current.task_run_id:
         return previous.task_run_id == current.task_run_id
     if current.run_id:
@@ -167,6 +179,16 @@ def _record_scope_matches(previous: PromptCacheRecord, current: PromptCacheRecor
     if current.session_id:
         return previous.session_id == current.session_id
     return True
+
+
+def _record_provider_lane(record: PromptCacheRecord) -> str:
+    diagnostics = dict(record.diagnostics or {})
+    return normalize_provider_lane(diagnostics.get("provider_lane"))
+
+
+def _record_physical_payload_family_hash(record: PromptCacheRecord) -> str:
+    diagnostics = dict(record.diagnostics or {})
+    return str(diagnostics.get("physical_payload_family_hash") or "")
 
 
 def _latest_record(records: list[PromptCacheRecord]) -> PromptCacheRecord | None:

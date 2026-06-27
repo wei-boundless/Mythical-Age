@@ -357,7 +357,7 @@ class HealthTaskRecordMaintenanceService:
             recommended_actions.append("inspect_recent_events")
         if activity_state == "stale":
             flags.append("monitor_projected_stale_runtime")
-            recommended_actions.append("inspect_runtime_monitor_signal")
+            recommended_actions.append("inspect_run_monitor_signal")
         if graph_run_id and active_graph_work["active_work_order_count"] > 0 and active_status:
             flags.append("graph_has_active_work_orders")
             protection_reasons.append("graph_runtime_active_work_orders")

@@ -43,7 +43,7 @@ class GraphRunBackgroundSubmission:
             "scheduled_work_order_count": self.scheduled_work_order_count,
             "already_running_work_order_count": self.already_running_work_order_count,
             "active_work_order_count": self.active_work_order_count,
-            "monitor_url": self.monitor_url or f"/api/orchestration/harness/graph-runs/{self.graph_run_id}/monitor",
+            "monitor_url": self.monitor_url or f"/api/graph-system/graph-runs/{self.graph_run_id}/monitor",
             "diagnostics": dict(self.diagnostics or {}),
         }
 
@@ -300,7 +300,7 @@ def _runtime_control_payload(task_run: Any) -> dict[str, Any]:
         "requested_by": str(control.get("requested_by") or ""),
         "requested_at": float(control.get("requested_at") or 0.0),
         "reason": str(control.get("reason") or ""),
-        "authority": str(control.get("authority") or "orchestration.graph_run_control"),
+        "authority": str(control.get("authority") or "graph_system.graph_run_control"),
     }
 
 
@@ -352,7 +352,7 @@ def _mark_root_graph_run_paused(
                     "requested_by": str(current_control.get("requested_by") or "user"),
                     "requested_at": float(current_control.get("requested_at") or getattr(event, "created_at", 0.0) or now),
                     "reason": str(current_control.get("reason") or "graph_run_pause"),
-                    "authority": "orchestration.graph_run_control",
+                    "authority": "graph_system.graph_run_control",
                 },
                 "executor_status": "waiting_executor",
                 "latest_step": "graph_run_paused_at_control_boundary",

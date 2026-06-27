@@ -16,7 +16,7 @@ _OBJECT_STORE_LOCK = threading.RLock()
 class RuntimeObjectStore:
     """Durable store for runtime objects that are too heavy for state_index."""
 
-    authority = "orchestration.runtime_object_store"
+    authority = "runtime.runtime_object_store"
 
     def __init__(self, root_dir: Path) -> None:
         self.root_dir = Path(root_dir)

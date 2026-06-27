@@ -11,18 +11,18 @@ from api.config_api import router as config_router
 from api.files import router as files_router
 from api.file_management import router as file_management_router
 from api.file_changes import router as file_changes_router
+from api.graph_system import router as graph_system_router
 from api.health_system import router as health_system_router
 from api.graph_task_instances import router as graph_task_instances_router
 from api.image_assets import router as image_assets_router
 from api.memory import router as memory_router
 from api.mcp_system import router as mcp_system_router
-from api.orchestration import router as orchestration_router
-from api.orchestration_catalog import router as orchestration_catalog_router
-from api.orchestration_harness import router as orchestration_harness_router
+from api.agent_system import router as agent_system_router
+from api.harness import router as harness_router
 from api.project_workspaces import router as project_workspaces_router
 from api.runtime_facts import router as runtime_facts_router
 from api.runtime_logs import router as runtime_logs_router
-from api.runtime_monitor import router as runtime_monitor_router
+from api.harness_run_monitor import router as run_monitor_router
 from api.runtime_trace import router as runtime_trace_router
 from api.capability_system import router as capability_system_router
 from api.sessions import router as sessions_router
@@ -65,12 +65,12 @@ app.include_router(tokens_router, prefix="/api", tags=["tokens"])
 app.include_router(config_router, prefix="/api", tags=["config"])
 app.include_router(task_system_router, prefix="/api", tags=["tasks"])
 app.include_router(health_system_router, prefix="/api", tags=["health-system"])
-app.include_router(orchestration_catalog_router, prefix="/api", tags=["orchestration-catalog"])
-app.include_router(orchestration_router, prefix="/api", tags=["orchestration"])
-app.include_router(orchestration_harness_router, prefix="/api", tags=["orchestration-harness"])
+app.include_router(agent_system_router, prefix="/api", tags=["agent-system"])
+app.include_router(graph_system_router, prefix="/api", tags=["graph-system"])
+app.include_router(harness_router, prefix="/api", tags=["harness"])
 app.include_router(graph_task_instances_router, prefix="/api", tags=["graph-task-instances"])
 app.include_router(project_workspaces_router, prefix="/api", tags=["project-workspaces"])
-app.include_router(runtime_monitor_router, prefix="/api", tags=["runtime-monitor"])
+app.include_router(run_monitor_router, prefix="/api", tags=["harness-run-monitor"])
 app.include_router(runtime_logs_router, prefix="/api", tags=["runtime-logs"])
 app.include_router(runtime_trace_router, prefix="/api", tags=["runtime-trace"])
 app.include_router(runtime_facts_router, prefix="/api", tags=["runtime-facts"])

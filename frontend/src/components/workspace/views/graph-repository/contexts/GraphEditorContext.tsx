@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import type { OrchestrationAgentRuntimeCatalog } from "@/lib/api";
+import type { AgentSystemAgentRuntimeCatalog } from "@/lib/api";
 
 import type { TaskGraphDraftV2 } from "../../task-system/taskGraphDraftV2";
 import { GraphCanvasEditorPage } from "../editor/GraphCanvasEditorPage";
@@ -23,7 +23,7 @@ export function GraphEditorContext({
   worldMode = "edit",
   worldPanel = null,
 }: {
-  agentCatalog: OrchestrationAgentRuntimeCatalog | null;
+  agentCatalog: AgentSystemAgentRuntimeCatalog | null;
   dirty: boolean;
   draft: TaskGraphDraftV2;
   graphRunId?: string;
@@ -61,3 +61,4 @@ export function GraphEditorContext({
     </section>
   );
 }
+

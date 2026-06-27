@@ -36,7 +36,7 @@ class AgentRuntimeProfile:
     subagent_policy: SubagentPolicy = field(default_factory=SubagentPolicy)
     approval_policy: str = "default"
     trace_policy: str = "runtime_event_log"
-    lifecycle_policy: str = "orchestration_managed"
+    lifecycle_policy: str = "agent_system_managed"
     model_profile: AgentModelProfile = field(default_factory=AgentModelProfile)
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -60,5 +60,6 @@ class AgentRuntimeProfile:
         payload["model_profile"] = self.model_profile.to_dict()
         payload["runtime_template_id"] = self.runtime_template_id
         return payload
+
 
 

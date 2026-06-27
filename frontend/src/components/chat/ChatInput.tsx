@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, BrainCircuit, ChevronDown, ChevronUp, Eye, EyeOff, FileText, ImagePlus, ListChecks, ShieldCheck, Square, Target, X, Zap } from "lucide-react";
+import { ArrowUp, ChevronDown, ChevronUp, Eye, EyeOff, FileText, ImagePlus, ListChecks, Plus, Square, Target, X } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ModelProviderConfig, ImageAssetConfig } from "@/lib/api";
@@ -51,7 +51,9 @@ export function ChatInput({
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [draftMode, setDraftMode] = useState<LongTextCompactionMode>("expanded");
+  const [quickMenuOpen, setQuickMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const quickMenuRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const pendingDraftIntentRef = useRef<LongTextDraftIntent | null>(null);
   const focusExpandedDraftRef = useRef(false);
@@ -70,13 +72,16 @@ export function ChatInput({
   const activeModel = resolveActiveChatModel(activeModelId, modelProviderConfig);
   const activeModelSupportsReasoning = Boolean(activeModel && supportsHiddenReasoning(activeModel.provider, activeModel.model, modelProviderConfig));
   const activeThinkingMode = activeModelSupportsReasoning ? chatThinkingMode : "normal";
-  const activeThinkingProjectionEnabled = activeModelSupportsReasoning && thinkingProjectionEnabled;
-  const thinkingProjectionToggleDisabled = inputDisabled || !activeModelSupportsReasoning;
-  const thinkingProjectionToggleTitle = !activeModelSupportsReasoning
-    ? "当前模型不支持 Thinking 投影"
-    : activeThinkingProjectionEnabled
-      ? "关闭 Thinking 投影"
-      : "开启 Thinking 投影";
+  const showThinkingProjectionControl = activeModelSupportsReasoning && activeThinkingMode === "thinking";
+  const activeThinkingProjectionEnabled = showThinkingProjectionControl && thinkingProjectionEnabled;
+  const thinkingProjectionToggleDisabled = inputDisabled || !showThinkingProjectionControl;
+  const thinkingProjectionToggleTitle = activeThinkingProjectionEnabled
+    ? "隐藏模型思考窗口"
+    : "显示模型思考窗口";
+  const thinkingModeTitle = activeModelSupportsReasoning
+    ? "选择本轮思考模式"
+    : "当前模型不支持思考模式";
+  const quickMenuDisabled = inputDisabled || streaming;
   const permissionOptions = useMemo(
     () => buildPermissionModeOptions(supportedPermissionModes),
     [supportedPermissionModes]
@@ -125,6 +130,36 @@ export function ChatInput({
     textarea.focus();
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
   }, [draftMode]);
+
+  useEffect(() => {
+    if (!quickMenuOpen || typeof document === "undefined") {
+      return;
+    }
+    const handlePointerDown = (event: PointerEvent) => {
+      const menu = quickMenuRef.current;
+      if (!menu || !(event.target instanceof Node) || menu.contains(event.target)) {
+        return;
+      }
+      setQuickMenuOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setQuickMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [quickMenuOpen]);
+
+  useEffect(() => {
+    if (quickMenuOpen && quickMenuDisabled) {
+      setQuickMenuOpen(false);
+    }
+  }, [quickMenuDisabled, quickMenuOpen]);
 
   const submit = async () => {
     const nextValue = value.trim();
@@ -194,6 +229,7 @@ export function ChatInput({
     if (inputDisabled || streaming) {
       return;
     }
+    setQuickMenuOpen(false);
     const nextValue = value.trim();
     const nextFiles = selectedFiles;
     const command = taskModeSlashCommand(mode, nextValue);
@@ -321,25 +357,86 @@ export function ChatInput({
       ) : null}
       <div className="chat-input-panel__footer">
         <div className="chat-input-panel__controls">
-          <div className="chat-task-mode-actions" aria-label="任务模式快捷命令">
-            {TASK_MODE_SHORTCUTS.map((item) => (
-              <button
-                aria-label={`开启 ${item.label} Mode`}
-                className="chat-task-mode-button"
-                disabled={inputDisabled || streaming}
-                key={item.mode}
-                onClick={() => void runTaskModeShortcut(item.mode)}
-                title={item.title}
-                type="button"
-              >
-                <item.icon aria-hidden="true" size={14} />
-                <span>{item.label}</span>
-              </button>
-            ))}
+          <input
+            accept=".png,.jpg,.jpeg,.webp,.bmp,.tiff,.tif,image/png,image/jpeg,image/webp,image/bmp,image/tiff"
+            aria-label="选择图片"
+            className="chat-attachment-input"
+            disabled={disabled || submitting || streaming}
+            multiple
+            onChange={(event) => {
+              const files = Array.from(event.currentTarget.files ?? []);
+              setSelectedFiles((current) => [...current, ...files].slice(0, 8));
+              event.currentTarget.value = "";
+            }}
+            ref={fileInputRef}
+            type="file"
+          />
+          <div className={`chat-more-actions${quickMenuOpen ? " chat-more-actions--open" : ""}`} ref={quickMenuRef}>
+            <button
+              aria-expanded={quickMenuOpen}
+              aria-haspopup="menu"
+              aria-label="打开附加操作"
+              className="chat-more-actions__trigger"
+              disabled={quickMenuDisabled}
+              onClick={() => setQuickMenuOpen((open) => !open)}
+              title="命令与附件"
+              type="button"
+            >
+              <Plus size={17} />
+            </button>
+            {quickMenuOpen ? (
+              <div className="chat-more-actions__menu" role="menu" aria-label="附加操作">
+                <div className="chat-more-actions__section">
+                  <span className="chat-more-actions__section-label">任务命令</span>
+                  {TASK_MODE_SHORTCUTS.map((item) => (
+                    <button
+                      aria-label={`开启 ${item.label} Mode`}
+                      className="chat-more-actions__item"
+                      disabled={quickMenuDisabled}
+                      key={item.mode}
+                      onClick={() => void runTaskModeShortcut(item.mode)}
+                      role="menuitem"
+                      title={item.title}
+                      type="button"
+                    >
+                      <item.icon aria-hidden="true" size={15} />
+                      <span>
+                        <strong>{item.label}</strong>
+                        <small>{item.description}</small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <div className="chat-more-actions__section">
+                  <span className="chat-more-actions__section-label">附件</span>
+                  <button
+                    aria-label="上传图片"
+                    className="chat-more-actions__item"
+                    disabled={disabled || submitting || streaming}
+                    onClick={() => {
+                      setQuickMenuOpen(false);
+                      fileInputRef.current?.click();
+                    }}
+                    role="menuitem"
+                    title={streaming ? "本轮运行结束后可上传图片" : "上传图片"}
+                    type="button"
+                  >
+                    <ImagePlus aria-hidden="true" size={15} />
+                    <span>
+                      <strong>添加图片</strong>
+                      <small>支持截图、照片和粘贴图片</small>
+                    </span>
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
-          <div className="chat-control-cluster chat-control-cluster--model">
-            <label className="chat-model-select chat-model-select--model" title="选择本轮模型">
-              <BrainCircuit size={16} />
+          <div
+            className={`chat-runtime-controls${showThinkingProjectionControl ? " chat-runtime-controls--with-projection" : " chat-runtime-controls--without-projection"}`}
+            aria-label="本轮运行设置"
+          >
+            <label className="chat-model-select chat-runtime-select chat-runtime-select--model" title="选择本轮模型">
+              <span className="chat-runtime-control__label">模型</span>
               <select
                 aria-label="选择本轮模型"
                 disabled={inputDisabled || modelOptions.length <= 1}
@@ -353,41 +450,38 @@ export function ChatInput({
                 ))}
               </select>
             </label>
-          </div>
-          <div className="chat-control-cluster chat-control-cluster--thinking">
             <label
-              className="chat-model-select chat-model-select--thinking"
-              title={activeModelSupportsReasoning ? "选择本轮 Thinking 模式" : "当前模型不支持 Thinking"}
+              className={`chat-model-select chat-runtime-select chat-runtime-select--thinking${activeModelSupportsReasoning ? "" : " chat-runtime-select--disabled"}`}
+              title={thinkingModeTitle}
             >
-              <Zap size={15} />
               <select
                 aria-label="选择思考模式"
                 disabled={inputDisabled || !activeModelSupportsReasoning}
                 onChange={(event) => onSelectThinkingMode(event.target.value as ChatThinkingMode)}
                 value={activeThinkingMode}
               >
-                {(activeModelSupportsReasoning ? THINKING_MODE_OPTIONS : [THINKING_MODE_OPTIONS[0]]).map((option) => (
+                {THINKING_MODE_OPTIONS.map((option) => (
                   <option key={option.value} title={option.title} value={option.value}>
                     {option.label}
                   </option>
                 ))}
               </select>
             </label>
-            <button
-              aria-label={activeThinkingProjectionEnabled ? "关闭 Thinking 投影" : "开启 Thinking 投影"}
-              aria-pressed={activeThinkingProjectionEnabled}
-              className={`chat-thinking-projection-toggle${activeThinkingProjectionEnabled ? " chat-thinking-projection-toggle--on" : ""}`}
-              disabled={thinkingProjectionToggleDisabled}
-              onClick={() => onSelectThinkingProjectionEnabled(!thinkingProjectionEnabled)}
-              title={thinkingProjectionToggleTitle}
-              type="button"
-            >
-              {activeThinkingProjectionEnabled ? <Eye size={14} /> : <EyeOff size={14} />}
-            </button>
-          </div>
-          <div className="chat-control-cluster chat-control-cluster--permission">
-            <label className="chat-model-select chat-model-select--permission">
-              <ShieldCheck size={15} />
+            {showThinkingProjectionControl ? (
+              <button
+                aria-label={activeThinkingProjectionEnabled ? "隐藏模型思考窗口" : "显示模型思考窗口"}
+                aria-pressed={activeThinkingProjectionEnabled}
+                className={`chat-thinking-projection-toggle${activeThinkingProjectionEnabled ? " chat-thinking-projection-toggle--on" : ""}`}
+                disabled={thinkingProjectionToggleDisabled}
+                onClick={() => onSelectThinkingProjectionEnabled(!thinkingProjectionEnabled)}
+                title={thinkingProjectionToggleTitle}
+                type="button"
+              >
+                {activeThinkingProjectionEnabled ? <Eye size={14} /> : <EyeOff size={14} />}
+              </button>
+            ) : null}
+            <label className="chat-model-select chat-runtime-select chat-runtime-select--permission">
+              <span className="chat-runtime-control__label">权限</span>
               <select
                 aria-label="选择运行权限模式"
                 disabled={disabled || permissionOptions.length <= 1}
@@ -408,30 +502,6 @@ export function ChatInput({
           </div>
         </div>
         <div className="chat-input-panel__actions">
-          <input
-            accept=".png,.jpg,.jpeg,.webp,.bmp,.tiff,.tif,image/png,image/jpeg,image/webp,image/bmp,image/tiff"
-            aria-label="选择图片"
-            className="chat-attachment-input"
-            disabled={disabled || submitting || streaming}
-            multiple
-            onChange={(event) => {
-              const files = Array.from(event.currentTarget.files ?? []);
-              setSelectedFiles((current) => [...current, ...files].slice(0, 8));
-              event.currentTarget.value = "";
-            }}
-            ref={fileInputRef}
-            type="file"
-          />
-          <button
-            aria-label="上传图片"
-            className="chat-attachment-button"
-            disabled={disabled || submitting || streaming}
-            onClick={() => fileInputRef.current?.click()}
-            title={streaming ? "本轮运行结束后可上传图片" : "上传图片"}
-            type="button"
-          >
-            <ImagePlus size={16} />
-          </button>
           <button
             aria-label={primaryLabel}
             className={`${primaryButtonClassName} disabled:cursor-not-allowed disabled:opacity-50`}
@@ -458,11 +528,12 @@ const TASK_MODE_SHORTCUTS: Array<{
   mode: TaskModeShortcut;
   label: string;
   title: string;
+  description: string;
   icon: typeof Target;
 }> = [
-  { mode: "goal", label: "Goal", title: "通过 /task goal 开启 Goal Mode", icon: Target },
-  { mode: "plan", label: "Plan", title: "通过 /task plan 开启 Plan Mode", icon: FileText },
-  { mode: "todo", label: "Todo", title: "通过 /task todo 开启 Todo Mode", icon: ListChecks },
+  { mode: "goal", label: "Goal", title: "通过 /task goal 开启 Goal Mode", description: "建立持续目标", icon: Target },
+  { mode: "plan", label: "Plan", title: "通过 /task plan 开启 Plan Mode", description: "进入计划审阅", icon: FileText },
+  { mode: "todo", label: "Todo", title: "通过 /task todo 开启 Todo Mode", description: "生成任务清单", icon: ListChecks },
 ];
 
 function taskModeSlashCommand(mode: TaskModeShortcut, body: string) {
@@ -632,8 +703,8 @@ function resolveActiveChatModel(selectionId: string, config: ModelProviderConfig
 }
 
 const THINKING_MODE_OPTIONS: Array<{ value: ChatThinkingMode; label: string; title: string }> = [
-  { value: "normal", label: "标准", title: "关闭 Thinking" },
-  { value: "thinking", label: "Thinking", title: "开启 Thinking，推理强度由 DeepSeek 自动调度" },
+  { value: "normal", label: "标准", title: "标准回复，不额外开启 Thinking" },
+  { value: "thinking", label: "思考", title: "开启 Thinking，适合复杂任务" },
 ];
 
 function supportsHiddenReasoning(provider: string, model: string, config: ModelProviderConfig | null) {

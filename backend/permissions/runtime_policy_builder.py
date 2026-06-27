@@ -48,7 +48,7 @@ def build_model_response_runtime_admission(
     mode = normalize_permission_mode(permission_mode)
     task_contract = dict(task_operation.get("task_contract") or {})
     task_execution_assembly = dict(task_operation.get("task_execution_assembly") or {})
-    task_body_orchestration = dict(task_operation.get("task_body_orchestration") or {})
+    task_body_assembly = dict(task_operation.get("task_body_assembly") or {})
     agent_runtime_spec = dict(task_operation.get("agent_runtime_spec") or {})
     task_id = str(task_contract.get("task_id") or "task-runtime")
     policy_ref = f"respol:{task_id}:model-response:runtime"
@@ -133,8 +133,8 @@ def build_model_response_runtime_admission(
     directive = RuntimeDirective(
         directive_id=f"runtime-directive:{task_id}:model-response",
         task_id=task_id,
-        plan_ref=str(task_body_orchestration.get("orchestration_id") or f"orchplan:{task_id}:runtime"),
-        stage_ref=str(agent_runtime_spec.get("projection_snapshot_ref") or f"orchstage:{task_id}:model"),
+        plan_ref=str(task_body_assembly.get("task_body_assembly_id") or f"bodyplan:{task_id}:runtime"),
+        stage_ref=str(agent_runtime_spec.get("projection_snapshot_ref") or f"stage:{task_id}:model"),
         executor_type="model",
         adopted_resource_policy_ref=policy_ref,
         operation_refs=operation_refs,
@@ -146,7 +146,7 @@ def build_model_response_runtime_admission(
             "directive_only_executor": True,
             "admission_owner": "harness.runtime_admission",
             "task_execution_assembly_ref": str(task_execution_assembly.get("assembly_id") or ""),
-            "task_body_orchestration_ref": str(task_body_orchestration.get("orchestration_id") or ""),
+            "task_body_assembly_ref": str(task_body_assembly.get("task_body_assembly_id") or ""),
             "agent_runtime_spec_ref": str(agent_runtime_spec.get("runtime_spec_id") or ""),
         },
     )
@@ -203,7 +203,7 @@ def build_runtime_capability_state(
             "meaning": "This describes the current turn resource policy, not the agent profile capability ceiling.",
         },
         "sandbox_policy": _public_sandbox_policy(sandbox_policy),
-        "authority": "orchestration.runtime_capability_state",
+        "authority": "harness.runtime_capability_state",
     }
 
 

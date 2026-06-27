@@ -69,7 +69,7 @@ class ExecutionStateProjector:
                     )
                     if key in diagnostics
                 },
-                "authority": "orchestration.task_run.volatile_state",
+                "authority": "harness.task_run.volatile_state",
             }
         )
 

@@ -11,7 +11,7 @@ from .models import AgentGroup
 
 
 def _storage_root(base_dir: Path) -> Path:
-    return ProjectLayout.from_backend_dir(base_dir).orchestration_dir
+    return ProjectLayout.from_backend_dir(base_dir).agent_system_dir
 
 
 def _groups_path(base_dir: Path) -> Path:

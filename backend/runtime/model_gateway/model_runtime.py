@@ -27,6 +27,11 @@ from runtime.prompt_accounting import (
     PromptStabilityReporter,
     extract_provider_usage,
 )
+from runtime.prompt_accounting.provider_lane import (
+    physical_payload_family_components,
+    physical_payload_family_hash_for_model_request,
+    provider_lane_from_accounting_context,
+)
 from runtime.prompt_accounting.serializer import canonical_json
 from runtime.context_management.context_commit_record import create_provider_request_context_commit_record
 from runtime.context_management.context_candidates import ContextCommitCandidate
@@ -935,10 +940,12 @@ class ModelRuntime:
         created_at = time.time()
         prompt_manifest = _prompt_accounting_manifest_refs(context.get("prompt_manifest"))
         tool_catalog_manifest = _tool_catalog_manifest_for_model_request(context.get("prompt_manifest"))
+        provider_lane = provider_lane_from_accounting_context(context, call_kind=call_kind)
         metadata = {
             "source": str(context.get("source") or call_kind),
             "call_kind": call_kind,
             "attempt": attempt,
+            "provider_lane": provider_lane,
             "packet_ref": str(context.get("packet_ref") or ""),
             "turn_id": str(context.get("turn_id") or ""),
             "invocation_index": context.get("invocation_index"),
@@ -955,6 +962,8 @@ class ModelRuntime:
         segment_plan = dict(context.get("segment_plan") or {})
         local_prediction_usage_id = f"tokuse:{request_id}:local_prediction"
         model_request = None
+        physical_payload_family: dict[str, Any] = {}
+        physical_payload_family_hash = ""
         try:
             model_request = self._model_request_builder.build(
                 request_id=request_id,
@@ -969,6 +978,20 @@ class ModelRuntime:
                     "tool_catalog_manifest": tool_catalog_manifest,
                 },
             )
+            physical_payload_family = physical_payload_family_components(
+                provider=spec.provider,
+                model=spec.model,
+                provider_lane=provider_lane,
+                model_request=model_request,
+            )
+            physical_payload_family_hash = physical_payload_family_hash_for_model_request(
+                provider=spec.provider,
+                model=spec.model,
+                provider_lane=provider_lane,
+                model_request=model_request,
+            )
+            metadata["physical_payload_family_hash"] = physical_payload_family_hash
+            metadata["physical_payload_family"] = dict(physical_payload_family)
         except Exception:
             logger.debug("Failed to build model request accounting projection", exc_info=True)
         trace_span_context = self._start_model_trace_span(
@@ -996,6 +1019,9 @@ class ModelRuntime:
             "started_at": created_at,
             "trace_span_context": trace_span_context,
             "accounting_context": context,
+            "provider_lane": provider_lane,
+            "physical_payload_family_hash": physical_payload_family_hash,
+            "physical_payload_family": dict(physical_payload_family),
         }
         if model_request is not None:
             base_accounting["model_request"] = model_request
@@ -1096,6 +1122,9 @@ class ModelRuntime:
                 "model_request_tool_catalog_hash": model_request.tool_catalog_hash,
                 "model_request_stable_tool_catalog_hash": model_request.stable_tool_catalog_hash,
                 "model_request_cache_sensitive_params_hash": model_request.cache_sensitive_params_hash,
+                "provider_lane": provider_lane,
+                "physical_payload_family_hash": physical_payload_family_hash,
+                "physical_payload_family": dict(physical_payload_family),
                 "model_request_provider_transport_payload": dict(
                     model_request_diagnostics.get("provider_transport_payload") or {}
                 ),
@@ -1139,6 +1168,8 @@ class ModelRuntime:
                             "severity": "high" if _agent_runtime_like_call(call_kind=call_kind, context=context) else "medium",
                             "call_kind": call_kind,
                             "source": str(context.get("source") or ""),
+                            "provider_lane": provider_lane,
+                            "physical_payload_family_hash": physical_payload_family_hash,
                             "cache_metric_scope": str(metadata.get("cache_metric_scope") or ""),
                             "message_count": len(list(messages or [])),
                             "tool_count": len(list(tools or [])),
@@ -1257,6 +1288,9 @@ class ModelRuntime:
                         "tool_catalog_hash": str(getattr(model_request, "tool_catalog_hash", "") or ""),
                         "stable_tool_catalog_hash": str(getattr(model_request, "stable_tool_catalog_hash", "") or ""),
                         "cache_sensitive_params_hash": str(getattr(model_request, "cache_sensitive_params_hash", "") or ""),
+                        "provider_lane": str(accounting.get("provider_lane") or ""),
+                        "physical_payload_family_hash": str(accounting.get("physical_payload_family_hash") or ""),
+                        "physical_payload_family": dict(accounting.get("physical_payload_family") or {}),
                         "duration_seconds": duration_seconds,
                     },
                 )

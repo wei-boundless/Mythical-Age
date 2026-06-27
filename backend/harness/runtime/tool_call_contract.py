@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 
 OrdinaryToolSubmission = Literal["provider_tool_selection", "action_object", "none"]
-ControlActionSubmission = Literal["action_object", "none"]
+ControlActionSubmission = Literal["provider_tool_selection", "action_object", "none"]
 
 _CONTROL_ACTION_TYPES = {
     "respond",
@@ -28,6 +28,7 @@ class ToolCallContract:
     ordinary_tool_submission: OrdinaryToolSubmission = "none"
     control_action_submission: ControlActionSubmission = "none"
     provider_tools_enabled: bool = False
+    provider_control_tools_enabled: bool = False
     action_object_tool_fallback_enabled: bool = False
     multi_tool_calls_allowed: bool = False
     agent_visible_instruction: dict[str, Any] = field(default_factory=dict)
@@ -68,6 +69,7 @@ class ToolCallContract:
             "ordinary_tool_submission": self.ordinary_tool_submission,
             "control_action_submission": self.control_action_submission,
             "provider_tools_enabled": self.provider_tools_enabled,
+            "provider_control_tools_enabled": self.provider_control_tools_enabled,
             "action_object_tool_fallback_enabled": self.action_object_tool_fallback_enabled,
             "multi_tool_calls_allowed": self.multi_tool_calls_allowed,
             "hidden_transport_policy": dict(self.hidden_transport_policy or {}),
@@ -94,8 +96,11 @@ def build_tool_call_contract(
     ordinary_submission: OrdinaryToolSubmission = "none"
     if tool_call_allowed:
         ordinary_submission = requested_submission or "provider_tool_selection"
-    control_submission: ControlActionSubmission = "action_object" if set(allowed).intersection(_CONTROL_ACTION_TYPES) else "none"
+    control_submission: ControlActionSubmission = (
+        "provider_tool_selection" if set(allowed).intersection(_CONTROL_ACTION_TYPES) else "none"
+    )
     provider_tools_enabled = ordinary_submission == "provider_tool_selection"
+    provider_control_tools_enabled = control_submission == "provider_tool_selection"
     action_object_fallback = bool(
         ordinary_submission == "action_object"
         or explicit_policy.get("action_object_tool_fallback_enabled") is True
@@ -121,6 +126,7 @@ def build_tool_call_contract(
         "ordinary_tool_submission": ordinary_submission,
         "control_action_submission": control_submission,
         "provider_tools_enabled": provider_tools_enabled,
+        "provider_control_tools_enabled": provider_control_tools_enabled,
         "action_object_tool_fallback_enabled": action_object_fallback,
         "mounted_tool_names": list(mounted_tool_names),
         "tool_plan_ref": _tool_plan_ref(tool_plan),
@@ -133,6 +139,7 @@ def build_tool_call_contract(
         ordinary_tool_submission=ordinary_submission,
         control_action_submission=control_submission,
         provider_tools_enabled=provider_tools_enabled,
+        provider_control_tools_enabled=provider_control_tools_enabled,
         action_object_tool_fallback_enabled=action_object_fallback,
         multi_tool_calls_allowed=multi_tool_calls_allowed,
         agent_visible_instruction=_agent_visible_instruction(
@@ -146,6 +153,7 @@ def build_tool_call_contract(
             "allowed_action_types": list(allowed),
             "mounted_tool_count": len(mounted_tool_names),
             "tool_call_allowed": tool_call_allowed,
+            "control_action_allowed": control_submission != "none",
             "explicit_policy_keys": sorted(str(key) for key in explicit_policy if key != "source"),
         },
     )
@@ -157,6 +165,15 @@ def provider_tools_enabled_from_contract(contract: dict[str, Any] | ToolCallCont
         return True
     return str(payload.get("ordinary_tool_submission") or "").strip() == "provider_tool_selection" and bool(
         payload.get("provider_tools_enabled") is True
+    )
+
+
+def provider_control_tools_enabled_from_contract(contract: dict[str, Any] | ToolCallContract | None) -> bool:
+    payload = contract.to_hidden_control_payload() if isinstance(contract, ToolCallContract) else dict(contract or {})
+    if not payload:
+        return True
+    return str(payload.get("control_action_submission") or "").strip() == "provider_tool_selection" and bool(
+        payload.get("provider_control_tools_enabled") is not False
     )
 
 
@@ -179,9 +196,22 @@ def _agent_visible_instruction(
             else "当前回合没有可用工具；请基于已知事实回答、询问或说明阻塞。",
         },
         "control_action": {
-            "available": control_submission == "action_object",
-            "submission": "submit_action_object" if control_submission == "action_object" else "not_available",
-            "instruction": "需要询问、阻塞、启动持续任务或控制当前工作时，提交本次行动对象。",
+            "available": control_submission != "none",
+            "submission": (
+                "choose_matching_control_action_and_fill_arguments"
+                if control_submission == "provider_tool_selection"
+                else "submit_action_object"
+                if control_submission == "action_object"
+                else "not_available"
+            ),
+            "instruction": (
+                "需要询问、阻塞、启动持续任务或控制当前工作时，选择匹配的控制动作并填写参数；"
+                "request_task_run 只填写紧凑 TaskStartIntent，内部 TaskRunContract 由运行时生成。"
+            )
+            if control_submission == "provider_tool_selection"
+            else "需要询问、阻塞、启动持续任务或控制当前工作时，提交本次行动对象。"
+            if control_submission == "action_object"
+            else "当前回合没有控制动作。",
         },
         "feedback_rule": {
             "tool_observation": (

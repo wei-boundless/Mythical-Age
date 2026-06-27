@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from request_intent.memory_intent import analyze_memory_intent
+from runtime.request_signals.memory_intent import analyze_memory_intent
 
 from .environment_context import resolve_memory_environment_context
 from .runtime_view import normalize_memory_layers
