@@ -12,12 +12,11 @@ from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.registry.agent_registry import AgentRegistry
 from agent_system.registry.worker_agent_factory import default_worker_agent_blueprints
 from api.deps import require_runtime
-from capability_system import build_capability_catalog, build_orchestration_capability_items
+from capability_system import build_base_unit_catalog, build_capability_catalog, build_orchestration_capability_items
+from capability_system.resource_inventory import build_runtime_resource_inventory
 from permissions.operation_packages import default_tool_packages, parse_tool_package_selection
 from permissions.operations import build_default_operation_registry
 from harness.runtime import assemble_runtime
-from orchestration import ControlKernel, TaskContract, build_base_unit_catalog
-from orchestration.resource_inventory import build_runtime_resource_inventory
 from task_system import TaskFlowRegistry
 
 router = APIRouter()
@@ -377,24 +376,31 @@ def _build_runtime_profile_option_values(
 @router.post("/orchestration/dry-run")
 async def orchestration_dry_run(payload: BehaviorDryRunRequest) -> dict[str, Any]:
     runtime = require_runtime()
-    try:
-        task = TaskContract(
-            task_id=f"dry-run:{payload.session_id}",
-            session_id=payload.session_id,
-            user_goal=payload.message,
-            inputs={
-                "explicit_subtask_count": len(payload.explicit_subtasks),
+    message = str(payload.message or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="message is required")
+    return {
+        "state": "wiring_cleared",
+        "control": {
+            "control_id": f"dry-run:{payload.session_id}",
+            "status": "passive_preview",
+            "task": {
+                "task_id": f"dry-run:{payload.session_id}",
+                "session_id": payload.session_id,
+                "user_goal": message,
+                "inputs": {
+                    "explicit_subtask_count": len(payload.explicit_subtasks),
+                },
             },
-        )
-        control = ControlKernel().collect(task=task)
-        return {
-            "state": "wiring_cleared",
-            "control": control.to_dict(),
-            "unit_catalog": build_base_unit_catalog().to_list(),
-            "runtime_available": runtime is not None,
-        }
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+            "authority": "harness.preview_control",
+            "diagnostics": {
+                "old_control_kernel_removed": True,
+                "decision_authority": "agent_runtime_turn",
+            },
+        },
+        "unit_catalog": build_base_unit_catalog().to_list(),
+        "runtime_available": runtime is not None,
+    }
 
 
 @router.get("/orchestration/catalog")
@@ -724,4 +730,3 @@ async def set_orchestration_plan_mode(payload: OrchestrationModeRequest) -> dict
         "mode": str(config.get("orchestration_plan_mode", "primary") or "primary"),
         "supported_modes": ["primary"],
     }
-

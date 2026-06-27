@@ -422,7 +422,7 @@ def test_standard_view_does_not_promote_linked_timeline_block_to_graph_module_ex
     view = build_task_graph_standard_view(graph=graph, graph_lookup=TaskFlowRegistry(tmp_path)).to_dict()
 
     assert view["graph_module_expansions"] == []
-    assert view["diagnostics"]["graph_harness_config"]["composition_source_count"] == 0
+    assert view["diagnostics"]["graph_config"]["composition_source_count"] == 0
 
 
 def test_standard_view_surfaces_invalid_explicit_graph_module_node_without_old_runtime_plan(tmp_path: Path) -> None:
@@ -472,7 +472,7 @@ def test_standard_view_surfaces_invalid_explicit_graph_module_node_without_old_r
     assert view["graph_module_expansions"][0]["linked_graph_id"] == "graph.test.imported"
     assert view["graph_module_expansions"][0]["metadata"]["expansion_status"] == "unavailable"
     assert any(issue["code"] == "graph_module_linked_graph_not_found" for issue in view["issues"])
-    assert view["diagnostics"]["graph_harness_config"]["available"] is False
+    assert view["diagnostics"]["graph_config"]["available"] is False
 
 
 def test_graph_module_handoff_contract_binding_comes_from_explicit_node(tmp_path: Path) -> None:
@@ -533,7 +533,7 @@ def test_graph_module_handoff_contract_binding_comes_from_explicit_node(tmp_path
     assert view["graph_module_expansions"][0]["linked_graph_id"] == "graph.design.initialization"
     assert view["graph_module_expansions"][0]["metadata"]["expansion_status"] == "expanded"
     assert view["graph_module_expansions"][0]["nodes"]
-    assert view["diagnostics"]["graph_harness_config"]["config_id"]
+    assert view["diagnostics"]["graph_config"]["config_id"]
 
 
 def test_standard_view_round_trips_contract_bindings(tmp_path: Path) -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from harness.graph.models import safe_id, stable_hash
+from graph_system.models import safe_id, stable_hash
 
 from .configurator_write_contracts import build_configurator_write_contract, configuration_prototype_catalog
 from .edge_contract_models import build_edge_contract_index

@@ -160,7 +160,7 @@ def _task_execution_boundary_cursor(value: dict[str, Any]) -> dict[str, Any]:
             "approval_required_operation_count": payload.get("approval_required_operation_count")
             if isinstance(payload.get("approval_required_operation_count"), int)
             else None,
-            "operation_gate_ref": "runtime.tooling.supervisor",
+            "operation_gate_ref": "runtime.tool_runtime.supervision",
         }
     )
 

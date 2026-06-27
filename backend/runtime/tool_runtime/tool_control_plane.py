@@ -10,7 +10,7 @@ from typing import Any
 from artifact_system.artifact_authority import artifact_refs_from_tool_result_payload
 from file_management import build_file_access_table, resolve_file_environment
 from permissions.operations import build_default_operation_registry
-from orchestration.runtime_directive import RuntimeDirective
+from runtime.shared.runtime_directive import RuntimeDirective
 from permissions import ApprovalState, ApprovalToken, PermissionContext, ResourceDecision, ResourcePolicy
 from harness.loop.action_permit import validate_tool_invocation_permit
 from runtime.shared.action_request import RuntimeActionRequest
@@ -25,7 +25,7 @@ from runtime.memory.tool_memory_events import commit_tool_memory_events_from_env
 from runtime.tool_runtime.tool_invocation_request import ToolInvocationRequest
 from runtime.tool_runtime.tool_observation import ToolObservation
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
-from runtime.tooling import ToolSupervisor
+from runtime.tool_runtime.supervision import ToolSupervisor
 
 _AGENT_TURN_SANDBOX_AUTO_ALLOW_OPERATIONS = {
     "op.write_file",

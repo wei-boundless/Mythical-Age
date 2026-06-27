@@ -29,7 +29,7 @@ from runtime.tool_runtime.tool_invocation_control import (
 )
 from runtime.shared.tool_identity import canonical_runtime_tool_call_id
 from runtime.tool_runtime.tool_use_context import ToolUseContext
-from orchestration.runtime_directive import RuntimeDirective
+from runtime.shared.runtime_directive import RuntimeDirective
 from runtime.shared.action_request import (
     RuntimeActionRequest,
     build_recoverable_tool_invocation_observation,

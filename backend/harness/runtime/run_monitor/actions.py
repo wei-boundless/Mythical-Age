@@ -4,7 +4,7 @@ import asyncio
 import time
 from typing import Any
 
-from harness.graph.lifecycle_manager import GraphTaskLifecycleManager
+from graph_system.lifecycle_manager import GraphTaskLifecycleManager
 from harness.runtime.task_record_lifecycle import (
     TaskRecordLifecycleConflict,
     TaskRecordLifecycleManager,
@@ -155,11 +155,11 @@ class RuntimeMonitorActionService:
     def _preview_effects(self, *, action: str, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
         if action == "preview_delete_graph_run":
             graph_run_id = _graph_run_id(payload=payload, signal=signal)
-            graph_harness = getattr(self.runtime.harness_runtime, "graph_harness", None)
-            if graph_harness is None:
-                return {"error": "graph_harness_unavailable", "graph_run_id": graph_run_id}
+            graph_system = getattr(self.runtime.harness_runtime, "graph_system", None)
+            if graph_system is None:
+                return {"error": "graph_system_unavailable", "graph_run_id": graph_run_id}
             try:
-                return GraphTaskLifecycleManager(base_dir=self.runtime.base_dir, graph_harness=graph_harness).preview_delete_graph_run(graph_run_id)
+                return GraphTaskLifecycleManager(base_dir=self.runtime.base_dir, graph_system=graph_system).preview_delete_graph_run(graph_run_id)
             except Exception as exc:
                 return {"error": str(exc), "graph_run_id": graph_run_id}
         if action in {"preview_delete_record", "delete_record"}:

@@ -52,7 +52,7 @@ class HealthIssue:
 class GraphBreakpointPacket:
     graph_run_id: str
     graph_id: str
-    graph_harness_config_id: str
+    graph_config_id: str
     task_run_id: str
     session_id: str
     node_id: str

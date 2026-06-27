@@ -7,15 +7,15 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from harness.graph.context_materializer import GraphContextMaterializer
-from harness.graph.flow_edges import build_inbound_flow_edges, build_outbound_flow_edges
-from harness.graph.flow_packet import build_flow_packet, edge_delivers_flow_packet
-from harness.graph.models import GraphLoopState, GraphTransitionInput, NodeResultEnvelope
-from harness.graph.runtime import _graph_runtime_scope
-from harness.graph.state_machine import GraphStateMachine
-from harness.graph.supervisor import GraphSupervisor
-from harness.graph.transition_processor import GraphTransitionProcessor, apply_transition_plan_to_edge_states
-from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
+from graph_system.context_materializer import GraphContextMaterializer
+from graph_system.flow_edges import build_inbound_flow_edges, build_outbound_flow_edges
+from graph_system.flow_packet import build_flow_packet, edge_delivers_flow_packet
+from graph_system.models import GraphLoopState, GraphTransitionInput, NodeResultEnvelope
+from graph_system.runtime import _graph_runtime_scope
+from graph_system.state_machine import GraphStateMachine
+from graph_system.supervisor import GraphSupervisor
+from graph_system.transition_processor import GraphTransitionProcessor, apply_transition_plan_to_edge_states
+from task_system.compiler.executable_graph_config_publisher import build_graph_config_from_graph
 from task_system.graphs.task_graph_models import (
     TaskGraphDefinition,
     TaskGraphEdgeDefinition,
@@ -196,7 +196,7 @@ def _edge_protocol_graph() -> TaskGraphDefinition:
 
 
 def test_publisher_emits_contract_indexes_and_deployment_package() -> None:
-    config = build_graph_harness_config_from_graph(graph=_graph())
+    config = build_graph_config_from_graph(graph=_graph())
     contracts = dict(config.contracts or {})
 
     assert contracts["compile_report"]["status"] == "valid"
@@ -245,7 +245,7 @@ def test_publisher_emits_contract_indexes_and_deployment_package() -> None:
 
 
 def test_compiler_emits_basic_edge_protocol_packet_policies() -> None:
-    config = build_graph_harness_config_from_graph(graph=_edge_protocol_graph())
+    config = build_graph_config_from_graph(graph=_edge_protocol_graph())
     edge_contracts = dict(config.contracts["edge_contract_index"])
     edge_recommendations = {
         item["edge_id"]: item
@@ -303,7 +303,7 @@ def test_compiler_emits_basic_edge_protocol_packet_policies() -> None:
 
 
 def test_state_machine_and_flow_packet_consume_edge_contract_index() -> None:
-    config = build_graph_harness_config_from_graph(graph=_graph())
+    config = build_graph_config_from_graph(graph=_graph())
     edge = dict(config.edges[0])
     state = GraphLoopState(
         state_id="gstate:test",
@@ -344,7 +344,7 @@ def test_state_machine_and_flow_packet_consume_edge_contract_index() -> None:
 
 
 def test_loop_edge_states_persist_packets_only_for_packet_protocols() -> None:
-    config = build_graph_harness_config_from_graph(graph=_edge_protocol_graph())
+    config = build_graph_config_from_graph(graph=_edge_protocol_graph())
     state_machine = GraphStateMachine()
     state = GraphLoopState(
         state_id="gstate:test",
@@ -417,7 +417,7 @@ def test_loop_edge_states_persist_packets_only_for_packet_protocols() -> None:
 
 
 def test_materializer_uses_node_environment_and_node_session_policy() -> None:
-    config = build_graph_harness_config_from_graph(graph=_graph())
+    config = build_graph_config_from_graph(graph=_graph())
     state_machine = GraphStateMachine()
     state = GraphLoopState(
         state_id="gstate:test",
@@ -452,7 +452,7 @@ def test_materializer_uses_node_environment_and_node_session_policy() -> None:
 
 
 def test_graph_runtime_scope_uses_project_binding_from_published_contract() -> None:
-    config = build_graph_harness_config_from_graph(graph=_graph())
+    config = build_graph_config_from_graph(graph=_graph())
 
     scope = _graph_runtime_scope(
         graph_config=config,
@@ -469,7 +469,7 @@ def test_graph_runtime_scope_uses_project_binding_from_published_contract() -> N
 
 
 def test_supervisor_reports_blocked_and_failed_nodes_without_mutating_contracts() -> None:
-    config = build_graph_harness_config_from_graph(graph=_graph())
+    config = build_graph_config_from_graph(graph=_graph())
     state = GraphLoopState(
         state_id="gstate:test",
         graph_run_id="grun:test",

@@ -743,7 +743,7 @@ def _inbound_context_stable_payload(value: Any) -> list[dict[str, Any]]:
                 "result_refs": _bounded_dict_list(item.get("result_refs"), limit=8),
                 "receipt_refs": _bounded_dict_list(item.get("receipt_refs"), limit=12),
                 "visibility": dict(item.get("visibility") or {}),
-                "authority": "harness.graph.inbound_context.model_visible",
+                "authority": "graph_system.inbound_context.model_visible",
             }
         )
     return items
@@ -800,7 +800,7 @@ def _bounded_artifact_payload(item: dict[str, Any]) -> dict[str, Any]:
         "content": str(item.get("content") or "")[:_GRAPH_STABLE_ARTIFACT_CONTENT_LIMIT],
         "truncated": bool(item.get("truncated") is True),
         "max_chars": min(_safe_int(item.get("max_chars")) or _GRAPH_STABLE_ARTIFACT_CONTENT_LIMIT, _GRAPH_STABLE_ARTIFACT_CONTENT_LIMIT),
-        "authority": str(item.get("authority") or "harness.graph.flow_packet.artifact_text_projection"),
+        "authority": str(item.get("authority") or "graph_system.flow_packet.artifact_text_projection"),
     }
 
 

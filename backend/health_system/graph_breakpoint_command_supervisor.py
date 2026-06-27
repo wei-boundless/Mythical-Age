@@ -35,10 +35,10 @@ _AUTO_RESUME_REASONS = {
     "waiting_executor",
 }
 _GRAPH_CONFIG_MISMATCH_ERRORS = {
-    "GraphRun structure_hash does not match GraphHarnessConfig",
-    "GraphRun graph_id does not match GraphHarnessConfig",
-    "Graph operation requires a published GraphHarnessConfig",
-    "GraphHarnessConfig config_hash mismatch (content_hash mismatch)",
+    "GraphRun structure_hash does not match ExecutableGraphConfig",
+    "GraphRun graph_id does not match ExecutableGraphConfig",
+    "Graph operation requires a published ExecutableGraphConfig",
+    "ExecutableGraphConfig config_hash mismatch (content_hash mismatch)",
     "graph_config_snapshot_missing",
 }
 _RUNTIME_RESOURCE_ERROR_PREFIXES = (
@@ -434,7 +434,7 @@ class GraphBreakpointCommandSupervisor:
         if not graph_run_id:
             raise ValueError("graph_run_id_missing")
         resolved_graph_config = graph_config or self._resolve_graph_config(payload)
-        result = self.runtime.harness_runtime.graph_harness.resume_run(
+        result = self.runtime.harness_runtime.graph_system.resume_run(
             graph_config=resolved_graph_config,
             graph_run_id=graph_run_id,
             dispatch_ready=True,
@@ -443,19 +443,19 @@ class GraphBreakpointCommandSupervisor:
         return result.to_dict() if hasattr(result, "to_dict") else dict(result or {})
 
     def _resolve_graph_config(self, payload: dict[str, Any]) -> Any:
-        config_id = str(payload.get("graph_harness_config_id") or "").strip()
+        config_id = str(payload.get("graph_config_id") or "").strip()
         graph_id = str(payload.get("graph_id") or "").strip()
         registry = TaskFlowRegistry(self.base_dir)
         if config_id:
-            graph_config = registry.get_graph_harness_config(config_id)
+            graph_config = registry.get_graph_config(config_id)
             if graph_config is None:
                 raise ValueError("graph_config_snapshot_missing")
             return graph_config
         if str(payload.get("graph_run_id") or "").strip():
             raise ValueError("graph_config_snapshot_missing")
-        graph_config = registry.get_published_graph_harness_config(graph_id) if graph_id else None
+        graph_config = registry.get_published_graph_config(graph_id) if graph_id else None
         if graph_config is None:
-            raise ValueError("graph_harness_config_missing")
+            raise ValueError("graph_config_missing")
         return graph_config
 
     def _recommended_actions(
@@ -624,7 +624,7 @@ def _command_recovery_key(command: Any) -> str:
         or dict(payload.get("recoverable_error") or {}).get("error_code")
         or ""
     ).strip()
-    config_id = str(payload.get("graph_harness_config_id") or "config_unknown").strip()
+    config_id = str(payload.get("graph_config_id") or "config_unknown").strip()
     if not node_id or not terminal_reason:
         return ""
     return "|".join((graph_run_id, node_id, terminal_reason, config_id))

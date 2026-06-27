@@ -69,6 +69,7 @@ from .invocation_packet import RuntimeInvocationPacket
 from .action_schema_manifest import ActionSchemaManifest, build_action_schema_manifest
 from .artifact_scope_manifest import ArtifactScopeManifest, build_artifact_scope_manifest
 from .bound_task_context import build_bound_task_context
+from .context_contract import build_context_contract_inspection_payload, build_context_contract_manifest
 from .environment_storage import ensure_environment_storage_dirs
 from .environment_prompt_controller import (
     GENERAL_ENVIRONMENT_ID,
@@ -301,6 +302,13 @@ class RuntimeCompiler:
         prompt_manifest["runtime_context_load_plan_ref"] = context_load_plan.plan_id
         prompt_manifest["runtime_context_load_plan"] = context_load_plan.to_dict()
         prompt_manifest["protocol_sanitizer"] = dict(protocol_sanitizer.diagnostics)
+        context_contract_manifest_payload = _attach_context_contract_manifest(
+            prompt_manifest,
+            packet_id=packet_id,
+            invocation_kind=invocation_kind,
+            message_specs=message_specs,
+            segment_plan=segment_plan.to_dict(),
+        )
         prompt_composition_manifest = _attach_prompt_composition_manifest(
             prompt_manifest,
             invocation_kind=invocation_kind,
@@ -362,6 +370,7 @@ class RuntimeCompiler:
             diagnostics={
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
+                "context_contract_manifest": context_contract_manifest_payload,
                 "model_input_authority": "prompt_composition.message_projection",
                 "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
                 "semantic_compaction_request_ref": str(request_payload.get("request_id") or ""),
@@ -982,6 +991,13 @@ class RuntimeCompiler:
             history=history,
             dynamic_context=dynamic_context,
         )
+        context_contract_manifest_payload = _attach_context_contract_manifest(
+            prompt_manifest,
+            packet_id=packet_id,
+            invocation_kind="single_agent_turn",
+            message_specs=message_specs,
+            segment_plan=segment_plan.to_dict(),
+        )
         _attach_project_instruction_manifest(prompt_manifest, project_instruction_bundle)
         tool_catalog_manifest_payload = _attach_tool_catalog_manifest(prompt_manifest, tool_catalog_manifest)
         prompt_composition_manifest = _attach_prompt_composition_manifest(
@@ -1026,6 +1042,7 @@ class RuntimeCompiler:
             diagnostics={
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
+                "context_contract_manifest": context_contract_manifest_payload,
                 "tool_catalog_manifest": tool_catalog_manifest_payload,
                 "model_input_authority": "prompt_composition.message_projection",
                 "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
@@ -1962,6 +1979,13 @@ class RuntimeCompiler:
             history=[],
             dynamic_context=dynamic_context,
         )
+        context_contract_manifest_payload = _attach_context_contract_manifest(
+            prompt_manifest,
+            packet_id=packet_id,
+            invocation_kind="task_execution",
+            message_specs=message_specs,
+            segment_plan=segment_plan.to_dict(),
+        )
         _attach_project_instruction_manifest(prompt_manifest, project_instruction_bundle)
         action_schema_manifest_payload = _attach_action_schema_manifest(prompt_manifest, action_schema_manifest)
         artifact_scope_manifest_payload = _attach_artifact_scope_manifest(prompt_manifest, artifact_scope_manifest)
@@ -2016,6 +2040,7 @@ class RuntimeCompiler:
             diagnostics={
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
+                "context_contract_manifest": context_contract_manifest_payload,
                 "action_schema_manifest": action_schema_manifest_payload,
                 "artifact_scope_manifest": artifact_scope_manifest_payload,
                 "tool_catalog_manifest": tool_catalog_manifest_payload,
@@ -2536,6 +2561,13 @@ class RuntimeCompiler:
             history=history,
             dynamic_context=dynamic_context,
         )
+        context_contract_manifest_payload = _attach_context_contract_manifest(
+            prompt_manifest,
+            packet_id=packet_id,
+            invocation_kind="tool_observation_followup",
+            message_specs=message_specs,
+            segment_plan=segment_plan.to_dict(),
+        )
         _attach_project_instruction_manifest(prompt_manifest, project_instruction_bundle)
         tool_catalog_manifest_payload = _attach_tool_catalog_manifest(prompt_manifest, tool_catalog_manifest)
         prompt_composition_manifest = _attach_prompt_composition_manifest(
@@ -2581,6 +2613,7 @@ class RuntimeCompiler:
             diagnostics={
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
+                "context_contract_manifest": context_contract_manifest_payload,
                 "tool_catalog_manifest": tool_catalog_manifest_payload,
                 "tool_call_contract": tool_call_contract.to_hidden_control_payload(),
                 "model_input_authority": "prompt_composition.message_projection",
@@ -5443,6 +5476,26 @@ def _attach_model_message_metrics(
     prompt_manifest["token_estimate"] = token_estimate
 
 
+def _attach_context_contract_manifest(
+    prompt_manifest: dict[str, Any],
+    *,
+    packet_id: str,
+    invocation_kind: str,
+    message_specs: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+    segment_plan: dict[str, Any],
+) -> dict[str, Any]:
+    manifest = build_context_contract_manifest(
+        packet_id=packet_id,
+        invocation_kind=invocation_kind,
+        message_specs=message_specs,
+        segment_plan=segment_plan,
+    )
+    payload = manifest.to_dict()
+    prompt_manifest["context_contract_manifest"] = payload
+    prompt_manifest["semantic_space_inspection"] = build_context_contract_inspection_payload(payload)
+    return payload
+
+
 def _attach_action_schema_manifest(
     prompt_manifest: dict[str, Any],
     action_schema_manifest: ActionSchemaManifest,
@@ -7565,7 +7618,7 @@ def _inbound_context_stable_payload(value: Any) -> list[dict[str, Any]]:
                 "result_refs": _bounded_dict_list(item.get("result_refs"), limit=8),
                 "receipt_refs": _bounded_dict_list(item.get("receipt_refs"), limit=12),
                 "visibility": dict(item.get("visibility") or {}),
-                "authority": "harness.graph.inbound_context.model_visible",
+                "authority": "graph_system.inbound_context.model_visible",
             }
         )
     return items
@@ -7619,7 +7672,7 @@ def _bounded_artifact_payload(item: dict[str, Any]) -> dict[str, Any]:
         "content": str(item.get("content") or "")[:_GRAPH_AUTHORIZED_INPUT_CONTENT_LIMIT],
         "truncated": bool(item.get("truncated") is True),
         "max_chars": min(_safe_int(item.get("max_chars")) or _GRAPH_AUTHORIZED_INPUT_CONTENT_LIMIT, _GRAPH_AUTHORIZED_INPUT_CONTENT_LIMIT),
-        "authority": str(item.get("authority") or "harness.graph.flow_packet.artifact_text_projection"),
+        "authority": str(item.get("authority") or "graph_system.flow_packet.artifact_text_projection"),
     }
 
 

@@ -9,7 +9,7 @@ from agent_system.a2a.official_adapter import (
 )
 from capability_system.mcp.local_registry import get_local_mcp_unit
 from evidence.graph import EvidenceArtifactGraph, result_handle_from_payload, subset_handle_from_payload
-from runtime.output_boundary import build_rag_evidence_pack
+from harness.runtime.output_boundary import build_rag_evidence_pack
 from .projection import MCPProjectionAdapter
 from .mcp_models import (
     CanonicalResult,

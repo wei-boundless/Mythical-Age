@@ -740,7 +740,7 @@ export function buildTaskGraphPreflightReport({
         scope: "runtime",
         target_id: "",
         title: "LoopPlan 不可用",
-        detail: "后端没有返回可执行的拓扑编译计划，请先刷新标准视图并确认 GraphHarnessConfig 能够编译。",
+        detail: "后端没有返回可执行的拓扑编译计划，请先刷新标准视图并确认 ExecutableGraphConfig 能够编译。",
         source: "backend.loop_plan",
       });
     }

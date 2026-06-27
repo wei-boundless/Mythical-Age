@@ -191,7 +191,7 @@ def test_runtime_monitor_summarizes_graph_run_scoped_facts(tmp_path) -> None:
             diagnostics={
                 "graph_id": "graph:monitor",
                 "graph_run_id": graph_run_id,
-                "graph_harness_config_id": "ghcfg:monitor",
+                "graph_config_id": "ghcfg:monitor",
             },
         )
     )

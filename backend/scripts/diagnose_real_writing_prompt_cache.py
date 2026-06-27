@@ -208,9 +208,9 @@ def _candidate_from_packet(*, path: Path, packet: dict[str, Any]) -> PacketCandi
 
 
 def _compile_work_order_packet(*, base_dir: Path, path: Path) -> dict[str, Any]:
-    from harness.graph.models import GraphNodeWorkOrder
+    from graph_system.models import GraphNodeWorkOrder
     from harness.runtime.compiler import RuntimeCompiler
-    from harness.graph.work_order_contract import _graph_node_contract_from_work_order
+    from graph_system.work_order_contract import _graph_node_contract_from_work_order
 
     raw = _read_json(path)
     payload = dict(raw.get("payload") or raw)

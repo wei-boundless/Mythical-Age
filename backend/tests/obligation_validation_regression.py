@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from runtime.contracts.obligation_validation import validate_obligations
+from harness.runtime.outcome.obligation_validation import validate_obligations
 from runtime.memory.tool_observation_ledger import ToolObservationLedger
 
 

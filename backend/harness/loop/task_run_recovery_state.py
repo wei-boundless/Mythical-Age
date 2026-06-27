@@ -184,7 +184,7 @@ def _graph_controlled(diagnostics: dict[str, Any]) -> bool:
         origin_kind = str(diagnostics.get("origin_kind") or origin.get("origin_kind") or "").strip()
     else:
         origin_kind = str(diagnostics.get("origin_kind") or "").strip()
-    return origin_kind == "graph_node_assigned" or bool(diagnostics.get("graph_run_id") or diagnostics.get("graph_harness_config_id"))
+    return origin_kind == "graph_node_assigned" or bool(diagnostics.get("graph_run_id") or diagnostics.get("graph_config_id"))
 
 
 def _has_live_executor_claim(runtime_host: Any | None, task_run: Any) -> bool:

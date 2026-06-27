@@ -3,21 +3,21 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .graph_harness import GraphHarness
+    from .graph_system import GraphSystem
     from .runtime import AgentRuntimeServices, SingleAgentRuntimeHost
 
 __all__ = [
-    "GraphHarness",
+    "GraphSystem",
     "AgentRuntimeServices",
     "SingleAgentRuntimeHost",
 ]
 
 
 def __getattr__(name: str):
-    if name == "GraphHarness":
-        from .graph_harness import GraphHarness
+    if name == "GraphSystem":
+        from .graph_system import GraphSystem
 
-        return GraphHarness
+        return GraphSystem
     if name in {"AgentRuntimeServices", "SingleAgentRuntimeHost"}:
         from . import runtime
 

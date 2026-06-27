@@ -27,10 +27,11 @@ export async function fetchRunMonitorTaskDetail(taskRunId: string) {
 
 export async function fetchRunMonitorGraphDetail(
   graphRunId: string,
-  graphHarnessConfigId: string,
+  graphConfigId: string,
   sessionScope?: Partial<SessionScope>,
 ) {
-  return getGraphRunMonitor(graphRunId, graphHarnessConfigId, 80, sessionScope);
+  return getGraphRunMonitor(graphRunId, graphConfigId, 80, sessionScope);
 }
 
 export { getRuntimeMonitorEventStreamUrl };
+

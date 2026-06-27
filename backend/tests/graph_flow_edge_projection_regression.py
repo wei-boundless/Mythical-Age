@@ -9,15 +9,15 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from harness.graph.checkpoint_store import GraphCheckpointRecord
-from harness.graph.flow_edges import build_inbound_flow_edges, build_outbound_flow_edges
-from harness.graph.context_materializer import GraphContextMaterializer
-from harness.graph.flow_packet import build_flow_packet, flow_packet_inbound_projection
-from harness.graph.loop import GraphLoop
-from harness.graph.models import GraphLoopState
-from harness.graph.models import GraphHarnessConfig, NodeResultEnvelope
-from harness.graph.scheduler_view import build_scheduler_view
-from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
+from graph_system.checkpoint_store import GraphCheckpointRecord
+from graph_system.flow_edges import build_inbound_flow_edges, build_outbound_flow_edges
+from graph_system.context_materializer import GraphContextMaterializer
+from graph_system.flow_packet import build_flow_packet, flow_packet_inbound_projection
+from graph_system.loop import GraphLoop
+from graph_system.models import GraphLoopState
+from graph_system.models import ExecutableGraphConfig, NodeResultEnvelope
+from graph_system.scheduler_view import build_scheduler_view
+from task_system.compiler.executable_graph_config_publisher import build_graph_config_from_graph
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
 
 
@@ -68,8 +68,8 @@ def _graph_loop_services() -> SimpleNamespace:
     )
 
 
-def _config(edges: tuple[dict, ...]) -> GraphHarnessConfig:
-    return GraphHarnessConfig(
+def _config(edges: tuple[dict, ...]) -> ExecutableGraphConfig:
+    return ExecutableGraphConfig(
         config_id="ghcfg:test:flow_edges",
         graph_id="graph.test.flow_edges",
         graph_title="Flow Edges",
@@ -378,7 +378,7 @@ def test_published_graph_includes_node_and_edge_protocol_indexes() -> None:
         ),
     )
 
-    config = build_graph_harness_config_from_graph(graph=graph)
+    config = build_graph_config_from_graph(graph=graph)
     contracts = dict(config.contracts)
 
     assert contracts["node_protocol_index"]["draft"]["produced_payload_contract_ids"] == ["contract.draft.out"]
@@ -423,7 +423,7 @@ def test_publish_fails_when_edge_references_unknown_source_output_key() -> None:
     )
 
     try:
-        build_graph_harness_config_from_graph(graph=graph)
+        build_graph_config_from_graph(graph=graph)
         raised = None
     except ValueError as exc:
         raised = exc
@@ -467,7 +467,7 @@ def test_publish_fails_when_edge_payload_is_not_accepted_by_target_without_alias
     )
 
     try:
-        build_graph_harness_config_from_graph(graph=graph)
+        build_graph_config_from_graph(graph=graph)
         raised = None
     except ValueError as exc:
         raised = exc

@@ -7,8 +7,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from harness.graph.lifecycle_manager import GraphTaskLifecycleManager
-from harness.graph.models import GraphNodeWorkOrder, NodeResultEnvelope, safe_id
+from graph_system.lifecycle_manager import GraphTaskLifecycleManager
+from graph_system.models import GraphNodeWorkOrder, NodeResultEnvelope, safe_id
 from sessions import InvalidSessionId, SessionTaskBindingConflict, SessionTaskBindingMissing, validate_session_id
 from task_system import TaskFlowRegistry
 from task_system.graph_instances import GraphTaskInstanceRepository
@@ -33,7 +33,7 @@ class TaskGraphRunStartRequest(BaseModel):
     session_scope: dict[str, Any] | None = None
     initial_inputs: dict[str, Any] = Field(default_factory=dict)
     include_trace: bool = True
-    include_graph_harness_config: bool = False
+    include_graph_config: bool = False
     dispatch_ready: bool = True
     run_mode: str = Field(default="dispatch_only", max_length=32)
     wait_for_completion: bool = False
@@ -43,19 +43,19 @@ class TaskGraphRunStartRequest(BaseModel):
 
 
 class GraphNodeResultRequest(BaseModel):
-    graph_harness_config_id: str = Field(..., min_length=1, max_length=240)
+    graph_config_id: str = Field(..., min_length=1, max_length=240)
     session_scope: dict[str, Any] | None = None
     result: dict[str, Any] = Field(default_factory=dict)
 
 
 class GraphRunDispatchReadyRequest(BaseModel):
-    graph_harness_config_id: str = Field(..., min_length=1, max_length=240)
+    graph_config_id: str = Field(..., min_length=1, max_length=240)
     session_scope: dict[str, Any] | None = None
     max_requests: int = Field(default=1, ge=1, le=32)
 
 
 class GraphRunRequeueNodesRequest(BaseModel):
-    graph_harness_config_id: str = Field(..., min_length=1, max_length=240)
+    graph_config_id: str = Field(..., min_length=1, max_length=240)
     session_scope: dict[str, Any] | None = None
     start_node_ids: list[str] = Field(default_factory=list)
     runtime_settings_patch: dict[str, Any] = Field(default_factory=dict)
@@ -63,7 +63,7 @@ class GraphRunRequeueNodesRequest(BaseModel):
 
 
 class GraphWorkOrderExecuteRequest(BaseModel):
-    graph_harness_config_id: str = Field(..., min_length=1, max_length=240)
+    graph_config_id: str = Field(..., min_length=1, max_length=240)
     session_scope: dict[str, Any] | None = None
     work_order: dict[str, Any] = Field(default_factory=dict)
     runtime_overrides: dict[str, Any] = Field(default_factory=dict)
@@ -73,7 +73,7 @@ class GraphWorkOrderExecuteRequest(BaseModel):
 
 
 class GraphRunUntilIdleRequest(BaseModel):
-    graph_harness_config_id: str = Field(..., min_length=1, max_length=240)
+    graph_config_id: str = Field(..., min_length=1, max_length=240)
     session_scope: dict[str, Any] | None = None
     runtime_overrides: dict[str, Any] = Field(default_factory=dict)
     runtime_settings_patch: dict[str, Any] = Field(default_factory=dict)
@@ -87,7 +87,7 @@ class GraphRunUntilIdleRequest(BaseModel):
 
 
 class GraphRunControlRequest(BaseModel):
-    graph_harness_config_id: str = Field(..., min_length=1, max_length=240)
+    graph_config_id: str = Field(..., min_length=1, max_length=240)
     session_scope: dict[str, Any] | None = None
     reason: str = Field(default="", max_length=1000)
 
@@ -98,13 +98,13 @@ class GraphRunDeleteRequest(BaseModel):
 
 
 @router.post("/orchestration/harness/task-graphs/{graph_id}/start")
-async def start_task_graph_harness_run(
+async def start_task_graph_system_run(
     graph_id: str,
     payload: TaskGraphRunStartRequest,
 ) -> dict[str, Any]:
     runtime = require_runtime()
     registry = TaskFlowRegistry(runtime.base_dir)
-    graph_config = registry.get_published_graph_harness_config(graph_id)
+    graph_config = registry.get_published_graph_config(graph_id)
     if graph_config is None:
         graph = registry.get_task_graph(graph_id)
         if graph is None:
@@ -112,7 +112,7 @@ async def start_task_graph_harness_run(
         raise HTTPException(
             status_code=409,
             detail={
-                "message": "TaskGraph has no published GraphHarnessConfig; publish the graph config before run start.",
+                "message": "TaskGraph has no published ExecutableGraphConfig; publish the graph config before run start.",
                 "graph_id": graph_id,
             },
         )
@@ -124,7 +124,7 @@ async def start_task_graph_harness_run(
         session_scope=payload.session_scope,
     )
     run_mode = _validated_graph_start_run_mode(payload.run_mode)
-    graph_harness = runtime.harness_runtime.graph_harness
+    graph_system = runtime.harness_runtime.graph_system
     graph_session_id = _create_graph_run_session(
         runtime=runtime,
         graph_config=graph_config,
@@ -133,13 +133,13 @@ async def start_task_graph_harness_run(
     start = None
     try:
         graph_task_instance_id = _graph_task_instance_id_from_inputs(payload.initial_inputs, resolved_scope)
-        start = graph_harness.start_run(
+        start = graph_system.start_run(
             session_id=graph_session_id,
             task_id=payload.task_id.strip(),
             graph_config=graph_config,
             initial_inputs=_graph_start_initial_inputs(payload.initial_inputs, resolved_scope),
             diagnostics={
-                "source": "harness.task_graph_start_api",
+                "source": "graph_system.task_graph_start_api",
                 "launch_session_id": launch_session_id,
                 "graph_root_session_id": graph_session_id,
                 "session_scope": resolved_scope.to_dict(),
@@ -156,7 +156,7 @@ async def start_task_graph_harness_run(
             graph_run_id=start.graph_run.graph_run_id,
             task_run_id=start.task_run.task_run_id,
             graph_id=graph_config.graph_id,
-            graph_harness_config_id=graph_config.config_id,
+            graph_config_id=graph_config.config_id,
             session_scope=resolved_scope.to_dict(),
             task_environment_id="",
             project_id=resolved_scope.project_id,
@@ -165,7 +165,7 @@ async def start_task_graph_harness_run(
         if start is not None:
             GraphTaskLifecycleManager(
                 base_dir=runtime.base_dir,
-                graph_harness=graph_harness,
+                graph_system=graph_system,
             ).delete_graph_run(start.graph_run.graph_run_id)
         _delete_graph_run_session(runtime=runtime, graph_session_id=graph_session_id)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -178,7 +178,7 @@ async def start_task_graph_harness_run(
     response_checkpoint = dict(start.checkpoint)
     if payload.dispatch_ready:
         try:
-            dispatch = graph_harness.graph_loop.dispatch_ready_and_checkpoint(
+            dispatch = graph_system.graph_loop.dispatch_ready_and_checkpoint(
                 graph_config=graph_config,
                 graph_run_id=start.graph_run.graph_run_id,
             )
@@ -190,7 +190,7 @@ async def start_task_graph_harness_run(
         events.extend(dict(item) for item in dispatch.events)
     if payload.runtime_settings_patch and run_mode != "auto_run":
         try:
-            patched = graph_harness.apply_runtime_settings_patch(
+            patched = graph_system.apply_runtime_settings_patch(
                 graph_run_id=start.graph_run.graph_run_id,
                 runtime_settings_patch=dict(payload.runtime_settings_patch or {}),
             )
@@ -204,7 +204,7 @@ async def start_task_graph_harness_run(
     if run_mode == "auto_run":
         try:
             if payload.wait_for_completion:
-                runner_result = await graph_harness.run_until_idle(
+                runner_result = await graph_system.run_until_idle(
                     graph_config=graph_config,
                     graph_run_id=start.graph_run.graph_run_id,
                     runtime_overrides=dict(payload.runtime_overrides or {}),
@@ -212,7 +212,7 @@ async def start_task_graph_harness_run(
                     **_runner_budget_kwargs(payload.runner_budget),
                 )
             else:
-                background_submission = graph_harness.submit_run_until_idle(
+                background_submission = graph_system.submit_run_until_idle(
                     graph_config=graph_config,
                     graph_run_id=start.graph_run.graph_run_id,
                     runtime_overrides=dict(payload.runtime_overrides or {}),
@@ -225,28 +225,28 @@ async def start_task_graph_harness_run(
     response_graph_run = start.graph_run.to_dict()
     if runner_result is not None:
         response_loop_state = dict(runner_result.loop_state)
-        response_checkpoint = graph_harness.get_latest_checkpoint(start.graph_run.graph_run_id)
-        latest_task_run = graph_harness.get_task_run(start.task_run.task_run_id)
+        response_checkpoint = graph_system.get_latest_checkpoint(start.graph_run.graph_run_id)
+        latest_task_run = graph_system.get_task_run(start.task_run.task_run_id)
         if latest_task_run is not None:
             response_task_run = latest_task_run.to_dict() if hasattr(latest_task_run, "to_dict") else dict(latest_task_run)
-        latest_graph_run = graph_harness.get_graph_run(start.graph_run.graph_run_id)
+        latest_graph_run = graph_system.get_graph_run(start.graph_run.graph_run_id)
         if latest_graph_run:
             response_graph_run = latest_graph_run.to_dict() if hasattr(latest_graph_run, "to_dict") else dict(latest_graph_run)
-        monitor = graph_harness.get_graph_run_monitor(start.graph_run.graph_run_id, graph_config=graph_config)
+        monitor = graph_system.get_graph_run_monitor(start.graph_run.graph_run_id, graph_config=graph_config)
         node_work_orders = [dict(item) for item in list(dict(monitor or {}).get("active_node_work_orders") or [])]
     elif background_submission is not None:
-        latest_state = graph_harness.graph_loop.get_state(start.graph_run.graph_run_id)
+        latest_state = graph_system.graph_loop.get_state(start.graph_run.graph_run_id)
         if latest_state is not None:
             response_loop_state = latest_state.to_dict() if hasattr(latest_state, "to_dict") else dict(latest_state)
-        response_checkpoint = graph_harness.get_latest_checkpoint(start.graph_run.graph_run_id)
-        monitor = graph_harness.get_graph_run_monitor(start.graph_run.graph_run_id, graph_config=graph_config)
+        response_checkpoint = graph_system.get_latest_checkpoint(start.graph_run.graph_run_id)
+        monitor = graph_system.get_graph_run_monitor(start.graph_run.graph_run_id, graph_config=graph_config)
         node_work_orders = [dict(item) for item in list(dict(monitor or {}).get("active_node_work_orders") or [])]
-    trace = graph_harness.get_trace(start.task_run.task_run_id) if payload.include_trace else None
+    trace = graph_system.get_trace(start.task_run.task_run_id) if payload.include_trace else None
     return {
-        "authority": "harness.api.task_graph_run_start",
+        "authority": "graph_system.api.task_graph_run_start",
         "graph_id": graph_config.graph_id,
         "graph_run_id": start.graph_run.graph_run_id,
-        "graph_harness_config_id": graph_config.config_id,
+        "graph_config_id": graph_config.config_id,
         "launch_session_id": launch_session_id,
         "graph_session_id": graph_session_id,
         "task_run_id": start.task_run.task_run_id,
@@ -254,7 +254,7 @@ async def start_task_graph_harness_run(
         "graph_run": response_graph_run,
         "checkpoint": response_checkpoint,
         "graph_loop_state": response_loop_state,
-        "graph_harness_config": _graph_config_api_view(graph_config, include_config=payload.include_graph_harness_config),
+        "graph_config": _graph_config_api_view(graph_config, include_config=payload.include_graph_config),
         "node_work_orders": node_work_orders,
         "runner_result": runner_result.to_dict() if runner_result is not None else None,
         "background_submission": background_submission.to_dict() if background_submission is not None else None,
@@ -264,18 +264,18 @@ async def start_task_graph_harness_run(
 
 
 @router.get("/orchestration/harness/task-graphs/{graph_id}/published-config")
-async def get_published_task_graph_harness_config(graph_id: str) -> dict[str, Any]:
+async def get_published_task_graph_config(graph_id: str) -> dict[str, Any]:
     runtime = require_runtime()
-    graph_config = TaskFlowRegistry(runtime.base_dir).get_published_graph_harness_config(graph_id)
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_published_graph_config(graph_id)
     if graph_config is None:
-        raise HTTPException(status_code=404, detail="GraphHarnessConfig not found")
+        raise HTTPException(status_code=404, detail="ExecutableGraphConfig not found")
     return _graph_config_api_view(graph_config, include_config=True)
 
 
 @router.get("/orchestration/harness/graph-runs/{graph_run_id}/monitor")
 async def get_graph_run_monitor(
     graph_run_id: str,
-    graph_harness_config_id: str = "",
+    graph_config_id: str = "",
     event_limit: int = 80,
     include_config: bool = False,
     workspace_view: str | None = None,
@@ -284,14 +284,14 @@ async def get_graph_run_monitor(
 ) -> dict[str, Any]:
     runtime = require_runtime()
     graph_config = None
-    if graph_harness_config_id:
-        graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_harness_config(graph_harness_config_id)
+    if graph_config_id:
+        graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_config(graph_config_id)
         if graph_config is None:
-            raise HTTPException(status_code=404, detail="GraphHarnessConfig not found")
+            raise HTTPException(status_code=404, detail="ExecutableGraphConfig not found")
     _assert_graph_run_scope(
         runtime=runtime,
         graph_run_id=graph_run_id,
-        graph_harness_config_id=graph_harness_config_id,
+        graph_config_id=graph_config_id,
         session_scope=_session_scope_from_query(
             workspace_view=workspace_view,
             task_environment_id=task_environment_id,
@@ -299,7 +299,7 @@ async def get_graph_run_monitor(
         ),
         graph_config=graph_config,
     )
-    monitor = runtime.harness_runtime.graph_harness.get_graph_run_monitor(
+    monitor = runtime.harness_runtime.graph_system.get_graph_run_monitor(
         graph_run_id,
         graph_config=graph_config,
         event_limit=max(1, min(int(event_limit or 80), 240)),
@@ -322,12 +322,12 @@ async def delete_graph_task_run(graph_run_id: str, payload: GraphRunDeleteReques
     _assert_graph_run_scope(
         runtime=runtime,
         graph_run_id=graph_run_id,
-        graph_harness_config_id="",
+        graph_config_id="",
         session_scope=request.session_scope,
     )
     manager = GraphTaskLifecycleManager(
         base_dir=runtime.base_dir,
-        graph_harness=runtime.harness_runtime.graph_harness,
+        graph_system=runtime.harness_runtime.graph_system,
     )
     try:
         return manager.preview_delete_graph_run(graph_run_id)
@@ -341,27 +341,27 @@ async def dispatch_graph_run_ready_nodes(
     payload: GraphRunDispatchReadyRequest,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_harness_config(payload.graph_harness_config_id)
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_config(payload.graph_config_id)
     if graph_config is None:
-        raise HTTPException(status_code=404, detail="GraphHarnessConfig not found")
+        raise HTTPException(status_code=404, detail="ExecutableGraphConfig not found")
     _assert_graph_run_scope(
         runtime=runtime,
         graph_run_id=graph_run_id,
-        graph_harness_config_id=graph_config.config_id,
+        graph_config_id=graph_config.config_id,
         graph_config=graph_config,
         session_scope=payload.session_scope,
     )
-    if runtime.harness_runtime.graph_harness.graph_loop.get_state(graph_run_id) is None:
+    if runtime.harness_runtime.graph_system.graph_loop.get_state(graph_run_id) is None:
         raise HTTPException(status_code=404, detail="GraphLoopState not found")
-    dispatch = runtime.harness_runtime.graph_harness.graph_loop.dispatch_ready_and_checkpoint(
+    dispatch = runtime.harness_runtime.graph_system.graph_loop.dispatch_ready_and_checkpoint(
         graph_config=graph_config,
         graph_run_id=graph_run_id,
         max_requests=payload.max_requests,
     )
     return {
-        "authority": "harness.api.graph_run_dispatch_ready",
+        "authority": "graph_system.api.graph_run_dispatch_ready",
         "graph_run_id": graph_run_id,
-        "graph_harness_config_id": graph_config.config_id,
+        "graph_config_id": graph_config.config_id,
         "graph_loop_state": dispatch.loop_state.to_dict(),
         "checkpoint": dict(dispatch.checkpoint),
         "node_work_orders": [item.to_dict() for item in dispatch.node_work_orders],
@@ -376,18 +376,18 @@ async def requeue_graph_run_nodes(
     payload: GraphRunRequeueNodesRequest,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_harness_config(payload.graph_harness_config_id)
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_config(payload.graph_config_id)
     if graph_config is None:
-        raise HTTPException(status_code=404, detail="GraphHarnessConfig not found")
+        raise HTTPException(status_code=404, detail="ExecutableGraphConfig not found")
     _assert_graph_run_scope(
         runtime=runtime,
         graph_run_id=graph_run_id,
-        graph_harness_config_id=graph_config.config_id,
+        graph_config_id=graph_config.config_id,
         graph_config=graph_config,
         session_scope=payload.session_scope,
     )
     try:
-        requeue = runtime.harness_runtime.graph_harness.graph_loop.requeue_nodes_and_checkpoint(
+        requeue = runtime.harness_runtime.graph_system.graph_loop.requeue_nodes_and_checkpoint(
             graph_config=graph_config,
             graph_run_id=graph_run_id,
             start_node_ids=tuple(payload.start_node_ids or ()),
@@ -397,9 +397,9 @@ async def requeue_graph_run_nodes(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
-        "authority": "harness.api.graph_run_requeue_nodes",
+        "authority": "graph_system.api.graph_run_requeue_nodes",
         "graph_run_id": graph_run_id,
-        "graph_harness_config_id": graph_config.config_id,
+        "graph_config_id": graph_config.config_id,
         "graph_structure_hash": requeue.loop_state.structure_hash,
         "graph_loop_state": requeue.loop_state.to_dict(),
         "checkpoint": dict(requeue.checkpoint),
@@ -413,13 +413,13 @@ async def accept_graph_node_result(
     payload: GraphNodeResultRequest,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_harness_config(payload.graph_harness_config_id)
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_config(payload.graph_config_id)
     if graph_config is None:
-        raise HTTPException(status_code=404, detail="GraphHarnessConfig not found")
+        raise HTTPException(status_code=404, detail="ExecutableGraphConfig not found")
     _assert_graph_run_scope(
         runtime=runtime,
         graph_run_id=graph_run_id,
-        graph_harness_config_id=graph_config.config_id,
+        graph_config_id=graph_config.config_id,
         graph_config=graph_config,
         session_scope=payload.session_scope,
     )
@@ -428,7 +428,7 @@ async def accept_graph_node_result(
         "graph_run_id": str(dict(payload.result or {}).get("graph_run_id") or graph_run_id),
     }
     try:
-        advance = runtime.harness_runtime.graph_harness.accept_node_result(
+        advance = runtime.harness_runtime.graph_system.accept_node_result(
             graph_config=graph_config,
             graph_run_id=graph_run_id,
             result=NodeResultEnvelope.from_dict(result_payload),
@@ -436,9 +436,9 @@ async def accept_graph_node_result(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
-        "authority": "harness.api.graph_node_result_accept",
+        "authority": "graph_system.api.graph_node_result_accept",
         "graph_run_id": graph_run_id,
-        "graph_harness_config_id": graph_config.config_id,
+        "graph_config_id": graph_config.config_id,
         "accepted_result": advance.accepted_result.to_dict() if advance.accepted_result is not None else None,
         "graph_result": advance.graph_result.to_dict() if advance.graph_result is not None else None,
         "graph_loop_state": advance.loop_state.to_dict(),
@@ -454,13 +454,13 @@ async def execute_graph_work_order(
     payload: GraphWorkOrderExecuteRequest,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_harness_config(payload.graph_harness_config_id)
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_config(payload.graph_config_id)
     if graph_config is None:
-        raise HTTPException(status_code=404, detail="GraphHarnessConfig not found")
+        raise HTTPException(status_code=404, detail="ExecutableGraphConfig not found")
     _assert_graph_run_scope(
         runtime=runtime,
         graph_run_id=graph_run_id,
-        graph_harness_config_id=graph_config.config_id,
+        graph_config_id=graph_config.config_id,
         graph_config=graph_config,
         session_scope=payload.session_scope,
     )
@@ -472,7 +472,7 @@ async def execute_graph_work_order(
         work_order = GraphNodeWorkOrder.from_dict(work_order_payload)
         if work_order.graph_run_id != graph_run_id:
             raise ValueError("GraphNodeWorkOrder graph_run_id does not match route graph_run_id")
-        return await runtime.harness_runtime.graph_harness.execute_work_order(
+        return await runtime.harness_runtime.graph_system.execute_work_order(
             graph_config=graph_config,
             work_order=work_order,
             max_steps=payload.max_steps,
@@ -492,20 +492,20 @@ async def run_graph_run_until_idle(
     if not payload.wait_for_completion:
         return await submit_graph_run_until_idle(graph_run_id, payload)
     runtime = require_runtime()
-    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_harness_config(payload.graph_harness_config_id)
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_config(payload.graph_config_id)
     if graph_config is None:
-        raise HTTPException(status_code=404, detail="GraphHarnessConfig not found")
+        raise HTTPException(status_code=404, detail="ExecutableGraphConfig not found")
     _assert_graph_run_scope(
         runtime=runtime,
         graph_run_id=graph_run_id,
-        graph_harness_config_id=graph_config.config_id,
+        graph_config_id=graph_config.config_id,
         graph_config=graph_config,
         session_scope=payload.session_scope,
     )
-    if runtime.harness_runtime.graph_harness.graph_loop.get_state(graph_run_id) is None:
+    if runtime.harness_runtime.graph_system.graph_loop.get_state(graph_run_id) is None:
         raise HTTPException(status_code=404, detail="GraphLoopState not found")
     try:
-        result = await runtime.harness_runtime.graph_harness.run_until_idle(
+        result = await runtime.harness_runtime.graph_system.run_until_idle(
             graph_config=graph_config,
             graph_run_id=graph_run_id,
             max_node_executions=payload.max_node_executions,
@@ -528,21 +528,21 @@ async def submit_graph_run_until_idle(
     payload: GraphRunUntilIdleRequest,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_harness_config(payload.graph_harness_config_id)
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_config(payload.graph_config_id)
     if graph_config is None:
-        raise HTTPException(status_code=404, detail="GraphHarnessConfig not found")
+        raise HTTPException(status_code=404, detail="ExecutableGraphConfig not found")
     _assert_graph_run_scope(
         runtime=runtime,
         graph_run_id=graph_run_id,
-        graph_harness_config_id=graph_config.config_id,
+        graph_config_id=graph_config.config_id,
         graph_config=graph_config,
         session_scope=payload.session_scope,
     )
-    if runtime.harness_runtime.graph_harness.graph_loop.get_state(graph_run_id) is None:
+    if runtime.harness_runtime.graph_system.graph_loop.get_state(graph_run_id) is None:
         raise HTTPException(status_code=404, detail="GraphLoopState not found")
 
     try:
-        submission = runtime.harness_runtime.graph_harness.submit_run_until_idle(
+        submission = runtime.harness_runtime.graph_system.submit_run_until_idle(
             graph_config=graph_config,
             graph_run_id=graph_run_id,
             max_node_executions=payload.max_node_executions,
@@ -562,18 +562,18 @@ async def pause_graph_run(
     payload: GraphRunControlRequest,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_harness_config(payload.graph_harness_config_id)
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_config(payload.graph_config_id)
     if graph_config is None:
-        raise HTTPException(status_code=404, detail="GraphHarnessConfig not found")
+        raise HTTPException(status_code=404, detail="ExecutableGraphConfig not found")
     _assert_graph_run_scope(
         runtime=runtime,
         graph_run_id=graph_run_id,
-        graph_harness_config_id=graph_config.config_id,
+        graph_config_id=graph_config.config_id,
         graph_config=graph_config,
         session_scope=payload.session_scope,
     )
     try:
-        result = runtime.harness_runtime.graph_harness.request_graph_run_pause(
+        result = runtime.harness_runtime.graph_system.request_graph_run_pause(
             graph_run_id,
             reason=payload.reason,
             requested_by="user",
@@ -591,18 +591,18 @@ async def resume_graph_run(
     payload: GraphRunControlRequest,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_harness_config(payload.graph_harness_config_id)
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_config(payload.graph_config_id)
     if graph_config is None:
-        raise HTTPException(status_code=404, detail="GraphHarnessConfig not found")
+        raise HTTPException(status_code=404, detail="ExecutableGraphConfig not found")
     _assert_graph_run_scope(
         runtime=runtime,
         graph_run_id=graph_run_id,
-        graph_harness_config_id=graph_config.config_id,
+        graph_config_id=graph_config.config_id,
         graph_config=graph_config,
         session_scope=payload.session_scope,
     )
     try:
-        result = runtime.harness_runtime.graph_harness.request_graph_run_resume(
+        result = runtime.harness_runtime.graph_system.request_graph_run_resume(
             graph_run_id,
             reason=payload.reason,
             requested_by="user",
@@ -666,18 +666,18 @@ def _assert_graph_run_scope(
     *,
     runtime: Any,
     graph_run_id: str,
-    graph_harness_config_id: str,
+    graph_config_id: str,
     session_scope: dict[str, Any] | None,
     graph_config: Any | None = None,
 ) -> SessionScope:
     expected = _graph_instance_scope(normalize_session_scope(session_scope)) if session_scope is not None else None
-    graph_run_payload = runtime.harness_runtime.graph_harness.get_graph_run(graph_run_id)
+    graph_run_payload = runtime.harness_runtime.graph_system.get_graph_run(graph_run_id)
     if not graph_run_payload:
         raise HTTPException(status_code=404, detail="GraphRun not found")
     graph_run = dict(graph_run_payload)
     if graph_config is not None:
         if str(graph_run.get("graph_id") or "") != str(graph_config.graph_id or ""):
-            raise HTTPException(status_code=409, detail="GraphRun graph_id does not match GraphHarnessConfig")
+            raise HTTPException(status_code=409, detail="GraphRun graph_id does not match ExecutableGraphConfig")
         run_structure_hash = str(
             graph_run.get("structure_hash")
             or dict(graph_run.get("diagnostics") or {}).get("graph_structure_hash")
@@ -687,7 +687,7 @@ def _assert_graph_run_scope(
         if not run_structure_hash and str(graph_run.get("config_hash") or "") == str(graph_config.content_hash or ""):
             run_structure_hash = config_structure_hash
         if run_structure_hash and run_structure_hash != config_structure_hash:
-            raise HTTPException(status_code=409, detail="GraphRun structure_hash does not match GraphHarnessConfig")
+            raise HTTPException(status_code=409, detail="GraphRun structure_hash does not match ExecutableGraphConfig")
     actual_scope = normalize_session_scope(
         {
             "workspace_view": graph_run.get("workspace_view") or dict(graph_run.get("diagnostics") or {}).get("workspace_view") or GRAPH_TASK_WORKSPACE_VIEW,
@@ -758,7 +758,7 @@ def _graph_start_initial_inputs(initial_inputs: dict[str, Any] | None, scope: Se
     runtime_scope = {
         **dict(payload.get("runtime_scope") or {}),
         **scope.to_dict(),
-        "scope_source": "harness.api.task_graph_run_start.graph_binding_contract",
+        "scope_source": "graph_system.api.task_graph_run_start.graph_binding_contract",
     }
     payload["runtime_scope"] = runtime_scope
     payload["workspace_view"] = scope.workspace_view
@@ -856,7 +856,7 @@ def _graph_config_api_view(graph_config: Any, *, include_config: bool = False) -
     if include_config:
         return graph_config.to_dict()
     return {
-        "authority": "harness.graph_harness_config.summary",
+        "authority": "graph_system_config.summary",
         "config_id": graph_config.config_id,
         "graph_id": graph_config.graph_id,
         "graph_title": graph_config.graph_title,

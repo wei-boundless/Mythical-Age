@@ -22,7 +22,7 @@ from harness.runtime.public_progress import public_runtime_progress_summary
 from harness.runtime.runtime_private_text import looks_like_runtime_private_artifact_text
 from harness.runtime.task_run_control_gateway import TaskRunControlGateway
 from harness.task_run_status import is_stopped_or_terminal_task_run
-from runtime.output_boundary import (
+from harness.runtime.output_boundary import (
     contains_inline_pseudo_tool_call,
     contains_internal_protocol,
     sanitize_visible_assistant_content,

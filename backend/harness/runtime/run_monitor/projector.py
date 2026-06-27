@@ -99,9 +99,9 @@ class RuntimeMonitorProjector:
         session_scope = self._session_scope(task_run, diagnostics)
         graph_id = str(route.get("graph_id") or "")
         graph_run_id = str(diagnostics.get("graph_run_id") or "")
-        graph_harness_config_id = str(diagnostics.get("graph_harness_config_id") or "")
+        graph_config_id = str(diagnostics.get("graph_config_id") or "")
         kind = self._kind_from_route(route)
-        graph_monitor = self._graph_monitor(graph_run_id, graph_harness_config_id) if kind == "task_graph" and include_graph_runtime else None
+        graph_monitor = self._graph_monitor(graph_run_id, graph_config_id) if kind == "task_graph" and include_graph_runtime else None
         graph_status = self._graph_status(graph_monitor, graph_id=graph_id, graph_run_id=graph_run_id) if kind == "task_graph" else None
         graph_runtime_active = (
             kind == "task_graph"
@@ -168,7 +168,7 @@ class RuntimeMonitorProjector:
             task_run_id=task_run_id,
             session_id=session_id,
             graph_run_id=graph_run_id,
-            graph_harness_config_id=graph_harness_config_id,
+            graph_config_id=graph_config_id,
             artifact_refs=artifact_refs,
             resolve_availability=include_runtime_details,
         )
@@ -218,7 +218,7 @@ class RuntimeMonitorProjector:
             graph_id=graph_id,
             focus_node_id=str((graph_status or {}).get("active_node_id") or diagnostics.get("active_node_id") or diagnostics.get("node_id") or ""),
         )
-        has_graph_run = bool(graph_run_id or graph_harness_config_id)
+        has_graph_run = bool(graph_run_id or graph_config_id)
         item = {
             "task_run_id": task_run_id,
             "session_id": session_id,
@@ -303,7 +303,7 @@ class RuntimeMonitorProjector:
             "route": route,
             "session_scope": session_scope,
             "graph_run_id": graph_run_id,
-            "graph_harness_config_id": graph_harness_config_id,
+            "graph_config_id": graph_config_id,
             "graph_id": graph_id,
             "active_node_id": str((graph_status or {}).get("active_node_id") or diagnostics.get("active_node_id") or diagnostics.get("node_id") or ""),
             "project_id": str(diagnostics.get("project_id") or ""),
@@ -516,11 +516,11 @@ class RuntimeMonitorProjector:
                 "task_run_id": task_run_id,
                 "graph_id": "",
                 "graph_run_id": "",
-                "graph_harness_config_id": "",
+                "graph_config_id": "",
             },
             "session_scope": {"workspace_view": "chat", "task_environment_id": "", "project_id": ""},
             "graph_run_id": "",
-            "graph_harness_config_id": "",
+            "graph_config_id": "",
             "graph_id": "",
             "active_node_id": "",
             "project_id": "",
@@ -838,8 +838,8 @@ class RuntimeMonitorProjector:
         session_id = str(getattr(task_run, "session_id", "") or "")
         graph_id = str(diagnostics.get("graph_id") or diagnostics.get("task_graph_id") or "")
         graph_run_id = str(diagnostics.get("graph_run_id") or "")
-        graph_harness_config_id = str(diagnostics.get("graph_harness_config_id") or "")
-        if graph_run_id or graph_harness_config_id:
+        graph_config_id = str(diagnostics.get("graph_config_id") or "")
+        if graph_run_id or graph_config_id:
             kind = "task_graph_run"
         else:
             kind = "agent_runtime_run"
@@ -849,7 +849,7 @@ class RuntimeMonitorProjector:
             "task_run_id": task_run_id,
             "graph_id": graph_id,
             "graph_run_id": graph_run_id,
-            "graph_harness_config_id": graph_harness_config_id,
+            "graph_config_id": graph_config_id,
         }
 
     def _session_scope(self, task_run: Any, diagnostics: dict[str, Any]) -> dict[str, str]:
@@ -1081,7 +1081,7 @@ class RuntimeMonitorProjector:
         task_run_id: str,
         session_id: str,
         graph_run_id: str,
-        graph_harness_config_id: str,
+        graph_config_id: str,
         artifact_refs: list[dict[str, Any]],
         resolve_availability: bool = True,
     ) -> list[dict[str, Any]]:
@@ -1093,20 +1093,20 @@ class RuntimeMonitorProjector:
             refs.append(resolver.session_ref(session_id))
         if graph_run_id:
             refs.append(_resolver_graph_run_ref(resolver, graph_run_id, available=True if not resolve_availability else None))
-        if graph_harness_config_id:
-            refs.append(_resolver_graph_config_ref(resolver, graph_harness_config_id, available=True if not resolve_availability else None))
+        if graph_config_id:
+            refs.append(_resolver_graph_config_ref(resolver, graph_config_id, available=True if not resolve_availability else None))
         refs.extend(_resolver_artifact_refs(resolver, artifact_refs, resolve_availability=resolve_availability))
         return refs
 
-    def _graph_monitor(self, graph_run_id: str, graph_harness_config_id: str) -> dict[str, Any] | None:
+    def _graph_monitor(self, graph_run_id: str, graph_config_id: str) -> dict[str, Any] | None:
         resolver = self.resource_resolver
         if resolver is None or not graph_run_id:
             return None
-        return resolver.graph_monitor(graph_run_id, graph_harness_config_id)
+        return resolver.graph_monitor(graph_run_id, graph_config_id)
 
     def _graph_status(self, monitor: dict[str, Any] | None, *, graph_id: str, graph_run_id: str) -> dict[str, Any]:
         payload = dict(monitor or {})
-        graph_config = dict(payload.get("graph_harness_config") or {})
+        graph_config = dict(payload.get("graph_config") or {})
         loop_state = dict(payload.get("graph_loop_state") or {})
         node_statuses = _node_statuses_from_monitor(payload)
         active_node_id = _active_node_id(loop_state, node_statuses)
@@ -1204,13 +1204,13 @@ def _resolver_graph_run_ref(resolver: Any, graph_run_id: str, *, available: bool
         return resolver.graph_run_ref(graph_run_id)
 
 
-def _resolver_graph_config_ref(resolver: Any, graph_harness_config_id: str, *, available: bool | None) -> dict[str, Any]:
+def _resolver_graph_config_ref(resolver: Any, graph_config_id: str, *, available: bool | None) -> dict[str, Any]:
     if available is None:
-        return resolver.graph_config_ref(graph_harness_config_id)
+        return resolver.graph_config_ref(graph_config_id)
     try:
-        return resolver.graph_config_ref(graph_harness_config_id, available=available)
+        return resolver.graph_config_ref(graph_config_id, available=available)
     except TypeError:
-        return resolver.graph_config_ref(graph_harness_config_id)
+        return resolver.graph_config_ref(graph_config_id)
 
 
 def _resolver_artifact_refs(resolver: Any, artifact_refs: list[dict[str, Any]], *, resolve_availability: bool) -> list[dict[str, Any]]:
@@ -1598,7 +1598,7 @@ def _graph_monitor_has_active_runtime(monitor: dict[str, Any] | None) -> bool:
 def _node_statuses_from_monitor(monitor: dict[str, Any]) -> list[dict[str, Any]]:
     config_nodes = {
         str(dict(node).get("node_id") or ""): dict(node)
-        for node in list(dict(monitor.get("graph_harness_config") or {}).get("nodes") or [])
+        for node in list(dict(monitor.get("graph_config") or {}).get("nodes") or [])
         if isinstance(node, dict)
     }
     result: list[dict[str, Any]] = []

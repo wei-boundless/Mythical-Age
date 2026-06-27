@@ -167,14 +167,14 @@ def _signal_last_activity(signal: dict[str, Any]) -> float:
 def _detail_ref(item: dict[str, Any]) -> dict[str, str]:
     task_run_id = str(item.get("task_run_id") or "").strip()
     graph_run_id = str(item.get("graph_run_id") or "").strip()
-    graph_harness_config_id = str(item.get("graph_harness_config_id") or "").strip()
+    graph_config_id = str(item.get("graph_config_id") or "").strip()
     if graph_run_id:
         return {
             "kind": "graph_run",
             "task_run_id": task_run_id,
             "turn_run_id": "",
             "graph_run_id": graph_run_id,
-            "graph_harness_config_id": graph_harness_config_id,
+            "graph_config_id": graph_config_id,
             "resource_ref": "",
         }
     if task_run_id:
@@ -184,17 +184,17 @@ def _detail_ref(item: dict[str, Any]) -> dict[str, str]:
             "task_run_id": task_run_id,
             "turn_run_id": task_run_id if kind == "turn_run" else "",
             "graph_run_id": "",
-            "graph_harness_config_id": "",
+            "graph_config_id": "",
             "resource_ref": "",
         }
-    return {"kind": "none", "task_run_id": "", "turn_run_id": "", "graph_run_id": "", "graph_harness_config_id": "", "resource_ref": ""}
+    return {"kind": "none", "task_run_id": "", "turn_run_id": "", "graph_run_id": "", "graph_config_id": "", "resource_ref": ""}
 
 
 def _graph_ref(item: dict[str, Any]) -> dict[str, str]:
     return {
         "graph_id": str(item.get("graph_id") or ""),
         "graph_run_id": str(item.get("graph_run_id") or ""),
-        "graph_harness_config_id": str(item.get("graph_harness_config_id") or ""),
+        "graph_config_id": str(item.get("graph_config_id") or ""),
     }
 
 

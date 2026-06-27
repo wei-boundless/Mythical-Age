@@ -13,7 +13,7 @@ from runtime.model_gateway.assistant_stream_frame import (
     content_sha256,
     utf8_byte_length,
 )
-from runtime.output_boundary import (
+from harness.runtime.output_boundary import (
     contains_inline_pseudo_tool_call,
     contains_internal_protocol,
     could_be_internal_protocol_prefix,

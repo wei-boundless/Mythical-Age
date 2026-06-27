@@ -62,7 +62,7 @@ class HumanEdgeDecision:
     source_node_id: str
     target_node_id: str
     decision: str
-    graph_harness_config_id: str = ""
+    graph_config_id: str = ""
     instruction: str = ""
     artifact_refs: tuple[dict[str, Any], ...] = ()
     content_submission: dict[str, Any] = field(default_factory=dict)
@@ -121,7 +121,7 @@ def human_edge_decision_from_dict(payload: dict[str, Any]) -> HumanEdgeDecision:
         graph_task_instance_id=str(payload.get("graph_task_instance_id") or "").strip(),
         graph_id=str(payload.get("graph_id") or "").strip(),
         graph_run_id=str(payload.get("graph_run_id") or "").strip(),
-        graph_harness_config_id=str(payload.get("graph_harness_config_id") or "").strip(),
+        graph_config_id=str(payload.get("graph_config_id") or "").strip(),
         edge_id=str(payload.get("edge_id") or "").strip(),
         source_node_id=str(payload.get("source_node_id") or "").strip(),
         target_node_id=str(payload.get("target_node_id") or "").strip(),

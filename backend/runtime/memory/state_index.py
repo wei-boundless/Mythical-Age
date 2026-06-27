@@ -43,8 +43,8 @@ TASK_RUN_SUMMARY_DIAGNOSTIC_KEYS = {
     "executor_epoch",
     "executor_status",
     "goal",
-    "graph_harness_config_hash",
-    "graph_harness_config_id",
+    "graph_config_hash",
+    "graph_config_id",
     "graph_id",
     "graph_node_id",
     "graph_result_ref",
@@ -745,7 +745,7 @@ class RuntimeStateIndex:
 
     def _delete_runtime_object_refs(self, payload: dict[str, Any], counts: dict[str, int]) -> None:
         diagnostics = dict(payload.get("diagnostics") or {})
-        for key in ("graph_result_ref", "graph_harness_config_ref"):
+        for key in ("graph_result_ref", "graph_config_ref"):
             ref = str(diagnostics.get(key) or "").strip()
             if not ref:
                 continue
@@ -952,15 +952,15 @@ class RuntimeStateIndex:
         compacted = dict(payload)
         diagnostics = dict(compacted.get("diagnostics") or {})
         object_id = str(compacted.get("task_run_id") or "")
-        if graph_config := dict(diagnostics.get("graph_harness_config") or diagnostics.get("graph_harness_config_payload") or {}):
-            diagnostics["graph_harness_config_ref"] = self.runtime_objects.put_json_once(
-                "graph_harness_configs",
+        if graph_config := dict(diagnostics.get("graph_config") or diagnostics.get("graph_config_payload") or {}):
+            diagnostics["graph_config_ref"] = self.runtime_objects.put_json_once(
+                "graph_configs",
                 object_id,
                 graph_config,
             )
-            diagnostics["graph_harness_config_summary"] = _graph_harness_config_summary(graph_config)
-            diagnostics.pop("graph_harness_config", None)
-            diagnostics.pop("graph_harness_config_payload", None)
+            diagnostics["graph_config_summary"] = _graph_config_summary(graph_config)
+            diagnostics.pop("graph_config", None)
+            diagnostics.pop("graph_config_payload", None)
         if graph_result := dict(diagnostics.get("graph_result") or {}):
             diagnostics["graph_result_ref"] = self.runtime_objects.put_json_once(
                 "graph_results",
@@ -1581,7 +1581,7 @@ def _is_active_executor_task_run_payload(payload: dict[str, Any]) -> bool:
     origin_kind = str(origin.get("origin_kind") or diagnostics.get("origin_kind") or "").strip()
     if origin_kind == "graph_node_assigned":
         return False
-    if diagnostics.get("graph_run_id") or diagnostics.get("graph_harness_config_id") or diagnostics.get("graph_node_id"):
+    if diagnostics.get("graph_run_id") or diagnostics.get("graph_config_id") or diagnostics.get("graph_node_id"):
         return False
     executor_status = str(diagnostics.get("executor_status") or "").strip()
     if executor_status in {"scheduled", "running", "retrying", "recovering"}:
@@ -1636,7 +1636,7 @@ def _turn_run_from_payload(payload: dict[str, Any]) -> TurnRun:
     )
 
 
-def _graph_harness_config_summary(payload: dict[str, Any]) -> dict[str, Any]:
+def _graph_config_summary(payload: dict[str, Any]) -> dict[str, Any]:
     nodes = list(payload.get("nodes") or [])
     edges = list(payload.get("edges") or [])
     modules = list(payload.get("modules") or [])

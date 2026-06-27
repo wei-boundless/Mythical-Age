@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 from context_system.budget.presets import get_context_budget_preset
 from .storage_layout import MemoryStorageLayout
-from runtime.output_boundary import sanitize_visible_assistant_content
+from harness.runtime.output_boundary import sanitize_visible_assistant_content
 
 from .paths import normalize_session_id, safe_session_dir
 from .storage.models import Message, utc_now_iso

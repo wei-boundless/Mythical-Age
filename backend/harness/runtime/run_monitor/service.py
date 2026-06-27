@@ -22,7 +22,7 @@ class RuntimeMonitorService:
         self,
         *,
         runtime_host: Any,
-        graph_harness: Any | None = None,
+        graph_system: Any | None = None,
         freshness_seconds: float = 5 * 60.0,
         global_monitor_cache_seconds: float = 1.0,
         retention_sweep_interval_seconds: float = 30.0,
@@ -37,7 +37,7 @@ class RuntimeMonitorService:
         self._last_retention_sweep_result: dict[str, Any] | None = None
         self.resource_resolver = MonitorResourceResolver(
             runtime_host=runtime_host,
-            graph_harness=graph_harness,
+            graph_system=graph_system,
             base_dir=getattr(runtime_host, "backend_dir", None),
         )
         self.projector = RuntimeMonitorProjector(
@@ -58,8 +58,8 @@ class RuntimeMonitorService:
         )
         self.lifecycle_retention = TaskRunLifecycleRetention(runtime_host=runtime_host)
 
-    def attach_graph_harness(self, graph_harness: Any | None) -> None:
-        self.resource_resolver.graph_harness = graph_harness
+    def attach_graph_system(self, graph_system: Any | None) -> None:
+        self.resource_resolver.graph_system = graph_system
 
     def list_global_live_monitor(self, limit: int = 20) -> dict[str, Any]:
         requested_limit = max(1, min(int(limit or 20), 100))
@@ -323,7 +323,7 @@ class RuntimeMonitorService:
             "control_capability": dict(selected.get("control_capability") or {}),
             "graph_run_id": str(selected.get("graph_run_id") or ""),
             "graph_id": str(selected.get("graph_id") or ""),
-            "graph_harness_config_id": str(selected.get("graph_harness_config_id") or ""),
+            "graph_config_id": str(selected.get("graph_config_id") or ""),
             "created_at": float(selected.get("created_at") or 0.0),
             "updated_at": float(selected.get("updated_at") or 0.0),
         }
@@ -363,7 +363,7 @@ class RuntimeMonitorService:
             return self.resource_resolver.session_ref(resource_id)
         if kind == "graph_run":
             return self.resource_resolver.graph_run_ref(resource_id)
-        if kind == "graph_harness_config":
+        if kind == "graph_config":
             return self.resource_resolver.graph_config_ref(resource_id)
         if kind == "artifact":
             return self.resource_resolver.artifact_refs([{"path": resource_id}])[0]

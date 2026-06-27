@@ -16,13 +16,10 @@ from capability_system import (
     TOOL_TYPE_OPTIONS,
     build_capability_catalog,
 )
+from capability_system.permission_projection import build_resource_runtime_views
 from core.config import runtime_config
 from capability_system.supply import build_capability_supply_package, build_capability_supply_package_from_base_dir
-from orchestration import (
-    RuntimeApprovalContext,
-    build_resource_policy_candidate,
-    build_resource_runtime_views,
-)
+from permissions import RuntimeApprovalContext, build_resource_policy_candidate
 from permissions.operations import build_default_operation_registry
 from task_system.contracts.capability_requirements import build_operation_requirement
 

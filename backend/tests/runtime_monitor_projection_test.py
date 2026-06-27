@@ -127,7 +127,7 @@ class RunRegistryStub:
         return None
 
 
-class GraphHarnessStub:
+class GraphSystemStub:
     def __init__(self):
         self.monitor_calls = []
 
@@ -229,11 +229,11 @@ def test_session_task_summary_does_not_fetch_graph_runtime_detail():
         diagnostics={
             "graph_id": "graph:main",
             "graph_run_id": "grun:main",
-            "graph_harness_config_id": "ghcfg:existing",
+            "graph_config_id": "ghcfg:existing",
             "title": "长篇小说图任务",
         },
     )
-    graph_harness = GraphHarnessStub()
+    graph_system = GraphSystemStub()
     runtime_host = SimpleNamespace(
         state_index=StateIndexStub([graph_run]),
         event_log=EventLogStub(),
@@ -241,7 +241,7 @@ def test_session_task_summary_does_not_fetch_graph_runtime_detail():
     )
     service = RuntimeMonitorService(
         runtime_host=runtime_host,
-        graph_harness=graph_harness,
+        graph_system=graph_system,
         freshness_seconds=300.0,
     )
 
@@ -252,7 +252,7 @@ def test_session_task_summary_does_not_fetch_graph_runtime_detail():
     assert summary["task_run_id"] == "taskrun:graph-root"
     assert summary["graph_run_id"] == "grun:main"
     assert summary["title"] == "长篇小说图任务"
-    assert graph_harness.monitor_calls == []
+    assert graph_system.monitor_calls == []
 
 
 def test_session_live_monitor_exposes_active_turn_snapshot():
@@ -685,7 +685,7 @@ def test_runtime_monitor_summary_counts_only_running_graph_tasks(tmp_path):
         diagnostics={
             "graph_id": "graph.demo",
             "graph_run_id": "grun:running",
-            "graph_harness_config_id": "ghcfg:running",
+            "graph_config_id": "ghcfg:running",
             "workspace_view": "task_environment",
             "task_environment_id": "env.demo",
             "project_id": "project.demo.running",
@@ -700,7 +700,7 @@ def test_runtime_monitor_summary_counts_only_running_graph_tasks(tmp_path):
         diagnostics={
             "graph_id": "graph.demo",
             "graph_run_id": "grun:waiting",
-            "graph_harness_config_id": "ghcfg:waiting",
+            "graph_config_id": "ghcfg:waiting",
             "workspace_view": "task_environment",
             "task_environment_id": "env.demo",
             "project_id": "project.demo.waiting",
@@ -835,7 +835,7 @@ def test_runtime_monitor_management_omits_terminal_graph_records(tmp_path):
         diagnostics={
             "graph_id": "graph.done",
             "graph_run_id": "grun:completed",
-            "graph_harness_config_id": "ghcfg:completed",
+            "graph_config_id": "ghcfg:completed",
             "workspace_view": "task_environment",
             "task_environment_id": "env.demo",
             "project_id": "project.demo",
@@ -1031,7 +1031,7 @@ def test_runtime_monitor_management_omits_stale_graph_from_monitor(tmp_path):
         diagnostics={
             "graph_id": "graph.writing",
             "graph_run_id": "grun:stale-graph",
-            "graph_harness_config_id": "ghcfg:stale-graph",
+            "graph_config_id": "ghcfg:stale-graph",
             "workspace_view": "task_environment",
             "task_environment_id": "env.office.file_search",
             "project_id": "project.creation.writing",
@@ -1448,7 +1448,7 @@ def test_internal_titles_are_not_exposed_and_route_is_authoritative():
             "project_title": "商业长篇项目",
             "graph_id": "graph:main",
             "graph_run_id": "grun:main",
-            "graph_harness_config_id": "ghcfg:main",
+            "graph_config_id": "ghcfg:main",
         },
     )
 
@@ -1729,7 +1729,7 @@ def test_task_graph_route_without_graph_id_enters_diagnostics():
     projector = RuntimeMonitorProjector(EventLogStub())
     run = task_run(
         task_run_id="taskrun:graph",
-        diagnostics={"graph_run_id": "grun:graph", "graph_harness_config_id": "ghcfg:graph"},
+        diagnostics={"graph_run_id": "grun:graph", "graph_config_id": "ghcfg:graph"},
     )
 
     item = projector.project_task_run(run, now=150.0)
@@ -1819,7 +1819,7 @@ def test_global_monitor_keeps_one_current_graph_task_per_project_scope():
         diagnostics={
             "graph_id": "graph.writing.modular_novel.master",
             "graph_run_id": "grun:old",
-            "graph_harness_config_id": "ghcfg:old",
+            "graph_config_id": "ghcfg:old",
             "workspace_view": "task_environment",
             "task_environment_id": "env.office.file_search",
             "project_id": "project.creation.writing.honghuang",
@@ -1841,7 +1841,7 @@ def test_global_monitor_keeps_one_current_graph_task_per_project_scope():
         diagnostics={
             "graph_id": "graph.writing.modular_novel.master",
             "graph_run_id": "grun:current",
-            "graph_harness_config_id": "ghcfg:current",
+            "graph_config_id": "ghcfg:current",
             "workspace_view": "task_environment",
             "task_environment_id": "env.office.file_search",
             "project_id": "project.creation.writing.honghuang",
@@ -1948,15 +1948,15 @@ class ResourceResolverStub:
     def graph_run_ref(self, graph_run_id, *, label="任务图运行"):
         return {"ref": f"graph_run:{graph_run_id}", "kind": "graph_run", "id": graph_run_id, "label": label, "availability": {"state": "available"}}
 
-    def graph_config_ref(self, graph_harness_config_id, *, label="任务图配置"):
-        state = "available" if graph_harness_config_id == "ghcfg:existing" else "missing"
-        return {"ref": f"graph_harness_config:{graph_harness_config_id}", "kind": "graph_harness_config", "id": graph_harness_config_id, "label": label, "availability": {"state": state}}
+    def graph_config_ref(self, graph_config_id, *, label="任务图配置"):
+        state = "available" if graph_config_id == "ghcfg:existing" else "missing"
+        return {"ref": f"graph_config:{graph_config_id}", "kind": "graph_config", "id": graph_config_id, "label": label, "availability": {"state": state}}
 
     def artifact_refs(self, refs):
         return []
 
-    def graph_monitor(self, graph_run_id, graph_harness_config_id="", *, event_limit=80):
-        self.graph_monitor_calls.append((graph_run_id, graph_harness_config_id, event_limit))
+    def graph_monitor(self, graph_run_id, graph_config_id="", *, event_limit=80):
+        self.graph_monitor_calls.append((graph_run_id, graph_config_id, event_limit))
         return self.graph_monitor_payload
 
 
@@ -1980,7 +1980,7 @@ def test_global_monitor_uses_summary_projection_without_event_or_child_detail_fe
         diagnostics={
             "graph_id": "graph:main",
             "graph_run_id": "grun:main",
-            "graph_harness_config_id": "ghcfg:existing",
+            "graph_config_id": "ghcfg:existing",
             "latest_step_summary": "静态任务摘要",
         },
     )
@@ -2043,7 +2043,7 @@ def test_project_task_run_marks_stale_graph_root_without_fetching_graph_detail()
         diagnostics={
             "graph_id": "graph:main",
             "graph_run_id": "grun:main",
-            "graph_harness_config_id": "ghcfg:existing",
+            "graph_config_id": "ghcfg:existing",
         },
     )
 
@@ -2072,7 +2072,7 @@ def test_global_monitor_omits_stale_graph_root_without_fetching_graph_detail():
         diagnostics={
             "graph_id": "graph:main",
             "graph_run_id": "grun:main",
-            "graph_harness_config_id": "ghcfg:existing",
+            "graph_config_id": "ghcfg:existing",
         },
     )
 
@@ -2098,7 +2098,7 @@ def test_task_graph_detail_uses_active_graph_loop_to_avoid_false_stale_diagnosti
         diagnostics={
             "graph_id": "graph:main",
             "graph_run_id": "grun:main",
-            "graph_harness_config_id": "ghcfg:existing",
+            "graph_config_id": "ghcfg:existing",
         },
     )
 
@@ -2113,7 +2113,7 @@ def test_task_graph_detail_uses_active_graph_loop_to_avoid_false_stale_diagnosti
 
 def test_task_graph_monitor_item_uses_graph_run_as_task_instance_and_navigation_target():
     graph_monitor = {
-        "graph_harness_config": {
+        "graph_config": {
             "graph_id": "graph:main",
             "graph_title": "主图任务",
             "nodes": [{"node_id": "draft", "title": "草稿"}],
@@ -2134,7 +2134,7 @@ def test_task_graph_monitor_item_uses_graph_run_as_task_instance_and_navigation_
         diagnostics={
             "graph_id": "graph:main",
             "graph_run_id": "grun:main",
-            "graph_harness_config_id": "ghcfg:existing",
+            "graph_config_id": "ghcfg:existing",
         },
     )
 
@@ -2166,11 +2166,11 @@ def test_missing_graph_config_is_resource_availability_not_frontend_404_control_
         diagnostics={
             "graph_id": "graph:main",
             "graph_run_id": "grun:main",
-            "graph_harness_config_id": "ghcfg:missing",
+            "graph_config_id": "ghcfg:missing",
         },
     )
 
     item = projector.project_task_run(run, now=150.0)
 
-    graph_config_ref = next(ref for ref in item["resource_refs"] if ref["kind"] == "graph_harness_config")
+    graph_config_ref = next(ref for ref in item["resource_refs"] if ref["kind"] == "graph_config")
     assert graph_config_ref["availability"]["state"] == "missing"

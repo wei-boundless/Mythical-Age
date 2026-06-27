@@ -26,7 +26,7 @@ export function TaskGraphContractPreviewPanel({
   preview: TaskGraphContractPreview | null;
   previewError?: string;
 }) {
-  const config = preview?.graph_harness_config ?? null;
+  const config = preview?.graph_config ?? null;
   const scheduler = preview?.scheduler_view ?? null;
   const compositionSources = preview?.composition_sources ?? [];
   const splitPlans = preview?.split_plans ?? [];
@@ -96,7 +96,7 @@ export function TaskGraphContractPreviewPanel({
                       <small>节点 {recordArrayValue(source, "expanded_node_ids").length} / 边 {recordArrayValue(source, "expanded_edge_ids").length}</small>
                     </div>
                     <em>{String(source.composition_id ?? "")}</em>
-                    <small>GraphHarnessConfig.composition_sources</small>
+                    <small>ExecutableGraphConfig.composition_sources</small>
                   </article>
                 ))}
               </div>
@@ -117,7 +117,7 @@ export function TaskGraphContractPreviewPanel({
                         <span>节点 {String(recordValue(plan, "node_id") ?? "-")} / 总量 {String(recordValue(plan, "requested_count") ?? 0)} / 每批 {String(recordValue(plan, "batch_size") ?? 0)}</span>
                       </div>
                       <em>{String(recordValue(plan, "plan_id") ?? "")}</em>
-                      <small>GraphHarnessConfig.control.batch_policy</small>
+                      <small>ExecutableGraphConfig.control.batch_policy</small>
                     </article>
                   );
                 })}
@@ -137,7 +137,7 @@ export function TaskGraphContractPreviewPanel({
                       <span className="task-graph-preflight-row__severity task-graph-preflight-row__severity--info">{String(recordValue(item, "object_type") ?? "object")}</span>
                       <div>
                         <strong>{String(recordValue(item, "title") ?? recordValue(item, "object_id") ?? "未命名对象")}</strong>
-                        <span>runtime {String(recordValue(runtimeRef, "node_id") ?? recordValue(runtimeRef, "edge_id") ?? recordValue(runtimeRef, "graph_harness_config_id") ?? "-")}</span>
+                        <span>runtime {String(recordValue(runtimeRef, "node_id") ?? recordValue(runtimeRef, "edge_id") ?? recordValue(runtimeRef, "graph_config_id") ?? "-")}</span>
                       </div>
                       <em>{String(recordValue(schedulerRef, "role") ?? recordValue(item, "status") ?? "-")}</em>
                       <small>{String(recordValue(item, "source_path") ?? "")}</small>
@@ -159,10 +159,10 @@ export function TaskGraphContractPreviewPanel({
                     </span>
                     <div>
                       <strong>{issueTitle(issue, index)}</strong>
-                      <span>{String(issue.message ?? "GraphHarnessConfig 问题")}</span>
+                      <span>{String(issue.message ?? "ExecutableGraphConfig 问题")}</span>
                     </div>
                     <em>{String(issue.node_id ?? issue.edge_id ?? issue.scope ?? "graph")}</em>
-                    <small>backend.graph_harness_config</small>
+                    <small>backend.graph_config</small>
                   </article>
                 ))}
               </div>
@@ -182,7 +182,7 @@ export function TaskGraphContractPreviewPanel({
       ) : (
         <div className={previewError ? "task-graph-note task-graph-note--danger" : "task-graph-note"}>
           <strong>{previewError ? "图契约不可用" : "尚未编译图契约"}</strong>
-          <span>{previewError || "点击“编译图契约”后，图工作台会从 TaskGraphDefinition 编译出 GraphHarnessConfig 和 loop 调度视图。"}</span>
+          <span>{previewError || "点击“编译图契约”后，图工作台会从 TaskGraphDefinition 编译出 ExecutableGraphConfig 和 loop 调度视图。"}</span>
         </div>
       )}
     </section>

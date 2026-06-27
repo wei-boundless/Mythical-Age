@@ -607,7 +607,7 @@ def _graph_controlled(diagnostics: dict[str, Any]) -> bool:
     return bool(
         origin_kind == "graph_node_assigned"
         or diagnostics.get("graph_run_id")
-        or diagnostics.get("graph_harness_config_id")
+        or diagnostics.get("graph_config_id")
         or diagnostics.get("graph_node_id")
     )
 

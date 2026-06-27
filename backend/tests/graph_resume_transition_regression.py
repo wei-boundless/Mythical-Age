@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from harness.graph.checkpoint_store import GraphCheckpointRecord
-from harness.graph.context_materializer import GraphContextMaterializer
-from harness.graph.loop import GraphLoop, _state_after_loop_route
-from harness.graph.models import GraphHarnessConfig, GraphLoopState
-from harness.graph.resume import GraphResumeService
+from graph_system.checkpoint_store import GraphCheckpointRecord
+from graph_system.context_materializer import GraphContextMaterializer
+from graph_system.loop import GraphLoop, _state_after_loop_route
+from graph_system.models import ExecutableGraphConfig, GraphLoopState
+from graph_system.resume import GraphResumeService
 
 
 class _LoopStub:
@@ -32,8 +32,8 @@ class _Services:
         self.graph_checkpoint_store = object()
 
 
-def _config() -> GraphHarnessConfig:
-    return GraphHarnessConfig(
+def _config() -> ExecutableGraphConfig:
+    return ExecutableGraphConfig(
         config_id="config:resume",
         graph_id="graph:resume",
         graph_title="Resume",
@@ -179,7 +179,7 @@ def test_dispatch_ready_recomputes_ready_nodes_from_edges_after_resume() -> None
 
 
 def test_loop_continue_preserves_ready_external_prerequisite_edge() -> None:
-    config = GraphHarnessConfig(
+    config = ExecutableGraphConfig(
         config_id="config:loop-continue",
         graph_id="graph:loop-continue",
         graph_title="Loop Continue",

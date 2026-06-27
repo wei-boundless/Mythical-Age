@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from harness.graph.lifecycle_manager import GraphTaskLifecycleManager
+from graph_system.lifecycle_manager import GraphTaskLifecycleManager
 from harness.loop.task_run_execution_control import executor_control_signal_effect, request_executor_control_signal
 
 
@@ -257,15 +257,15 @@ class SessionRuntimeLifecycleManager:
                 "deleted": False,
                 "reason": "no_bound_graph_run",
             }
-        graph_harness = getattr(self.runtime.harness_runtime, "graph_harness", None)
-        if graph_harness is None:
+        graph_system = getattr(self.runtime.harness_runtime, "graph_system", None)
+        if graph_system is None:
             return {
                 "authority": "harness.runtime.session_lifecycle.graph_task",
                 "deleted": False,
-                "reason": "graph_harness_unavailable",
+                "reason": "graph_system_unavailable",
                 "graph_run_id": graph_run_id,
             }
-        manager = GraphTaskLifecycleManager(base_dir=self.runtime.base_dir, graph_harness=graph_harness)
+        manager = GraphTaskLifecycleManager(base_dir=self.runtime.base_dir, graph_system=graph_system)
         try:
             preview = manager.preview_delete_graph_run(graph_run_id)
             if not str(preview.get("root_task_run_id") or "").strip():

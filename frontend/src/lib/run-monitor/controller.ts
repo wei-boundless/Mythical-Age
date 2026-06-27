@@ -276,14 +276,14 @@ export class RunMonitorController {
   async evaluateBoundGraphMonitor() {
     const binding = this.store.getState().taskGraphMonitorBinding;
     const graphRunId = String(binding?.graph_run_id || "").trim();
-    const graphHarnessConfigId = String(binding?.graph_harness_config_id || "").trim();
-    if (!graphRunId || !graphHarnessConfigId) {
+    const graphConfigId = String(binding?.graph_config_id || "").trim();
+    if (!graphRunId || !graphConfigId) {
       this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前没有绑定可刷新的 GraphRun。" }));
       return;
     }
     this.store.setState((prev) => ({ ...prev, taskGraphMonitorLoading: true, taskGraphMonitorError: "" }));
     try {
-      const monitor = await fetchRunMonitorGraphDetail(graphRunId, graphHarnessConfigId, binding?.session_scope);
+      const monitor = await fetchRunMonitorGraphDetail(graphRunId, graphConfigId, binding?.session_scope);
       this.store.setState((prev) => ({ ...prev, taskGraphBoundRunMonitor: monitor }));
       await this.refresh({ schedule: false });
       if (this.store.getState().taskGraphAutoAdvanceEnabled) {
@@ -303,8 +303,8 @@ export class RunMonitorController {
     const state = this.store.getState();
     const binding = state.taskGraphMonitorBinding;
     const graphRunId = String(binding?.graph_run_id || state.taskGraphBoundRunMonitor?.graph_run_id || "").trim();
-    const graphHarnessConfigId = String(binding?.graph_harness_config_id || "").trim();
-    if (!graphRunId || !graphHarnessConfigId) {
+    const graphConfigId = String(binding?.graph_config_id || "").trim();
+    if (!graphRunId || !graphConfigId) {
       this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前没有可派发的 GraphRun。" }));
       return;
     }
@@ -313,7 +313,7 @@ export class RunMonitorController {
       const controlState = graphTaskControlState(state.taskGraphBoundRunMonitor).toLowerCase();
       if (controlState === "paused") {
         await resumeGraphRun(graphRunId, {
-          graph_harness_config_id: graphHarnessConfigId,
+          graph_config_id: graphConfigId,
           session_scope: binding?.session_scope,
           reason: "run_monitor_continue_graph_run",
         });
@@ -321,14 +321,14 @@ export class RunMonitorController {
         throw new Error(controlState === "pause_requested" ? "暂停请求正在等待运行边界，等状态变为已暂停后再续跑。" : "停止请求正在等待运行边界，不能继续派发。");
       }
       await submitGraphRunUntilIdle(graphRunId, {
-        graph_harness_config_id: graphHarnessConfigId,
+        graph_config_id: graphConfigId,
         session_scope: binding?.session_scope,
         max_node_executions: 1,
         max_loop_iterations: 4,
         max_dispatches: 1,
         max_dispatch_requests: 1,
       });
-      const monitor = await fetchRunMonitorGraphDetail(graphRunId, graphHarnessConfigId, binding?.session_scope);
+      const monitor = await fetchRunMonitorGraphDetail(graphRunId, graphConfigId, binding?.session_scope);
       this.store.setState((prev) => ({ ...prev, taskGraphBoundRunMonitor: monitor }));
       await this.refresh({ schedule: false });
       if (this.store.getState().taskGraphAutoAdvanceEnabled) {
@@ -422,7 +422,7 @@ export class RunMonitorController {
       : "chat";
     if (signal.work_kind === "graph_task" || navigation.target_kind === "graph_task") {
       const graphRunId = String(signal.graph_ref?.graph_run_id || navigation.graph_run_id || "").trim();
-      const graphHarnessConfigId = String(signal.graph_ref?.graph_harness_config_id || "").trim();
+      const graphConfigId = String(signal.graph_ref?.graph_config_id || "").trim();
       const graphId = String(signal.graph_ref?.graph_id || navigation.graph_id || signal.graph_id || "").trim();
       const projectId = String(navigation.project_id || "").trim();
       const graphSessionScope = {
@@ -437,7 +437,7 @@ export class RunMonitorController {
         taskGraphMonitorBinding: normalizeTaskGraphBinding({
           task_run_id: signal.task_run_id,
           graph_run_id: graphRunId,
-          graph_harness_config_id: graphHarnessConfigId,
+          graph_config_id: graphConfigId,
           graph_id: graphId,
           session_id: sessionId,
           project_id: projectId,
@@ -475,13 +475,13 @@ export class RunMonitorController {
   private async loadSignalDetail(signal: RunMonitorSignal, expectedRevision: string) {
     const taskRunId = signalDetailTaskRunId(signal);
     const graphRunId = String(signal.graph_ref?.graph_run_id || signal.detail_ref?.graph_run_id || "").trim();
-    const graphHarnessConfigId = String(signal.graph_ref?.graph_harness_config_id || signal.detail_ref?.graph_harness_config_id || "").trim();
+    const graphConfigId = String(signal.graph_ref?.graph_config_id || signal.detail_ref?.graph_config_id || "").trim();
     try {
-      if (signal.work_kind === "graph_task" && graphRunId && graphHarnessConfigId) {
+      if (signal.work_kind === "graph_task" && graphRunId && graphConfigId) {
         const navigation = signal.navigation_target && typeof signal.navigation_target === "object" && !Array.isArray(signal.navigation_target)
           ? signal.navigation_target as Record<string, unknown>
           : {};
-        const graphMonitor = await fetchRunMonitorGraphDetail(graphRunId, graphHarnessConfigId, {
+        const graphMonitor = await fetchRunMonitorGraphDetail(graphRunId, graphConfigId, {
           workspace_view: GRAPH_TASK_WORKSPACE_VIEW,
           task_environment_id: "",
           project_id: String(navigation.project_id || "").trim(),
@@ -539,19 +539,19 @@ export class RunMonitorController {
     }
     const binding = state.taskGraphMonitorBinding;
     const graphRunId = String(binding?.graph_run_id || monitor.graph_run_id || "").trim();
-    const graphHarnessConfigId = String(binding?.graph_harness_config_id || loopState.config_id || "").trim();
-    if (!graphRunId || !graphHarnessConfigId) {
+    const graphConfigId = String(binding?.graph_config_id || loopState.config_id || "").trim();
+    if (!graphRunId || !graphConfigId) {
       this.store.setState((prev) => ({ ...prev, taskGraphAutoAdvancePending: false }));
       return;
     }
     this.store.setState((prev) => ({ ...prev, taskGraphAutoAdvancePending: true }));
     this.graphAutoAdvanceTimer = window.setTimeout(() => {
       this.graphAutoAdvanceTimer = null;
-      void this.runGraphAutoAdvance(graphRunId, graphHarnessConfigId);
+      void this.runGraphAutoAdvance(graphRunId, graphConfigId);
     }, 2500);
   }
 
-  private async runGraphAutoAdvance(graphRunId: string, graphHarnessConfigId: string) {
+  private async runGraphAutoAdvance(graphRunId: string, graphConfigId: string) {
     const state = this.store.getState();
     if (!state.taskGraphAutoAdvanceEnabled || this.graphAutoAdvanceInFlight) {
       this.store.setState((prev) => ({ ...prev, taskGraphAutoAdvancePending: false }));
@@ -566,14 +566,14 @@ export class RunMonitorController {
     }));
     try {
       await submitGraphRunUntilIdle(graphRunId, {
-        graph_harness_config_id: graphHarnessConfigId,
+        graph_config_id: graphConfigId,
         session_scope: state.taskGraphMonitorBinding?.session_scope,
         max_node_executions: 1,
         max_loop_iterations: 4,
         max_dispatches: 1,
         max_dispatch_requests: 1,
       });
-      const monitor = await fetchRunMonitorGraphDetail(graphRunId, graphHarnessConfigId, state.taskGraphMonitorBinding?.session_scope);
+      const monitor = await fetchRunMonitorGraphDetail(graphRunId, graphConfigId, state.taskGraphMonitorBinding?.session_scope);
       this.store.setState((prev) => ({ ...prev, taskGraphBoundRunMonitor: monitor }));
       await this.refresh({ schedule: false });
       this.scheduleGraphAutoAdvance(monitor);
@@ -594,12 +594,12 @@ function normalizeTaskGraphBinding(
   binding: Omit<TaskGraphMonitorBinding, "bound_at"> & { bound_at?: number },
 ): TaskGraphMonitorBinding | null {
   const graphRunId = String(binding.graph_run_id || "").trim();
-  const graphHarnessConfigId = String(binding.graph_harness_config_id || "").trim();
-  if (!graphRunId || !graphHarnessConfigId) return null;
+  const graphConfigId = String(binding.graph_config_id || "").trim();
+  if (!graphRunId || !graphConfigId) return null;
   return {
     task_run_id: String(binding.task_run_id || "").trim() || undefined,
     graph_run_id: graphRunId,
-    graph_harness_config_id: graphHarnessConfigId,
+    graph_config_id: graphConfigId,
     graph_id: String(binding.graph_id || "").trim() || undefined,
     session_id: String(binding.session_id || "").trim() || undefined,
     project_id: String(binding.project_id || "").trim() || undefined,
@@ -672,3 +672,4 @@ function runMonitorErrorMessage(error: unknown, fallback: string) {
   if (/failed to fetch|networkerror|load failed/i.test(message)) return `${fallback}（连接中断）`;
   return message;
 }
+

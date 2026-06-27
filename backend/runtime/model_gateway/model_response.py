@@ -30,9 +30,9 @@ from runtime.model_gateway.stream_recovery import (
 )
 from runtime.model_gateway.stream_iteration import iterate_stream_with_due_ticks
 from task_system.runtime_semantics.protocol_boundary import detect_protocol_leak
-from orchestration.commit_gate import build_blocked_runtime_commit_gate
-from orchestration.runtime_directive import RuntimeDirective
-from runtime.output_boundary import AssistantOutputBoundary, sanitize_visible_assistant_content
+from harness.runtime.commit_gate import build_blocked_runtime_commit_gate
+from runtime.shared.runtime_directive import RuntimeDirective
+from harness.runtime.output_boundary import AssistantOutputBoundary, sanitize_visible_assistant_content
 
 
 _MODEL_RESPONSE_PARTIAL_STREAM_RECOVERY_SOURCE = "runtime_directive.model_response.partial_stream_recovery"

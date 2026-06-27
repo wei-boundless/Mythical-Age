@@ -5889,12 +5889,12 @@ export class WorkspaceRuntime {
   private async pauseBoundTaskGraphRun() {
     const state = this.store.getState();
     const monitor = state.taskGraphBoundRunMonitor as Record<string, unknown> | null;
-    const graphConfig = monitor?.graph_harness_config && typeof monitor.graph_harness_config === "object" && !Array.isArray(monitor.graph_harness_config)
-      ? monitor.graph_harness_config as Record<string, unknown>
+    const graphConfig = monitor?.graph_config && typeof monitor.graph_config === "object" && !Array.isArray(monitor.graph_config)
+      ? monitor.graph_config as Record<string, unknown>
       : {};
     const graphRunId = String(state.taskGraphMonitorBinding?.graph_run_id || monitor?.graph_run_id || "").trim();
-    const graphHarnessConfigId = String(state.taskGraphMonitorBinding?.graph_harness_config_id || graphConfig.config_id || graphConfig.graph_harness_config_id || "").trim();
-    if (!graphRunId || !graphHarnessConfigId) {
+    const graphConfigId = String(state.taskGraphMonitorBinding?.graph_config_id || graphConfig.config_id || graphConfig.graph_config_id || "").trim();
+    if (!graphRunId || !graphConfigId) {
       this.store.setState((prev) => ({
         ...prev,
         taskGraphMonitorError: "当前 GraphRun 缺少可暂停的图运行绑定。",
@@ -5910,7 +5910,7 @@ export class WorkspaceRuntime {
     }));
     try {
       await pauseGraphRun(graphRunId, {
-        graph_harness_config_id: graphHarnessConfigId,
+        graph_config_id: graphConfigId,
         session_scope: state.taskGraphMonitorBinding?.session_scope,
         reason: "user_pause_graph_run",
       });
@@ -6025,18 +6025,18 @@ export class WorkspaceRuntime {
     if (!runId) {
       return;
     }
-    const graphHarnessConfigId = String(
-      payload?.graph_harness_config_id
-      || this.store.getState().taskGraphMonitorBinding?.graph_harness_config_id
+    const graphConfigId = String(
+      payload?.graph_config_id
+      || this.store.getState().taskGraphMonitorBinding?.graph_config_id
       || ""
     ).trim();
-    if (!graphHarnessConfigId) {
-      throw new Error("新 GraphHarness 派发需要 graph_harness_config_id。");
+    if (!graphConfigId) {
+      throw new Error("新 GraphSystem 派发需要 graph_config_id。");
     }
     const controlState = this.boundTaskGraphRunControlState().toLowerCase();
     if (controlState === "paused") {
       await resumeGraphRun(runId, {
-        graph_harness_config_id: graphHarnessConfigId,
+        graph_config_id: graphConfigId,
         session_scope: this.store.getState().taskGraphMonitorBinding?.session_scope,
         reason: "task_graph_interaction_resume",
       });
@@ -6044,7 +6044,7 @@ export class WorkspaceRuntime {
       throw new Error(controlState === "pause_requested" ? "暂停请求正在等待运行边界，等状态变为已暂停后再续跑。" : "停止请求正在等待运行边界，不能继续派发。");
     }
     await submitGraphRunUntilIdle(runId, {
-      graph_harness_config_id: graphHarnessConfigId,
+      graph_config_id: graphConfigId,
       session_scope: this.store.getState().taskGraphMonitorBinding?.session_scope,
       max_node_executions: 1,
       max_loop_iterations: 4,
@@ -6773,3 +6773,4 @@ function clientNow() {
   }
   return Date.now();
 }
+

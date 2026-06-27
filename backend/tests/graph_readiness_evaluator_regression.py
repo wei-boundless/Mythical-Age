@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from harness.graph.models import GraphHarnessConfig
-from harness.graph.readiness_evaluator import GraphReadinessEvaluator
+from graph_system.models import ExecutableGraphConfig
+from graph_system.readiness_evaluator import GraphReadinessEvaluator
 
 
 def _edge(edge_id: str, source: str, target: str) -> dict[str, object]:
@@ -19,8 +19,8 @@ def _config(
     *,
     nodes: tuple[dict[str, object], ...] | None = None,
     edges: tuple[dict[str, object], ...] | None = None,
-) -> GraphHarnessConfig:
-    return GraphHarnessConfig(
+) -> ExecutableGraphConfig:
+    return ExecutableGraphConfig(
         config_id="config:readiness",
         graph_id="graph:readiness",
         graph_title="Readiness",

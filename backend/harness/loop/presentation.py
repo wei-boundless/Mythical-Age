@@ -7,7 +7,7 @@ from runtime.model_gateway.assistant_stream_frame import (
     assistant_message_ref,
     assistant_text_final_event,
 )
-from runtime.output_boundary import canonical_output_decision_for_final_text, sanitize_visible_assistant_content
+from harness.runtime.output_boundary import canonical_output_decision_for_final_text, sanitize_visible_assistant_content
 from runtime.output_stream.public_contract import TURN_COMPLETED_EVENT
 
 

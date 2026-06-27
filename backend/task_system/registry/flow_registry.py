@@ -28,7 +28,7 @@ from task_system.graphs.task_graph_models import (
 )
 from task_system.repositories import (
     AssignmentRepository,
-    GraphHarnessConfigRepository,
+    ExecutableGraphConfigRepository,
     TaskAssemblyConfigRepository,
     FlowRepository,
     SpecificTaskRepository,
@@ -338,7 +338,7 @@ class TaskFlowRegistry:
             normalize_execution_mode=normalize_task_execution_mode,
         )
         self.task_graph_repository = TaskGraphRepository(self.base_dir)
-        self.graph_harness_config_repository = GraphHarnessConfigRepository(self.base_dir)
+        self.executable_graph_config_repository = ExecutableGraphConfigRepository(self.base_dir)
         self.protocol_repository = TaskCommunicationProtocolRepository(
             self.base_dir,
             default_protocols=default_task_communication_protocols,
@@ -919,17 +919,17 @@ class TaskFlowRegistry:
         self._invalidate_cache()
         return graph
 
-    def list_graph_harness_configs(self) -> list[Any]:
-        return self.graph_harness_config_repository.list()
+    def list_graph_configs(self) -> list[Any]:
+        return self.executable_graph_config_repository.list()
 
-    def get_graph_harness_config(self, config_id: str) -> Any | None:
-        return self.graph_harness_config_repository.get(config_id)
+    def get_graph_config(self, config_id: str) -> Any | None:
+        return self.executable_graph_config_repository.get(config_id)
 
-    def get_published_graph_harness_config(self, graph_id: str) -> Any | None:
-        return self.graph_harness_config_repository.get_published_for_graph(graph_id)
+    def get_published_graph_config(self, graph_id: str) -> Any | None:
+        return self.executable_graph_config_repository.get_published_for_graph(graph_id)
 
-    def upsert_graph_harness_config(self, config: Any, *, publish: bool = True) -> Any:
-        stored = self.graph_harness_config_repository.upsert(config, publish=publish)
+    def upsert_graph_config(self, config: Any, *, publish: bool = True) -> Any:
+        stored = self.executable_graph_config_repository.upsert(config, publish=publish)
         self._invalidate_cache()
         return stored
 

@@ -92,7 +92,7 @@ from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_promp
 from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_content
 from runtime.model_gateway.lightweight_chat_model import provider_message_payloads
 from runtime.model_gateway.stream_iteration import iterate_stream_with_due_ticks
-from runtime.output_boundary import (
+from harness.runtime.output_boundary import (
     CanonicalFinalTextDecision,
     canonical_output_decision_for_final_text,
     contains_inline_pseudo_tool_call,

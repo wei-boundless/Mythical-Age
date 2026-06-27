@@ -62,7 +62,7 @@ def test_state_index_compacts_task_run_heavy_diagnostics(tmp_path) -> None:
             session_id="session",
             task_id="task.heavy",
             diagnostics={
-                "graph_harness_config_payload": {
+                "graph_config_payload": {
                     "config_id": "ghcfg:graph.heavy:test",
                     "graph_id": "graph.heavy",
                     "graph_title": "Heavy Graph",
@@ -79,12 +79,12 @@ def test_state_index_compacts_task_run_heavy_diagnostics(tmp_path) -> None:
     stored = snapshot["task_runs"]["taskrun:heavy"]
     diagnostics = stored["diagnostics"]
 
-    assert "graph_harness_config_payload" not in diagnostics
-    assert diagnostics["graph_harness_config_ref"].startswith("rtobj:graph_harness_configs:")
-    assert diagnostics["graph_harness_config_summary"]["config_id"] == "ghcfg:graph.heavy:test"
+    assert "graph_config_payload" not in diagnostics
+    assert diagnostics["graph_config_ref"].startswith("rtobj:graph_configs:")
+    assert diagnostics["graph_config_summary"]["config_id"] == "ghcfg:graph.heavy:test"
 
 
-def test_state_index_compacts_current_graph_harness_diagnostics_only_on_task_run(tmp_path) -> None:
+def test_state_index_compacts_current_graph_system_diagnostics_only_on_task_run(tmp_path) -> None:
     state_index = RuntimeStateIndex(tmp_path)
     state_index.upsert_task_run(
         TaskRun(
@@ -92,14 +92,14 @@ def test_state_index_compacts_current_graph_harness_diagnostics_only_on_task_run
             session_id="session",
             task_id="task.graph",
             diagnostics={
-                "graph_harness_config": {
+                "graph_config": {
                     "config_id": "ghcfg:graph.heavy:test",
                     "graph_id": "graph.heavy",
                     "graph_title": "Heavy Graph",
                     "nodes": [{"node_id": "a"}, {"node_id": "b"}],
                     "edges": [{"source_node_id": "a", "target_node_id": "b"}],
                     "modules": [{"module_id": "draft"}],
-                    "config_schema_version": "graph_harness_config.v1",
+                    "config_schema_version": "graph_config.v1",
                     "content_hash": "sha256:test",
                     "status": "published",
                 },
@@ -111,11 +111,11 @@ def test_state_index_compacts_current_graph_harness_diagnostics_only_on_task_run
     stored = snapshot["task_runs"]["taskrun:graph"]
     diagnostics = stored["diagnostics"]
 
-    assert "graph_harness_config" not in diagnostics
-    assert diagnostics["graph_harness_config_ref"].startswith("rtobj:graph_harness_configs:")
-    assert diagnostics["graph_harness_config_summary"]["edge_count"] == 1
-    assert diagnostics["graph_harness_config_summary"]["node_count"] == 2
-    assert diagnostics["graph_harness_config_summary"]["module_count"] == 1
+    assert "graph_config" not in diagnostics
+    assert diagnostics["graph_config_ref"].startswith("rtobj:graph_configs:")
+    assert diagnostics["graph_config_summary"]["edge_count"] == 1
+    assert diagnostics["graph_config_summary"]["node_count"] == 2
+    assert diagnostics["graph_config_summary"]["module_count"] == 1
 
 
 def test_state_index_compacts_graph_result_diagnostics_to_runtime_object(tmp_path) -> None:

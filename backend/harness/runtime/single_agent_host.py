@@ -16,7 +16,7 @@ from capability_system.tools.authorization import ToolAuthorizationIndex, build_
 from permissions import OperationGate
 from core.project_layout import ProjectLayout
 from harness.runtime.run_monitor import RuntimeMonitorService
-from harness.graph.langgraph_checkpoint_store import LangGraphCheckpointStore
+from graph_system.langgraph_checkpoint_store import LangGraphCheckpointStore
 from runtime.memory.state_index import RuntimeStateIndex
 from runtime.facts import RuntimeFactLedger
 from runtime.memory.file_state_store import FileStateAuthorityStore

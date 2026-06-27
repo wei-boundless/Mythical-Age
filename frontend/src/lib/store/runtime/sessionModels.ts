@@ -20,7 +20,7 @@ export function isVisibleMainChatSession(session: SessionSummary) {
   if (String(session.task_binding?.kind || "").trim() === "task_graph") {
     return false;
   }
-  if (String(session.task_binding?.graph_run_id || "").trim() || String(session.task_binding?.graph_harness_config_id || "").trim()) {
+  if (String(session.task_binding?.graph_run_id || "").trim() || String(session.task_binding?.graph_config_id || "").trim()) {
     return false;
   }
   return !GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(sessionTaskEnvironmentId(session));

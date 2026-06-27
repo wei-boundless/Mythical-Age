@@ -347,7 +347,7 @@ export type SessionRef = {
 export type TaskGraphMonitorBinding = {
   task_run_id?: string;
   graph_run_id: string;
-  graph_harness_config_id: string;
+  graph_config_id: string;
   graph_id?: string;
   session_id?: string;
   project_id?: string;

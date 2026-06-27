@@ -9,7 +9,7 @@ from api.deps import require_runtime
 from api.orchestration import (
     GRAPH_TASK_WORKSPACE_VIEW,
     TaskGraphRunStartRequest,
-    start_task_graph_harness_run,
+    start_task_graph_system_run,
 )
 from sessions import InvalidSessionId
 from task_system import TaskFlowRegistry
@@ -217,7 +217,7 @@ async def start_graph_task_instance_run(instance_id: str, payload: GraphTaskInst
         },
     }
     _validate_instance_run_inputs(instance, initial_inputs)
-    start = await start_task_graph_harness_run(
+    start = await start_task_graph_system_run(
         instance.graph_id,
         TaskGraphRunStartRequest(
             session_id=launch_session_id,
@@ -238,7 +238,7 @@ async def start_graph_task_instance_run(instance_id: str, payload: GraphTaskInst
         status=_status_from_start(start),
         metadata={
             "latest_task_run_id": str(start.get("task_run_id") or ""),
-            "latest_graph_harness_config_id": str(start.get("graph_harness_config_id") or ""),
+            "latest_graph_config_id": str(start.get("graph_config_id") or ""),
             "latest_graph_session_id": str(start.get("graph_session_id") or ""),
         },
     )
@@ -554,10 +554,10 @@ def _instance_sessions(runtime: Any, instance_id: str, *, root_session_id: str =
 
 def _instance_monitor_payload(runtime: Any, instance: Any, *, event_limit: int = 40) -> dict[str, Any]:
     registry = TaskFlowRegistry(runtime.base_dir)
-    graph_config = registry.get_published_graph_harness_config(instance.graph_id)
+    graph_config = registry.get_published_graph_config(instance.graph_id)
     graph_monitor = None
     if instance.active_graph_run_id:
-        graph_monitor = runtime.harness_runtime.graph_harness.get_graph_run_monitor(
+        graph_monitor = runtime.harness_runtime.graph_system.get_graph_run_monitor(
             instance.active_graph_run_id,
             graph_config=graph_config,
             event_limit=event_limit,
@@ -568,7 +568,7 @@ def _instance_monitor_payload(runtime: Any, instance: Any, *, event_limit: int =
     human_controls = HumanEdgeDecisionService(runtime.base_dir).human_controls(
         instance_id=instance.graph_task_instance_id,
         graph_config=graph_config,
-        state=runtime.harness_runtime.graph_harness.graph_loop.get_state(instance.active_graph_run_id) if instance.active_graph_run_id else None,
+        state=runtime.harness_runtime.graph_system.graph_loop.get_state(instance.active_graph_run_id) if instance.active_graph_run_id else None,
     )
     return {
         "authority": "api.graph_task_instances.monitor_payload",
@@ -643,7 +643,7 @@ def _artifact_flat_files(artifacts: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _empty_human_controls() -> dict[str, Any]:
     return {
-        "authority": "harness.graph.human_controls",
+        "authority": "graph_system.human_controls",
         "pending": [],
         "available": [],
         "history": [],

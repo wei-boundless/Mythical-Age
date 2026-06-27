@@ -52,7 +52,7 @@ import type {
   FormalMemoryRecord,
   FormalMemoryRepository,
   FormalMemoryVersion,
-  GraphHarnessConfigPayload,
+  ExecutableGraphConfigPayload,
   GraphModuleExpansionPlanSpec,
   GraphModuleExpansionSpec,
   GraphRunBackgroundSubmitResult,

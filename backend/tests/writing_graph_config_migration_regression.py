@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
+from task_system.compiler.executable_graph_config_publisher import build_graph_config_from_graph
 from task_system.compiler.writing_graph_config_migrator import (
     WRITING_GRAPH_MIGRATION_VERSION,
     normalize_writing_graph_for_transition_runtime,
@@ -82,7 +82,7 @@ def test_writing_graph_migration_preserves_ids_and_publishes_transition_contract
     assert revision_edge.metadata["transition_policy"]["revision"]["trigger"] == {"verdict": "revise"}
     assert revision_edge.metadata["readiness_policy"]["ack_policy"] == "explicit_ack"
 
-    config = build_graph_harness_config_from_graph(graph=graph)
+    config = build_graph_config_from_graph(graph=graph)
     contract = config.contracts["edge_contract_index"]["edge.revision.world_review.world_design"]
     assert contract["transition_policy"]["revision"]["target_node_id"] == "world_design"
     assert contract["readiness_policy"]["ack_required"] is True

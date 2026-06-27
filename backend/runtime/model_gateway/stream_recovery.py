@@ -7,7 +7,7 @@ from typing import Any
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_content
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
-from runtime.output_boundary import (
+from harness.runtime.output_boundary import (
     contains_inline_pseudo_tool_call,
     contains_internal_protocol,
     sanitize_visible_assistant_content,

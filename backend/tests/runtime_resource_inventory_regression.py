@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from orchestration.resource_inventory import build_runtime_resource_inventory
+from capability_system.resource_inventory import build_runtime_resource_inventory
 
 
 def test_runtime_resource_inventory_marks_only_current_turn_and_obligation_as_side_effect_authorities(tmp_path: Path) -> None:

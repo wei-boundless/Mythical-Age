@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from harness.graph.models import GraphHarnessConfig
-from harness.graph.state_machine import GraphStateMachine
+from graph_system.models import ExecutableGraphConfig
+from graph_system.state_machine import GraphStateMachine
 
 
 def test_terminal_completion_waits_for_active_parallel_work() -> None:
-    graph_config = GraphHarnessConfig(
+    graph_config = ExecutableGraphConfig(
         config_id="config:test",
         graph_id="graph:test",
         graph_title="Parallel Terminal",

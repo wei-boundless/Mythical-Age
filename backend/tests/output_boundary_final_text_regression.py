@@ -6,8 +6,8 @@ from harness.runtime.output_commit_authority import OutputCommitAuthority, Outpu
 from harness.loop.presentation import final_answer_event
 from harness.loop.task_executor import _commit_task_run_final_message
 from memory_system.continuity import MemoryMessageAdapter
-from orchestration.commit_gate import build_assistant_session_message_commit_decision
-from runtime.output_boundary import canonical_output_decision_for_final_text
+from harness.runtime.commit_gate import build_assistant_session_message_commit_decision
+from harness.runtime.output_boundary import canonical_output_decision_for_final_text
 
 
 class _EventLogStub:

@@ -52,8 +52,8 @@ def _migrated_graph_payload(payload: dict[str, Any]) -> dict[str, Any]:
     metadata["transition_runtime"] = {
         **dict(metadata.get("transition_runtime") or {}),
         "canonical": True,
-        "edge_state_authority": "harness.graph.transition_processor",
-        "readiness_authority": "harness.graph.readiness_evaluator",
+        "edge_state_authority": "graph_system.transition_processor",
+        "readiness_authority": "graph_system.readiness_evaluator",
         "migration_version": WRITING_GRAPH_MIGRATION_VERSION,
     }
 

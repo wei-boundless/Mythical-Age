@@ -8,7 +8,7 @@ from api.session_summary import enrich_session_summaries, enrich_session_summary
 from sessions import SessionTaskBindingConflict, SessionTaskBindingMissing
 from agent_system.registry.agent_registry import AgentRegistry
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
-from harness.graph.scheduler_view import build_scheduler_view
+from graph_system.scheduler_view import build_scheduler_view
 from prompt_library import PromptLibraryRegistry
 from task_system import (
     TaskContractRegistry,
@@ -18,9 +18,9 @@ from task_system import (
     build_task_graph_standard_view,
     semantic_relation_catalog,
 )
-from task_system.compiler.graph_harness_config_publisher import (
-    build_graph_harness_config_from_graph,
-    publish_graph_harness_config_for_graph,
+from task_system.compiler.executable_graph_config_publisher import (
+    build_graph_config_from_graph,
+    publish_graph_config_for_graph,
 )
 from task_system.environments import (
     TaskEnvironmentConfigError,
@@ -912,7 +912,7 @@ def _graph_or_404(*, registry: TaskFlowRegistry, graph_id: str):
 def _scheduler_view_payload(graph_config: object) -> dict[str, object]:
     scheduler = build_scheduler_view(graph_config)  # type: ignore[arg-type]
     return {
-        "authority": "harness.graph.scheduler_view",
+        "authority": "graph_system.scheduler_view",
         "config_id": scheduler.config_id,
         "config_hash": scheduler.config_hash,
         "dependency_edges": [dict(item) for item in scheduler.dependency_edges],
@@ -923,7 +923,7 @@ def _scheduler_view_payload(graph_config: object) -> dict[str, object]:
     }
 
 
-def _graph_harness_trace_index(*, graph: object, graph_config: object, scheduler_view: dict[str, object]) -> list[dict[str, object]]:
+def _graph_system_trace_index(*, graph: object, graph_config: object, scheduler_view: dict[str, object]) -> list[dict[str, object]]:
     config_payload = graph_config.to_dict() if hasattr(graph_config, "to_dict") else dict(graph_config or {})
     config_nodes = {
         str(item.get("node_id") or ""): dict(item)
@@ -949,8 +949,8 @@ def _graph_harness_trace_index(*, graph: object, graph_config: object, scheduler
             "title": str(getattr(graph, "title", "") or config_payload.get("graph_title") or config_payload.get("graph_id") or ""),
             "source_path": "graph",
             "runtime_ref": {
-                "graph_harness_config_id": str(config_payload.get("config_id") or ""),
-                "graph_harness_config_hash": str(config_payload.get("content_hash") or ""),
+                "graph_config_id": str(config_payload.get("config_id") or ""),
+                "graph_config_hash": str(config_payload.get("content_hash") or ""),
             },
             "scheduler_ref": {
                 "start_node_ids": list(scheduler_view.get("start_node_ids") or []),
@@ -1033,7 +1033,7 @@ def _compile_task_graph_contract(graph_id: str) -> dict[str, object]:
     registry = TaskFlowRegistry(runtime.base_dir)
     graph = _graph_or_404(registry=registry, graph_id=graph_id)
     try:
-        graph_config = build_graph_harness_config_from_graph(
+        graph_config = build_graph_config_from_graph(
             graph=graph,
             publish_version="preview",
             graph_lookup=registry,
@@ -1046,7 +1046,7 @@ def _compile_task_graph_contract(graph_id: str) -> dict[str, object]:
     if not list(scheduler_view.get("executable_node_ids") or []):
         issues.append(
             {
-                "code": "graph_harness_no_executable_nodes",
+                "code": "graph_system_no_executable_nodes",
                 "message": "图契约没有可执行节点，图任务无法启动。",
                 "severity": "error",
                 "scope": "graph",
@@ -1059,7 +1059,7 @@ def _compile_task_graph_contract(graph_id: str) -> dict[str, object]:
         for item in list(dict(dict(config_payload.get("control") or {}).get("batch_policy") or {}).get("split_plans") or [])
         if isinstance(item, dict)
     ]
-    object_trace_index = _graph_harness_trace_index(
+    object_trace_index = _graph_system_trace_index(
         graph=graph,
         graph_config=graph_config,
         scheduler_view=scheduler_view,
@@ -1070,7 +1070,7 @@ def _compile_task_graph_contract(graph_id: str) -> dict[str, object]:
         "graph_id": graph_id,
         "title": str(getattr(graph, "title", "") or graph_id),
         "valid": valid,
-        "graph_harness_config": config_payload,
+        "graph_config": config_payload,
         "scheduler_view": scheduler_view,
         "composition_sources": [dict(item) for item in graph_config.composition_sources],
         "split_plans": split_plans,
@@ -1152,7 +1152,7 @@ async def upsert_task_system_task_graph_standard_view(
             metadata=next_graph.metadata,
         )
         if next_graph.publish_state == "published":
-            publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=next_graph.graph_id)
+            publish_graph_config_for_graph(base_dir=runtime.base_dir, graph_id=next_graph.graph_id)
     except ValueError as exc:
         from fastapi import HTTPException
 
@@ -1556,7 +1556,7 @@ async def resolve_task_environment_session(
         graph_run_id = str(payload.graph_run_id or "").strip()
         if not graph_run_id:
             raise HTTPException(status_code=400, detail="graph_run_id is required for resume_graph")
-        graph_run = runtime.harness_runtime.graph_harness.get_graph_run(graph_run_id)
+        graph_run = runtime.harness_runtime.graph_system.get_graph_run(graph_run_id)
         graph_run_payload = dict(graph_run or {})
         if not graph_run_payload:
             raise HTTPException(status_code=404, detail="GraphRun not found")
@@ -1997,7 +1997,7 @@ async def upsert_task_system_task_graph(
             metadata=payload.metadata,
         )
         if payload.publish_state == "published":
-            publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=payload.graph_id)
+            publish_graph_config_for_graph(base_dir=runtime.base_dir, graph_id=payload.graph_id)
     except ValueError as exc:
         from fastapi import HTTPException
 
@@ -2032,4 +2032,3 @@ async def upsert_task_system_communication_protocol(
 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _task_system_payload(runtime.base_dir)
-

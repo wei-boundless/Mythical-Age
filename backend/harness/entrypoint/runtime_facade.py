@@ -9,7 +9,7 @@ from typing import Any
 
 from observability import build_debug_trace_event, start_turn_trace
 from capability_system.tools.authorization import build_tool_authorization_index
-from harness import GraphHarness
+from graph_system.facade import GraphSystem
 from harness.current_work_receipt import current_work_control_availability_from_receipt
 from harness.continuation import (
     build_recovery_boundary_input,
@@ -36,11 +36,9 @@ from runtime.shared.history_assembler import assemble_runtime_history
 from permissions.policy import normalize_permission_mode
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.identity import normalize_agent_id
+from capability_system.catalog_projection import build_base_unit_catalog
 from harness.task_contract_normalization import contract_dict_tuple, contract_string_tuple
-from orchestration import (
-    build_base_unit_catalog,
-    build_user_message_commit_decision,
-)
+from harness.runtime.commit_gate import build_user_message_commit_decision
 from core.project_layout import ProjectLayout
 from harness.entrypoint.models import HarnessRuntimeRequest
 from api.chat_direct_routes import run_direct_system_route
@@ -77,8 +75,8 @@ from harness.loop.task_lifecycle import (
     start_task_lifecycle_from_action_request,
     start_task_lifecycle_from_contract,
 )
-from harness.graph.models import safe_id
-from harness.graph.work_order_contract import (
+from graph_system.models import safe_id
+from harness.runtime.graph_node_contract import (
     _graph_coordinator_profile_ref,
     _graph_node_agent_id,
     _graph_node_clock_seq,
@@ -181,14 +179,14 @@ class HarnessRuntimeFacade:
             runtime_host=self.single_agent_runtime_host,
             execute_task_run_callback=lambda task_run_id, **kwargs: self.execute_task_run(task_run_id, **kwargs),
         )
-        self.graph_harness = GraphHarness(
+        self.graph_system = GraphSystem(
             services=self.agent_runtime_services,
         )
-        self.single_agent_runtime_host.runtime_monitor_service.attach_graph_harness(self.graph_harness)
+        self.single_agent_runtime_host.runtime_monitor_service.attach_graph_system(self.graph_system)
         self.task_executor_recovery = self.task_executor_controller.recover_interrupted_executor_leases()
         self.runtime_components = {
             "harness.entrypoint": "application_runtime_facade",
-            "graph_harness": "active",
+            "graph_system": "active",
             "evidence_orchestrator": "active" if retrieval_enabled else "disabled_missing_retrieval_service",
             "task_executor_recovery": self.task_executor_recovery,
         }
@@ -2554,7 +2552,7 @@ class HarnessRuntimeFacade:
                 "origin": origin,
                 **origin,
                 "graph_run_id": work_order.graph_run_id,
-                "graph_harness_config_id": graph_config.config_id,
+                "graph_config_id": graph_config.config_id,
                 "graph_node_id": work_order.node_id,
                 "graph_work_order_id": work_order.work_order_id,
                 "graph_root_session_id": str(dict(graph_run or {}).get("session_id") or ""),

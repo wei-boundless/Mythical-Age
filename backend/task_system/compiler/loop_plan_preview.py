@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from harness.graph.language import REVISION_EDGE_TYPES
-from harness.graph.models import GraphHarnessConfig
-from harness.graph.scheduler_view import SchedulerView, build_scheduler_view
-from harness.graph.state_machine import GraphStateMachine
+from graph_system.language import REVISION_EDGE_TYPES
+from graph_system.models import ExecutableGraphConfig
+from graph_system.scheduler_view import SchedulerView, build_scheduler_view
+from graph_system.state_machine import GraphStateMachine
 
 
 LOOP_PLAN_PREVIEW_AUTHORITY = "task_system.loop_plan_preview"
@@ -23,7 +23,7 @@ COMMIT_EDGE_TYPES = {
 
 def build_loop_plan_preview(
     *,
-    graph_config: GraphHarnessConfig,
+    graph_config: ExecutableGraphConfig,
     layered_graph: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     scheduler = build_scheduler_view(graph_config)
@@ -174,7 +174,7 @@ def _edge_is_revision(edge: dict[str, Any]) -> bool:
 
 def _structural_issues(
     *,
-    graph_config: GraphHarnessConfig,
+    graph_config: ExecutableGraphConfig,
     scheduler: SchedulerView,
     initial_ready_node_ids: tuple[str, ...],
 ) -> list[dict[str, Any]]:

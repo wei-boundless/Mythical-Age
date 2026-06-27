@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from harness.graph.edge_contracts import edge_contract_or_projection
-from harness.graph.models import GraphHarnessConfig, GraphLoopState, safe_id
+from graph_system.edge_contracts import edge_contract_or_projection
+from graph_system.models import ExecutableGraphConfig, GraphLoopState, safe_id
 from task_system import TaskFlowRegistry
 from task_system.graph_instances.decision_models import next_human_artifact_submission_id
 from task_system.graph_instances.decision_repository import HumanEdgeDecisionRepository
@@ -36,7 +36,7 @@ class HumanEdgeDecisionService:
             raise ValueError("HumanEdgeDecision requires graph_run_id or active graph run")
         if instance.graph_run_ids and graph_run_id not in set(instance.graph_run_ids):
             raise ValueError("HumanEdgeDecision graph_run_id does not belong to graph task instance")
-        state = runtime.harness_runtime.graph_harness.graph_loop.get_state(graph_run_id)
+        state = runtime.harness_runtime.graph_system.graph_loop.get_state(graph_run_id)
         if state is None:
             raise ValueError(f"GraphLoopState not found: {graph_run_id}")
         edge = _edge_by_id(graph_config, str(payload.get("edge_id") or ""))
@@ -69,7 +69,7 @@ class HumanEdgeDecisionService:
         apply_result = None
         if bool(payload.get("apply_now", True)):
             try:
-                advance = runtime.harness_runtime.graph_harness.apply_human_edge_decision(
+                advance = runtime.harness_runtime.graph_system.apply_human_edge_decision(
                     graph_config=graph_config,
                     graph_run_id=graph_run_id,
                     decision=decision.to_dict(),
@@ -119,7 +119,7 @@ class HumanEdgeDecisionService:
         self,
         *,
         instance_id: str,
-        graph_config: GraphHarnessConfig | None,
+        graph_config: ExecutableGraphConfig | None,
         state: GraphLoopState | None,
         limit: int = 50,
     ) -> dict[str, Any]:
@@ -147,17 +147,17 @@ class HumanEdgeDecisionService:
             },
         }
 
-    def _graph_config(self, graph_id: str) -> GraphHarnessConfig:
-        graph_config = self.registry.get_published_graph_harness_config(graph_id)
+    def _graph_config(self, graph_id: str) -> ExecutableGraphConfig:
+        graph_config = self.registry.get_published_graph_config(graph_id)
         if graph_config is None:
-            raise ValueError(f"GraphHarnessConfig not found for graph: {graph_id}")
+            raise ValueError(f"ExecutableGraphConfig not found for graph: {graph_id}")
         return graph_config
 
     def _normalized_decision_payload(
         self,
         *,
         instance: Any,
-        graph_config: GraphHarnessConfig,
+        graph_config: ExecutableGraphConfig,
         graph_run_id: str,
         state: GraphLoopState,
         edge: dict[str, Any],
@@ -179,7 +179,7 @@ class HumanEdgeDecisionService:
             "graph_task_instance_id": instance.graph_task_instance_id,
             "graph_id": instance.graph_id,
             "graph_run_id": graph_run_id,
-            "graph_harness_config_id": graph_config.config_id,
+            "graph_config_id": graph_config.config_id,
             "edge_id": str(edge.get("edge_id") or ""),
             "source_node_id": str(edge.get("source_node_id") or ""),
             "target_node_id": str(edge.get("target_node_id") or ""),
@@ -236,12 +236,12 @@ class HumanEdgeDecisionService:
         }
 
 
-def _edge_by_id(graph_config: GraphHarnessConfig, edge_id: str) -> dict[str, Any] | None:
+def _edge_by_id(graph_config: ExecutableGraphConfig, edge_id: str) -> dict[str, Any] | None:
     target = str(edge_id or "").strip()
     return next((dict(item) for item in graph_config.edges if str(dict(item).get("edge_id") or "") == target), None)
 
 
-def _human_control_policy(*, graph_config: GraphHarnessConfig, edge: dict[str, Any]) -> dict[str, Any]:
+def _human_control_policy(*, graph_config: ExecutableGraphConfig, edge: dict[str, Any]) -> dict[str, Any]:
     contract = edge_contract_or_projection(graph_config, edge)
     return dict(contract.get("human_control") or {})
 
@@ -254,7 +254,7 @@ def _assert_decision_allowed(*, policy: dict[str, Any], decision: str, edge: dic
         raise ValueError(f"HumanEdgeDecision {decision} is not allowed for edge: {edge.get('edge_id')}")
 
 
-def _pending_human_controls(*, graph_config: GraphHarnessConfig, state: GraphLoopState) -> list[dict[str, Any]]:
+def _pending_human_controls(*, graph_config: ExecutableGraphConfig, state: GraphLoopState) -> list[dict[str, Any]]:
     controls: list[dict[str, Any]] = []
     for node_id, node_state in dict(state.node_states or {}).items():
         payload = dict(node_state or {})
@@ -269,7 +269,7 @@ def _pending_human_controls(*, graph_config: GraphHarnessConfig, state: GraphLoo
     return controls
 
 
-def _available_human_controls(*, graph_config: GraphHarnessConfig, state: GraphLoopState) -> list[dict[str, Any]]:
+def _available_human_controls(*, graph_config: ExecutableGraphConfig, state: GraphLoopState) -> list[dict[str, Any]]:
     controls: list[dict[str, Any]] = []
     for edge in graph_config.edges:
         control = _control_for_edge(graph_config=graph_config, state=state, edge=dict(edge), pending_node_id="")
@@ -280,7 +280,7 @@ def _available_human_controls(*, graph_config: GraphHarnessConfig, state: GraphL
 
 def _control_for_edge(
     *,
-    graph_config: GraphHarnessConfig,
+    graph_config: ExecutableGraphConfig,
     state: GraphLoopState,
     edge: dict[str, Any],
     pending_node_id: str = "",
@@ -317,7 +317,7 @@ def _control_for_edge(
         return None
     labels = dict(policy.get("decision_labels") or {})
     return {
-        "authority": "harness.graph.human_control_view",
+        "authority": "graph_system.human_control_view",
         "control_id": f"hctrl:{safe_id(state.graph_run_id)}:{safe_id(str(edge.get('edge_id') or 'edge'))}",
         "graph_run_id": state.graph_run_id,
         "edge_id": str(edge.get("edge_id") or ""),

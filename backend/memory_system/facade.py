@@ -5,7 +5,7 @@ from typing import Any, Callable
 
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from core.project_layout import ProjectLayout
-from orchestration import BackgroundTaskManager
+from runtime.shared.background_tasks import BackgroundTaskManager
 from .bundle_service import MemoryBundleService
 from .continuity import ForegroundContinuityStateStore, MemoryMessageAdapter, SessionMemoryLayer
 from .conversation_memory import ConversationMemoryStoreAdapter

@@ -3,11 +3,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from harness.graph.checkpoint_store import GraphCheckpointRecord
-from harness.graph.loop import GraphLoop, _state_after_revision_requeue
-from harness.graph.models import GraphHarnessConfig, GraphLoopState, NodeResultEnvelope
-from harness.graph.runtime_objects import store_node_result
-from harness.graph.state_machine import GraphStateMachine
+from graph_system.checkpoint_store import GraphCheckpointRecord
+from graph_system.loop import GraphLoop, _state_after_revision_requeue
+from graph_system.models import ExecutableGraphConfig, GraphLoopState, NodeResultEnvelope
+from graph_system.runtime_objects import store_node_result
+from graph_system.state_machine import GraphStateMachine
 
 
 class _ObjectStore:
@@ -97,11 +97,11 @@ def _edge(edge_id: str, source: str, target: str, edge_type: str = "handoff") ->
     }
 
 
-def _config(*, include_revision_edge: bool) -> GraphHarnessConfig:
+def _config(*, include_revision_edge: bool) -> ExecutableGraphConfig:
     edges = []
     if include_revision_edge:
         edges.append(_edge("edge.revision.review.revise", "review", "revise", "revision_request"))
-    return GraphHarnessConfig(
+    return ExecutableGraphConfig(
         config_id="config:human",
         graph_id="graph:human",
         graph_title="Human Gate",
@@ -115,7 +115,7 @@ def _config(*, include_revision_edge: bool) -> GraphHarnessConfig:
     ).with_content_identity(config_id="config:human")
 
 
-def _waiting_human_gate_state(config: GraphHarnessConfig, services: SimpleNamespace) -> GraphLoopState:
+def _waiting_human_gate_state(config: ExecutableGraphConfig, services: SimpleNamespace) -> GraphLoopState:
     result = NodeResultEnvelope(
         result_id="result:review",
         graph_run_id="grun:human",
@@ -227,7 +227,7 @@ def test_automatic_design_revision_requeues_target_without_chapter_range() -> No
 
 
 def test_automatic_revision_preserves_ready_external_prerequisite_edge() -> None:
-    config = GraphHarnessConfig(
+    config = ExecutableGraphConfig(
         config_id="config:revision-prerequisite",
         graph_id="graph:revision-prerequisite",
         graph_title="Revision Prerequisite",
@@ -297,7 +297,7 @@ def test_automatic_revision_preserves_ready_external_prerequisite_edge() -> None
 
 
 def test_chapter_draft_revision_without_chapter_range_still_blocks() -> None:
-    config = GraphHarnessConfig(
+    config = ExecutableGraphConfig(
         config_id="config:chapter-revision",
         graph_id="graph:chapter-revision",
         graph_title="Chapter Revision",

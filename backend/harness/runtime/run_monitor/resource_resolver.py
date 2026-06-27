@@ -8,9 +8,9 @@ from core.project_layout import ProjectLayout
 
 
 class MonitorResourceResolver:
-    def __init__(self, *, runtime_host: Any, graph_harness: Any | None = None, base_dir: Path | None = None) -> None:
+    def __init__(self, *, runtime_host: Any, graph_system: Any | None = None, base_dir: Path | None = None) -> None:
         self.runtime_host = runtime_host
-        self.graph_harness = graph_harness
+        self.graph_system = graph_system
         self.base_dir = Path(base_dir or getattr(runtime_host, "backend_dir", Path.cwd()))
         self.project_root = ProjectLayout.from_backend_dir(self.base_dir).project_root
 
@@ -28,8 +28,8 @@ class MonitorResourceResolver:
 
     def graph_run_ref(self, graph_run_id: str, *, label: str = "任务图运行", available: bool | None = None) -> dict[str, Any]:
         resolved_available = bool(available) if available is not None else False
-        if available is None and graph_run_id and self.graph_harness is not None:
-            get_graph_run = getattr(self.graph_harness, "get_graph_run", None)
+        if available is None and graph_run_id and self.graph_system is not None:
+            get_graph_run = getattr(self.graph_system, "get_graph_run", None)
             if callable(get_graph_run):
                 try:
                     resolved_available = bool(get_graph_run(graph_run_id))
@@ -37,18 +37,18 @@ class MonitorResourceResolver:
                     resolved_available = False
         return self._resource_ref(kind="graph_run", resource_id=graph_run_id, label=label, available=resolved_available)
 
-    def graph_config_ref(self, graph_harness_config_id: str, *, label: str = "任务图配置", available: bool | None = None) -> dict[str, Any]:
+    def graph_config_ref(self, graph_config_id: str, *, label: str = "任务图配置", available: bool | None = None) -> dict[str, Any]:
         resolved_available = bool(available) if available is not None else False
-        if available is None and graph_harness_config_id:
+        if available is None and graph_config_id:
             try:
                 from task_system import TaskFlowRegistry
 
-                resolved_available = TaskFlowRegistry(self.base_dir).get_graph_harness_config(graph_harness_config_id) is not None
+                resolved_available = TaskFlowRegistry(self.base_dir).get_graph_config(graph_config_id) is not None
             except Exception:
                 resolved_available = False
         return self._resource_ref(
-            kind="graph_harness_config",
-            resource_id=graph_harness_config_id,
+            kind="graph_config",
+            resource_id=graph_config_id,
             label=label,
             available=resolved_available,
         )
@@ -60,20 +60,20 @@ class MonitorResourceResolver:
             if isinstance(ref, dict)
         ]
 
-    def graph_monitor(self, graph_run_id: str, graph_harness_config_id: str = "", *, event_limit: int = 80) -> dict[str, Any] | None:
-        if not graph_run_id or self.graph_harness is None:
+    def graph_monitor(self, graph_run_id: str, graph_config_id: str = "", *, event_limit: int = 80) -> dict[str, Any] | None:
+        if not graph_run_id or self.graph_system is None:
             return None
         graph_config = None
-        if graph_harness_config_id:
+        if graph_config_id:
             try:
                 from task_system import TaskFlowRegistry
 
-                graph_config = TaskFlowRegistry(self.base_dir).get_graph_harness_config(graph_harness_config_id)
+                graph_config = TaskFlowRegistry(self.base_dir).get_graph_config(graph_config_id)
             except Exception:
                 graph_config = None
             if graph_config is None:
                 return None
-        getter = getattr(self.graph_harness, "get_graph_run_monitor", None)
+        getter = getattr(self.graph_system, "get_graph_run_monitor", None)
         if not callable(getter):
             return None
         try:

@@ -122,7 +122,7 @@ def _runtime_stub(tmp_path: Path, *, host: SingleAgentRuntimeHost) -> SimpleName
         base_dir=tmp_path,
         harness_runtime=SimpleNamespace(
             single_agent_runtime_host=host,
-            graph_harness=None,
+            graph_system=None,
         ),
         session_manager=SimpleNamespace(get_history=lambda _session_id: {}),
     )

@@ -12,8 +12,8 @@ function graphContractPreview(
     contract_id: "contract.graph.test",
     graph_id: "graph.test",
     title: "测试图契约",
-    graph_harness_config: {
-      authority: "harness.graph_harness_config",
+    graph_config: {
+      authority: "graph_system_config",
       config_id: "ghcfg:test",
       graph_id: "graph.test",
       graph_title: "测试图契约",
@@ -39,7 +39,7 @@ function graphContractPreview(
       source_refs: {},
     },
     scheduler_view: {
-      authority: "harness.graph.scheduler_view",
+      authority: "graph_system.scheduler_view",
       config_id: "ghcfg:test",
       config_hash: "hash",
       dependency_edges: [],
@@ -259,7 +259,7 @@ describe("TaskGraph preflight", () => {
             loop_frames: [],
             issues: [
               {
-                code: "graph_harness_config_compile_failed",
+                code: "graph_config_compile_failed",
                 message: "Graph protocol alignment failed.",
                 severity: "error",
               },
@@ -271,7 +271,7 @@ describe("TaskGraph preflight", () => {
 
     const loopIssue = report.issues.find((issue) => issue.source === "backend.loop_plan");
     expect(report.valid).toBe(false);
-    expect(loopIssue?.title).toBe("graph_harness_config_compile_failed");
+    expect(loopIssue?.title).toBe("graph_config_compile_failed");
     expect(loopIssue?.scope).toBe("runtime");
     expect(loopIssue?.detail).toBe("Graph protocol alignment failed.");
   });

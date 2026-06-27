@@ -19,7 +19,7 @@ from harness.runtime.dynamic_context.manager import DynamicContextManager
 from harness.runtime.dynamic_context.models import DynamicContextInput
 from harness.runtime.dynamic_context.replacement_store import ReplacementStore
 from harness.runtime.dynamic_context.tool_result_projector import ToolResultProjector
-from orchestration.runtime_directive import RuntimeDirective
+from runtime.shared.runtime_directive import RuntimeDirective
 from runtime.memory.file_evidence_scope import session_file_evidence_scope, task_run_file_evidence_scope
 from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.shared.action_request import RuntimeActionRequest

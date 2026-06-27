@@ -7,7 +7,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from orchestration import UnitDescriptor, build_base_unit_catalog
+from capability_system import UnitDescriptor, build_base_unit_catalog
 
 
 def test_base_unit_catalog_keeps_modular_units_without_decision_authority() -> None:

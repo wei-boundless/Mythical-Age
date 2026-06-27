@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import runtime.output_boundary as output_boundary
-from runtime.output_boundary.output_models import ToolVisibleOutputEnvelope
+import harness.runtime.output_boundary as output_boundary
+from harness.runtime.output_boundary.output_models import ToolVisibleOutputEnvelope
 from runtime.tool_runtime.tool_result_envelope import ToolResultEnvelope, build_tool_result_envelope
 
 

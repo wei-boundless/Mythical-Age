@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from harness.graph.lifecycle_manager import GraphTaskLifecycleManager
+from graph_system.lifecycle_manager import GraphTaskLifecycleManager
 from harness.loop.task_run_execution_control import executor_control_signal_effect, request_executor_control_signal
 
 
@@ -24,7 +24,7 @@ class TaskRecordLifecycleManager:
     def __init__(self, runtime: Any) -> None:
         self.runtime = runtime
         self.host = runtime.harness_runtime.single_agent_runtime_host
-        self.graph_harness = getattr(runtime.harness_runtime, "graph_harness", None)
+        self.graph_system = getattr(runtime.harness_runtime, "graph_system", None)
 
     async def delete_task_record(self, task_run_id: str) -> dict[str, Any]:
         task_run = self._deletable_task_run(task_run_id)
@@ -144,13 +144,13 @@ class TaskRecordLifecycleManager:
         return task_run
 
     async def _delete_graph_root(self, *, task_run_id: str, graph_run_id: str) -> dict[str, Any]:
-        if self.graph_harness is None:
+        if self.graph_system is None:
             raise TaskRecordLifecycleConflict(
-                "graph_harness_unavailable_for_graph_root_task_run",
+                "graph_system_unavailable_for_graph_root_task_run",
                 task_run_id=task_run_id,
                 graph_run_id=graph_run_id,
             )
-        manager = GraphTaskLifecycleManager(base_dir=self.runtime.base_dir, graph_harness=self.graph_harness)
+        manager = GraphTaskLifecycleManager(base_dir=self.runtime.base_dir, graph_system=self.graph_system)
         task_run_ids = {
             str(item).strip()
             for item in list(manager.preview_delete_graph_run(graph_run_id).get("task_run_ids") or [])
@@ -174,13 +174,13 @@ class TaskRecordLifecycleManager:
         }
 
     def _is_graph_root(self, *, task_run_id: str, graph_run_id: str) -> bool:
-        if self.graph_harness is None:
+        if self.graph_system is None:
             return False
-        graph_run = dict(self.graph_harness.get_graph_run(graph_run_id) or {})
+        graph_run = dict(self.graph_system.get_graph_run(graph_run_id) or {})
         root_task_run_id = str(graph_run.get("task_run_id") or "").strip()
         if root_task_run_id:
             return root_task_run_id == task_run_id
-        return str(dict(self.graph_harness.get_checkpoint_state(graph_run_id) or {}).get("task_run_id") or "").strip() == task_run_id
+        return str(dict(self.graph_system.get_checkpoint_state(graph_run_id) or {}).get("task_run_id") or "").strip() == task_run_id
 
     def _stop_executors(self, task_run_ids: set[str], *, reason: str) -> dict[str, Any]:
         accepted: list[str] = []

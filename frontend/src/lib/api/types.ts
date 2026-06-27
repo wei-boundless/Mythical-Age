@@ -78,7 +78,7 @@ export type SessionTaskBinding = {
   graph_run_id: string;
   task_run_id?: string;
   graph_id?: string;
-  graph_harness_config_id?: string;
+  graph_config_id?: string;
   task_environment_id?: string;
   project_id?: string;
   session_scope?: SessionScope;
@@ -137,7 +137,7 @@ export type SessionTaskSummary = {
   control_capability?: Record<string, unknown>;
   graph_run_id?: string;
   graph_id?: string;
-  graph_harness_config_id?: string;
+  graph_config_id?: string;
   created_at?: number;
   updated_at?: number;
 };
@@ -935,7 +935,7 @@ export type TaskGraphDraftTopologySpec = {
   diagnostics?: Record<string, unknown>;
 };
 
-export type GraphHarnessConfigPayload = {
+export type ExecutableGraphConfigPayload = {
   authority: string;
   config_id: string;
   graph_id: string;
@@ -980,7 +980,7 @@ export type TaskGraphContractPreview = {
   graph_id: string;
   title: string;
   valid: boolean;
-  graph_harness_config: GraphHarnessConfigPayload;
+  graph_config: ExecutableGraphConfigPayload;
   scheduler_view: GraphSchedulerViewPayload;
   composition_sources?: Array<Record<string, unknown>>;
   split_plans?: Array<Record<string, unknown>>;
@@ -2609,13 +2609,13 @@ export type RuntimeMonitorSignal = {
     task_run_id?: string;
     turn_run_id?: string;
     graph_run_id?: string;
-    graph_harness_config_id?: string;
+    graph_config_id?: string;
     resource_ref?: string;
   };
   graph_ref?: {
     graph_id?: string;
     graph_run_id?: string;
-    graph_harness_config_id?: string;
+    graph_config_id?: string;
   };
   timestamps: {
     started_at?: number;
@@ -2788,7 +2788,7 @@ export type HarnessTaskRunLiveMonitor = {
   navigation_target?: Record<string, unknown> | null;
   loop_state: Record<string, unknown>;
   graph_run_id?: string;
-  graph_harness_config_id?: string;
+  graph_config_id?: string;
   agent_runtime_phase_summary?: Record<string, unknown> | null;
   has_graph_run: boolean;
   runtime_control?: Record<string, unknown>;
@@ -2922,7 +2922,7 @@ export type TaskGraphRunStartResult = {
   authority: string;
   graph_id: string;
   graph_run_id: string;
-  graph_harness_config_id: string;
+  graph_config_id: string;
   launch_session_id: string;
   graph_session_id: string;
   task_run_id: string;
@@ -2930,7 +2930,7 @@ export type TaskGraphRunStartResult = {
   graph_run: Record<string, unknown>;
   checkpoint: Record<string, unknown>;
   graph_loop_state: Record<string, unknown>;
-  graph_harness_config: Record<string, unknown>;
+  graph_config: Record<string, unknown>;
   node_work_orders: Array<Record<string, unknown>>;
   runner_result: GraphRunUntilIdleResult | null;
   background_submission: GraphRunBackgroundSubmitResult | null;
@@ -2939,13 +2939,13 @@ export type TaskGraphRunStartResult = {
 };
 
 export type GraphRunMonitorView = {
-  authority: "harness.graph_run_monitor" | string;
+  authority: "graph_system_run_monitor" | string;
   graph_run_id: string;
   graph_run: Record<string, unknown>;
   task_run: Record<string, unknown> | null;
   task_run_monitor?: HarnessTaskRunLiveMonitor | Record<string, unknown> | null;
   runtime_monitor?: HarnessTaskRunLiveMonitor | Record<string, unknown> | null;
-  graph_harness_config: GraphHarnessConfigPayload | Record<string, unknown>;
+  graph_config: ExecutableGraphConfigPayload | Record<string, unknown>;
   graph_loop_state: Record<string, unknown>;
   active_node_work_orders: Array<Record<string, unknown>>;
   active_node_work_order_count: number;
@@ -3201,7 +3201,7 @@ export type GraphTaskInstanceRunStartResult = {
 export type GraphRunDispatchReadyResult = {
   authority: string;
   graph_run_id: string;
-  graph_harness_config_id: string;
+  graph_config_id: string;
   graph_loop_state: Record<string, unknown>;
   checkpoint: Record<string, unknown>;
   node_work_orders: Array<Record<string, unknown>>;
@@ -3230,7 +3230,7 @@ export type GraphRunBackgroundSubmitResult = {
   background_started: boolean;
   already_running: boolean;
   graph_run_id: string;
-  graph_harness_config_id: string;
+  graph_config_id: string;
   background_task_name: string;
   background_task_names?: string[];
   scheduled_work_order_count?: number;

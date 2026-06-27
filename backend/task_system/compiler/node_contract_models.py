@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from harness.graph.scheduler_view import is_executable_node
+from graph_system.scheduler_view import is_executable_node
 
 
 def build_node_contract_index(

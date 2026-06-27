@@ -70,13 +70,13 @@ class TaskContractIssuer:
         runtime_shape = policy.runtime_shape
         graph_contract = {
             "graph_ref": graph_ref,
-            "graph_harness_config_ref": str(
-                startup.get("graph_harness_config_ref")
-                or startup.get("graph_harness_config_id")
-                or task_policy.get("graph_harness_config_ref")
-                or task_policy.get("graph_harness_config_id")
-                or metadata.get("graph_harness_config_ref")
-                or metadata.get("graph_harness_config_id")
+            "graph_config_ref": str(
+                startup.get("graph_config_ref")
+                or startup.get("graph_config_id")
+                or task_policy.get("graph_config_ref")
+                or task_policy.get("graph_config_id")
+                or metadata.get("graph_config_ref")
+                or metadata.get("graph_config_id")
                 or ""
             ).strip(),
             "graph_policy": dict(task_policy.get("graph_policy") or metadata.get("graph_policy") or {}),
@@ -121,10 +121,10 @@ class TaskContractIssuer:
             },
             graph_contract=graph_contract,
             graph_runtime_assembly_plan={
-                "kind": "graph_harness_config_request",
-                "schema_version": "graph_harness_config_request.v1",
+                "kind": "graph_config_request",
+                "schema_version": "graph_config_request.v1",
                 "graph_ref": graph_ref,
-                "graph_harness_config_ref": str(graph_contract.get("graph_harness_config_ref") or ""),
+                "graph_config_ref": str(graph_contract.get("graph_config_ref") or ""),
                 "environment_id": environment.record.environment_id,
                 "extension_slots": dict(task_policy.get("graph_runtime_assembly_extension_slots") or {}),
             } if graph_contract else {},
@@ -132,7 +132,7 @@ class TaskContractIssuer:
                 "kind": "graph_loop_request",
                 "schema_version": "graph_loop_plan.request.v1",
                 "graph_ref": graph_ref,
-                "graph_harness_config_ref": str(graph_contract.get("graph_harness_config_ref") or ""),
+                "graph_config_ref": str(graph_contract.get("graph_config_ref") or ""),
                 "extension_slots": dict(task_policy.get("graph_loop_extension_slots") or {}),
             } if graph_contract else {},
             human_gate_contract=dict(task_policy.get("human_gate_policy") or metadata.get("human_gate_policy") or {}),

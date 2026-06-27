@@ -930,7 +930,7 @@ def _is_primary_session_task_run(task_run: Any) -> bool:
     origin_kind = str(origin.get("origin_kind") or diagnostics.get("origin_kind") or "").strip()
     if origin_kind == "graph_node_assigned":
         return False
-    if diagnostics.get("graph_run_id") or diagnostics.get("graph_harness_config_id") or diagnostics.get("graph_node_id"):
+    if diagnostics.get("graph_run_id") or diagnostics.get("graph_config_id") or diagnostics.get("graph_node_id"):
         return False
     if diagnostics.get("subagent_control"):
         return False

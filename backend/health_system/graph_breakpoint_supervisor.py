@@ -60,16 +60,16 @@ class GraphBreakpointSupervisor:
 
     def _collect_breakpoint_packets(self) -> list[GraphBreakpointPacket]:
         harness_runtime = getattr(self.runtime, "harness_runtime", None)
-        graph_harness = getattr(harness_runtime, "graph_harness", None)
+        graph_system = getattr(harness_runtime, "graph_system", None)
         host = getattr(harness_runtime, "single_agent_runtime_host", None)
         state_index = getattr(host, "state_index", None)
-        if graph_harness is None or state_index is None:
+        if graph_system is None or state_index is None:
             return []
         tasks = list(state_index.list_recent_task_runs(limit=self.task_scan_limit))
         packets: list[GraphBreakpointPacket] = []
         seen: set[tuple[str, str, str, str]] = set()
         for task_run in tasks:
-            packet = _breakpoint_packet_from_task_run(task_run=task_run, graph_harness=graph_harness)
+            packet = _breakpoint_packet_from_task_run(task_run=task_run, graph_system=graph_system)
             if packet is not None:
                 key = _packet_recovery_identity(packet)
                 if key in seen:
@@ -79,7 +79,7 @@ class GraphBreakpointSupervisor:
         return packets
 
 
-def _breakpoint_packet_from_task_run(*, task_run: Any, graph_harness: Any) -> GraphBreakpointPacket | None:
+def _breakpoint_packet_from_task_run(*, task_run: Any, graph_system: Any) -> GraphBreakpointPacket | None:
     now = time.time()
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     graph_run_id = str(diagnostics.get("graph_run_id") or "").strip()
@@ -92,7 +92,7 @@ def _breakpoint_packet_from_task_run(*, task_run: Any, graph_harness: Any) -> Gr
         "task_execution_step_budget_exhausted",
         "background_executor_missing_after_restart",
     }
-    health_monitor = getattr(graph_harness, "get_graph_run_health_monitor", None)
+    health_monitor = getattr(graph_system, "get_graph_run_health_monitor", None)
     if not callable(health_monitor):
         return None
     monitor = health_monitor(graph_run_id)
@@ -147,7 +147,7 @@ def _breakpoint_packet_from_task_run(*, task_run: Any, graph_harness: Any) -> Gr
     packet = GraphBreakpointPacket(
         graph_run_id=graph_run_id,
         graph_id=str(graph_run.get("graph_id") or diagnostics.get("graph_id") or "").strip(),
-        graph_harness_config_id=str(graph_run.get("config_id") or diagnostics.get("graph_harness_config_id") or "").strip(),
+        graph_config_id=str(graph_run.get("config_id") or diagnostics.get("graph_config_id") or "").strip(),
         task_run_id=packet_task_run_id,
         session_id=packet_session_id,
         node_id=node_id,
@@ -342,5 +342,5 @@ def _packet_recovery_identity(packet: GraphBreakpointPacket) -> tuple[str, str, 
         packet.graph_run_id,
         packet.node_id or "graph",
         reason,
-        packet.graph_harness_config_id,
+        packet.graph_config_id,
     )

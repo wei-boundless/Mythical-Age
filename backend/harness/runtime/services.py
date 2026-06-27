@@ -30,7 +30,7 @@ class AgentRuntimeServices:
     get_trace_callback: Any
     execute_task_run_callback: Any | None = None
     execute_graph_agent_work_order_callback: Any | None = None
-    get_graph_harness_config_callback: Any | None = None
+    get_graph_config_callback: Any | None = None
     model_runtime: Any | None = None
     tool_runtime_executor: Any | None = None
     tool_instances: tuple[Any, ...] = ()
@@ -46,7 +46,7 @@ class AgentRuntimeServices:
         *,
         execute_task_run_callback: Any | None = None,
         execute_graph_agent_work_order_callback: Any | None = None,
-        get_graph_harness_config_callback: Any | None = None,
+        get_graph_config_callback: Any | None = None,
         model_runtime: Any | None = None,
         tool_runtime_executor: Any | None = None,
         tool_instances: list[Any] | tuple[Any, ...] | None = None,
@@ -77,7 +77,7 @@ class AgentRuntimeServices:
             get_trace_callback=host.get_trace,
             execute_task_run_callback=execute_task_run_callback,
             execute_graph_agent_work_order_callback=execute_graph_agent_work_order_callback,
-            get_graph_harness_config_callback=get_graph_harness_config_callback,
+            get_graph_config_callback=get_graph_config_callback,
             model_runtime=model_runtime,
             tool_runtime_executor=tool_runtime_executor,
             tool_instances=tuple(tool_instances or ()),

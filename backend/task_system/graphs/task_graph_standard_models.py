@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from harness.graph.scheduler_view import build_scheduler_view
+from graph_system.scheduler_view import build_scheduler_view
 from task_system.graphs.composable_graph_builder import build_composable_graph_view
 from task_system.graphs.composable_graph_models import ComposableUnit, GraphModuleExpansionPlan, UnitInterface, UnitPortEdge
-from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
+from task_system.compiler.executable_graph_config_publisher import build_graph_config_from_graph
 from task_system.compiler.layered_graph_normalizer import normalize_task_graph_layers
 from task_system.compiler.loop_plan_preview import build_loop_plan_preview, unavailable_loop_plan_preview
 from task_system.runtime_semantics.length_budget import compiled_length_budget_preview, compile_length_budget
@@ -226,7 +226,7 @@ def build_task_graph_standard_view(
     graph_config_issues: list[dict[str, Any]] = []
     loop_plan_preview: dict[str, Any] = {}
     try:
-        graph_config = build_graph_harness_config_from_graph(
+        graph_config = build_graph_config_from_graph(
             graph=graph,
             publish_version="standard-view",
             graph_lookup=graph_lookup,
@@ -234,7 +234,7 @@ def build_task_graph_standard_view(
         scheduler_view = build_scheduler_view(graph_config)
         loop_plan_preview = build_loop_plan_preview(graph_config=graph_config, layered_graph=layered)
     except ValueError as exc:
-        graph_config_issues.append(_graph_harness_config_issue(graph=graph, error=str(exc)))
+        graph_config_issues.append(_graph_config_issue(graph=graph, error=str(exc)))
         loop_plan_preview = unavailable_loop_plan_preview(graph_id=graph.graph_id, issues=graph_config_issues)
     runtime_semantics = compile_runtime_semantics_manifest(graph).to_dict()
     composable = build_composable_graph_view(graph=graph, layered_graph=layered)
@@ -377,7 +377,7 @@ def build_task_graph_standard_view(
             "length_budget_preview": compiled_length_budget_preview(length_budget),
             "layered_graph": layered,
             "composable_graph": composable.to_dict(),
-            "graph_harness_config": _graph_harness_config_summary(graph_config.to_dict()) if graph_config is not None else _unavailable_graph_harness_config_summary(graph, graph_config_issues),
+            "graph_config": _graph_config_summary(graph_config.to_dict()) if graph_config is not None else _unavailable_graph_config_summary(graph, graph_config_issues),
             "scheduler_view": _scheduler_view_payload(scheduler_view) if scheduler_view is not None else {},
             "loop_plan": loop_plan_preview,
             "runtime_semantics": runtime_semantics,
@@ -623,7 +623,7 @@ def _issue_from_payload(payload: dict[str, Any]) -> TaskGraphStandardIssue:
 
 def _scheduler_view_payload(scheduler_view: Any) -> dict[str, Any]:
     return {
-        "authority": "harness.graph.scheduler_view",
+        "authority": "graph_system.scheduler_view",
         "config_id": scheduler_view.config_id,
         "config_hash": scheduler_view.config_hash,
         "dependency_edges": [dict(item) for item in scheduler_view.dependency_edges],
@@ -634,12 +634,12 @@ def _scheduler_view_payload(scheduler_view: Any) -> dict[str, Any]:
     }
 
 
-def _graph_harness_config_summary(payload: dict[str, Any]) -> dict[str, Any]:
+def _graph_config_summary(payload: dict[str, Any]) -> dict[str, Any]:
     nodes = [dict(item) for item in list(payload.get("nodes") or []) if isinstance(item, dict)]
     edges = [dict(item) for item in list(payload.get("edges") or []) if isinstance(item, dict)]
     diagnostics = dict(payload.get("diagnostics") or {})
     return {
-        "authority": str(payload.get("authority") or "harness.graph_harness_config"),
+        "authority": str(payload.get("authority") or "graph_system_config"),
         "config_schema_version": str(payload.get("config_schema_version") or ""),
         "config_id": str(payload.get("config_id") or ""),
         "content_hash": str(payload.get("content_hash") or ""),
@@ -656,10 +656,10 @@ def _graph_harness_config_summary(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _unavailable_graph_harness_config_summary(graph: TaskGraphDefinition, issues: list[dict[str, Any]]) -> dict[str, Any]:
+def _unavailable_graph_config_summary(graph: TaskGraphDefinition, issues: list[dict[str, Any]]) -> dict[str, Any]:
     return {
-        "authority": "harness.graph_harness_config",
-        "config_schema_version": "graph_harness_config.v1",
+        "authority": "graph_system_config",
+        "config_schema_version": "graph_config.v1",
         "config_id": "",
         "content_hash": "",
         "graph_id": graph.graph_id,
@@ -676,7 +676,7 @@ def _unavailable_graph_harness_config_summary(graph: TaskGraphDefinition, issues
     }
 
 
-def _graph_harness_config_issue(*, graph: TaskGraphDefinition, error: str) -> dict[str, Any]:
+def _graph_config_issue(*, graph: TaskGraphDefinition, error: str) -> dict[str, Any]:
     message = str(error or "graph harness config compile failed")
     lowered = message.lower()
     if "cyclic graph module expansion" in lowered:
@@ -686,7 +686,7 @@ def _graph_harness_config_issue(*, graph: TaskGraphDefinition, error: str) -> di
     elif "linked_graph_id" in lowered:
         code = "graph_module_linked_graph_id_missing"
     else:
-        code = "graph_harness_config_compile_failed"
+        code = "graph_config_compile_failed"
     return {
         "code": code,
         "message": message,
@@ -1006,5 +1006,4 @@ def _graph_edge_payload_from_standard_edge(payload: dict[str, Any]) -> dict[str,
         "failure_policy": dict(handoff.get("failure_policy") or {}),
         "metadata": metadata,
     }
-
 

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from harness.graph.models import (
-    GraphHarnessConfig,
+from graph_system.models import (
+    ExecutableGraphConfig,
     GraphLoopState,
     GraphTransitionInput,
     NodeResultEnvelope,
 )
-from harness.graph.state_machine import GraphStateMachine
-from harness.graph.transition_processor import (
+from graph_system.state_machine import GraphStateMachine
+from graph_system.transition_processor import (
     GraphTransitionProcessor,
     apply_transition_plan_to_edge_states,
 )
@@ -28,8 +28,8 @@ def _edge(edge_id: str, source: str, target: str, edge_type: str = "handoff") ->
     }
 
 
-def _config(edges: tuple[dict[str, object], ...]) -> GraphHarnessConfig:
-    return GraphHarnessConfig(
+def _config(edges: tuple[dict[str, object], ...]) -> ExecutableGraphConfig:
+    return ExecutableGraphConfig(
         config_id="config:transition",
         graph_id="graph:transition",
         graph_title="Transition",
@@ -45,7 +45,7 @@ def _config(edges: tuple[dict[str, object], ...]) -> GraphHarnessConfig:
     )
 
 
-def _state(config: GraphHarnessConfig) -> GraphLoopState:
+def _state(config: ExecutableGraphConfig) -> GraphLoopState:
     machine = GraphStateMachine()
     return GraphLoopState(
         state_id="gstate:test",

@@ -1,6 +1,6 @@
 import { request } from "./shared";
 import type {
-  GraphHarnessConfigPayload,
+  ExecutableGraphConfigPayload,
   GraphRunBackgroundSubmitResult,
   GraphRunControlResult,
   GraphRunDispatchReadyResult,
@@ -32,7 +32,7 @@ export async function getProjectRuntimeStatus(projectId: string) {
   );
 }
 
-export async function startTaskGraphHarnessRun(
+export async function startTaskGraphSystemRun(
   graphId: string,
   payload: {
     session_id: string;
@@ -57,8 +57,8 @@ export async function startTaskGraphHarnessRun(
   );
 }
 
-export async function getPublishedTaskGraphHarnessConfig(graphId: string) {
-  return request<GraphHarnessConfigPayload>(
+export async function getPublishedTaskExecutableGraphConfig(graphId: string) {
+  return request<ExecutableGraphConfigPayload>(
     `/orchestration/harness/task-graphs/${encodeURIComponent(graphId)}/published-config`
   );
 }
@@ -66,7 +66,7 @@ export async function getPublishedTaskGraphHarnessConfig(graphId: string) {
 export async function submitGraphRunUntilIdle(
   graphRunId: string,
   payload: {
-    graph_harness_config_id: string;
+    graph_config_id: string;
     session_scope?: Partial<SessionScope>;
     max_node_executions?: number;
     max_loop_iterations?: number;
@@ -88,7 +88,7 @@ export async function submitGraphRunUntilIdle(
 export async function pauseGraphRun(
   graphRunId: string,
   payload: {
-    graph_harness_config_id: string;
+    graph_config_id: string;
     session_scope?: Partial<SessionScope>;
     reason?: string;
   }
@@ -105,7 +105,7 @@ export async function pauseGraphRun(
 export async function resumeGraphRun(
   graphRunId: string,
   payload: {
-    graph_harness_config_id: string;
+    graph_config_id: string;
     session_scope?: Partial<SessionScope>;
     reason?: string;
   }
@@ -121,13 +121,13 @@ export async function resumeGraphRun(
 
 export async function getGraphRunMonitor(
   graphRunId: string,
-  graphHarnessConfigId = "",
+  graphConfigId = "",
   eventLimit = 80,
   sessionScope?: Partial<SessionScope>,
 ) {
   const params = new URLSearchParams();
-  if (graphHarnessConfigId) {
-    params.set("graph_harness_config_id", graphHarnessConfigId);
+  if (graphConfigId) {
+    params.set("graph_config_id", graphConfigId);
   }
   if (sessionScope?.workspace_view) params.set("workspace_view", sessionScope.workspace_view);
   if (sessionScope?.task_environment_id) params.set("task_environment_id", sessionScope.task_environment_id);
@@ -313,7 +313,7 @@ export async function submitGraphTaskInstanceHumanEdgeDecision(
 export async function dispatchGraphRunReadyNodes(
   graphRunId: string,
   payload: {
-    graph_harness_config_id: string;
+    graph_config_id: string;
     session_scope?: Partial<SessionScope>;
     max_requests?: number;
   }
@@ -326,3 +326,4 @@ export async function dispatchGraphRunReadyNodes(
     }
   );
 }
+

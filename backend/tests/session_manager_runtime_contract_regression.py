@@ -168,7 +168,7 @@ def test_session_manager_binds_one_graph_task_instance_per_session(tmp_path: Pat
         graph_run_id="grun:novel:1",
         task_run_id="taskrun:novel:1",
         graph_id="graph.novel",
-        graph_harness_config_id="ghcfg:novel",
+        graph_config_id="ghcfg:novel",
         session_scope={
             "workspace_view": "task_environment",
             "task_environment_id": "env.office.file_search",

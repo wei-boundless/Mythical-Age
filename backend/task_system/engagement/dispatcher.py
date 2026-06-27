@@ -5,8 +5,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from harness import GraphHarness
-from harness.graph.models import safe_id
+from graph_system.facade import GraphSystem
+from graph_system.models import safe_id
 from harness.runtime import AgentRuntimeServices
 from sessions import SessionManager
 from task_system.registry.flow_registry import TaskFlowRegistry
@@ -78,12 +78,12 @@ class EngagementDispatcher:
         startup_policy = dict(contract.execution_strategy.startup_policy or {})
         graph_id = str(startup_policy.get("graph_id") or startup_policy.get("task_graph_id") or "").strip()
         registry = TaskFlowRegistry(self.backend_dir)
-        graph_config = registry.get_published_graph_harness_config(graph_id)
+        graph_config = registry.get_published_graph_config(graph_id)
         if graph_config is None:
             blocked = self.runs.update_run(
                 run.engagement_run_id,
                 status="blocked",
-                closeout={"reason": f"published_graph_harness_config_required:{graph_id}"},
+                closeout={"reason": f"published_graph_config_required:{graph_id}"},
             )
             self._event(blocked.engagement_run_id, "blocked", "图任务缺少已发布运行配置，未启动。")
             return {
@@ -92,7 +92,7 @@ class EngagementDispatcher:
                 "execution_strategy": contract.execution_strategy.kind,
                 "closeout": dict(blocked.closeout),
             }
-        graph_harness = _graph_harness_from_runtime_host(runtime_host)
+        graph_system = _graph_system_from_runtime_host(runtime_host)
         graph_scope = _engagement_graph_scope(graph_config=graph_config, contract=contract)
         graph_session_manager = SessionManager(self.backend_dir)
         graph_session_id = _create_engagement_graph_session(
@@ -101,7 +101,7 @@ class EngagementDispatcher:
             scope=graph_scope,
         )
         try:
-            start = graph_harness.start_run(
+            start = graph_system.start_run(
                 session_id=graph_session_id,
                 task_id=contract.plan_id,
                 graph_config=graph_config,
@@ -133,7 +133,7 @@ class EngagementDispatcher:
                 graph_run_id=start.graph_run.graph_run_id,
                 task_run_id=start.task_run.task_run_id,
                 graph_id=graph_config.graph_id,
-                graph_harness_config_id=graph_config.config_id,
+                graph_config_id=graph_config.config_id,
                 session_scope=graph_scope,
                 task_environment_id=str(graph_scope.get("task_environment_id") or ""),
                 project_id=str(graph_scope.get("project_id") or ""),
@@ -149,7 +149,7 @@ class EngagementDispatcher:
             closeout={
                 "graph_id": graph_config.graph_id,
                 "graph_run_id": start.graph_run.graph_run_id,
-                "graph_harness_config_id": graph_config.config_id,
+                "graph_config_id": graph_config.config_id,
             },
         )
         if hasattr(runtime_host, "runtime_objects"):
@@ -166,7 +166,7 @@ class EngagementDispatcher:
             "task_run": start.task_run.to_dict(),
             "graph_run": start.graph_run.to_dict(),
             "graph_loop_state": start.loop_state.to_dict(),
-            "graph_harness_config": graph_config.to_dict(),
+            "graph_config": graph_config.to_dict(),
             "node_work_orders": [item.to_dict() for item in tuple(start.node_work_orders or ())],
             "events": [dict(item) for item in tuple(start.events or ())],
         }
@@ -182,11 +182,11 @@ class EngagementDispatcher:
         )
 
 
-def _graph_harness_from_runtime_host(runtime_host: Any) -> GraphHarness:
-    graph_harness = getattr(runtime_host, "graph_harness", None)
-    if graph_harness is not None:
-        return graph_harness
-    return GraphHarness(
+def _graph_system_from_runtime_host(runtime_host: Any) -> GraphSystem:
+    graph_system = getattr(runtime_host, "graph_system", None)
+    if graph_system is not None:
+        return graph_system
+    return GraphSystem(
         services=AgentRuntimeServices.from_runtime_host(runtime_host),
     )
 

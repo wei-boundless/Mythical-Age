@@ -5,8 +5,8 @@ import hashlib
 import inspect
 from typing import Any, Callable
 
-from orchestration.commit_gate import RuntimeCommitGateDecision, build_assistant_session_message_commit_decision
-from runtime.output_boundary import CanonicalFinalTextDecision, canonical_output_decision_for_final_text
+from harness.runtime.commit_gate import RuntimeCommitGateDecision, build_assistant_session_message_commit_decision
+from harness.runtime.output_boundary import CanonicalFinalTextDecision, canonical_output_decision_for_final_text
 
 
 @dataclass(frozen=True, slots=True)

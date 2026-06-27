@@ -152,7 +152,7 @@ function itemForMonitor(patch: Record<string, unknown>) {
     latest_event_at: 2,
     event_count: 1,
     graph_run_id: "",
-    graph_harness_config_id: "",
+    graph_config_id: "",
     graph_id: "",
     active_node_id: "",
     project_id: "",
@@ -243,7 +243,7 @@ function monitorSignalForTest(item: Record<string, unknown>) {
   const activityPatch = recordValue(item.activity);
   const taskRunId = text(item.task_run_id);
   const graphRunId = text(item.graph_run_id);
-  const graphHarnessConfigId = text(item.graph_harness_config_id);
+  const graphConfigId = text(item.graph_config_id);
   const graphId = text(item.graph_id);
   const isGraph = graphRunId || text(route.kind) === "task_graph_run" || item.has_graph_run === true;
   const sessionId = text(item.session_id);
@@ -255,7 +255,7 @@ function monitorSignalForTest(item: Record<string, unknown>) {
     task_run_id: taskRunId,
     task_instance_id: text(item.task_instance_id) || taskRunId,
     graph_run_id: graphRunId,
-    graph_harness_config_id: graphHarnessConfigId,
+    graph_config_id: graphConfigId,
     graph_id: graphId,
     workspace_view: workspaceView,
     task_environment_id: taskEnvironmentId,
@@ -318,13 +318,13 @@ function monitorSignalForTest(item: Record<string, unknown>) {
       task_run_id: taskRunId,
       turn_run_id: taskRunId.startsWith("turnrun:") ? taskRunId : "",
       graph_run_id: graphRunId,
-      graph_harness_config_id: graphHarnessConfigId,
+      graph_config_id: graphConfigId,
       resource_ref: "",
     },
     graph_ref: {
       graph_id: graphId,
       graph_run_id: graphRunId,
-      graph_harness_config_id: graphHarnessConfigId,
+      graph_config_id: graphConfigId,
     },
     timestamps: {
       started_at: Number(item.started_at ?? 1),
@@ -811,12 +811,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     api.getGraphRunMonitor.mockReset();
     api.getGraphRunMonitor.mockResolvedValue({
-      authority: "harness.graph_run_monitor",
+      authority: "graph_system_run_monitor",
       graph_run_id: "grun:bound",
       graph_run: { graph_run_id: "grun:bound", task_run_id: "taskrun:bound", graph_id: "graph:test", config_id: "ghcfg:bound" },
       task_run_id: "taskrun:bound",
       task_run: { task_run_id: "taskrun:bound", status: "running" },
-      graph_harness_config: { config_id: "ghcfg:bound", graph_id: "graph:test" },
+      graph_config: { config_id: "ghcfg:bound", graph_id: "graph:test" },
       graph_loop_state: { status: "running", active_node_ids: ["draft"] },
       active_node_work_orders: [{ node_id: "draft", work_order_id: "gwork:bound:draft" }],
       active_node_work_order_count: 1,
@@ -1032,7 +1032,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     runtime.actions.bindTaskGraphMonitorRun({
       task_run_id: "taskrun:bound",
       graph_run_id: "grun:bound",
-      graph_harness_config_id: "ghcfg:bound",
+      graph_config_id: "ghcfg:bound",
       graph_id: "graph:test",
     });
     await vi.runOnlyPendingTimersAsync();
@@ -1157,14 +1157,14 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
   });
 
   it("reads TaskGraph detail only through explicit monitor evaluation", async () => {
-    api.getGraphRunMonitor.mockRejectedValue(new Error('{"detail":"GraphHarnessConfig not found"}'));
+    api.getGraphRunMonitor.mockRejectedValue(new Error('{"detail":"ExecutableGraphConfig not found"}'));
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
 
     runtime.actions.bindTaskGraphMonitorRun({
       task_run_id: "taskrun:old-graph",
       graph_run_id: "grun:old-graph",
-      graph_harness_config_id: "ghcfg:old-missing",
+      graph_config_id: "ghcfg:old-missing",
       graph_id: "graph:old",
     });
     await runtime.actions.evaluateBoundTaskGraphMonitor();
@@ -1173,7 +1173,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.getGraphRunMonitor).toHaveBeenCalledTimes(1);
     expect(store.getState().taskGraphMonitorBinding?.task_run_id).toBe("taskrun:old-graph");
     expect(store.getState().taskGraphBoundRunMonitor).toBeNull();
-    expect(store.getState().taskGraphMonitorError).toContain("GraphHarnessConfig not found");
+    expect(store.getState().taskGraphMonitorError).toContain("ExecutableGraphConfig not found");
   });
 
   it("keeps the run monitor selection on known signals and clears missing ones", () => {
@@ -1196,13 +1196,13 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           title: "洪荒时代",
           latest_event_type: "graph_run_created",
           graph_run_id: "grun:master",
-          graph_harness_config_id: "ghcfg:master",
+          graph_config_id: "ghcfg:master",
           graph_id: "graph.writing.modular_novel.master",
           active_node_id: "graph_module.design_init",
           project_id: "project",
           project_title: "洪荒时代",
           has_graph_run: true,
-          route: { kind: "task_graph_run", session_id: "session", task_run_id: "taskrun:master", graph_id: "graph.writing.modular_novel.master", graph_run_id: "grun:master", graph_harness_config_id: "ghcfg:master" },
+          route: { kind: "task_graph_run", session_id: "session", task_run_id: "taskrun:master", graph_id: "graph.writing.modular_novel.master", graph_run_id: "grun:master", graph_config_id: "ghcfg:master" },
         }),
       ]);
 
@@ -1234,14 +1234,14 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         title: "长篇小说",
         latest_event_type: "graph_run_created",
         graph_run_id: "grun:master",
-        graph_harness_config_id: "ghcfg:master",
+        graph_config_id: "ghcfg:master",
         graph_id: "graph.writing.master",
         active_node_id: "world_review",
         project_id: "project",
         project_title: "长篇小说",
         has_graph_run: true,
         session_scope: graphSessionScope,
-        route: { kind: "task_graph_run", session_id: "session", task_run_id: "taskrun:master", graph_id: "graph.writing.master", graph_run_id: "grun:master", graph_harness_config_id: "ghcfg:master" },
+        route: { kind: "task_graph_run", session_id: "session", task_run_id: "taskrun:master", graph_id: "graph.writing.master", graph_run_id: "grun:master", graph_config_id: "ghcfg:master" },
       }),
     ]));
 
@@ -1255,7 +1255,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().taskGraphMonitorBinding).toMatchObject({
       task_run_id: "taskrun:master",
       graph_run_id: "grun:master",
-      graph_harness_config_id: "ghcfg:master",
+      graph_config_id: "ghcfg:master",
       graph_id: "graph.writing.master",
       session_id: "session",
       project_id: "project",
@@ -2251,7 +2251,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
   });
 
   it("loads graph monitor details when a run monitor graph signal is opened", async () => {
-    api.getGraphRunMonitor.mockRejectedValue(new Error('{"detail":"GraphHarnessConfig not found"}'));
+    api.getGraphRunMonitor.mockRejectedValue(new Error('{"detail":"ExecutableGraphConfig not found"}'));
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
     const runtimeHarness = runtime as unknown as {
@@ -2264,10 +2264,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         session_id: "session",
         title: "旧图任务",
         graph_run_id: "grun:old-master",
-        graph_harness_config_id: "ghcfg:old-missing",
+        graph_config_id: "ghcfg:old-missing",
         graph_id: "graph.writing.master",
         has_graph_run: true,
-        route: { kind: "task_graph_run", session_id: "session", task_run_id: "taskrun:old-master", graph_id: "graph.writing.master", graph_run_id: "grun:old-master", graph_harness_config_id: "ghcfg:old-missing" },
+        route: { kind: "task_graph_run", session_id: "session", task_run_id: "taskrun:old-master", graph_id: "graph.writing.master", graph_run_id: "grun:old-master", graph_config_id: "ghcfg:old-missing" },
       }),
     ]));
 
@@ -2291,7 +2291,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       taskGraphMonitorBinding: {
         task_run_id: "taskrun:graph-master",
         graph_run_id: "grun:graph-master",
-        graph_harness_config_id: "ghcfg:graph-master",
+        graph_config_id: "ghcfg:graph-master",
         bound_at: 1,
       },
       taskGraphBoundRunMonitor: {
@@ -2320,7 +2320,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       taskGraphMonitorBinding: {
         task_run_id: "taskrun:graph-master",
         graph_run_id: "grun:graph-master",
-        graph_harness_config_id: "ghcfg:graph-master",
+        graph_config_id: "ghcfg:graph-master",
         bound_at: 1,
       },
       taskGraphBoundRunMonitor: {
@@ -2338,7 +2338,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await runtime.actions.pauseBoundTaskGraphRun();
 
     expect(api.pauseGraphRun).toHaveBeenCalledWith("grun:graph-master", {
-      graph_harness_config_id: "ghcfg:graph-master",
+      graph_config_id: "ghcfg:graph-master",
       session_scope: undefined,
       reason: "user_pause_graph_run",
     });
@@ -2353,7 +2353,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       taskGraphMonitorBinding: {
         task_run_id: "taskrun:graph-master",
         graph_run_id: "grun:graph-master",
-        graph_harness_config_id: "ghcfg:graph-master",
+        graph_config_id: "ghcfg:graph-master",
         session_scope: {
           workspace_view: "task_environment",
           task_environment_id: "env.general.workspace",
@@ -2377,7 +2377,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     expect(api.resumeGraphRun).not.toHaveBeenCalled();
     expect(api.submitGraphRunUntilIdle).toHaveBeenCalledWith("grun:graph-master", {
-      graph_harness_config_id: "ghcfg:graph-master",
+      graph_config_id: "ghcfg:graph-master",
       session_scope: {
         workspace_view: "task_environment",
         task_environment_id: "env.general.workspace",
@@ -2397,7 +2397,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       taskGraphMonitorBinding: {
         task_run_id: "taskrun:graph-master",
         graph_run_id: "grun:graph-master",
-        graph_harness_config_id: "ghcfg:graph-master",
+        graph_config_id: "ghcfg:graph-master",
         bound_at: 1,
       },
       taskGraphBoundRunMonitor: {
@@ -2419,12 +2419,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await runtime.actions.continueBoundTaskGraphRun();
 
     expect(api.resumeGraphRun).toHaveBeenCalledWith("grun:graph-master", {
-      graph_harness_config_id: "ghcfg:graph-master",
+      graph_config_id: "ghcfg:graph-master",
       session_scope: undefined,
       reason: "run_monitor_continue_graph_run",
     });
     expect(api.submitGraphRunUntilIdle).toHaveBeenCalledWith("grun:graph-master", {
-      graph_harness_config_id: "ghcfg:graph-master",
+      graph_config_id: "ghcfg:graph-master",
       session_scope: undefined,
       max_node_executions: 1,
       max_loop_iterations: 4,
@@ -3314,7 +3314,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     runtime.actions.bindTaskGraphMonitorRun({
       task_run_id: "taskrun:bound",
       graph_run_id: "grun:bound",
-      graph_harness_config_id: "ghcfg:bound",
+      graph_config_id: "ghcfg:bound",
       graph_id: "graph:test",
     });
     await vi.advanceTimersByTimeAsync(0);
@@ -8201,3 +8201,4 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 });
+

@@ -28,7 +28,7 @@ DEBUG_TASK_PREFIXES = ("writing_graph_", "backend_8003_retest_")
 DEBUG_TASK_SUFFIXES = ("_latest.json", "_stdout.txt", "_stderr.txt", ".ps1", ".log")
 FORMAL_TASK_FILES = {
     "contract_specs.json",
-    "graph_harness_configs.json",
+    "graph_configs.json",
     "specific_task_records.json",
     "task_assignments.json",
     "task_communication_protocols.json",

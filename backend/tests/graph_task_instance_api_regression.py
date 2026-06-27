@@ -5,13 +5,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from api import graph_task_instances as instance_api
-from api import orchestration as orchestration_api
-from harness import AgentRuntimeServices, GraphHarness
+import api.orchestration as orchestration_api
+from harness import AgentRuntimeServices, GraphSystem
 from harness.runtime import SingleAgentRuntimeHost
 from core.project_layout import ProjectLayout
 from sessions import SessionManager
 from task_system import TaskFlowRegistry
-from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
+from task_system.compiler.executable_graph_config_publisher import publish_graph_config_for_graph
 from task_system.graph_instances import GraphTaskInstanceFileService, GraphTaskInstanceRepository
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
 
@@ -102,17 +102,17 @@ def _handoff_graph(
     )
 
 
-def _runtime_with_graph_harness(*, base_dir: Path) -> SimpleNamespace:
+def _runtime_with_graph_system(*, base_dir: Path) -> SimpleNamespace:
     host = SingleAgentRuntimeHost(
         ProjectLayout.from_backend_dir(base_dir).runtime_state_dir,
         backend_dir=base_dir,
     )
     services = AgentRuntimeServices.from_runtime_host(host)
-    graph_harness = GraphHarness(services=services)
+    graph_system = GraphSystem(services=services)
     return SimpleNamespace(
         base_dir=base_dir,
         session_manager=SessionManager(base_dir),
-        harness_runtime=SimpleNamespace(graph_harness=graph_harness),
+        harness_runtime=SimpleNamespace(graph_system=graph_system),
     )
 
 
@@ -145,7 +145,7 @@ def test_graph_task_definition_can_create_multiple_project_instances(tmp_path: P
     registry = TaskFlowRegistry(backend_dir)
     graph = _graph()
     _upsert_graph(registry, graph)
-    runtime = _runtime_with_graph_harness(base_dir=backend_dir)
+    runtime = _runtime_with_graph_system(base_dir=backend_dir)
 
     original = instance_api.require_runtime
     instance_api.require_runtime = lambda: runtime  # type: ignore[assignment]
@@ -185,7 +185,7 @@ def test_writing_graph_instance_desk_projects_chapters_assets_and_reader(tmp_pat
     registry = TaskFlowRegistry(backend_dir)
     graph = _graph("graph.test.writing_desk_projection")
     _upsert_graph(registry, graph)
-    runtime = _runtime_with_graph_harness(base_dir=backend_dir)
+    runtime = _runtime_with_graph_system(base_dir=backend_dir)
     instance = GraphTaskInstanceRepository(backend_dir).create(graph_id=graph.graph_id, title="写作投影项目")
     files = GraphTaskInstanceFileService(backend_dir)
     files.write_file(instance.graph_task_instance_id, "chapters/chapter-001.md", "第一章正文")
@@ -222,8 +222,8 @@ def test_graph_task_instance_run_owns_graph_scope_without_environment(tmp_path: 
     registry = TaskFlowRegistry(backend_dir)
     graph = _graph("graph.test.instance_run")
     _upsert_graph(registry, graph)
-    publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
-    runtime = _runtime_with_graph_harness(base_dir=backend_dir)
+    publish_graph_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _runtime_with_graph_system(base_dir=backend_dir)
     repo = GraphTaskInstanceRepository(backend_dir)
     instance = repo.create(
         graph_id=graph.graph_id,
@@ -279,8 +279,8 @@ def test_writing_graph_instance_run_uses_saved_project_brief_config(tmp_path: Pa
     registry = TaskFlowRegistry(backend_dir)
     graph = _graph("graph.writing.modular_novel.instance_config")
     _upsert_graph(registry, graph)
-    publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
-    runtime = _runtime_with_graph_harness(base_dir=backend_dir)
+    publish_graph_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _runtime_with_graph_system(base_dir=backend_dir)
     project_brief = "题材：东方玄幻。世界核心：群星坠落后，凡人可借星骸修行。主角：边城少年，目标是重建家族。风格：热血升级。"
 
     original_instance_runtime = instance_api.require_runtime
@@ -312,7 +312,7 @@ def test_writing_graph_instance_run_uses_saved_project_brief_config(tmp_path: Pa
         orchestration_api.require_runtime = original_orchestration_runtime  # type: ignore[assignment]
 
     graph_run_id = result["start"]["graph_run_id"]
-    state = runtime.harness_runtime.graph_harness.graph_loop.get_state(graph_run_id)
+    state = runtime.harness_runtime.graph_system.graph_loop.get_state(graph_run_id)
     assert state is not None
     assert state.initial_inputs["project_brief"] == project_brief
     assert state.initial_inputs["project_title"] == "星骸纪元"
@@ -324,8 +324,8 @@ def test_writing_graph_instance_desk_maps_human_edges_to_chapter_actions(tmp_pat
     registry = TaskFlowRegistry(backend_dir)
     graph = _handoff_graph("graph.test.writing_desk_human_actions")
     _upsert_graph(registry, graph)
-    publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
-    runtime = _runtime_with_graph_harness(base_dir=backend_dir)
+    publish_graph_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _runtime_with_graph_system(base_dir=backend_dir)
     instance = GraphTaskInstanceRepository(backend_dir).create(graph_id=graph.graph_id, title="人工审核投影项目")
 
     original_instance_runtime = instance_api.require_runtime
@@ -360,8 +360,8 @@ def test_graph_task_instance_human_replace_decision_writes_file_and_advances_edg
     registry = TaskFlowRegistry(backend_dir)
     graph = _handoff_graph()
     _upsert_graph(registry, graph)
-    publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
-    runtime = _runtime_with_graph_harness(base_dir=backend_dir)
+    publish_graph_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _runtime_with_graph_system(base_dir=backend_dir)
     instance = GraphTaskInstanceRepository(backend_dir).create(graph_id=graph.graph_id, title="人工替写项目")
 
     original_instance_runtime = instance_api.require_runtime
@@ -426,8 +426,8 @@ def test_writing_chapter_action_approve_normalizes_to_human_edge_decision(tmp_pa
     registry = TaskFlowRegistry(backend_dir)
     graph = _handoff_graph("graph.test.writing_chapter_action_approve", draft_post_node_gate=True)
     _upsert_graph(registry, graph)
-    graph_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
-    runtime = _runtime_with_graph_harness(base_dir=backend_dir)
+    graph_config = publish_graph_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _runtime_with_graph_system(base_dir=backend_dir)
     instance = GraphTaskInstanceRepository(backend_dir).create(graph_id=graph.graph_id, title="写作通过项目")
 
     original_instance_runtime = instance_api.require_runtime
@@ -445,7 +445,7 @@ def test_writing_chapter_action_approve_normalizes_to_human_edge_decision(tmp_pa
             )
         )
         first_order = dict(start_result["start"]["node_work_orders"][0])
-        runtime.harness_runtime.graph_harness.accept_node_result(
+        runtime.harness_runtime.graph_system.accept_node_result(
             graph_config=graph_config,
             graph_run_id=str(start_result["start"]["graph_run_id"]),
             result={
@@ -492,8 +492,8 @@ def test_writing_chapter_action_replace_writes_project_file_and_advances_edge(tm
     registry = TaskFlowRegistry(backend_dir)
     graph = _handoff_graph("graph.test.writing_chapter_action_replace")
     _upsert_graph(registry, graph)
-    publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
-    runtime = _runtime_with_graph_harness(base_dir=backend_dir)
+    publish_graph_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _runtime_with_graph_system(base_dir=backend_dir)
     instance = GraphTaskInstanceRepository(backend_dir).create(graph_id=graph.graph_id, title="写作替写项目")
 
     original_instance_runtime = instance_api.require_runtime

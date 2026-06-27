@@ -57,8 +57,8 @@ def _graph_task_run_errors(resolved: ResolvedEngagementPlan) -> list[str]:
         return [f"task_graph_not_found:{graph_id}"]
     if not graph.enabled or graph.publish_state != "published":
         return [f"task_graph_not_published:{graph_id}"]
-    if registry.get_published_graph_harness_config(graph_id) is None:
-        return [f"published_graph_harness_config_required:{graph_id}"]
+    if registry.get_published_graph_config(graph_id) is None:
+        return [f"published_graph_config_required:{graph_id}"]
     return []
 
 

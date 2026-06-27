@@ -16,7 +16,7 @@ from capability_system.tools.native_tool_runtime import ToolRuntime
 from harness.runtime.agent_scope import build_agent_run_scope
 from harness.runtime.runtime_gateway import RuntimeGateway
 from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_scope
-from orchestration.runtime_directive import RuntimeDirective
+from runtime.shared.runtime_directive import RuntimeDirective
 from runtime.shared.action_request import RuntimeActionRequest
 from runtime.shared.event_log import RuntimeEventLog
 from runtime.shared.execution_record import RuntimeExecutionStore, build_idempotency_token, build_request_fingerprint

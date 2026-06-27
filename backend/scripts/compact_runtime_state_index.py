@@ -82,8 +82,8 @@ def compact_runtime_state_index(root_dir: Path, *, dry_run: bool = False) -> dic
 def _forbidden_field_counts(payload: dict[str, Any]) -> dict[str, int]:
     counts = {
         "task_graph_definition": 0,
-        "graph_harness_config_payload": 0,
-        "graph_harness_config": 0,
+        "graph_config_payload": 0,
+        "graph_config": 0,
         "graph_result": 0,
     }
     for item in dict(payload.get("task_runs") or {}).values():

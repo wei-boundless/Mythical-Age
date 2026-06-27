@@ -46,8 +46,8 @@ def test_contract_issuer_emits_graph_request_specs_for_graph_task() -> None:
     )
 
     assert contract.graph_contract["graph_ref"] == "graph:writing-review"
-    assert contract.graph_runtime_assembly_plan["kind"] == "graph_harness_config_request"
-    assert contract.graph_runtime_assembly_plan["schema_version"] == "graph_harness_config_request.v1"
+    assert contract.graph_runtime_assembly_plan["kind"] == "graph_config_request"
+    assert contract.graph_runtime_assembly_plan["schema_version"] == "graph_config_request.v1"
     assert contract.graph_loop_plan["kind"] == "graph_loop_request"
 
 

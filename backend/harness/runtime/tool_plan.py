@@ -7,7 +7,7 @@ from typing import Any
 
 from capability_system.mcp.local_registry import default_local_mcp_units
 from permissions.operations import build_default_operation_registry
-from runtime.tooling import ToolCapability, ToolCapabilityFilterIssue, ToolCapabilitySourceTrace, ToolCapabilityTable
+from harness.runtime.capability_surface import ToolCapability, ToolCapabilityFilterIssue, ToolCapabilitySourceTrace, ToolCapabilityTable
 
 _OPERATION_REGISTRY = build_default_operation_registry()
 _SUBAGENT_LIFECYCLE_TOOL_NAMES = {

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from orchestration.runtime_directive import RuntimeDirective
+from runtime.shared.runtime_directive import RuntimeDirective
 from runtime.model_gateway.model_response import ModelResponseRuntimeExecutor
 from runtime.model_gateway.model_runtime import ModelRuntimeError
 

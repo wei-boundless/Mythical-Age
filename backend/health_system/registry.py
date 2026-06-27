@@ -177,7 +177,7 @@ class HealthRegistry:
                 "graph_breakpoint_fingerprint": str(packet.fingerprint or ""),
                 "graph_run_id": packet.graph_run_id,
                 "graph_id": packet.graph_id,
-                "graph_harness_config_id": packet.graph_harness_config_id,
+                "graph_config_id": packet.graph_config_id,
                 "task_run_id": packet.task_run_id,
                 "session_id": packet.session_id,
                 "node_id": packet.node_id,
@@ -757,7 +757,7 @@ def _graph_breakpoint_recovery_key(packet: GraphBreakpointPacket) -> str:
         packet.graph_run_id,
         packet.node_id or "graph",
         reason,
-        packet.graph_harness_config_id or "config_unknown",
+        packet.graph_config_id or "config_unknown",
     ]
     return "|".join(str(item or "").strip() for item in parts if str(item or "").strip())
 
@@ -768,7 +768,7 @@ def _compact_graph_breakpoint_packet(packet: GraphBreakpointPacket, *, recovery_
         "authority": packet.authority,
         "graph_run_id": packet.graph_run_id,
         "graph_id": packet.graph_id,
-        "graph_harness_config_id": packet.graph_harness_config_id,
+        "graph_config_id": packet.graph_config_id,
         "task_run_id": packet.task_run_id,
         "session_id": packet.session_id,
         "node_id": packet.node_id,

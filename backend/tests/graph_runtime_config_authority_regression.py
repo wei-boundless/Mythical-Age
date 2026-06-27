@@ -9,15 +9,15 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from harness.graph.loop import assert_graph_config_compatible_with_state
-from harness.graph.model_overrides import sanitize_runtime_overrides
-from harness.graph.models import GraphHarnessConfig, GraphLoopState, GraphNodeWorkOrder
-from harness.graph.runner import GraphRunRunner
+from graph_system.loop import assert_graph_config_compatible_with_state
+from graph_system.model_overrides import sanitize_runtime_overrides
+from graph_system.models import ExecutableGraphConfig, GraphLoopState, GraphNodeWorkOrder
+from graph_system.runner import GraphRunRunner
 from task_system.compiler.graph_compiler import build_graph_compilation_unit
-from task_system.compiler.graph_harness_config_publisher import _node_config
+from task_system.compiler.executable_graph_config_publisher import _node_config
 
 
-def _config(*, config_id: str, model: str = "deepseek-v4-flash", extra_node: bool = False) -> GraphHarnessConfig:
+def _config(*, config_id: str, model: str = "deepseek-v4-flash", extra_node: bool = False) -> ExecutableGraphConfig:
     nodes = [
         {
             "node_id": "module.chapter::chapter_draft",
@@ -47,7 +47,7 @@ def _config(*, config_id: str, model: str = "deepseek-v4-flash", extra_node: boo
                 "task_id": "task.test.chapter_review",
             }
         )
-    return GraphHarnessConfig(
+    return ExecutableGraphConfig(
         config_id=config_id,
         graph_id="graph.test.runtime_authority",
         graph_title="Runtime Authority",
@@ -69,7 +69,7 @@ def _config(*, config_id: str, model: str = "deepseek-v4-flash", extra_node: boo
     ).with_content_identity(config_id=config_id)
 
 
-def _state(config: GraphHarnessConfig) -> GraphLoopState:
+def _state(config: ExecutableGraphConfig) -> GraphLoopState:
     return GraphLoopState(
         state_id="gstate:test",
         graph_run_id="grun:test",

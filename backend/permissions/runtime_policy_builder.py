@@ -12,7 +12,7 @@ from permissions.policy import normalize_permission_mode
 from permissions.resource_policy import ResourceDecision, ResourcePolicy
 from permissions.resource_policy_builder import RuntimeApprovalContext
 from permissions.resource_scope_mapping import map_operations_to_resource_scopes
-from orchestration.runtime_directive import RuntimeDirective
+from runtime.shared.runtime_directive import RuntimeDirective
 
 SANDBOX_SIDE_EFFECT_OPERATIONS = {"op.write_file", "op.edit_file", "op.shell", "op.python_repl"}
 WRITE_OPERATIONS = {"op.write_file", "op.edit_file"}
