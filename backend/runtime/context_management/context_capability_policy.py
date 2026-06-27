@@ -345,14 +345,18 @@ def _capability_group_for_prompt_resource(resource: dict[str, Any]) -> tuple[str
     explicit_member = _first_text(metadata.get("context_capability_member"), resource.get("context_capability_member"), "contract")
     if explicit:
         return _normalize_group(explicit), explicit_slot, explicit_member, "explicit_prompt_context_capability_group"
+    category = str(resource.get("category") or "").strip()
+    subtype = str(resource.get("subtype") or "").strip()
+    prompt_ref = str(resource.get("prompt_id") or resource.get("resource_id") or "").strip()
+    if category == "system" and prompt_ref.startswith("system.foundation."):
+        return STATIC_IDENTITY, subtype or prompt_ref, "contract", "stable_system_foundation_prompt"
+    if category == "runtime" and prompt_ref.startswith("runtime."):
+        return RUNTIME_CONTRACTS, subtype or prompt_ref, "contract", "stable_runtime_contract_prompt"
     prompt_rule = dict(metadata.get("prompt_rule") or {})
     rule_kind = str(prompt_rule.get("rule_kind") or "").strip()
     if rule_kind:
         group = _group_for_rule_kind(rule_kind)
         return group, rule_kind, "contract", "prompt_rule_kind_capability_catalog"
-    category = str(resource.get("category") or "").strip()
-    subtype = str(resource.get("subtype") or "").strip()
-    prompt_ref = str(resource.get("prompt_id") or resource.get("resource_id") or "").strip()
     if category == "environment" and subtype.startswith("lifecycle_"):
         slot = subtype.removeprefix("lifecycle_")
         return _group_for_lifecycle_slot(slot), slot, "contract", "environment_lifecycle_slot"

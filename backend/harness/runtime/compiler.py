@@ -92,6 +92,7 @@ from .runtime_control_signal_projection import canonical_runtime_control_signal_
 from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
 from .task_contract_manifest import TaskContractManifest, build_task_contract_manifest_from_contract
 from .tool_catalog_manifest import ToolCatalogManifest, build_tool_catalog_manifest
+from .tool_call_contract import ToolCallContract, build_tool_call_contract
 
 
 _GRAPH_AUTHORIZED_INPUT_CONTENT_LIMIT = 16000
@@ -428,6 +429,13 @@ class RuntimeCompiler:
             profile_payload=profile_payload,
             permission_mode=permission_mode,
         )
+        tool_call_contract = build_tool_call_contract(
+            invocation_kind="single_agent_turn",
+            allowed_action_types=allowed_actions,
+            available_tools=single_turn_tools,
+            runtime_assembly=assembly_payload,
+            tool_plan=single_turn_tool_plan,
+        )
         output_contract = _single_agent_turn_output_contract(
             allowed_actions=allowed_actions,
             control_capabilities=effective_control_capabilities,
@@ -442,6 +450,7 @@ class RuntimeCompiler:
             available_tools=single_turn_tools,
             permission_mode=permission_mode,
             tool_plan=single_turn_tool_plan,
+            tool_call_contract=tool_call_contract,
         )
         envelope = RuntimeEnvelope(
             envelope_id=f"rtenv:{turn_id}:single_agent_turn",
@@ -631,13 +640,6 @@ class RuntimeCompiler:
         task_mode_tail_context_payload, current_request_payload = _extract_task_mode_tail_context_payload(current_request_payload)
         editor_context_payload, current_request_payload = _extract_editor_context_payload(current_request_payload)
         current_turn_delta_payload = _current_turn_delta_model_payload(current_request_payload)
-        provider_protocol_specs = _provider_protocol_message_specs(
-            session_context,
-            source_ref="single_agent_turn_api_transcript",
-            projection_policy=projection_policy,
-            storage_root=dynamic_context_storage_root(self.base_dir, assembly_payload) or self.base_dir,
-            storage_run_id=session_id,
-        )
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="single_agent_turn",
@@ -782,7 +784,6 @@ class RuntimeCompiler:
                     source_ref_prefix="single_agent_turn",
                     dynamic_context=dynamic_context,
                 ),
-                *provider_protocol_specs,
                 *_read_evidence_context_message_specs(
                     read_evidence_prompt_payload,
                     source_ref_prefix="single_agent_turn",
@@ -972,6 +973,7 @@ class RuntimeCompiler:
         prompt_manifest["runtime_context_load_plan_ref"] = context_load_plan.plan_id
         prompt_manifest["runtime_context_load_plan"] = context_load_plan.to_dict()
         prompt_manifest["prompt_mount_plan"] = prompt_mount_plan.to_dict()
+        prompt_manifest["tool_call_contract"] = tool_call_contract.to_hidden_control_payload()
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
         prompt_manifest["protocol_sanitizer"] = dict(protocol_sanitizer.diagnostics)
         prompt_manifest["context_window"] = _context_window_report(
@@ -1013,7 +1015,11 @@ class RuntimeCompiler:
             available_tools=single_turn_tools,
             allowed_action_types=allowed_actions,
             output_contract=output_contract,
-            hidden_control_refs={"agent_invocation_id": agent_invocation_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
+            hidden_control_refs={
+                "agent_invocation_id": agent_invocation_id,
+                "runtime_assembly_id": str(assembly_payload.get("assembly_id") or ""),
+                "tool_call_contract": tool_call_contract.to_hidden_control_payload(),
+            },
             context_refs=dynamic_context.context_refs,
             artifact_refs=dynamic_context.artifact_refs,
             diagnostics={
@@ -1024,6 +1030,7 @@ class RuntimeCompiler:
                 "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
                 "runtime_packet_context": packet_context.to_dict(),
                 "control_capabilities": dict(effective_control_capabilities),
+                "tool_call_contract": tool_call_contract.to_hidden_control_payload(),
                 "active_work_context_present": bool(active_work_context),
                 "current_work_boundary_receipt": dict(current_work_boundary_receipt or {}),
                 "turn_input_facts_present": bool(turn_input_facts),
@@ -1102,6 +1109,13 @@ class RuntimeCompiler:
         )
         tool_payloads = packet_context.model_visible_tools
         allowed_actions = packet_context.allowed_action_types
+        tool_call_contract = build_tool_call_contract(
+            invocation_kind="task_execution",
+            allowed_action_types=allowed_actions,
+            available_tools=tool_payloads,
+            runtime_assembly=assembly_payload,
+            tool_plan=packet_context.tool_plan,
+        )
         agent_visible_runtime_projection = _agent_visible_runtime_projection(
             invocation_kind="task_execution",
             allowed_action_types=allowed_actions,
@@ -1111,6 +1125,7 @@ class RuntimeCompiler:
             available_tools=tool_payloads,
             permission_mode=permission_mode,
             prompt_policy=prompt_policy,
+            tool_call_contract=tool_call_contract,
         )
         planning_protocol = _planning_protocol_payload(
             invocation_kind="task_execution",
@@ -1654,14 +1669,19 @@ class RuntimeCompiler:
                     payload=bound_task_runtime_context_payload,
                     kind="bound_task_runtime_context",
                     source_ref=bound_task_context.source_ref,
-                    cache_scope="task",
-                    cache_role="session_stable",
+                    cache_scope="none",
+                    cache_role="volatile",
                     compression_role="ref_only",
                     metadata={
                         "authority_class": "bound_task_runtime_context",
                         "semantic_layer": "L7_bound_task_runtime_context",
-                        "cache_impact": "task_prefix_bound_runtime_snapshot",
-                        "stability_rule": "bound runtime context is a hashable snapshot; changed file/artifact/rehydration state must append a later delta",
+                        "context_cache_section": "dynamic_tail",
+                        "context_commit_policy": "never_commit",
+                        "context_replay_policy": "current_dynamic_tail_only",
+                        "context_identity_policy": "current_invocation_only",
+                        "fixed_context_package": "dynamic_tail",
+                        "cache_impact": "current_dynamic_tail_only",
+                        "stability_rule": "bound runtime context carries current invocation refs and must not be sealed into the task prefix",
                         "content_source": "harness.runtime.bound_task_context",
                     },
                 )
@@ -1933,6 +1953,7 @@ class RuntimeCompiler:
             prompt_mount_plan,
             prompt_policy=prompt_policy,
         )
+        prompt_manifest["tool_call_contract"] = tool_call_contract.to_hidden_control_payload()
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
         prompt_manifest["context_window"] = _context_window_report(
             session_context={},
@@ -1985,7 +2006,11 @@ class RuntimeCompiler:
             artifact_refs=dynamic_context.artifact_refs,
             context_refs=dynamic_context.context_refs,
             output_contract={"schema": schema, "format": "json_object", "planning_protocol": planning_protocol},
-            hidden_control_refs={"task_run_id": task_run_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
+            hidden_control_refs={
+                "task_run_id": task_run_id,
+                "runtime_assembly_id": str(assembly_payload.get("assembly_id") or ""),
+                "tool_call_contract": tool_call_contract.to_hidden_control_payload(),
+            },
             diagnostics={
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
@@ -1994,6 +2019,7 @@ class RuntimeCompiler:
                 "tool_catalog_manifest": tool_catalog_manifest_payload,
                 "task_contract_manifest": task_contract_manifest_payload,
                 "bound_task_context_manifest": bound_task_context_manifest_payload,
+                "tool_call_contract": tool_call_contract.to_hidden_control_payload(),
                 "model_input_authority": "prompt_composition.message_projection",
                 "runtime_packet_context": packet_context.to_dict(),
                 "artifact_scope": {
@@ -2033,14 +2059,22 @@ class RuntimeCompiler:
         permission_policy.setdefault("permission_scope", str(permission_policy.get("scope") or "bounded_read_observation"))
         prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="tool_observation_followup")
         tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
+        observation_allowed_actions = ("respond", "ask_user", "tool_call", "request_task_run", "block")
+        tool_call_contract = build_tool_call_contract(
+            invocation_kind="tool_observation_followup",
+            allowed_action_types=observation_allowed_actions,
+            available_tools=tool_payloads,
+            runtime_assembly=assembly_payload,
+        )
         agent_visible_runtime_projection = _agent_visible_runtime_projection(
             invocation_kind="tool_observation_followup",
-            allowed_action_types=("respond", "ask_user", "tool_call", "request_task_run", "block"),
+            allowed_action_types=observation_allowed_actions,
             profile_payload=profile_payload,
             environment_payload=environment_payload,
             operation_authorization=dict(assembly_payload.get("operation_authorization") or {}),
             available_tools=tool_payloads,
             permission_mode=str(assembly_payload.get("permission_mode") or "default"),
+            tool_call_contract=tool_call_contract,
         )
         envelope = RuntimeEnvelope(
             envelope_id=f"rtenv:{turn_id}:observation_followup",
@@ -2076,7 +2110,7 @@ class RuntimeCompiler:
         prompt_mount_plan = prompt_mount_plan_for_invocation(
             _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload),
             invocation_kind="tool_observation_followup",
-            allowed_actions=("respond", "ask_user", "tool_call", "request_task_run", "block"),
+            allowed_actions=observation_allowed_actions,
             observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
             visible_tools=tool_payloads,
             session_context=dict(session_context or {}),
@@ -2189,13 +2223,6 @@ class RuntimeCompiler:
             current_request_payload
         )
         current_turn_delta_payload = _current_turn_delta_model_payload(current_request_payload)
-        provider_protocol_specs = _provider_protocol_message_specs(
-            session_context,
-            source_ref="observation_followup_api_transcript",
-            projection_policy=projection_policy,
-            storage_root=dynamic_context_storage_root(self.base_dir, assembly_payload) or self.base_dir,
-            storage_run_id=session_id,
-        )
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="tool_observation_followup",
@@ -2335,7 +2362,6 @@ class RuntimeCompiler:
                     source_ref_prefix="observation_followup",
                     dynamic_context=dynamic_context,
                 ),
-                *provider_protocol_specs,
                 *_tool_observation_context_message_specs(
                     tool_observation_context_payload,
                     source_ref_prefix="observation_followup",
@@ -2500,6 +2526,7 @@ class RuntimeCompiler:
         prompt_manifest["runtime_context_load_plan_ref"] = context_load_plan.plan_id
         prompt_manifest["runtime_context_load_plan"] = context_load_plan.to_dict()
         prompt_manifest["prompt_mount_plan"] = prompt_mount_plan.to_dict()
+        prompt_manifest["tool_call_contract"] = tool_call_contract.to_hidden_control_payload()
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
         prompt_manifest["context_window"] = _context_window_report(
             session_context=session_context,
@@ -2538,16 +2565,21 @@ class RuntimeCompiler:
             tool_catalog_manifest=tool_catalog_manifest_payload,
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
-            allowed_action_types=("respond", "ask_user", "tool_call", "request_task_run", "block"),
+            allowed_action_types=observation_allowed_actions,
             observation_refs=dynamic_context.observation_refs,
             artifact_refs=dynamic_context.artifact_refs,
             context_refs=dynamic_context.context_refs,
             output_contract={"schema": schema, "format": "json_object"},
-            hidden_control_refs={"agent_invocation_id": agent_invocation_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
+            hidden_control_refs={
+                "agent_invocation_id": agent_invocation_id,
+                "runtime_assembly_id": str(assembly_payload.get("assembly_id") or ""),
+                "tool_call_contract": tool_call_contract.to_hidden_control_payload(),
+            },
             diagnostics={
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
                 "tool_catalog_manifest": tool_catalog_manifest_payload,
+                "tool_call_contract": tool_call_contract.to_hidden_control_payload(),
                 "model_input_authority": "prompt_composition.message_projection",
             },
         )
@@ -2925,7 +2957,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
             ],
         },
         "request_task_run_required_skeleton": {
-            "instruction": "这是开启持续任务生命周期的最小必填骨架。用当前用户目标和已观察事实替换占位内容；不要删除这些键，不要把它们放到 JSON 顶层。口头承诺不会启动 Task；只有这份结构化 request_task_run 才是启动动作。",
+            "instruction": "这是开启持续任务生命周期的最小必填骨架。用当前用户目标和已观察事实替换占位内容；不要删除这些键，不要把它们放到动作对象顶层。口头承诺不会启动 Task；只有这份结构化 request_task_run 才是启动动作。",
             "required_top_level": ["action_type", "public_progress_note", "public_action_state", "task_run_contract_seed"],
             "required_task_run_contract_seed_paths": [
                 "container_contract.entry_reason",
@@ -3010,8 +3042,8 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
         },
         "resume_recoverable_work_shape_rules": [
             "resume_recoverable_work 必须是单个结构化控制信号；如果文本里带代码块或简短说明，只会提取唯一结构化动作对象执行。",
-            "可恢复工作引用和继续引用必须放在 recovery_resume 对象内；不允许放在 JSON 顶层，也不要使用 payload 包裹。",
-            "只使用当前可恢复上下文提供的 work_ref 和 resume_ref；不要从聊天文本、旧 assistant closeout 或文件内容里猜测恢复句柄。",
+            "可恢复工作引用和继续引用必须放在 recovery_resume 对象内；不允许放在动作对象顶层，也不要使用 payload 包裹。",
+            "只使用当前可恢复上下文提供的 work_ref 和 resume_ref；不要从聊天文本、旧 assistant 消息或文件内容里猜测恢复句柄。",
             "恢复动作只恢复同一个持续工作，不创建新任务；如果句柄缺失、失效或用户要求改目标，选择 respond、ask_user 或 block 说明原因。",
         ],
         "minimal_valid_resume_recoverable_work_example": {
@@ -3675,7 +3707,7 @@ def _single_agent_turn_output_contract(
     json_action_required = bool(control_capabilities.get("requires_json_action_protocol") is True)
     forbidden: list[str] = ["delegate_subagent"]
     if not json_action_enabled:
-        forbidden.append("json_action_protocol")
+        forbidden.append("action_object_protocol")
     if "tool_call" not in allowed_actions:
         forbidden.append("general_tool_call")
     if "request_task_run" not in allowed_actions:
@@ -3716,14 +3748,13 @@ def _single_agent_turn_output_contract(
             },
             "assistant_messages": {
                 "enabled": bool(control_capabilities.get("may_emit_assistant_message") is not False),
-                "transport": "natural_response",
+                "response_form": "natural_response",
                 "terminal_when_no_action": True,
                 "raw_text_is_not_a_control_action": True,
             },
             "ordinary_tool_calls": {
                 "enabled": "tool_call" in allowed_actions,
-                "transport": "provider_native_tool_call_or_json_tool_call",
-                "native_tool_transport_enabled": "tool_call" in allowed_actions,
+                "submission": "choose_available_tool_and_fill_arguments",
                 "multi_tool_calls_allowed": True,
                 "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
                 "boundary": "runtime_visible_tools_only",
@@ -3731,26 +3762,24 @@ def _single_agent_turn_output_contract(
             },
             "control_actions": {
                 "enabled": json_action_enabled,
-                "transport": "json_action",
+                "submission": "action_object",
                 "allowed_action_types": [
                     item
                     for item in ("respond", "ask_user", "block", "request_task_run", "active_work_control", "pause_for_user_steer")
                     if item in allowed_actions
                 ],
                 "parallel_allowed": False,
-                "native_tool_transport_enabled": False,
             },
-            "native_tool_calls": {
+            "tool_action_contract": {
                 "enabled": "tool_call" in allowed_actions,
-                "provider_multi_tool_calls_allowed": "tool_call" in allowed_actions,
+                "multi_tool_calls_allowed": "tool_call" in allowed_actions,
                 "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
-                "control_actions_exposed_as_native_tools": False,
-                "visible_tool_boundary": "ordinary tool calls use the RuntimeToolPlan model-visible tool surface for this invocation",
+                "control_actions_exposed_as_tools": False,
+                "visible_tool_boundary": "普通工具行动只能选择本轮 RuntimeToolPlan 挂载并展示的工具。",
             },
-            "transport_decision_table": {
+            "action_submission_table": {
                 "control_actions": {
-                    "transport": "json_action",
-                    "native_tool_transport_enabled": False,
+                    "submission": "action_object",
                     "allowed_action_types": [
                         item
                         for item in (
@@ -3766,9 +3795,7 @@ def _single_agent_turn_output_contract(
                     ],
                 },
                 "ordinary_tool_calls": {
-                    "transport": "provider_native_tool_call_or_json_tool_call",
-                    "native_tool_transport_enabled": "tool_call" in allowed_actions,
-                    "json_tool_call_enabled": json_action_enabled and "tool_call" in allowed_actions,
+                    "submission": "choose_available_tool_and_fill_arguments",
                     "multi_tool_calls_allowed": "tool_call" in allowed_actions,
                 },
                 "assistant_body": {
@@ -6227,6 +6254,7 @@ def _agent_visible_runtime_projection(
     permission_mode: str = "default",
     prompt_policy: dict[str, Any] | None = None,
     tool_plan: Any | None = None,
+    tool_call_contract: ToolCallContract | None = None,
 ) -> dict[str, Any]:
     prompt_policy_payload = dict(prompt_policy or {})
     task_lifecycle = dict(profile_payload.get("task_lifecycle_policy") or {})
@@ -6260,6 +6288,14 @@ def _agent_visible_runtime_projection(
         available_tools=available_tools,
         tool_plan=tool_plan,
     )
+    resolved_tool_call_contract = tool_call_contract or build_tool_call_contract(
+        invocation_kind=invocation_kind,
+        allowed_action_types=allowed_action_types,
+        available_tools=available_tools,
+        runtime_assembly={"profile": profile_payload},
+        tool_plan=tool_plan,
+    )
+    tool_call_contract_visible = resolved_tool_call_contract.to_agent_visible_payload()
     visible_tool_name_set = {name for name in tool_names if name}
     subagent_lifecycle_enabled = bool(subagent.get("enabled") is True) and bool(
         visible_tool_name_set.intersection(
@@ -6277,6 +6313,7 @@ def _agent_visible_runtime_projection(
         invocation_kind=invocation_kind,
         allowed_action_types=allowed_action_types,
         task_run_allowed=task_run_allowed,
+        tool_call_contract=resolved_tool_call_contract,
     )
     execution_boundary = _execution_boundary_payload(
         profile_payload=profile_payload,
@@ -6286,6 +6323,12 @@ def _agent_visible_runtime_projection(
     payload = {
         "authority": "harness.runtime.agent_visible_runtime_projection",
         "invocation_kind": str(invocation_kind or ""),
+        "action_surface": model_decision_contract,
+        "tool_capability_surface": _tool_capability_surface_payload(
+            service_surface=service_surface,
+            tool_call_contract=resolved_tool_call_contract,
+        ),
+        "tool_call_contract": tool_call_contract_visible,
         "model_decision_contract": model_decision_contract,
         "service_surface": service_surface,
         "execution_boundary": execution_boundary,
@@ -6340,6 +6383,7 @@ def _model_decision_contract_payload(
     invocation_kind: str,
     allowed_action_types: tuple[str, ...],
     task_run_allowed: bool,
+    tool_call_contract: ToolCallContract | None = None,
 ) -> dict[str, Any]:
     semantic_actions = [str(item) for item in tuple(allowed_action_types or ()) if str(item)]
     control_actions = [
@@ -6348,25 +6392,29 @@ def _model_decision_contract_payload(
         if item in semantic_actions
     ]
     pause_for_user_steer_allowed = "pause_for_user_steer" in semantic_actions
+    tool_contract = tool_call_contract.to_hidden_control_payload() if tool_call_contract is not None else {}
+    ordinary_tool_submission = str(tool_contract.get("ordinary_tool_submission") or "none")
     return {
         "authority": "harness.runtime.model_decision_contract",
         "prompt_authority": "runtime_action_contract",
         "invocation_kind": str(invocation_kind or ""),
         "semantic_actions": semantic_actions,
         "control_actions": control_actions,
-        "assistant_response_transport": "assistant_message",
-        "ordinary_tool_transport": "provider_native_tool_call_or_json_tool_call",
-        "control_action_transport": "json_action",
-        "json_action_required_for": "control_or_task_action_only",
+        "assistant_response_form": "assistant_message",
+        "ordinary_tool_action": "choose_available_tool_and_fill_arguments"
+        if ordinary_tool_submission != "none"
+        else "not_available",
+        "control_action_submission": "action_object" if control_actions else "none",
+        "action_object_required_for": "control_or_task_action_only",
         "assistant_text_allowed_when_no_action": True,
-        "required_transport": "assistant_message_or_tool_call_or_json_action",
-        "json_action_shape": {
+        "required_action_form": "assistant_message_or_tool_action_or_control_action",
+        "action_object_shape": {
             "authority": "harness.loop.model_action_request",
             "single_unambiguous_action_required": True,
             "markdown_fence_allowed_when_single_action": True,
             "wrapper_text_allowed_when_single_action": True,
             "respond_requires_top_level_final_answer": "action_type=respond 时，最终给用户看的自然回复必须写在顶层 final_answer；不要放入 payload.content、payload.final_answer 或 action.content。",
-            "ask_user_requires_top_level_user_question": "action_type=ask_user 时，用户要回答的问题必须写在顶层 user_question；不要通过 provider-native ask_user 工具调用表达。",
+            "ask_user_requires_top_level_user_question": "action_type=ask_user 时，用户要回答的问题必须写在顶层 user_question；不要通过工具调用表达。",
             "block_requires_top_level_blocking_reason": "action_type=block 时，真实阻塞原因必须写在顶层 blocking_reason。",
             **(
                 {
@@ -6409,7 +6457,7 @@ def _model_decision_contract_payload(
             "task_upgrade_conditions": [
                 "当前 turn 无法稳定承载目标、计划、状态、恢复、验收、审计、用户可追踪阶段反馈或资源隔离。",
                 "工作需要跨 turn 状态记录、暂停/恢复/停止/replan、明确完成证据、长期执行、独立验收或资源隔离。",
-                "工具/上下文预算触发 closeout/recover，需要保存证据、未完成项和恢复点后继续。",
+                "工具或上下文预算已触达边界，需要保存证据、未完成项和恢复点后继续。",
             ],
             "request_task_run_required_when_agent_decides_lifecycle": (
                 "如果你判断需要持续任务生命周期，并且 task_run_contract_seed 足够，提交 action_type=request_task_run；"
@@ -6463,7 +6511,8 @@ def _service_surface_payload(
     return {
         "authority": "harness.runtime.service_surface",
         "invocation_kind": str(invocation_kind or ""),
-        "tool_call_transport_available": "tool_call" in set(allowed_action_types or ()),
+        "tool_action_available": "tool_call" in set(allowed_action_types or ()),
+        "ordinary_tool_submission": "tool_action" if "tool_call" in set(allowed_action_types or ()) else "none",
         "mounted_tools": mounted_tools,
         "unmounted_services": [
             {
@@ -6478,6 +6527,34 @@ def _service_surface_payload(
             for issue in _tool_filter_issues_from_tool_plan(tool_plan)
             if str(issue.get("tool_name") or issue.get("operation_id") or "").strip()
         ],
+    }
+
+
+def _tool_capability_surface_payload(
+    *,
+    service_surface: dict[str, Any],
+    tool_call_contract: ToolCallContract,
+) -> dict[str, Any]:
+    contract = tool_call_contract.to_hidden_control_payload()
+    mounted_tools = [
+        {
+            "tool_name": str(item.get("tool_name") or ""),
+            "operation_id": str(item.get("operation_id") or ""),
+            "owner_scope": str(item.get("owner_scope") or "none"),
+        }
+        for item in list(dict(service_surface or {}).get("mounted_tools") or [])
+        if isinstance(item, dict) and str(item.get("tool_name") or "").strip()
+    ]
+    return {
+        "authority": "harness.runtime.tool_capability_surface",
+        "tool_action_available": str(contract.get("ordinary_tool_submission") or "none") != "none",
+        "tool_action_submission": "choose_available_tool_and_fill_arguments"
+        if str(contract.get("ordinary_tool_submission") or "none") != "none"
+        else "not_available",
+        "mounted_tools": mounted_tools,
+        "unavailable_tools": list(dict(service_surface or {}).get("unmounted_services") or []),
+        "mounted_tools_ref": "tool_index_stable.available_tools",
+        "feedback_boundary": "denied, invalid, unmounted, or budget-exhausted tool actions return feedback for the next agent decision",
     }
 
 
@@ -6541,21 +6618,20 @@ def _runtime_projection_instruction(projection: dict[str, Any], *, validity_scop
         for item in list(projection.get("allowed_action_types") or [])
         if str(item)
     ]
-    service_surface = dict(projection.get("service_surface") or {})
+    tool_call_contract = dict(projection.get("tool_call_contract") or {})
+    tool_action = dict(tool_call_contract.get("tool_action") or {})
     tool_boundary = dict(projection.get("tool_boundary") or {})
     try:
         visible_tool_count = int(tool_boundary.get("visible_tool_count") or 0)
     except (TypeError, ValueError):
         visible_tool_count = 0
-    native_tool_available = bool(service_surface.get("tool_call_transport_available") is True) and bool(
-        visible_tool_count > 0
-    )
+    tool_action_available = bool(tool_action.get("available") is True) and bool(visible_tool_count > 0)
     allowed_text = "、".join(allowed_actions) if allowed_actions else "见 payload.allowed_action_types"
-    transport_ref = "native_tool_preamble" if native_tool_available else "json_action"
+    action_ref = "tool_action" if tool_action_available else "assistant_or_control_action"
     notice = _runtime_control_context_notice(validity_scope=validity_scope)
     return _join_prompt_sections(
         notice,
-        f"本轮动态契约：动作={allowed_text}；规则=action_schema_static；传输={transport_ref}；本段只列当前边界。\n",
+        f"本轮动态契约：动作={allowed_text}；工具行动={action_ref}；本段只列当前边界。\n",
     )
 
 

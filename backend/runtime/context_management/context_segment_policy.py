@@ -77,7 +77,6 @@ STATIC_PREFIX_KINDS = {
 
 MEMORY_CONTEXT_KINDS = {
     "attachment_context_index",
-    "bound_task_runtime_context",
     "editor_context_index",
     "evidence_index_cursor",
     "incremental_context_frame",
@@ -253,6 +252,7 @@ def _install_builtin_policy_defaults() -> None:
     for stream, slot in STREAM_CONTEXT_APPEND_SLOT_DEFAULTS.items():
         register_context_segment_policy_defaults(stream=stream, semantic_slot=slot)
     for kind, rank in {
+        "bound_task_runtime_context": 40,
         "task_goal_context": 21,
         "task_plan_context": 22,
         "task_todo_context": 23,

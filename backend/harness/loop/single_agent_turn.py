@@ -51,6 +51,7 @@ from harness.runtime.incremental_context_frame import (
 )
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan, stable_model_message_hash, stable_text_hash
 from harness.runtime.provider_tool_schema import provider_tool_bindings_for_available_tools
+from harness.runtime.tool_call_contract import provider_tools_enabled_from_contract
 from harness.runtime.public_progress import public_runtime_progress_summary
 from harness.runtime.sandbox_artifacts import (
     logical_path_publish_allowed,
@@ -394,8 +395,8 @@ def _agent_closeout_lifecycle_payload(
     signal = dict(control_signal or {})
     return _drop_empty_dict(
         {
-            "observation_type": "agent_closeout_lifecycle",
-            "lifecycle": "agent_authored_closeout",
+            "observation_type": "agent_final_feedback_lifecycle",
+            "lifecycle": "agent_authored_final_feedback",
             "cause": str(reason or "").strip(),
             "phase": str(phase or "").strip(),
             "attempt": _drop_empty_dict(
@@ -404,7 +405,7 @@ def _agent_closeout_lifecycle_payload(
                     "max": int(max_closeout_attempts or 0),
                 }
             ),
-            "tool_channel": "closed",
+            "tool_action_available": False,
             "allowed_actions": list(_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES),
             "required_user_visible_decision": {
                 "respond": "final_answer when facts are enough to answer or summarize",
@@ -415,7 +416,7 @@ def _agent_closeout_lifecycle_payload(
             "protocol_error": dict(protocol_error or {}),
             "previous_invalid_response_preview": _compact_text(previous_invalid_response, limit=1200),
             "agent_obligations": [
-                "base the closeout only on observed facts and user-visible implications",
+                "base the final feedback only on observed facts and user-visible implications",
                 "state what is confirmed, what is incomplete, and how work can continue",
                 "write the final user-facing judgment in your own words",
             ],
@@ -898,9 +899,9 @@ def _agent_authored_closeout_messages(
     instruction = (
         "你是一名需要向用户说明当前阶段结果的 coding agent。\n"
         "你收到的是本轮停止继续执行后的事实摘要；现在必须由你亲自判断如何回应用户。\n"
-        "你可以直接写给用户看的自然语言收口；如果需要让本轮停在等待用户补充或阻塞状态，也可以只输出一个结构化动作对象。\n"
+        "你可以直接写给用户看的自然语言阶段反馈；如果需要让本轮停在等待用户补充或阻塞状态，也可以只输出一个结构化动作对象。\n"
         "结构化动作对象的 action_type 只能是 respond、ask_user 或 block。\n"
-        "如果当前信息足够，直接写自然语言收口，或选择 respond 并把正文写入 final_answer。\n"
+        "如果当前信息足够，直接写自然语言最终回应，或选择 respond 并把正文写入 final_answer。\n"
         "如果还需要用户选择或补充信息，直接提出问题；如果本轮必须等待用户补充，选择 ask_user 并把问题写入 user_question。\n"
         "如果事实、权限或环境不足以可靠继续，直接说明阻塞；如果本轮必须停在阻塞状态，选择 block 并把阻塞原因写入 blocking_reason。\n"
         "如果停止原因是工具预算耗尽、当前阶段没有可继续执行的工具动作、连续工具失败或前一次回复没有形成可发布内容，"
@@ -1378,8 +1379,8 @@ def _contract_feedback_item_for_reason(reason: str, *, diagnostics: dict[str, An
 def _contract_feedback_phase_text(phase: str) -> str:
     normalized = str(phase or "").strip()
     labels = {
-        "tool_limit_closeout": "工具预算已耗尽后的收口阶段，不能再发起工具，只能基于已观察事实回应、询问或阻塞。",
-        "consecutive_tool_failure_closeout": "连续工具失败后的收口阶段，不能重复同类失败动作，只能解释失败、询问用户或阻塞。",
+        "tool_limit_closeout": "工具预算已耗尽后的阶段反馈，不能再发起工具，只能基于已观察事实回应、询问或阻塞。",
+        "consecutive_tool_failure_closeout": "连续工具失败后的阶段反馈，不能重复同类失败动作，只能解释失败、询问用户或阻塞。",
         "protocol_recovery": "上一轮动作未执行，需要重新提交允许动作。",
         "tool_loop": "工具执行循环阶段，模型输出必须是一个可唯一识别的合法动作。",
         "final_output_commit": "最终回复提交阶段，候选正文必须是 agent 自己写出的自然用户回复，且不能泄露内部字段。",
@@ -1816,6 +1817,7 @@ async def run_single_agent_turn(
         current_packet_ref = str(compilation.packet.packet_id)
         current_allowed_action_types = tuple(compilation.packet.allowed_action_types)
         current_available_tools = tuple(compilation.packet.available_tools or ())
+        current_tool_call_contract = _tool_call_contract_from_packet(compilation.packet)
         current_output_contract = initial_output_contract
         protocol_recovery_attempts = 0
         latest_protocol_error: dict[str, Any] = {}
@@ -2252,6 +2254,7 @@ async def run_single_agent_turn(
             native_tools=_native_tools_for_packet(
                 compilation.packet.allowed_action_types,
                 available_tools=compilation.packet.available_tools,
+                tool_call_contract=current_tool_call_contract,
             ),
             allow_assistant_text_delta=_output_channel_allows_direct_visible_text(initial_output_contract),
             output_contract=initial_output_contract,
@@ -2314,6 +2317,7 @@ async def run_single_agent_turn(
                     native_tools=_native_tools_for_packet(
                         current_allowed_action_types,
                         available_tools=current_available_tools,
+                        tool_call_contract=current_tool_call_contract,
                     ),
                     allow_assistant_text_delta=False,
                     output_contract=current_output_contract,
@@ -2341,6 +2345,7 @@ async def run_single_agent_turn(
                 allow_model_tool_calls=_model_tool_calls_allowed_for_packet(
                     current_allowed_action_types,
                     available_tools=current_available_tools,
+                    tool_call_contract=current_tool_call_contract,
                 ),
                 public_response_required=require_model_feedback,
             )
@@ -2906,6 +2911,7 @@ async def run_single_agent_turn(
                 current_packet_ref = str(followup_compilation.packet.packet_id)
                 current_allowed_action_types = tuple(followup_compilation.packet.allowed_action_types)
                 current_available_tools = tuple(followup_compilation.packet.available_tools or ())
+                current_tool_call_contract = _tool_call_contract_from_packet(followup_compilation.packet)
                 current_output_contract = _output_channel_contract_from_capabilities(
                     dict(followup_compilation.packet.diagnostics.get("control_capabilities") or {}),
                     allowed_action_types=tuple(followup_compilation.packet.allowed_action_types or ()),
@@ -2984,8 +2990,8 @@ async def run_single_agent_turn(
                     "tool_followup_action_guidance": True,
                     "evidence_alignment_system_group_enabled": evidence_alignment_enabled,
                     "evidence_delta_summary_included": bool(evidence_delta_summary),
-                    "assistant_body_transport": "natural_response_or_json_action_final_answer",
-                    "control_action_transport": "json_action_when_control_action_is_chosen",
+                    "assistant_body_form": "natural_response_or_action_object_final_answer",
+                    "control_action_submission": "action_object_when_control_action_is_chosen",
                     "output_channel_contract": current_output_contract.to_dict(),
                     "natural_response_terminal_when_no_action": True,
                     "synthetic_incremental_context_frame": "omitted_from_provider_visible_messages",
@@ -3039,6 +3045,7 @@ async def run_single_agent_turn(
                 native_tools=_native_tools_for_packet(
                     current_allowed_action_types,
                     available_tools=current_available_tools,
+                    tool_call_contract=current_tool_call_contract,
                 ),
                 allow_assistant_text_delta=False,
                 output_contract=current_output_contract,
@@ -3082,6 +3089,7 @@ async def run_single_agent_turn(
                     allow_model_tool_calls=_model_tool_calls_allowed_for_packet(
                         current_allowed_action_types,
                         available_tools=current_available_tools,
+                        tool_call_contract=current_tool_call_contract,
                     ),
                     public_response_required=False,
                 )
@@ -5442,7 +5450,7 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
             misplaced = "、".join(misplaced_top_level) if misplaced_top_level else "payload"
             return (
                 "resume_recoverable_work 的恢复句柄字段放错层级。不要把 "
-                f"{misplaced} 放在 JSON 顶层，也不要使用 payload 包裹。"
+                f"{misplaced} 放在动作对象顶层，也不要使用 payload 包裹。"
                 "请保留 action_type=resume_recoverable_work，并把 work_ref、resume_ref "
                 "全部放入 recovery_resume 对象内。只使用当前可恢复上下文提供的句柄，不要从旧消息文本猜测。"
             )
@@ -5472,7 +5480,7 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
         misplaced = "、".join(misplaced_top_level) if misplaced_top_level else "payload"
         return _with_request_task_run_repair_template(
             "request_task_run 的任务运行合同字段放错层级。不要把 "
-            f"{misplaced} 放在 JSON 顶层，也不要使用 payload 包裹。"
+            f"{misplaced} 放在动作对象顶层，也不要使用 payload 包裹。"
             "请保留 action_type=request_task_run，把 TaskRunContract 容器和 primary Work Mode 放入 task_run_contract_seed 内。"
         )
     if any(str(item).startswith("system_execution_field_not_allowed_in_task_run_contract") for item in errors):
@@ -5533,9 +5541,12 @@ def _native_tools_for_packet(
     allowed_action_types: tuple[str, ...],
     *,
     available_tools: tuple[dict[str, Any], ...] = (),
+    tool_call_contract: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     allowed = set(allowed_action_types or ())
     if "tool_call" not in allowed:
+        return []
+    if not provider_tools_enabled_from_contract(tool_call_contract):
         return []
     executable_tools = tuple(
         dict(item)
@@ -5550,13 +5561,25 @@ def _model_tool_calls_allowed_for_packet(
     allowed_action_types: tuple[str, ...],
     *,
     available_tools: tuple[dict[str, Any], ...] = (),
+    tool_call_contract: dict[str, Any] | None = None,
 ) -> bool:
     return bool(
         _native_tools_for_packet(
             allowed_action_types,
             available_tools=available_tools,
+            tool_call_contract=tool_call_contract,
         )
     )
+
+
+def _tool_call_contract_from_packet(packet: Any) -> dict[str, Any]:
+    hidden = dict(getattr(packet, "hidden_control_refs", {}) or {})
+    contract = hidden.get("tool_call_contract")
+    if isinstance(contract, dict) and contract:
+        return dict(contract)
+    diagnostics = dict(getattr(packet, "diagnostics", {}) or {})
+    diagnostic_contract = diagnostics.get("tool_call_contract")
+    return dict(diagnostic_contract or {}) if isinstance(diagnostic_contract, dict) else {}
 
 
 def _tool_action_requests_from_json_action(action_request: ModelActionRequest) -> tuple[ModelActionRequest, ...]:
@@ -7127,6 +7150,10 @@ def _single_agent_turn_followup_prompt_payload(
         model_selection=model_selection,
     )
     specs = _with_provider_payload_hashes(specs)
+    specs, tool_protocol_diagnostics = _standardize_followup_provider_tool_protocol_specs(
+        specs,
+        source="single_agent_turn_tool_followup",
+    )
     specs, physical_plan = annotate_specs_with_physical_context_plan(specs)
     append_only_messages = [
         dict(spec.get("model_message") or {"role": spec.get("role") or "user", "content": spec.get("content") or ""})
@@ -7149,6 +7176,7 @@ def _single_agent_turn_followup_prompt_payload(
         message_specs=specs,
     )
     segment_plan["prefix_lock"] = prefix_lock_report
+    segment_plan["provider_tool_protocol_standardization"] = tool_protocol_diagnostics
     if str(prefix_lock_report.get("status") or "") != "preserved":
         raise RuntimeError(
             "single_agent_followup_provider_prefix_mutated:"
@@ -7164,6 +7192,128 @@ def _single_agent_turn_followup_prompt_payload(
             )
         )
     return append_only_messages, segment_plan
+
+
+def _standardize_followup_provider_tool_protocol_specs(
+    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    source: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    pending_tool_call_ids: set[str] = set()
+    pending_round_start_index: int | None = None
+    diagnostics = {
+        "source": str(source or ""),
+        "input_spec_count": len([item for item in list(specs or []) if isinstance(item, dict)]),
+        "output_spec_count": 0,
+        "assistant_tool_call_count": 0,
+        "tool_output_count": 0,
+        "closed_tool_round_count": 0,
+        "dropped_orphan_tool_output_count": 0,
+        "dropped_invalid_assistant_tool_call_count": 0,
+        "dropped_incomplete_tool_round_count": 0,
+        "dropped_incomplete_tool_round_spec_count": 0,
+        "authority": "harness.loop.single_agent_turn.provider_tool_protocol_standardization",
+    }
+
+    for raw_spec in list(specs or []):
+        if not isinstance(raw_spec, dict):
+            continue
+        spec = dict(raw_spec)
+        message = _spec_model_message(spec)
+        role = str(message.get("role") or spec.get("role") or "").strip()
+        if role == "tool":
+            tool_call_id = str(message.get("tool_call_id") or "").strip()
+            if not tool_call_id or tool_call_id not in pending_tool_call_ids:
+                if pending_tool_call_ids:
+                    dropped = _drop_pending_tool_protocol_specs(
+                        result,
+                        pending_round_start_index=pending_round_start_index,
+                    )
+                    diagnostics["dropped_incomplete_tool_round_count"] += 1
+                    diagnostics["dropped_incomplete_tool_round_spec_count"] += dropped
+                    pending_tool_call_ids.clear()
+                    pending_round_start_index = None
+                diagnostics["dropped_orphan_tool_output_count"] += 1
+                continue
+            result.append(spec)
+            pending_tool_call_ids.remove(tool_call_id)
+            diagnostics["tool_output_count"] += 1
+            if not pending_tool_call_ids:
+                pending_round_start_index = None
+                diagnostics["closed_tool_round_count"] += 1
+            continue
+
+        if pending_tool_call_ids:
+            dropped = _drop_pending_tool_protocol_specs(
+                result,
+                pending_round_start_index=pending_round_start_index,
+            )
+            diagnostics["dropped_incomplete_tool_round_count"] += 1
+            diagnostics["dropped_incomplete_tool_round_spec_count"] += dropped
+            pending_tool_call_ids.clear()
+            pending_round_start_index = None
+
+        if role == "assistant" and message.get("tool_calls"):
+            tool_call_ids = _assistant_tool_call_ids_from_provider_message(message)
+            if not tool_call_ids:
+                diagnostics["dropped_invalid_assistant_tool_call_count"] += 1
+                continue
+            pending_tool_call_ids = set(tool_call_ids)
+            pending_round_start_index = len(result)
+            diagnostics["assistant_tool_call_count"] += len(tool_call_ids)
+            result.append(spec)
+            continue
+
+        result.append(spec)
+
+    if pending_tool_call_ids:
+        dropped = _drop_pending_tool_protocol_specs(
+            result,
+            pending_round_start_index=pending_round_start_index,
+        )
+        diagnostics["dropped_incomplete_tool_round_count"] += 1
+        diagnostics["dropped_incomplete_tool_round_spec_count"] += dropped
+
+    diagnostics["output_spec_count"] = len(result)
+    diagnostics["changed"] = diagnostics["input_spec_count"] != diagnostics["output_spec_count"]
+    return result, diagnostics
+
+
+def _spec_model_message(spec: dict[str, Any]) -> dict[str, Any]:
+    message = dict(dict(spec or {}).get("model_message") or {})
+    if message:
+        return message
+    return {
+        "role": str(dict(spec or {}).get("role") or "user"),
+        "content": str(dict(spec or {}).get("content") or ""),
+    }
+
+
+def _assistant_tool_call_ids_from_provider_message(message: dict[str, Any]) -> tuple[str, ...]:
+    ids: list[str] = []
+    for raw_call in list(dict(message or {}).get("tool_calls") or []):
+        if not isinstance(raw_call, dict):
+            continue
+        call_id = str(dict(raw_call).get("id") or "").strip()
+        if call_id and call_id not in ids:
+            ids.append(call_id)
+    return tuple(ids)
+
+
+def _drop_pending_tool_protocol_specs(
+    specs: list[dict[str, Any]],
+    *,
+    pending_round_start_index: int | None,
+) -> int:
+    if pending_round_start_index is None:
+        return 0
+    start = int(pending_round_start_index)
+    if start < 0 or start >= len(specs):
+        return 0
+    dropped = len(specs) - start
+    del specs[start:]
+    return dropped
 
 
 def _single_agent_turn_append_only_followup_message_specs(
@@ -8167,7 +8317,7 @@ def _provider_visible_history_replay_kind(base: dict[str, Any], *, message: dict
         return "provider_visible_user_message_replay"
     if role == "assistant":
         return "provider_visible_assistant_message_replay"
-    return "provider_visible_context_replay"
+    return original_kind or "provider_visible_context_replay"
 
 
 def _without_context_classification_metadata(metadata: dict[str, Any]) -> dict[str, Any]:

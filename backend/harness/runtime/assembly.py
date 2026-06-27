@@ -1347,6 +1347,8 @@ def _compiled_prompt_resource_gates(system_groups: dict[str, dict[str, Any]]) ->
             ref = str(prompt_ref or "").strip()
             if not ref:
                 continue
+            if _prompt_resource_gate_is_diagnostic_only(ref):
+                continue
             gate = result.setdefault(
                 ref,
                 {
@@ -1363,6 +1365,11 @@ def _compiled_prompt_resource_gates(system_groups: dict[str, dict[str, Any]]) ->
                     [*list(gate.get("disabled_system_groups") or []), system_group]
                 )
     return result
+
+
+def _prompt_resource_gate_is_diagnostic_only(prompt_ref: str) -> bool:
+    ref = str(prompt_ref or "").strip()
+    return ref.startswith("runtime.")
 
 
 def _compiled_context_segment_gates(system_groups: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:

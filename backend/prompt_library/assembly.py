@@ -236,14 +236,16 @@ def _resource_context_wiring_rejection_reason(
     system_wiring_manifest: dict[str, Any],
 ) -> str:
     prompt_ref = str(resource.get("prompt_id") or resource.get("resource_id") or "").strip()
+    stable_contract = _resource_is_stable_prompt_contract(resource)
     gate = _prompt_resource_gate(system_wiring_manifest, prompt_ref=prompt_ref)
     if gate and gate.get("enabled") is False and not list(gate.get("system_groups") or []):
-        disabled = ",".join(str(item) for item in list(gate.get("disabled_system_groups") or []) if str(item))
-        return f"system_group_disabled:{disabled or prompt_ref}"
+        if not stable_contract:
+            disabled = ",".join(str(item) for item in list(gate.get("disabled_system_groups") or []) if str(item))
+            return f"system_group_disabled:{disabled or prompt_ref}"
     if context_capability_profile is None:
         return ""
     decision = context_capability_decision_for_prompt_resource(resource, profile=context_capability_profile)
-    if not decision.enabled:
+    if not decision.enabled and not stable_contract:
         return decision.reason
     return ""
 
@@ -255,10 +257,12 @@ def _resource_context_wiring_metadata(
     system_wiring_manifest: dict[str, Any],
 ) -> dict[str, Any]:
     prompt_ref = str(resource.get("prompt_id") or resource.get("resource_id") or "").strip()
+    stable_contract = _resource_is_stable_prompt_contract(resource)
     gate = _prompt_resource_gate(system_wiring_manifest, prompt_ref=prompt_ref)
     metadata: dict[str, Any] = {}
     if context_capability_profile is not None:
         decision = context_capability_decision_for_prompt_resource(resource, profile=context_capability_profile)
+        effective_enabled = bool(decision.enabled or stable_contract)
         metadata.update(
             {
                 "context_capability_profile_id": str(getattr(context_capability_profile, "profile_id", "") or ""),
@@ -266,19 +270,38 @@ def _resource_context_wiring_metadata(
                 "context_capability_slot": decision.slot,
                 "context_capability_member": decision.member,
                 "context_capability_enabled": decision.enabled,
+                "context_capability_effective_enabled": effective_enabled,
                 "context_capability_reason": decision.reason,
+                "context_capability_gate_applied": not stable_contract,
                 "context_capability_authority": decision.source,
             }
         )
     if gate:
         metadata["system_wiring_prompt_gate"] = {
             "enabled": bool(gate.get("enabled") is True),
+            "effective_enabled": bool(gate.get("enabled") is True or stable_contract),
+            "gate_applied": not stable_contract,
             "system_groups": [str(item) for item in list(gate.get("system_groups") or []) if str(item)],
             "disabled_system_groups": [
                 str(item) for item in list(gate.get("disabled_system_groups") or []) if str(item)
             ],
         }
     return metadata
+
+
+def _resource_is_stable_prompt_contract(resource: dict[str, Any]) -> bool:
+    prompt_ref = str(resource.get("prompt_id") or resource.get("resource_id") or "").strip()
+    category = str(resource.get("category") or "").strip()
+    metadata = dict(resource.get("metadata") or {})
+    if category == "system" and prompt_ref.startswith("system.foundation."):
+        return True
+    if category == "runtime" and prompt_ref.startswith("runtime."):
+        return True
+    if bool(metadata.get("builtin_runtime_prompt") is True):
+        return True
+    if str(metadata.get("source_type") or "").strip() == "builtin_system_foundation_prompt":
+        return True
+    return False
 
 
 def _prompt_resource_gate(system_wiring_manifest: dict[str, Any], *, prompt_ref: str) -> dict[str, Any]:

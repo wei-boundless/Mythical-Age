@@ -312,41 +312,40 @@ def _tool_schema_cache_profile(
             "matched_tool_index_is_not_stable",
             stable_tool_index_segment_id=tool_index.segment_id,
         )
+    decision = "validated_against_tool_catalog_manifest" if manifest_payload else "validated_against_stable_tool_index"
+    cache_note = (
+        "native_tool_binding_schema_is_provider_sidecar_not_message_prefix_cacheable; stable schema is carried by tool_schema_catalog message"
+        if manifest_payload
+        else "native_tool_binding_schema_is_provider_sidecar_not_message_prefix_cacheable"
+    )
+    metadata: dict[str, Any] = {
+        "native_tool_binding_decision": decision,
+        "cache_note": cache_note,
+        "stability_rule": "native tools sidecar is valid only while its schema fingerprint matches the stable tool catalog",
+        "provider_payload_transport_location": "tools",
+        "provider_payload_sidecar_component": True,
+        "provider_payload_prefix_component": False,
+        "transport_contract_component": True,
+        "transport_contract_role": "stable_provider_tool_schema",
+        "transport_sidecar_role": "native_tool_binding_schema",
+        "sidecar_drift_status": "matched",
+        "schema_ref_validation": "provider_schema_ref_matches_tool_index_ref",
+        "message_prefix_cacheable": False,
+        "tool_catalog_manifest_ref": manifest_ref,
+        "tool_catalog_manifest_hash": str(manifest_payload.get("tool_catalog_hash") or ""),
+        "stable_tool_index_segment_id": tool_index.segment_id,
+        "stable_tool_index_cache_scope": tool_index.cache_scope,
+        "stable_tool_index_cache_role": tool_index.cache_role,
+        "stable_tool_index_prefix_tier": tool_index.prefix_tier,
+    }
     return {
         "kind": "native_tool_binding_schema",
         "source_ref": "model_request.tools",
         "cache_scope": "none",
         "cache_role": "never_cache",
         "prefix_tier": "none",
-        "metadata": {
-            "native_tool_binding_decision": (
-                "validated_against_tool_catalog_manifest"
-                if manifest_payload
-                else "validated_against_stable_tool_index"
-            ),
-            "cache_note": (
-                "native_tool_binding_schema_is_provider_sidecar_not_message_prefix_cacheable; stable schema is carried by tool_schema_catalog message"
-                if manifest_payload
-                else "native_tool_binding_schema_is_provider_sidecar_not_message_prefix_cacheable"
-            ),
-            "stability_rule": "native tools sidecar is valid only while its schema fingerprint matches the stable tool catalog",
-            "provider_payload_transport_location": "tools",
-            "provider_payload_sidecar_component": True,
-            "provider_payload_prefix_component": False,
-            "transport_contract_component": True,
-            "transport_contract_role": "stable_provider_tool_schema",
-            "transport_sidecar_role": "native_tool_binding_schema",
-            "sidecar_drift_status": "matched",
-            "message_prefix_cacheable": False,
-            "tool_catalog_manifest_ref": manifest_ref,
-            "tool_catalog_manifest_hash": str(manifest_payload.get("tool_catalog_hash") or ""),
-            "stable_tool_index_segment_id": tool_index.segment_id,
-            "stable_tool_index_cache_scope": tool_index.cache_scope,
-            "stable_tool_index_cache_role": tool_index.cache_role,
-            "stable_tool_index_prefix_tier": tool_index.prefix_tier,
-        },
+        "metadata": metadata,
     }
-
 
 def _native_tool_binding_schema_never_cache(reason: str, **metadata: Any) -> dict[str, Any]:
     return {

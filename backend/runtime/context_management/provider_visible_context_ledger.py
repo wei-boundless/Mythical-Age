@@ -1151,7 +1151,7 @@ def _provider_visible_ledger_replay_kind(
         return "provider_visible_user_message_replay"
     if role == "assistant":
         return "provider_visible_assistant_message_replay"
-    return "provider_visible_context_replay"
+    return kind or "provider_visible_context_replay"
 
 
 def _current_context_append_spec_from_candidate(
