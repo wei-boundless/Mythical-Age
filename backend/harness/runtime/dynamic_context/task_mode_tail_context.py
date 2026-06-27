@@ -52,27 +52,14 @@ def _task_goal_context(*, task_run_id: str, goal_contract: dict[str, Any]) -> di
     goal_ref = _mode_ref(task_run_id=task_run_id, mode_kind="goal", mode_id=goal_contract.get("mode_instance_id"), digest=goal_sha256)
     return drop_empty(
         {
-            "task_goal_contract": drop_empty(
-                {
-                    "goal_ref": goal_ref,
-                    "mode_instance_id": str(goal_contract.get("mode_instance_id") or ""),
-                    "mode_role": str(goal_contract.get("mode_role") or ""),
-                    "goal_sha256": goal_sha256,
-                    "user_visible_goal": compact_text(goal_contract.get("user_visible_goal") or "", limit=500),
-                    "task_run_goal": compact_text(goal_contract.get("task_run_goal") or "", limit=500),
-                    "success_definition": compact_text(goal_contract.get("success_definition") or "", limit=500),
-                    "non_goals": list(goal_contract.get("non_goals") or []),
-                    "completion_evidence": list(goal_contract.get("completion_evidence") or []),
-                    "evidence_contract": dict(goal_contract.get("evidence_contract") or {}),
-                    "working_scope": dict(goal_contract.get("working_scope") or {}),
-                    "authority": "harness.runtime.dynamic_context.task_goal_contract",
-                }
-            ),
-            "task_goal_delta": {
-                "event": "goal_work_mode_visible",
+            "active_goal": {
+                "event": "goal_work_mode_active",
                 "goal_ref": goal_ref,
-                "change_model": "goal_contract_boundary",
-                "authority": "harness.runtime.dynamic_context.task_goal_delta",
+                "goal_sha256": goal_sha256,
+                "goal_contract_ref": "task_run_contract_stable.task_run_contract.goal_contract",
+                "working_scope_ref": "task_run_contract_stable.task_run_contract.working_scope",
+                "agent_use_contract": "Read full goal/scope from task_run_contract_stable; this pins the active version.",
+                "authority": "harness.runtime.dynamic_context.task_goal_active_ref",
             },
             "authority": "harness.runtime.dynamic_context.task_mode_tail_context.task_goal_context",
         }

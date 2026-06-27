@@ -446,6 +446,7 @@ class DynamicContextManager:
         task_goal_context = dict(volatile_state.get("task_goal_context") or {}) if isinstance(volatile_state.get("task_goal_context"), dict) else {}
         if task_goal_context:
             contract = dict(task_goal_context.get("task_goal_contract") or {})
+            active_goal = dict(task_goal_context.get("active_goal") or {})
             reports.append(
                 VolatileSectionReport(
                     section_id=f"dynamic_context:{request.invocation_kind}:task_goal_context",
@@ -455,7 +456,14 @@ class DynamicContextManager:
                     output_chars=estimate_chars(task_goal_context),
                     projection_strategy="goal_work_mode_contract_projection",
                     cache_impact="dynamic_tail_only",
-                    refs=tuple(ref for ref in (str(contract.get("goal_ref") or ""), str(contract.get("goal_sha256") or "")) if ref),
+                    refs=tuple(
+                        ref
+                        for ref in (
+                            str(contract.get("goal_ref") or active_goal.get("goal_ref") or ""),
+                            str(contract.get("goal_sha256") or active_goal.get("goal_sha256") or ""),
+                        )
+                        if ref
+                    ),
                 )
             )
         task_plan_context = dict(volatile_state.get("task_plan_context") or {}) if isinstance(volatile_state.get("task_plan_context"), dict) else {}
@@ -1531,4 +1539,3 @@ def _as_list(value: Any) -> list[Any]:
     if value in (None, ""):
         return []
     return [value]
-

@@ -680,7 +680,7 @@ def _memory_context_status(
         "visible_item_count": visible_item_count,
         "context_candidate_count": candidate_count,
         "requested_memory_layers": requested_layers,
-        "agent_use_contract": "Use listed memory records when present; if none are listed, do not infer that previous facts are known from memory.",
+        "agent_use_contract": "Use listed memories only; verify them against current evidence.",
     }
 
 
@@ -730,13 +730,64 @@ def _filtered_model_visible_memory_sections(sections: dict[str, Any]) -> dict[st
     filtered: dict[str, list[str]] = {}
     for section in allowed:
         items = [
-            str(item).strip()
+            _model_visible_memory_item(item, section=section)
             for item in list(sections.get(section) or ())
             if str(item).strip()
         ]
         if items:
             filtered[section] = items
     return filtered
+
+
+def _model_visible_memory_item(value: Any, *, section: str) -> str:
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return ""
+    if section not in {"exact_durable_context", "relevant_durable_context"}:
+        return _trim_text(text, limit=1200)
+    title = _memory_record_title(text)
+    canonical = _memory_record_field(text, ("Canonical:",), ("Summary:", "Details:", "Why Stored", "How To Apply", "Source Evidence", "Maintenance Receipt"))
+    summary = _memory_record_field(text, ("Summary:",), ("Details:", "Why Stored", "How To Apply", "Source Evidence", "Maintenance Receipt"))
+    how_to_apply = _memory_record_field(text, ("How To Apply:", "How To Apply"), ("Source Evidence", "Maintenance Receipt"))
+    parts = []
+    if title:
+        parts.append(f"### {title}")
+    if how_to_apply:
+        parts.append(f"Apply: {_trim_text(how_to_apply, limit=280)}")
+    elif canonical:
+        parts.append(f"Memory: {_trim_text(canonical, limit=280)}")
+    elif summary:
+        parts.append(f"Memory: {_trim_text(summary, limit=220)}")
+    if parts:
+        return "\n".join(parts)
+    return _trim_text(text, limit=900)
+
+
+def _memory_record_title(text: str) -> str:
+    for line in text.splitlines():
+        value = line.strip().lstrip("#").strip()
+        if value:
+            return _trim_text(value, limit=160)
+    return ""
+
+
+def _memory_record_field(text: str, start_markers: tuple[str, ...], stop_markers: tuple[str, ...]) -> str:
+    start_index = -1
+    marker_length = 0
+    for marker in start_markers:
+        index = text.find(marker)
+        if index >= 0 and (start_index < 0 or index < start_index):
+            start_index = index
+            marker_length = len(marker)
+    if start_index < 0:
+        return ""
+    value_start = start_index + marker_length
+    stop_index = len(text)
+    for marker in stop_markers:
+        index = text.find(marker, value_start)
+        if index >= 0:
+            stop_index = min(stop_index, index)
+    return " ".join(text[value_start:stop_index].split())
 
 
 def _dedupe_strings(values: Any) -> list[str]:

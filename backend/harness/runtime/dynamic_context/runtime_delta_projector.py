@@ -74,9 +74,7 @@ def _runtime_context_cursor_projection(
         or agent_visible_runtime_projection.get("model_decision_contract")
         or {}
     )
-    tool_capability_surface = dict(agent_visible_runtime_projection.get("tool_capability_surface") or {})
     tool_call_contract = dict(agent_visible_runtime_projection.get("tool_call_contract") or {})
-    service_surface = dict(agent_visible_runtime_projection.get("service_surface") or {})
     execution_boundary = dict(agent_visible_runtime_projection.get("execution_boundary") or {})
     planning = dict(agent_visible_runtime_projection.get("planning") or {})
     task_lifecycle = dict(agent_visible_runtime_projection.get("task_lifecycle") or {})
@@ -92,13 +90,7 @@ def _runtime_context_cursor_projection(
                 action_surface,
                 allowed_action_types=allowed_action_types,
             ),
-            "tool_capability_surface": _tool_capability_surface_cursor(tool_capability_surface),
             "tool_call_contract": _tool_call_contract_cursor(tool_call_contract),
-            "model_decision_contract": _model_decision_contract_cursor(
-                action_surface,
-                allowed_action_types=allowed_action_types,
-            ),
-            "service_surface": _service_surface_cursor(service_surface),
             "execution_boundary": _task_execution_boundary_cursor(execution_boundary),
             "planning": _planning_boundary_cursor(planning),
             "task_lifecycle": _task_lifecycle_boundary_cursor(task_lifecycle),
@@ -173,55 +165,6 @@ def _task_execution_boundary_cursor(value: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _service_surface_cursor(value: dict[str, Any]) -> dict[str, Any]:
-    mounted_tools = [
-        dict(item)
-        for item in list(value.get("mounted_tools") or [])
-        if isinstance(item, dict)
-    ]
-    unmounted = [
-        _unmounted_service_cursor(dict(item))
-        for item in list(value.get("unmounted_services") or [])
-        if isinstance(item, dict)
-    ]
-    return drop_empty(
-        {
-            "tool_action_available": value.get("tool_action_available")
-            if isinstance(value.get("tool_action_available"), bool)
-            else None,
-            "mounted_tool_count": len(mounted_tools),
-            "mounted_tools_ref": "tool_index_stable.available_tools",
-            "unmounted_services": [item for item in unmounted if item][:8],
-            "authority": "harness.runtime.service_surface.cursor",
-        }
-    )
-
-
-def _tool_capability_surface_cursor(value: dict[str, Any]) -> dict[str, Any]:
-    mounted_tools = [
-        dict(item)
-        for item in list(value.get("mounted_tools") or [])
-        if isinstance(item, dict)
-    ]
-    unavailable = [
-        _unmounted_service_cursor(dict(item))
-        for item in list(value.get("unavailable_tools") or [])
-        if isinstance(item, dict)
-    ]
-    return drop_empty(
-        {
-            "tool_action_available": value.get("tool_action_available")
-            if isinstance(value.get("tool_action_available"), bool)
-            else None,
-            "tool_action_submission": str(value.get("tool_action_submission") or ""),
-            "mounted_tool_count": len(mounted_tools),
-            "mounted_tools_ref": str(value.get("mounted_tools_ref") or "tool_index_stable.available_tools"),
-            "unavailable_tools": [item for item in unavailable if item][:8],
-            "authority": "harness.runtime.tool_capability_surface.cursor",
-        }
-    )
-
-
 def _tool_call_contract_cursor(value: dict[str, Any]) -> dict[str, Any]:
     tool_action = dict(value.get("tool_action") or {})
     control_action = dict(value.get("control_action") or {})
@@ -233,33 +176,24 @@ def _tool_call_contract_cursor(value: dict[str, Any]) -> dict[str, Any]:
             else None,
             "tool_action_submission": str(tool_action.get("submission") or ""),
             "control_action_submission": str(control_action.get("submission") or ""),
-            "authority": "harness.runtime.tool_call_contract.cursor",
         }
     )
 
 
 def _tool_boundary_cursor(value: dict[str, Any]) -> dict[str, Any]:
+    allowed_subagent_ids = [
+        str(item)
+        for item in list(value.get("allowed_subagent_ids") or [])
+        if str(item)
+    ]
     return drop_empty(
         {
             "visible_tool_count": int(value.get("visible_tool_count") or 0),
             "allowed_operation_count": int(value.get("allowed_operation_count") or 0),
+            "tool_index_ref": "tool_index_stable.available_tools",
             "subagent_lifecycle_enabled": bool(value.get("subagent_lifecycle_enabled") is True),
-            "allowed_subagent_ids": [
-                str(item)
-                for item in list(value.get("allowed_subagent_ids") or [])
-                if str(item)
-            ],
-        }
-    )
-
-
-def _unmounted_service_cursor(value: dict[str, Any]) -> dict[str, Any]:
-    return drop_empty(
-        {
-            "service": str(value.get("service") or ""),
-            "tool_name": str(value.get("tool_name") or ""),
-            "category": str(value.get("category") or ""),
-            "required_action": str(value.get("required_action") or ""),
+            "allowed_subagent_count": len(allowed_subagent_ids),
+            "subagent_registry_ref": "tool_index_stable.available_tools",
         }
     )
 

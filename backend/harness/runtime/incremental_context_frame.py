@@ -230,8 +230,6 @@ def build_task_execution_incremental_context_frame_payload(
         {
             "frame_type": "dynamic_execution_tail",
             "frame_scope": "task_execution",
-            "task_run_id": str(task_run_id or ""),
-            "invocation_index": max(1, int(invocation_index or 1)),
             "context_memory_cursor": _drop_empty(
                 {
                     "status": "preserved",
@@ -244,7 +242,6 @@ def build_task_execution_incremental_context_frame_payload(
                 {
                     "new_event_refs": current_events,
                     "runtime_control_refs": _runtime_control_signal_refs(runtime_control_signals),
-                    "read_evidence_packet_id": str(dict(read_evidence_payload or {}).get("packet_id") or ""),
                 }
             ),
             "execution_contract": {
@@ -443,9 +440,12 @@ def _task_current_events(
                 }
             )
         )
+    observed_refs = {str(event.get("event_ref") or "") for event in events if str(event.get("event_ref") or "")}
     execution_payload = dict(execution_projection or {})
     for receipt in _bounded_dicts(execution_payload.get("last_action_receipts"), limit=2):
         ref = _first_text(receipt.get("observation_ref"), receipt.get("observation_id"), receipt.get("tool_call_id"))
+        if ref and ref in observed_refs:
+            continue
         events.append(
             _drop_empty(
                 {

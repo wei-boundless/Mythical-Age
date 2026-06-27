@@ -670,7 +670,7 @@ function SessionTokenMeter({ tokenStats }: { tokenStats: TokenStats | null }) {
   }
   return (
     <div
-      aria-label={`送入上下文 ${presentation.usedTokenText} / ${presentation.thresholdTokenText}`}
+      aria-label={`上下文压力 ${presentation.usedTokenText} / ${presentation.thresholdTokenText}`}
       className={`chat-token-meter chat-token-meter--${presentation.levelClass}`}
       style={{ "--chat-token-meter-used": `${presentation.usedPercent}%` } as CSSProperties}
       title={presentation.title}
@@ -702,10 +702,10 @@ export function sessionContextMeterPresentation(tokenStats: TokenStats | null) {
       levelClass: "pending",
     };
   }
-  const displayTokens = modelRequestContextTokens(tokenStats);
+  const displayTokens = compactionPressureTokens(tokenStats);
   const contextWindowTokens = currentContextWindowTokens(tokenStats);
   const thresholdTokens = compactionThresholdTokens(tokenStats);
-  const thresholdRatio = currentContextThresholdRatio(displayTokens, thresholdTokens);
+  const thresholdRatio = contextThresholdRatio(displayTokens, thresholdTokens);
   const usedPercent = percentFromRatio(thresholdRatio);
   const thresholdPercentText = thresholdTokens > 0 ? `${usedPercent}%` : "--";
   const levelClass = contextThresholdLevelClass(thresholdRatio);
@@ -713,7 +713,7 @@ export function sessionContextMeterPresentation(tokenStats: TokenStats | null) {
   const usedTokenText = formatTokenCount(displayTokens);
   const thresholdTokenText = thresholdTokens > 0 ? formatTokenCount(thresholdTokens) : "--";
   const title = [
-    `送入上下文 ${formatExactTokenCount(displayTokens)} tokens`,
+    `上下文压力 ${formatExactTokenCount(displayTokens)} tokens`,
     thresholdTokens > 0 ? `自动压缩阈值 ${formatExactTokenCount(thresholdTokens)} tokens` : "",
     thresholdTokens > 0 ? `阈值占比 ${thresholdPercentText}` : "",
     contextWindowTokens > 0 ? `模型窗口 ${formatExactTokenCount(contextWindowTokens)} tokens` : "",
@@ -732,8 +732,8 @@ function percentFromRatio(value: unknown) {
   return Math.max(0, Math.min(100, Math.round(Number(value || 0) * 100)));
 }
 
-function modelRequestContextTokens(tokenStats: TokenStats) {
-  const value = Number(tokenStats.context_meter?.current_context_tokens ?? 0);
+function compactionPressureTokens(tokenStats: TokenStats) {
+  const value = Number(tokenStats.context_meter?.compaction_pressure_tokens ?? 0);
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
@@ -747,7 +747,7 @@ function compactionThresholdTokens(tokenStats: TokenStats) {
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
-function currentContextThresholdRatio(currentTokens: number, thresholdTokens: number) {
+function contextThresholdRatio(currentTokens: number, thresholdTokens: number) {
   if (thresholdTokens > 0) {
     return currentTokens / thresholdTokens;
   }

@@ -875,6 +875,7 @@ class RuntimeCompiler:
                         runtime_lifecycle_instruction,
                         validity_scope=turn_id,
                         source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
+                        include_notice=False,
                     ),
                     kind="lifecycle_runtime_guidance",
                     source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
@@ -1770,6 +1771,7 @@ class RuntimeCompiler:
                         runtime_lifecycle_instruction,
                         validity_scope=f"{task_run_id}:{invocation_index}",
                         source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
+                        include_notice=False,
                     ),
                     kind="lifecycle_runtime_guidance",
                     source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
@@ -2404,6 +2406,7 @@ class RuntimeCompiler:
                         runtime_lifecycle_instruction,
                         validity_scope=f"{turn_id}:observation_followup:{len(observations) + 1}",
                         source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
+                        include_notice=False,
                     ),
                     kind="lifecycle_runtime_guidance",
                     source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
@@ -5305,20 +5308,29 @@ def _current_runtime_tail_metadata(
 def _runtime_control_context_notice(*, validity_scope: str = "") -> str:
     validity = str(validity_scope or "current-provider-request").strip()
     return (
-        "你正在阅读一段运行边界上下文。它第一次出现时描述当时请求的执行环境能力、行动边界和运行状态；"
-        "如果同一段内容在后续请求的历史前缀中再次出现，它只用于理解过去发生过什么，"
-        "不得作为本轮新的行动授权或限制。本轮以消息流后方最新的运行边界上下文为准。\n"
-        f"这段上下文的有效期标识：{validity}。"
+        "当前运行边界只对本次 provider 请求有效；历史前缀里的旧边界只作历史记录。"
+        "本轮以消息流最后的运行边界为准。\n"
+        f"有效期：{validity}。"
     )
 
 
-def _runtime_control_context_content(content: str, *, validity_scope: str = "", source_ref: str = "") -> str:
+def _runtime_control_context_content(
+    content: str,
+    *,
+    validity_scope: str = "",
+    source_ref: str = "",
+    include_notice: bool = True,
+) -> str:
     body = _context_fragment_text_body(content)
     if not body:
         return ""
-    text = _join_prompt_sections(
-        _runtime_control_context_notice(validity_scope=validity_scope),
-        body,
+    text = (
+        _join_prompt_sections(
+            _runtime_control_context_notice(validity_scope=validity_scope),
+            body,
+        )
+        if include_notice
+        else body
     )
     return render_text_context_fragment(
         kind="lifecycle_runtime_guidance",
