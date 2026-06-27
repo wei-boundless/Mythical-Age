@@ -433,7 +433,7 @@ langchain-agent/
 - **禁止伪造测试结果**：禁止降级断言、mock 核心逻辑、删除失败用例、硬编码输出。
 - **真实运行验证**：涉及运行链路、前后端联调、SSE、监控、Electron 的修改，必须用 CLI 真实启动实测，不靠静态检查。
 ## 前端展示
-<img width="1909" height="916" alt="image" src="https://github.com/user-attachments/assets/b8573b02-5f18-4286-9973-fc3228a58587" />
+<img width="1915" height="918" alt="image" src="https://github.com/user-attachments/assets/fd9bc795-bfcb-414e-83b8-a2c4231ecc31" />
 <img width="1911" height="870" alt="image" src="https://github.com/user-attachments/assets/c1cf8f87-64a9-46a8-95c2-a1aaf0c98b2a" />
 ## License
 
