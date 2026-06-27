@@ -457,9 +457,9 @@ def _unmanifested_tool_schema_profile(
             "provider_payload_transport_location": "tools",
             "provider_payload_sidecar_component": True,
             "provider_payload_prefix_component": False,
-            "transport_contract_component": False,
-            "transport_contract_role": "current_turn_tool_binding_sidecar_missing_manifest",
-            "transport_sidecar_role": "current_turn_tool_binding_sidecar",
+            "transport_contract_component": True,
+            "transport_contract_role": "stable_provider_tool_schema_missing_manifest",
+            "transport_sidecar_role": "native_tool_binding_schema",
             "sidecar_drift_status": "missing_manifest",
             "message_prefix_cacheable": False,
         },
@@ -685,4 +685,3 @@ def _json_stable(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return repr(value)
-

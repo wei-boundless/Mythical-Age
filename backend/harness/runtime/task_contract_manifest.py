@@ -506,7 +506,6 @@ def _feedback_contract_model_visible(payload: dict[str, Any]) -> dict[str, Any]:
             "budget_feedback_policy": dict(raw.get("budget_feedback_policy") or {}) if isinstance(raw.get("budget_feedback_policy"), dict) else {},
             "feedback_priority": _string_list(raw.get("feedback_priority")),
             "feedback_identity_binding": str(raw.get("feedback_identity_binding") or "").strip(),
-            "authority": "harness.runtime.task_run_context.feedback_contract.model_visible",
         }
     )
 

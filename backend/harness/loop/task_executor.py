@@ -3377,21 +3377,6 @@ def _record_pending_runtime_control_signal_for_agent(
         )
     if signal is None:
         return None
-    if str(signal.kind or "").strip() == "stop":
-        return _record_hard_stop_runtime_control_signal(
-            runtime_host,
-            current_task=latest_task,
-            signal=signal,
-            packet_ref=packet_ref,
-            boundary=boundary,
-            raw_observations=raw_observations,
-            observations=observations,
-            execution_state=execution_state,
-            artifact_refs=artifact_refs,
-            runtime_fingerprint=runtime_fingerprint,
-            step_index=step_index,
-            event_offset=event_offset,
-        )
     fingerprint = _runtime_control_signal_fingerprint(latest_task, signal=signal, runtime_host=runtime_host)
     if _runtime_control_signal_already_delivered(latest_task, signal=signal, fingerprint=fingerprint):
         clear_executor_signal(
@@ -3528,179 +3513,6 @@ def _record_pending_runtime_control_signal_for_agent(
     }
 
 
-def _record_hard_stop_runtime_control_signal(
-    runtime_host: Any,
-    *,
-    current_task: Any,
-    signal: ExecutorControlSignal,
-    packet_ref: str,
-    boundary: str,
-    raw_observations: list[dict[str, Any]],
-    observations: list[dict[str, Any]],
-    execution_state: dict[str, Any],
-    artifact_refs: list[dict[str, Any]],
-    runtime_fingerprint: dict[str, Any],
-    step_index: int,
-    event_offset: int | float = 0,
-) -> dict[str, Any]:
-    latest_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
-    fingerprint = _runtime_control_signal_fingerprint(latest_task, signal=signal, runtime_host=runtime_host)
-    observation = _hard_stop_runtime_control_signal_observation(
-        runtime_host=runtime_host,
-        task_run=latest_task,
-        signal=signal,
-        packet_ref=packet_ref,
-        boundary=boundary,
-        step_index=step_index,
-        fingerprint=fingerprint,
-    )
-    runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
-    observed_event = _mark_runtime_control_signal_gateway_observed(
-        runtime_host,
-        task_run=latest_task,
-        signal=signal,
-        observation=observation,
-        packet_ref=packet_ref,
-        boundary=boundary,
-        fingerprint=fingerprint,
-    )
-    event = runtime_host.event_log.append(
-        latest_task.task_run_id,
-        "task_runtime_control_stop_observed",
-        payload={
-            "observation": observation,
-            "control": _runtime_control_payload(latest_task, runtime_host=runtime_host),
-            "model_visible": False,
-        },
-        refs={
-            "task_run_ref": latest_task.task_run_id,
-            "observation_ref": observation["observation_id"],
-            "runtime_invocation_packet_ref": packet_ref,
-            **_executor_control_signal_trace_refs(signal),
-        },
-    )
-    clear_executor_signal(
-        runtime_host,
-        task_run_id=latest_task.task_run_id,
-        executor_epoch=int(signal.executor_epoch or 0),
-        signal=signal,
-    )
-    lifecycle_event: dict[str, Any] = {}
-    if is_stopped_or_terminal_task_run(latest_task, runtime_host=runtime_host):
-        stopped_task = latest_task
-    else:
-        stopped_task, _lifecycle, lifecycle_event = _finish_user_stopped_task(
-            runtime_host,
-            task_run=replace(
-                latest_task,
-                updated_at=float(event.created_at or time.time()),
-                latest_event_offset=max(_event_offset(event), int(event_offset or 0)),
-                diagnostics={
-                    **_diagnostics_with_runtime_control(
-                        _strip_runtime_lease_diagnostics(dict(latest_task.diagnostics or {})),
-                        state=_TASK_RUN_STOPPED,
-                        requested_by=str(signal.requested_by or "user"),
-                        requested_at=float(signal.requested_at or getattr(event, "created_at", 0.0) or time.time()),
-                        reason=str(signal.reason or ""),
-                        latest_step="task_run_stopped",
-                        latest_step_status="aborted",
-                        latest_step_summary="任务已按用户要求停止。",
-                        control_signal=signal,
-                    ),
-                    "executor_status": "stopped",
-                    "hard_stop": {
-                        "authority": "harness.loop.task_executor.runtime_control_signal",
-                        "control_signal_requested": True,
-                        "observed_event_ref": str(getattr(observed_event, "event_id", "") or ""),
-                    },
-                },
-            ),
-            reason=str(signal.reason or ""),
-        )
-    if str(getattr(stopped_task, "status", "") or "") == "aborted" and str(getattr(stopped_task, "terminal_reason", "") or "") == "user_aborted":
-        _mark_task_agent_run_killed(
-            runtime_host,
-            task_run=stopped_task,
-            reason=str(signal.reason or "user_aborted"),
-        )
-    _mark_runtime_control_signal_gateway_consumed(
-        runtime_host,
-        task_run=stopped_task,
-        control_observation=observation,
-        lifecycle_status=str(getattr(stopped_task, "status", "") or ""),
-        terminal_reason=str(getattr(stopped_task, "terminal_reason", "") or ""),
-        output_commit={},
-        lifecycle_event=lifecycle_event,
-    )
-    _record_task_step_summary(
-        runtime_host,
-        task_run_id=stopped_task.task_run_id,
-        step=f"runtime_control_stop_hard_stopped:{step_index}",
-        status=str(getattr(stopped_task, "status", "") or "aborted"),
-        summary="收到停止信号，已由系统硬终止本轮运行。",
-        refs={
-            "observation_ref": observation["observation_id"],
-            **_executor_control_signal_trace_refs(signal),
-        },
-    )
-    observation_context = _observations_for_packet(
-        runtime_host,
-        stopped_task.task_run_id,
-        current_fingerprint=runtime_fingerprint,
-        pending_observations=raw_observations,
-    )
-    return {
-        "current_task": runtime_host.state_index.get_task_run(stopped_task.task_run_id) or stopped_task,
-        "raw_observations": list(observation_context["raw_observations"]),
-        "observations": list(observation_context["packet_observations"]),
-        "execution_state": dict(observation_context["execution_state"] or execution_state),
-        "artifact_refs": dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs]),
-        "recorded": True,
-        "stopped": True,
-    }
-
-
-def _hard_stop_runtime_control_signal_observation(
-    *,
-    runtime_host: Any | None = None,
-    task_run: Any,
-    signal: ExecutorControlSignal,
-    packet_ref: str,
-    boundary: str,
-    step_index: int,
-    fingerprint: str,
-) -> dict[str, Any]:
-    control = _runtime_control_payload(task_run, runtime_host=runtime_host)
-    summary = "停止信号已由系统硬终止处理。"
-    return {
-        "observation_id": f"rtobs:{task_run.task_run_id}:runtime-stop:{uuid.uuid4().hex[:8]}",
-        "task_run_id": task_run.task_run_id,
-        "observation_type": "runtime_control_signal",
-        "source": "system:runtime_control_stop",
-        "request_ref": f"runtime-control-stop:{task_run.task_run_id}:invocation:{step_index}",
-        "directive_ref": packet_ref,
-        "content_chars": 0,
-        "summary": summary,
-        "payload": {
-            "signal_kind": "stop",
-            "runtime_control_state": _TASK_RUN_STOPPED,
-            "requested_by": str(control.get("requested_by") or signal.requested_by or "system"),
-            "requested_at": float(control.get("requested_at") or signal.requested_at or time.time()),
-            "reason": str(control.get("reason") or signal.reason or ""),
-            "runtime_control_signal_ref": str(getattr(signal, "signal_id", "") or ""),
-            "runtime_control_event_ref": str(getattr(signal, "control_event_ref", "") or ""),
-            "boundary": str(boundary or ""),
-            "runtime_control_signal_fingerprint": fingerprint,
-            "model_visible": False,
-            "agent_closeout_required": False,
-            "authority": "harness.loop.task_executor.runtime_control_signal",
-        },
-        "needs_model_followup": False,
-        "created_at": time.time(),
-        "authority": "orchestration.runtime_observation",
-    }
-
-
 def _runtime_control_signal_observation(
     *,
     runtime_host: Any | None = None,
@@ -3737,6 +3549,7 @@ def _runtime_control_signal_observation(
             "收到运行控制信号。这不是最终回复。你需要先判断它对当前任务目标、工具使用和收口方式的影响，再选择下一步动作。"
         )
         closeout_required = False
+    allowed_actions = ["respond", "ask_user", "block"] if closeout_required else ["respond", "ask_user", "block", "tool_call"]
     payload = {
         "signal_kind": kind,
         "runtime_control_state": state,
@@ -3748,8 +3561,9 @@ def _runtime_control_signal_observation(
         "runtime_control_event_ref": str(getattr(signal, "control_event_ref", "") or ""),
         "boundary": str(boundary or ""),
         "runtime_control_signal_fingerprint": fingerprint,
+        "model_visible": True,
         "agent_closeout_required": bool(closeout_required),
-        "allowed_agent_actions": ["respond", "ask_user", "block", "tool_call"],
+        "allowed_agent_actions": allowed_actions,
         "tool_calls_allowed_after_signal": bool(kind == "replan"),
         "repair_instruction": instruction,
         "structured_signal": {
@@ -7838,7 +7652,8 @@ def _budget_exhausted_runtime_control_observation(*, task_run: Any, max_steps: i
     now = time.time()
     instruction = (
         "本轮任务执行步骤预算已用尽。当前 task_run 已停在 waiting_executor 可续跑边界。"
-        "你需要在下一次恢复时先吸收这条预算边界观察，说明已完成进度和下一步；不要把它误判为动作格式修复失败或最终阻塞。"
+        "这不是工具结果，也不是最终回复。你需要停止发起新的工具调用，先基于已经观察到的事实选择 respond、ask_user 或 block："
+        "说明已完成进度、未完成事项、验证状态、恢复点和下一步需要什么；不要把它误判为动作格式修复失败。"
     )
     fingerprint = "sha256:" + _stable_hash(
         {
@@ -7865,9 +7680,9 @@ def _budget_exhausted_runtime_control_observation(*, task_run: Any, max_steps: i
             "reason": "task_execution_step_budget_exhausted",
             "boundary": "task_execution_step_budget",
             "runtime_control_signal_fingerprint": fingerprint,
-            "agent_closeout_required": False,
-            "allowed_agent_actions": ["respond", "ask_user", "block", "tool_call"],
-            "tool_calls_allowed_after_signal": True,
+            "agent_closeout_required": True,
+            "allowed_agent_actions": ["respond", "ask_user", "block"],
+            "tool_calls_allowed_after_signal": False,
             "repair_instruction": instruction,
             "structured_signal": {
                 "code": "runtime_control_budget_exhausted",
@@ -10754,4 +10569,3 @@ def _not_found(task_run_id: str) -> dict[str, Any]:
 
 def _conflict(task_run_id: str, error: str) -> dict[str, Any]:
     return {"ok": False, "task_run_id": task_run_id, "error": error}
-

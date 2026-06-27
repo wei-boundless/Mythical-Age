@@ -675,7 +675,6 @@ def _feedback_contract_from_seed(
             or ["user_steer", "safety_boundary", "verification_signal", "recovery_signal", "tool_observation", "runtime_observation"],
             "feedback_identity_binding": _first_text(raw.get("feedback_identity_binding"), "active_turn_or_task_run_required"),
             "acceptance_feedback_ref": "acceptance_contract" if acceptance_contract else "",
-            "authority": "harness.loop.task_run_contract.feedback_contract",
         }
     )
 

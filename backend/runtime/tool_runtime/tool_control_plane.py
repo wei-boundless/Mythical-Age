@@ -194,7 +194,7 @@ class RuntimeToolControlPlane:
                         "tool_plan_ref": tool_plan.plan_id,
                     },
                 )
-            return await self._invoke_agent_turn_or_fail_closed(request, tool_plan=tool_plan)
+            return await self._invoke_agent_turn_with_boundary_observation(request, tool_plan=tool_plan)
         handler = _tool_handler_registry().handler_for(request)
         if handler is None:
             return _observation(
@@ -478,7 +478,7 @@ class RuntimeToolControlPlane:
             )
         return observation
 
-    async def _invoke_agent_turn_or_fail_closed(self, request: ToolInvocationRequest, *, tool_plan: Any) -> ToolObservation:
+    async def _invoke_agent_turn_with_boundary_observation(self, request: ToolInvocationRequest, *, tool_plan: Any) -> ToolObservation:
         if request.caller_kind != "agent_turn":
             return _observation(
                 request,
@@ -1195,6 +1195,15 @@ def _observation(
     execution_receipt: dict[str, Any] | None = None,
     artifact_refs: tuple[dict[str, Any], ...] = (),
 ) -> ToolObservation:
+    normalized_status = str(status or "").strip()
+    normalized_text = str(text or normalized_status or "").strip()
+    recovery_instruction = _tool_boundary_repair_instruction(
+        request,
+        status=normalized_status,
+        text=normalized_text,
+        diagnostics=dict(diagnostics or {}),
+        operation_gate=dict(operation_gate or {}),
+    )
     receipt = {
         **dict(execution_receipt or {}),
         "agent_run_id": str(request.agent_run_id or ""),
@@ -1206,11 +1215,25 @@ def _observation(
     }
     envelope = dict(result_envelope or {})
     if not envelope:
+        result_payload = {
+            "ok": normalized_status == "ok",
+            "error": "" if normalized_status == "ok" else normalized_text,
+            "text": normalized_text,
+        }
+        if recovery_instruction:
+            result_payload["structured_error"] = {
+                "code": normalized_text or normalized_status or "tool_boundary_not_executed",
+                "message": recovery_instruction,
+                "origin": "runtime_tool_control_plane",
+                "retryable": True,
+                "tool_executed": False,
+                "repair_instruction": recovery_instruction,
+            }
         envelope = build_tool_result_envelope(
             tool_name=request.tool_name,
             tool_args=dict(request.tool_args or {}),
-            result={"ok": status == "ok", "error": "" if status == "ok" else str(text or status), "text": str(text or "")},
-            status=status,
+            result=result_payload,
+            status=normalized_status,
             execution_receipt=receipt,
             result_ref=str(result_ref or ""),
             tool_call_id=request.tool_call_id,
@@ -1227,6 +1250,18 @@ def _observation(
         envelope.setdefault("caller_ref", request.caller_ref)
         if not isinstance(envelope.get("tool_args"), dict) or not envelope.get("tool_args"):
             envelope["tool_args"] = dict(request.tool_args or {})
+        if recovery_instruction:
+            structured_payload = dict(envelope.get("structured_payload") or {})
+            structured_error = dict(structured_payload.get("structured_error") or {})
+            structured_error.setdefault("code", normalized_text or normalized_status or "tool_boundary_not_executed")
+            structured_error.setdefault("message", recovery_instruction)
+            structured_error.setdefault("origin", "runtime_tool_control_plane")
+            structured_error.setdefault("retryable", True)
+            structured_error.setdefault("tool_executed", False)
+            structured_error.setdefault("repair_instruction", recovery_instruction)
+            structured_payload["structured_error"] = structured_error
+            structured_payload.setdefault("error", normalized_text)
+            envelope["structured_payload"] = structured_payload
     if isinstance(envelope.get("execution_receipt"), dict):
         envelope["execution_receipt"] = {**dict(envelope.get("execution_receipt") or {}), **receipt}
     else:
@@ -1238,14 +1273,55 @@ def _observation(
         caller_ref=request.caller_ref,
         tool_name=request.tool_name,
         operation_id=_request_operation_id(request),
-        status=status,  # type: ignore[arg-type]
-        text=text,
+        status=normalized_status,  # type: ignore[arg-type]
+        text=normalized_text,
         result_ref=str(result_ref or envelope.get("result_ref") or ""),
         result_envelope=envelope,
         operation_gate=dict(operation_gate or {}),
         execution_receipt=receipt,
         artifact_refs=tuple(dict(item) for item in tuple(artifact_refs or ())),
-        diagnostics=dict(diagnostics or {}),
+        diagnostics={
+            **dict(diagnostics or {}),
+            **(
+                {
+                    "model_visible_recovery_observation": True,
+                    "repair_instruction": recovery_instruction,
+                    "tool_executed": False,
+                }
+                if recovery_instruction
+                else {}
+            ),
+        },
+    )
+
+
+def _tool_boundary_repair_instruction(
+    request: ToolInvocationRequest,
+    *,
+    status: str,
+    text: str,
+    diagnostics: dict[str, Any],
+    operation_gate: dict[str, Any],
+) -> str:
+    normalized_status = str(status or "").strip()
+    if normalized_status == "ok":
+        return ""
+    stage = str(dict(diagnostics or {}).get("stage") or dict(operation_gate or {}).get("pipeline_stage") or "").strip()
+    reason = str(text or dict(operation_gate or {}).get("reason") or normalized_status or "tool_boundary_not_executed").strip()
+    if normalized_status == "needs_approval":
+        return (
+            f"该工具调用没有执行，因为当前运行边界需要可恢复审批或人工确认。原因：{reason}。"
+            "你需要向用户说明审批边界，或请求进入可恢复任务/询问用户；不要把它当作工具输出，也不要原样重试。"
+        )
+    if normalized_status in {"denied", "needs_contract"}:
+        return (
+            f"该工具调用没有执行，因为运行边界拒绝了当前动作。原因：{reason}。"
+            "你需要改用当前已开放工具、补齐任务合同、询问用户，或在无法继续时给出阻塞说明；不要重复同一个未获准动作。"
+        )
+    return (
+        f"该工具调用没有形成可用执行结果。状态：{normalized_status or 'error'}；原因：{reason}。"
+        f"{('阶段：' + stage + '。') if stage else ''}"
+        "你需要基于这条观察调整下一步、向用户反馈，或在没有可靠继续路径时收口。"
     )
 
 
@@ -2055,4 +2131,3 @@ def _public_policy(policy: dict[str, Any]) -> dict[str, Any]:
         for key, value in dict(policy or {}).items()
         if key not in {"material_mounts"}
     }
-

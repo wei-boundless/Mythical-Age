@@ -668,7 +668,6 @@ def _normalized_feedback_contract(seed: dict[str, Any]) -> dict[str, Any]:
         "verification_feedback_policy": dict(raw.get("verification_feedback_policy") or {}) if isinstance(raw.get("verification_feedback_policy"), dict) else {},
         "budget_feedback_policy": dict(raw.get("budget_feedback_policy") or {}) if isinstance(raw.get("budget_feedback_policy"), dict) else {},
         "feedback_identity_binding": str(raw.get("feedback_identity_binding") or "active_turn_or_task_run_required").strip(),
-        "authority": "harness.loop.model_action_protocol.feedback_contract",
     }
     return {key: value for key, value in payload.items() if value not in ("", [], {}, None)}
 

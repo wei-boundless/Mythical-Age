@@ -5,6 +5,11 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from .context_segment_policy import (
+    CONTEXT_APPEND,
+    CURRENT_CONTROL_TAIL_KINDS,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ContextCandidate:
@@ -88,8 +93,11 @@ class ContextCommitCandidate:
 
     @classmethod
     def from_provider_payload_segment(cls, segment: dict[str, Any]) -> "ContextCommitCandidate | None":
-        metadata = dict(dict(segment or {}).get("metadata") or {})
+        payload = dict(segment or {})
+        metadata = dict(payload.get("metadata") or {})
         if str(metadata.get("provider_visible_context_ledger_commit_stage") or "") != "provider_success_required":
+            return None
+        if not _provider_payload_segment_commit_eligible(payload, metadata=metadata):
             return None
         scope = str(metadata.get("provider_visible_context_ledger_scope") or "").strip()
         item_key = str(metadata.get("provider_visible_context_ledger_item_key") or "").strip()
@@ -163,6 +171,49 @@ def context_candidate_from_message_spec(spec: dict[str, Any]) -> ContextCandidat
             "compression_role": str(payload.get("compression_role") or ""),
         },
     )
+
+
+def _provider_payload_segment_commit_eligible(payload: dict[str, Any], *, metadata: dict[str, Any]) -> bool:
+    kind = str(
+        metadata.get("provider_visible_context_candidate_kind")
+        or payload.get("kind")
+        or metadata.get("kind")
+        or ""
+    ).strip()
+    if kind in CURRENT_CONTROL_TAIL_KINDS:
+        return False
+
+    section = str(metadata.get("context_cache_section") or metadata.get("context_policy_section") or "").strip()
+    if section != CONTEXT_APPEND:
+        return False
+
+    if str(metadata.get("context_commit_policy") or "").strip() != "append_then_seal":
+        return False
+
+    if str(metadata.get("memory_commit_policy") or "").strip() == "never_commit":
+        return False
+
+    if str(metadata.get("context_replay_policy") or "").strip() == "current_dynamic_tail_only":
+        return False
+
+    if str(metadata.get("context_provider_visible_boundary") or "").strip() == "current_dynamic_tail":
+        return False
+
+    if str(metadata.get("physical_prefix_lane") or "").strip() == "never_replay_tail":
+        return False
+
+    if str(metadata.get("provider_visible_after_validity") or "").strip() == "not_replayed_after_current_request":
+        return False
+
+    semantic_commit_class = str(
+        metadata.get("provider_visible_context_candidate_semantic_commit_class")
+        or metadata.get("semantic_commit_class")
+        or ""
+    ).strip()
+    if semantic_commit_class == "current_runtime_control":
+        return False
+
+    return True
 
 
 def _stable_hash(value: Any) -> str:

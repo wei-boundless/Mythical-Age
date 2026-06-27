@@ -21,10 +21,6 @@ _DSML_PARAMETER_RE = re.compile(
     rf"</\s*{_DSML_TOKEN_RE}\s*parameter\s*>",
     flags=re.IGNORECASE | re.DOTALL,
 )
-_ACTION_TAG_TOOL_CALL_RE = re.compile(
-    r"<\s*action\b[^>]*\btype\s*=\s*['\"]?tool_call['\"]?[^>]*>",
-    flags=re.IGNORECASE,
-)
 
 
 def extract_tool_call_intents(response: Any, *, provider: str = "") -> list[ToolCallIntent]:
@@ -59,71 +55,6 @@ def normalize_tool_call_dicts(response: Any, *, provider: str = "") -> list[dict
         for intent in extract_tool_call_intents(response, provider=provider)
         if not intent.protocol_violation
     ]
-
-
-def explicit_tool_call_transport_present(response: Any) -> bool:
-    for content in _response_content_candidates(response):
-        text = _stringify_content(content)
-        if not text:
-            continue
-        if _DSML_INVOKE_RE.search(text) or _ACTION_TAG_TOOL_CALL_RE.search(text):
-            return True
-    return False
-
-
-def explicit_tool_call_transport_diagnostics(response: Any, *, provider: str = "") -> dict[str, Any]:
-    blocks: list[dict[str, Any]] = []
-    intents: list[ToolCallIntent] = []
-    for content in _response_content_candidates(response):
-        text = _stringify_content(content)
-        if not text:
-            continue
-        for offset, _match in enumerate(_ACTION_TAG_TOOL_CALL_RE.finditer(text), start=len(blocks) + 1):
-            blocks.append(
-                {
-                    "transport": "action_tag_tool_call",
-                    "parse_state": "not_executable",
-                    "raw_ref": f"action-tag:{offset}",
-                }
-            )
-        for offset, match in enumerate(_DSML_INVOKE_RE.finditer(text), start=len(intents) + 1):
-            tool_name = html.unescape(str(match.group("name") or "").strip())
-            if not tool_name:
-                continue
-            args = _parse_dsml_parameters(str(match.group("body") or ""))
-            intent = ToolCallIntent(
-                call_id=f"dsml-tool-call-{offset}",
-                tool_name=tool_name,
-                args=args,
-                provider=provider,
-                source="provider_dsml_tool_call",
-                raw_ref=f"dsml:{offset}",
-            )
-            intents.append(intent)
-            blocks.append(
-                {
-                    "transport": "dsml_tool_call",
-                    "parse_state": "parsed",
-                    "tool_name": tool_name,
-                }
-            )
-    return _drop_empty_dict(
-        {
-            "explicit_tool_transport_present": bool(blocks),
-            "blocks": blocks,
-            "tool_intents": [
-                {
-                    "call_id": intent.call_id,
-                    "tool_name": intent.tool_name,
-                    "args": dict(intent.args or {}),
-                    "source": intent.source,
-                }
-                for intent in _dedupe_intents(intents)
-                if intent.tool_name
-            ],
-            "provider": str(provider or ""),
-        }
-    )
 
 
 def tool_calls_for_langchain_messages(tool_calls: Any) -> list[dict[str, Any]]:
@@ -194,8 +125,14 @@ def _parse_args(value: Any) -> dict[str, Any]:
 
 
 def _extract_dsml_tool_call_intents(response: Any, *, provider: str, start_index: int) -> list[ToolCallIntent]:
+    content_candidates = [
+        getattr(response, "content", None),
+        dict(getattr(response, "additional_kwargs", {}) or {}).get("content"),
+        _raw_payload_value(response, "content"),
+        _raw_payload_value(response, "text"),
+    ]
     intents: list[ToolCallIntent] = []
-    for content in _response_content_candidates(response):
+    for content in content_candidates:
         text = _stringify_content(content)
         if not text:
             continue
@@ -233,15 +170,6 @@ def _parse_dsml_parameters(body: str) -> dict[str, Any]:
         except Exception:
             args[key] = raw_value
     return args
-
-
-def _response_content_candidates(response: Any) -> list[Any]:
-    return [
-        getattr(response, "content", None),
-        dict(getattr(response, "additional_kwargs", {}) or {}).get("content"),
-        _raw_payload_value(response, "content"),
-        _raw_payload_value(response, "text"),
-    ]
 
 
 def _stringify_content(content: Any) -> str:
@@ -291,19 +219,4 @@ def _dedupe_intents(intents: list[ToolCallIntent]) -> list[ToolCallIntent]:
         seen.add(key)
         result.append(intent)
     return result
-
-
-def _compact_text(value: Any, *, limit: int) -> str:
-    text = " ".join(str(value or "").split())
-    if len(text) <= limit:
-        return text
-    return text[: max(0, limit - 1)].rstrip() + "…"
-
-
-def _drop_empty_dict(payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in dict(payload or {}).items()
-        if value not in ("", None, [], {})
-    }
 

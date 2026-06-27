@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from typing import Any
 
 
@@ -28,6 +29,7 @@ class TurnInputFacts:
     environment_binding: dict[str, Any] = field(default_factory=dict)
     runtime_profile: dict[str, Any] = field(default_factory=dict)
     editor_context: dict[str, Any] = field(default_factory=dict)
+    current_time: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.runtime.turn_input_facts"
 
     def __post_init__(self) -> None:
@@ -63,6 +65,7 @@ def build_turn_input_facts(
     environment_binding: dict[str, Any] | None = None,
     runtime_profile: dict[str, Any] | None = None,
     editor_context: dict[str, Any] | None = None,
+    current_time: dict[str, Any] | None = None,
 ) -> TurnInputFacts:
     return TurnInputFacts(
         session_id=str(session_id or "").strip(),
@@ -80,6 +83,7 @@ def build_turn_input_facts(
         environment_binding=dict(environment_binding or {}),
         runtime_profile=dict(runtime_profile or {}),
         editor_context=dict(editor_context or {}),
+        current_time=dict(current_time or _current_wall_clock_context()),
     )
 
 
@@ -98,3 +102,10 @@ def _payload_from_object(value: Any | None) -> dict[str, Any]:
     if isinstance(value, dict):
         return dict(value)
     return {}
+
+
+def _current_wall_clock_context() -> dict[str, Any]:
+    local_now = datetime.now().astimezone().replace(microsecond=0)
+    return {
+        "timestamp": local_now.isoformat(),
+    }

@@ -14,7 +14,6 @@ from runtime.prompt_accounting.cache_policy import (
     normalize_prefix_tier,
 )
 from runtime.prompt_accounting.serializer import canonical_json
-from runtime.shared.tool_schema_canonical import canonical_provider_schema_ref
 
 
 @dataclass(frozen=True, slots=True)
@@ -295,8 +294,7 @@ def _tool_schema_cache_profile(
             stable_tool_index_segment_id=tool_index.segment_id,
         )
     actual = _provider_tool_schema_fingerprint(tools)
-    subset_check = _tool_fingerprint_subset_check(expected, actual)
-    if not subset_check["matched"]:
+    if expected != actual:
         reason = (
             "provider_tools_do_not_match_tool_catalog_manifest"
             if manifest_payload
@@ -306,7 +304,6 @@ def _tool_schema_cache_profile(
             reason,
             expected_tool_names=list(expected.get("tool_names") or []),
             actual_tool_names=list(actual.get("tool_names") or []),
-            tool_subset_mismatch=list(subset_check.get("mismatches") or []),
             tool_catalog_manifest_ref=manifest_ref,
             stable_tool_index_segment_id=tool_index.segment_id,
         )
@@ -323,29 +320,23 @@ def _tool_schema_cache_profile(
         "prefix_tier": "none",
         "metadata": {
             "native_tool_binding_decision": (
-                "current_turn_tool_binding_validated_against_tool_catalog_manifest"
+                "validated_against_tool_catalog_manifest"
                 if manifest_payload
-                else "current_turn_tool_binding_validated_against_stable_tool_index"
+                else "validated_against_stable_tool_index"
             ),
             "cache_note": (
-                "native_tool_binding_schema_is_current_turn_tool_binding_sidecar; it is provider transport, not message prefix cache"
+                "native_tool_binding_schema_is_provider_sidecar_not_message_prefix_cacheable; stable schema is carried by tool_schema_catalog message"
                 if manifest_payload
-                else "native_tool_binding_schema_is_current_turn_tool_binding_sidecar"
+                else "native_tool_binding_schema_is_provider_sidecar_not_message_prefix_cacheable"
             ),
-            "stability_rule": "native tools sidecar is current-turn tool authorization and is never replayed as context memory",
-            "sidecar_semantic_role": "current_turn_tool_binding_sidecar",
-            "sidecar_validity_scope": "current_provider_request",
+            "stability_rule": "native tools sidecar is valid only while its schema fingerprint matches the stable tool catalog",
             "provider_payload_transport_location": "tools",
             "provider_payload_sidecar_component": True,
             "provider_payload_prefix_component": False,
-            "transport_contract_component": False,
-            "transport_contract_role": "current_turn_tool_binding_sidecar",
-            "transport_sidecar_role": "current_turn_tool_binding_sidecar",
+            "transport_contract_component": True,
+            "transport_contract_role": "stable_provider_tool_schema",
+            "transport_sidecar_role": "native_tool_binding_schema",
             "sidecar_drift_status": "matched",
-            "native_tool_binding_scope": "current_turn_bound_subset_of_stable_tool_catalog",
-            "native_tool_binding_tool_names": list(actual.get("tool_names") or []),
-            "native_tool_binding_expected_catalog_tool_count": len(list(expected.get("tool_names") or [])),
-            "native_tool_binding_bound_tool_count": len(list(actual.get("tool_names") or [])),
             "message_prefix_cacheable": False,
             "tool_catalog_manifest_ref": manifest_ref,
             "tool_catalog_manifest_hash": str(manifest_payload.get("tool_catalog_hash") or ""),
@@ -367,15 +358,13 @@ def _native_tool_binding_schema_never_cache(reason: str, **metadata: Any) -> dic
         "metadata": {
             "native_tool_binding_decision": "not_promoted",
             "native_tool_binding_reason": str(reason or "unknown"),
-            "cache_note": "native_tool_binding_schema_is_current_turn_tool_binding_sidecar_but_not_message_prefix_cacheable",
-            "sidecar_semantic_role": "current_turn_tool_binding_sidecar",
-            "sidecar_validity_scope": "current_provider_request",
+            "cache_note": "native_tool_binding_schema_is_recorded_as_provider_sidecar_but_not_message_prefix_cacheable",
             "provider_payload_transport_location": "tools",
             "provider_payload_sidecar_component": True,
             "provider_payload_prefix_component": False,
-            "transport_contract_component": False,
-            "transport_contract_role": "current_turn_tool_binding_sidecar_unvalidated",
-            "transport_sidecar_role": "current_turn_tool_binding_sidecar",
+            "transport_contract_component": True,
+            "transport_contract_role": "stable_provider_tool_schema_unvalidated",
+            "transport_sidecar_role": "native_tool_binding_schema",
             "sidecar_drift_status": _native_tool_sidecar_drift_status(reason),
             "message_prefix_cacheable": False,
             **dict(metadata),
@@ -448,36 +437,14 @@ def _provider_tool_schema_fingerprint(tools: tuple[dict[str, Any], ...]) -> dict
             or function_payload.get("parameters")
             or {}
         )
-        items.append({"name": name, "input_schema_ref": canonical_provider_schema_ref(schema)})
+        items.append({"name": name, "input_schema_ref": _short_schema_ref(schema)})
     ordered = sorted(items, key=lambda item: item["name"])
     return {"tools": ordered, "tool_names": [item["name"] for item in ordered]}
 
 
-def _tool_fingerprint_subset_check(expected: dict[str, Any], actual: dict[str, Any]) -> dict[str, Any]:
-    expected_refs = {
-        str(item.get("name") or ""): str(item.get("input_schema_ref") or "")
-        for item in list(dict(expected or {}).get("tools") or [])
-        if isinstance(item, dict) and str(item.get("name") or "")
-    }
-    mismatches: list[dict[str, str]] = []
-    for item in list(dict(actual or {}).get("tools") or []):
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or "")
-        actual_ref = str(item.get("input_schema_ref") or "")
-        expected_ref = expected_refs.get(name)
-        if not expected_ref:
-            mismatches.append({"name": name, "reason": "tool_not_in_stable_catalog", "actual_ref": actual_ref})
-        elif expected_ref != actual_ref:
-            mismatches.append(
-                {
-                    "name": name,
-                    "reason": "schema_ref_mismatch",
-                    "expected_ref": expected_ref,
-                    "actual_ref": actual_ref,
-                }
-            )
-    return {"matched": not mismatches, "mismatches": mismatches}
+def _short_schema_ref(schema: Any) -> str:
+    digest = _stable_text_hash(canonical_json(schema or {}))
+    return "sha256:" + digest.removeprefix("sha256:")[:10]
 
 
 def _cache_boundary(
@@ -958,4 +925,3 @@ def _response_format_param(params: dict[str, Any]) -> Any:
     if "output_schema" in params:
         return params.pop("output_schema")
     return None
-

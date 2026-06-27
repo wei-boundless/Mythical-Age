@@ -91,8 +91,7 @@ from .project_instructions import ProjectInstructionBundle, collect_project_inst
 from .runtime_control_signal_projection import canonical_runtime_control_signal_projection
 from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
 from .task_contract_manifest import TaskContractManifest, build_task_contract_manifest_from_contract
-from .tool_catalog_manifest import ToolCatalogManifest, agent_visible_tool_contract_entry, build_tool_catalog_manifest
-from .tool_transport_adapter import build_tool_transport_contract
+from .tool_catalog_manifest import ToolCatalogManifest, build_tool_catalog_manifest
 
 
 _GRAPH_AUTHORIZED_INPUT_CONTENT_LIMIT = 16000
@@ -424,12 +423,6 @@ class RuntimeCompiler:
         model_selection = packet_context.model_selection
         single_turn_tool_plan = packet_context.tool_plan
         single_turn_tools = packet_context.model_visible_tools
-        tool_transport_policy = _hidden_tool_transport_policy_from_assembly(assembly_payload)
-        tool_transport_contract = build_tool_transport_contract(
-            available_tools=single_turn_tools,
-            allowed_action_types=allowed_actions,
-            tool_transport_policy=tool_transport_policy,
-        )
         planning_protocol = _planning_protocol_payload(
             invocation_kind="single_agent_turn",
             profile_payload=profile_payload,
@@ -449,7 +442,6 @@ class RuntimeCompiler:
             available_tools=single_turn_tools,
             permission_mode=permission_mode,
             tool_plan=single_turn_tool_plan,
-            tool_transport_contract=tool_transport_contract.to_model_visible_payload(),
         )
         envelope = RuntimeEnvelope(
             envelope_id=f"rtenv:{turn_id}:single_agent_turn",
@@ -1032,8 +1024,6 @@ class RuntimeCompiler:
                 "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
                 "runtime_packet_context": packet_context.to_dict(),
                 "control_capabilities": dict(effective_control_capabilities),
-                "tool_transport_policy": dict(tool_transport_policy),
-                "tool_transport_contract": tool_transport_contract.to_dict(),
                 "active_work_context_present": bool(active_work_context),
                 "current_work_boundary_receipt": dict(current_work_boundary_receipt or {}),
                 "turn_input_facts_present": bool(turn_input_facts),
@@ -2730,17 +2720,6 @@ def _system_wiring_manifest_from_runtime_assembly(assembly_payload: dict[str, An
     manifest = diagnostics.get("system_wiring_manifest")
     return dict(manifest) if isinstance(manifest, dict) else {}
 
-
-def _hidden_tool_transport_policy_from_assembly(assembly_payload: dict[str, Any] | None) -> dict[str, Any]:
-    payload = dict(assembly_payload or {})
-    policy = payload.get("tool_transport_policy")
-    if isinstance(policy, dict) and policy:
-        return dict(policy)
-    diagnostics = dict(payload.get("diagnostics") or {})
-    diagnostic_policy = diagnostics.get("tool_transport_policy")
-    return dict(diagnostic_policy) if isinstance(diagnostic_policy, dict) else {}
-
-
 def _context_capability_profile_from_runtime_assembly(assembly_payload: dict[str, Any] | None) -> dict[str, Any]:
     system_wiring_manifest = _system_wiring_manifest_from_runtime_assembly(assembly_payload)
     compiled = dict(system_wiring_manifest.get("compiled") or {})
@@ -3743,25 +3722,35 @@ def _single_agent_turn_output_contract(
             },
             "ordinary_tool_calls": {
                 "enabled": "tool_call" in allowed_actions,
-                "transport": "tool_action_contract",
+                "transport": "provider_native_tool_call_or_json_tool_call",
+                "native_tool_transport_enabled": "tool_call" in allowed_actions,
                 "multi_tool_calls_allowed": True,
-                "runtime_execution_policy": "工具请求会按权限、资源锁、依赖关系和副作用风险安排执行",
+                "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
                 "boundary": "runtime_visible_tools_only",
                 "denied_or_failed_tool_calls_return_observations": True,
             },
             "control_actions": {
                 "enabled": json_action_enabled,
-                "transport": "structured_action",
+                "transport": "json_action",
                 "allowed_action_types": [
                     item
                     for item in ("respond", "ask_user", "block", "request_task_run", "active_work_control", "pause_for_user_steer")
                     if item in allowed_actions
                 ],
                 "parallel_allowed": False,
+                "native_tool_transport_enabled": False,
+            },
+            "native_tool_calls": {
+                "enabled": "tool_call" in allowed_actions,
+                "provider_multi_tool_calls_allowed": "tool_call" in allowed_actions,
+                "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
+                "control_actions_exposed_as_native_tools": False,
+                "visible_tool_boundary": "ordinary tool calls use the RuntimeToolPlan model-visible tool surface for this invocation",
             },
             "transport_decision_table": {
                 "control_actions": {
-                    "transport": "structured_action",
+                    "transport": "json_action",
+                    "native_tool_transport_enabled": False,
                     "allowed_action_types": [
                         item
                         for item in (
@@ -3777,8 +3766,9 @@ def _single_agent_turn_output_contract(
                     ],
                 },
                 "ordinary_tool_calls": {
-                    "transport": "tool_action_contract",
-                    "tool_action_object_enabled": json_action_enabled and "tool_call" in allowed_actions,
+                    "transport": "provider_native_tool_call_or_json_tool_call",
+                    "native_tool_transport_enabled": "tool_call" in allowed_actions,
+                    "json_tool_call_enabled": json_action_enabled and "tool_call" in allowed_actions,
                     "multi_tool_calls_allowed": "tool_call" in allowed_actions,
                 },
                 "assistant_body": {
@@ -6237,7 +6227,6 @@ def _agent_visible_runtime_projection(
     permission_mode: str = "default",
     prompt_policy: dict[str, Any] | None = None,
     tool_plan: Any | None = None,
-    tool_transport_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     prompt_policy_payload = dict(prompt_policy or {})
     task_lifecycle = dict(profile_payload.get("task_lifecycle_policy") or {})
@@ -6265,12 +6254,11 @@ def _agent_visible_runtime_projection(
         if str(item.get("tool_name") or item.get("name") or "")
     ]
     task_scoped_tool_routes = _task_scoped_tool_routes_from_tool_plan(tool_plan)
-    tool_capability_surface = _tool_capability_surface_payload(
+    service_surface = _service_surface_payload(
         invocation_kind=invocation_kind,
         allowed_action_types=allowed_action_types,
         available_tools=available_tools,
         tool_plan=tool_plan,
-        tool_transport_contract=tool_transport_contract,
     )
     visible_tool_name_set = {name for name in tool_names if name}
     subagent_lifecycle_enabled = bool(subagent.get("enabled") is True) and bool(
@@ -6285,7 +6273,7 @@ def _agent_visible_runtime_projection(
         )
     )
     task_run_allowed = "request_task_run" in allowed_action_types and task_lifecycle.get("request_task_run") is not False
-    action_surface = _action_surface_payload(
+    model_decision_contract = _model_decision_contract_payload(
         invocation_kind=invocation_kind,
         allowed_action_types=allowed_action_types,
         task_run_allowed=task_run_allowed,
@@ -6296,17 +6284,18 @@ def _agent_visible_runtime_projection(
         permission_mode=permission_mode,
     )
     payload = {
+        "authority": "harness.runtime.agent_visible_runtime_projection",
         "invocation_kind": str(invocation_kind or ""),
-        "action_surface": action_surface,
-        "tool_capability_surface": tool_capability_surface,
+        "model_decision_contract": model_decision_contract,
+        "service_surface": service_surface,
         "execution_boundary": execution_boundary,
         "allowed_action_types": list(allowed_action_types),
-        "task_lifecycle_boundary": {
+        "task_lifecycle": {
             "request_task_run_allowed": task_run_allowed,
             "requires_completion_evidence": bool(task_lifecycle.get("requires_completion_evidence") is True),
             "artifact_evidence_required": bool(task_lifecycle.get("artifact_evidence_required") is True),
         },
-        "planning_boundary": {
+        "planning": {
             **planning_protocol,
             "specified_plan_allowed": bool(planning.get("specified_plan_allowed") is True),
             "todo_required_when_task_run": bool(planning.get("todo_required_when_task_run") is True),
@@ -6321,7 +6310,7 @@ def _agent_visible_runtime_projection(
             "enabled": bool(step_summary.get("enabled") is True),
             "detail": str(step_summary.get("detail") or ""),
         },
-        "tool_capability_boundary": {
+        "tool_boundary": {
             "visible_tool_count": len(tool_names),
             "visible_tool_names": tool_names,
             "task_scoped_tool_routes": task_scoped_tool_routes,
@@ -6346,7 +6335,7 @@ def _agent_visible_runtime_projection(
     return payload
 
 
-def _action_surface_payload(
+def _model_decision_contract_payload(
     *,
     invocation_kind: str,
     allowed_action_types: tuple[str, ...],
@@ -6360,24 +6349,25 @@ def _action_surface_payload(
     ]
     pause_for_user_steer_allowed = "pause_for_user_steer" in semantic_actions
     return {
-        "contract_name": "current_action_surface",
+        "authority": "harness.runtime.model_decision_contract",
+        "prompt_authority": "runtime_action_contract",
         "invocation_kind": str(invocation_kind or ""),
         "semantic_actions": semantic_actions,
         "control_actions": control_actions,
-        "assistant_response_transport": "natural_response_when_no_action",
-        "ordinary_tool_transport": "tool_capability_surface.tool_action_contract",
-        "control_action_transport": "structured_action",
-        "structured_action_required_for": "actions_that_change_execution_or_task_state",
+        "assistant_response_transport": "assistant_message",
+        "ordinary_tool_transport": "provider_native_tool_call_or_json_tool_call",
+        "control_action_transport": "json_action",
+        "json_action_required_for": "control_or_task_action_only",
         "assistant_text_allowed_when_no_action": True,
-        "required_transport": "natural_response_or_structured_action",
-        "tool_action_contract_ref": "tool_capability_surface.tool_action_contract",
-        "structured_action_shape": {
+        "required_transport": "assistant_message_or_tool_call_or_json_action",
+        "json_action_shape": {
+            "authority": "harness.loop.model_action_request",
             "single_unambiguous_action_required": True,
             "markdown_fence_allowed_when_single_action": True,
             "wrapper_text_allowed_when_single_action": True,
-            "respond_text_field": "action_type=respond 时，最终给用户看的自然回复放在顶层 final_answer；如果你使用 response 表达同一含义，系统会按 final_answer 接收。",
-            "ask_user_question_field": "action_type=ask_user 时，用户要回答的问题放在顶层 user_question；如果你使用 question 表达同一含义，系统会按 user_question 接收。",
-            "block_reason_field": "action_type=block 时，真实阻塞原因放在顶层 blocking_reason；如果你使用 reason 表达同一含义，系统会按 blocking_reason 接收。",
+            "respond_requires_top_level_final_answer": "action_type=respond 时，最终给用户看的自然回复必须写在顶层 final_answer；不要放入 payload.content、payload.final_answer 或 action.content。",
+            "ask_user_requires_top_level_user_question": "action_type=ask_user 时，用户要回答的问题必须写在顶层 user_question；不要通过 provider-native ask_user 工具调用表达。",
+            "block_requires_top_level_blocking_reason": "action_type=block 时，真实阻塞原因必须写在顶层 blocking_reason。",
             **(
                 {
                     "pause_for_user_steer_requires_top_level_pause_request": (
@@ -6450,115 +6440,45 @@ def _action_surface_payload(
     }
 
 
-def _tool_capability_surface_payload(
+def _service_surface_payload(
     *,
     invocation_kind: str,
     allowed_action_types: tuple[str, ...],
     available_tools: tuple[dict[str, Any], ...],
     tool_plan: Any | None,
-    tool_transport_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    mounted_tools: list[dict[str, Any]] = []
+    mounted_tools: list[dict[str, str]] = []
     for tool in available_tools:
         payload = dict(tool or {})
         tool_name = str(payload.get("tool_name") or payload.get("name") or "").strip()
         if not tool_name:
             continue
-        mounted_tool = _mounted_tool_action_entry(payload, tool_name=tool_name)
-        if mounted_tool:
-            mounted_tools.append(mounted_tool)
-    transport_contract = dict(tool_transport_contract or {})
-    action_expression = _semantic_tool_action_expression(
-        transport_contract.get("tool_action_expression") or "tool_action_object"
-    )
+        mounted_tools.append(
+            {
+                "tool_name": tool_name,
+                "operation_id": str(payload.get("operation_id") or tool_name),
+                "owner_scope": str(payload.get("owner_scope") or "none"),
+            }
+        )
     return {
+        "authority": "harness.runtime.service_surface",
         "invocation_kind": str(invocation_kind or ""),
-        "tool_call_action_available": "tool_call" in set(allowed_action_types or ()),
-        "tool_action_expression": action_expression if "tool_call" in set(allowed_action_types or ()) else "unavailable",
-        "tool_action_contract": _tool_action_contract_payload(
-            tool_call_allowed="tool_call" in set(allowed_action_types or ()),
-            mounted_tools=mounted_tools,
-            submission_mode=action_expression,
-        ),
+        "tool_call_transport_available": "tool_call" in set(allowed_action_types or ()),
         "mounted_tools": mounted_tools,
         "unmounted_services": [
             {
                 "service": str(issue.get("tool_name") or issue.get("operation_id") or ""),
                 "tool_name": str(issue.get("tool_name") or ""),
+                "operation_id": str(issue.get("operation_id") or ""),
                 "category": _tool_filter_issue_category(issue),
                 "reason": str(issue.get("reason") or ""),
                 "source": str(issue.get("source") or ""),
                 "required_action": str(dict(issue.get("metadata") or {}).get("required_action") or ""),
             }
             for issue in _tool_filter_issues_from_tool_plan(tool_plan)
-            if str(issue.get("tool_name") or "").strip()
+            if str(issue.get("tool_name") or issue.get("operation_id") or "").strip()
         ],
     }
-
-
-def _mounted_tool_action_entry(payload: dict[str, Any], *, tool_name: str) -> dict[str, Any]:
-    return agent_visible_tool_contract_entry({**dict(payload or {}), "tool_name": tool_name})
-
-
-def _tool_action_contract_payload(
-    *,
-    tool_call_allowed: bool,
-    mounted_tools: list[dict[str, Any]],
-    submission_mode: str = "action_object",
-) -> dict[str, Any]:
-    tool_names = [str(item.get("tool_name") or "") for item in list(mounted_tools or []) if str(item.get("tool_name") or "")]
-    normalized_submission = _semantic_tool_action_expression(submission_mode)
-    selector_expression = normalized_submission == "tool_selector"
-    payload: dict[str, Any] = {
-        "allowed": bool(tool_call_allowed and tool_names),
-        "meaning": "当你判断需要读取、搜索、查证、执行或验证时，提出一个工具行动；工具结果返回后再继续判断或回答。",
-        "tool_action_method": "select_visible_tool" if selector_expression else "submit_tool_action_object",
-        "tool_name_rule": "tool_name 必须精确使用 mounted_tools 中的 tool_name。",
-        "args_rule": "args 必须是对象；只填写 mounted_tools.input_contract.accepted_args 中列出的业务参数。",
-        "public_judgment_rule": "你可以先表达简短公开判断；如果下一步是工具行动，把该判断放入当前工具行动合同提供的公开进展位置。",
-        "unexecuted_action_rule": "工具动作只有在返回工具观察后才算执行；未返回观察前，不要说已经搜索、读取、验证或完成。",
-        "single_action_rule": "只提交当前工具行动合同要求的那一种工具请求，不要额外写第二个工具动作。",
-    }
-    if selector_expression:
-        payload["tool_selector"] = {
-            "tool_name": "从 mounted_tools.tool_name 中选择一个可用工具名。",
-            "args": "填写该工具需要的业务参数；参数字段见 mounted_tools.input_contract.accepted_args。",
-            "public_progress_note": "可以先给用户一个简短公开判断，说明本次工具行动要查证或完成什么。",
-            "do_not_duplicate_tool_action": True,
-        }
-        return payload
-    payload["json_action_rule"] = "选择工具行动时，本轮回复必须是一个可解析 JSON 对象；公开判断写入 public_progress_note 或 public_action_state.current_judgment。"
-    payload["public_text_rule"] = "如果需要先说明依据或判断，把它写入 public_progress_note 或 public_action_state.current_judgment；不要把它写在 JSON 对象外。"
-    payload["single_tool_shape"] = {
-        "action_type": "tool_call",
-        "public_progress_note": "向用户说明本次要查证的公开事实或行动目标，不预测结果。",
-        "public_action_state": {
-            "current_judgment": "",
-            "next_action": "调用一个可见工具获取证据。",
-            "completion_status": "working",
-        },
-        "tool_call": {"tool_name": "必须来自 mounted_tools.tool_name", "args": "对象；填写该工具需要的参数"},
-    }
-    payload["batch_tool_shape"] = {
-        "action_type": "tool_call",
-        "public_progress_note": "说明这一批工具共同服务的同一个判断目标。",
-        "public_action_state": {
-            "current_judgment": "",
-            "next_action": "调用一组可见工具获取证据。",
-            "completion_status": "working",
-        },
-        "tool_calls": [{"tool_name": "必须来自 mounted_tools.tool_name", "args": "对象"}],
-    }
-    return payload
-
-
-def _semantic_tool_action_expression(value: Any) -> str:
-    normalized = str(value or "tool_action_object").strip().lower().replace("-", "_")
-    if normalized in {"tool_selector", "select_visible_tool"}:
-        return "tool_selector"
-    if normalized in {"unavailable", "disabled", "none", "off"}:
-        return "unavailable"
-    return "tool_action_object"
 
 
 def _execution_boundary_payload(
@@ -6616,30 +6536,26 @@ def _task_scoped_tool_routes_from_tool_plan(tool_plan: Any | None) -> list[dict[
 def _runtime_projection_instruction(projection: dict[str, Any], *, validity_scope: str = "") -> str:
     if not projection:
         return ""
-    action_surface = dict(projection.get("action_surface") or {})
     allowed_actions = [
         str(item)
-        for item in list(action_surface.get("semantic_actions") or projection.get("allowed_action_types") or [])
+        for item in list(projection.get("allowed_action_types") or [])
         if str(item)
     ]
-    tool_capability_surface = dict(projection.get("tool_capability_surface") or {})
-    tool_capability_boundary = dict(projection.get("tool_capability_boundary") or {})
+    service_surface = dict(projection.get("service_surface") or {})
+    tool_boundary = dict(projection.get("tool_boundary") or {})
     try:
-        visible_tool_count = int(tool_capability_boundary.get("visible_tool_count") or 0)
+        visible_tool_count = int(tool_boundary.get("visible_tool_count") or 0)
     except (TypeError, ValueError):
         visible_tool_count = 0
-    tool_action_available = bool(tool_capability_surface.get("tool_call_action_available") is True) and bool(visible_tool_count > 0)
-    allowed_text = "、".join(allowed_actions) if allowed_actions else "见本轮运行边界中的 allowed_action_types"
-    action_expression = _semantic_tool_action_expression(tool_capability_surface.get("tool_action_expression") or "tool_action_object")
-    if tool_action_available and action_expression == "tool_selector":
-        tool_text = "工具动作可用：从当前可用工具中选择工具名并填写参数；不要再额外提交工具行动对象。"
-    elif tool_action_available:
-        tool_text = "工具动作可用：单个工具填 tool_call；同一判断目标内的一组工具填 tool_calls[]。"
-    else:
-        tool_text = "本轮未开放工具动作。"
+    native_tool_available = bool(service_surface.get("tool_call_transport_available") is True) and bool(
+        visible_tool_count > 0
+    )
+    allowed_text = "、".join(allowed_actions) if allowed_actions else "见 payload.allowed_action_types"
+    transport_ref = "native_tool_preamble" if native_tool_available else "json_action"
+    notice = _runtime_control_context_notice(validity_scope=validity_scope)
     return _join_prompt_sections(
-        _runtime_control_context_notice(validity_scope=validity_scope),
-        f"本轮运行边界：可用动作={allowed_text}；{tool_text}系统只提供边界、执行动作和返回观察；下一步语义判断由你完成。",
+        notice,
+        f"本轮动态契约：动作={allowed_text}；规则=action_schema_static；传输={transport_ref}；本段只列当前边界。\n",
     )
 
 

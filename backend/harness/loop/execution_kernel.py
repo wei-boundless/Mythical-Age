@@ -345,10 +345,12 @@ def build_action_admission_recovery_payload(
     issue_category = str(action_issue.get("category") or admission_payload.get("issue_category") or "runtime_boundary")
     if status == "needs_approval":
         repair_instruction = (
-            f"工具调用等待运行时人工确认。问题分类：{issue_category}；准入裁决：{decision}；原因：{system_reason}。"
-            f"边界说明：{user_reason}。这属于 control-plane 审批状态，不应作为模型恢复观察进入下一轮。"
+            f"运行边界没有执行当前动作，因为它需要可恢复的审批或人工确认。问题分类：{issue_category}；"
+            f"准入裁决：{decision}；原因：{system_reason}。边界说明：{user_reason}。"
+            "你需要把这条观察反馈给用户或改用本轮已开放动作：可以请求进入可恢复任务、询问用户、"
+            "说明当前无法继续，或在已有事实足够时收口；不要重复同一个未获准动作。"
         )
-        model_visible = False
+        model_visible = True
     else:
         repair_instruction = (
             f"运行边界没有执行当前动作。准入裁决：{decision}；原因：{system_reason}。"

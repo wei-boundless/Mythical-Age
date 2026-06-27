@@ -541,6 +541,17 @@ def _policy_defaults(payload: dict[str, Any], *, metadata: dict[str, Any]) -> Co
 
 
 def _section_from_authoritative_context_metadata(payload: dict[str, Any], *, metadata: dict[str, Any]) -> str:
+    explicit_section = str(
+        metadata.get("context_cache_section")
+        or metadata.get("context_policy_section")
+        or ""
+    ).strip()
+    if explicit_section == DYNAMIC_TAIL:
+        return DYNAMIC_TAIL
+    if str(metadata.get("context_commit_policy") or metadata.get("memory_commit_policy") or "").strip() == "never_commit":
+        return DYNAMIC_TAIL
+    if str(metadata.get("context_replay_policy") or "").strip() == "current_dynamic_tail_only":
+        return DYNAMIC_TAIL
     if metadata.get("provider_visible_context_ledger_entry_index"):
         return CONTEXT_MEMORY_PREFIX
     if str(metadata.get("provider_visible_context_ledger_commit_stage") or "").strip() == "provider_success_required":
@@ -550,11 +561,6 @@ def _section_from_authoritative_context_metadata(payload: dict[str, Any], *, met
         return CONTEXT_MEMORY_PREFIX
     if history_status == "current_tool_round_pending_provider_success":
         return CONTEXT_APPEND
-    explicit_section = str(
-        metadata.get("context_cache_section")
-        or metadata.get("context_policy_section")
-        or ""
-    ).strip()
     if explicit_section in {STATIC_PREFIX, CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND, DYNAMIC_TAIL}:
         return explicit_section
     fixed_package = str(metadata.get("fixed_context_package") or payload.get("fixed_context_package") or "").strip()

@@ -8,8 +8,6 @@ from typing import Any, AsyncIterator
 
 import httpx
 
-from runtime.shared.tool_schema_canonical import canonical_provider_tool_input_schema
-
 
 @dataclass(slots=True)
 class LightweightChatMessage:
@@ -243,7 +241,7 @@ def provider_tool_payloads(tools: list[Any], *, strict: Any = None) -> list[dict
         name = _tool_name(tool)
         if not name:
             continue
-        parameters = canonical_provider_tool_input_schema(tool)
+        parameters = _tool_parameters_schema(tool)
         function_payload: dict[str, Any] = {
             "name": name,
             "description": _tool_description(tool, fallback=name),
@@ -495,6 +493,69 @@ def _tool_description(tool: Any, *, fallback: str) -> str:
         or getattr(capability_definition, "display_name", "")
         or fallback
     )
+
+
+def _tool_parameters_schema(tool: Any) -> dict[str, Any]:
+    if isinstance(tool, dict):
+        schema = tool.get("input_schema") if isinstance(tool.get("input_schema"), dict) else tool.get("parameters")
+        if isinstance(schema, dict) and schema:
+            return _json_schema_object(schema)
+        return _schema_from_contract(
+            required_inputs=list(tool.get("required_inputs") or []),
+            optional_inputs=list(tool.get("optional_inputs") or []),
+        )
+
+    for schema_source in (getattr(tool, "input_schema", None), getattr(tool, "args_schema", None)):
+        schema = _schema_from_schema_source(schema_source)
+        if schema:
+            return _json_schema_object(schema)
+
+    capability_definition = getattr(tool, "capability_definition", None)
+    contract = getattr(capability_definition, "contract", None)
+    return _schema_from_contract(
+        required_inputs=list(getattr(contract, "required_inputs", []) or []),
+        optional_inputs=list(getattr(contract, "optional_inputs", []) or []),
+    )
+
+
+def _schema_from_schema_source(schema_source: Any) -> dict[str, Any]:
+    if schema_source is None:
+        return {}
+    if isinstance(schema_source, dict):
+        return dict(schema_source)
+    for method_name in ("model_json_schema", "schema"):
+        method = getattr(schema_source, method_name, None)
+        if callable(method):
+            try:
+                schema = method()
+            except Exception:
+                continue
+            if isinstance(schema, dict):
+                return dict(schema)
+    return {}
+
+
+def _schema_from_contract(*, required_inputs: list[Any], optional_inputs: list[Any]) -> dict[str, Any]:
+    required = [str(item).strip() for item in required_inputs if str(item).strip()]
+    optional = [str(item).strip() for item in optional_inputs if str(item).strip()]
+    properties = {name: {"type": "string"} for name in [*required, *optional]}
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+    }
+
+
+def _json_schema_object(schema: dict[str, Any]) -> dict[str, Any]:
+    payload = copy.deepcopy(schema)
+    payload.setdefault("type", "object")
+    payload.setdefault("properties", {})
+    if not isinstance(payload.get("properties"), dict):
+        payload["properties"] = {}
+    required = payload.get("required")
+    payload["required"] = [str(item) for item in list(required or []) if str(item)]
+    return payload
+
 
 def _provider_tool_calls_from_normalized(tool_calls: Any) -> list[dict[str, Any]]:
     provider_calls: list[dict[str, Any]] = []

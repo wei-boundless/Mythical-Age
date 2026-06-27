@@ -96,9 +96,9 @@ def admit_model_action(
             issue = _action_issue(
                 action_request,
                 category="service_unavailable",
-                code="tool_not_in_runtime_tool_capability_surface",
+                code="tool_not_in_runtime_service_surface",
                 requested_tool_name=tool_name,
-                user_visible_summary="请求的工具没有在本次运行时工具能力面中开放。",
+                user_visible_summary="请求的工具没有在本次运行时服务面中开放。",
                 repair_instruction="请改用当前可见工具，或在任务需要该服务时请求进入正确任务环境/持续任务。",
             )
             return AdmissionDecision(
@@ -109,7 +109,7 @@ def admit_model_action(
                 system_reason="tool_not_in_runtime_assembly",
                 resource_errors=(f"tool_not_in_runtime_assembly:{tool_name}",),
                 issue_category="service_unavailable",
-                issue_code="tool_not_in_runtime_tool_capability_surface",
+                issue_code="tool_not_in_runtime_service_surface",
                 action_issue=issue,
             )
         if definition is None:

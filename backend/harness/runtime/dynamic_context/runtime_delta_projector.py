@@ -67,13 +67,13 @@ def _runtime_context_cursor_projection(
     agent_visible_runtime_projection: dict[str, Any],
     profile_payload: dict[str, Any],
 ) -> dict[str, Any]:
-    tool_capability_boundary = dict(agent_visible_runtime_projection.get("tool_capability_boundary") or {})
+    tool_boundary = dict(agent_visible_runtime_projection.get("tool_boundary") or {})
     permission_boundary = dict(agent_visible_runtime_projection.get("permission_boundary") or {})
-    action_surface = dict(agent_visible_runtime_projection.get("action_surface") or {})
-    tool_capability_surface = dict(agent_visible_runtime_projection.get("tool_capability_surface") or {})
+    model_decision_contract = dict(agent_visible_runtime_projection.get("model_decision_contract") or {})
+    service_surface = dict(agent_visible_runtime_projection.get("service_surface") or {})
     execution_boundary = dict(agent_visible_runtime_projection.get("execution_boundary") or {})
-    planning = dict(agent_visible_runtime_projection.get("planning_boundary") or {})
-    task_lifecycle = dict(agent_visible_runtime_projection.get("task_lifecycle_boundary") or {})
+    planning = dict(agent_visible_runtime_projection.get("planning") or {})
+    task_lifecycle = dict(agent_visible_runtime_projection.get("task_lifecycle") or {})
     allowed_action_types = [
         str(item)
         for item in list(agent_visible_runtime_projection.get("allowed_action_types") or [])
@@ -82,17 +82,15 @@ def _runtime_context_cursor_projection(
     return drop_empty(
         {
             "invocation_kind": str(agent_visible_runtime_projection.get("invocation_kind") or ""),
-            "action_surface": _action_surface_cursor(
-                action_surface,
+            "model_decision_contract": _model_decision_contract_cursor(
+                model_decision_contract,
                 allowed_action_types=allowed_action_types,
             ),
-            "tool_capability_surface": _tool_capability_surface_cursor(
-                tool_capability_surface,
-                tool_capability_boundary=tool_capability_boundary,
-            ),
+            "service_surface": _service_surface_cursor(service_surface),
             "execution_boundary": _task_execution_boundary_cursor(execution_boundary),
-            "planning_boundary": _planning_boundary_cursor(planning),
-            "task_lifecycle_boundary": _task_lifecycle_boundary_cursor(task_lifecycle),
+            "planning": _planning_boundary_cursor(planning),
+            "task_lifecycle": _task_lifecycle_boundary_cursor(task_lifecycle),
+            "tool_boundary": _tool_boundary_cursor(tool_boundary),
         }
     )
 
@@ -111,7 +109,7 @@ def _planning_boundary_cursor(value: dict[str, Any]) -> dict[str, Any]:
             "todo_required_when_task_run": payload.get("todo_required_when_task_run")
             if isinstance(payload.get("todo_required_when_task_run"), bool)
             else None,
-            "planning_contract": "Use the current action contract to decide whether to answer, ask, use tools, or enter a sustained task.",
+            "contract_ref": "model_turn_action",
         }
     )
 
@@ -129,21 +127,23 @@ def _task_lifecycle_boundary_cursor(value: dict[str, Any]) -> dict[str, Any]:
             "artifact_evidence_required": payload.get("artifact_evidence_required")
             if isinstance(payload.get("artifact_evidence_required"), bool)
             else None,
-            "task_lifecycle_contract": "Enter sustained task mode only when the work needs durable goal, state, progress, recovery, or acceptance tracking.",
+            "contract_ref": "model_turn_action.task_lifecycle_action_contract",
         }
     )
 
 
-def _action_surface_cursor(value: dict[str, Any], *, allowed_action_types: list[str]) -> dict[str, Any]:
+def _model_decision_contract_cursor(value: dict[str, Any], *, allowed_action_types: list[str]) -> dict[str, Any]:
     task_entry_rule = dict(value.get("task_entry_rule") or {})
     return drop_empty(
         {
+            "protocol_ref": "action_schema_static",
+            "action_contract_ref": "action_schema_static.action_type",
             "allowed_action_types": list(allowed_action_types),
             "task_run_allowed": task_entry_rule.get("request_task_run_allowed")
             if isinstance(task_entry_rule.get("request_task_run_allowed"), bool)
             else None,
-            "action_contract": "Choose exactly one action object for this step. Put the user-visible judgment in that action when a reply is needed.",
-            "tool_action_contract": "When tools are needed and allowed, use action_type=tool_call with tool_call or tool_calls[].",
+            "json_action_contract_ref": "action_schema_static.json_action_shape_rules",
+            "feedback_contract_ref": "action_schema_static.public_response_obligation",
         }
     )
 
@@ -156,43 +156,59 @@ def _task_execution_boundary_cursor(value: dict[str, Any]) -> dict[str, Any]:
             "approval_required_operation_count": payload.get("approval_required_operation_count")
             if isinstance(payload.get("approval_required_operation_count"), int)
             else None,
-            "execution_contract": "The runtime executes permitted actions and returns observations; semantic judgment remains with the agent.",
+            "operation_gate_ref": "runtime.tooling.supervisor",
         }
     )
 
 
-def _tool_capability_surface_cursor(value: dict[str, Any], *, tool_capability_boundary: dict[str, Any]) -> dict[str, Any]:
+def _service_surface_cursor(value: dict[str, Any]) -> dict[str, Any]:
     mounted_tools = [
         dict(item)
         for item in list(value.get("mounted_tools") or [])
         if isinstance(item, dict)
     ]
-    tool_action_available = value.get("tool_call_action_available")
-    if not isinstance(tool_action_available, bool):
-        tool_action_available = bool(value.get("tool_call_transport_available") is True)
-    action_expression = _semantic_tool_action_expression(value.get("tool_action_expression"))
-    tool_action_contract = (
-        "需要工具时，从当前可见工具中选择工具名并填写参数；工具观察返回后再继续判断。"
-        if action_expression == "tool_selector"
-        else "需要工具时，提交 action_type=tool_call；单个工具填 tool_call，同一判断目标的一组工具填 tool_calls[]。"
-    )
+    unmounted = [
+        _unmounted_service_cursor(dict(item))
+        for item in list(value.get("unmounted_services") or [])
+        if isinstance(item, dict)
+    ]
     return drop_empty(
         {
-            "tool_action_available": bool(tool_action_available),
-            "tool_action_contract": tool_action_contract if bool(tool_action_available) else "",
-            "available_tools": "Use only the tools listed in the visible tool capability surface.",
-            "visible_tool_count": int(tool_capability_boundary.get("visible_tool_count") or 0),
+            "tool_call_transport_available": value.get("tool_call_transport_available")
+            if isinstance(value.get("tool_call_transport_available"), bool)
+            else None,
             "mounted_tool_count": len(mounted_tools),
-            "subagent_lifecycle_enabled": bool(tool_capability_boundary.get("subagent_lifecycle_enabled") is True),
+            "mounted_tools_ref": "tool_index_stable.available_tools",
+            "unmounted_services": [item for item in unmounted if item][:8],
+            "authority": "harness.runtime.service_surface.cursor",
         }
     )
 
 
-def _semantic_tool_action_expression(value: Any) -> str:
-    normalized = str(value or "tool_action_object").strip().lower().replace("-", "_")
-    if normalized in {"tool_selector", "select_visible_tool"}:
-        return "tool_selector"
-    return "tool_action_object"
+def _tool_boundary_cursor(value: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "visible_tool_count": int(value.get("visible_tool_count") or 0),
+            "allowed_operation_count": int(value.get("allowed_operation_count") or 0),
+            "subagent_lifecycle_enabled": bool(value.get("subagent_lifecycle_enabled") is True),
+            "allowed_subagent_ids": [
+                str(item)
+                for item in list(value.get("allowed_subagent_ids") or [])
+                if str(item)
+            ],
+        }
+    )
+
+
+def _unmounted_service_cursor(value: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "service": str(value.get("service") or ""),
+            "tool_name": str(value.get("tool_name") or ""),
+            "category": str(value.get("category") or ""),
+            "required_action": str(value.get("required_action") or ""),
+        }
+    )
 
 
 def _prompt_policy_visible(policy: dict[str, Any], key: str, *, default: bool) -> bool:

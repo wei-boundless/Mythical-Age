@@ -10,6 +10,9 @@ from core.project_layout import ProjectLayout
 from runtime.model_gateway.lightweight_chat_model import provider_message_payloads
 
 from .context_segment_policy import (
+    CONTEXT_APPEND,
+    CURRENT_CONTROL_TAIL_KINDS,
+    DYNAMIC_TAIL,
     DEFAULT_PROVIDER_ADAPTER_CONTRACT,
     context_append_order_key,
     context_segment_policy_for_spec,
@@ -196,6 +199,8 @@ def provider_visible_context_append_candidate_spec(
     normalized_scope = str(scope or "default").strip() or "default"
     normalized_adapter = str(adapter_contract or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT).strip()
     policy = context_segment_policy_for_spec(payload)
+    if not _provider_visible_context_append_candidate_allowed(payload, policy=policy):
+        return payload
     provider_message = _provider_visible_message_from_spec(payload)
     if not provider_message:
         return payload
@@ -213,6 +218,30 @@ def provider_visible_context_append_candidate_spec(
         model=model,
         adapter_contract=policy.provider_adapter_contract or normalized_adapter,
     )
+
+
+def _provider_visible_context_append_candidate_allowed(payload: dict[str, Any], *, policy: Any) -> bool:
+    metadata = dict(dict(payload or {}).get("metadata") or {})
+    kind = str(payload.get("kind") or metadata.get("kind") or "").strip()
+    if kind in CURRENT_CONTROL_TAIL_KINDS:
+        return False
+    section = str(getattr(policy, "section", "") or metadata.get("context_cache_section") or "").strip()
+    if section != CONTEXT_APPEND or section == DYNAMIC_TAIL:
+        return False
+    if str(metadata.get("context_commit_policy") or getattr(policy, "commit_policy", "") or "").strip() == "never_commit":
+        return False
+    if str(metadata.get("memory_commit_policy") or "").strip() == "never_commit":
+        return False
+    if str(metadata.get("context_replay_policy") or getattr(policy, "replay_policy", "") or "").strip() == "current_dynamic_tail_only":
+        return False
+    if str(metadata.get("context_provider_visible_boundary") or "").strip() == "current_dynamic_tail":
+        return False
+    if str(metadata.get("physical_prefix_lane") or "").strip() == "never_replay_tail":
+        return False
+    if str(metadata.get("provider_visible_after_validity") or "").strip() == "not_replayed_after_current_request":
+        return False
+    semantic_commit_class = str(metadata.get("semantic_commit_class") or getattr(policy, "semantic_commit_class", "") or "").strip()
+    return semantic_commit_class != "current_runtime_control"
 
 
 def confirm_provider_visible_context_entries(
