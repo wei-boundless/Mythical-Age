@@ -432,6 +432,9 @@ langchain-agent/
 - **Agent Prompt 准则**：Prompt 必须面向 Agent 编写（角色、职责、边界、输入、输出、裁决标准），不写开发说明。
 - **禁止伪造测试结果**：禁止降级断言、mock 核心逻辑、删除失败用例、硬编码输出。
 - **真实运行验证**：涉及运行链路、前后端联调、SSE、监控、Electron 的修改，必须用 CLI 真实启动实测，不靠静态检查。
+## 前端展示
+<img width="1918" height="921" alt="image" src="https://github.com/user-attachments/assets/5cf63f62-366f-4e17-bf8a-e65fb61e2bee" />
+<img width="1913" height="870" alt="image" src="https://github.com/user-attachments/assets/e89c7a31-39c9-4bf8-a4b0-1e17f0fffb71" />
 
 ## License
 
