@@ -205,11 +205,11 @@ def _agent_visible_instruction(
                 else "not_available"
             ),
             "instruction": (
-                "需要询问、阻塞、启动持续任务或控制当前工作时，选择匹配的控制动作并填写参数；"
-                "request_task_run 只填写紧凑 TaskStartIntent，内部 TaskRunContract 由运行时生成。"
+                "需要询问、阻塞、申请长任务资源或控制当前工作时，选择匹配的控制动作并填写参数；"
+                "request_task_run 只在 task_run_contract_seed 内填写紧凑 TaskStartIntent。"
             )
             if control_submission == "provider_tool_selection"
-            else "需要询问、阻塞、启动持续任务或控制当前工作时，提交本次行动对象。"
+            else "需要询问、阻塞、申请长任务资源或控制当前工作时，提交本次行动对象。"
             if control_submission == "action_object"
             else "当前回合没有控制动作。",
         },

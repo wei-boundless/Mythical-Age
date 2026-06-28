@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 TaskRunStatus = Literal[
     "created",
+    "admitted",
     "running",
     "waiting_executor",
     "waiting_approval",
@@ -18,6 +19,7 @@ TaskRunStatus = Literal[
 CANONICAL_TASK_RUN_STATUSES = frozenset(
     {
         "created",
+        "admitted",
         "running",
         "waiting_executor",
         "waiting_approval",

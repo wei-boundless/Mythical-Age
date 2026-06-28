@@ -14,6 +14,8 @@ ModelActionType = Literal[
     "block",
 ]
 TaskExecutionModelActionType = Literal["respond", "ask_user", "tool_call", "block", "pause_for_user_steer"]
+TASK_START_PRIMARY_MODES = {"goal", "plan"}
+TASK_RESOURCE_SHAPES = {"standard", "investigation", "recovery", "monitor", "open_work"}
 
 
 def _ensure_tool_call_id(tool_call: dict[str, Any] | None, *, request_id: Any, ordinal: int | None = None) -> dict[str, Any]:
@@ -499,8 +501,6 @@ def _normalize_task_contract_seed(seed: dict[str, Any]) -> tuple[dict[str, Any],
     if not primary_ref and len(primary_modes) == 1:
         primary_ref = str(primary_modes[0].get("mode_instance_id") or "").strip()
         container_contract["primary_work_mode_ref"] = primary_ref
-    if not str(container_contract.get("entry_reason") or "").strip():
-        errors.append("container_contract.entry_reason_required_for_request_task_run")
     if not str(container_contract.get("minimum_viable_next_step") or "").strip():
         errors.append("container_contract.minimum_viable_next_step_required_for_request_task_run")
     if len(primary_modes) != 1:
@@ -546,11 +546,11 @@ def _normalize_task_contract_seed(seed: dict[str, Any]) -> tuple[dict[str, Any],
 
 def _is_compact_task_start_intent(seed: dict[str, Any]) -> bool:
     payload = dict(seed or {})
-    if str(payload.get("contract_shape") or "").strip() == "compact_task_start_intent_v1":
+    if str(payload.get("contract_shape") or "").strip() == "compact_task_start_intent_v3":
         return True
     compact_keys = {
-        "entry_reason",
         "primary_mode",
+        "task_shape",
         "minimum_viable_next_step",
         "working_scope",
         "acceptance",
@@ -566,14 +566,17 @@ def _compact_task_start_intent_to_task_run_contract_seed(
 ) -> tuple[dict[str, Any], list[str]]:
     payload = dict(seed or {})
     errors: list[str] = []
+    contract_shape = str(payload.get("contract_shape") or "").strip()
+    if contract_shape and contract_shape != "compact_task_start_intent_v3":
+        errors.append(f"compact_task_start_intent.contract_shape_unsupported:{contract_shape}")
     primary_mode = str(payload.get("primary_mode") or "").strip()
-    if primary_mode not in {"goal", "plan", "todo", "investigation", "recovery", "monitor", "open_work"}:
+    if primary_mode not in TASK_START_PRIMARY_MODES:
         errors.append(f"compact_task_start_intent.primary_mode_unsupported:{primary_mode}")
-        primary_mode = "open_work"
-    entry_reason = _public_progress_note(payload.get("entry_reason"))
+    task_shape = str(payload.get("task_shape") or "standard").strip() or "standard"
+    if task_shape not in TASK_RESOURCE_SHAPES:
+        errors.append(f"compact_task_start_intent.task_shape_unsupported:{task_shape}")
+        task_shape = "standard"
     minimum_next_step = _public_progress_note(payload.get("minimum_viable_next_step"))
-    if not entry_reason:
-        errors.append("compact_task_start_intent.entry_reason_required")
     if not minimum_next_step:
         errors.append("compact_task_start_intent.minimum_viable_next_step_required")
     if not isinstance(payload.get("working_scope"), dict):
@@ -589,16 +592,18 @@ def _compact_task_start_intent_to_task_run_contract_seed(
     mode_instance_id = f"work-mode:{primary_mode}:primary"
     primary_contract = _compact_primary_work_mode_contract(
         mode_kind=primary_mode,
+        task_shape=task_shape,
         mode_payload=mode_payload,
         working_scope=working_scope,
-        entry_reason=entry_reason,
         minimum_viable_next_step=minimum_next_step,
     )
+    intent_summary = _public_progress_note(mode_payload.get("summary")) or minimum_next_step
     return (
         {
             "contract_version": "task_run_contract_v1",
             "container_contract": {
-                "entry_reason": entry_reason,
+                "entry_reason": intent_summary,
+                "task_shape": task_shape,
                 "continuity_required": True,
                 "control_required": True,
                 "projection_required": True,
@@ -620,6 +625,7 @@ def _compact_task_start_intent_to_task_run_contract_seed(
                     "status": "draft",
                     "depends_on_mode_refs": [],
                     "contract": primary_contract,
+                    "task_shape": task_shape,
                 }
             ],
             "lifecycle_contract": {
@@ -679,12 +685,12 @@ def _compact_task_start_intent_to_task_run_contract_seed(
 def _compact_primary_work_mode_contract(
     *,
     mode_kind: str,
+    task_shape: str,
     mode_payload: dict[str, Any],
     working_scope: dict[str, Any],
-    entry_reason: str,
     minimum_viable_next_step: str,
 ) -> dict[str, Any]:
-    summary = _public_progress_note(mode_payload.get("summary")) or entry_reason or minimum_viable_next_step
+    summary = _public_progress_note(mode_payload.get("summary")) or minimum_viable_next_step
     steps = list(_string_tuple(mode_payload.get("steps")))
     notes = list(_string_tuple(mode_payload.get("notes")))
     if mode_kind == "goal":
@@ -695,6 +701,8 @@ def _compact_primary_work_mode_contract(
                 "success_definition": _public_progress_note(mode_payload.get("success_definition")) or minimum_viable_next_step,
                 "completion_evidence": notes,
                 "working_scope": working_scope,
+                "task_shape": task_shape,
+                "shape_payload": _compact_task_shape_payload(task_shape=task_shape, mode_payload=mode_payload),
             }
         )
     if mode_kind == "plan":
@@ -704,45 +712,8 @@ def _compact_primary_work_mode_contract(
                 "major_steps": steps or [minimum_viable_next_step],
                 "plan_status": "agent_managed",
                 "working_scope": working_scope,
-            }
-        )
-    if mode_kind == "todo":
-        items = [
-            {"todo_id": f"todo:{index + 1}", "content": str(item)}
-            for index, item in enumerate(list(_string_tuple(mode_payload.get("items"))) or steps or [minimum_viable_next_step])
-        ]
-        return _drop_empty_payload(
-            {
-                "items": items,
-                "completion_policy": "checkpoint_only",
-                "working_scope": working_scope,
-            }
-        )
-    if mode_kind == "investigation":
-        return _drop_empty_payload(
-            {
-                "problem_statement": _public_progress_note(mode_payload.get("question")) or summary,
-                "question": _public_progress_note(mode_payload.get("question")) or summary,
-                "initial_steps": steps or [minimum_viable_next_step],
-                "working_scope": working_scope,
-                "notes": notes,
-            }
-        )
-    if mode_kind == "recovery":
-        return _drop_empty_payload(
-            {
-                "recovery_handle": str(mode_payload.get("recovery_handle") or "").strip() or summary,
-                "previous_state": summary,
-                "next_resume_step": minimum_viable_next_step,
-                "working_scope": working_scope,
-            }
-        )
-    if mode_kind == "monitor":
-        return _drop_empty_payload(
-            {
-                "monitor_target": str(mode_payload.get("monitor_target") or "").strip() or summary,
-                "trigger_conditions": steps or [minimum_viable_next_step],
-                "working_scope": working_scope,
+                "task_shape": task_shape,
+                "shape_payload": _compact_task_shape_payload(task_shape=task_shape, mode_payload=mode_payload),
             }
         )
     return _drop_empty_payload(
@@ -752,8 +723,42 @@ def _compact_primary_work_mode_contract(
             "steps": steps,
             "notes": notes,
             "working_scope": working_scope,
+            "task_shape": task_shape,
+            "shape_payload": _compact_task_shape_payload(task_shape=task_shape, mode_payload=mode_payload),
         }
     )
+
+
+def _compact_task_shape_payload(*, task_shape: str, mode_payload: dict[str, Any]) -> dict[str, Any]:
+    if task_shape == "investigation":
+        return _drop_empty_payload(
+            {
+                "question": _public_progress_note(mode_payload.get("question")),
+                "notes": list(_string_tuple(mode_payload.get("notes"))),
+            }
+        )
+    if task_shape == "recovery":
+        return _drop_empty_payload(
+            {
+                "recovery_handle": str(mode_payload.get("recovery_handle") or "").strip(),
+                "notes": list(_string_tuple(mode_payload.get("notes"))),
+            }
+        )
+    if task_shape == "monitor":
+        return _drop_empty_payload(
+            {
+                "monitor_target": str(mode_payload.get("monitor_target") or "").strip(),
+                "trigger_conditions": list(_string_tuple(mode_payload.get("steps"))),
+            }
+        )
+    if task_shape == "open_work":
+        return _drop_empty_payload(
+            {
+                "summary": _public_progress_note(mode_payload.get("summary")),
+                "notes": list(_string_tuple(mode_payload.get("notes"))),
+            }
+        )
+    return {}
 
 
 def _seed_with_layered_contract_aliases(seed: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
@@ -947,7 +952,7 @@ def _normalized_work_modes(value: Any) -> tuple[list[dict[str, Any]], list[str]]
         mode_instance_id = str(item.get("mode_instance_id") or f"work-mode:{mode_kind or 'unknown'}:{index + 1}").strip()
         if not mode_kind:
             errors.append(f"work_modes[{index}].mode_kind_required")
-        elif mode_kind not in {"goal", "plan", "todo", "investigation", "recovery", "monitor", "open_work"}:
+        elif mode_kind not in TASK_START_PRIMARY_MODES:
             errors.append(f"work_modes[{index}].mode_kind_unsupported:{mode_kind}")
         if mode_role not in {"primary", "supporting"}:
             errors.append(f"work_modes[{index}].mode_role_required")
@@ -1120,7 +1125,7 @@ def _legacy_seed_to_task_run_contract_seed(seed: dict[str, Any]) -> dict[str, An
     return {
         "contract_version": "task_run_contract_v1",
         "container_contract": {
-            "entry_reason": str(seed.get("entry_reason") or "当前工作需要持续任务生命周期。").strip(),
+            "entry_reason": str(seed.get("entry_reason") or "当前工作需要长任务资源。").strip(),
             "continuity_required": True,
             "control_required": True,
             "projection_required": True,
@@ -1278,14 +1283,12 @@ _TASK_LIFECYCLE_CLAIM_PHRASES = (
     "我将开启一个长任务",
     "让我开启一个长任务",
     "准备开启一个长任务",
-    "我会申请进入持续任务",
-    "我要申请进入持续任务",
-    "我将申请进入持续任务",
-    "申请进入持续任务",
-    "进入持续任务生命周期",
-    "启动持续任务生命周期",
-    "开启持续任务生命周期",
-    "创建持续任务",
+    "我会申请长任务资源",
+    "我要申请长任务资源",
+    "我将申请长任务资源",
+    "申请长任务资源",
+    "绑定长任务资源",
+    "创建长任务资源",
     "创建 task",
     "start task",
     "start a task",
@@ -1308,7 +1311,7 @@ def _public_feedback_claims_task_lifecycle(
     normalized = " ".join(" ".join(str(text or "").split()).lower() for text in texts if str(text or "").strip())
     if not normalized:
         return False
-    if any(phrase in normalized for phrase in ("不进入持续任务", "不开启长任务", "不启动长任务", "不创建 task")):
+    if any(phrase in normalized for phrase in ("不申请长任务资源", "不开启长任务", "不启动长任务", "不创建 task")):
         return False
     return any(phrase.lower() in normalized for phrase in _TASK_LIFECYCLE_CLAIM_PHRASES)
 

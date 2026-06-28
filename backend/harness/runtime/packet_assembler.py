@@ -561,8 +561,20 @@ def _single_agent_turn_model_action_surface(
         actions.append("resume_recoverable_work")
     if model_visible_tools:
         actions.append("tool_call")
+    allowed_action_types = tuple(dict.fromkeys(actions))
+    surface_id = "turn-action-surface:" + _stable_hash(
+        {
+            "allowed_action_types": list(allowed_action_types),
+            "may_request_task_run": bool(control_capabilities.get("may_request_task_run") is True),
+            "may_control_active_work": bool(control_capabilities.get("may_control_active_work") is True),
+            "resumable_work_action_candidate": resumable_work_action_candidate,
+            "visible_tool_count": len(model_visible_tools),
+        }
+    )[:20]
     return RuntimePacketModelActionSurface(
-        allowed_action_types=tuple(dict.fromkeys(actions)),
+        allowed_action_types=allowed_action_types,
+        surface_id=surface_id,
+        contract_ref="turn_neural_contract.action_surface",
         diagnostics={
             "source": "runtime_capabilities_and_state_candidates",
             "may_request_task_run": bool(control_capabilities.get("may_request_task_run") is True),

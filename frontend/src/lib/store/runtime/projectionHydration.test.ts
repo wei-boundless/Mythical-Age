@@ -54,6 +54,8 @@ function frame(patch: Partial<PublicProjectionFrame> & { frame_id: string; event
     main_visibility: "visible_live",
     retention: "final",
     anchor,
+    body_ref: `body:${patch.frame_id}`,
+    message_ref: anchor.message_id,
     ...patch,
   };
 }

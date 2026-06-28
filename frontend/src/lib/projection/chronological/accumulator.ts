@@ -192,7 +192,10 @@ function appendBodySegment(
       : previous.sourceKeys;
   } else {
     ledger.bodySegments.push({
-      id: text(normalized.frame.item_id) || `body:${normalized.keyString}:${normalized.offset}`,
+      id: text(normalized.frame.body_ref || normalized.frame.item_id) || `body:${normalized.keyString}:${normalized.offset}`,
+      bodyRef: text(normalized.frame.body_ref),
+      messageRef: text(normalized.frame.message_ref),
+      contentSha256: text(normalized.frame.content_sha256),
       text: body,
       firstOffset: normalized.offset,
       lastOffset: normalized.offset,

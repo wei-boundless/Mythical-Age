@@ -8,7 +8,7 @@ from typing import Any
 from .event_log import RuntimeEventLog
 from .events import RuntimeEvent
 from .runtime_run_registry import RuntimeRun, is_terminal_runtime_run_status
-from runtime.output_stream.public_contract import is_terminal_public_event
+from runtime.output_stream.public_contract import TURN_COMPLETED_EVENT, is_terminal_public_event
 
 
 PUBLIC_STREAM_EVENT_TYPE = "chat_stream_event"
@@ -60,10 +60,11 @@ class RuntimeStreamReplayService:
         data: dict[str, Any] | None = None,
     ) -> RuntimeEvent:
         event_name = str(public_event_type or "message").strip() or "message"
+        clean_data = sanitize_public_stream_event_data_for_replay(event_name, dict(data or {}))
         payload = {
             "stream_run_id": run.stream_run_id,
             "public_event_type": event_name,
-            "data": dict(data or {}),
+            "data": clean_data,
             "terminal": is_terminal_public_event(event_name),
         }
         return self.event_log.append(
@@ -112,6 +113,23 @@ class RuntimeStreamReplayService:
             )
         return sorted(records, key=lambda item: int(item.get("event_offset") or 0))
 
+    def ensure_terminal_reconciliation_event(self, run: RuntimeRun) -> RuntimeEvent | None:
+        if not is_terminal_runtime_run_status(getattr(run, "status", "")):
+            return None
+        if any(self.is_terminal_event(event) for event in self.list_public_events(run)):
+            return None
+        return self.append_public_event(
+            run,
+            public_event_type=TURN_COMPLETED_EVENT,
+            data={
+                "status": _public_terminal_status_from_run_status(getattr(run, "status", "")),
+                "terminal_reason": "runtime_terminal_reconciliation",
+                "completion_state": str(getattr(run, "status", "") or ""),
+                "runtime_event_id": f"{run.stream_run_id}:terminal-reconciliation",
+                "source_event_type": "runtime_run_status",
+            },
+        )
+
     def to_public_envelope(
         self,
         run: RuntimeRun,
@@ -123,18 +141,23 @@ class RuntimeStreamReplayService:
         event_name = str(payload.get("public_event_type") or "message").strip() or "message"
         data = dict(payload.get("data") or {})
         data = sanitize_public_stream_event_data_for_replay(event_name, data)
+        projection_frame = dict(data.get("public_projection_frame") or {}) if isinstance(data.get("public_projection_frame"), dict) else {}
+        if projection_frame:
+            projection_frame = {**projection_frame, "event_log_id": run.event_log_id}
+            data["public_projection_frame"] = projection_frame
         diagnostics = data.get("diagnostics") if isinstance(data.get("diagnostics"), dict) else {}
+        diagnostics = {
+            **dict(diagnostics or {}),
+            "server_event_created_at": float(event.created_at),
+            sent_at_key: time.time(),
+        }
         data.update(
             {
                 "stream_run_id": run.stream_run_id,
                 "event_log_id": run.event_log_id,
                 "event_offset": event.offset,
                 "runtime_event_id": event.event_id,
-                "diagnostics": {
-                    **dict(diagnostics or {}),
-                    "server_event_created_at": float(event.created_at),
-                    sent_at_key: time.time(),
-                },
+                "diagnostics": diagnostics,
             }
         )
         return {
@@ -148,9 +171,8 @@ class RuntimeStreamReplayService:
             "public_event_type": event_name,
             "terminal": self.is_terminal_event(event),
             "data": data,
-            "public_projection_frame": dict(data.get("public_projection_frame") or {})
-            if isinstance(data.get("public_projection_frame"), dict)
-            else {},
+            "diagnostics": diagnostics,
+            "public_projection_frame": projection_frame,
         }
 
     def list_public_envelopes_after(
@@ -175,6 +197,7 @@ class RuntimeStreamReplayService:
         after_offset: int = -1,
         limit: int = 500,
     ) -> dict[str, Any]:
+        self.ensure_terminal_reconciliation_event(run)
         envelopes = self.list_public_envelopes_after(
             run,
             after_offset=after_offset,
@@ -208,6 +231,15 @@ def stream_event_id(stream_run_id: str, event_log_id: str, offset: int) -> str:
     return f"{stream_run_id}:{event_log_id}:{int(offset)}"
 
 
+def _public_terminal_status_from_run_status(status: Any) -> str:
+    normalized = str(status or "").strip().lower()
+    if normalized in {"failed", "orphaned"}:
+        return "failed"
+    if normalized == "stopped":
+        return "stopped"
+    return "completed"
+
+
 def canonical_public_projection_frame(frame: dict[str, Any] | None) -> dict[str, Any]:
     payload = dict(frame or {})
     if not payload:
@@ -222,6 +254,18 @@ def canonical_public_projection_frame(frame: dict[str, Any] | None) -> dict[str,
         return {}
     if any(not str(payload.get(key) or "").strip() for key in _REQUIRED_PROJECTION_FRAME_KEYS):
         return {}
+    if str(payload.get("slot") or "").strip() == "body":
+        anchor = payload.get("anchor") if isinstance(payload.get("anchor"), dict) else {}
+        if not str(payload.get("body_ref") or "").strip():
+            return {}
+        if not str(payload.get("message_ref") or anchor.get("message_id") or "").strip():
+            return {}
+        if (
+            str(payload.get("op") or "").strip() == "body_finalize"
+            and str(payload.get("retention") or "").strip() == "final"
+            and not str(payload.get("content_sha256") or "").strip()
+        ):
+            return {}
     return payload
 
 

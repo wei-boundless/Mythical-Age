@@ -69,38 +69,6 @@ export type Message = {
   attachments?: ChatAttachment[];
 };
 
-export type AssistantTextStreamState = {
-  messageId: string;
-  messageRef: string;
-  streamRef: string;
-  latestSequence: number;
-  canonicalContent: string;
-  canonicalContentSha256: string;
-  accumulatedUtf8Bytes: number;
-  finalReceived: boolean;
-  terminal: boolean;
-  repairState: "none" | "pending" | "applied" | "failed";
-  displayHintsBySequence: Record<number, Record<string, unknown>>;
-  orderedSegmentIds?: string[];
-  segmentsById?: Record<string, AssistantTextSegmentState>;
-};
-
-export type AssistantTextSegmentState = {
-  segmentId: string;
-  messageRef: string;
-  streamRef: string;
-  bodySequence: number;
-  segmentRole: string;
-  latestSequence: number;
-  canonicalContent: string;
-  canonicalContentSha256: string;
-  accumulatedUtf8Bytes: number;
-  finalReceived: boolean;
-  terminal: boolean;
-  repairState: "none" | "pending" | "applied" | "failed";
-  displayHintsBySequence: Record<number, Record<string, unknown>>;
-};
-
 export type SessionActivityLevel = "idle" | "running" | "waiting" | "success" | "warning" | "error" | "stopped";
 export type RunMonitorStreamStatus = "connecting" | "connected" | "disconnected" | "closed";
 export type ChatStreamConnectionState = "idle" | "streaming" | "reconnecting" | "reconnected" | "failed" | "stopped" | "paused";
@@ -477,7 +445,6 @@ export type StoreState = {
   workspaceInitializing: boolean;
   messages: Message[];
   activeProjectionsByKey: Record<string, ActiveProjectionState>;
-  assistantTextStreamsByMessageId: Record<string, AssistantTextStreamState>;
   isStreaming: boolean;
   activeStreamSessionIds: string[];
   chatStreamConnectionStatus: ChatStreamConnectionStatus;
@@ -605,5 +572,4 @@ export type AppStore = StoreState &
   StoreActions & {
     editableFiles: string[];
   };
-
 

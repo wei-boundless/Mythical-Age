@@ -75,7 +75,6 @@ export function getDefaultState(): StoreState {
     workspaceInitializing: true,
     messages: [],
     activeProjectionsByKey: {},
-    assistantTextStreamsByMessageId: {},
     isStreaming: false,
     activeStreamSessionIds: [],
     chatStreamConnectionStatus: { state: "idle", updatedAt: 0 },
@@ -134,4 +133,3 @@ export function getDefaultState(): StoreState {
     centerWorkspaceTarget: null
   };
 }
-

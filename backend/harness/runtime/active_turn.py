@@ -160,7 +160,7 @@ class ActiveTurnRegistry:
         session_id: str,
         turn_id: str,
         task_run_id: str,
-        state: ActiveTurnState = "waiting_executor",
+        state: ActiveTurnState = "model_turn",
     ) -> ActiveTurnRecord | None:
         record = self.resolve_current(session_id)
         if record is None or record.turn_id != turn_id:

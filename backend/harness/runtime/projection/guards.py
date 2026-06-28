@@ -21,7 +21,6 @@ INTERNAL_TOKENS = {
     "runtime_invocation_packet",
     "task_control",
     "task_execution_packet",
-    "task_executor_scheduled",
     "terminal_reason",
     "tool_call",
     "single_turn_tool_iteration_limit",

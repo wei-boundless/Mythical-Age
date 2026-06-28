@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from .turn_neural_contract import TASK_ACCEPTANCE_MODES, TASK_RESOURCE_SHAPES, TASK_START_PRIMARY_MODES
+
 
 CONTROL_ACTION_TOOL_NAMES = frozenset(
     {
@@ -16,8 +18,6 @@ CONTROL_ACTION_TOOL_NAMES = frozenset(
     }
 )
 
-_TASK_START_MODES = ("goal", "plan", "todo", "investigation", "recovery", "monitor", "open_work")
-_TASK_ACCEPTANCE_MODES = ("checkpoint", "user_review", "best_effort", "strict", "none_yet")
 _ACTIVE_WORK_ACTIONS = (
     "continue_active_work",
     "pause_active_work",
@@ -139,10 +139,13 @@ def _compact_task_start_intent_from_args(args: dict[str, Any]) -> dict[str, Any]
     working_scope = dict(args.get("working_scope") or {}) if isinstance(args.get("working_scope"), dict) else {}
     acceptance = dict(args.get("acceptance") or {}) if isinstance(args.get("acceptance"), dict) else {}
     mode_payload = dict(args.get("mode_payload") or {}) if isinstance(args.get("mode_payload"), dict) else {}
+    todo_tool_contract = (
+        dict(args.get("todo_tool_contract") or {}) if isinstance(args.get("todo_tool_contract"), dict) else {}
+    )
     return {
-        "contract_shape": "compact_task_start_intent_v1",
-        "entry_reason": str(args.get("entry_reason") or "").strip(),
+        "contract_shape": "compact_task_start_intent_v3",
         "primary_mode": str(args.get("primary_mode") or "").strip(),
+        "task_shape": str(args.get("task_shape") or "standard").strip() or "standard",
         "minimum_viable_next_step": str(args.get("minimum_viable_next_step") or "").strip(),
         "working_scope": _normalize_compact_working_scope(working_scope),
         "acceptance": {
@@ -151,6 +154,10 @@ def _compact_task_start_intent_from_args(args: dict[str, Any]) -> dict[str, Any]
             "final_answer_requirements": _string_list(acceptance.get("final_answer_requirements")),
         },
         "mode_payload": _normalize_mode_payload(mode_payload),
+        "todo_tool_contract": {
+            "todo_is_tool": bool(todo_tool_contract.get("todo_is_tool") is not False),
+            "cursor_updates": _string_list(todo_tool_contract.get("cursor_updates")),
+        },
     }
 
 
@@ -159,7 +166,7 @@ def _control_action_description(action_name: str) -> str:
         "respond": "Finish the current turn with a user-visible answer.",
         "ask_user": "Ask the user for missing information needed before continuing.",
         "block": "Stop because the current work cannot continue reliably and explain the blocking reason.",
-        "request_task_run": "Request a durable task lifecycle from a compact task-start intent.",
+        "request_task_run": "Request a long-task resource from a compact TaskStartIntent.",
         "active_work_control": "Control an already active durable work item.",
         "resume_recoverable_work": "Resume a recoverable durable work item from runtime-provided handles.",
         "pause_for_user_steer": "Pause current task execution at a recoverable boundary because a user steer must be handled first.",
@@ -197,11 +204,11 @@ def _control_action_input_schema(action_name: str) -> dict[str, Any]:
     if action_name == "request_task_run":
         return _strict_object(
             {
-                "public_progress_note": _string("Why this work needs a durable task lifecycle."),
+                "public_progress_note": _string("User-visible reason for requesting a long-task resource."),
                 "public_action_state": _public_action_state_schema(),
-                "entry_reason": _string("Why this cannot be reliably handled inside the current turn."),
-                "primary_mode": {"type": "string", "enum": list(_TASK_START_MODES)},
-                "minimum_viable_next_step": _string("First executable step after the task is accepted."),
+                "primary_mode": {"type": "string", "enum": list(TASK_START_PRIMARY_MODES)},
+                "task_shape": {"type": "string", "enum": list(TASK_RESOURCE_SHAPES)},
+                "minimum_viable_next_step": _string("First executable step after the resource is accepted."),
                 "working_scope": _strict_object(
                     {
                         "target_objects": _string_array(),
@@ -214,23 +221,31 @@ def _control_action_input_schema(action_name: str) -> dict[str, Any]:
                 ),
                 "acceptance": _strict_object(
                     {
-                        "mode": {"type": "string", "enum": list(_TASK_ACCEPTANCE_MODES)},
+                        "mode": {"type": "string", "enum": list(TASK_ACCEPTANCE_MODES)},
                         "criteria": _string_array(),
                         "final_answer_requirements": _string_array(),
                     },
                     ["mode", "criteria", "final_answer_requirements"],
                 ),
                 "mode_payload": _mode_payload_schema(),
+                "todo_tool_contract": _strict_object(
+                    {
+                        "todo_is_tool": {"type": "boolean"},
+                        "cursor_updates": _string_array(),
+                    },
+                    ["todo_is_tool", "cursor_updates"],
+                ),
             },
             [
                 "public_progress_note",
                 "public_action_state",
-                "entry_reason",
                 "primary_mode",
+                "task_shape",
                 "minimum_viable_next_step",
                 "working_scope",
                 "acceptance",
                 "mode_payload",
+                "todo_tool_contract",
             ],
         )
     if action_name == "active_work_control":
@@ -307,7 +322,6 @@ def _mode_payload_schema() -> dict[str, Any]:
         {
             "summary": _string("Compact summary of the primary work mode."),
             "steps": _string_array(),
-            "items": _string_array(),
             "success_definition": _string("Success definition when the primary mode is goal-like."),
             "question": _string("Problem statement or question when the primary mode is investigation-like."),
             "recovery_handle": _string("Recovery handle or previous-state reference for recovery mode."),
@@ -353,7 +367,6 @@ def _normalize_mode_payload(value: dict[str, Any]) -> dict[str, Any]:
     return {
         "summary": str(value.get("summary") or value.get("strategy_summary") or "").strip(),
         "steps": _string_list(value.get("steps") or value.get("major_steps")),
-        "items": _string_list(value.get("items")),
         "success_definition": str(value.get("success_definition") or "").strip(),
         "question": str(value.get("question") or value.get("problem_statement") or "").strip(),
         "recovery_handle": str(value.get("recovery_handle") or value.get("previous_state") or "").strip(),

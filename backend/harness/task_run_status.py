@@ -6,6 +6,7 @@ from typing import Any
 CANONICAL_TASK_RUN_STATUSES = frozenset(
     {
         "created",
+        "admitted",
         "running",
         "waiting_executor",
         "waiting_approval",

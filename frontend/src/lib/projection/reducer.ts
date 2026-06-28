@@ -34,6 +34,7 @@ export function projectionFrameFromRecord(value: unknown): PublicProjectionFrame
   if (!text(record.frame_id || record.projection_id)) return null;
   if (!Number.isFinite(Number(record.event_offset))) return null;
   if (REQUIRED_FRAME_KEYS.some((key) => !text(record[key]))) return null;
+  if (!bodyProjectionFrameHasRequiredIdentity(record)) return null;
   return record as PublicProjectionFrame;
 }
 
@@ -240,13 +241,27 @@ function frameIsMainVisible(frame: PublicProjectionFrame) {
 
 function frameCanPatchMainChatProjection(frame: PublicProjectionFrame) {
   if (frame.slot === "body") {
-    return text(frame.source_authority) === "model" && frameIsMainVisible(frame);
+    return text(frame.source_authority) === "model" && frameIsMainVisible(frame) && bodyProjectionFrameHasRequiredIdentity(frame);
   }
   if (frame.op === "commit_ack" || frame.op === "scope_retire") {
     return true;
   }
   return frameIsToolProjection(frame)
     || ((frameIsTodoPlanProjection(frame) || frameIsStatusProjection(frame)) && frameIsMainVisible(frame));
+}
+
+function bodyProjectionFrameHasRequiredIdentity(frame: Partial<PublicProjectionFrame>) {
+  if (text(frame.slot) !== "body") return true;
+  if (!text(frame.body_ref)) return false;
+  if (!text(frame.message_ref || frame.anchor?.message_id)) return false;
+  if (
+    text(frame.op) === "body_finalize"
+    && text(frame.retention) === "final"
+    && !text(frame.content_sha256)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function frameIsToolProjection(frame: PublicProjectionFrame) {

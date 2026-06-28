@@ -277,7 +277,7 @@ def _legacy_seed_to_task_run_contract_seed(seed: dict[str, Any]) -> dict[str, An
         }
         if primary_kind == "goal"
         else {
-            "strategy_summary": _first_text(plan.get("strategy_summary"), "按已有计划推进当前持续任务。"),
+            "strategy_summary": _first_text(plan.get("strategy_summary"), "按已有计划推进当前长任务资源。"),
             "major_steps": list(_string_tuple(plan.get("major_steps") or plan.get("steps"))),
             "plan_status": _first_text(plan.get("plan_status"), "agent_managed"),
             "replan_policy": dict(plan.get("replan_policy") or {}),
@@ -315,7 +315,7 @@ def _legacy_seed_to_task_run_contract_seed(seed: dict[str, Any]) -> dict[str, An
     return {
         "contract_version": "task_run_contract_v1",
         "container_contract": {
-            "entry_reason": _first_text(payload.get("entry_reason"), "当前工作需要持续任务生命周期。"),
+            "entry_reason": _first_text(payload.get("entry_reason"), "当前工作需要长任务资源。"),
             "continuity_required": True,
             "control_required": True,
             "projection_required": True,
@@ -1419,53 +1419,58 @@ async def start_task_lifecycle_from_contract(
         )
         return
 
-    schedule_result = schedule_task_run_executor(
-        task_run.task_run_id,
-        scheduler=scheduler,
-        turn_id=turn_id,
-        max_steps=max_steps,
-    )
-    if not dict(schedule_result or {}).get("ok"):
-        reason = str(dict(schedule_result or {}).get("reason") or "task_executor_schedule_failed")
-        failed_task, _failed_lifecycle, failed_event = finish_task_lifecycle(
-            runtime_host,
-            task_run=task_run,
-            lifecycle=lifecycle,
-            status="failed",
-            terminal_reason=reason,
-        )
-        yield {"type": "task_run_lifecycle_event", "event": failed_event}
-        content = f"任务已经建立，但启动处理时失败：{_public_schedule_failure_reason(reason)}"
-        yield error_event(
-            content=content,
-            code="task_executor_schedule_failed",
-            reason=reason,
-            extra={
-                "runtime_branch": dict(runtime_branch or {}),
-                "task_run": {"task_run_id": failed_task.task_run_id, "status": failed_task.status},
+    now = time.time()
+    allocated_task = replace(
+        task_run,
+        status="admitted",
+        updated_at=now,
+        diagnostics={
+            **dict(task_run.diagnostics or {}),
+            "resource_allocation": {
+                "resource_kind": "long_task_run",
+                "allocated_by": "request_task_run",
+                "scheduler": str(scheduler or ""),
+                "executor_scheduled": False,
+                "next_lifecycle": "consume_resource_in_following_turns",
+                "authority": "harness.loop.task_lifecycle.resource_allocator",
             },
-        )
-        return
-    scheduled_summary = ""
-    scheduled_summary_event = runtime_host.event_log.append(
+        },
+    )
+    allocated_lifecycle = replace(lifecycle, status="admitted", updated_at=now)
+    runtime_host.state_index.upsert_task_run(allocated_task)
+    runtime_host.runtime_objects.put_object("task_lifecycle", allocated_task.task_run_id, allocated_lifecycle.to_dict())
+    active_registry = getattr(runtime_host, "active_turn_registry", None)
+    if active_registry is not None:
+        try:
+            active_registry.bind_task_run(
+                session_id=session_id,
+                turn_id=turn_id,
+                task_run_id=allocated_task.task_run_id,
+                state="model_turn",
+            )
+        except Exception:
+            pass
+    allocated_event = runtime_host.event_log.append(
         task_run.task_run_id,
-        "step_summary_recorded",
+        "task_resource_allocated",
         payload={
-            "step": "task_executor_scheduled",
-            "status": "running",
-            "summary": scheduled_summary,
-            "public_progress_note": scheduled_summary,
+            "resource_kind": "long_task_run",
+            "status": "admitted",
+            "task_run": allocated_task.to_dict(),
+            "lifecycle": allocated_lifecycle.to_dict(),
+            "executor_scheduled": False,
+            "next_lifecycle": "consume_resource_in_following_turns",
             "visibility": "internal",
-            "presentation_source": "task_lifecycle.schedule",
+            "presentation_source": "task_lifecycle.resource_allocator",
         },
         refs={"task_run_ref": task_run.task_run_id, "turn_ref": turn_id},
     )
-    yield {"type": "task_run_lifecycle_event", "event": scheduled_summary_event.to_dict()}
+    yield {"type": "task_run_lifecycle_event", "event": allocated_event.to_dict()}
     yield turn_completed_event(
         status="completed",
-        terminal_reason="task_executor_scheduled",
-        task_run_id=task_run.task_run_id,
-        completion_state="task_executor_scheduled",
+        terminal_reason="task_resource_allocated",
+        task_run_id=allocated_task.task_run_id,
+        completion_state="task_resource_allocated",
     )
 
 

@@ -533,6 +533,7 @@ type ChatLiveEnvelope = {
   terminal?: boolean;
   status?: string;
   data?: Record<string, unknown>;
+  diagnostics?: Record<string, unknown>;
   replay_url?: string;
   reason?: string;
   code?: string;
@@ -660,12 +661,16 @@ async function consumeChatRunLive(
       return "";
     }
     const eventName = String(envelope.public_event_type || "message");
+    const envelopeDiagnostics = envelope.diagnostics && typeof envelope.diagnostics === "object" && !Array.isArray(envelope.diagnostics)
+      ? envelope.diagnostics
+      : {};
     const data: Record<string, unknown> = {
       ...(envelope.data ?? {}),
       diagnostics: {
         ...(typeof envelope.data?.diagnostics === "object" && envelope.data.diagnostics !== null && !Array.isArray(envelope.data.diagnostics)
           ? envelope.data.diagnostics
           : {}),
+        ...envelopeDiagnostics,
         client_received_at: clientNow(),
       },
     };
@@ -966,4 +971,3 @@ export async function streamChat(
   handlers.onRunCreated?.(run);
   return consumeChatRunLive(run, payload.session_id, handlers, options);
 }
-

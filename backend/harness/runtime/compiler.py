@@ -94,6 +94,11 @@ from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safet
 from .task_contract_manifest import TaskContractManifest, build_task_contract_manifest_from_contract
 from .tool_catalog_manifest import ToolCatalogManifest, build_tool_catalog_manifest
 from .tool_call_contract import ToolCallContract, build_tool_call_contract
+from .turn_neural_contract import (
+    build_turn_neural_contract,
+    turn_action_request_contract_payload,
+    turn_output_contract_payload,
+)
 
 
 _GRAPH_AUTHORIZED_INPUT_CONTENT_LIMIT = 16000
@@ -450,6 +455,11 @@ class RuntimeCompiler:
             control_capabilities=effective_control_capabilities,
             planning_protocol=planning_protocol,
         )
+        turn_neural_contract = build_turn_neural_contract(
+            packet_context=packet_context,
+            tool_call_contract=tool_call_contract,
+            output_contract=output_contract,
+        )
         agent_visible_runtime_projection = _agent_visible_runtime_projection(
             invocation_kind="single_agent_turn",
             allowed_action_types=allowed_actions,
@@ -559,6 +569,7 @@ class RuntimeCompiler:
                 prompt_mount_plan=prompt_mount_plan.to_dict(),
             ),
             "capability_directory": _capability_directory_model_visible_payload(assembly_payload),
+            "turn_neural_contract": turn_neural_contract.to_agent_visible_payload(),
             "output_contract": _stable_prompt_output_contract_payload(output_contract),
             **_project_instruction_model_payload(project_instruction_bundle),
         }
@@ -646,7 +657,7 @@ class RuntimeCompiler:
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
         attachment_context_payload, current_request_payload = _extract_attachment_context_payload(current_request_payload)
-        task_mode_tail_context_payload, current_request_payload = _extract_task_mode_tail_context_payload(current_request_payload)
+        turn_reflex_tail_context_payload, current_request_payload = _extract_turn_reflex_tail_context_payload(current_request_payload)
         editor_context_payload, current_request_payload = _extract_editor_context_payload(current_request_payload)
         current_turn_delta_payload = _current_turn_delta_model_payload(current_request_payload)
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
@@ -778,8 +789,8 @@ class RuntimeCompiler:
                     source_ref_prefix="single_agent_turn",
                     dynamic_context=dynamic_context,
                 ),
-                *_task_mode_tail_context_message_specs(
-                    task_mode_tail_context_payload,
+                *_turn_reflex_tail_context_message_specs(
+                    turn_reflex_tail_context_payload,
                     source_ref_prefix="single_agent_turn",
                     dynamic_context=dynamic_context,
                 ),
@@ -984,6 +995,7 @@ class RuntimeCompiler:
         prompt_manifest["runtime_context_load_plan"] = context_load_plan.to_dict()
         prompt_manifest["prompt_mount_plan"] = prompt_mount_plan.to_dict()
         prompt_manifest["tool_call_contract"] = tool_call_contract.to_hidden_control_payload()
+        prompt_manifest["turn_neural_contract"] = turn_neural_contract.to_hidden_control_payload()
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
         prompt_manifest["protocol_sanitizer"] = dict(protocol_sanitizer.diagnostics)
         prompt_manifest["context_window"] = _context_window_report(
@@ -1036,6 +1048,7 @@ class RuntimeCompiler:
                 "agent_invocation_id": agent_invocation_id,
                 "runtime_assembly_id": str(assembly_payload.get("assembly_id") or ""),
                 "tool_call_contract": tool_call_contract.to_hidden_control_payload(),
+                "turn_neural_contract": turn_neural_contract.to_hidden_control_payload(),
             },
             context_refs=dynamic_context.context_refs,
             artifact_refs=dynamic_context.artifact_refs,
@@ -1047,6 +1060,7 @@ class RuntimeCompiler:
                 "model_input_authority": "prompt_composition.message_projection",
                 "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
                 "runtime_packet_context": packet_context.to_dict(),
+                "turn_neural_contract": turn_neural_contract.to_dict(),
                 "control_capabilities": dict(effective_control_capabilities),
                 "tool_call_contract": tool_call_contract.to_hidden_control_payload(),
                 "active_work_context_present": bool(active_work_context),
@@ -1386,7 +1400,7 @@ class RuntimeCompiler:
         runtime_control_signals = canonical_runtime_control_signal_projection(
             execution_projection.get("runtime_control_signals")
         )
-        task_mode_tail_context_payload, volatile_payload = _extract_task_mode_tail_context_payload(volatile_payload)
+        turn_reflex_tail_context_payload, volatile_payload = _extract_turn_reflex_tail_context_payload(volatile_payload)
         evidence_index_cursor_payload, volatile_payload = _extract_evidence_index_cursor_payload(volatile_payload)
         editor_context_payload, volatile_payload = _extract_editor_context_payload(volatile_payload)
         bound_task_context = build_bound_task_context(
@@ -1421,9 +1435,9 @@ class RuntimeCompiler:
         )
         read_evidence_payload = packet_context.read_evidence_payload
         read_evidence_prompt_payload = _read_evidence_prompt_payload(read_evidence_payload)
-        current_task_attention_index_payload = _current_task_attention_index_payload(
+        turn_reflex_index_payload = _turn_reflex_index_payload_from_task_resource(
             task_contract_payload=task_contract_payload,
-            task_mode_tail_context_payload=task_mode_tail_context_payload,
+            turn_reflex_tail_context_payload=turn_reflex_tail_context_payload,
             task_state_payload=task_state_payload,
         )
         incremental_context_frame_payload = build_task_execution_incremental_context_frame_payload(
@@ -1433,7 +1447,7 @@ class RuntimeCompiler:
             task_state_replay_entries=dynamic_context.task_state_replay_entries,
             current_observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
             execution_projection=execution_projection,
-            task_mode_tail_context_payload=task_mode_tail_context_payload,
+            turn_reflex_tail_context_payload=turn_reflex_tail_context_payload,
             evidence_index_cursor_payload=evidence_index_cursor_payload,
             editor_context_payload=editor_context_payload,
             read_evidence_payload=read_evidence_payload,
@@ -1648,8 +1662,8 @@ class RuntimeCompiler:
                     source_ref_prefix="task_execution",
                     dynamic_context=dynamic_context,
                 ),
-                *_task_mode_tail_context_message_specs(
-                    task_mode_tail_context_payload,
+                *_turn_reflex_tail_context_message_specs(
+                    turn_reflex_tail_context_payload,
                     source_ref_prefix="task_execution",
                     dynamic_context=dynamic_context,
                 ),
@@ -1866,29 +1880,29 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
-                    title="Current Task Attention Index",
-                    payload=current_task_attention_index_payload,
-                    kind="current_task_attention_index",
-                    visible_kind="current_task_attention_index",
-                    source_ref=f"current_task_attention_index:{task_contract_manifest.source_ref}",
+                    title="Turn Reflex Index",
+                    payload=turn_reflex_index_payload,
+                    kind="turn_reflex_index",
+                    visible_kind="turn_reflex_index",
+                    source_ref=f"turn_reflex_index:{task_contract_manifest.source_ref}",
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="preserve",
                     metadata=_current_runtime_tail_metadata(
                         {
-                            "authority_class": "current_task_attention_index",
-                            "runtime_fragment_role": "current_task_anchor_index",
-                            "projection_strategy": "tail_attention_index_for_current_task",
-                            "content_source": "harness.runtime.task_contract_manifest_and_task_mode_tail_context",
+                            "authority_class": "turn_reflex_index",
+                            "runtime_fragment_role": "current_turn_reflex_anchor_index",
+                            "projection_strategy": "tail_attention_index_for_current_turn",
+                            "content_source": "harness.runtime.task_contract_manifest_and_turn_reflex_tail_context",
                             "volatility_reason": "current todo cursor and active execution focus may change each invocation",
                             "cache_impact": "volatile_suffix_only",
-                            "stability_rule": "This index repeats current anchors for attention only; full authority remains in TaskRunContract, task mode tail context, runtime boundary, and tool observations.",
+                            "stability_rule": "This index repeats current anchors for attention only; full authority remains in TaskRunContract, turn reflex tail context, runtime boundary, and tool observations.",
                         },
-                        semantic_slot="current_task_attention_index",
+                        semantic_slot="turn_reflex_index",
                         validity_scope=f"{task_run_id}:{invocation_index}",
                     ),
                 )
-                if current_task_attention_index_payload
+                if turn_reflex_index_payload
                 else None,
                 _runtime_payload_spec(
                     role="user",
@@ -2275,7 +2289,7 @@ class RuntimeCompiler:
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
         attachment_context_payload, current_request_payload = _extract_attachment_context_payload(current_request_payload)
-        task_mode_tail_context_payload, current_request_payload = _extract_task_mode_tail_context_payload(current_request_payload)
+        turn_reflex_tail_context_payload, current_request_payload = _extract_turn_reflex_tail_context_payload(current_request_payload)
         editor_context_payload, current_request_payload = _extract_editor_context_payload(current_request_payload)
         tool_observation_context_payload, current_request_payload = _extract_tool_observation_context_payload(
             current_request_payload
@@ -2410,8 +2424,8 @@ class RuntimeCompiler:
                     source_ref_prefix="observation_followup",
                     dynamic_context=dynamic_context,
                 ),
-                *_task_mode_tail_context_message_specs(
-                    task_mode_tail_context_payload,
+                *_turn_reflex_tail_context_message_specs(
+                    turn_reflex_tail_context_payload,
                     source_ref_prefix="observation_followup",
                     dynamic_context=dynamic_context,
                 ),
@@ -2892,287 +2906,7 @@ def _validate_prompt_rule_diagnostics(assembly: PromptAssemblyResult, *, invocat
 
 def model_action_request_schema(turn_id: str) -> dict[str, Any]:
     del turn_id
-    return {
-        "contract_name": "model_turn_action",
-        "action_type": "respond|ask_user|tool_call|request_task_run|active_work_control|resume_recoverable_work|block",
-        "action_shape_rules": [
-            "提交一个可唯一识别的本次行动；推荐使用一个顶层结构化对象，Markdown 代码块或简短说明只作为传输包装。",
-            "respond 必须把用户可见最终回复写在顶层 final_answer；不要写 payload.final_answer、payload.content、action.final_answer 或 action.content。",
-            "ask_user 必须把用户要回答的问题写在顶层 user_question；不要把询问用户伪装成工具调用。",
-            "block 必须把真实阻塞原因写在顶层 blocking_reason。",
-            "需要工具观察或执行时，action_type=tool_call，并使用顶层 tool_call 或 tool_calls，二选一：单个工具用 tool_call: {tool_name, args}；同一判断目标内需要一组工具时用 tool_calls: [{tool_name, args}]。工具名必须来自当前可用工具，args 必须是对象。",
-            "公开反馈必须与 action_type 对齐：如果 public_progress_note、current_judgment 或 next_action 宣称要开启、申请、进入或创建持续任务生命周期，action_type 必须是 request_task_run。",
-        ],
-        "action_selection_rules": [
-            "先识别用户当前输入本身要你回应什么：提问、质疑、状态追问、纠错、继续执行、修改目标、请求交付或闲聊。任何 action 都不能绕过这个输入意图。",
-            "你需要自己判断是否进入持续任务生命周期；口头承诺不等于动作，只有结构化 request_task_run 才表示你选择启动 Task。",
-            "先判断目标是否需要持久工作生命周期：跨 turn 状态记录、暂停/恢复/停止/replan、明确完成证据、长期执行、工具或上下文预算恢复、独立验收、阶段投影、资源隔离或失败收口。",
-            "如果你判断当前工作需要持续任务生命周期，并且已经足够形成紧凑 TaskStartIntent，下一步必须提交 request_task_run；不要先用普通 tool_call 代替任务启动。",
-            "如果你判断需要 Task 但 TaskStartIntent 缺少入口理由、主工作模式、最小下一步、范围或验收模式，必须 ask_user 补齐；不要假装已经进入 Task。",
-            "如果你判断当前 turn 能直接完成、验证并收口，可以使用普通 tool_call 或 respond；此时公开反馈必须表明这是当前 turn 内的直接处理，不能宣称开启长任务或进入持续任务生命周期。",
-            "如果用户当前输入是问题、质疑、追问、状态询问、纠错或询问为什么，必须先对这个输入给出公开回应；只有用户明确要求继续/执行/恢复当前任务时，才允许 active_work_control 只承接执行。",
-            "如果公开反馈说要进入持续任务生命周期，结构化动作必须同步提交 request_task_run；如果你选择 tool_call，就把公开反馈改成真实的工具前置判断。",
-        ],
-        "task_lifecycle_action_contract": {
-            "role": "你负责选择本轮动作，并让公开反馈与动作保持一致。",
-            "task_start_rule": "只有 action_type=request_task_run 且 task_run_contract_seed 合格时，才表示你选择启动持续任务生命周期。",
-            "task_mode_definition": {
-                "identity": "任务模式是持续工作生命周期容器，不是更大的工具调用。Goal、Plan、Todo、Investigation、Recovery、Monitor 和 Open Work 是容器里的 Work Mode；你选择任务模式，是为了把身份、工作模式、阶段状态、恢复点、验收和收口放进同一个可追踪工作单元。",
-                "what_it_gives_you": [
-                    "stable_work_identity: 后续工具、阶段反馈、停止、恢复和最终收口都绑定到同一个持续工作身份。",
-                    "durable_work_state: 目标、范围、已完成项、未完成项和恢复点可以跨 turn 保留。",
-                    "work_mode_context: 你只需要选择一个 primary_mode；运行时会把它归一化为唯一主工作模式。",
-                    "stage_projection: 用户能看到阶段性进展、当前动作、阻塞和完成状态，而不只是一串普通工具调用。",
-                    "control_surface: 当任务运行中，暂停、停止、恢复、继续和 replan 有明确对象。",
-                    "acceptance_boundary: 完成标准、交付物、验证结果和失败原因有统一收口位置。",
-                    "failure_recovery: 工具失败、预算耗尽、上下文中断或验证失败时，先说明原因和已保留状态，再决定停止、恢复或询问用户。",
-                ],
-                "use_when_you_need": [
-                    "工作目标需要跨 turn 或跨多批工具稳定推进。",
-                    "用户需要能追踪阶段、停止、恢复或继续同一个工作单元。",
-                    "完成必须依赖明确验收标准、交付物、验证结果或失败收口。",
-                    "任务可能遇到工具失败、上下文预算、长时间执行、计划偏离或需要 replan。",
-                    "普通 turn 无法可靠保存目标、证据、恢复点和最终状态。",
-                ],
-                "do_not_use_when": [
-                    "当前 turn 能直接查证、修改、验证并收口。",
-                    "只是短链路读取、单次工具调用或一次性回答。",
-                    "连入口理由、primary_mode、最小下一步、范围或验收模式都不足以写成 TaskStartIntent；这种情况先 ask_user。",
-                ],
-            },
-            "decision_options": {
-                "request_task_run": "你判断需要持续任务生命周期，且紧凑 TaskStartIntent 足够启动。",
-                "ask_user": "你判断需要持续任务生命周期，但入口理由、primary_mode、最小下一步、约束或验收模式不足。",
-                "tool_call_or_respond": "你判断当前 turn 可以直接完成、验证并收口。",
-                "block": "你判断当前条件不能安全启动或继续，并需要说明真实阻塞。",
-            },
-            "feedback_action_consistency": "公开反馈、public_action_state 和 action_type 必须描述同一个下一步。宣称开启 Task 时必须提交 request_task_run；选择普通工具时不得宣称已开启或即将开启持续任务。",
-        },
-        "public_response_obligation": {
-            "rule": "你必须回应用户当前输入本身。回应可以是直接回答、解释你的公开判断、说明需要查证哪个事实才能判断、指出当前不能回答的原因，或说明会把用户的新要求并入本轮处理范围。内部工具、长期任务和结构化 action 只能服务这个回应，不能替代这个回应。",
-            "first_visible_response": [
-                "如果已经足以回答，使用 respond/final_answer。",
-                "如果需要查证后才能判断，使用 tool_call/tool_calls，同时在 public_progress_note 中说明要查证的公开事实和为什么它关系到用户问题；tool_calls[] 是同一判断目标内的一批工具请求，public_progress_note 只写这一批请求共同服务的公开判断目标，不逐工具列名；public_action_state.current_judgment 可以补充当前公开判断，但不能替代空白回应；不要写隐藏推理。",
-                "如果用户是在追问为什么、哪里卡住、是否正常、为什么没回应，必须先解释当前已知状态或你需要核对的状态对象；不要直接继续旧任务。",
-                "如果用户只是明确说继续、恢复、接着执行，并且没有提出新问题，才可以用 active_work_control 或 request_task_run 承接执行。"
-            ],
-            "tool_observation_reporting": {
-                "must_explain_when": [
-                    "观察结果回答了用户问题，或改变了你对用户问题的判断。",
-                    "观察结果发现错误、阻塞、权限问题、缺失信息、测试失败、运行异常或与用户预期冲突。",
-                    "观察结果改变下一步计划、任务范围、验收状态、风险或是否需要用户确认。",
-                    "观察结果完成了用户可见阶段，需要让用户知道结论或下一步。",
-                    "观察结果推翻了你先前的公开判断或暴露出不确定性。",
-                    "一批 tool_calls[] 的观察共同形成了新的公开结论、风险、阻塞、验收状态或下一步判断。",
-                    "你已经连续跨多个文件、多个工具批次或多轮观察推进，或者刚处理过失败恢复、写入、验证、范围切换或阶段结束，继续请求工具前需要给用户一个阶段反馈。"
-                ],
-                "may_keep_internal_when": [
-                    "观察只是短链路的低层文件读取、搜索、目录枚举或格式检查，且没有改变公开判断、风险、计划或用户问题的答案。",
-                    "一批 tool_calls[] 只是为同一个后续判断收集材料，单条观察没有独立用户价值，且批次尚未形成新的公开结论。",
-                    "观察只是为后续工具调用准备上下文，单独展示不会帮助用户理解进展。",
-                    "结构化工具槽已经足以表达动作状态，而没有新的语义结论。"
-                ],
-                "explanation_shape": "需要解释时，只说结论、依据的可见事实、影响和下一步；批量工具结果按共同语义目标汇总，不按工具条数逐项播报；不要粘贴原始工具输出，不要暴露内部事件编号、动作字段、隐藏推理或无关路径。不要求每个低层工具都单独反馈，但不允许长时间任务只剩工具列表而没有你的阶段判断。"
-            },
-            "non_response_examples": [
-                "只输出 tool_call、request_task_run 或 active_work_control，没有解释用户当前问题。",
-                "只说正在处理、开始处理、稍等、我会看看，但没有说明要判断什么公开事实。",
-                "把工具名、动作字段或执行步骤列表当成给用户的回答。"
-            ]
-        },
-        "public_progress_note": "一句用户可理解的公开语义回应；用户输入触发的 tool_call/tool_calls、request_task_run 或 active_work_control 必须填写，用于回应用户当前输入或说明为什么需要先查证。批量 tool_calls[] 只写这一批工具共同服务的公开判断目标，不逐工具列名。不要写内部事件、隐藏推理或泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
-        "public_action_state": {
-            "visible_status": "可选机器状态；thinking|waiting_for_tool|tool_returned|responding|blocked。不是用户可见正文；不要复制到 public_progress_note、current_judgment、next_action、final_answer 或 blocking_reason。",
-            "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写本轮已经确定的事实或边界，不写隐藏推理。",
-            "next_action": "可选；你下一步准备执行的动作。必须与 action_type 对齐：respond 时是整理回复；ask_user 时是向用户确认；需要持续执行时是进入执行流程；block 时是说明阻塞。tool_call 时通常留空；只有在观察返回后形成真实阶段方向，才写给用户能理解的下一步，不要把工具调用动作或机器状态改写成公开判断文本。",
-            "evidence_refs": ["可选；已经返回且可被用户理解的 observation/event/artifact ref；没有返回结果时留空"],
-            "open_risks": ["可选；已经观察到的公开阻塞或风险；不要写预测性风险"],
-            "completion_status": "可选机器状态；working|waiting_for_tool|verifying|ready_to_finish|blocked。不是用户可见正文；不要复制到公开反馈、阶段判断、下一步、阻塞说明或最终回答。"
-        },
-        "final_answer": "",
-        "user_question": "",
-        "blocking_reason": "",
-        "tool_call": {"tool_name": "单工具调用时填写；批量时不要同时填写", "args": {}},
-        "tool_calls": [
-            {"tool_name": "批量工具调用时填写；与 tool_call 二选一", "args": {}}
-        ],
-        "request_task_run_shape_rules": [
-            "request_task_run 必须是单个结构化控制信号；如果文本里带代码块或简短说明，只会提取唯一结构化动作对象执行。",
-            "request_task_run 是启动持续任务生命周期的控制动作，不是普通工具调用；同一动作里不要同时请求普通 tool_call。",
-            "开启 Task 前只提交紧凑 TaskStartIntent；内部 TaskRunContract、WorkModeContract、生命周期、反馈和记忆合同由运行时生成。",
-            "开启 Task 前先按 request_task_run_intent_contract 自检；缺少入口理由、主工作模式、最小下一步、范围或验收时不要申请 Task，改用 ask_user 补齐关键缺口，或明确选择当前 turn 内处理。",
-            "不要使用 payload 包裹任务字段；顶层只能放 action_type、public_progress_note、public_action_state、task_run_contract_seed、completion_contract、permission_request、diagnostics 等动作字段。",
-            "task_run_contract_seed 的最小必填是 contract_shape、entry_reason、primary_mode、minimum_viable_next_step、working_scope、acceptance 和 mode_payload。",
-            "primary_mode 只能是 goal、plan、todo、investigation、recovery、monitor 或 open_work；不要为了满足旧格式伪造 goal/plan/todo。",
-            "public_progress_note 要说明为什么你判断需要持续任务生命周期；public_action_state.next_action 应写进入任务执行流程，而不是普通工具动作。",
-        ],
-        "task_mode_contract": {
-            "definition": "任务模式把一次持续工作绑定成可追踪生命周期容器。你只提交 TaskStartIntent；运行时把它归一化为 TaskRunContract 和 primary WorkModeContract。",
-            "start_action": "如果你选择进入任务模式，提交 action_type=request_task_run；不要同时调用普通工具。",
-            "minimum_decision": [
-                "为什么当前 turn 不足以稳定承载这项工作。",
-                "应该以哪类 Work Mode 作为 primary：goal、plan、todo、investigation、recovery、monitor 或 open_work。",
-                "mode_payload 是否足以支持下一步执行。",
-                "进入容器后的最小可行下一步是什么。",
-                "验收方式和最终回答需要说明什么。",
-            ],
-            "benefits_for_you": [
-                "后续动作绑定同一个持续工作身份，避免会话续接时丢失工作边界。",
-                "GoalContext、PlanContext、TodoContext 分层保留，避免 todo 执行状态覆盖稳定目标或计划。",
-                "可以把阶段进展、阻塞、验证和完成状态投影给用户。",
-                "暂停、停止、恢复、继续和 replan 有明确控制对象。",
-                "失败时可以保留已完成证据和恢复点，而不是空白收口。",
-            ],
-        },
-        "request_task_run_intent_contract": {
-            "instruction": "这是开启持续任务生命周期的最小 TaskStartIntent。用当前用户目标和已观察事实替换占位内容；不要删除这些键，不要把它们放到动作对象顶层。口头承诺不会启动 Task；只有这份结构化 request_task_run 才是启动动作。",
-            "required_top_level": ["action_type", "public_progress_note", "public_action_state", "task_run_contract_seed"],
-            "required_task_start_intent_paths": [
-                "contract_shape",
-                "entry_reason",
-                "primary_mode",
-                "minimum_viable_next_step",
-                "working_scope",
-                "acceptance.mode",
-                "mode_payload",
-            ],
-            "recommended_task_start_intent_paths": [
-                "working_scope.target_objects",
-                "working_scope.source_refs",
-                "working_scope.known_constraints",
-                "acceptance.criteria",
-                "acceptance.final_answer_requirements",
-                "mode_payload.summary",
-                "mode_payload.steps",
-            ],
-            "minimal_action": {
-                "action_type": "request_task_run",
-                "public_progress_note": "说明为什么你判断当前工作需要进入持续任务生命周期。",
-                "public_action_state": {
-                    "current_judgment": "说明当前 turn 无法稳定承载的目标、恢复、验收或反馈边界。",
-                    "next_action": "进入持续任务执行流程。",
-                },
-                "task_run_contract_seed": {
-                    "contract_shape": "compact_task_start_intent_v1",
-                    "entry_reason": "说明为什么当前 turn 不足以稳定承载这项工作。",
-                    "primary_mode": "plan",
-                    "minimum_viable_next_step": "进入任务后第一步要推进的可执行动作。",
-                    "working_scope": {
-                        "target_objects": ["要处理的文件、模块、目录、对象或问题域"],
-                        "workspace_refs": [],
-                        "source_refs": ["用户消息或已观察证据"],
-                        "excluded_scope": [],
-                        "known_constraints": ["用户明确约束、质量要求或排除项"],
-                    },
-                    "acceptance": {
-                        "mode": "checkpoint",
-                        "criteria": ["完成这项任务所需满足的可观察标准"],
-                        "final_answer_requirements": ["说明完成内容、验证结果、未完成项和风险"],
-                    },
-                    "mode_payload": {
-                        "summary": "用一句话说明进入任务后的总体推进策略。",
-                        "steps": ["第一阶段", "第二阶段", "验证与收口"],
-                        "items": [],
-                        "success_definition": "",
-                        "question": "",
-                        "recovery_handle": "",
-                        "monitor_target": "",
-                        "notes": [],
-                    },
-                },
-            },
-        },
-        "resume_recoverable_work_shape_rules": [
-            "resume_recoverable_work 必须是单个结构化控制信号；如果文本里带代码块或简短说明，只会提取唯一结构化动作对象执行。",
-            "可恢复工作引用和继续引用必须放在 recovery_resume 对象内；不允许放在动作对象顶层，也不要使用 payload 包裹。",
-            "只使用当前可恢复上下文提供的 work_ref 和 resume_ref；不要从聊天文本、旧 assistant 消息或文件内容里猜测恢复句柄。",
-            "恢复动作只恢复同一个持续工作，不创建新任务；如果句柄缺失、失效或用户要求改目标，选择 respond、ask_user 或 block 说明原因。",
-        ],
-        "minimal_valid_resume_recoverable_work_example": {
-            "action_type": "resume_recoverable_work",
-            "public_progress_note": "已确认存在可恢复任务，我会从已提供的断点继续原任务。",
-            "public_action_state": {
-                "current_judgment": "恢复句柄和任务标识已提供。",
-                "next_action": "恢复原任务执行。",
-            },
-            "recovery_resume": {
-                "work_ref": "当前可恢复工作的 work_ref",
-                "resume_ref": "当前可恢复上下文的 resume_ref",
-            },
-        },
-        "minimal_valid_request_task_run_example": {
-            "action_type": "request_task_run",
-            "public_progress_note": "这项工作需要跨 turn 保存目标、计划、证据和验收状态，我会申请进入持续任务生命周期。",
-            "public_action_state": {
-                "current_judgment": "当前 turn 已不足以稳定承载任务目标、恢复和验收边界。",
-                "next_action": "进入持续任务执行流程。",
-            },
-            "task_run_contract_seed": {
-                "contract_shape": "compact_task_start_intent_v1",
-                "entry_reason": "这项审查需要跨多个模块保持计划、证据、验证和失败收口状态。",
-                "primary_mode": "plan",
-                "minimum_viable_next_step": "读取入口契约和关键投影链路，确认当前执行边界。",
-                "working_scope": {
-                    "target_objects": ["要审查的目录、模块、文件或子系统"],
-                    "workspace_refs": ["项目或工作区引用"],
-                    "source_refs": ["用户消息、已观察到的文件清单或资料引用"],
-                    "excluded_scope": ["明确不处理的范围"],
-                    "known_constraints": ["用户明确的质量标准和边界"],
-                },
-                "acceptance": {
-                    "mode": "checkpoint",
-                    "criteria": ["修复结构问题", "完成真实验证", "说明剩余风险"],
-                    "final_answer_requirements": ["说明完成项", "说明验证结果", "列出剩余风险"],
-                },
-                "mode_payload": {
-                    "summary": "读取指定系统、核对契约链路、修复结构问题并完成真实验证。",
-                    "steps": ["读取入口和契约", "核对事件链路", "落地修复", "验证并收口"],
-                    "items": [],
-                    "success_definition": "",
-                    "question": "",
-                    "recovery_handle": "",
-                    "monitor_target": "",
-                    "notes": [],
-                },
-            },
-        },
-        "task_run_contract_seed": {
-            "contract_shape": "compact_task_start_intent_v1",
-            "entry_reason": "为什么当前 turn 需要进入持续任务生命周期，必填",
-            "primary_mode": "goal|plan|todo|investigation|recovery|monitor|open_work",
-            "minimum_viable_next_step": "进入任务后第一步要推进的可执行动作，必填",
-            "working_scope": {
-                "target_objects": ["要处理的文件、模块、目录、对象或问题域"],
-                "workspace_refs": ["可选；项目、目录或工作区引用"],
-                "source_refs": ["用户消息或已观察证据"],
-                "excluded_scope": ["明确不处理的范围"],
-                "known_constraints": ["用户明确约束、质量要求或排除项"],
-            },
-            "acceptance": {
-                "mode": "checkpoint|user_review|best_effort|strict|none_yet",
-                "criteria": ["完成这项任务所需满足的可观察标准"],
-                "final_answer_requirements": ["最终收口必须说明的内容"],
-            },
-            "mode_payload": {
-                "summary": "primary_mode 的紧凑语义摘要",
-                "steps": ["plan/investigation/monitor 模式可填写的阶段或触发条件"],
-                "items": ["todo 模式可填写的事项"],
-                "success_definition": "goal 模式可填写的成功定义",
-                "question": "investigation 模式可填写的问题",
-                "recovery_handle": "recovery 模式可填写的恢复句柄或旧状态",
-                "monitor_target": "monitor 模式可填写的监控对象",
-                "notes": ["其他与主工作模式有关的公开约束或证据"],
-            },
-        },
-        "completion_contract": {
-            "completion_criteria": [],
-            "artifact_requirements": [],
-            "required_verifications": []
-        },
-        "permission_request": {},
-        "diagnostics": {},
-    }
-
+    return turn_action_request_contract_payload()
 
 def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) -> dict[str, Any]:
     allowed = tuple(
@@ -3203,7 +2937,7 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
             ),
         ],
         "public_response_obligation": {
-            "rule": "你必须回应用户当前输入本身。回应可以是直接回答、解释你的公开判断、说明需要查证哪个事实才能判断、指出当前不能回答的原因，或说明会把用户的新要求并入本轮处理范围。持续任务执行时，内部工具可以不可见，但工具动作不能替代对用户输入的回应。",
+            "rule": "你必须回应用户当前输入本身。回应可以是直接回答、解释你的公开判断、说明需要查证哪个事实才能判断、指出当前不能回答的原因，或说明会把用户的新要求并入本轮处理范围。长任务资源执行时，内部工具可以不可见，但工具动作不能替代对用户输入的回应。",
             "first_visible_response": [
                 "如果已经足以回答，使用 respond/final_answer。",
                 "如果需要查证后才能判断，使用 tool_call/tool_calls，同时在 public_progress_note 中说明要查证的公开事实和为什么它关系到用户问题；tool_calls[] 是同一判断目标内的一批工具请求，public_progress_note 只写这一批请求共同服务的公开判断目标，不逐工具列名；public_action_state.current_judgment 可以补充当前公开判断，但不能替代空白回应；不要写隐藏推理。",
@@ -3675,224 +3409,11 @@ def _single_agent_turn_output_contract(
     control_capabilities: dict[str, Any],
     planning_protocol: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    json_action_enabled = bool(control_capabilities.get("supports_json_action_protocol") is True)
-    json_action_required = bool(control_capabilities.get("requires_json_action_protocol") is True)
-    forbidden: list[str] = ["delegate_subagent"]
-    if not json_action_enabled:
-        forbidden.append("action_object_protocol")
-    if "tool_call" not in allowed_actions:
-        forbidden.append("general_tool_call")
-    if "request_task_run" not in allowed_actions:
-        forbidden.append("task_run_request")
-    if "active_work_control" not in allowed_actions:
-        forbidden.append("active_work_control")
-    action_selection_rules = [
-        "由你判断当前目标是否需要持续任务生命周期；口头承诺不等于动作，只有结构化 request_task_run 才表示你选择启动 Task。",
-        "先判断当前 turn 是否能稳定承载目标、计划、状态、恢复、验收、审计、用户可追踪阶段反馈、资源隔离和失败收口。",
-        "如果你判断需要持久工作生命周期，并且紧凑 TaskStartIntent 足够，下一步提交 request_task_run；不要先用普通 tool_call 代替任务启动。",
-        "普通 tool_call 只适用于你判断当前 turn 能直接完成、验证并收口的场景；此时公开反馈必须说明这是当前 turn 内的直接处理。",
-        "公开反馈和动作必须一致：宣称要开启、申请、进入或创建持续任务生命周期时，action_type 必须是 request_task_run。",
-    ]
-    if "request_task_run" in allowed_actions:
-        action_selection_rules.extend(
-            [
-                "如果需要 Task 但入口理由、primary_mode、最小下一步、约束或验收模式不足以形成 TaskStartIntent，必须选择 ask_user 补齐关键缺口。",
-                "request_task_run 是持续工作生命周期容器的启动合同，不是普通工具调用；工具执行发生在持续工作身份被接受并绑定之后。",
-                "如果当前 turn 可以通过有限工具调用完成、验证并收口，应继续使用 respond 或普通 tool_call，但不能把公开反馈写成任务启动。",
-            ]
-        )
-    else:
-        action_selection_rules.append(
-            "如果当前工作确实需要持续 Task 但本轮没有挂载 request_task_run，必须用可用动作公开说明持续任务生命周期未挂载或补齐缺口；不能假装已经进入持续任务。"
-        )
-    return {
-        "format": "natural_response_or_structured_action",
-        "allowed_actions": list(allowed_actions),
-        "forbidden": list(dict.fromkeys(forbidden)),
-        "action_selection_rules": action_selection_rules,
-        "action_protocol": {
-            "single_control_action_per_turn": True,
-            "structured_action": {
-                "enabled": json_action_enabled,
-                "required": json_action_required,
-                "required_for": "explicit_action_phase" if json_action_required else "execution_or_task_action",
-                "action_identity_bound_by_runtime": True,
-            },
-            "assistant_messages": {
-                "enabled": bool(control_capabilities.get("may_emit_assistant_message") is not False),
-                "response_form": "natural_response",
-                "terminal_when_no_action": True,
-                "raw_text_is_not_a_control_action": True,
-            },
-            "ordinary_tool_calls": {
-                "enabled": "tool_call" in allowed_actions,
-                "submission": "choose_available_tool_and_fill_arguments",
-                "multi_tool_calls_allowed": True,
-                "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
-                "boundary": "runtime_visible_tools_only",
-                "denied_or_failed_tool_calls_return_observations": True,
-            },
-            "control_actions": {
-                "enabled": json_action_enabled,
-                "submission": "action_object",
-                "allowed_action_types": [
-                    item
-                    for item in ("respond", "ask_user", "block", "request_task_run", "active_work_control", "pause_for_user_steer")
-                    if item in allowed_actions
-                ],
-                "parallel_allowed": False,
-            },
-            "tool_action_contract": {
-                "enabled": "tool_call" in allowed_actions,
-                "multi_tool_calls_allowed": "tool_call" in allowed_actions,
-                "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
-                "control_actions_exposed_as_tools": False,
-                "visible_tool_boundary": "普通工具行动只能选择本轮 RuntimeToolPlan 挂载并展示的工具。",
-            },
-            "action_submission_table": {
-                "control_actions": {
-                    "submission": "action_object",
-                    "allowed_action_types": [
-                        item
-                        for item in (
-                            "respond",
-                            "ask_user",
-                            "block",
-                            "request_task_run",
-                            "active_work_control",
-                            "resume_recoverable_work",
-                            "pause_for_user_steer",
-                        )
-                        if item in allowed_actions
-                    ],
-                },
-                "ordinary_tool_calls": {
-                    "submission": "choose_available_tool_and_fill_arguments",
-                    "multi_tool_calls_allowed": "tool_call" in allowed_actions,
-                },
-                "assistant_body": {
-                    "enabled_when": "model_has_no_tool_or_control_action_and_is_answering_user",
-                    "disabled_reason_when_json_required": "explicit_control_phase_requires_structured_control_decision",
-                    "raw_text_is_not_a_control_action": True,
-                },
-            },
-            "public_feedback_contract": {
-                "feedback_must_be_model_authored": True,
-                "feedback_must_match_action_type": True,
-                "task_lifecycle_claim_requires_request_task_run": "如果公开反馈宣称开启、申请、进入或创建持续任务生命周期，本轮动作必须是 request_task_run。",
-                "tool_call_feedback_granularity": "tool_call/tool_calls 的公开反馈由 agent 按语义目标书写；tool_calls[] 表示一个语义动作内的一批工具请求，public_progress_note 描述共同查证目标，不逐工具播报。",
-                "tool_observation_feedback_granularity": "工具观察返回后，agent 按观察是否改变公开结论、风险、阻塞、验收状态或下一步来决定反馈；批量结果按共同语义目标汇总，不按工具条数逐项输出。",
-                "structured_action_feedback_fields": [
-                    "public_progress_note",
-                    "public_action_state.current_judgment",
-                    "final_answer",
-                    "user_question",
-                    "blocking_reason",
-                ],
-                "tool_events_are_not_user_responses": True,
-            },
-        },
-        "planning_protocol": dict(planning_protocol or {}),
-        "semantic_tool_actions": {
-            "tool_call": {
-                "enabled": "tool_call" in allowed_actions,
-                "boundary": "runtime_visible_tools_only",
-                "multi_tool_calls_allowed": True,
-                "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
-                "denied_or_failed_calls_return_observations": True,
-            },
-        },
-        "control_actions": {
-            "request_task_run": {
-                "enabled": "request_task_run" in allowed_actions,
-                "required_fields": [
-                    "task_run_contract_seed.contract_shape",
-                    "task_run_contract_seed.entry_reason",
-                    "task_run_contract_seed.primary_mode",
-                    "task_run_contract_seed.minimum_viable_next_step",
-                    "task_run_contract_seed.working_scope",
-                    "task_run_contract_seed.acceptance.mode",
-                    "task_run_contract_seed.mode_payload",
-                ],
-                "operation_boundary": "request_task_run is available only when the current action contract exposes a new task lifecycle. It does not control, resume, pause, replace, or mutate active_work_context.",
-            },
-            "resume_recoverable_work": {
-                "enabled": "resume_recoverable_work" in allowed_actions,
-                "operation_availability_gate": (
-                    "Use resume_recoverable_work only when Current Runtime Boundary reports "
-                    "recoverable_work.resume_allowed=true and the latest user message asks to resume that recoverable task. "
-                    "The action must include "
-                    "recovery_resume.work_ref and recovery_resume.resume_ref from recoverable_work. If a "
-                    "recovery_boundary_receipt is present, its operation_availability.resume_recoverable_work must be true. "
-                    "Do not use this action for interrupted_turn_work, recent_work_outcome, terminal_read_only records, "
-                    "or ordinary current-work control."
-                ),
-                "required_fields": ["recovery_resume.work_ref", "recovery_resume.resume_ref"],
-                "runtime_revalidation": "恢复边界会在执行前重新校验这些句柄。",
-            },
-            "active_work_control": {
-                "enabled": "active_work_control" in allowed_actions,
-                "operation_availability_gate": (
-                    "Before choosing active_work_control, check Current Runtime Boundary field "
-                    "current_work_boundary_receipt.operation_availability.active_work_control. Use active_work_control "
-                    "only when that value is true; if it is false or missing, treat active_work_context "
-                    "as read-only state and choose respond, ask_user, block, request_task_run, or another legal action."
-                ),
-                "required_fields": ["action", "relation_to_current_work"],
-                "payload_schema": {
-                    "action": "one of allowed_controls; use this exact field name for the control decision",
-                    "response": "本次控制动作的用户可见反馈意图；它会和执行结果组成控制回执，不是一条脱离控制动作的最终正文",
-                    "appended_instruction": "required when action is append_instruction_to_active_work unless the latest user message itself is the instruction",
-                    "relation_to_current_work": "current_work when the latest user message clearly points at the active work",
-                    "continuation_strategy": "same_run_resume, already_running, defer, or none",
-                    "turn_response_policy": "answer_only, answer_then_active_work, active_work_only, or no_user_reply",
-                    "user_turn_kind": "question, complaint, command, mixed, or statement",
-                    "answer_obligation": "direct_answer_required, acknowledgement_only, or none",
-                    "evidence": "brief visible reason showing why the latest user message controls the current work",
-                },
-                "allowed_controls": [
-                    "continue_active_work",
-                    "pause_active_work",
-                    "stop_active_work",
-                    "append_instruction_to_active_work",
-                    "answer_about_active_work",
-                    "answer_then_continue_active_work",
-                ],
-            },
-            **(
-                {
-                    "pause_for_user_steer": {
-                        "enabled": True,
-                        "operation_availability_gate": (
-                            "Use pause_for_user_steer only when this invocation's allowed_action_types contains "
-                            "pause_for_user_steer and the task runtime boundary contains pending_user_steers for the "
-                            "current task_run. It is a task lifecycle control action, not a tool."
-                        ),
-                        "required_fields": [
-                            "pause_request.reason=user_steer_requires_pause",
-                            "pause_request.steer_ref",
-                            "pause_request.checkpoint_summary",
-                        ],
-                        "payload_schema": {
-                            "reason": "must be user_steer_requires_pause",
-                            "steer_ref": "one steer_id from pending_user_steers for this task_run",
-                            "checkpoint_summary": "what is complete, what is not complete, and where the task can resume",
-                            "resume_hint": "optional first judgment to make after resume",
-                            "requires_user_input": "optional boolean",
-                        },
-                        "boundary": (
-                            "Do not use for permission/resource/tool/budget failures. Do not consume the steer in "
-                            "diagnostics; the steer remains pending so the resumed agent can decide how to handle it."
-                        ),
-                    }
-                }
-                if "pause_for_user_steer" in allowed_actions
-                else {}
-            ),
-        },
-        "capability_source": dict(control_capabilities or {}),
-    }
-
+    return turn_output_contract_payload(
+        allowed_actions=allowed_actions,
+        control_capabilities=control_capabilities,
+        planning_protocol=planning_protocol,
+    )
 
 def _active_work_model_visible_payload(
     active_work_context: dict[str, Any] | None,
@@ -4007,7 +3528,7 @@ def _extract_attachment_context_payload(payload: dict[str, Any] | None) -> tuple
     return attachment_payload, _drop_empty_payload(current)
 
 
-def _extract_task_mode_tail_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
+def _extract_turn_reflex_tail_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
     current = dict(payload or {})
     task_mode_payload = _drop_empty_payload(
         {
@@ -4214,7 +3735,7 @@ def _read_evidence_context_source_ref(
     return f"{source_ref_prefix}:read_evidence_context:{digest or fallback_index}"
 
 
-def _task_mode_tail_context_message_specs(
+def _turn_reflex_tail_context_message_specs(
     payload: dict[str, Any] | None,
     *,
     source_ref_prefix: str,
@@ -4225,29 +3746,29 @@ def _task_mode_tail_context_message_specs(
     for descriptor in (
         {
             "key": "task_goal_context",
-            "title": "task goal context",
-            "authority_class": "task_goal_context",
-            "content_source": "harness.runtime.dynamic_context.task_mode_tail_context.task_goal_context",
-            "runtime_fragment_role": "task_goal_context",
-            "semantic_slot": "task_goal_context",
+            "title": "turn goal resource context",
+            "authority_class": "turn_goal_resource_context",
+            "content_source": "harness.runtime.dynamic_context.turn_reflex_tail_context.task_goal_context",
+            "runtime_fragment_role": "turn_goal_resource_context",
+            "semantic_slot": "turn_goal_resource_context",
             "semantic_rank": 21,
         },
         {
             "key": "task_plan_context",
-            "title": "task plan context",
-            "authority_class": "task_plan_context",
-            "content_source": "harness.runtime.dynamic_context.task_mode_tail_context.task_plan_context",
-            "runtime_fragment_role": "task_plan_context",
-            "semantic_slot": "task_plan_context",
+            "title": "turn plan cursor context",
+            "authority_class": "turn_plan_cursor_context",
+            "content_source": "harness.runtime.dynamic_context.turn_reflex_tail_context.task_plan_context",
+            "runtime_fragment_role": "turn_plan_cursor_context",
+            "semantic_slot": "turn_plan_cursor_context",
             "semantic_rank": 22,
         },
         {
             "key": "task_todo_context",
-            "title": "task todo context",
-            "authority_class": "task_todo_context",
-            "content_source": "harness.runtime.dynamic_context.task_mode_tail_context.task_todo_context",
-            "runtime_fragment_role": "task_todo_context",
-            "semantic_slot": "task_todo_context",
+            "title": "turn todo cursor context",
+            "authority_class": "turn_todo_cursor_context",
+            "content_source": "harness.runtime.dynamic_context.turn_reflex_tail_context.task_todo_context",
+            "runtime_fragment_role": "turn_todo_cursor_context",
+            "semantic_slot": "turn_todo_cursor_context",
             "semantic_rank": 23,
         },
     ):
@@ -4282,7 +3803,7 @@ def _task_mode_tail_context_message_specs(
                     "context_prefix_tier": "volatile",
                     "context_commit_policy": "never_commit",
                     "context_replay_policy": "current_dynamic_tail_only",
-                    "stability_rule": "Task mode tail segments are current control state and must not be sealed into provider-visible memory.",
+                    "stability_rule": "Turn reflex tail segments are current resource/cursor state and must not be sealed into provider-visible memory.",
                 },
             )
         )
@@ -6421,8 +5942,8 @@ def _model_decision_contract_payload(
             "ask_user_requires_top_level_user_question": "action_type=ask_user 时，用户要回答的问题必须写在顶层 user_question；不要通过工具调用表达。",
             "block_requires_top_level_blocking_reason": "action_type=block 时，真实阻塞原因必须写在顶层 blocking_reason。",
             "request_task_run_uses_compact_task_start_intent": (
-                "action_type=request_task_run 时，只填写紧凑 TaskStartIntent；"
-                "内部 TaskRunContract 和 WorkModeContract 由运行时生成。"
+                "action_type=request_task_run 时，只在 task_run_contract_seed 内填写紧凑 TaskStartIntent；"
+                "这是申请长任务资源的控制动作，不是普通工具调用，也不是第二套模型生命周期。"
             ),
             **(
                 {
@@ -6457,31 +5978,31 @@ def _model_decision_contract_payload(
             if pause_for_user_steer_allowed
             else {}
         ),
-        "task_entry_rule": {
+        "long_task_resource_rule": {
             "request_task_run_allowed": bool(task_run_allowed),
-            "you_choose_task_lifecycle_when_turn_boundary_is_insufficient": bool(task_run_allowed),
+            "agent_selects_resource_request": bool(task_run_allowed),
             "ask_user_when_contract_gaps_exist": True,
             "task_start_requires_structured_request_task_run": True,
-            "task_upgrade_conditions": [
-                "当前 turn 无法稳定承载目标、计划、状态、恢复、验收、审计、用户可追踪阶段反馈或资源隔离。",
-                "工作需要跨 turn 状态记录、暂停/恢复/停止/replan、明确完成证据、长期执行、独立验收或资源隔离。",
-                "工具或上下文预算已触达边界，需要保存证据、未完成项和恢复点后继续。",
+            "resource_request_conditions": [
+                "需要跨 turn 保存目标、计划游标、todo 游标、证据、恢复点、验收边界或阶段反馈。",
+                "用户需要能暂停、停止、恢复或继续同一个工作单元。",
+                "当前动作需要一个明确的系统资源边界，而不是一次普通工具观察。",
             ],
-            "request_task_run_required_when_agent_decides_lifecycle": (
-                "如果你判断需要持续任务生命周期，并且紧凑 TaskStartIntent 足够，提交 action_type=request_task_run；"
-                "不要先用普通工具调用替代任务启动。"
+            "request_task_run_when_agent_selects_resource": (
+                "如果你判断需要长任务资源，并且 TaskStartIntent 足够，提交 action_type=request_task_run；"
+                "不要先用普通工具调用替代资源申请。"
             ),
-            "ask_user_required_when_lifecycle_contract_incomplete": (
-                "如果你判断需要持续任务生命周期但入口理由、主工作模式、最小下一步、约束或验收模式不足，提交 ask_user 补齐。"
+            "ask_user_when_resource_intent_incomplete": (
+                "如果你判断需要长任务资源但 primary_mode、task_shape、最小下一步、范围或验收模式不足，提交 ask_user 补齐。"
             ),
             "single_turn_tool_call_boundary": (
                 "tool_call 是当前 turn 内的有效路径，用于你判断有限工具观察即可回答、验证或推进的问题；"
-                "选择工具动作时，公开反馈应说明本次查证目标，不得宣称开启持续任务生命周期。"
+                "选择工具动作时，公开反馈应说明本次查证目标，不得宣称已经申请或绑定长任务资源。"
             ),
             "request_task_run_minimum_contract": [
-                "task_run_contract_seed.contract_shape=compact_task_start_intent_v1",
-                "task_run_contract_seed.entry_reason",
+                "task_run_contract_seed.contract_shape=compact_task_start_intent_v3",
                 "task_run_contract_seed.primary_mode",
+                "task_run_contract_seed.task_shape",
                 "task_run_contract_seed.minimum_viable_next_step",
                 "task_run_contract_seed.working_scope",
                 "task_run_contract_seed.acceptance.mode",
@@ -6967,10 +6488,10 @@ def _capability_directory_model_visible_payload(assembly_payload: dict[str, Any]
     )
 
 
-def _current_task_attention_index_payload(
+def _turn_reflex_index_payload_from_task_resource(
     *,
     task_contract_payload: dict[str, Any],
-    task_mode_tail_context_payload: dict[str, Any],
+    turn_reflex_tail_context_payload: dict[str, Any],
     task_state_payload: dict[str, Any],
 ) -> dict[str, Any]:
     contract_root = dict(dict(task_contract_payload or {}).get("task_run_contract") or {})
@@ -6995,17 +6516,17 @@ def _current_task_attention_index_payload(
         if isinstance(item, str) and _looks_like_project_path(item)
     ]
     acceptance = dict(contract_root.get("acceptance_contract") or task_run_context.get("acceptance_contract") or {})
-    plan_focus = _task_attention_plan_focus(plan_contract, task_mode_tail_context_payload)
-    todo_focus = _task_attention_todo_focus(todo_contract, task_mode_tail_context_payload, task_state_payload)
+    plan_focus = _task_attention_plan_focus(plan_contract, turn_reflex_tail_context_payload)
+    todo_focus = _task_attention_todo_focus(todo_contract, turn_reflex_tail_context_payload, task_state_payload)
     return _drop_empty_payload(
         {
-            "current_task_attention_index": _drop_empty_payload(
+            "turn_reflex_index": _drop_empty_payload(
                 {
-                    "authority": "harness.runtime.current_task_attention_index",
+                    "authority": "harness.runtime.turn_reflex_index",
                     "agent_use_contract": (
-                        "Before choosing the next action, re-anchor on this current task index. "
-                        "Use it as an attention guide; full authority remains in TaskRunContract, "
-                        "Task Mode Context, Current Runtime Boundary, and tool observations."
+                        "Before choosing the next action, re-anchor on this current turn reflex index. "
+                        "Use it as a volatile attention guide for the active resource, scope, plan cursor, "
+                        "todo cursor, acceptance boundary, runtime boundary, and tool observations."
                     ),
                     "task_goal": _compact_text(
                         goal_contract.get("task_run_goal")
@@ -7034,8 +6555,8 @@ def _current_task_attention_index_payload(
                     "context_pointers": _drop_empty_payload(
                         {
                             "full_task_contract": "Task execution task contract",
-                            "long_plan_context": "Task Plan Context" if plan_focus else "",
-                            "current_todo_context": "Task Todo Context" if todo_focus else "",
+                            "long_plan_context": "Turn plan cursor context" if plan_focus else "",
+                            "current_todo_context": "Turn todo cursor context" if todo_focus else "",
                             "current_runtime_boundary": "Current Runtime Boundary",
                         }
                     ),
@@ -7090,8 +6611,8 @@ def _task_attention_working_scope(*values: Any) -> dict[str, Any]:
     )
 
 
-def _task_attention_plan_focus(plan_contract: dict[str, Any], task_mode_tail_context_payload: dict[str, Any]) -> dict[str, Any]:
-    plan_tail = dict(dict(task_mode_tail_context_payload or {}).get("task_plan_context") or {})
+def _task_attention_plan_focus(plan_contract: dict[str, Any], turn_reflex_tail_context_payload: dict[str, Any]) -> dict[str, Any]:
+    plan_tail = dict(dict(turn_reflex_tail_context_payload or {}).get("task_plan_context") or {})
     baseline = dict(plan_tail.get("task_plan_baseline") or {})
     items = list(baseline.get("items") or plan_contract.get("major_steps") or [])
     summarized_items = _attention_item_summaries(items, id_key="step_id", text_keys=("title", "content", "summary"), limit=6)
@@ -7116,11 +6637,11 @@ def _task_attention_plan_focus(plan_contract: dict[str, Any], task_mode_tail_con
 
 def _task_attention_todo_focus(
     todo_contract: dict[str, Any],
-    task_mode_tail_context_payload: dict[str, Any],
+    turn_reflex_tail_context_payload: dict[str, Any],
     task_state_payload: dict[str, Any],
 ) -> dict[str, Any]:
     _ = task_state_payload
-    todo_tail = dict(dict(task_mode_tail_context_payload or {}).get("task_todo_context") or {})
+    todo_tail = dict(dict(turn_reflex_tail_context_payload or {}).get("task_todo_context") or {})
     baseline = dict(todo_tail.get("task_todo_baseline") or {})
     cursor = dict(todo_tail.get("todo_cursor") or {})
     baseline_items = list(baseline.get("items") or todo_contract.get("items") or [])

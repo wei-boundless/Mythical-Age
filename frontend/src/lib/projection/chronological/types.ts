@@ -45,6 +45,9 @@ export type ProjectionDiagnostic = {
 
 export type BodySegment = {
   id: string;
+  bodyRef?: string;
+  messageRef?: string;
+  contentSha256?: string;
   text: string;
   firstOffset: number;
   lastOffset: number;
@@ -143,6 +146,9 @@ export type ChronologicalProjectionLedger = {
 export type BodyProjectionBlock = {
   kind: "body_segment";
   id: string;
+  bodyRef?: string;
+  messageRef?: string;
+  contentSha256?: string;
   text: string;
   firstOffset: number;
   lastOffset: number;

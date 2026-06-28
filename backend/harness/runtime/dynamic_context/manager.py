@@ -26,7 +26,7 @@ from .observation_projector import ObservationProjector
 from .replacement_store import MemoryReplacementStore, ReplacementStore
 from .runtime_delta_projector import RuntimeDeltaProjector
 from .task_context_baseline import build_task_context_baseline_receipt
-from .task_mode_tail_context import build_task_mode_tail_contexts
+from .turn_reflex_tail_context import build_turn_reflex_tail_contexts
 from .task_state_projector import TaskStateProjector
 from .token_budget import build_budget_report
 from .tool_result_projector import ToolResultProjector
@@ -249,7 +249,7 @@ class DynamicContextManager:
             envelope_projection=envelope_projection,
             include_task_run_context=bool(dict(request.projection_policy or {}).get("include_task_run_context", True)),
         )
-        task_mode_tail_contexts = build_task_mode_tail_contexts(
+        turn_reflex_tail_contexts = build_turn_reflex_tail_contexts(
             task_state,
             task_run_id=request.task_run_id,
             task_contract=request.task_contract,
@@ -263,8 +263,8 @@ class DynamicContextManager:
         payload = {
             "task_state": task_state_cursor,
         }
-        if task_mode_tail_contexts:
-            payload.update(task_mode_tail_contexts)
+        if turn_reflex_tail_contexts:
+            payload.update(turn_reflex_tail_contexts)
         if evidence_index_cursor:
             payload.update(evidence_index_cursor)
         payload.update(_editor_context_dynamic_projection(request.editor_context))

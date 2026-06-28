@@ -6,62 +6,91 @@
 
 状态：等待用户审阅后再实施。
 
-本文替代此前围绕 `request_task_run`、`entry_reason` 和七类 `primary_mode` 的临时草案。当前代码尚未按本文修改。
+本文替代此前围绕 `request_task_run`、`entry_reason`、七类 `primary_mode` 以及把 `todo` 当作任务模式的临时草案。当前代码尚未按本文修改。
+
+执行链路以 `task_as_turn_overlay_architecture_review_20260628.md` 为更底层约束：本文件负责定义 `request_task_run`、`TaskStartIntent` 和任务契约分层；普通 `TaskRun` 的模型决策、工具调用和最终回复必须回到 `single_agent_turn + task overlay + state patch`，不能默认进入独立 `task_executor` 模型循环。
+
+底层源码对照见 `task_as_turn_overlay_architecture_review_20260628.md` 第 2.9 节；该节已对 Codex、Claude Code、Hermes 与当前项目的 runtime branch、TaskRun lifecycle、ActiveTurn state、task executor、provider schema 和 CLI/slash 入口逐项对齐。
 
 本次关键修正：
 
 - `request_task_run` 名称保留。
-- `request_task_run` 是 agent 发出的“启动持续任务生命周期”的控制信号。
+- `request_task_run` 是 agent 发出的“请求系统开启长任务运行资源”的控制信号。
 - 系统不根据用户自然语言猜测是否应该启动任务。
 - provider strict tool/function calling 用作控制动作 schema 的承载层。
 - `entry_reason` 退出 agent-facing 启动合同。
 - agent-facing 启动合同使用 `task_objective` 表达任务目标。
-- `goal / plan / todo` 是任务模式，因为它们是 agent 可以显式建立并执行的任务契约。
-- `investigation / recovery / monitor / open_work` 不是与 `goal / plan / todo` 同级的任务模式，而是通过填写显式任务契约形成的任务形态。
-- 图任务以后应复用这些显式任务契约，而不是重新写一套隐式任务语义。
+- `primary_mode` 只表示请求 `TaskRun` 资源时要保存的主执行契约，只能是 `goal` 或 `plan`。
+- `todo` 不是任务模式；`todo` 是任务执行工具契约，用来维护执行清单、状态和当前游标。
+- `investigation / recovery / monitor / open_work` 不是 `primary_mode`，而是通过填写形态契约形成的任务形态。
+- 图任务以后应复用同一套显式任务契约，而不是重新写一套隐式任务语义。
 
 ## 1. 核心定义
 
 ### 1.1 TaskRun
 
-`TaskRun` 是持续任务生命周期容器。
+`TaskRun` 是系统为长任务运行分配的资源。
 
-它负责绑定：
+它负责绑定和管理：
 
 - 任务身份；
 - 任务目标；
-- 显式任务模式契约；
+- 主执行契约；
+- 可选执行工具契约；
 - 任务形态契约；
 - 执行状态；
 - 进度投影；
 - 暂停、恢复、停止和失败收口；
 - 验收与最终回复要求。
 
-`TaskRun` 不是 agent 的普通工具调用结果，也不是系统根据用户文字生成的语义标签。
+`TaskRun` 不是 agent 的普通工具调用结果，不是 agent 的新生命周期，也不是系统根据用户文字生成的语义标签。
 
-### 1.2 任务模式 Task Mode
+对 agent 来说，`TaskRun` 只通过当前 turn 的动作面和尾部状态投影出现。agent 不进入 task 模式；agent 仍然在 turn 中行动。
 
-任务模式是 agent 可以显式建立的执行契约。
+### 1.2 主任务模式 Primary Mode
 
-当前任务模式只包括：
+主任务模式是 agent 请求系统开启 `TaskRun` 资源时选择的主执行契约。
+
+当前 `primary_mode` 只包括：
 
 ```text
 goal
 plan
-todo
 ```
 
-原因：
+含义：
 
 - `goal` 建立目标契约，明确要达成什么、成功定义是什么、哪些证据可以证明完成。
 - `plan` 建立计划契约，明确按哪些步骤推进、如何变更计划、何时重规划。
-- `todo` 建立执行清单契约，明确当前事项、执行游标、完成状态和更新规则。
 
-它们不是普通字段，也不是低一层的附属材料。它们之所以叫任务模式，正是因为 agent 可以选择建立这些契约，并在这些契约下执行任务。
+`primary_mode` 决定这段长任务资源保存哪一种主执行契约。它回答的是：后续 turn 的持续状态应以“达成目标”为主，还是以“按计划推进”为主。
 
-### 1.3 任务形态 Task Shape
+### 1.3 Todo Tool Contract
 
-任务形态是由任务模式契约组合出来的工作场景。
+`todo` 不是 `primary_mode`。
+
+`todo` 是任务执行工具契约。它负责维护：
+
+- 当前执行清单；
+- 当前 active item；
+- item 状态；
+- item 依赖；
+- 清单更新规则；
+- 任务恢复时的执行游标。
+
+`todo` 可以挂在任何 `TaskRun` 上，但它不能单独定义一段长任务资源。
+
+换句话说：
+
+- 如果 agent 要达成一个结果，使用 `primary_mode=goal`，必要时挂载 `todo_tool_contract`。
+- 如果 agent 要按阶段或步骤推进，使用 `primary_mode=plan`，必要时挂载 `todo_tool_contract`。
+- 如果 agent 只是需要维护事项清单，也必须先说明这条清单服务于哪个目标或计划。
+
+`todo` 是显式任务契约构件，但不是任务模式。
+
+### 1.4 任务形态 Task Shape
+
+任务形态是主执行契约进入具体工作场景后的形状。
 
 任务形态包括：
 
@@ -77,12 +106,13 @@ open_work
 
 它们通过填写对应的形态契约获得：
 
-- `investigation`：由目标、计划、证据范围和调查裁决合同形成。
-- `recovery`：由恢复句柄、旧状态、恢复边界和目标/计划/todo 合同形成。
-- `monitor`：由观察对象、触发条件、检查点和停止规则形成。
-- `open_work`：由最小目标、当前边界、下一步和后续升级条件形成。
+- `standard`：普通目标或计划任务。
+- `investigation`：查明未知问题，输出结论、证据和下一步裁决。
+- `recovery`：从失败、暂停或中断状态恢复，接续已有目标、计划和执行游标。
+- `monitor`：在有边界的观察窗口内持续观察目标。
+- `open_work`：目标或范围尚未完全稳定，但确实需要系统分配长任务资源的过渡形态。
 
-任务形态不能替代任务模式。即使是 `recovery`，也必须说明恢复后是在目标模式、计划模式还是 todo 模式下继续执行。
+任务形态不能替代主任务模式。即使是 `recovery`，也必须说明恢复后是在 `goal` 还是 `plan` 契约下继续执行。
 
 ## 2. 当前问题
 
@@ -99,13 +129,19 @@ goal | plan | todo | investigation | recovery | monitor | open_work
 - `backend/harness/runtime/control_action_schema.py:19`
 - `backend/harness/loop/model_action_protocol.py:570`
 
-问题在于：
+问题在于这个枚举混合了三类不同对象：
 
-- `goal / plan / todo` 是 agent 可显式建立的任务模式契约。
-- `investigation / recovery / monitor / open_work` 是通过契约组合得到的任务形态。
-- 二者不应该共用 `primary_mode`。
+- `goal / plan` 是启动 TaskRun 的主执行契约。
+- `todo` 是任务执行工具契约和游标。
+- `investigation / recovery / monitor / open_work` 是任务形态。
 
-这会导致 agent 误以为“调查”“恢复”“监控”本身就是主执行契约，而不再明确建立目标、计划或 todo。
+它们不应该共用 `primary_mode`。
+
+这会导致 agent 误以为：
+
+- 可以用清单本身启动任务，而不说明清单服务的目标或计划；
+- 可以把“调查”“恢复”“监控”当作主执行契约，而不建立真实的目标或计划；
+- 可以让系统根据模糊语义补猜 agent 本应显式给出的任务结构。
 
 ### 2.2 `entry_reason` 仍然污染启动合同
 
@@ -125,7 +161,8 @@ goal | plan | todo | investigation | recovery | monitor | open_work
 runtime 真正需要的是：
 
 - 要完成什么；
-- 用哪个显式任务模式承载；
+- 用 `goal` 还是 `plan` 承载；
+- 是否需要 `todo` 执行工具；
 - 当前任务是什么形态；
 - 第一步做什么；
 - 看哪些对象；
@@ -142,9 +179,9 @@ runtime 真正需要的是：
 
 问题：
 
-agent 才能决定本次任务以哪个显式任务模式执行。runtime 可以校验、归一化和拒绝，但不能在启动路径里补猜模式。
+agent 才能决定本次任务以哪个主执行契约运行。runtime 可以校验、归一化和拒绝，但不能在启动路径里补猜模式。
 
-### 2.4 模型可见上下文只真实承接了三类契约
+### 2.4 模型可见上下文混淆了主契约和工具契约
 
 当前 manifest 和 tail context 主要承接：
 
@@ -159,7 +196,11 @@ agent 才能决定本次任务以哪个显式任务模式执行。runtime 可以
 - `backend/harness/runtime/compiler.py:6981`
 - `backend/harness/runtime/compiler.py:4217`
 
-这说明 `goal / plan / todo` 确实已经是系统里真实存在的执行契约层。正确方向不是把它们降级，而是把它们正式命名为任务模式，并让调查、恢复、监控、开放工作通过形态契约挂到这些模式上。
+这说明系统已经需要同时暴露目标、计划和执行清单。但正确方向不是把三者都叫任务模式，而是明确分层：
+
+- `goal_context / plan_context` 来自主执行契约；
+- `todo_context` 来自执行工具契约和当前游标；
+- tail context 应该提醒 agent 同时关注主契约、任务形态和 todo 游标，而不是把 todo 伪装成主模式。
 
 ## 3. 目标模型
 
@@ -167,17 +208,19 @@ agent 才能决定本次任务以哪个显式任务模式执行。runtime 可以
 
 `request_task_run` 提交的是紧凑 `TaskStartIntent`。
 
-`TaskStartIntent` 包含两层选择：
+`TaskStartIntent` 包含两类选择和一类可选工具：
 
 ```text
-primary_mode: goal | plan | todo
+primary_mode: goal | plan
 task_shape: standard | investigation | recovery | monitor | open_work
+todo_tool_contract: null | TodoToolContract
 ```
 
 含义：
 
-- `primary_mode` 表示 agent 要显式建立哪一种主任务模式契约。
+- `primary_mode` 表示 agent 要建立哪一种主执行契约。
 - `task_shape` 表示这次任务属于哪一种工作形态。
+- `todo_tool_contract` 表示这次任务是否需要清单、状态和执行游标。
 
 示例：
 
@@ -185,45 +228,58 @@ task_shape: standard | investigation | recovery | monitor | open_work
 调查 bug 根因：
 primary_mode = plan
 task_shape = investigation
+todo_tool_contract = 可选，用于跟踪调查项
 
 恢复失败任务：
-primary_mode = todo 或 plan
+primary_mode = plan 或 goal
 task_shape = recovery
+todo_tool_contract = 可选，用于恢复 active item
 
 持续观察日志：
 primary_mode = plan
 task_shape = monitor
+todo_tool_contract = 可选，用于记录检查项
 
 目标明确但无需复杂计划：
 primary_mode = goal
 task_shape = standard
+todo_tool_contract = 可选，用于跟踪小事项
+
+用户给出一组待办并要求执行：
+primary_mode = plan
+task_shape = standard
+todo_tool_contract = 必填，用作执行游标
 ```
 
-### 3.2 任务模式与任务形态的关系
+### 3.2 TaskRun 契约结构
 
 ```text
 TaskRun
-├─ primary_mode: goal | plan | todo
-├─ mode_contracts
+├─ task_objective
+├─ primary_mode: goal | plan
+├─ primary_mode_contract
 │  ├─ goal_contract
-│  ├─ plan_contract
-│  └─ todo_contract
-└─ task_shape
-   ├─ standard
-   ├─ investigation_contract
-   ├─ recovery_contract
-   ├─ monitor_contract
-   └─ open_work_contract
+│  └─ plan_contract
+├─ todo_tool_contract
+│  └─ todo_cursor
+├─ task_shape
+│  ├─ standard
+│  ├─ investigation_contract
+│  ├─ recovery_contract
+│  ├─ monitor_contract
+│  └─ open_work_contract
+└─ acceptance_contract
 ```
 
 规则：
 
-- 每个 TaskRun 必须有一个 `primary_mode`。
-- `primary_mode` 只能是 `goal / plan / todo`。
+- 每个 `TaskRun` 必须有一个 `primary_mode`。
+- `primary_mode` 只能是 `goal / plan`。
+- `todo_tool_contract` 可以为空，但不能替代 `primary_mode_contract`。
 - `task_shape` 默认是 `standard`。
 - 非 standard 形态必须填写对应形态契约。
-- 形态契约不能替代模式契约。
-- 图任务节点以后可以直接引用这些模式契约和形态契约。
+- 形态契约不能替代主执行契约。
+- 图任务节点以后可以直接引用这些契约。
 
 ## 4. TaskStartIntent v3
 
@@ -231,17 +287,17 @@ agent-facing `request_task_run` 参数：
 
 ```json
 {
-  "public_progress_note": "向用户说明正在开启一条持续任务线",
+  "public_progress_note": "向用户说明正在请求系统开启长任务资源",
   "public_action_state": {
     "visible_status": "thinking",
-    "current_judgment": "当前目标需要持续任务生命周期",
+    "current_judgment": "当前目标需要系统分配长任务资源",
     "next_action": "提交 request_task_run",
     "evidence_refs": [],
     "open_risks": [],
     "completion_status": "working"
   },
   "task_objective": "这条任务线最终要完成的具体目标",
-  "primary_mode": "goal|plan|todo",
+  "primary_mode": "goal|plan",
   "task_shape": "standard|investigation|recovery|monitor|open_work",
   "minimum_viable_next_step": "任务启动后立刻执行的第一步",
   "working_scope": {
@@ -256,11 +312,8 @@ agent-facing `request_task_run` 参数：
     "criteria": [],
     "final_answer_requirements": []
   },
-  "mode_contracts": {
-    "goal": {},
-    "plan": {},
-    "todo": {}
-  },
+  "primary_mode_contract": {},
+  "todo_tool_contract": null,
   "shape_contract": {}
 }
 ```
@@ -273,7 +326,8 @@ agent-facing `request_task_run` 参数：
 - `minimum_viable_next_step`
 - `working_scope`
 - `acceptance.mode`
-- `mode_contracts`
+- `primary_mode_contract`
+- `todo_tool_contract`
 - `shape_contract`
 
 公开反馈字段：
@@ -283,19 +337,21 @@ agent-facing `request_task_run` 参数：
 
 公开反馈用于用户可见状态和动作一致性，不参与系统判断是否应该启动任务。
 
-## 5. 显式任务模式契约
+`todo_tool_contract` 作为字段保留，但允许为 `null`。这样 strict schema 稳定，当前任务是否需要 todo 由 agent 在字段值中显式表达，而不是让 runtime 从自然语言里猜。
 
-### 5.1 Goal Mode Contract
+## 5. 显式契约构件
+
+### 5.1 Goal Primary Contract
 
 用途：
 
-Goal Mode 用来建立目标型任务。agent 明确知道要达成什么，并能给出成功定义。
+Goal contract 用来建立目标型任务。agent 明确知道要达成什么，并能给出成功定义。
 
 契约：
 
 ```json
 {
-  "mode_kind": "goal",
+  "contract_kind": "goal",
   "goal_contract": {
     "user_visible_goal": "给用户看的目标表述",
     "task_run_goal": "agent 执行时使用的目标表述",
@@ -322,7 +378,7 @@ agent 使用规则：
 
 - 目标必须可执行，不写“处理一下”“继续看”。
 - 成功定义必须能被后续验收使用。
-- 如果目标太大，需要同时建立 Plan Mode 作为 supporting mode。
+- 如果目标太大，需要选择 `primary_mode=plan`，或者在后续通过任务控制升级为计划推进。
 - 如果执行中目标变化，必须通过 replan 或任务控制显式说明。
 
 图任务用途：
@@ -330,17 +386,17 @@ agent 使用规则：
 - 图节点可以把 `goal_contract` 作为节点任务目标。
 - 图边可以读取 `success_definition` 和 `completion_evidence` 判断是否进入下一节点。
 
-### 5.2 Plan Mode Contract
+### 5.2 Plan Primary Contract
 
 用途：
 
-Plan Mode 用来建立步骤型任务。agent 需要按计划推进、更新步骤、记录偏差，并在必要时重规划。
+Plan contract 用来建立步骤型任务。agent 需要按计划推进、更新步骤、记录偏差，并在必要时重规划。
 
 契约：
 
 ```json
 {
-  "mode_kind": "plan",
+  "contract_kind": "plan",
   "plan_contract": {
     "plan_id": "plan:stable-id",
     "plan_version": "initial",
@@ -375,29 +431,33 @@ Plan Mode 用来建立步骤型任务。agent 需要按计划推进、更新步�
 
 agent 使用规则：
 
-- Plan Mode 的核心是“按步骤推进”，不是把目标写成一段说明。
+- Plan contract 的核心是“按步骤推进”，不是把目标写成一段说明。
 - 计划很长时，完整计划进入稳定上下文，当前步骤进入尾部注意力索引。
 - 偏离计划必须解释偏离原因或更新计划。
-- 计划不是 todo cursor；todo 是执行清单，plan 是策略结构。
+- todo 不是计划本身；todo 是执行清单和当前游标，plan 是策略结构。
+- 如果需要逐项执行和频繁更新状态，在 `todo_tool_contract` 中维护执行游标。
 
 图任务用途：
 
 - 图任务可以把 `major_steps` 编译成子节点、阶段或边条件。
 - 图运行器可以用 `active_step_id` 和 `done_when` 做进度投影。
 
-### 5.3 Todo Mode Contract
+### 5.3 Todo Tool Contract
 
 用途：
 
-Todo Mode 用来建立执行清单型任务。agent 需要维护当前事项、完成状态和执行游标。
+Todo tool contract 用来在任务执行中维护清单、状态和当前游标。它帮助 agent 记住“现在正在做哪一项”，但不决定这条任务为什么存在。
 
 契约：
 
 ```json
 {
-  "mode_kind": "todo",
-  "todo_contract": {
+  "tool_kind": "todo",
+  "todo_tool_contract": {
+    "enabled": true,
     "todo_list_id": "todo:stable-id",
+    "attached_to_primary_mode": "goal|plan",
+    "source": "agent_created|derived_from_plan|restored_from_task|user_supplied",
     "active_item_id": "",
     "items": [
       {
@@ -415,13 +475,6 @@ Todo Mode 用来建立执行清单型任务。agent 需要维护当前事项、�
     "cursor_policy": {
       "single_active_item": true,
       "update_required_on_progress_change": true
-    },
-    "working_scope": {
-      "target_objects": [],
-      "workspace_refs": [],
-      "source_refs": [],
-      "excluded_scope": [],
-      "known_constraints": []
     }
   }
 }
@@ -429,19 +482,22 @@ Todo Mode 用来建立执行清单型任务。agent 需要维护当前事项、�
 
 agent 使用规则：
 
-- Todo Mode 的核心是“执行游标和状态更新”。
-- 进度变化时必须更新 todo。
-- todo 不替代 plan；todo 可以来自 plan，也可以单独作为轻量执行契约。
-- 完成 todo 不等于任务验收完成，最终仍看 acceptance。
+- 不允许使用 `primary_mode=todo`。
+- todo 只维护事项、状态和游标，不定义最终验收。
+- todo 可以来自 plan，也可以附着在 goal 下做轻量执行跟踪。
+- 如果用户给的是一组执行事项，通常应使用 `primary_mode=plan`，并把事项放入 `todo_tool_contract`。
+- 进度变化时必须更新 todo cursor。
+- 完成 todo 不等于任务验收完成，最终仍看 `acceptance`。
 
 图任务用途：
 
 - 图任务可以把 todo item 编译成可恢复的执行单元。
 - 图运行器可以用 `active_item_id` 保存恢复位置。
+- 图边可以读取 todo item status，但不能把 todo status 当作任务生命周期的主模式。
 
 ## 6. 任务形态契约
 
-任务形态不是 `primary_mode`。它们是通过填写形态契约，让 Goal/Plan/Todo Mode 进入某种具体工作场景。
+任务形态不是 `primary_mode`。它们是通过填写形态契约，让 `goal` 或 `plan` 主契约进入某种具体工作场景。
 
 ### 6.1 Standard Task Shape
 
@@ -464,7 +520,7 @@ agent 使用规则：
 
 - 明确目标任务；
 - 普通计划任务；
-- 普通 todo 执行任务。
+- 挂载 todo 执行游标的目标或计划任务。
 
 ### 6.2 Investigation Task Shape
 
@@ -501,11 +557,11 @@ agent 使用规则：
 }
 ```
 
-模式组合建议：
+组合建议：
 
 - `primary_mode=plan`：适合多步调查。
-- supporting `todo`：适合跟踪调查项。
-- supporting `goal`：适合固定最终要回答的问题。
+- `primary_mode=goal`：适合只需回答一个边界清楚的问题。
+- `todo_tool_contract`：适合跟踪调查项和证据项。
 
 图任务用途：
 
@@ -516,7 +572,7 @@ agent 使用规则：
 
 用途：
 
-恢复型任务。它不是“恢复模式”，而是带恢复合同的任务形态。恢复后仍必须在 Goal/Plan/Todo Mode 中继续执行。
+恢复型任务。它不是“恢复模式”，而是带恢复合同的任务形态。恢复后仍必须在 `goal` 或 `plan` 主契约下继续执行。
 
 契约：
 
@@ -543,22 +599,22 @@ agent 使用规则：
 }
 ```
 
-模式组合建议：
+组合建议：
 
-- `primary_mode=todo`：适合从中断清单继续。
 - `primary_mode=plan`：适合从中断阶段继续。
-- supporting `goal`：用于保留原目标。
+- `primary_mode=goal`：适合围绕原目标恢复并直接收口。
+- `todo_tool_contract`：适合恢复 active item、未完成事项和执行游标。
 
 图任务用途：
 
 - 图运行器可用 `previous_state_ref` 和 `next_resume_step` 恢复节点。
-- `unfinished_work` 可转成新的 todo items。
+- `unfinished_work` 可转成新的 todo items，但仍挂在 `todo_tool_contract` 下。
 
 ### 6.4 Monitor Task Shape
 
 用途：
 
-监控型任务。当前阶段仅表示有边界的 TaskRun 内观察任务；除非后续实现真实调度器，否则不能暗示无限期后台监控。
+监控型任务。当前阶段仅表示有边界的 `TaskRun` 内观察任务；除非后续实现真实调度器，否则不能暗示无限期后台监控。
 
 契约：
 
@@ -587,11 +643,11 @@ agent 使用规则：
 }
 ```
 
-模式组合建议：
+组合建议：
 
 - `primary_mode=plan`：适合按观察步骤推进。
-- supporting `todo`：适合记录检查项。
-- supporting `goal`：适合说明监控的最终判断目标。
+- `primary_mode=goal`：适合围绕一个明确判断目标观察。
+- `todo_tool_contract`：适合记录检查项。
 
 图任务用途：
 
@@ -610,30 +666,30 @@ agent 使用规则：
 {
   "task_shape": "open_work",
   "shape_contract": {
-    "stabilization_target": "需要逐步稳定成明确 goal、plan 或 todo 的对象",
+    "stabilization_target": "需要逐步稳定成明确 goal 或 plan 的对象",
     "known_boundary": "当前已知边界",
     "known_unknowns": [],
     "minimum_progress_unit": "最小可交付进展",
     "promotion_policy": {
       "promote_to_goal_when": "",
-      "promote_to_plan_when": "",
-      "promote_to_todo_when": ""
+      "promote_to_plan_when": ""
     },
     "review_checkpoint": "何时要求用户或系统重新确认形态"
   }
 }
 ```
 
-模式组合建议：
+组合建议：
 
 - `primary_mode=goal`：适合目标可写但范围仍开放。
 - `primary_mode=plan`：适合先用探索计划推进。
-- 不允许没有显式任务模式就进入 open_work。
+- `todo_tool_contract`：只用于跟踪当前开放工作里的执行事项。
+- 不允许没有主执行契约就进入 `open_work`。
 
 图任务用途：
 
-- 图任务可把 open_work 用作前置澄清节点。
-- 达到 `promotion_policy` 后必须转换为明确目标、计划或 todo 节点。
+- 图任务可把 `open_work` 用作前置澄清节点。
+- 达到 `promotion_policy` 后必须转换为明确目标或计划。
 
 ## 7. Agent-facing 启动引导
 
@@ -642,29 +698,34 @@ agent 使用规则：
 ```text
 你正在为本轮选择唯一行动。
 
-选择 request_task_run，表示你要开启一条新的持续任务线。
-这条任务线必须建立一个显式任务模式契约：goal、plan 或 todo。
+当当前目标需要系统保存目标、步骤、todo 游标、恢复点或验收边界时，选择 request_task_run。
+request_task_run 是资源启动信号。你发出它，就表示你要让 runtime 建立 TaskRun 资源，并从 minimum_viable_next_step 开始持续承载这项工作。
 
-先选择 primary_mode：
-- goal：你要建立目标契约，按成功定义推进；
-- plan：你要建立计划契约，按步骤推进并允许重规划；
-- todo：你要建立执行清单契约，按事项和游标推进。
+先选择 primary_mode，只能二选一：
+- goal：你要达成一个明确结果，并能写出成功定义；
+- plan：你要按步骤、阶段或策略推进，并可能更新计划。
+
+todo 不是 primary_mode。
+todo 是你在任务执行中维护清单、状态和当前游标的工具契约。
+如果这条任务需要跟踪事项，填写 todo_tool_contract。
+不要用 todo 启动任务；要说明这份清单服务于 goal 还是 plan。
 
 再选择 task_shape：
-- standard：普通任务；
-- investigation：查明未知问题；
+- standard：普通目标或计划任务；
+- investigation：查明未知问题，并给出证据、结论和下一步裁决；
 - recovery：从失败、暂停或中断状态恢复；
-- monitor：在有边界的观察窗口内监控目标；
-- open_work：目标或范围尚未完全稳定，但确需持续任务生命周期。
+- monitor：在有边界的观察窗口内观察目标；
+- open_work：目标或范围尚未完全稳定，但确需系统分配长任务资源。
 
 task_shape 不能替代 primary_mode。
-即使是 recovery、monitor 或 investigation，也必须说明恢复、监控或调查是在 goal、plan 还是 todo 契约下执行。
+即使是 recovery、monitor 或 investigation，也必须说明它在 goal 还是 plan 契约下执行。
 
 填写 TaskStartIntent 时：
 - task_objective 写任务最终要完成什么；
-- primary_mode 写主任务模式，只能是 goal、plan 或 todo；
+- primary_mode 写主执行契约，只能是 goal 或 plan；
 - task_shape 写任务形态；
-- mode_contracts 写显式任务模式契约；
+- primary_mode_contract 写 goal 或 plan 对应的契约；
+- todo_tool_contract 写执行清单和游标；不需要时填 null；
 - shape_contract 写任务形态需要的额外合同；
 - minimum_viable_next_step 写任务启动后的第一步；
 - working_scope 写当前任务绑定对象、路径、来源、排除范围和约束；
@@ -672,10 +733,12 @@ task_shape 不能替代 primary_mode。
 
 不要填写 entry_reason。
 不要提交内部 TaskRunContract、工具授权、模型配置、环境策略或 memory 规则。
-无法写清任务目标、任务模式、任务形态、第一步、范围或验收时，选择 ask_user。
+无法写清任务目标、主执行契约、任务形态、第一步、范围或验收时，选择 ask_user。
 需要先取得事实再判断是否启动任务时，选择 tool_call。
 当前回合可以完成时，选择 respond。
 ```
+
+这段引导必须作为 agent 可直接执行的行动说明，而不是写给开发者看的实现说明。
 
 ## 8. Runtime 承接链路
 
@@ -684,14 +747,17 @@ task_shape 不能替代 primary_mode。
 ```text
 provider strict request_task_run
 -> TaskStartIntent v3
--> TaskModeContract normalizer
+-> PrimaryModeContract normalizer
+-> TodoToolContract normalizer
 -> TaskShapeContract normalizer
 -> canonical TaskRunContract
--> task lifecycle creates task_run_id
--> task_contract_manifest projects mode_contracts and shape_contract
--> task_mode_tail_context projects current mode focus and shape focus
+-> TaskRunResourceAllocator creates task_run_id and binds active turn
+-> task_contract_manifest projects primary contract, todo tool and shape contract
+-> task_mode_tail_context projects primary focus, todo cursor and shape focus
 -> Current Task Attention Index
--> executor acts under primary_mode and task_shape
+-> single_agent_turn receives task overlay and chooses normal action
+-> normal tool execution or normal respond
+-> TaskStatePatchExtractor updates plan, todo cursor, shape progress and acceptance
 -> projection / monitor / closeout
 ```
 
@@ -699,14 +765,16 @@ provider strict request_task_run
 
 - runtime 不替 agent 选择 `primary_mode`。
 - runtime 不把 `task_shape` 提升成 `primary_mode`。
+- runtime 不把 `todo_tool_contract` 提升成 `primary_mode`。
 - unsupported `task_shape` 必须显式报错。
 - `open_work` 不能作为 unsupported mode 的自动 fallback。
 - `recovery` 必须有恢复句柄或上一状态引用。
 - `monitor` 在没有调度器前只能表示有边界观察任务。
+- todo 完成状态不能替代 `acceptance`。
 
 ## 9. Current Task Attention Index
 
-尾部注意力索引需要同时呈现任务模式和任务形态。
+尾部注意力索引需要同时呈现主执行契约、任务形态和 todo 游标。
 
 目标结构：
 
@@ -714,7 +782,7 @@ provider strict request_task_run
 {
   "current_task_attention_index": {
     "task_objective": "",
-    "primary_mode": "goal|plan|todo",
+    "primary_mode": "goal|plan",
     "task_shape": "standard|investigation|recovery|monitor|open_work",
     "minimum_viable_next_step": "",
     "required_target_objects": [],
@@ -724,10 +792,18 @@ provider strict request_task_run
     "known_constraints": [],
     "goal_focus": {},
     "plan_focus": {},
-    "todo_focus": {},
+    "todo_cursor": {
+      "enabled": false,
+      "todo_list_id": "",
+      "active_item_id": "",
+      "active_item": "",
+      "pending_count": 0,
+      "blocked_count": 0,
+      "update_required": false
+    },
     "shape_focus": {},
     "acceptance_focus": {},
-    "agent_use_contract": "选择下一步前，先重新锚定当前 TaskRun 的任务模式、任务形态、目标、范围、todo/plan 游标和验收边界。"
+    "agent_use_contract": "选择下一步前，先重新锚定当前 TaskRun 的主执行契约、任务形态、目标、范围、plan step、todo 游标和验收边界。"
   }
 }
 ```
@@ -735,7 +811,8 @@ provider strict request_task_run
 规则：
 
 - `primary_mode` 和 `task_shape` 必须同时出现。
-- `goal_focus / plan_focus / todo_focus` 来自显式模式契约。
+- `goal_focus / plan_focus` 来自主执行契约。
+- `todo_cursor` 来自 `todo_tool_contract`，不是模式 focus。
 - `shape_focus` 来自调查、恢复、监控或开放工作合同。
 - todo 游标必须放在 volatile tail。
 - 长计划的完整内容可以放中段上下文，尾部只放当前步骤和短指针。
@@ -751,7 +828,9 @@ provider strict request_task_run
 - 项目固定规则；
 - provider control action schema；
 - 工具 schema；
-- 任务模式契约定义；
+- goal primary contract 定义；
+- plan primary contract 定义；
+- todo tool contract 定义；
 - 任务形态契约定义。
 
 ### 10.2 request overlay
@@ -784,15 +863,16 @@ provider strict request_task_run
 目标：
 
 - provider schema 使用 `TaskStartIntent v3`。
-- `primary_mode` enum 改为 `goal | plan | todo`。
+- `primary_mode` enum 改为 `goal | plan`。
 - 新增 `task_shape` enum：`standard | investigation | recovery | monitor | open_work`。
 - 移除 agent-facing `entry_reason`。
-- 新增 `mode_contracts` 和 `shape_contract`。
+- 新增 `primary_mode_contract`、`todo_tool_contract` 和 `shape_contract`。
 
 完成标准：
 
 - strict schema 中不再要求 `entry_reason`。
-- provider schema 不暴露内部 TaskRunContract。
+- provider schema 不暴露内部 `TaskRunContract`。
+- 新任务不能提交 `primary_mode=todo`。
 
 ### 11.2 compiler.py / tool_call_contract.py
 
@@ -800,11 +880,12 @@ provider strict request_task_run
 
 - 用第 7 节的中文 agent-facing 引导替换旧说明。
 - 删除“入口理由”式表达。
-- 把 `GoalContext / PlanContext / TodoContext` 改写为显式任务模式契约。
-- attention index 同时呈现 `primary_mode` 和 `task_shape`。
+- 把 `GoalContext / PlanContext / TodoContext` 改写为主执行契约和 todo 工具契约。
+- attention index 同时呈现 `primary_mode`、`task_shape` 和 `todo_cursor`。
 
 完成标准：
 
+- prompt 不再把 `todo` 说成 primary mode。
 - prompt 不再把 `investigation / recovery / monitor / open_work` 说成 primary mode。
 - prompt 不再要求 agent 填 `entry_reason`。
 
@@ -812,10 +893,11 @@ provider strict request_task_run
 
 目标：
 
-- 归一化 TaskStartIntent v3。
-- 验证 `primary_mode` 只能是 `goal / plan / todo`。
+- 归一化 `TaskStartIntent v3`。
+- 验证 `primary_mode` 只能是 `goal / plan`。
 - 验证 `task_shape` 是合法任务形态。
-- 根据 `primary_mode` 规范化对应模式契约。
+- 根据 `primary_mode` 规范化对应主契约。
+- 规范化可选 `todo_tool_contract`。
 - 根据 `task_shape` 规范化对应形态契约。
 - 删除普通 agent-authored 路径上的旧 seed 猜模式逻辑。
 
@@ -823,19 +905,21 @@ provider strict request_task_run
 
 - unsupported mode 或 shape 显式报错。
 - 没有 silent fallback 到 `goal / plan / open_work`。
+- `primary_mode=todo` 在新任务启动中被拒绝。
 
 ### 11.4 task_lifecycle.py
 
 目标：
 
-- 只消费 canonical TaskRunContract seed。
+- 只消费 canonical `TaskRunContract` seed。
 - 不再二次判断模式。
-- `TaskRunContract` 同时保存 `primary_mode`、`task_shape`、`mode_contracts`、`shape_contract`。
+- `TaskRunContract` 同时保存 `primary_mode`、`task_shape`、`primary_mode_contract`、`todo_tool_contract`、`shape_contract`。
 - display title 从 `task_objective` 和显式契约派生。
 
 完成标准：
 
-- lifecycle 层不能改变 primary mode 或 task shape。
+- lifecycle 层不能改变 `primary_mode` 或 `task_shape`。
+- lifecycle 层不能把 todo 升级为主模式。
 
 ### 11.5 task_contract_manifest.py
 
@@ -843,10 +927,10 @@ provider strict request_task_run
 
 - model-visible payload 明确输出：
   - `task_run_context`
-  - `mode_contracts`
+  - `primary_mode_contract`
   - `goal_context`
   - `plan_context`
-  - `todo_context`
+  - `todo_tool_context`
   - `shape_context`
   - `acceptance_contract`
 - `shape_context` 根据 `task_shape` 输出 investigation/recovery/monitor/open_work 的专门上下文。
@@ -854,60 +938,70 @@ provider strict request_task_run
 完成标准：
 
 - 图任务和 agent runtime 都能从 manifest 读取同一套显式契约。
+- todo context 被标注为执行工具上下文，而不是主模式上下文。
 
 ### 11.6 task_mode_tail_context.py
 
 目标：
 
-- 保留并强化 goal/plan/todo tail context。
+- 保留并强化 goal/plan tail context。
+- 新增 todo cursor tail：
+  - `task_todo_cursor`
 - 新增 shape tail context：
   - `task_investigation_context`
   - `task_recovery_context`
   - `task_monitor_context`
   - `task_open_work_context`
-- 这些不是任务模式 tail，而是形态 focus。
+- shape tail 不是任务模式 tail。
+- todo tail 不是任务模式 tail。
 
 完成标准：
 
-- 当前任务尾部能同时提醒任务模式和任务形态。
+- 当前任务尾部能同时提醒主执行契约、任务形态和 todo 游标。
 
-### 11.7 task_executor.py / projector / run_monitor
+### 11.7 task overlay / state patch / projector / run_monitor
 
 目标：
 
-- executor 根据 `primary_mode` 执行显式契约。
-- executor 根据 `task_shape` 调整工作语义。
-- run monitor 显示模式和形态。
+- `single_agent_turn` 根据 task overlay 继续普通行动选择。
+- `TaskStatePatchExtractor` 从普通 turn 的结构化动作、工具观察和最终回复中更新任务状态。
+- task overlay 同时呈现 `primary_mode`、`task_shape`、todo cursor、active plan step 和 acceptance focus。
+- run monitor 显示主模式、形态和 todo cursor。
 - closeout 按形态输出对应收口：
   - investigation 输出发现、证据缺口、裁决；
-  - recovery 输出恢复点、已恢复内容、未完成项；
+  - recovery 输出恢复点、已恢复内容、未完成项和 todo cursor；
   - monitor 输出观察结果、触发状态、停止条件；
-  - open_work 输出已稳定部分、仍开放部分、建议升级模式。
+  - open_work 输出已稳定部分、仍开放部分、建议升级目标或计划。
 
 完成标准：
 
+- 普通 `TaskRun` 不调用独立 task model loop。
 - 任务不会全部被扁平化为 goal/plan 文案。
+- todo 完成状态不会被当作验收完成。
 
 ### 11.8 CLI / slash command
 
 目标：
 
-- CLI 支持显式任务模式：`goal`、`plan`、`todo`。
+- CLI 支持显式主执行模式：`goal`、`plan`。
 - CLI 可通过参数或 contract file 指定 `task_shape`。
-- slash command 不应把 `recovery`、`monitor` 当作主模式命令。
+- CLI 可通过参数或 contract file 挂载 `todo_tool_contract`。
+- slash command 不应把 `todo`、`recovery`、`monitor` 当作主模式命令。
 
 示例：
 
 ```powershell
-python -m backend.cli task-run plan --shape investigation "调查任务系统启动失败原因"
-python -m backend.cli task-run todo --shape recovery "从上次失败的任务恢复"
+python -m backend.cli task-run plan --shape investigation --todo "检查 schema;检查 prompt;验证 CLI" "调查任务系统启动失败原因"
+python -m backend.cli task-run plan --shape recovery --todo-contract .\recovery-todo.json "从上次失败的任务恢复"
 python -m backend.cli task-run plan --shape monitor "观察运行监控事件"
+python -m backend.cli task-run goal --shape standard --todo "修正文档;复查残留" "完成任务系统升级计划书修正"
 ```
 
 完成标准：
 
-- CLI 的主命令体现任务模式；
-- shape 是模式上的任务形态参数。
+- CLI 的主命令体现主执行契约；
+- shape 是主契约上的任务形态参数；
+- todo 是附加执行工具参数。
 
 ### 11.9 图任务系统
 
@@ -922,7 +1016,7 @@ python -m backend.cli task-run plan --shape monitor "观察运行监控事件"
 
 - 图节点可以声明 `primary_mode`。
 - 图节点可以声明 `task_shape`。
-- 图节点使用同一套 `goal_contract / plan_contract / todo_contract / shape_contract`。
+- 图节点使用同一套 `goal_contract / plan_contract / todo_tool_contract / shape_contract`。
 - 图边可以读取：
   - goal success；
   - plan step completion；
@@ -934,7 +1028,8 @@ python -m backend.cli task-run plan --shape monitor "观察运行监控事件"
 完成标准：
 
 - 图任务不再重新定义一套任务语义。
-- 图任务和普通 TaskRun 使用同一套任务契约。
+- 图任务和普通 `TaskRun` 使用同一套任务契约。
+- todo item status 是执行状态输入，不是主任务模式。
 
 ## 12. 阶段计划
 
@@ -942,7 +1037,8 @@ python -m backend.cli task-run plan --shape monitor "观察运行监控事件"
 
 目标：
 
-- 锁定 `primary_mode = goal | plan | todo`。
+- 锁定 `primary_mode = goal | plan`。
+- 锁定 `todo = task execution tool / cursor contract`。
 - 锁定 `task_shape = standard | investigation | recovery | monitor | open_work`。
 - 中文设计书完成。
 
@@ -961,8 +1057,8 @@ python -m backend.cli task-run plan --shape monitor "观察运行监控事件"
 
 完成标准：
 
-- provider schema 使用 TaskStartIntent v3。
-- prompt 不再把 task shape 当 primary mode。
+- provider schema 使用 `TaskStartIntent v3`。
+- prompt 不再把 todo 或 task shape 当 primary mode。
 
 ### Phase 3：改造 action protocol 和 lifecycle
 
@@ -976,6 +1072,7 @@ python -m backend.cli task-run plan --shape monitor "观察运行监控事件"
 
 - runtime 只校验与归一化，不再猜模式。
 - `entry_reason` 不再是启动合同字段。
+- todo 只作为执行工具契约进入任务。
 
 ### Phase 4：改造 manifest、tail context、attention index
 
@@ -988,19 +1085,23 @@ python -m backend.cli task-run plan --shape monitor "观察运行监控事件"
 
 完成标准：
 
-- 显式模式契约和形态契约都能进入模型可见上下文。
+- 主执行契约、todo 工具契约和形态契约都能进入模型可见上下文。
 
-### Phase 5：改造 executor、monitor、closeout
+### Phase 5：改造 task overlay、state patch、monitor、closeout
 
 涉及文件：
 
 - `task_executor.py`
+- `single_agent_turn.py`
+- `task_state_patch.py`
 - `task_state_projector.py`
 - `run_monitor/projector.py`
 
 完成标准：
 
-- 执行与收口同时尊重任务模式和任务形态。
+- 普通任务执行回到 `single_agent_turn`。
+- `task_executor.py` 不再作为普通 `TaskRun` 默认模型循环。
+- 状态回写与收口同时尊重主执行契约、任务形态和 todo 游标。
 
 ### Phase 6：接入 CLI 和图任务
 
@@ -1013,7 +1114,8 @@ python -m backend.cli task-run plan --shape monitor "观察运行监控事件"
 
 完成标准：
 
-- CLI 可以启动 goal/plan/todo，并指定 task_shape。
+- CLI 可以启动 goal/plan，并指定 task_shape。
+- CLI 可以附加 todo 工具契约。
 - 图任务可以复用显式任务契约。
 
 ## 13. 迁移规则
@@ -1031,7 +1133,31 @@ task_objective
 
 这会让 agent 继续学习旧合同，导致 prompt 和 runtime 语义漂移。
 
-### 13.2 历史数据只读
+### 13.2 新任务不接受 legacy todo mode
+
+不允许新任务提交：
+
+```text
+primary_mode = todo
+```
+
+旧记录如果已经存在 todo mode，只允许作为历史显示或显式迁移输入读取。
+
+禁止：
+
+- 新任务写入 todo mode；
+- 把 todo mode 自动转成 goal 或 plan；
+- repair feedback 要求 agent 补齐 todo mode；
+- 用 todo mode 决定任务形态。
+
+历史迁移只能通过显式迁移逻辑完成，并且迁移结果必须是：
+
+```text
+primary_mode = goal | plan
+todo_tool_contract = restored todo cursor
+```
+
+### 13.3 历史 entry_reason 只读
 
 旧记录中可能存在 `container_contract.entry_reason`。
 
@@ -1046,7 +1172,7 @@ task_objective
 - repair feedback 要求 agent 补齐；
 - 用它决定模式或形态。
 
-### 13.3 open_work 不得当 fallback
+### 13.4 open_work 不得当 fallback
 
 `open_work` 是任务形态，不是系统兜底。
 
@@ -1059,7 +1185,7 @@ task_objective
 静态检查：
 
 ```powershell
-rg -n "entry_reason|primary_mode.*investigation|primary_mode.*recovery|primary_mode.*monitor|primary_mode.*open_work" backend/harness backend/cli backend/task_system
+rg -n "entry_reason|primary_mode.*todo|todo.*primary_mode|primary_mode.*investigation|primary_mode.*recovery|primary_mode.*monitor|primary_mode.*open_work|task-run todo|Todo Mode" backend/harness backend/cli backend/task_system
 python -m compileall backend/harness/runtime backend/harness/loop backend/harness/entrypoint backend/cli backend/task_system
 ```
 
@@ -1070,28 +1196,32 @@ python -m compileall backend/harness/runtime backend/harness/loop backend/harnes
 2. 若端口占用，先确认是否属于本项目旧进程。
 3. 启动后端。
 4. CLI 创建或选择 session。
-5. 启动 plan + investigation 任务。
-6. 启动 todo + recovery 任务。
+5. 启动 plan + investigation 任务，并附加 todo_tool_contract。
+6. 启动 plan + recovery 任务，并恢复 todo cursor。
 7. 启动 plan + monitor 任务。
-8. 查看 monitor 中 task_run_id、primary_mode、task_shape、task_objective、tail focus、closeout。
+8. 启动 goal + standard 任务，并附加轻量 todo。
+9. 查看 monitor 中 task_run_id、primary_mode、task_shape、task_objective、todo_cursor、tail focus、closeout。
 ```
 
 验收不变量：
 
-- `primary_mode` 只包含 `goal / plan / todo`。
+- `primary_mode` 只包含 `goal / plan`。
 - `task_shape` 承载 `standard / investigation / recovery / monitor / open_work`。
+- `todo_tool_contract` 承载 todo 清单、状态和游标。
 - runtime 不替 agent 猜模式。
-- task shape 不替代 mode contract。
+- task shape 不替代 primary contract。
+- todo tool 不替代 primary contract。
 - 图任务能复用同一套显式契约。
-- todo cursor 仍然放 volatile tail。
+- todo cursor 放 volatile tail。
 - provider stable schema 不因当前任务进度变化而失效。
 
 ## 15. 禁止事项
 
 禁止：
 
+- 把 `todo` 作为 `primary_mode` 或任务模式。
 - 把 `investigation / recovery / monitor / open_work` 继续作为 `primary_mode`。
-- 把 `goal / plan / todo` 降级为普通字段。
+- 把 `goal / plan` 降级为普通字段。
 - 保留 `entry_reason` 作为 agent-facing 启动字段。
 - 让系统根据用户关键词启动任务。
 - 用 `open_work` 兜底 unsupported mode。
@@ -1105,12 +1235,13 @@ python -m compileall backend/harness/runtime backend/harness/loop backend/harnes
 实施后：
 
 - `request_task_run` 成为清晰的控制动作信号。
-- agent 显式建立 `goal / plan / todo` 任务模式契约。
+- agent 显式选择 `goal` 或 `plan` 作为主执行契约。
+- todo 成为显式执行工具契约，负责清单、状态和当前游标。
 - `investigation / recovery / monitor / open_work` 作为任务形态由契约生成。
 - runtime 接收的是机器可执行的任务合同，而不是启动理由。
-- 普通 TaskRun 和图任务共用同一套契约。
-- 当前任务注意力索引能同时提醒任务模式、任务形态、目标、计划、todo、恢复/调查/监控焦点和验收。
-- 旧的七模式混层和 `entry_reason` 合同污染被清理。
+- 普通 `TaskRun` 和图任务共用同一套契约。
+- 当前任务注意力索引能同时提醒主执行契约、任务形态、目标、计划、todo 游标、恢复/调查/监控焦点和验收。
+- 旧的七模式混层、todo-as-mode 和 `entry_reason` 合同污染被清理。
 
 ## 17. 审批门槛
 

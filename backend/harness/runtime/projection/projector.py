@@ -304,28 +304,38 @@ def projection_spec_for_event(public_event_type: str, data: dict[str, Any]) -> d
 
 def _assistant_body_spec(data: dict[str, Any], *, op: str, state: str, retention: str) -> dict[str, Any]:
     content = str(data.get("content") or "")
+    body_ref = _body_item_id(data)
+    content_sha256 = text(data.get("content_sha256") or data.get("accumulated_sha256"))
     return {
         "op": op,
         "slot": "body",
         "source_authority": "model",
         "main_visibility": "visible_live" if op == "body_append" else "visible_final",
         "retention": retention,
-        "item_id": _body_item_id(data),
+        "item_id": body_ref,
+        "body_ref": body_ref,
+        "message_ref": text(data.get("message_ref")),
         "text": content,
+        "content_sha256": content_sha256,
+        "content_utf8_bytes": data.get("content_utf8_bytes") or data.get("accumulated_utf8_bytes"),
         "state": state,
         "trace_refs": _trace_refs(data),
     }
 
 
 def _assistant_repair_spec(data: dict[str, Any]) -> dict[str, Any]:
+    body_ref = _body_item_id(data)
     return {
         "op": "body_finalize",
         "slot": "body",
         "source_authority": "model",
         "main_visibility": "visible_live",
         "retention": "transient",
-        "item_id": _body_item_id(data),
+        "item_id": body_ref,
+        "body_ref": body_ref,
+        "message_ref": text(data.get("message_ref")),
         "text": str(data.get("replacement_content") or ""),
+        "content_sha256": text(data.get("replacement_content_sha256")),
         "state": "running",
         "trace_refs": _trace_refs(data),
     }
@@ -875,6 +885,7 @@ def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
 
 def _assistant_public_feedback_spec(data: dict[str, Any]) -> dict[str, Any]:
     title, detail, body_text = _assistant_public_feedback_parts(data)
+    item_id = _assistant_public_feedback_item_id(data, title=title, detail=detail)
     return {
         "op": "body_append",
         "slot": "body",
@@ -885,7 +896,9 @@ def _assistant_public_feedback_spec(data: dict[str, Any]) -> dict[str, Any]:
         "main_visibility": "visible_live",
         "retention": "transient",
         "frame_id": _assistant_public_feedback_frame_id(data, title=title, detail=detail),
-        "item_id": _assistant_public_feedback_item_id(data, title=title, detail=detail),
+        "item_id": item_id,
+        "body_ref": item_id,
+        "message_ref": text(data.get("message_ref")),
         "title": title,
         "text": body_text,
         "detail": detail,

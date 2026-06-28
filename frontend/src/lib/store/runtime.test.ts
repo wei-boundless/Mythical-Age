@@ -127,7 +127,6 @@ vi.mock("@/lib/api", () => ({
   createProjectWorkspaceSession: api.createProjectWorkspaceSession,
   selectProjectWorkspaceDirectory: api.selectProjectWorkspaceDirectory,
   stopHarnessTaskRun: api.stopHarnessTaskRun,
-  stopHarnessTaskRun: vi.fn(),
   streamExistingChatRun: api.streamExistingChatRun,
   streamChat: api.streamChat,
   truncateSessionMessages: api.truncateSessionMessages,
@@ -595,6 +594,8 @@ function requireStreamHandlers(value: StreamEventHandlers | null) {
 
 function publicBodyFrame(patch: Record<string, unknown> = {}) {
   projectionFrameOffset += 1;
+  const bodyRef = `body:runtime-test:${projectionFrameOffset}`;
+  const messageRef = "assistant:runtime-test:1";
   return {
     authority: "harness.public_projection",
     contract_revision: "20260614-dual-channel-v1",
@@ -612,7 +613,10 @@ function publicBodyFrame(patch: Record<string, unknown> = {}) {
       turn_id: "turn:runtime-test:1",
       turn_run_id: "turnrun:runtime-test:1",
       run_id: "turnrun:runtime-test:1",
+      message_id: messageRef,
     },
+    body_ref: bodyRef,
+    message_ref: messageRef,
     ...patch,
   };
 }
@@ -6276,21 +6280,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           sourceIndex: 1,
         },
       ],
-      assistantTextStreamsByMessageId: {
-        [assistantId]: {
-          messageId: assistantId,
-          messageRef: "turn:session:live-refresh:assistant",
-          streamRef: "modelreq:live-refresh",
-          latestSequence: 1,
-          canonicalContent: "遇到",
-          canonicalContentSha256: "sha256:first",
-          accumulatedUtf8Bytes: 6,
-          finalReceived: false,
-          terminal: false,
-          repairState: "none",
-          displayHintsBySequence: {},
-        },
-      },
     });
     const runtime = new WorkspaceRuntime(store) as unknown as {
       refreshSessionDetails: (sessionId: string) => Promise<void>;
@@ -6317,7 +6306,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     expect(store.getState().messages.at(-1)?.id).toBe(assistantId);
     expect(store.getState().messages.at(-1)?.content).toBe("遇到");
-    expect(store.getState().assistantTextStreamsByMessageId[assistantId]?.canonicalContent).toBe("遇到");
   });
 
   it("reattaches a persisted chat run during initialization without starting a new run", async () => {
@@ -8201,8 +8189,5 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 });
-
-
-
 
 

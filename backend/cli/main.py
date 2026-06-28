@@ -447,6 +447,9 @@ def _run_task_mode_slash_start(
     if terminal == "error":
         raise AgentCliClientError("Backend returned an error event.")
     if not task_run_id:
+        if _task_system_cut_terminal(render_state):
+            print("task_system_cut request_task_run accepted", file=stdout)
+            return 0
         raise AgentCliClientError("Backend stream completed without task_run_id.")
     print(f"task_run_id {task_run_id}", file=stdout)
     if bool(getattr(args, "no_watch", False)):
@@ -482,6 +485,9 @@ def _run_task_run_start(
     if terminal == "error":
         raise AgentCliClientError("Backend returned an error event.")
     if not task_run_id:
+        if _task_system_cut_terminal(render_state):
+            print("task_system_cut request_task_run accepted", file=stdout)
+            return 0
         raise AgentCliClientError("Backend stream completed without task_run_id.")
     print(f"task_run_id {task_run_id}", file=stdout)
     if bool(getattr(args, "no_watch", False)):
@@ -576,6 +582,9 @@ def _render_stream_event(
         return "done"
     if event.event == "turn_completed":
         status = str(event.data.get("status") or "completed").strip().lower()
+        render_state["terminal_status"] = status
+        render_state["terminal_reason"] = str(event.data.get("terminal_reason") or "")
+        render_state["completion_state"] = str(event.data.get("completion_state") or "")
         if status == "failed":
             reason = str(event.data.get("terminal_reason") or event.data.get("error_summary") or "处理失败")
             print(f"\nerror: {reason}", file=stderr)
@@ -732,6 +741,13 @@ def _task_run_id_from_stream_event(event: ServerSentEvent) -> str:
         if value:
             return value
     return ""
+
+
+def _task_system_cut_terminal(render_state: dict[str, Any]) -> bool:
+    return (
+        str(render_state.get("terminal_status") or "").strip().lower() == "completed"
+        and str(render_state.get("completion_state") or "").strip() == "task_system_cut"
+    )
 
 
 def _is_tty(stream: TextIO) -> bool:

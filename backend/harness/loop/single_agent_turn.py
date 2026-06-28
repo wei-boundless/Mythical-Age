@@ -83,6 +83,7 @@ from runtime.context_management import (
     DYNAMIC_TAIL,
     provider_visible_context_append_candidate_spec,
 )
+from runtime.output_stream.public_contract import TURN_COMPLETED_EVENT
 from runtime.context_management.tool_transcript import (
     TOOL_TRANSCRIPT_DELTA_KIND,
     is_current_tool_transcript_kind,
@@ -385,7 +386,7 @@ def _agent_visible_action_fields(allowed_action_types: tuple[str, ...] | list[st
     if "block" in allowed:
         fields["block"] = "blocking_reason"
     if "request_task_run" in allowed:
-        fields["request_task_run"] = "compact TaskStartIntent in task_run_contract_seed"
+        fields["request_task_run"] = "compact TaskStartIntent v3 in task_run_contract_seed"
     if "tool_call" in allowed:
         fields["tool_call"] = "tool_call or tool_calls"
     if "active_work_control" in allowed:
@@ -884,10 +885,10 @@ def _tool_followup_action_contract_messages(
         "allowed_action_types": list(allowed),
         "required_fields": _agent_visible_action_fields(allowed),
         "tool_call_allowed": "tool_call" in set(allowed),
-        "task_mode_boundary": {
-            "definition": "任务模式用于承载可追踪的持续工作生命周期：稳定任务身份、跨 turn 状态、阶段反馈、停止/恢复控制、验收边界和失败恢复。",
-            "request_task_run_when": "如果新的观察让你判断当前 turn 无法稳定保存目标、证据、恢复点、验收或失败收口，就提交 request_task_run。",
-            "tool_call_when": "如果当前 turn 仍能直接查证、修改、验证并收口，可以继续普通工具；公开反馈不要宣称启动 Task。",
+        "long_task_resource_boundary": {
+            "definition": "长任务资源用于保存目标、计划游标、todo 游标、恢复点、阶段反馈、控制边界和验收边界。",
+            "request_task_run_when": "如果新的观察让你判断需要系统分配资源来保存这些边界，就提交 request_task_run。",
+            "tool_call_when": "如果当前 turn 仍能直接查证、修改、验证并收口，可以继续普通工具；公开反馈不要宣称已经申请或绑定长任务资源。",
         },
         "output": {
             "natural_response": "事实已经足够回答用户时，可以直接写给用户看的自然回应；这表示你选择结束本轮普通对话。",
@@ -927,10 +928,10 @@ def _tool_followup_action_contract_messages(
         "如果已经足够回答用户，可以直接写完整自然语言回复；如果使用 respond 控制动作或结构化 respond，把正文写入 final_answer。\n"
         "如果需要用户补充，可以直接提出问题；如果需要让本轮停在等待用户补充的状态，提交 action_type=ask_user，并填写 user_question。\n"
         "如果当前事实或权限不足，可以直接说明阻塞；如果需要让本轮停在阻塞状态，提交 action_type=block，并填写 blocking_reason。\n"
-        "如果你判断需要任务模式提供的稳定任务身份、跨 turn 状态、阶段反馈、停止/恢复控制、验收边界或失败恢复，提交 action_type=request_task_run。\n"
-        "request_task_run 只填写紧凑 TaskStartIntent：entry_reason、primary_mode、minimum_viable_next_step、working_scope、acceptance、mode_payload；内部 TaskRunContract 由运行时生成。"
+        "如果你判断需要系统分配长任务资源来保存目标、计划游标、todo 游标、恢复点、阶段反馈或验收边界，提交 action_type=request_task_run。\n"
+        "request_task_run 只填写紧凑 TaskStartIntent：primary_mode、task_shape、minimum_viable_next_step、working_scope、acceptance、mode_payload；内部 TaskRunContract 由运行时生成。"
         "如果仍需工具观察且本轮允许 tool_call，只按本轮工具行动合同发起工具行动；"
-        "工具前置说明可以作为公开进展，但不能宣称已经或即将启动 Task；TaskStartIntent 必须留在 request_task_run 动作对象内。\n"
+        "工具前置说明可以作为公开进展，但不能宣称已经或即将绑定长任务资源；TaskStartIntent 必须留在 request_task_run 动作对象内。\n"
         "不要同时给出自然回应和动作；如果需要工具观察，请在本次工具行动中写清工具名和参数。"
     )
     return _append_model_messages_without_rewriting_context(
@@ -1118,7 +1119,7 @@ def _agent_contract_feedback_safe_closeout_content(
     if not reasons:
         reasons = ["动作合同没有形成可执行、可发布的下一步"]
     if _protocol_error_mentions_request_task_run(protocol):
-        opening = "本轮已经停止，任务没有成功进入持续执行。"
+        opening = "本轮已经停止，长任务资源没有成功申请。"
     else:
         opening = "本轮已经停止，当前动作没有通过执行合同。"
     return "\n".join(
@@ -1140,8 +1141,8 @@ def _public_protocol_failure_reason(protocol_error: dict[str, Any]) -> str:
     reason = str(protocol.get("reason") or "").strip()
     if _protocol_error_mentions_request_task_run(protocol):
         if code == "single_agent_turn_invalid_native_action" or "action_object_required_for_control_action" in reason:
-            return "任务启动请求的合同参数没有被后端接受"
-        return "任务启动请求没有通过当前动作边界"
+            return "长任务资源申请的合同参数没有被后端接受"
+        return "长任务资源申请没有通过当前动作边界"
     if code or reason:
         return "上一条动作没有通过当前动作边界"
     return ""
@@ -1169,22 +1170,25 @@ def _public_validation_error_reasons(errors: list[str]) -> list[str]:
         "task_run_contract_seed_required_for_request_task_run",
         "task_run_contract_seed_must_be_object",
     }.intersection(normalized):
-        reasons.append("任务启动意图缺失或不是对象")
+        reasons.append("长任务资源申请意图缺失或不是对象")
     if {
-        "compact_task_start_intent.entry_reason_required",
         "compact_task_start_intent.minimum_viable_next_step_required",
         "compact_task_start_intent.working_scope_required",
         "compact_task_start_intent.acceptance_mode_required",
-    }.intersection(normalized) or any(item.startswith("compact_task_start_intent.primary_mode_unsupported") for item in normalized):
-        reasons.append("任务启动意图缺少入口理由、主工作模式、最小下一步、范围或验收模式")
+    }.intersection(normalized) or any(
+        item.startswith("compact_task_start_intent.contract_shape_unsupported")
+        or item.startswith("compact_task_start_intent.primary_mode_unsupported")
+        or item.startswith("compact_task_start_intent.task_shape_unsupported")
+        for item in normalized
+    ):
+        reasons.append("长任务资源申请意图缺少主工作契约、资源形态、最小下一步、范围或验收模式")
     if {
-        "container_contract.entry_reason_required_for_request_task_run",
         "container_contract.minimum_viable_next_step_required_for_request_task_run",
         "work_modes.exactly_one_primary_required_for_request_task_run",
         "work_modes_required_for_request_task_run",
         "container_contract.primary_work_mode_ref_must_point_to_primary_work_mode",
     }.intersection(normalized):
-        reasons.append("任务启动意图无法生成完整的主工作模式")
+        reasons.append("长任务资源申请意图无法生成完整的主工作契约")
     if any(item.startswith("primary_") and item.endswith("_required_for_request_task_run") for item in normalized):
         reasons.append("主工作模式的最低可执行内容不完整")
     if "acceptance_contract.acceptance_mode_required_for_request_task_run" in normalized:
@@ -1193,7 +1197,7 @@ def _public_validation_error_reasons(errors: list[str]) -> list[str]:
         "public_progress_note_required_for_request_task_run",
         "public_action_state_required_for_request_task_run",
     }.intersection(normalized):
-        reasons.append("任务启动说明或当前执行判断缺失")
+        reasons.append("长任务资源申请说明或当前执行判断缺失")
     if {
         "public_response_required",
         "public_progress_note_required",
@@ -1522,7 +1526,7 @@ def _repair_instruction_for_contract_code(code: str, *, requested_action: str = 
         tool_hint = f"（刚才请求的是 {requested_tool}）" if requested_tool else ""
         return f"保留同一个观察目标{tool_hint}，按本轮工具行动合同重新提交工具行动；如果事实已经足够，使用 respond.final_answer。"
     if normalized == "action_object_required_for_control_action":
-        return "保留原动作意图，选择对应控制动作并填写参数；启动持续任务时只填写紧凑 TaskStartIntent。"
+        return "保留原动作意图，选择对应控制动作并填写参数；申请长任务资源时只填写紧凑 TaskStartIntent。"
     if normalized in {"multiple_native_action_sources"}:
         return "只保留一个普通工具动作集合；不要在同一轮混合多个决策。"
     if normalized in {"single_agent_turn_multiple_action_sources"}:
@@ -1660,7 +1664,7 @@ def _contract_feedback_observed_facts(observations: list[dict[str, Any]]) -> dic
 
 
 def _is_public_terminal_event(event: dict[str, Any]) -> bool:
-    return str(dict(event or {}).get("type") or "").strip() in {"done", "error", "stopped"}
+    return str(dict(event or {}).get("type") or "").strip() in {"done", "error", "stopped", TURN_COMPLETED_EVENT}
 
 
 def _terminal_reason_from_public_event(event: dict[str, Any], *, fallback: str) -> str:
@@ -1675,7 +1679,13 @@ def _terminal_reason_from_public_event(event: dict[str, Any], *, fallback: str) 
 
 
 def _turn_status_from_public_terminal_event(event: dict[str, Any]) -> str:
-    event_type = str(dict(event or {}).get("type") or "").strip()
+    payload = dict(event or {})
+    event_type = str(payload.get("type") or "").strip()
+    if event_type == TURN_COMPLETED_EVENT:
+        status = str(payload.get("status") or "").strip().lower()
+        if status in {"completed", "blocked", "failed", "aborted", "stopped"}:
+            return "aborted" if status == "stopped" else status
+        return "failed"
     if event_type == "done":
         return "completed"
     if event_type == "stopped":
@@ -3496,7 +3506,7 @@ async def run_single_agent_turn(
                     yield event
                 return
             if action_request.action_type == "request_task_run":
-                request_task_terminal_reason = "task_executor_scheduled"
+                request_task_terminal_reason = "task_resource_allocated"
                 request_task_terminal_status = "completed"
                 lifecycle_public_terminal_events: list[dict[str, Any]] = []
                 start_context_handoff = build_turn_to_task_context_handoff_seed(
@@ -4978,7 +4988,7 @@ def _single_agent_action_request_from_response(
                         code="mixed_native_tool_and_control_actions",
                         repair_instruction=(
                             "本轮只能选择一个语义动作平面：要么选择普通工具观察，要么选择一个控制动作。"
-                            "如果要启动持续任务，请只提交 request_task_run。"
+                            "如果要申请长任务资源，请只提交 request_task_run。"
                         ),
                     ),
                     "phase": phase,
@@ -5455,7 +5465,7 @@ def _detected_json_action_transport_rejection(
         primary_ref = str(container.get("primary_work_mode_ref") or "").strip()
         primary = next((item for item in work_modes if str(item.get("mode_instance_id") or "") == primary_ref), {})
         detected_action["task_run_contract_seed_summary"] = {
-            "entry_reason": _compact_text(container.get("entry_reason"), limit=240),
+            "resource_request_summary": _compact_text(container.get("entry_reason"), limit=240),
             "primary_work_mode_ref": primary_ref,
             "primary_work_mode_kind": str(dict(primary or {}).get("mode_kind") or "").strip(),
             "work_mode_count": len(work_modes),
@@ -5546,16 +5556,16 @@ _RECOVERY_RESUME_NESTED_FIELDS = ("work_ref", "resume_ref", "task_run_id", "cont
 def _request_task_run_minimal_repair_action() -> dict[str, Any]:
     return {
         "action_type": "request_task_run",
-        "public_progress_note": "说明为什么你判断当前工作需要进入持续任务生命周期。",
+        "public_progress_note": "说明你要申请长任务资源来保存哪些目标、游标、恢复点或验收边界。",
         "public_action_state": {
-            "current_judgment": "说明当前 turn 无法稳定承载的目标、恢复、验收或反馈边界。",
-            "next_action": "进入持续任务执行流程。",
+            "current_judgment": "说明当前工作需要系统资源来保持执行状态。",
+            "next_action": "申请长任务资源并绑定当前 turn。",
         },
         "task_run_contract_seed": {
-            "contract_shape": "compact_task_start_intent_v1",
-            "entry_reason": "说明为什么当前 turn 不足以稳定承载这项工作。",
+            "contract_shape": "compact_task_start_intent_v3",
             "primary_mode": "plan",
-            "minimum_viable_next_step": "进入任务后第一步要推进的可执行动作。",
+            "task_shape": "standard",
+            "minimum_viable_next_step": "资源接受后的第一个可执行动作。",
             "working_scope": {
                 "target_objects": ["要处理的文件、模块、目录、对象或问题域"],
                 "workspace_refs": [],
@@ -5571,12 +5581,15 @@ def _request_task_run_minimal_repair_action() -> dict[str, Any]:
             "mode_payload": {
                 "summary": "当前可执行路线。",
                 "steps": ["第一步"],
-                "items": [],
                 "success_definition": "",
                 "question": "",
                 "recovery_handle": "",
                 "monitor_target": "",
                 "notes": [],
+            },
+            "todo_tool_contract": {
+                "todo_is_tool": True,
+                "cursor_updates": [],
             },
         },
     }
@@ -5609,7 +5622,8 @@ def _protocol_error_requested_action_type(protocol_error: dict[str, Any]) -> str
 def _with_request_task_run_repair_template(prefix: str) -> str:
     return (
         f"{str(prefix or '').strip()} "
-        "任务模式用于承载可追踪的持续工作生命周期：稳定任务身份、跨 turn 状态、阶段反馈、停止/恢复控制、验收边界和失败恢复。"
+        "request_task_run 是申请长任务资源的控制动作，用于保存目标、计划游标、todo 游标、恢复点、控制边界和验收边界。"
+        "它不是普通工具调用，也不是第二套模型生命周期。"
         "request_task_run 只提交紧凑 TaskStartIntent；运行时会生成内部 TaskRunContract。"
         "最小合法意图如下；用当前任务目标、范围、完成证据和验收边界替换占位文本，但保留这些键和层级：\n"
         f"{_request_task_run_repair_template_text()}"
@@ -5632,9 +5646,9 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
     errors = {str(item) for item in list(dict(diagnostics or {}).get("validation_errors") or [])}
     if "public_task_lifecycle_claim_requires_request_task_run" in errors:
         return (
-            "你的公开反馈宣称要开启或进入持续任务生命周期，但结构化动作不是 request_task_run。"
-            "请重新选择一个一致动作：如果你确实判断需要任务模式，提交 action_type=request_task_run 并填写紧凑 TaskStartIntent；"
-            "如果你只是要在当前 turn 内继续工具处理，请使用 action_type=tool_call，并改写公开反馈，不要宣称启动 Task。"
+            "你的公开反馈宣称要申请或绑定长任务资源，但结构化动作不是 request_task_run。"
+            "请重新选择一个一致动作：如果确实需要资源，提交 action_type=request_task_run 并填写紧凑 TaskStartIntent；"
+            "如果只是要在当前 turn 内继续工具处理，请使用 action_type=tool_call，并改写公开反馈。"
         )
     if action_type == "resume_recoverable_work":
         recovery_resume = payload.get("recovery_resume")
@@ -5680,27 +5694,27 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
         )
     if any(str(item).startswith("system_execution_field_not_allowed_in_task_run_contract") for item in errors):
         return _with_request_task_run_repair_template(
-            "request_task_run 的任务启动意图只描述入口理由、主工作模式、最小下一步、范围和验收；请删除工具、模型、环境或执行授权字段。"
+            "request_task_run 的 TaskStartIntent 只描述 primary_mode、task_shape、最小下一步、范围和验收；请删除工具、模型、环境或执行授权字段。"
         )
     if (
-        "compact_task_start_intent.entry_reason_required" in errors
-        or "compact_task_start_intent.minimum_viable_next_step_required" in errors
+        "compact_task_start_intent.minimum_viable_next_step_required" in errors
         or "compact_task_start_intent.working_scope_required" in errors
         or "compact_task_start_intent.acceptance_mode_required" in errors
+        or any(item.startswith("compact_task_start_intent.contract_shape_unsupported") for item in errors)
         or any(item.startswith("compact_task_start_intent.primary_mode_unsupported") for item in errors)
+        or any(item.startswith("compact_task_start_intent.task_shape_unsupported") for item in errors)
     ):
         return _with_request_task_run_repair_template(
-            "request_task_run 的紧凑 TaskStartIntent 不完整。请补齐 entry_reason、primary_mode、minimum_viable_next_step、working_scope 和 acceptance.mode。"
+            "request_task_run 的紧凑 TaskStartIntent 不完整。请补齐 primary_mode、task_shape、minimum_viable_next_step、working_scope 和 acceptance.mode。"
         )
     if (
-        "container_contract.entry_reason_required_for_request_task_run" in errors
-        or "container_contract.minimum_viable_next_step_required_for_request_task_run" in errors
+        "container_contract.minimum_viable_next_step_required_for_request_task_run" in errors
         or "work_modes.exactly_one_primary_required_for_request_task_run" in errors
         or "work_modes_required_for_request_task_run" in errors
         or "container_contract.primary_work_mode_ref_must_point_to_primary_work_mode" in errors
     ):
         return _with_request_task_run_repair_template(
-            "request_task_run 必须提交紧凑 TaskStartIntent。请补齐 entry_reason、primary_mode、"
+            "request_task_run 必须提交紧凑 TaskStartIntent。请补齐 primary_mode、task_shape、"
             "minimum_viable_next_step、working_scope、acceptance 和 mode_payload。"
         )
     if "task_run_contract_seed_required_for_request_task_run" in errors:
@@ -5710,8 +5724,8 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
     if any(item.startswith("primary_") and item.endswith("_required_for_request_task_run") for item in errors):
         return (
             "TaskStartIntent 的 mode_payload 最低可执行内容不完整。"
-            "如果 primary_mode=goal，请给出 summary 或 success_definition；如果 primary_mode=plan，请给出 summary 或 steps；"
-            "如果 primary_mode=todo，请给出 items。不要用 goal 字段冒充 plan 或 todo。"
+            "如果 primary_mode=goal，请给出 summary 或 success_definition；如果 primary_mode=plan，请给出 summary 或 steps。"
+            "todo 是资源中的游标或工具，不是 primary_mode。"
         )
     if "acceptance_contract.acceptance_mode_required_for_request_task_run" in errors:
         return _with_request_task_run_repair_template("request_task_run 必须声明 acceptance.mode，例如 checkpoint、user_review、best_effort 或 strict。")
@@ -5720,13 +5734,13 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
         or "public_action_state_required_for_request_task_run" in errors
     ):
         return _with_request_task_run_repair_template(
-            "request_task_run 必须带有公开启动说明。请在 public_progress_note 说明为什么需要任务模式，"
+            "request_task_run 必须带有公开资源申请说明。请在 public_progress_note 说明需要保存的目标、游标、恢复点或验收边界，"
             "并在 public_action_state.current_judgment/next_action 写清当前边界和下一步。"
         )
     if "tool_call_not_allowed_for_request_task_run" in errors:
         return _with_request_task_run_repair_template(
-            "request_task_run 是任务生命周期启动动作，不能和普通 tool_call 放在同一个动作里。"
-            "请先提交任务启动合同；任务接受后再在任务生命周期内执行工具。"
+            "request_task_run 是长任务资源申请动作，不能和普通 tool_call 放在同一个动作里。"
+            "请先提交资源申请；资源接受后再在后续 turn 中继续执行工具。"
         )
     return default
 
@@ -6228,7 +6242,7 @@ def _agent_turn_approval_requires_task_run_observation(observation: ToolObservat
     reason = "single_agent_turn_tool_approval_requires_resumable_task"
     repair_instruction = (
         "该工具调用没有执行，因为它需要可恢复的人工确认，而当前单轮对话没有持久审批恢复入口。"
-        "请向用户说明这个边界，改为发起持续任务，或在无法继续时给出阻塞说明；不要重复同一个未获准动作。"
+        "请向用户说明这个边界，改为申请长任务资源，或在无法继续时给出阻塞说明；不要重复同一个未获准动作。"
     )
     structured_payload = dict(dict(observation.result_envelope or {}).get("structured_payload") or {})
     structured_payload["structured_error"] = {

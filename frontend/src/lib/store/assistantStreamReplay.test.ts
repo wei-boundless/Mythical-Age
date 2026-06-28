@@ -9,6 +9,8 @@ let frameOffset = 0;
 
 function projectionFrame(patch: Partial<PublicProjectionFrame>): PublicProjectionFrame {
   frameOffset += 1;
+  const bodyRef = `body:assistant:${frameOffset}`;
+  const messageRef = "assistant:assistant-stream:1";
   return {
     authority: "harness.public_projection",
     contract_revision: "20260614-dual-channel-v1",
@@ -21,12 +23,15 @@ function projectionFrame(patch: Partial<PublicProjectionFrame>): PublicProjectio
       turn_id: "turn:assistant-stream:1",
       turn_run_id: "turnrun:assistant-stream:1",
       run_id: "turnrun:assistant-stream:1",
+      message_id: messageRef,
     },
     op: "body_append",
     slot: "body",
     source_authority: "model",
     main_visibility: "visible_live",
     retention: "final",
+    body_ref: bodyRef,
+    message_ref: messageRef,
     ...patch,
   };
 }
@@ -86,7 +91,6 @@ describe("assistant chronological projection replay", () => {
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.content).toBe("");
     expect(assistant?.projectionView).toBeUndefined();
-    expect(transition.state.assistantTextStreamsByMessageId[transition.session.assistantId]).toBeUndefined();
   });
 
   it("progressively appends CJK body text from projection frames", () => {

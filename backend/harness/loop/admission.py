@@ -99,7 +99,7 @@ def admit_model_action(
                 code="tool_not_in_runtime_service_surface",
                 requested_tool_name=tool_name,
                 user_visible_summary="请求的工具没有在本次运行时服务面中开放。",
-                repair_instruction="请改用当前可见工具，或在任务需要该服务时请求进入正确任务环境/持续任务。",
+                repair_instruction="请改用当前可见工具，或在目标确需该服务时申请长任务资源和对应执行边界。",
             )
             return AdmissionDecision(
                 admission_id=f"admission:{action_request.request_id}",
@@ -144,8 +144,8 @@ def admit_model_action(
                 category="requires_task_run",
                 code="task_scoped_tool_requires_task_run",
                 requested_tool_name=tool_name,
-                user_visible_summary="该工具属于任务运行态服务，需要先进入持续任务。",
-                repair_instruction="如果当前目标需要该工具，请提交 request_task_run；若合同信息不足，请 ask_user 补齐。",
+                user_visible_summary="该工具属于长任务资源作用域，需要先绑定资源。",
+                repair_instruction="如果当前目标需要该资源作用域，请提交 request_task_run；若资源申请信息不足，请 ask_user 补齐。",
                 extra={
                     "operation_id": operation_id,
                     "owner_scope": owner_scope,
@@ -156,7 +156,7 @@ def admit_model_action(
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
                 decision="needs_task_run",
-                user_visible_reason="这个工具属于任务运行作用域，需要先进入持续任务。",
+                user_visible_reason="这个工具属于长任务资源作用域，需要先绑定资源。",
                 system_reason="task_scoped_tool_requires_task_run",
                 resource_errors=(f"task_scoped_tool_requires_task_run:{tool_name}",),
                 permission_delta={
@@ -202,7 +202,7 @@ def admit_model_action(
                 category="requires_task_run",
                 code="side_effect_tool_requires_task_run",
                 requested_tool_name=tool_name,
-                user_visible_summary="该动作会改变环境，需要先形成任务合同和执行边界。",
+                user_visible_summary="该动作会改变环境，需要先形成长任务资源和执行边界。",
                 repair_instruction="请先提交 request_task_run 或 ask_user 补齐目标、范围和验收标准。",
             )
             return AdmissionDecision(
@@ -235,14 +235,14 @@ def admit_model_action(
                 action_request,
                 category="runtime_unavailable",
                 code="task_lifecycle_disabled_by_runtime_profile",
-                user_visible_summary="当前运行模式未开放持续任务生命周期。",
-                repair_instruction="请改用 ask_user、respond 或 block 说明持续任务生命周期未挂载；不要假装已经进入持续任务。",
+                user_visible_summary="当前运行模式未开放长任务资源申请。",
+                repair_instruction="请改用 ask_user、respond 或 block 说明长任务资源未挂载；不要假装已经绑定资源。",
             )
             return AdmissionDecision(
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
                 decision="deny",
-                user_visible_reason="当前运行模式没有挂载持续任务生命周期。",
+                user_visible_reason="当前运行模式没有挂载长任务资源申请。",
                 system_reason="task_lifecycle_disabled_by_runtime_profile",
                 contract_errors=("task_lifecycle_disabled_by_runtime_profile",),
                 issue_category="runtime_unavailable",
@@ -254,14 +254,14 @@ def admit_model_action(
             action_request,
             category="contract_gap",
             code="task_run_contract_seed_missing",
-            user_visible_summary="持续任务缺少任务运行合同。",
-            repair_instruction="请 ask_user 补齐进入原因、primary Work Mode、下一步和验收模式，或重新提交完整 request_task_run。",
+            user_visible_summary="长任务资源申请缺少 TaskStartIntent。",
+            repair_instruction="请 ask_user 补齐 primary_mode、task_shape、下一步、范围和验收模式，或重新提交完整 request_task_run。",
         )
         return AdmissionDecision(
             admission_id=f"admission:{action_request.request_id}",
             action_request_ref=action_request.request_id,
             decision="needs_contract",
-            user_visible_reason="需要先补充任务运行合同和 primary Work Mode，才能开始持续处理。",
+            user_visible_reason="需要先补充长任务资源申请意图和主工作契约，才能绑定资源。",
             system_reason="task_run_contract_seed_missing",
             contract_errors=("task_run_contract_seed_missing",),
             issue_category="contract_gap",

@@ -59,7 +59,7 @@ from harness.loop.execution_kernel import (
     build_action_lifecycle_event_record,
     decide_model_action_lifecycle,
 )
-from harness.loop.presentation import error_event, final_answer_event
+from harness.loop.presentation import error_event, final_answer_event, turn_completed_event
 from harness.loop.single_agent_turn import run_single_agent_turn
 from harness.loop.task_executor import (
     append_user_work_instruction,
@@ -72,8 +72,6 @@ from harness.loop.task_lifecycle import (
     TaskLifecycleRecord,
     TaskRunContract,
     contract_from_action_request,
-    start_task_lifecycle_from_action_request,
-    start_task_lifecycle_from_contract,
 )
 from graph_system.models import safe_id
 from harness.runtime.graph_node_contract import (
@@ -858,33 +856,13 @@ class HarnessRuntimeFacade:
         continuation_record: Any | None = None,
     ):
         async def start_task(action_request: ModelActionRequest, start_context_handoff: dict[str, Any]):
-            async for event in start_task_lifecycle_from_action_request(
-                runtime_host=self.single_agent_runtime_host,
+            for event in _task_system_cut_receipt_events(
                 session_id=request.session_id,
                 turn_id=turn_id,
-                runtime_contract=dict(request.runtime_contract or {}),
-                model_selection=dict(request.model_selection or {}),
                 action_request=action_request,
-                agent_runtime_profile=agent_runtime_profile,
-                runtime_assembly=runtime_assembly,
                 runtime_branch=runtime_branch,
-                editor_context=dict(getattr(request, "editor_context", {}) or {}),
-                start_context_handoff=dict(start_context_handoff or {}),
-                answer_source="harness.single_agent_turn.request_task_run",
-                scheduler="single_agent_turn",
-                max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
-                commit_assistant_message=self._apply_assistant_message_commit_async,
-                initialize_task_todo=self._initialize_task_todo_for_contract,
-                schedule_task_run_executor=self.schedule_task_run_executor,
+                source="harness.single_agent_turn.request_task_run",
             ):
-                task_run_id = _task_run_id_from_lifecycle_event(event)
-                if task_run_id:
-                    self._record_turn_environment_snapshot(
-                        session_id=request.session_id,
-                        turn_id=turn_id,
-                        runtime_assembly=runtime_assembly,
-                        task_run_id=task_run_id,
-                    )
                 yield event
 
         async for event in run_single_agent_turn(
@@ -1670,33 +1648,13 @@ class HarnessRuntimeFacade:
             )
             return
 
-        async for event in start_task_lifecycle_from_action_request(
-            runtime_host=self.single_agent_runtime_host,
+        for event in _task_system_cut_receipt_events(
             session_id=request.session_id,
             turn_id=turn_id,
-            runtime_contract=dict(request.runtime_contract or {}),
-            model_selection=dict(request.model_selection or {}),
             action_request=action_request,
-            agent_runtime_profile=agent_runtime_profile,
-            runtime_assembly=launch_runtime_assembly,
             runtime_branch=runtime_branch,
-            editor_context=dict(getattr(request, "editor_context", {}) or {}),
-            start_context_handoff={},
-            answer_source="harness.slash_task_command.request_task_run",
-            scheduler="slash_task_command",
-            max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
-            commit_assistant_message=self._apply_assistant_message_commit_async,
-            initialize_task_todo=self._initialize_task_todo_for_contract,
-            schedule_task_run_executor=self.schedule_task_run_executor,
+            source="harness.slash_task_command.request_task_run",
         ):
-            task_run_id = _task_run_id_from_lifecycle_event(event)
-            if task_run_id:
-                self._record_turn_environment_snapshot(
-                    session_id=request.session_id,
-                    turn_id=turn_id,
-                    runtime_assembly=launch_runtime_assembly,
-                    task_run_id=task_run_id,
-                )
             yield event
 
     async def _run_explicit_contract_task_turn(
@@ -1755,33 +1713,13 @@ class HarnessRuntimeFacade:
                 },
             )
             return
-        async for event in start_task_lifecycle_from_contract(
-            runtime_host=self.single_agent_runtime_host,
+        for event in _task_system_cut_receipt_events(
             session_id=request.session_id,
             turn_id=turn_id,
-            model_selection=dict(request.model_selection or {}),
             action_request=action_request,
-            contract=contract,
-            agent_runtime_profile=agent_runtime_profile,
-            runtime_assembly=runtime_assembly,
             runtime_branch=runtime_branch,
-            editor_context=dict(getattr(request, "editor_context", {}) or {}),
-            answer_source="harness.explicit_contract_task",
-            scheduler="explicit_contract_task",
-            task_id=str(contract.source_contract_ref or contract.contract_id or f"task:{turn_id}"),
-            max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
-            commit_assistant_message=self._apply_assistant_message_commit_async,
-            initialize_task_todo=self._initialize_task_todo_for_contract,
-            schedule_task_run_executor=self.schedule_task_run_executor,
+            source="harness.explicit_contract_task",
         ):
-            task_run_id = _task_run_id_from_lifecycle_event(event)
-            if task_run_id:
-                self._record_turn_environment_snapshot(
-                    session_id=request.session_id,
-                    turn_id=turn_id,
-                    runtime_assembly=runtime_assembly,
-                    task_run_id=task_run_id,
-                )
             yield event
 
     def _active_work_context_from_active_turn(self, session_id: str) -> ActiveWorkContext | None:
@@ -3328,7 +3266,7 @@ def _runtime_assembly_with_task_launch_supervision(runtime_assembly: Any) -> Any
         "enabled": True,
         "allow_direct_pass": True,
         "gate_type": str(supervision.get("gate_type") or "slash_task_command_launch"),
-        "user_prompt": str(supervision.get("user_prompt") or "任务模式已建立。你可以补充约束，或直接继续执行。"),
+        "user_prompt": str(supervision.get("user_prompt") or "长任务资源已建立。你可以补充约束，或直接继续执行。"),
     }
     profile["task_lifecycle_policy"] = lifecycle_policy
     payload["profile"] = profile
@@ -3483,7 +3421,7 @@ def _explicit_contract_task_seed(
         "container_contract": {
             "entry_reason": _first_contract_text(
                 source.get("entry_reason"),
-                f"显式任务合同已提供，当前工作需要绑定持续任务生命周期：{user_visible_goal}",
+                f"显式任务合同已提供，当前工作需要绑定长任务资源：{user_visible_goal}",
             ),
             "continuity_required": True,
             "control_required": True,
@@ -3650,6 +3588,38 @@ def _task_run_id_from_lifecycle_event(event: dict[str, Any]) -> str:
     runtime_payload = dict(runtime_event.get("payload") or {})
     task_run = dict(runtime_payload.get("task_run") or {})
     return str(task_run.get("task_run_id") or "").strip()
+
+
+def _task_system_cut_receipt_events(
+    *,
+    session_id: str,
+    turn_id: str,
+    action_request: ModelActionRequest,
+    runtime_branch: dict[str, Any],
+    source: str,
+) -> list[dict[str, Any]]:
+    request_id = str(getattr(action_request, "request_id", "") or f"request-task-run:{turn_id}").strip()
+    return [
+        {
+            "type": "runtime_status",
+            "title": "长任务资源链路已切断",
+            "detail": "已接收 request_task_run 控制信号；旧 TaskRun 生命周期暂不启动，等待后续任务体系重做后重新接入。",
+            "state": "completed",
+            "status_kind": "task_system_cut",
+            "phase": "request_task_run",
+            "runtime_branch": dict(runtime_branch or {}),
+            "model_action_request": action_request.to_dict() if hasattr(action_request, "to_dict") else {},
+            "request_id": request_id,
+            "session_id": str(session_id or ""),
+            "turn_id": str(turn_id or ""),
+            "authority": "harness.entrypoint.task_system_cut",
+        },
+        turn_completed_event(
+            status="completed",
+            terminal_reason="task_resource_request_recorded",
+            completion_state="task_system_cut",
+        ),
+    ]
 
 
 def _normalized_turn_attachments(value: Any) -> list[dict[str, Any]]:

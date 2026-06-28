@@ -11,6 +11,8 @@ let frameOffset = 0;
 function projectionFrame(patch: Partial<PublicProjectionFrame>): PublicProjectionFrame {
   frameOffset += 1;
   const eventFamily = patch.event_family ?? inferEventFamily(patch);
+  const bodyRef = `body:projection:${frameOffset}`;
+  const messageRef = "assistant:projection:1";
   return {
     authority: "harness.public_projection",
     contract_revision: "20260614-dual-channel-v1",
@@ -24,12 +26,15 @@ function projectionFrame(patch: Partial<PublicProjectionFrame>): PublicProjectio
       stream_run_id: "strun:projection:1",
       turn_run_id: "turnrun:projection:1",
       run_id: "turnrun:projection:1",
+      message_id: messageRef,
     },
     op: "item_upsert",
     slot: "status",
     source_authority: "runtime",
     main_visibility: "hidden",
     retention: "trace",
+    body_ref: eventFamily === "assistant_body" ? bodyRef : undefined,
+    message_ref: eventFamily === "assistant_body" ? messageRef : undefined,
     ...patch,
   };
 }

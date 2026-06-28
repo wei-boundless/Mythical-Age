@@ -315,6 +315,10 @@ export type PublicProjectionFrame = {
   retention: "transient" | "final" | "pinned_until_resolved" | "trace" | string;
   pin_reason?: string;
   item_id?: string;
+  body_ref?: string;
+  message_ref?: string;
+  content_sha256?: string;
+  content_utf8_bytes?: number;
   title?: string;
   text?: string;
   detail?: string;
@@ -4186,4 +4190,3 @@ export type AgentSystemSubagentPolicy = {
   result_policy: string;
   allow_nested_subagents: boolean;
 };
-

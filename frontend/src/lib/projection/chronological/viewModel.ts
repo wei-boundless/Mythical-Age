@@ -73,6 +73,9 @@ export function projectionViewFromLedger(ledger: ChronologicalProjectionLedger |
   const bodyBlocks = ledger.bodySegments.map((segment): BodyProjectionBlock => ({
     kind: "body_segment" as const,
     id: segment.id,
+    bodyRef: segment.bodyRef,
+    messageRef: segment.messageRef,
+    contentSha256: segment.contentSha256,
     text: segment.text,
     firstOffset: segment.firstOffset,
     lastOffset: segment.lastOffset,

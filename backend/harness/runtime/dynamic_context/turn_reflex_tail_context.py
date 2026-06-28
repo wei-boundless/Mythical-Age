@@ -6,7 +6,7 @@ from .models import compact_text, dict_tuple, drop_empty, stable_json_hash
 from .todo_plan_projection import project_todo_plan
 
 
-def build_task_mode_tail_contexts(
+def build_turn_reflex_tail_contexts(
     task_state: dict[str, Any],
     *,
     task_run_id: str = "",
@@ -58,10 +58,10 @@ def _task_goal_context(*, task_run_id: str, goal_contract: dict[str, Any]) -> di
                 "goal_sha256": goal_sha256,
                 "goal_contract_ref": "task_run_contract_stable.task_run_contract.goal_contract",
                 "working_scope_ref": "task_run_contract_stable.task_run_contract.working_scope",
-                "agent_use_contract": "Read full goal/scope from task_run_contract_stable; this pins the active version.",
-                "authority": "harness.runtime.dynamic_context.task_goal_active_ref",
+                "agent_use_contract": "Use this as the current turn goal anchor. Full goal/scope authority remains in the task resource contract.",
+                "authority": "harness.runtime.dynamic_context.turn_goal_resource_ref",
             },
-            "authority": "harness.runtime.dynamic_context.task_mode_tail_context.task_goal_context",
+            "authority": "harness.runtime.dynamic_context.turn_reflex_tail_context.task_goal_context",
         }
     )
 
@@ -115,7 +115,7 @@ def _task_plan_context(*, task_run_id: str, plan_contract: dict[str, Any]) -> di
                 "change_model": "plan_contract_baseline",
                 "authority": "harness.runtime.dynamic_context.task_plan_delta",
             },
-            "authority": "harness.runtime.dynamic_context.task_mode_tail_context.task_plan_context",
+            "authority": "harness.runtime.dynamic_context.turn_reflex_tail_context.task_plan_context",
         }
     )
 
@@ -185,7 +185,7 @@ def _task_todo_context(
                     "authority": "harness.runtime.dynamic_context.task_todo_delta",
                 }
             ),
-            "authority": "harness.runtime.dynamic_context.task_mode_tail_context.task_todo_context",
+            "authority": "harness.runtime.dynamic_context.turn_reflex_tail_context.task_todo_context",
         }
     )
 
