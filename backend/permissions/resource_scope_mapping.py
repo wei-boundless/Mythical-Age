@@ -14,7 +14,6 @@ _BUILTIN_OPERATION_TO_TOOL = {
     "op.stat_path": "stat_path",
     "op.path_exists": "path_exists",
     "op.glob_paths": "glob_paths",
-    "op.read_structured_file": "read_structured_file",
     "op.python_code_outline": "python_code_outline",
     "op.python_parse_check": "python_parse_check",
     "op.python_symbol_search": "python_symbol_search",

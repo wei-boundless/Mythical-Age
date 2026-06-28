@@ -7,13 +7,23 @@
 2026-06-28 落地记录：
 
 - 已将普通初始回答与动作阶段输出区分为 `phase + output channel contract`。
-- 已修正工具观察、运行恢复、active steer、closeout、admission repair 等动作阶段提示，回答用户时走 `respond.final_answer / ask_user.user_question / block.blocking_reason`。
-- 已把 action phase 的 provider native tool 调用接入 `tool_choice=required`；provider native tool 参数不兼容时降级到 JSON action object，不降级到 raw assistant text。
+- 已修正工具观察、运行恢复、active steer、closeout、admission repair 等阶段提示：直接回答可以由 assistant 正文承载；询问、阻塞、工具和控制必须走结构化动作字段。
+- 已把 provider native tool 调用接入 output channel contract：允许直接 `respond` 时不强制 `tool_choice=required`；不允许直接回应且必须动作时才强制 provider 选择工具/控制动作。provider native tool 参数不兼容时可降级到 JSON action object，不把工具/控制动作降级成普通正文。
 - 已将 follow-up context rebase 的 sealed history/current append 策略迁到 `backend/runtime/context_management/followup_context_rebase.py`，主 loop 保留 provider message/spec 编排。
 - 已修正 `turn_operating_contract` capability group 错线：contract slot 现在归入 `TURN_STATE_CONTROL`，不再误归入 `ACTION_CONTRACTS`。
 - 已新增 `backend/runtime/context_management/context_segment_registry.py`，集中声明 context segment kind 的 semantic slot、source kind、content source、capability、layer 与 dynamic tier 默认值。
 - 已将 `context_segment_policy.py` 的 kind 集合与内置 policy defaults 改为 registry 派生；`message_specs.py`、`slot_policy.py`、`context_capability_policy.py` 不再维护各自完整 kind 决策表。
-- 已修正 recovery 文案中“自然回应或 respond.final_answer”的双通道暗示，动作阶段统一要求通过 `respond.final_answer / ask_user.user_question / block.blocking_reason` 承载用户正文。
+- 已修正 recovery 文案：系统不替 agent 包装答案；agent 可以直接自然回应，也可以用 `respond.final_answer`，但工具、询问、阻塞和控制必须保持动作身份。
+
+2026-06-29 反馈契约与工具边界修正记录：
+
+- 公开反馈被定义为 agent 对用户的语义义务，而不是 parser/admission 的硬阻断条件。
+- Prompt 要求 agent 在阶段变化、失败恢复、写入验证、用户追问、任务/当前工作控制和最终收口时给出可理解反馈；短低层证据链可以合并到下一次结构化动作或收口。
+- Parser 只验动作结构、authority、action_type、必需业务字段和边界字段；缺少公开反馈只进入 `contract_gaps`，不得拒绝合法工具或控制动作。
+- Provider control action schema 中的公开反馈载体允许 `null`，避免模型为了满足结构而编造 `public_action_state.current_judgment`。
+- 系统不生成用户可见反馈，不判断反馈语义好坏；投影层只展示 agent 明确写入的公开字段。
+- 单 turn 工具循环不再有任意工具次数预算；保留的边缘保护只有权限/审批/沙盒/危险副作用、provider 调用失败、协议无法恢复、连续重复工具失败和真实资源缺失。
+- 工具可见性以 agent/runtime 授权为主，任务 required/optional 只作为 trace；子 agent、memory 等工具不再因为没有旧 task-required 入口而被隐藏。
 
 本文解决的问题不是“是否允许 Markdown”，而是重新定义 agent 生命周期、系统反应链路、模型输出通道和提示词权威之间的关系。
 
@@ -22,8 +32,8 @@
 - Markdown 是用户可见正文格式，不是协议问题。
 - 真正需要系统化的是：一段模型输出在当前生命周期阶段里是否具有语义动作身份。
 - 普通初始聊天可以直接自然回答。
-- 一旦进入工具观察后、运行恢复、admission repair、closeout 或 task execution，模型正在做动作决策；此时自然回答仍然允许，但必须通过 `respond.final_answer` 或 provider `respond` control tool 承载。
-- Provider native tools 只是动作传输方式，不是允许 raw assistant text 的许可。
+- 一旦进入工具观察后、运行恢复、admission repair、closeout 或 task execution，模型仍由自己决定语义；如果只是回答用户，assistant 正文和 `respond.final_answer` 都是合法载体。
+- Provider native tools 只是动作传输方式，不是把工具/控制动作写进普通正文的许可。
 - 系统的“神经反应”应当是事件驱动的控制反馈链路，而不是分散 prompt 文案互相拉扯。
 
 正式架构命名应使用 `turn lifecycle`、`runtime control signal`、`output channel contract`、`model action request`、`output commit boundary`。`神经反应` 只作为产品/工程讨论中的比喻，指系统从事件到反馈再到下一次模型决策的反应链。
@@ -35,7 +45,7 @@
 更深层问题是生命周期和输出通道没有形成统一权威：
 
 - Prompt 有的地方说“可以直接回答”。
-- Tool/control 阶段的 repair prompt 又说“用 `respond.final_answer`”。
+- Tool/control 阶段的 repair prompt 又把回答载体锁死为 `respond.final_answer`。
 - `native_tools` 存在时，调用层曾把输出契约降级成 `action_transport_required=false`。
 - Parser 又按 `direct_visible_text_stream_allowed=false` 拦截 raw text。
 - 前端只能看到失败终态，却看不到 agent 的真实语义回答。
@@ -101,7 +111,7 @@ TurnPhase
 
 判断：
 
-这些模块已经有正确素材，但此前表达不统一。`compiler` 和 `turn_operating_contract` 里曾有“assistant message 是动作形式之一”“natural_response_or_turn_action”之类描述，容易和 tool/control 阶段的 `respond.final_answer` 契约打架；当前已按 phase 拆分。
+这些模块已经有正确素材，但此前表达不统一。`compiler` 和 `turn_operating_contract` 里曾有“assistant message 是动作形式之一”“natural_response_or_turn_action”之类描述，容易和 tool/control 阶段的结构化动作契约打架；当前已按 phase 和 action type 拆分。
 
 ### 2.3 Prompt library
 
@@ -109,14 +119,14 @@ TurnPhase
 
 - `backend/prompt_library/agent_prompts.py`
   - `MAIN_INTERACTIVE_SINGLE_AGENT_TURN_PROMPT` 说“如果可以直接回答，就给出回答”，适合初始普通 turn。
-  - `MAIN_INTERACTIVE_OBSERVATION_FOLLOWUP_PROMPT` 此前说“如果观察已经足够，直接给用户回答”，在 tool observation follow-up 场景容易误导为 raw text；当前已改为选择 `respond` 并写入 `final_answer`。
+  - `MAIN_INTERACTIVE_OBSERVATION_FOLLOWUP_PROMPT` 已改为：观察足够且不需要生命周期状态时可以直接回答；如果本轮输出合同要求结构化 respond，则写入 `final_answer`。
 - `backend/prompt_library/rules.py`
   - `RUNTIME_SYSTEM_CALL_PROTOCOL_RULE` 已经要求“需要提交动作时，必须使用本轮允许的动作形式”。
   - `RUNTIME_OUTPUT_BOUNDARY_RULE` 已经定义 `final_answer / user_question / blocking_reason` 是用户可见正文来源。
 
 判断：
 
-全局“可以直接回答”不是错误；错误是没有把这句话限定在普通初始入口。观察后、恢复和 closeout 阶段要改成“可以自然回答，但通过 `respond.final_answer` 承载”。
+全局“可以直接回答”不是错误；错误是让它和“只能 JSON / 不能 Markdown”同时出现。观察后、恢复和 closeout 阶段也可以自然回答，但工具、控制、询问、阻塞必须通过动作字段承载。
 
 ### 2.4 补充审查结论
 
@@ -127,17 +137,17 @@ TurnPhase
    - 初始调用、active turn steer、tool follow-up、runtime recovery、closeout 都通过调用点传递 phase-aware output contract。
    - 后续仍需避免维护者从 `allowed_action_types` 或 native tools 反推动作阶段。
 2. `backend/prompt_library/agent_prompts.py`
-   - `MAIN_INTERACTIVE_OBSERVATION_FOLLOWUP_PROMPT` 已删除“如果观察已经足够，直接给用户可复核的回答或结果”。
-   - 工具观察后阶段改为 `respond.final_answer` carrier，避免诱导 raw assistant text。
+   - `MAIN_INTERACTIVE_OBSERVATION_FOLLOWUP_PROMPT` 已说明：观察足够时可以直接自然回答；结构化 respond 由 `final_answer` 承载。
+   - 工具观察后阶段不再强制 JSON 回答；工具、控制、询问、阻塞仍保持动作身份。
 3. `backend/harness/runtime/compiler.py`
    - `_model_decision_contract_payload(...)` 已区分 ordinary initial answer 和 action phase。
-   - `assistant_text_allowed_when_no_action=True` 只在普通初始入口成立；动作阶段 natural response carrier 是 `respond.final_answer`。
+   - `action_phase_natural_response_carrier` 已统一为 `assistant_message_or_respond.final_answer`。
 4. `backend/harness/runtime/turn_operating_contract.py`
    - `turn_output_contract_payload(...)` 已从 `natural_response_or_turn_action` 改为阶段化表达。
-   - 普通入口允许 natural response；动作阶段 natural response 的 carrier 是 `respond.final_answer`。
+   - 允许 `respond` 的阶段都可以自然回答；`raw_assistant_text_allowed_when=respond_allowed_and_no_other_action`。
 5. `backend/runtime/tool_runtime/tool_call_policy.py`
-   - `ToolCallBindingOptions` 已支持 `tool_choice`。
-   - `build_round_tool_call_options(...)` 已接收 `tool_choice`，动作阶段可传入 `required`。
+  - `ToolCallBindingOptions` 已支持 `tool_choice`。
+  - `build_round_tool_call_options(...)` 已接收 `tool_choice`；只有 output channel contract 不允许 assistant respond 时，动作阶段才传入 `required`。
 6. `backend/runtime/model_gateway/lightweight_chat_model.py`
    - provider payload 已能透传 `tool_choice`。
    - 说明 transport 能力具备，缺的是 output channel contract 到 provider tool binding policy 的连接线。
@@ -317,24 +327,24 @@ Runtime Event
 
 - 初始普通回答要顺畅：模型可以直接给 Markdown 正文，commit gate 直接提交。
 - 进入运行闭环后要可执行：模型每次输出都必须有动作身份，否则系统不知道是回答、继续工具、询问、阻塞还是申请任务资源。
-- 自然语言回答仍然允许：动作阶段不是禁止回答，而是要求把回答放进 `respond.final_answer`。
-- 系统不能越权替 agent 包装答案：parser 不应把 raw text 自动包成 `final_answer` 并提交；可以给 recovery，让模型重新确认同一语义动作。
+- 自然语言回答仍然允许：只要本阶段允许 `respond`，assistant 正文可以作为回答载体；结构化 `respond.final_answer` 是等价载体。
+- 系统不能越权替 agent 包装答案：parser 只在“本阶段允许 respond 且没有其它动作源”时接收 assistant 正文；不能从正文里猜测工具、询问、阻塞或控制动作。
 - 前端不能用隐藏失败代替后端修复：前端只负责区分断线、runtime trace 和用户可见阻塞，后端必须修正生命周期合同。
-- provider native tools 是 transport，不是语义许可：有 native tools 只说明动作可以通过 provider tool selection 传输，不说明 raw assistant text 可以成为最终答案。
+- provider native tools 是 transport，不是语义许可：有 native tools 只说明动作可以通过 provider tool selection 传输，不说明工具或控制意图可以写进普通正文。
 
-因此，限制 raw assistant text 的唯一理由是：当前 phase 要求一个可执行、可恢复、可提交的语义动作。普通初始问答不应被动作协议拖慢；动作阶段也不应因为裸文本而失去执行身份。
+因此，限制普通正文的唯一理由是：模型表达的是工具、控制、询问或阻塞等需要生命周期身份的动作。普通问答不应被动作协议拖慢；工具和控制也不应因为写成自然正文而失去执行身份。
 
 ## 4. 生命周期阶段表
 
 | 阶段 | 触发来源 | 模型职责 | raw assistant text | 正确回答载体 |
 |---|---|---|---:|---|
 | `initial_decision` | 用户新 turn 第一次模型调用 | 判断是否普通回答、工具观察、询问、阻塞或申请资源 | 允许 | 普通回答可 raw text；动作走 provider tool 或 JSON action |
-| `initial_action_parse` | 初始响应解析 | 把模型输出归一为正文或动作 | 取决于上一阶段契约 | raw text 只能作为普通最终回答 |
-| `tool_followup_decision` | 工具观察返回 | 基于观察决定下一步 | 不允许 | `respond.final_answer` 或 provider `respond` tool |
-| `runtime_recovery_decision` | 协议错误、动作未执行、输出通道错误 | 修复动作 | 不允许 | 修正后的 action |
+| `initial_action_parse` | 初始响应解析 | 把模型输出归一为正文或动作 | 取决于上一阶段契约 | assistant 正文只能作为 `respond` 回答 |
+| `tool_followup_decision` | 工具观察返回 | 基于观察决定下一步 | 允许，当且仅当作为 `respond` 且没有其它动作源 | assistant 正文或 `respond.final_answer` |
+| `runtime_recovery_decision` | 协议错误、动作未执行、输出通道错误 | 修复动作或回答 | 允许，当且仅当作为 `respond` 且没有其它动作源 | assistant 正文、`respond.final_answer` 或修正后的 action |
 | `admission_repair_decision` | admission 拦截 | 修正权限、范围、动作字段 | 不允许 | 修正后的 action |
 | `active_turn_steer_decision` | 运行中用户 steer | 判断如何接入当前工作 | 不允许 | control action |
-| `closeout_decision` | 工具预算、恢复耗尽、连续失败、停止要求 | 做最终可见裁决 | 不允许 | `respond / ask_user / block` |
+| `closeout_decision` | 工具预算、恢复耗尽、连续失败、停止要求 | 做最终可见裁决 | 允许，当且仅当作为收口回答 | assistant 正文、`respond.final_answer`、`ask_user` 或 `block` |
 | `task_execution_decision` | 持续任务执行 turn | 推进任务、验证、收口 | 不允许 | action |
 | `output_commit` | 已有可提交正文或动作结果 | 校验并提交用户可见内容 | 不适用 | `final_answer / user_question / blocking_reason / public_feedback` |
 
@@ -350,22 +360,24 @@ Runtime Event
 
 `OutputChannelContract` 是当前模型调用的输出通道合同，回答三个问题：
 
-1. 当前阶段是否允许 raw assistant text 直接成为用户正文？
-2. 当前阶段是否必须提交动作？
-3. 如果必须提交动作，动作载体是 provider native tool，还是 JSON action object？
+1. 当前阶段是否允许 assistant message 作为 `respond` 的用户正文载体？
+2. 当前阶段的工具、控制、询问或阻塞是否必须提交结构化动作？
+3. 如果提交动作，动作载体是 provider native tool，还是 JSON action object？
 
 建议结构：
 
 ```json
 {
   "phase": "tool_followup_decision",
-  "raw_assistant_text_allowed": false,
+  "raw_assistant_text_allowed": true,
+  "raw_assistant_text_allowed_when": "respond_allowed_and_no_other_action",
+  "assistant_message_accepted_for_respond": true,
   "action_required": true,
-  "visible_body_source": "model_action_user_field",
+  "visible_body_source": "assistant_message_or_model_action_user_field",
   "preferred_action_transport": "provider_control_tool",
   "fallback_action_transport": "json_action_object",
   "allowed_action_types": ["respond", "ask_user", "block", "tool_call"],
-  "natural_response_carrier": "respond.final_answer"
+  "natural_response_carrier": "assistant_message_or_respond.final_answer"
 }
 ```
 
@@ -374,12 +386,12 @@ Runtime Event
 | 合同字段 | 归属层 | 含义 |
 |---|---|---|
 | `phase` | execution loop | 当前模型调用的生命周期阶段 |
-| `raw_assistant_text_allowed` | output channel | raw text 是否可以直接进入最终正文 |
-| `action_required` | output channel | 是否必须形成一个语义动作 |
+| `raw_assistant_text_allowed` | output channel | assistant 正文是否可在没有其它动作源时作为 `respond` 正文 |
+| `action_required` | output channel | 是否必须形成一个语义裁决；`assistant_message` 可作为 `respond` 裁决载体 |
 | `preferred_action_transport` | transport | 优先动作载体 |
 | `fallback_action_transport` | transport | provider tool 不可用时的载体 |
 | `visible_body_source` | output boundary | 用户正文从哪里来 |
-| `natural_response_carrier` | prompt/parser | 自然语言回答放在哪个字段 |
+| `natural_response_carrier` | prompt/parser | 自然语言回答由 `assistant_message` 或 `respond.final_answer` 承载 |
 
 ### 5.3 Native tools 的正确语义
 
@@ -392,32 +404,33 @@ Provider native tools 只表示：
 它不表示：
 
 ```text
-模型可以不提交动作，直接写 raw assistant 正文。
+工具或控制动作可以混在普通正文里。
 ```
 
 因此：
 
-- `native_tools` 存在时，不能自动把 `action_required` 降为 false。
+- `native_tools` 存在时，不能自动把工具/控制动作降级成普通正文。
 - tool/control 阶段如果 provider 支持，应要求模型选择一个 native action tool。
-- 如果 provider 不支持 required tool choice，则 prompt 和 parser 仍要按动作阶段验收；raw text 只能触发 recovery，不应直接发布。
+- 如果模型没有提交工具或控制动作，而本阶段允许 `respond`，完整 assistant 正文可以作为 `respond` 正文发布。
+- 如果 provider 不支持 required tool choice，则 prompt 和 parser 仍要按动作合同验收工具/控制动作；系统不从普通正文里猜测工具意图。
 
 ## 6. Prompt 权威分层
 
 | Prompt 来源 | 允许表达 | 不允许表达 |
 |---|---|---|
 | main interactive role prompt | 初始 turn 如何理解用户、何时可直接回答 | tool follow-up 阶段的字段协议 |
-| observation follow-up prompt | 观察是事实输入，必须重新裁决下一步 | “直接给用户回答”这种 raw text 暗示 |
+| observation follow-up prompt | 观察是事实输入，必须重新裁决下一步；足够回答时可直接回复或使用 `respond.final_answer` | 工具/控制动作写在普通正文里 |
 | system call protocol rule | 需要动作时必须使用当前动作形式 | 具体阶段是否允许 raw text |
 | output boundary rule | 用户可见正文边界、不能泄露内部协议 | 动作选择策略 |
 | action schema / provider control schema | 字段类型、required fields、provider tool 参数 | agent 角色、任务策略、领域判断 |
 | repair / recovery prompt | 本次动作哪里不合法、如何修正 | 重写用户目标或引入第二套生命周期 |
-| closeout prompt | 基于停止事实选择 `respond/ask_user/block` | 允许动作外自然正文 |
+| closeout prompt | 基于停止事实直接自然收口，或用 `ask_user/block` 记录等待/阻塞生命周期 | 代替 agent 生成系统解释 |
 
 核心治理规则：
 
-- 普通初始入口可以说“如果可以直接回答，就直接回答”。
-- 所有 observation / recovery / closeout / task execution prompt 必须说“如果可以回答，使用 `respond.final_answer`”。
-- 任何 prompt 不得同时说“直接写自然语言最终回应”又说“不要输出动作对象之外的正文”。
+- 允许 `respond` 的阶段可以说“如果可以回答，就直接回答；也可以使用 `respond.final_answer`”。
+- 工具、控制、询问和阻塞必须通过结构化动作承载，因为它们改变执行或生命周期状态。
+- 任何 prompt 不得同时说“直接写自然语言最终回应”又说“只能输出 JSON / 不要输出 Markdown”。
 - 提示词不负责兜底 parser；parser 不负责修正提示词；二者都必须服从 `OutputChannelContract`。
 
 ### 6.1 生命周期提示词对齐矩阵
@@ -430,11 +443,11 @@ Provider native tools 只表示：
 | 生命周期阶段 | invocation / 触发 | 静态 work role prompt | 运行时 lifecycle prompt | 输出通道 | 当前问题 | 修正要求 |
 |---|---|---|---|---|---|---|
 | `initial_decision` | `single_agent_turn` 初始模型调用 | `MAIN_INTERACTIVE_SINGLE_AGENT_TURN_PROMPT` | `compiler._model_decision_contract_payload(...)`、`turn_operating_contract_payload(...)`、当前 turn operating contract | raw text 可作为普通最终回答；动作走 provider tool 或 JSON action | 已修正：raw text allowed 只在普通入口暴露 | 动作阶段不得继承 ordinary initial assistant message |
-| `tool_followup_decision` | 工具观察后，含 `tool_observation_followup` packet 或 single-turn follow-up | `MAIN_INTERACTIVE_OBSERVATION_FOLLOWUP_PROMPT` | `_tool_followup_action_contract_messages(...)` | 必须 action；回答走 `respond.final_answer` | 已修正：work role prompt 不再说动作外直接回答 | 观察足够时选择 `respond`，把自然回答写入 `final_answer` |
-| `runtime_recovery_decision` | parser/protocol/output channel/admission 前置错误后的恢复 | 继承当前 turn 原 work role，不新建角色 | `_runtime_control_signal_recovery_messages(...)` | 必须 action；保留原语义意图，修正动作字段或载体 | recovery prompt 已基本正确，但 phase 没进入统一 output contract | recovery 调用必须传 `phase=runtime_recovery_decision` 和 action contract |
-| `admission_repair_decision` | `AdmissionDecision` 拒绝模型动作 | 继承当前 turn 原 work role | `SINGLE_AGENT_ADMISSION_REPAIR_PROMPT` + `_single_agent_admission_repair_messages(...)` | 必须 JSON/action；不能 raw 回答 | repair 调用当前用 `require_json_action=True`，但没有统一 `OutputChannelContract.phase` | 改为 action phase contract，提示词说明“修正动作，不重写用户目标” |
-| `active_turn_steer_decision` | active turn 中用户补充 | 继承当前 turn 原 work role | `active_turn_steering._queued_user_steer_model_message(...)` | 必须重新决策动作；raw text 不直接发布 | steer prompt 说明“吸收补充要求”，但未显式说输出载体 | 追加 output channel contract：继续工具、respond、ask_user、block、task control 都必须通过动作 |
-| `closeout_decision` | 工具预算、恢复耗尽、停止、连续失败 | 继承当前 turn 原 work role | `_agent_authored_closeout_messages(...)` | 只允许 `respond / ask_user / block` | 已修正为动作承载，但文档要锁定不能回退 | 保持“自然回复必须通过动作承载”；不得恢复动作外正文 |
+| `tool_followup_decision` | 工具观察后，含 `tool_observation_followup` packet 或 single-turn follow-up | `MAIN_INTERACTIVE_OBSERVATION_FOLLOWUP_PROMPT` | `_tool_followup_action_contract_messages(...)` | 工具/控制/询问/阻塞走动作；回答可直接 assistant 正文或 `respond.final_answer` | 已修正：不再强制 JSON 回答 | 观察足够时直接回答；需要生命周期状态时提交对应动作 |
+| `runtime_recovery_decision` | parser/protocol/output channel/admission 前置错误后的恢复 | 继承当前 turn 原 work role，不新建角色 | `_runtime_control_signal_recovery_messages(...)` | 直接回答可用 assistant 正文；工具/控制/询问/阻塞必须结构化 | recovery prompt 已对齐，但必须继续携带 phase | recovery 调用必须传 `phase=runtime_recovery_decision` 和 output channel contract |
+| `admission_repair_decision` | `AdmissionDecision` 拒绝模型动作 | 继承当前 turn 原 work role | `SINGLE_AGENT_ADMISSION_REPAIR_PROMPT` + `_single_agent_admission_repair_messages(...)` | 直接回答可用 assistant 正文；修正动作必须结构化 | repair 曾绕过 output contract 强制 JSON | 改为 action phase contract，提示词说明“修正动作，不重写用户目标” |
+| `active_turn_steer_decision` | active turn 中用户补充 | 继承当前 turn 原 work role | `active_turn_steering._queued_user_steer_model_message(...)` | 直接回答可用 assistant 正文；继续工具、task control、ask_user、block 必须结构化 | steer prompt 说明“吸收补充要求”，但未显式说输出载体 | 追加 output channel contract：继续工具、ask_user、block、task control 必须通过动作 |
+| `closeout_decision` | 工具预算、恢复耗尽、停止、连续失败 | 继承当前 turn 原 work role | `_agent_authored_closeout_messages(...)` | 直接自然收口；需要等待/阻塞状态时用 `ask_user/block` | 已修正：系统不代写可见解释 | 保持 agent 自己收口；系统只验收无工具动作和生命周期字段 |
 | `task_execution_decision` | `task_execution` 持续任务执行 | `MAIN_INTERACTIVE_TASK_EXECUTION_PROMPT` | task execution packet 的 action schema、task contract、turn operating contract、tool observation follow-up | 必须 action；回答走 `respond.final_answer` | prompt 说“最终回复”，但没有显式绑定 `respond.final_answer` | 增补 task execution action contract：回复、询问、阻塞都必须在动作字段内 |
 | `output_commit` | 已有 action 或允许 raw text 的 ordinary answer | 无模型 prompt | output boundary / commit gate | 只消费 `final_answer / user_question / blocking_reason / public_feedback`；ordinary initial raw text 例外 | commit gate 不应读 runtime prompt 或协议错误 | commit gate 只能消费 output contract 认可的正文来源 |
 
@@ -442,16 +455,16 @@ Provider native tools 只表示：
 
 1. 静态 work role prompt 只描述身份、任务、边界和判断标准，不直接决定本次输出通道。
 2. 运行时 lifecycle prompt 必须携带当前 `phase`、`allowed_action_types`、`OutputChannelContract` 和用户可见字段载体。
-3. 静态 prompt 中“直接回答”只能在普通初始入口成立；一旦进入观察后、恢复、admission repair、active steer、closeout 或 task execution，必须改写为 `respond.final_answer`。
+3. 静态 prompt 中“直接回答”可以在允许 `respond` 的阶段成立；需要工具、控制、询问或阻塞时，必须改写为对应动作字段。
 4. lifecycle prompt 不允许通过开发说明写成“这是某个 runtime 节点”；必须面向 agent 说明“你现在是谁、收到什么事实、要做什么裁决、输出放在哪里、不能做什么”。
 5. `compiler._model_decision_contract_payload(...)` 和 `turn_output_contract_payload(...)` 必须按 phase 生成模型可见合同，不能再发一个跨阶段通用的 `natural_response_or_turn_action`。
-6. 若 provider control tools 可用，运行时 prompt 应说“选择对应 control action/tool”；若不可用，才说“提交同等结构化 action object”。两者都不能允许动作外 raw Markdown。
+6. 若 provider control tools 可用，运行时 prompt 应说“选择对应 control action/tool”；若不可用，才说“提交同等结构化 action object”。两者都不能把工具或控制意图放在普通 Markdown 正文里。
 
 必须立即修正的 prompt 对齐项：
 
-- `MAIN_INTERACTIVE_OBSERVATION_FOLLOWUP_PROMPT`：删除“直接给用户回答或结果”，改为“选择 `respond`，将回答写入 `final_answer`”。
+- `MAIN_INTERACTIVE_OBSERVATION_FOLLOWUP_PROMPT`：允许观察足够时直接回答；需要等待/阻塞/工具/控制时必须走动作字段。
 - `_model_decision_contract_payload(...)`：把 `assistant_response_form=assistant_message` 改成 phase-aware 表达，只允许 ordinary initial answer 使用 raw assistant message。
-- `turn_output_contract_payload(...)`：把 `format=natural_response_or_turn_action` 改成 `ordinary_initial_response_or_action`，并补 `action_phase_natural_response_carrier=respond.final_answer`。
+- `turn_output_contract_payload(...)`：把 `respond` 的自然正文载体统一为 `assistant_message_or_respond.final_answer`，并明确 `raw_assistant_text_allowed_when=respond_allowed_and_no_other_action`。
 - `MAIN_INTERACTIVE_TASK_EXECUTION_PROMPT`：补一句“收口、询问或阻塞必须通过本轮允许动作承载，对用户正文写入对应字段”。
 - active steer lifecycle prompt：补一句“吸收 steer 后只能提交本阶段允许动作，不要把动作外正文当作最终答复”。
 
@@ -491,20 +504,20 @@ Tool observation
 -> model-visible observation feedback
 -> phase=tool_followup_decision
 -> action_required=true
--> model selects respond tool or JSON {"action_type":"respond","final_answer":"..."}
--> parser validates action identity
--> output commit consumes final_answer
+-> model either writes assistant response, or selects a structured action
+-> parser validates: assistant text is accepted only as respond with no other action source
+-> output commit consumes assistant text or final_answer
 -> frontend displays final answer
 ```
 
 ### 7.4 协议错误恢复
 
 ```text
-Parser detects raw text in action phase
+Parser detects malformed action, mixed action sources, or action text in the wrong channel
 -> runtime_control_signal(model_protocol_violation)
 -> phase=runtime_recovery_decision
 -> action_required=true
--> model fixes same semantic intent as respond.final_answer
+-> model keeps the same semantic intent and answers directly or resubmits a valid action
 -> parser validates
 -> commit
 ```
@@ -517,8 +530,8 @@ Recovery 的目标是保留模型原本语义意图，不是让系统吞掉失�
 Tool budget exhausted / recovery exhausted / stop boundary
 -> closeout control signal
 -> phase=closeout_decision
--> allowed actions = respond / ask_user / block
--> model chooses one
+-> allowed outcomes = assistant response / respond / ask_user / block
+-> model personally explains, asks, or blocks
 -> output commit or blocked/ask_user terminal
 ```
 
@@ -527,6 +540,7 @@ Tool budget exhausted / recovery exhausted / stop boundary
 Commit gate 只接受已经过 output boundary 判定的用户可见内容：
 
 - `respond.final_answer`
+- assistant 正文，当本阶段允许 `respond` 且没有其它动作源
 - `ask_user.user_question`
 - `block.blocking_reason`
 - 明确的 public progress feedback
@@ -538,7 +552,7 @@ Commit gate 不接受：
 - runtime control signal 原文
 - provider protocol error
 - action object 字段名
-- raw assistant text in action phase
+- assistant 正文携带工具、控制、询问或阻塞意图
 - repair prompt 内容
 
 前端展示规则：
@@ -565,8 +579,8 @@ Commit gate 不接受：
 
 完成标准：
 
-- 初始调用允许 raw assistant text。
-- tool follow-up、recovery、closeout、admission repair 显式 `action_required=true`。
+- 允许 `respond` 的阶段接收 assistant 正文作为直接回答。
+- tool follow-up、recovery、closeout、admission repair 显式声明 phase、允许动作和结构化动作边界。
 - 不能再由 `native_tools` 覆盖 action requirement。
 
 ### Phase 2：统一提示词权威
@@ -587,8 +601,8 @@ Commit gate 不接受：
 
 完成标准：
 
-- 搜索“直接写自然语言最终回应”“直接给用户回答”等文案时，只有普通初始入口允许此表达。
-- observation/recovery/closeout/task execution 都明确要求 `respond.final_answer`。
+- 搜索“只能 JSON”“不要 Markdown”“动作对象外正文”等文案时，不能再出现在 single-agent 直接回答路径。
+- observation/recovery/closeout 允许直接回答或 `respond.final_answer`；工具、控制、询问、阻塞必须结构化。
 
 ### Phase 3：修正 native tool transport
 
@@ -596,7 +610,7 @@ Commit gate 不接受：
 
 - `native_tools` 不再把 `action_transport_required` 降为 false。
 - action phase 有 provider control tools 时，优先走 provider tool selection。
-- provider 不支持 required tool choice 时，parser 仍按 action phase 验收，不允许 raw text commit。
+- provider 不支持 required tool choice 时，parser 仍按工具/控制动作合同验收；允许 `respond` 的纯 assistant 正文可以 commit。
 
 涉及文件：
 
@@ -610,7 +624,7 @@ Commit gate 不接受：
 - 最新失败中的矛盾合同不再出现：
   - `action_transport_required=false`
   - `direct_visible_text_stream_allowed=false`
-- tool/control phase 的 raw Markdown 不进入 commit gate。
+- tool/control 意图不能用 raw Markdown 进入 commit gate；纯 respond 正文可以。
 
 ### Phase 4：Parser 和 recovery 对齐
 
@@ -618,7 +632,7 @@ Commit gate 不接受：
 
 - `_single_agent_action_request_from_response(...)` 接收完整 output contract。
 - `allow_model_tool_calls=True` 不再重写 channel contract 为非动作阶段。
-- raw text in action phase 产生可恢复协议错误，并明确要求 `respond.final_answer`。
+- 混合动作源、伪工具调用或缺字段动作产生可恢复协议错误；纯 assistant 正文在允许 `respond` 时可直接收口。
 
 涉及文件：
 
@@ -628,7 +642,7 @@ Commit gate 不接受：
 完成标准：
 
 - recovery prompt 保留原意图，只修正传输形态。
-- 如果模型已经写出可用自然回答，下一轮 recovery 能让它进入 `final_answer`，而不是丢失。
+- 如果模型已经写出可用自然回答，parser 可在允许 `respond` 时直接接收；不能接收时 recovery 要让 agent 自己重新表达。
 
 ### Phase 5：Projection 和 frontend 展示收束
 
@@ -654,8 +668,8 @@ Commit gate 不接受：
 目标：
 
 - output commit boundary 只消费 `final_answer / user_question / blocking_reason / public_feedback`。
-- raw assistant text 只有在 `phase=initial_decision` 且 `raw_assistant_text_allowed=true` 时才能成为最终正文。
-- action phase 的用户可见内容只能来自动作字段或 provider control tool 参数。
+- assistant 正文只有在本阶段允许 `respond` 且没有其它动作源时才能成为最终正文。
+- action phase 中工具、控制、询问和阻塞只能来自动作字段或 provider control tool 参数。
 
 涉及文件：
 
@@ -667,7 +681,7 @@ Commit gate 不接受：
 完成标准：
 
 - 普通问答路径不被强制 JSON 化。
-- 工具后回答路径稳定走 `respond.final_answer`。
+- 工具后回答路径可直接 assistant 正文收口，也可走 `respond.final_answer`。
 - recovery 后能保留模型原本语义意图，但必须重新形成动作身份。
 - 前端只显示 commit gate 认可的用户正文，不把 protocol terminal 当作断线失败。
 
@@ -726,7 +740,7 @@ Commit gate 不接受：
 - `slot_policy.py` 的 kind -> source kind/layer/dynamic tier 改为 registry defaults；保留的本地表只承担 source-kind 排序、tiered layer 和 load phase 顺序。
 - `context_capability_policy.py` 的 kind capability 改为 registry 查询；本地仅保留 semantic slot、contract slot、prompt resource 的 capability 规则。
 - active backend 路径中 `turn_stable`、`skill_candidates`、`single_agent_turn_tool_observation`、`tool_observations` 未恢复为新决策 kind；旧工具观察 route 只保留在 historical detector 或迁移文档边界。
-- recovery 文案中动作阶段的自然回答 carrier 已统一为 `respond.final_answer`，不再表达“自然回应或 action carrier”这种双通道。
+- recovery 文案中自然回答 carrier 已统一为 `assistant_message_or_respond.final_answer`；工具、控制、询问和阻塞仍保持结构化动作身份。
 
 完成标准：
 
@@ -744,10 +758,10 @@ Commit gate 不接受：
 |---|---|
 | 普通问答，不用工具 | raw Markdown 直接显示 |
 | 初始轮决定调用工具 | 工具动作执行，工具前反馈可选但不伪装结果 |
-| 工具后模型要回答 | 通过 `respond.final_answer` 提交，用户看到 Markdown |
-| 工具后模型裸写 Markdown | parser 触发 recovery，不 commit raw text |
+| 工具后模型要回答 | assistant 正文或 `respond.final_answer` 提交，用户看到 Markdown |
+| 工具后模型裸写 Markdown | 当本阶段允许 `respond` 且没有其它动作源时直接 commit |
 | recovery 后模型修正为 respond | commit `final_answer` |
-| closeout 阶段 | 只允许 `respond / ask_user / block` |
+| closeout 阶段 | agent 直接自然收口，或提交 `respond / ask_user / block` |
 | provider native tools 可用 | 选择 provider control/tool action，不降级 raw text |
 | provider native tools 不可用 | 使用 JSON action object |
 | provider 服务失败 | 显示模型服务失败摘要，不当成断线 |
@@ -765,10 +779,10 @@ Commit gate 不接受：
 ## 11. 禁止事项
 
 - 不允许用前端隐藏来替代后端生命周期修复。
-- 不允许在 action phase 放开 raw assistant text 作为最终正文。
+- 不允许把工具、控制、询问或阻塞意图写成普通正文让系统猜。
 - 不允许把 `native_tools` 当作 `action_required=false` 的理由。
 - 不允许让 prompt 同时表达“直接自然回答”和“动作对象外不能有正文”。
-- 不允许 parser 猜测用户意图或自动把 raw text 包成 `final_answer` 后提交；可以 recovery，但语义动作必须由模型重新确认。
+- 不允许 parser 猜测用户意图；assistant 正文只能在允许 `respond` 且没有其它动作源时提交，不能被系统改写成别的动作。
 - 不允许 task/tool/recovery/closeout 形成第二套模型生命周期。
 
 ## 12. 文件级检查清单
@@ -779,7 +793,7 @@ Commit gate 不接受：
 - 初始调用保留 raw text 通道。
 - tool follow-up / recovery / active turn steer / closeout / admission repair 全部传 action contract。
 - native tools 不覆盖 action contract。
-- closeout prompt 改为 respond/ask_user/block 动作承载。
+- closeout prompt 改为 agent 直接自然收口，或用 ask_user/block 承载等待/阻塞生命周期。
 
 ### `backend/harness/runtime/compiler.py`
 
@@ -791,12 +805,12 @@ Commit gate 不接受：
 
 - `turn_output_contract_payload(...)` 不再笼统写 `natural_response_or_turn_action`。
 - 明确 `raw_text_is_not_a_control_action`。
-- 明确 action phase 的 natural response carrier 是 `respond.final_answer`。
+- 明确 action phase 的 natural response carrier 是 `assistant_message_or_respond.final_answer`。
 
 ### `backend/prompt_library/agent_prompts.py`
 
 - `MAIN_INTERACTIVE_SINGLE_AGENT_TURN_PROMPT` 保留普通直接回答语义。
-- `MAIN_INTERACTIVE_OBSERVATION_FOLLOWUP_PROMPT` 改成“观察足够时选择 respond，并把自然回答写入 final_answer”。
+- `MAIN_INTERACTIVE_OBSERVATION_FOLLOWUP_PROMPT` 改成“观察足够时可以直接自然回答；结构化 respond 时写入 final_answer”。
 
 ### `backend/prompt_library/rules.py`
 

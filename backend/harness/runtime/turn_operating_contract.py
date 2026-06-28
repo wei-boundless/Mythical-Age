@@ -362,9 +362,16 @@ def turn_output_contract_payload(
     json_action_enabled = bool(control_capabilities.get("supports_json_action_protocol") is True)
     json_action_required = bool(control_capabilities.get("requires_json_action_protocol") is True)
     output_phase = str(phase or "initial_decision").strip() or "initial_decision"
+    assistant_message_enabled = bool(control_capabilities.get("may_emit_assistant_message") is not False)
+    respond_allowed = "respond" in set(allowed)
     raw_text_allowed = (
-        output_phase == "initial_decision"
-        and bool(control_capabilities.get("may_emit_assistant_message") is not False)
+        assistant_message_enabled
+        and respond_allowed
+    )
+    natural_response_carrier = (
+        "assistant_message_or_respond.final_answer"
+        if respond_allowed
+        else "not_available"
     )
     forbidden: list[str] = ["delegate_subagent"]
     if not json_action_enabled:
@@ -376,11 +383,12 @@ def turn_output_contract_payload(
     if "active_work_control" not in allowed:
         forbidden.append("active_work_control")
     return {
-        "format": "ordinary_initial_response_or_action" if raw_text_allowed else "action_phase_turn_action",
+        "format": "assistant_response_or_action" if raw_text_allowed else "action_phase_turn_action",
         "authority": "harness.runtime.turn_operating_contract.output_commit_contract",
         "phase": output_phase,
         "raw_assistant_text_allowed": raw_text_allowed,
-        "action_phase_natural_response_carrier": "respond.final_answer",
+        "raw_assistant_text_allowed_when": "respond_allowed_and_no_other_action" if raw_text_allowed else "",
+        "action_phase_natural_response_carrier": natural_response_carrier,
         "allowed_actions": list(allowed),
         "forbidden": list(dict.fromkeys(forbidden)),
         "action_protocol": {
@@ -392,12 +400,13 @@ def turn_output_contract_payload(
                 "action_identity_bound_by_runtime": True,
             },
             "assistant_messages": {
-                "enabled": bool(control_capabilities.get("may_emit_assistant_message") is not False),
-                "response_form": "ordinary_initial_natural_response" if raw_text_allowed else "not_user_visible_action_phase_transport",
+                "enabled": assistant_message_enabled,
+                "response_form": "assistant_message_as_respond" if raw_text_allowed else "not_available_for_this_phase",
                 "terminal_when_no_action": raw_text_allowed,
                 "raw_text_allowed": raw_text_allowed,
+                "raw_text_allowed_when": "respond_allowed_and_no_other_action" if raw_text_allowed else "",
                 "raw_text_is_not_a_control_action": True,
-                "action_phase_natural_response_carrier": "respond.final_answer",
+                "action_phase_natural_response_carrier": natural_response_carrier,
             },
             "ordinary_tool_calls": {
                 "enabled": "tool_call" in allowed,
@@ -415,7 +424,21 @@ def turn_output_contract_payload(
             },
             "public_feedback_contract": {
                 "feedback_must_be_model_authored": True,
-                "feedback_must_match_action_type": True,
+                "feedback_is_agent_obligation": True,
+                "system_does_not_author_public_feedback": True,
+                "missing_feedback_is_contract_gap_not_action_denial": True,
+                "feedback_required_when": [
+                    "semantic_phase_changes",
+                    "user_asks_status_or_reason",
+                    "tool_observations_change_plan_or_risk",
+                    "failure_recovery_or_repeated_failure",
+                    "before_or_after_risky_write",
+                    "verification_result",
+                    "request_task_run_or_active_work_control",
+                    "final_closeout",
+                ],
+                "low_level_evidence_chain_may_defer_feedback_until_next_action": True,
+                "feedback_should_match_action_type_when_present": True,
                 "long_task_resource_claim_requires_request_task_run": True,
                 "tool_events_are_not_user_responses": True,
             },

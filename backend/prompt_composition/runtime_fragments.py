@@ -134,8 +134,6 @@ def _prefix_tier(*, cache_scope: str, cache_role: str) -> str:
     if normalized_role == "session_stable":
         if normalized_scope == "global":
             return "provider_global"
-        if normalized_scope == "task":
-            return "task"
         return "session"
     if normalized_role == "volatile":
         return "volatile"

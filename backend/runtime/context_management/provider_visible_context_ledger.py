@@ -20,6 +20,10 @@ from .context_segment_policy import (
     context_segment_policy_metadata,
 )
 from .context_candidates import ContextCommitCandidate
+from .provider_tool_protocol import (
+    closed_provider_tool_round_entries,
+    provider_tool_protocol_from_entry,
+)
 from .tool_transcript import is_tool_transcript_kind
 
 
@@ -422,6 +426,7 @@ def confirm_provider_visible_context_entries(
                 validity_scope=str(ref.validity_scope or ""),
                 compaction_generation=str(ref.compaction_generation or ""),
                 cache_spine_hash=str(ref.cache_spine_hash or ""),
+                provider_tool_protocol=dict(ref.provider_tool_protocol or {}),
             )
             ledger["entries"] = [
                 *[dict(item) for item in list(ledger.get("entries") or []) if isinstance(item, dict)],
@@ -782,6 +787,7 @@ def _ledger_entry(
     validity_scope: str = "",
     compaction_generation: str = "",
     cache_spine_hash: str = "",
+    provider_tool_protocol: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     replay_only = str(semantic_commit_class or "").startswith("provider_visible_replay_only")
     payload = {
@@ -799,6 +805,7 @@ def _ledger_entry(
         "semantic_commit_class": str(semantic_commit_class or ""),
         "source_ref": str(source_ref or ""),
         "kind": str(kind or ""),
+        "provider_tool_protocol": dict(provider_tool_protocol or {}),
         "provider_visible_message": _provider_visible_message(provider_visible_message),
         "provider_visible_hash": str(provider_visible_hash or ""),
         "previous_entry_hash": str(previous_entry_hash or ""),
@@ -983,6 +990,7 @@ def _materialize_ledger_entries(
     if recovery_payloads and not ordered_entries:
         result.append((0, _recovery_spec_from_failure(recovery_payloads[-1], scope=scope)))
     index = 0
+    emitted_tool_round_ids: set[str] = set()
     while index < len(ordered_entries):
         entry = ordered_entries[index]
         order = _safe_int(entry.get("entry_index"))
@@ -990,6 +998,23 @@ def _materialize_ledger_entries(
             index += 1
             continue
         if not _ledger_entry_confirmed(entry):
+            index += 1
+            continue
+        tool_protocol = provider_tool_protocol_from_entry(entry)
+        tool_round_id = str(tool_protocol.get("round_id") or "").strip()
+        if tool_round_id:
+            if tool_round_id in emitted_tool_round_ids:
+                index += 1
+                continue
+            group_entries = closed_provider_tool_round_entries(ordered_entries, round_id=tool_round_id)
+            if not group_entries:
+                index += 1
+                continue
+            round_start = min(_safe_int(item.get("entry_index")) for item in group_entries if _safe_int(item.get("entry_index")) > 0)
+            for round_offset, group_entry in enumerate(group_entries):
+                group_order = max(1, round_start) * 1000 + round_offset
+                result.append((group_order, _spec_from_ledger_entry(group_entry, scope=scope)))
+            emitted_tool_round_ids.add(tool_round_id)
             index += 1
             continue
         message = _provider_visible_message(dict(entry.get("provider_visible_message") or {}))
@@ -1087,6 +1112,7 @@ def _spec_from_ledger_entry(entry: dict[str, Any], *, scope: str) -> dict[str, A
     semantic_commit_class = str(entry.get("semantic_commit_class") or "context_memory_append")
     replay_only = semantic_commit_class.startswith("provider_visible_replay_only")
     entry_kind = str(entry.get("kind") or "").strip()
+    provider_tool_protocol = provider_tool_protocol_from_entry(entry)
     metadata = {
         "context_cache_section": "context_memory_prefix",
         "fixed_context_package": "context_memory_prefix",
@@ -1110,14 +1136,16 @@ def _spec_from_ledger_entry(entry: dict[str, Any], *, scope: str) -> dict[str, A
         "semantic_memory_commit_policy": "never_commit" if replay_only else "append_then_seal",
         "content_source": "runtime.context_management.provider_visible_context_ledger.replay",
     }
+    if provider_tool_protocol:
+        metadata["provider_tool_protocol"] = provider_tool_protocol
     spec = {
         "role": str(message.get("role") or "system"),
         "content": str(message.get("content") if message.get("content") is not None else ""),
         "kind": _provider_visible_ledger_replay_kind(entry_kind, semantic_commit_class, message),
         "source_ref": str(entry.get("source_ref") or entry.get("item_key") or ""),
-        "cache_scope": "task",
+        "cache_scope": "session",
         "cache_role": "session_stable",
-        "prefix_tier": "task",
+        "prefix_tier": "session",
         "compression_role": "preserve",
         "metadata": metadata,
         "model_message": message,
@@ -1199,9 +1227,9 @@ def _current_context_append_spec_from_candidate(
         "provider_adapter_contract": str(adapter_contract or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT),
         "context_replay_policy": "current_append_commit_on_provider_success_then_next_ledger_replay",
     }
-    payload["cache_scope"] = str(getattr(policy, "prefix_cache_scope", "") or payload.get("cache_scope") or "task")
+    payload["cache_scope"] = str(getattr(policy, "prefix_cache_scope", "") or payload.get("cache_scope") or "session")
     payload["cache_role"] = str(getattr(policy, "prefix_cache_role", "") or payload.get("cache_role") or "session_stable")
-    payload["prefix_tier"] = str(getattr(policy, "prefix_tier", "") or payload.get("prefix_tier") or "task")
+    payload["prefix_tier"] = str(getattr(policy, "prefix_tier", "") or payload.get("prefix_tier") or "session")
     payload["role"] = str(provider_visible_message.get("role") or payload.get("role") or "system")
     payload["content"] = str(provider_visible_message.get("content") if provider_visible_message.get("content") is not None else "")
     payload["model_message"] = _provider_visible_message(provider_visible_message)
@@ -1219,9 +1247,9 @@ def _recovery_spec_from_failure(failure: dict[str, Any], *, scope: str, order: i
         "content": content,
         "kind": "provider_visible_ledger_recovery_checkpoint",
         "source_ref": f"provider_visible_ledger_recovery:{scope}:{order}",
-        "cache_scope": "task",
+        "cache_scope": "session",
         "cache_role": "session_stable",
-        "prefix_tier": "task",
+        "prefix_tier": "session",
         "compression_role": "preserve",
         "metadata": {
             "context_cache_section": "context_memory_prefix",
@@ -1343,7 +1371,7 @@ def _ledger_entry_hash(entry: dict[str, Any]) -> str:
     payload = dict(entry or {})
     return _stable_json_hash(
         {
-            "schema": "provider_visible_context_ledger_entry_hash_v2",
+            "schema": "provider_visible_context_ledger_entry_hash_v3",
             "entry_index": _safe_int(payload.get("entry_index")),
             "item_key": str(payload.get("item_key") or ""),
             "provider": str(payload.get("provider") or ""),
@@ -1358,6 +1386,7 @@ def _ledger_entry_hash(entry: dict[str, Any]) -> str:
             "cache_spine_hash": str(payload.get("cache_spine_hash") or ""),
             "source_ref": str(payload.get("source_ref") or ""),
             "kind": str(payload.get("kind") or ""),
+            "provider_tool_protocol": dict(payload.get("provider_tool_protocol") or {}),
             "provider_visible_message": _provider_visible_message(dict(payload.get("provider_visible_message") or {})),
             "provider_visible_hash": str(payload.get("provider_visible_hash") or ""),
             "previous_entry_hash": str(payload.get("previous_entry_hash") or ""),

@@ -32,8 +32,6 @@ class ProtocolSanitizer:
         turn_id: str = "",
         source: str = "",
     ) -> ProtocolSanitizerResult:
-        sanitized: list[dict[str, Any]] = []
-        pending: dict[str, dict[str, Any]] = {}
         diagnostics = {
             "source": str(source or ""),
             "turn_id": str(turn_id or ""),
@@ -46,14 +44,25 @@ class ProtocolSanitizer:
             "dropped_incomplete_tool_round_messages": 0,
             "dropped_empty_messages": 0,
             "dropped_invalid_role_messages": 0,
+            "reordered_adjacent_orphan_tool_rounds": 0,
+            "reordered_adjacent_orphan_tool_messages": 0,
             "authority": self.authority,
         }
-        pending_round_start_index: int | None = None
+        normalized_messages: list[dict[str, Any]] = []
         for raw in list(messages or []):
             message = _normalize_message(raw)
             if message is None:
                 diagnostics["dropped_invalid_role_messages"] += 1
                 continue
+            normalized_messages.append(message)
+        normalized_messages, repair_diagnostics = _repair_adjacent_orphan_tool_blocks(normalized_messages)
+        diagnostics["reordered_adjacent_orphan_tool_rounds"] = repair_diagnostics["round_count"]
+        diagnostics["reordered_adjacent_orphan_tool_messages"] = repair_diagnostics["message_count"]
+
+        sanitized: list[dict[str, Any]] = []
+        pending: dict[str, dict[str, Any]] = {}
+        pending_round_start_index: int | None = None
+        for message in normalized_messages:
             role = str(message.get("role") or "")
             if role == "tool":
                 tool_call_id = str(message.get("tool_call_id") or "").strip()
@@ -136,6 +145,15 @@ def sanitize_messages_for_prompt(
     return ProtocolSanitizer().sanitize_for_prompt(messages, turn_id=turn_id, source=source)
 
 
+def standardize_provider_tool_protocol_messages(
+    messages: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    turn_id: str = "",
+    source: str = "",
+) -> ProtocolSanitizerResult:
+    return sanitize_messages_for_prompt(messages, turn_id=turn_id, source=source)
+
+
 def _normalize_message(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
@@ -164,6 +182,64 @@ def _normalize_message(raw: Any) -> dict[str, Any] | None:
         if tool_calls:
             message["tool_calls"] = tool_calls
     return message
+
+
+def _repair_adjacent_orphan_tool_blocks(messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    result: list[dict[str, Any]] = []
+    round_count = 0
+    message_count = 0
+    index = 0
+    clean_messages = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
+    while index < len(clean_messages):
+        message = dict(clean_messages[index])
+        role = str(message.get("role") or "")
+        if role != "tool":
+            result.append(message)
+            index += 1
+            continue
+        block_start = index
+        tool_block: list[dict[str, Any]] = []
+        tool_call_ids: list[str] = []
+        while index < len(clean_messages) and str(clean_messages[index].get("role") or "") == "tool":
+            tool_message = dict(clean_messages[index])
+            tool_block.append(tool_message)
+            tool_call_id = str(tool_message.get("tool_call_id") or "").strip()
+            if tool_call_id and tool_call_id not in tool_call_ids:
+                tool_call_ids.append(tool_call_id)
+            index += 1
+        if (
+            tool_call_ids
+            and index < len(clean_messages)
+            and str(clean_messages[index].get("role") or "") == "assistant"
+        ):
+            assistant = dict(clean_messages[index])
+            assistant_tool_call_ids = _assistant_tool_call_ids(assistant)
+            if set(tool_call_ids).issubset(set(assistant_tool_call_ids)):
+                result.append(assistant)
+                result.extend(tool_block)
+                round_count += 1
+                message_count += len(tool_block) + 1
+                index += 1
+                continue
+        result.extend(tool_block)
+        if index == block_start:
+            index += 1
+    return result, {"round_count": round_count, "message_count": message_count}
+
+
+def _assistant_tool_call_ids(message: dict[str, Any]) -> list[str]:
+    if str(dict(message or {}).get("role") or "") != "assistant":
+        return []
+    ids: list[str] = []
+    provider_tool_calls = _provider_shaped_tool_calls(dict(message or {}).get("tool_calls"))
+    tool_calls = provider_tool_calls or _tool_calls(dict(message or {}).get("tool_calls"))
+    for call in list(tool_calls or []):
+        if not isinstance(call, dict):
+            continue
+        call_id = str(call.get("id") or "").strip()
+        if call_id and call_id not in ids:
+            ids.append(call_id)
+    return ids
 
 
 def _tool_calls(value: Any) -> list[dict[str, Any]]:

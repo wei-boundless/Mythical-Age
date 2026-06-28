@@ -46,7 +46,7 @@ def test_single_turn_plan_mode_is_visible_in_dynamic_runtime_and_output_contract
     assert packet.output_contract["planning_protocol"]["mode"] == "plan_only"
 
 
-def test_task_execution_plan_ref_is_projected_as_task_stable_contract(tmp_path: Path) -> None:
+def test_task_execution_plan_ref_is_projected_as_task_contract_context(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     backend_dir.mkdir()
 
@@ -136,4 +136,3 @@ def _payload_after_title(packet, title: str) -> dict:
         if marker in content:
             return json.loads(content.split(marker, 1)[1])
     raise AssertionError(f"missing message title: {title}")
-

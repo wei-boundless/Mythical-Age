@@ -338,17 +338,9 @@ def build_provider_payload_manifest(
         "transport_contract_hash": str(transport_contract.get("contract_hash") or ""),
         "segments": [
             {
-                "kind": segment.kind,
                 "transport_location": segment.transport_location,
                 "role": segment.role,
-                "source_ref": segment.source_ref,
                 "content_hash": segment.content_hash,
-                "cache_role": segment.cache_role,
-                "prefix_tier": segment.prefix_tier,
-                "prefix_family": segment.prefix_family,
-                "semantic_source": segment.semantic_source,
-                "logical_segment_ref": segment.logical_segment_ref,
-                "semantic_slot": segment.semantic_slot,
                 "physical_prefix_lane": segment.physical_prefix_lane,
                 "boundary_participation": segment.boundary_participation,
             }
@@ -799,6 +791,13 @@ def _cache_boundary(
         "physical_cache_spine_boundary_content_hash": str(physical_cache_spine.get("boundary_content_hash") or ""),
         "physical_cache_spine_lane_counts": dict(physical_cache_spine.get("lane_counts") or {}),
         "physical_cache_spine_lane_order": list(physical_cache_spine.get("lane_order") or []),
+        "physical_cache_spine_tool_protocol_round_count": int(physical_cache_spine.get("provider_tool_protocol_round_count") or 0),
+        "physical_cache_spine_tool_protocol_rounds": list(physical_cache_spine.get("provider_tool_protocol_rounds") or []),
+        "physical_cache_spine_tool_protocol_round_ids": [
+            str(item.get("round_id") or "")
+            for item in list(physical_cache_spine.get("provider_tool_protocol_rounds") or [])
+            if isinstance(item, dict) and str(item.get("round_id") or "")
+        ],
         "physical_cache_spine_authority": str(physical_cache_spine.get("authority") or ""),
         "tool_catalog_hash": _segments_hash(tool_segments),
         "stable_tool_catalog_hash": _segments_hash(stable_tool_capability_segments),
@@ -906,6 +905,7 @@ def _physical_cache_spine_prefix_diagnostics(
                 "prefix_tier": segment.prefix_tier,
                 "cache_spine_generation": str(metadata.get("cache_spine_generation") or ""),
                 "provider_visible_boundary": str(metadata.get("context_provider_visible_boundary") or ""),
+                "provider_tool_protocol": dict(metadata.get("provider_tool_protocol") or {}),
             }
         )
     blocker_payloads = [
@@ -913,6 +913,7 @@ def _physical_cache_spine_prefix_diagnostics(
         for segment in sorted(tuple(segments or ()), key=lambda item: item.ordinal)
         if str(segment.boundary_participation or "") == "blocker"
     ]
+    tool_protocol_rounds = _physical_cache_spine_tool_protocol_rounds(prefix_segments)
     return {
         "provider_payload_prefix_hash": _physical_prefix_hash(
             transport_contract_hash=transport_contract_hash,
@@ -934,6 +935,8 @@ def _physical_cache_spine_prefix_diagnostics(
         "prefix_families": [segment.prefix_family for segment in prefix_segments],
         "boundary_participations": [segment.boundary_participation for segment in prefix_segments],
         "segments": segment_payloads,
+        "provider_tool_protocol_rounds": tool_protocol_rounds,
+        "provider_tool_protocol_round_count": len(tool_protocol_rounds),
         "blockers": blocker_payloads,
         "first_blocker": blocker_payloads[0] if blocker_payloads else {},
         "boundary_segment_id": boundary.segment_id if boundary is not None else "",
@@ -973,6 +976,41 @@ def _segment_projection(segment: ProviderPayloadSegment) -> dict[str, Any]:
         "cache_role": segment.cache_role,
         "prefix_tier": segment.prefix_tier,
     }
+
+
+def _physical_cache_spine_tool_protocol_rounds(segments: tuple[ProviderPayloadSegment, ...] | list[ProviderPayloadSegment]) -> list[dict[str, Any]]:
+    rounds: dict[str, dict[str, Any]] = {}
+    for segment in sorted(tuple(segments or ()), key=lambda item: item.ordinal):
+        metadata = dict(segment.metadata or {})
+        protocol = dict(metadata.get("provider_tool_protocol") or {})
+        if str(protocol.get("unit") or "").strip() != "provider_native_tool_round":
+            continue
+        round_id = str(protocol.get("round_id") or "").strip()
+        if not round_id:
+            continue
+        payload = rounds.setdefault(
+            round_id,
+            {
+                "round_id": round_id,
+                "segment_ids": [],
+                "roles": [],
+                "tool_call_ids": [str(item) for item in list(protocol.get("tool_call_ids") or []) if str(item or "")],
+                "round_member_roles": [],
+                "closed": False,
+                "authority": "runtime.model_gateway.provider_payload.physical_cache_spine.tool_protocol_rounds",
+            },
+        )
+        payload["segment_ids"].append(segment.segment_id)
+        payload["roles"].append(segment.role)
+        payload["round_member_roles"].append(str(protocol.get("round_member_role") or ""))
+    result: list[dict[str, Any]] = []
+    for payload in rounds.values():
+        round_member_roles = [str(item) for item in list(payload.get("round_member_roles") or []) if str(item)]
+        tool_call_ids = [str(item) for item in list(payload.get("tool_call_ids") or []) if str(item)]
+        tool_count = sum(1 for item in round_member_roles if item == "tool")
+        payload["closed"] = bool("assistant" in round_member_roles and tool_call_ids and tool_count >= len(set(tool_call_ids)))
+        result.append(payload)
+    return sorted(result, key=lambda item: str(item.get("round_id") or ""))
 
 
 def _ordered_provider_payload_segments(
@@ -1019,19 +1057,16 @@ def _provider_payload_segment_id(*, segment: ProviderPayloadSegment, ordinal: in
             {
                 "provider_payload_segment": "physical_segment_identity.v1",
                 "ordinal": int(ordinal or 0),
-                "kind": str(segment.kind or ""),
                 "transport_location": str(segment.transport_location or ""),
                 "role": str(segment.role or ""),
                 "content_hash": str(segment.content_hash or ""),
-                "cache_role": str(segment.cache_role or ""),
-                "prefix_tier": str(segment.prefix_tier or ""),
-                "prefix_family": str(segment.prefix_family or ""),
                 "physical_prefix_lane": str(segment.physical_prefix_lane or ""),
                 "boundary_participation": str(segment.boundary_participation or ""),
             }
         )
     ).removeprefix("sha256:")[:16]
-    return f"ppseg:{int(ordinal or 0)}:{str(segment.kind or 'segment')}:{digest}"
+    transport_location = str(segment.transport_location or "segment").replace(":", "_")
+    return f"ppseg:{int(ordinal or 0)}:{transport_location}:{digest}"
 
 
 def _segments_hash(segments: list[ProviderPayloadSegment]) -> str:
@@ -1041,13 +1076,9 @@ def _segments_hash(segments: list[ProviderPayloadSegment]) -> str:
         canonical_json(
             [
                 {
-                    "kind": segment.kind,
                     "transport_location": segment.transport_location,
                     "role": segment.role,
                     "content_hash": segment.content_hash,
-                    "cache_role": segment.cache_role,
-                    "prefix_tier": segment.prefix_tier,
-                    "prefix_family": segment.prefix_family,
                     "physical_prefix_lane": segment.physical_prefix_lane,
                     "boundary_participation": segment.boundary_participation,
                 }

@@ -182,7 +182,6 @@ def _binding_samples(bindings: list[Any], *, limit: int = 5) -> list[dict[str, A
 _PREFIX_TIER_ORDER = {
     "provider_global": 1,
     "session": 2,
-    "task": 3,
     "volatile": 4,
     "none": 5,
 }
@@ -220,24 +219,24 @@ _LAYER_CACHE_POLICY = {
         "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "task_stable_capability": {
-        "allowed_prefix_tiers": {"task"},
+    "task_capability_context": {
+        "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "task_stable_scope": {
-        "allowed_prefix_tiers": {"task"},
+    "task_scope_context": {
+        "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "task_stable_contract": {
-        "allowed_prefix_tiers": {"task"},
+    "task_contract_context": {
+        "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
     "append_only_runtime_evidence": {
-        "allowed_prefix_tiers": {"session", "task", "volatile", "none"},
+        "allowed_prefix_tiers": {"session", "volatile", "none"},
         "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
     },
     "context_memory_append": {
-        "allowed_prefix_tiers": {"session", "task", "volatile", "none"},
+        "allowed_prefix_tiers": {"session", "volatile", "none"},
         "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
     },
     "session_stable_protocol": {
@@ -261,27 +260,27 @@ _LAYER_CACHE_POLICY = {
         "allowed_cache_roles": {"volatile", "never_cache"},
     },
     "current_turn_user_context": {
-        "allowed_prefix_tiers": {"session", "task", "volatile", "none"},
+        "allowed_prefix_tiers": {"session", "volatile", "none"},
         "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
     },
     "evidence_index_cursor": {
-        "allowed_prefix_tiers": {"session", "task", "volatile", "none"},
+        "allowed_prefix_tiers": {"session", "volatile", "none"},
         "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
     },
     "attachment_context_index": {
-        "allowed_prefix_tiers": {"session", "task", "volatile", "none"},
+        "allowed_prefix_tiers": {"session", "volatile", "none"},
         "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
     },
     "editor_context_index": {
-        "allowed_prefix_tiers": {"session", "task", "volatile", "none"},
+        "allowed_prefix_tiers": {"session", "volatile", "none"},
         "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
     },
     "file_evidence_cursor": {
-        "allowed_prefix_tiers": {"session", "task", "volatile", "none"},
+        "allowed_prefix_tiers": {"session", "volatile", "none"},
         "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
     },
     "runtime_memory_context": {
-        "allowed_prefix_tiers": {"session", "task", "volatile", "none"},
+        "allowed_prefix_tiers": {"session", "volatile", "none"},
         "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
     },
     "assistant_completion_prefix": {

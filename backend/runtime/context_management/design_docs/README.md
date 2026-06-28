@@ -8,6 +8,9 @@
 - `execution_plans/harness_neural_system_consolidation_plan_20260628.md`：harness 神经控制体系收束、分集和 graph system 独立的总实施方案。
 - `execution_plans/agent_lifecycle_output_channel_contract_design_20260628.md`：Agent 生命周期、系统运行反应、输出通道契约和 action/respond.final_answer 分层基准。
 - `execution_plans/provider_payload_physical_cache_spine_authority_plan_20260628.md`：Provider payload physical cache spine 权威、prefix structural correspondence model 和旧 prefix 链路清理计划。
+- `execution_plans/provider_tool_protocol_cache_spine_governance_20260629.md`：Provider-native 工具协议轮与 physical cache spine 的原子结构治理方案。
+- `execution_plans/physical_context_spine_authority_unification_plan_20260629.md`：上下文物理拼接、旧上下文 frame 继承、follow-up/initial 统一装配和缓存断点账本重构计划。
+- `semantic_space/current_context_line_map_20260629.md`：当前语义空间、provider-visible 账本、物理 lane 和 provider cache-spine 的实际连线图。
 - `execution_plans/total_neural_architecture_audit_20260628.md`：后端总神经架构审计，按语义模型审查 harness、graph、runtime、orchestration 和旧神经结构清理边界。
 - `execution_plans/system_ownership_directory_audit_20260628.md`：项目总目录和后端一级系统归属审计，明确每个系统的权威、模糊目录裁决和命名治理规则。
 - `execution_plans/backend_code_structure_semantic_refactor_plan_20260628.md`：按语义空间模型整理后端代码结构的迁移计划。

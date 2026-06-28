@@ -36,7 +36,6 @@ CONTEXT_APPEND_LAYER_NAMES = {
 PREFIX_TIER_ORDER = {
     "provider_global": 100,
     "session": 200,
-    "task": 300,
     "volatile": 900,
     "none": 990,
 }
@@ -69,32 +68,30 @@ _KIND_LAYER = context_segment_layer_defaults()
 _KIND_TIER_LAYER = {
     "action_schema_static": {
         "session": "session_stable_capability",
-        "task": "task_stable_capability",
-        "default": "task_stable_capability",
+        "default": "task_capability_context",
     },
     "dynamic_projection": {
         "volatile": "runtime_delta_tail",
         "none": "runtime_delta_tail",
-        "default": "task_stable_scope",
+        "default": "task_scope_context",
     },
-    "graph_task_shared_stable": {"default": "task_stable_contract"},
+    "graph_task_shared_stable": {"default": "task_contract_context"},
     "runtime_baseline_refs": {
         "session": "session_stable_protocol",
-        "default": "task_stable_scope",
+        "default": "task_scope_context",
     },
-    "task_contract_stable": {"default": "task_stable_contract"},
-    "task_prompt_contract": {"default": "task_stable_contract"},
+    "task_contract_stable": {"default": "task_contract_context"},
+    "task_prompt_contract": {"default": "task_contract_context"},
     "tool_index_stable": {
         "session": "session_stable_capability",
-        "task": "task_stable_capability",
-        "default": "task_stable_capability",
+        "default": "task_capability_context",
     },
 }
 
 _SOURCE_KIND_LAYER = {
     "dynamic_context_fragment": "dynamic_context_tail",
     "runtime_active_skills": "dynamic_context_tail",
-    "runtime_artifact_scope": "task_stable_scope",
+    "runtime_artifact_scope": "task_scope_context",
     "runtime_attachment_context_index": "attachment_context_index",
     "runtime_bound_task_context": "file_evidence_cursor",
     "runtime_capability_catalog": "session_stable_capability",
@@ -110,33 +107,31 @@ _SOURCE_KIND_LAYER = {
     "runtime_project_instructions": "session_stable_project",
     "runtime_read_evidence": "current_exact_evidence",
     "runtime_read_evidence_context": "append_only_runtime_evidence",
-    "runtime_task_boundary": "task_stable_scope",
+    "runtime_task_boundary": "task_scope_context",
     "runtime_task_goal_context": "dynamic_context_tail",
     "runtime_task_plan_context": "dynamic_context_tail",
     "runtime_task_state_replay": "append_only_runtime_evidence",
     "runtime_task_todo_context": "dynamic_context_tail",
-    "tool_catalog": "task_stable_capability",
+    "tool_catalog": "task_capability_context",
 }
 
 _SOURCE_KIND_TIER_LAYER = {
     "runtime_action_schema": {
         "session": "session_stable_capability",
-        "task": "task_stable_capability",
-        "default": "task_stable_capability",
+        "default": "task_capability_context",
     },
     "runtime_baseline_refs": {
         "session": "session_stable_protocol",
-        "default": "task_stable_scope",
+        "default": "task_scope_context",
     },
     "runtime_capability_catalog": {
         "session": "session_stable_capability",
-        "task": "task_stable_capability",
-        "default": "task_stable_capability",
+        "default": "task_capability_context",
     },
-    "runtime_contract": {"default": "task_stable_contract"},
+    "runtime_contract": {"default": "task_contract_context"},
     "runtime_protocol": {
         "session": "session_stable_protocol",
-        "default": "task_stable_scope",
+        "default": "task_scope_context",
     },
     "runtime_turn_state": {
         "session": "session_stable_turn_state",
@@ -353,8 +348,6 @@ def stability_for_prefix(*, cache_role: str, prefix_tier: str) -> str:
         return "runtime_dynamic"
     if prefix_tier == "provider_global":
         return "global_static"
-    if prefix_tier == "task":
-        return "task_stable"
     return "session_stable"
 
 
@@ -382,7 +375,7 @@ def _base_layer(*, kind: str, source_kind: str, cache_role: str, prefix_tier: st
         return layer
     if cache_role in VOLATILE_CACHE_ROLES or prefix_tier in {"volatile", "none"}:
         return "volatile"
-    return "session_stable_protocol" if prefix_tier == "session" else "task_stable_scope"
+    return "session_stable_protocol"
 
 
 def _layer_for_context_section(layer: str, *, section: str) -> str:
@@ -391,7 +384,7 @@ def _layer_for_context_section(layer: str, *, section: str) -> str:
     if section == DYNAMIC_TAIL:
         return "dynamic_context_tail"
     if section == STATIC_PREFIX and layer == "volatile":
-        return "task_stable_scope"
+        return "task_scope_context"
     return layer
 
 
@@ -432,8 +425,6 @@ def _cache_scope_for_prefix(value: Any, *, cache_role: str, prefix_tier: str) ->
     if cache_role == "cacheable_prefix" or prefix_tier == "provider_global":
         return "global"
     if cache_role == "session_stable":
-        if prefix_tier == "task":
-            return "task"
         return "session"
     if prefix_tier in {"volatile", "none"}:
         return "none"

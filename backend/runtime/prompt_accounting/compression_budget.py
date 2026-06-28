@@ -161,7 +161,6 @@ class CompressionBudgetPlanner:
         return {
             "provider_global": "global_invalidated" if "provider_global" in tiers else "preserved",
             "session": "session_rebuilt" if "session" in tiers else "preserved",
-            "task": "task_rebuilt" if "task" in tiers else "preserved",
             "volatile": "volatile_preserved" if "volatile" in tiers else "preserved",
         }
 

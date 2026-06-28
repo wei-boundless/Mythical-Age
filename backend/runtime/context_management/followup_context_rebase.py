@@ -107,16 +107,16 @@ def sealed_followup_base_context_policy(
     }
     sealed_spec = {
         **dict(base or {}),
-        "cache_scope": "task",
+        "cache_scope": "session",
         "cache_role": "session_stable",
-        "prefix_tier": "task",
+        "prefix_tier": "session",
         "metadata": sealed_metadata,
     }
     policy = context_segment_policy_for_spec(sealed_spec, default_section=CONTEXT_MEMORY_PREFIX)
     return {
-        "cache_scope": "task",
+        "cache_scope": "session",
         "cache_role": "session_stable",
-        "prefix_tier": "task",
+        "prefix_tier": "session",
         "metadata": {
             **sealed_metadata,
             **context_segment_policy_metadata(policy),

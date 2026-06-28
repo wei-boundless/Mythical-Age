@@ -48,6 +48,7 @@ def test_tool_registry_snapshot_and_selection_contract() -> None:
     assert "get_gold_price" not in by_name
     assert "structured_data_analysis" not in by_name
     assert "pdf_analysis" not in by_name
+    assert "read_structured_file" not in by_name
 
     assert "workspace_path_search" in by_name["search_files"]["route_hints"]
     assert "workspace_search" not in by_name["search_files"]["route_hints"]
@@ -58,7 +59,6 @@ def test_tool_registry_snapshot_and_selection_contract() -> None:
         "stat_path",
         "path_exists",
         "glob_paths",
-        "read_structured_file",
         "python_code_outline",
         "python_parse_check",
         "python_symbol_search",

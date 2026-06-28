@@ -326,7 +326,7 @@ def test_observation_followup_stable_contract_uses_tool_catalog_manifest_payload
     stable_segment = next(
         segment
         for segment in list(packet.segment_plan.get("segments") or [])
-        if dict(segment).get("kind") == "task_stable"
+        if dict(segment).get("kind") == "runtime_stable_contract"
     )
 
     assert "tool_catalog_hash" not in stable_payload
@@ -498,5 +498,4 @@ def test_provider_usage_does_not_mark_estimated_stable_prefix_under_read_as_cach
     assert dict(updated.diagnostics or {})["provider_cache_read_stable_prefix_covered"] is None
     assert dict(updated.diagnostics or {})["provider_cache_read_stable_prefix_coverage_evidence"] == "unmeasured_by_provider_usage"
     assert break_record is None
-
 

@@ -3,6 +3,7 @@
 import {
   BrainCircuit,
   ChevronDown,
+  Clock3,
   Database,
   FilePenLine,
   FileText,
@@ -17,10 +18,12 @@ import React, { useEffect, useState } from "react";
 import type { ActivityEntry, ActivityRenderUnit, ToolUiFamily } from "./PublicTimelineActivity";
 
 export function ToolRound({ group }: { group: Extract<ActivityRenderUnit, { kind: "tool_round" }> }) {
-  const defaultOpen = false;
+  const defaultOpen = toolToneIsActive(group.statusTone);
   const [open, setOpen] = useState(defaultOpen);
   const primaryFamily = toolRoundFamily(group.entries);
   const preview = splitToolTitle(group.preview);
+  const liveNow = useLiveToolNow(toolToneIsActive(group.statusTone));
+  const elapsedSeconds = toolElapsedSeconds(group, group.statusTone, liveNow);
 
   useEffect(() => {
     setOpen(defaultOpen);
@@ -50,6 +53,9 @@ export function ToolRound({ group }: { group: Extract<ActivityRenderUnit, { kind
           </span>
         </span>
         <span className="public-run-activity__tool-round-meta">
+          {elapsedSeconds !== null ? (
+            <ToolElapsedBadge active={toolToneIsActive(group.statusTone)} seconds={elapsedSeconds} />
+          ) : null}
           <span className="public-run-activity__tool-round-count">{group.count} 个</span>
           <span className="public-run-activity__tool-caret" aria-hidden="true">
             <ChevronDown size={14} />
@@ -66,9 +72,12 @@ export function ToolRound({ group }: { group: Extract<ActivityRenderUnit, { kind
 }
 
 export function ToolWindow({ entry, nested = false }: { entry: ActivityEntry; nested?: boolean }) {
-  const defaultOpen = false;
-  const [open, setOpen] = useState(defaultOpen);
   const statusTone = entry.statusTone ?? "running";
+  const active = toolToneIsActive(statusTone);
+  const defaultOpen = active && !nested;
+  const [open, setOpen] = useState(defaultOpen);
+  const liveNow = useLiveToolNow(active);
+  const elapsedSeconds = toolElapsedSeconds(entry, statusTone, liveNow);
   const consoleLabel = entry.consoleLabel || "工具操作";
   const commandText = entry.commandLine || entry.text || "工具调用";
   const commandPrefix = consoleLabel === "命令行" ? "$ " : "";
@@ -89,7 +98,13 @@ export function ToolWindow({ entry, nested = false }: { entry: ActivityEntry; ne
     statusTone,
     toolFamily,
   });
-  const hasBody = inputRows.length > 0 || Boolean(structuredResult) || consoleRows.length > 0;
+  const showLiveNotice = active && !consoleRows.some((row) => row.kind === "output");
+  const hasRuntimeMeta = Boolean(entry.startedAt || entry.updatedAt || entry.completedAt || active);
+  const hasBody = inputRows.length > 0
+    || Boolean(structuredResult)
+    || consoleRows.length > 0
+    || hasRuntimeMeta
+    || showLiveNotice;
 
   useEffect(() => {
     setOpen(defaultOpen);
@@ -120,12 +135,26 @@ export function ToolWindow({ entry, nested = false }: { entry: ActivityEntry; ne
           </span>
           {subtitle ? <span className="public-run-activity__tool-window-subtitle">{subtitle}</span> : null}
         </span>
+        <span className="public-run-activity__tool-window-meta">
+          {elapsedSeconds !== null ? (
+            <ToolElapsedBadge active={active} seconds={elapsedSeconds} />
+          ) : null}
+        </span>
         <span className="public-run-activity__tool-caret" aria-hidden="true">
           <ChevronDown size={14} />
         </span>
       </summary>
       {hasBody ? (
         <div className="public-run-activity__tool-window-body">
+          {hasRuntimeMeta ? (
+            <ToolRuntimeStrip
+              active={active}
+              entry={entry}
+              elapsedSeconds={elapsedSeconds}
+              statusLabel={entry.statusLabel || "运行中"}
+              statusTone={statusTone}
+            />
+          ) : null}
           {inputRows.length ? <ToolInputRows rows={inputRows} entryId={entry.id} /> : null}
           {structuredResult ? <ToolStructuredResult result={structuredResult} /> : null}
           {consoleRows.length ? (
@@ -138,6 +167,12 @@ export function ToolWindow({ entry, nested = false }: { entry: ActivityEntry; ne
                   </pre>
                 </div>
               ))}
+            </div>
+          ) : null}
+          {showLiveNotice ? (
+            <div className="public-run-activity__tool-live-line" role="status">
+              <span className="public-run-activity__tool-live-indicator" aria-hidden="true" />
+              <span>{statusTone === "waiting" ? "等待继续" : "等待工具返回"}</span>
             </div>
           ) : null}
         </div>
@@ -165,6 +200,120 @@ function ToolFamilyIcon({ family }: { family: ToolUiFamily }) {
   if (family === "search" || family === "browser") return <Search size={size} />;
   if (family === "write") return <FilePenLine size={size} />;
   return <Wrench size={size} />;
+}
+
+function ToolElapsedBadge({ active, seconds }: { active: boolean; seconds: number }) {
+  return (
+    <span
+      aria-label={formatElapsedAria(seconds)}
+      className={`public-run-activity__tool-elapsed${active ? " public-run-activity__tool-elapsed--active" : ""}`}
+      title={formatElapsedAria(seconds)}
+    >
+      <Clock3 size={12} />
+      <span>{formatElapsedClock(seconds)}</span>
+    </span>
+  );
+}
+
+function ToolRuntimeStrip({
+  active,
+  elapsedSeconds,
+  entry,
+  statusLabel,
+  statusTone,
+}: {
+  active: boolean;
+  elapsedSeconds: number | null;
+  entry: ActivityEntry;
+  statusLabel: string;
+  statusTone: NonNullable<ActivityEntry["statusTone"]>;
+}) {
+  const startedAt = formatToolClockTime(entry.startedAt);
+  const endedAt = active ? "" : formatToolClockTime(entry.completedAt ?? entry.updatedAt);
+  return (
+    <div className="public-run-activity__tool-runtime">
+      <span className={`public-run-activity__tool-window-status public-run-activity__tool-window-status--${statusTone}`}>
+        <span className="public-run-activity__tool-status-dot" aria-hidden="true" />
+        <span className="public-run-activity__tool-status-text">{statusLabel}</span>
+      </span>
+      {active ? <span className="public-run-activity__tool-runtime-live">实时</span> : null}
+      {elapsedSeconds !== null ? <ToolElapsedBadge active={active} seconds={elapsedSeconds} /> : null}
+      {startedAt ? <span className="public-run-activity__tool-runtime-time">开始 {startedAt}</span> : null}
+      {endedAt ? <span className="public-run-activity__tool-runtime-time">结束 {endedAt}</span> : null}
+    </div>
+  );
+}
+
+function useLiveToolNow(active: boolean) {
+  const [now, setNow] = useState(() => Date.now() / 1000);
+  useEffect(() => {
+    if (!active) return undefined;
+    setNow(Date.now() / 1000);
+    const timer = window.setInterval(() => setNow(Date.now() / 1000), 1000);
+    return () => window.clearInterval(timer);
+  }, [active]);
+  return now;
+}
+
+function toolToneIsActive(tone: ActivityEntry["statusTone"]) {
+  return tone === "running" || tone === "waiting";
+}
+
+function toolElapsedSeconds(
+  source: Pick<ActivityEntry, "startedAt" | "updatedAt" | "completedAt">,
+  tone: ActivityEntry["statusTone"],
+  now: number,
+) {
+  const start = positiveTimestamp(source.startedAt);
+  if (!start) return null;
+  const end = toolToneIsActive(tone)
+    ? now
+    : positiveTimestamp(source.completedAt) ?? positiveTimestamp(source.updatedAt) ?? now;
+  if (!Number.isFinite(end)) return null;
+  return Math.max(0, Math.floor(end - start));
+}
+
+function positiveTimestamp(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function formatElapsedClock(seconds: number) {
+  const total = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remainingSeconds = total % 60;
+  if (hours > 0) {
+    return `${hours}:${padTimePart(minutes)}:${padTimePart(remainingSeconds)}`;
+  }
+  return `${minutes}:${padTimePart(remainingSeconds)}`;
+}
+
+function formatElapsedAria(seconds: number) {
+  const total = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remainingSeconds = total % 60;
+  const parts = [];
+  if (hours) parts.push(`${hours} 小时`);
+  if (minutes) parts.push(`${minutes} 分钟`);
+  parts.push(`${remainingSeconds} 秒`);
+  return `耗时 ${parts.join(" ")}`;
+}
+
+function formatToolClockTime(value: unknown) {
+  const timestamp = positiveTimestamp(value);
+  if (!timestamp) return "";
+  return new Date(timestamp * 1000).toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    hour12: false,
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function padTimePart(value: number) {
+  return String(value).padStart(2, "0");
 }
 
 type ToolInputRow = {

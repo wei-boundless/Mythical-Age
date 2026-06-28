@@ -40,7 +40,6 @@ from capability_system.tools.tool_units.office_document_tool import OfficeDocume
 from capability_system.tools.tool_units.python_repl_tool import PythonReplTool
 from capability_system.tools.tool_units.python_ast_tools import PythonCodeOutlineTool, PythonParseCheckTool, PythonSymbolSearchTool
 from capability_system.tools.tool_units.search_files_tool import SearchFilesTool, SearchTextTool
-from capability_system.tools.tool_units.structured_file_tool import ReadStructuredFileTool
 from capability_system.tools.tool_units.subagent_control_tool import (
     CloseSubagentTool,
     ListSubagentsTool,
@@ -475,30 +474,6 @@ def _tool_definitions() -> list[ToolDefinition]:
             prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="none",
             native_runtime_only=True,
-        ),
-        ToolDefinition(
-            name="read_structured_file",
-            display_name="读取结构化文件",
-            operation_id="op.read_structured_file",
-            module="tools.structured_file_tool",
-            factory=lambda base_dir: ReadStructuredFileTool(root_dir=base_dir),
-            contract=ToolExecutionContract(
-                required_inputs=["path"],
-                owner_scope="explicit_path",
-                missing_binding_behavior="clarify",
-                context_policy="inline",
-                result_channel="canonical",
-            ),
-            resolution_contract=ToolResolutionContract(path_field="path", path_kind="workspace"),
-            output_contract=ToolOutputContract(display_mode="summary_text"),
-            capability_tags=["file", "read", "structured_config", "workspace"],
-            supported_modalities=["text", "document", "workspace"],
-            safety_tags=["read"],
-            route_hints=["tool", "workspace_read", "structured_config"],
-            safe_for_auto_route=False,
-            schema_identity="local.tools/read_structured_file",
-            prompt_exposure_policy="schema_only",
-            resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(
             name="python_code_outline",

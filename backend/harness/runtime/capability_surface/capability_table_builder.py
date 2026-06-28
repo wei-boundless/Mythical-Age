@@ -19,7 +19,6 @@ from .capability_table import (
 
 FILE_OPERATION_ACTIONS = {
     "op.read_file": ("read",),
-    "op.read_structured_file": ("read",),
     "op.search_files": ("search",),
     "op.search_text": ("search",),
     "op.list_dir": ("read",),
@@ -90,8 +89,12 @@ def build_tool_capability_table(
     task_denied = {registry.normalize_id(item) for item in request.task_denied_operations}
     agent_allowed = {registry.normalize_id(item) for item in request.agent_profile_allowed_operations}
     runtime_available = {registry.normalize_id(item) for item in request.runtime_available_operations}
-    dispatch_requested = task_required | task_optional
-    audit_requested = dispatch_requested | task_denied | agent_allowed | runtime_available
+    dispatch_allowed = set(task_required | task_optional)
+    if agent_allowed:
+        dispatch_allowed.update(agent_allowed)
+    if runtime_available:
+        dispatch_allowed.update(runtime_available)
+    audit_requested = dispatch_allowed | task_denied | agent_allowed | runtime_available
 
     capabilities: list[ToolCapability] = []
     filtered: list[ToolCapabilityFilterIssue] = []
@@ -111,7 +114,7 @@ def build_tool_capability_table(
         if tool is None:
             filtered.append(_issue(operation_id, "", "no registered tool for operation", "tool_registry"))
             continue
-        if operation_id not in dispatch_requested:
+        if operation_id not in dispatch_allowed:
             continue
 
         file_gate = _file_gate(operation_id, request.file_access_tables)
@@ -145,6 +148,8 @@ def build_tool_capability_table(
                     "read_only": tool.is_read_only,
                     "destructive": tool.is_destructive,
                     "capability_tags": list(tool.capability_tags),
+                    "task_requested": operation_id in task_required or operation_id in task_optional,
+                    "task_required": operation_id in task_required,
                 },
             )
         )
@@ -156,8 +161,9 @@ def build_tool_capability_table(
         filtered=tuple(filtered),
         source_trace=(
             ToolCapabilitySourceTrace(source="environment_package", detail=request.environment.environment_id),
-            ToolCapabilitySourceTrace(source="specific_task", detail="tool requirements"),
+            ToolCapabilitySourceTrace(source="specific_task", detail="tool requirements as trace, not dispatch gate"),
             ToolCapabilitySourceTrace(source="agent_profile", detail="operation ceiling"),
+            ToolCapabilitySourceTrace(source="runtime_authorization", detail="agent/runtime allowed operations"),
             ToolCapabilitySourceTrace(source="file_access_table", detail="file grants"),
             ToolCapabilitySourceTrace(
                 source="specific_task_assembly_policy",
@@ -220,4 +226,3 @@ def _issue(
         source=source,
         metadata=dict(metadata or {}),
     )
-

@@ -155,7 +155,6 @@ _TOOL_CAPABILITY_GROUP_BY_OPERATION: dict[str, str] = {
     "op.search_text": "file_work",
     "op.read_file": "file_work",
     "op.read_persisted_tool_result": "file_work",
-    "op.read_structured_file": "file_work",
     "op.python_code_outline": "file_work",
     "op.python_parse_check": "file_work",
     "op.python_symbol_search": "file_work",

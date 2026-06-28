@@ -451,7 +451,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         _runtime_profile(
             agent_profile_id="structured_data_analysis_agent",
             agent_id="agent:table_analyst",
-            extra_allowed_operations=("op.model_response", "op.mcp_structured_data", "op.read_structured_file", "op.read_file"),
+            extra_allowed_operations=("op.model_response", "op.mcp_structured_data", "op.read_file"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),

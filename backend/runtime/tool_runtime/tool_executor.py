@@ -70,7 +70,6 @@ _FILE_CHANGE_SIGNAL_SCAN_KEYS = (
 )
 _WORKSPACE_PATH_ARG_TOOL_NAMES = {
     "read_file",
-    "read_structured_file",
     "search_files",
     "search_text",
     "list_dir",
@@ -2043,4 +2042,3 @@ def _approval_fingerprint_from_policy(policy: dict[str, Any], *, fallback_policy
     if fallback_policy:
         return _approval_fingerprint_from_policy(dict(fallback_policy or {}))
     return ""
-

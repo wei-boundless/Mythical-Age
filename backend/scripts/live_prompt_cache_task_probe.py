@@ -569,7 +569,6 @@ def _summary(report: dict[str, Any]) -> dict[str, Any]:
         "post_warm_cache_hit_rate": float(summary.get("post_warm_cache_hit_rate") or 0.0),
         "provider_global_prefix_all_equal": bool(packet.get("provider_global_prefix_all_equal")),
         "session_prefix_all_equal": bool(packet.get("session_prefix_all_equal")),
-        "task_prefix_all_equal": bool(packet.get("task_prefix_all_equal")),
         "must_hit_violation_count": int(audit.get("must_hit_violation_count") or 0),
         "must_hit_violation_tokens": int(audit.get("must_hit_violation_tokens") or 0),
         "order_violation_count": int(audit.get("order_violation_count") or 0),

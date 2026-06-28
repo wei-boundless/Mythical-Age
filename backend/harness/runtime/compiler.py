@@ -59,6 +59,7 @@ from runtime.context_management.context_pipeline import (
     normalize_context_compaction_generation,
     sealed_provider_visible_replay_spec,
 )
+from runtime.context_management.provider_tool_protocol import annotate_provider_tool_round_specs
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies
 
 from .artifact_scope import runtime_artifact_scope_from_environment
@@ -840,7 +841,7 @@ class RuntimeCompiler:
                     kind="runtime_memory_context",
                     visible_kind="selected_memory_context",
                     source_ref=_runtime_memory_context_source_ref(runtime_memory_context_payload),
-                    cache_scope="task",
+                    cache_scope="session",
                     cache_role="session_stable",
                     compression_role="summarize",
                     metadata={
@@ -1325,10 +1326,10 @@ class RuntimeCompiler:
             collect_project_instruction_bundle(
                 base_dir=self.base_dir,
                 target_paths=_project_instruction_target_paths(contract=contract, task_run=task_run),
-                cache_scope="task_stable",
+                cache_scope="session",
             )
             if _prompt_policy_visible(prompt_policy, "project_instruction_visibility", default=True)
-            else ProjectInstructionBundle(cache_scope="task_stable")
+            else ProjectInstructionBundle(cache_scope="session")
         )
         runtime_instruction = _runtime_projection_instruction(
             agent_visible_runtime_projection,
@@ -1662,7 +1663,7 @@ class RuntimeCompiler:
                     kind="tool_index_stable",
                     visible_kind="tool_capabilities",
                     source_ref="agent_visible_tool_contract",
-                    cache_scope="task",
+                    cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
@@ -1672,7 +1673,7 @@ class RuntimeCompiler:
                     payload=task_contract_payload,
                     kind="task_run_contract_stable",
                     source_ref=task_contract_manifest.source_ref,
-                    cache_scope="task",
+                    cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
@@ -1681,7 +1682,7 @@ class RuntimeCompiler:
                     content=render_prompt_contract_instruction(task_prompt_assembly),
                     kind="task_prompt_contract",
                     source_ref=",".join(task_prompt_assembly.manifest.get("stable_contract_refs") or ()),
-                    cache_scope="task",
+                    cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
@@ -1691,13 +1692,13 @@ class RuntimeCompiler:
                     payload=bound_task_context_payload,
                     kind="bound_task_context_stable",
                     source_ref=bound_task_context.source_ref,
-                    cache_scope="task",
+                    cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
                         "authority_class": "bound_task_context",
                         "semantic_layer": "L7_bound_task_context",
-                        "cache_impact": "task_prefix_stable",
+                        "cache_impact": "provider_visible_context_prefix_stable",
                         "projection_strategy": "task_bound_context_manifest",
                         "content_source": "harness.runtime.bound_task_context",
                     },
@@ -1710,7 +1711,7 @@ class RuntimeCompiler:
                     payload=graph_task_shared_payload,
                     kind="graph_task_shared_stable",
                     source_ref=str(graph_task_shared_payload.get("graph_shared_context", {}).get("shared_context_hash") or ""),
-                    cache_scope="task",
+                    cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
                 )
@@ -1722,7 +1723,7 @@ class RuntimeCompiler:
                     payload=artifact_execution_scope_payload,
                     kind="artifact_scope_stable",
                     source_ref=artifact_scope_manifest.source_ref,
-                    cache_scope="task",
+                    cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
@@ -1733,12 +1734,12 @@ class RuntimeCompiler:
                     payload=inherited_start_context_payload,
                     kind="task_start_inherited_context",
                     source_ref=str(inherited_start_context_payload.get("handoff_ref") or inherited_start_context_payload.get("handoff_id") or ""),
-                    cache_scope="task",
+                    cache_scope="session",
                     cache_role="session_stable",
                     compression_role="ref_only",
                     metadata={
                         **_dynamic_context_segment_metadata(dynamic_context, source="turn_to_task_context_handoff"),
-                        "cache_impact": "task_prefix_inherited_context_snapshot",
+                        "cache_impact": "provider_visible_context_prefix_inherited_context_snapshot",
                         "stability_rule": "task start inherited context is immutable after handoff; later updates are appended as task deltas",
                     },
                 )
@@ -1889,7 +1890,7 @@ class RuntimeCompiler:
                     kind="runtime_memory_context",
                     visible_kind="selected_memory_context",
                     source_ref=_runtime_memory_context_source_ref(runtime_memory_context_payload),
-                    cache_scope="task",
+                    cache_scope="session",
                     cache_role="session_stable",
                     compression_role="summarize",
                     metadata={
@@ -1954,7 +1955,7 @@ class RuntimeCompiler:
                     payload=_user_steering_context_append_payload(user_steering_payload),
                     kind="user_steering_context_append",
                     source_ref=_user_steering_source_ref(user_steering_payload),
-                    cache_scope="task",
+                    cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
@@ -2387,7 +2388,7 @@ class RuntimeCompiler:
                     role="system",
                     title="Tool observation follow-up contract",
                     payload=stable_payload,
-                    kind="task_stable",
+                    kind="runtime_stable_contract",
                     visible_kind="operating_contract",
                     source_ref="observation_followup_stable_contract",
                     cache_scope="session",
@@ -2546,7 +2547,7 @@ class RuntimeCompiler:
                     kind="runtime_memory_context",
                     visible_kind="selected_memory_context",
                     source_ref=_runtime_memory_context_source_ref(runtime_memory_context_payload),
-                    cache_scope="task",
+                    cache_scope="session",
                     cache_role="session_stable",
                     compression_role="summarize",
                     metadata={
@@ -2945,7 +2946,7 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
         "action_type": "|".join(allowed),
         "allowed_action_types": list(allowed),
         "action_shape_rules": [
-            "每次只选择一个本轮行动。需要用动作对象时，把动作写成一个顶层结构化对象；不要把给用户看的说明写在动作对象之外。",
+            "每次只选择一个本轮行动。需要工具、控制、询问或阻塞时，把动作写成一个顶层结构化对象；如果只是最终回答且运行边界允许 assistant 正文，可以直接自然回复。",
             "respond 必须把用户可见最终回复写在顶层 final_answer；不要写 payload.final_answer、payload.content、action.final_answer 或 action.content。",
             "ask_user 必须把用户要回答的问题写在顶层 user_question；不要把询问用户伪装成工具调用。",
             "block 必须把真实阻塞原因写在顶层 blocking_reason。",
@@ -3250,7 +3251,8 @@ def _agent_contract_feedback_model_visible_payload(value: Any) -> dict[str, Any]
         {
             "situation": "上一轮输出没有形成可执行、可发布的下一步动作。",
             "phase": str(payload.get("phase") or ""),
-            "visible_response_needed": True,
+            "public_feedback_obligation": "respond_with_public_judgment_now",
+            "system_handling_of_missing_feedback": "record_contract_gap_only",
             "tool_action_available": payload.get("tool_calls_allowed_after_signal"),
             "feedback_contract": feedback_contract,
             "agent_feedback": _compact_text(payload.get("agent_feedback"), limit=3000),
@@ -3298,7 +3300,18 @@ def _feedback_contract_model_visible_payload(value: Any) -> dict[str, Any]:
             "source": str(payload.get("source") or ""),
             "situation": _compact_text(payload.get("situation"), limit=400),
             "your_task": _compact_text(payload.get("your_task"), limit=600),
-            "visible_response_needed": payload.get("visible_response_needed"),
+            "public_feedback_obligation": (
+                payload.get("public_feedback_obligation")
+                or (
+                    "respond_with_public_judgment_now"
+                    if payload.get("public_feedback_recommended")
+                    else ""
+                )
+            ),
+            "system_handling_of_missing_feedback": (
+                payload.get("system_handling_of_missing_feedback")
+                or ("record_contract_gap_only" if payload.get("public_feedback_recommended") else "")
+            ),
             "tool_action_available": payload.get("tool_action_available"),
             "available_actions": [
                 str(item)
@@ -3623,7 +3636,7 @@ def _provider_protocol_message_specs(
                     "exact_content_required_before_final": _provider_protocol_requires_rehydration(message),
                     "content_source": "runtime.provider_protocol_replay",
                     "authority_class": "append_only_provider_protocol_history",
-                    "cache_impact": "append_only_task_prefix",
+                    "cache_impact": "append_only_provider_visible_context_prefix",
                     "stability_rule": "provider protocol transcript is historical context; new protocol messages append after old ones and only compaction boundary may replace prior content",
                     "append_only_context_package": "historical_context",
                     "append_only_context_stream": "provider_protocol",
@@ -3633,6 +3646,10 @@ def _provider_protocol_message_specs(
                 "model_message": message,
             }
         )
+    result, _tool_round_diagnostics = annotate_provider_tool_round_specs(
+        result,
+        source="compiler_provider_protocol_history",
+    )
     return result
 
 
@@ -5431,7 +5448,7 @@ def _model_decision_contract_payload(
         "natural_response_carrier": (
             "assistant_message"
             if ordinary_initial_response_allowed
-            else "respond.final_answer"
+            else "assistant_message_or_respond.final_answer"
         ),
         "ordinary_tool_action": "choose_available_tool_and_fill_arguments"
         if ordinary_tool_submission != "none"
@@ -5448,7 +5465,7 @@ def _model_decision_contract_payload(
             if ordinary_initial_response_allowed
             else "tool_action_or_control_action_or_structured_action_object"
         ),
-        "action_phase_natural_response_carrier": "respond.final_answer",
+        "action_phase_natural_response_carrier": "assistant_message_or_respond.final_answer",
         "action_object_shape": {
             "authority": "harness.loop.model_action_request",
             "single_unambiguous_action_required": True,

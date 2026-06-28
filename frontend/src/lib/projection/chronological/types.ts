@@ -71,6 +71,9 @@ export type ToolLifecycle = {
   commandLine: string;
   output: string;
   state: string;
+  startedAt?: number;
+  updatedAt?: number;
+  completedAt?: number;
   sourceItemId: string;
   sourceEventType: string;
   sourceEventId: string;
@@ -172,6 +175,9 @@ export type ToolProjectionBlock = {
   toolName: string;
   actionKind: string;
   argumentsPreview: string;
+  startedAt?: number;
+  updatedAt?: number;
+  completedAt?: number;
   sourceItemId: string;
   sourceEventType: string;
   sourceEventId: string;

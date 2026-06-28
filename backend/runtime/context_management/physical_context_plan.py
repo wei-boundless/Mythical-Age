@@ -14,6 +14,7 @@ from .context_segment_policy import (
     context_segment_policy_for_spec,
     context_segment_policy_is_provider_visible_sealable,
 )
+from .provider_tool_protocol import provider_tool_protocol_order
 
 
 TRANSPORT_CONTRACT = "transport_contract"
@@ -155,10 +156,7 @@ def build_physical_context_plan(
             spine_seed.append(
                 {
                     "physical_index": physical_index,
-                    "original_index": segment.index,
                     "lane": lane,
-                    "kind": segment.kind,
-                    "source_ref": segment.source_ref,
                     "content_hash": segment.content_hash,
                 }
             )
@@ -322,18 +320,26 @@ def _spec_content_hash(spec: dict[str, Any]) -> str:
     seed = {
         "role": str(dict(message).get("role") or spec.get("role") or ""),
         "content": str(dict(message).get("content") if dict(message).get("content") is not None else spec.get("content") or ""),
+        "name": str(dict(message).get("name") or ""),
+        "tool_call_id": str(dict(message).get("tool_call_id") or ""),
+        "tool_calls": dict(message).get("tool_calls") or [],
+        "reasoning_content": str(dict(message).get("reasoning_content") or ""),
         "kind": str(spec.get("kind") or ""),
         "source_ref": str(spec.get("source_ref") or ""),
     }
     return _stable_json_hash(seed)
 
 
-def _physical_context_order_key(segment: PhysicalContextPlanSegment) -> tuple[int, int, int, str]:
+def _physical_context_order_key(segment: PhysicalContextPlanSegment) -> tuple[Any, ...]:
     ledger_entry_index = _safe_int(segment.metadata.get("provider_visible_context_ledger_entry_index"))
     if ledger_entry_index > 0 and segment.lane == PROVIDER_VISIBLE_CONTEXT_PREFIX:
+        tool_round_order = provider_tool_protocol_order(
+            segment.metadata,
+            fallback_entry_index=ledger_entry_index,
+        )
         return (
             PHYSICAL_CONTEXT_LANE_RANK[PROVIDER_VISIBLE_CONTEXT_PREFIX],
-            ledger_entry_index,
+            *tool_round_order,
             int(segment.index or 0),
             str(segment.source_ref or ""),
         )

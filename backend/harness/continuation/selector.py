@@ -22,7 +22,6 @@ from .record import (
 
 _RECOVERABLE_TURN_CONTROL_SIGNAL_KINDS = frozenset(
     {
-        "tool_budget_exhausted",
         "consecutive_tool_failures",
         "model_protocol_violation",
         "final_output_not_committable",
@@ -31,7 +30,6 @@ _RECOVERABLE_TURN_CONTROL_SIGNAL_KINDS = frozenset(
 )
 _RECOVERABLE_TURN_TERMINAL_REASONS = frozenset(
     {
-        "single_turn_tool_iteration_limit",
         "single_turn_consecutive_tool_failures",
         "single_agent_turn_protocol_error",
         "final_output_not_committable",
@@ -507,8 +505,6 @@ def _interrupted_turn_kind(
     if runtime_interruption:
         return "runtime_execution_interrupted"
     if reason in _RECOVERABLE_TURN_TERMINAL_REASONS:
-        if reason == "single_turn_tool_iteration_limit":
-            return "tool_budget_exhausted"
         if reason == "single_turn_consecutive_tool_failures":
             return "consecutive_tool_failures"
         if reason == "agent_contract_feedback_required":
@@ -570,8 +566,6 @@ def _latest_turn_runtime_control_signal_from_gateway(
 
 
 def _interrupted_turn_next_step(interruption_kind: str) -> str:
-    if interruption_kind == "tool_budget_exhausted":
-        return "继续上一轮普通对话工作；优先复用当前 packet 中未过期的 exact read evidence，并接续已公开但未提交的 assistant 前缀。"
     if interruption_kind == "agent_contract_feedback_required":
         return "继续上一轮普通对话工作；根据合同反馈产出合法 action，不要让系统代写用户正文，不要重复已公开前缀。"
     return "继续上一轮普通对话工作；把该记录当作同一 session 的连续上下文，必要时再读取缺失或过期证据。"
@@ -690,7 +684,8 @@ def _agent_contract_feedback_continuation_payload(feedback: dict[str, Any]) -> d
         {
             "situation": "上一轮输出没有形成可执行、可发布的下一步动作。",
             "phase": str(payload.get("phase") or ""),
-            "visible_response_needed": True,
+            "public_feedback_obligation": "respond_with_public_judgment_now",
+            "system_handling_of_missing_feedback": "record_contract_gap_only",
             "tool_action_available": payload.get("tool_calls_allowed_after_signal"),
             "agent_feedback": _bounded_text(payload.get("agent_feedback"), limit=3000),
             "next_action_requirements": _drop_empty_payload(

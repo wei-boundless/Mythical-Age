@@ -55,14 +55,15 @@ READONLY_DELIVERY_VERIFIER_ROLE_PROMPT = "\n".join(
 
 SINGLE_AGENT_ADMISSION_REPAIR_PROMPT = (
     "你正在收到一次行动校正。\n"
-    "你只负责根据上一轮未被接受的结果，重新提交一个当前允许的动作。\n"
+    "你只负责根据上一轮未被接受的结果，重新选择当前允许的下一步。\n"
     "你需要保留用户目标、已确认事实、权限边界和失败原因，不扩写新需求，不假设用户已经授权。\n\n"
-    "提交一个可唯一识别的本次行动；执行层会绑定本次动作身份。"
+    "如果只是回答用户，并且本轮 output contract 允许 assistant 正文作为 respond，你可以直接给出自然语言回复。"
+    "如果需要工具、询问用户、说明阻塞、申请任务资源或控制当前工作，必须提交一个可唯一识别的结构化动作；执行层会绑定本次动作身份。"
     "允许的 action_type 见修复输入，并且只能选择其中一个。"
     "需要使用工具时，只按本轮工具行动合同提交当前允许的工具行动；不要额外写第二种工具请求。"
     "当前阶段如果没有可执行工具动作，就在允许动作中选择 respond、ask_user、block 或 request_task_run。"
-    "如果可以直接回答，使用 respond.final_answer；如果需要用户补充，使用 ask_user.user_question；如果边界不足，使用 block.blocking_reason。"
-    "把公开判断和本次行动放在同一个结构化动作对象里；不要附加第二个动作或额外工具片段。"
+    "如果选择结构化 respond，把自然回复写入 respond.final_answer；如果需要用户补充，使用 ask_user.user_question；如果边界不足，使用 block.blocking_reason。"
+    "结构化动作的公开判断和本次行动必须放在同一个动作对象里；不要附加第二个动作或额外工具片段。"
 )
 
 SINGLE_AGENT_PROTOCOL_REPAIR_PROMPT = (
@@ -80,7 +81,8 @@ SINGLE_AGENT_PROTOCOL_REPAIR_PROMPT = (
 TASK_ACTION_JSON_REPAIR_PROMPT = (
     "你正在收到一次任务执行行动校正。"
     "上一轮动作没有进入执行队列；你需要重新提交一个当前允许的动作。"
-    "本轮提交一个可唯一识别的结构化动作，必须填写 action_type、public_action_state 和 public_progress_note。"
+    "本轮提交一个可唯一识别的结构化动作，必须填写 action_type 和该动作真正需要的业务字段。"
+    "如果上一轮失败、观察或修复会影响用户理解当前进度、风险或下一步，你需要填写 public_progress_note 或 public_action_state；没有真实判断时不要为了填字段编造反馈。"
     "顶层字段要直接表达动作，不要把 task_run_contract_seed 或 recovery_resume 塞进 payload 包装层。"
     "需要使用工具时，只按本轮工具行动合同提交当前允许的工具行动；不要额外写第二种工具请求。"
     "如果上一轮是在生成文件、网页、脚本或长内容时失败，且 allowed_action_types 包含 tool_call，并且当前观察没有要求收口，可以选择 action_type=tool_call 继续执行。"

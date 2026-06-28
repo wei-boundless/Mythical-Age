@@ -101,6 +101,13 @@ def provider_payload_boundary_diagnostics(
         "physical_cache_spine_blockers": list(physical_spine.get("blockers") or []),
         "physical_cache_spine_first_blocker": dict(physical_spine.get("first_blocker") or {}),
         "physical_cache_spine_boundary_segment_id": str(physical_spine.get("boundary_segment_id") or ""),
+        "physical_cache_spine_tool_protocol_round_count": int(physical_spine.get("provider_tool_protocol_round_count") or 0),
+        "physical_cache_spine_tool_protocol_rounds": list(physical_spine.get("provider_tool_protocol_rounds") or []),
+        "physical_cache_spine_tool_protocol_round_ids": [
+            str(item.get("round_id") or "")
+            for item in list(physical_spine.get("provider_tool_protocol_rounds") or [])
+            if isinstance(item, dict) and str(item.get("round_id") or "")
+        ],
         "physical_cache_spine_lane_order": list(
             resolved.get("physical_cache_spine_lane_order") or []
         ),

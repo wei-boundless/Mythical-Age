@@ -126,7 +126,6 @@ OPTION_LABELS: dict[str, str] = {
     "op.stat_path": "读取路径信息",
     "op.path_exists": "检查路径存在",
     "op.glob_paths": "通配查找路径",
-    "op.read_structured_file": "读取结构化文件",
     "op.web_search": "网页搜索",
     "op.fetch_url": "抓取网页",
     "op.git_status": "查看 Git 状态",

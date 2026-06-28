@@ -241,6 +241,8 @@ def _changed_payload_reason(
         return "physical_cache_spine_roles_changed"
     if _diag_list(previous_diag, "physical_cache_spine_prefix_families") != _diag_list(current_diag, "physical_cache_spine_prefix_families"):
         return "physical_cache_spine_prefix_families_changed"
+    if _diag_list(previous_diag, "physical_cache_spine_tool_protocol_round_ids") != _diag_list(current_diag, "physical_cache_spine_tool_protocol_round_ids"):
+        return "physical_cache_spine_tool_protocol_rounds_changed"
     if _diag_list(previous_diag, "physical_cache_spine_boundary_participations") != _diag_list(current_diag, "physical_cache_spine_boundary_participations"):
         return "physical_cache_spine_boundary_participations_changed"
     if _diag_value(previous_diag, "physical_cache_spine_message_subtotal_hash") != _diag_value(current_diag, "physical_cache_spine_message_subtotal_hash"):
@@ -288,6 +290,8 @@ def _provider_payload_diagnostics(
         "physical_cache_spine_message_segment_count",
         "physical_cache_spine_transport_locations",
         "physical_cache_spine_roles",
+        "physical_cache_spine_tool_protocol_round_ids",
+        "physical_cache_spine_tool_protocol_rounds",
         "physical_cache_spine_prefix_families",
         "physical_cache_spine_boundary_participations",
         "physical_cache_spine_first_blocker",

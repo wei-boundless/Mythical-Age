@@ -780,7 +780,7 @@ def test_development_environment_keeps_document_capability_routes() -> None:
     pdf_capability = plan.capability_table.capability_for_operation("op.mcp_pdf")
 
     assert "read_file" in tool_names
-    assert "read_structured_file" in tool_names
+    assert "read_structured_file" not in tool_names
     assert "git_status" in tool_names
     assert "python_symbol_search" in tool_names
     assert decisions["op.git_status"]["final_decision"] == "allow"
@@ -1740,4 +1740,3 @@ def _message_content_with_title(packet, title: str) -> str:
 
 def _payload_from_packet_message(packet, title: str) -> dict[str, object]:
     return _payload_after_title(_message_content_with_title(packet, title), title)
-

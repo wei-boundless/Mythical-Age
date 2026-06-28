@@ -44,7 +44,7 @@ def test_prompt_assembly_plan_is_the_topology_authority() -> None:
             _spec(
                 kind="task_contract_stable",
                 content="Task contract\n{\"goal\":\"fix cache\"}",
-                cache_scope="task",
+                cache_scope="session",
                 cache_role="session_stable",
             ),
             _spec(
@@ -63,7 +63,7 @@ def test_prompt_assembly_plan_is_the_topology_authority() -> None:
     assert [slot.prefix_tier for slot in assembly_plan.slots] == [
         "provider_global",
         "session",
-        "task",
+        "session",
         "volatile",
     ]
     assert [spec["kind"] for spec in materialized.message_specs] == [
@@ -89,7 +89,7 @@ def test_prompt_assembly_reorders_stable_segment_before_dynamic_tail() -> None:
             _spec(
                 kind="tool_index_stable",
                 content="Tool Capability Surface\n{\"available_tools\":[{\"tool_name\":\"read_file\"}]}",
-                cache_scope="task",
+                cache_scope="session",
                 cache_role="session_stable",
             ),
             _spec(

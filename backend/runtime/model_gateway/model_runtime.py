@@ -45,6 +45,7 @@ from runtime.tool_runtime.tool_call_policy import ToolCallBindingOptions
 from .lightweight_chat_model import LightweightChatModel, LightweightConversationAgent, provider_message_payloads
 from .model_request import ModelRequestBuilder
 from .providers import ProviderRequestProfile, build_provider_adapter_result
+from .protocol_sanitizer import standardize_provider_tool_protocol_messages
 
 if TYPE_CHECKING:
     from agent_system.a2a.models import AgentDefinition
@@ -1057,7 +1058,6 @@ class ModelRuntime:
                     "stable_prefix_hash": model_request.stable_prefix_hash,
                     "provider_global_prefix_hash": model_request.provider_global_prefix_hash,
                     "session_prefix_hash": model_request.session_prefix_hash,
-                    "task_prefix_hash": model_request.task_prefix_hash,
                 },
                 segment_plan=segment_plan,
                 model_request=model_request,
@@ -1082,7 +1082,6 @@ class ModelRuntime:
                     "stable_prefix_hash": model_request.stable_prefix_hash,
                     "provider_global_prefix_hash": model_request.provider_global_prefix_hash,
                     "session_prefix_hash": model_request.session_prefix_hash,
-                    "task_prefix_hash": model_request.task_prefix_hash,
                     "provider_cache_policy": cache_policy.to_dict(),
                     **metadata,
                 },
@@ -1115,7 +1114,6 @@ class ModelRuntime:
                 "model_request_stable_prefix_hash": model_request.stable_prefix_hash,
                 "model_request_provider_global_prefix_hash": model_request.provider_global_prefix_hash,
                 "model_request_session_prefix_hash": model_request.session_prefix_hash,
-                "model_request_task_prefix_hash": model_request.task_prefix_hash,
                 "model_request_provider_payload_prefix_hash": model_request.provider_payload_prefix_hash,
                 "model_request_tool_catalog_hash": model_request.tool_catalog_hash,
                 "model_request_stable_tool_catalog_hash": model_request.stable_tool_catalog_hash,
@@ -1278,7 +1276,6 @@ class ModelRuntime:
                         "stable_prefix_hash": str(getattr(model_request, "stable_prefix_hash", "") or ""),
                         "provider_global_prefix_hash": str(getattr(model_request, "provider_global_prefix_hash", "") or ""),
                         "session_prefix_hash": str(getattr(model_request, "session_prefix_hash", "") or ""),
-                        "task_prefix_hash": str(getattr(model_request, "task_prefix_hash", "") or ""),
                         "provider_payload_prefix_hash": str(getattr(model_request, "provider_payload_prefix_hash", "") or ""),
                         "tool_catalog_hash": str(getattr(model_request, "tool_catalog_hash", "") or ""),
                         "stable_tool_catalog_hash": str(getattr(model_request, "stable_tool_catalog_hash", "") or ""),
@@ -1676,11 +1673,23 @@ class ModelRuntime:
             return provider_messages, accounting_context
         prompt_manifest = dict(context.get("prompt_manifest") or {})
         prompt_manifest["provider_visible_append_only_transport"] = {
-            "status": "not_applied",
-            "message_count": len(provider_messages),
-            "rule": "provider_gateway_preserves_upstream_append_only_message_order",
+            "status": "standardized",
+            "input_message_count": len(provider_messages),
+            "rule": "provider_gateway_preserves_upstream_append_only_message_order_after_tool_protocol_standardization",
             "authority": "runtime.model_gateway.model_runtime.append_only_passthrough",
         }
+        sanitized = standardize_provider_tool_protocol_messages(
+            provider_messages,
+            turn_id=str(context.get("turn_id") or ""),
+            source=f"runtime.model_gateway.model_runtime.{call_kind}.append_only_provider_boundary",
+        )
+        provider_messages = [dict(item) for item in sanitized.messages]
+        prompt_manifest["provider_visible_append_only_transport"].update(
+            {
+                "output_message_count": len(provider_messages),
+                "tool_protocol_diagnostics": dict(sanitized.diagnostics),
+            }
+        )
         context["prompt_manifest"] = prompt_manifest
         return provider_messages, context
 
@@ -2274,8 +2283,6 @@ def _model_request_prefix_hash_for_tier(model_request: Any, *, prefix_key_tier: 
     tier = str(prefix_key_tier or "").strip()
     if tier == "physical_cache_spine":
         return str(getattr(model_request, "provider_payload_prefix_hash", "") or "")
-    if tier == "task":
-        return str(getattr(model_request, "task_prefix_hash", "") or "")
     if tier == "session":
         return str(getattr(model_request, "session_prefix_hash", "") or "")
     if tier == "provider_global":

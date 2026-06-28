@@ -292,7 +292,7 @@ def _shared_main_agent_prefix_messages_and_plan(
     for index, raw_message in enumerate(raw_messages):
         planned = dict(raw_plan[index]) if index < len(raw_plan) else {}
         cache_role = str(planned.get("cache_role") or "")
-        prefix_tier = str(planned.get("prefix_tier") or "")
+        prefix_tier = _cache_prefix_tier(planned.get("prefix_tier"))
         if cache_role not in {"cacheable_prefix", "session_stable"} or prefix_tier in {"volatile", "none"}:
             break
         message = _shared_prefix_model_message(raw_message)
@@ -303,7 +303,7 @@ def _shared_main_agent_prefix_messages_and_plan(
             {
                 "kind": str(planned.get("kind") or "memory_maintenance_shared_main_agent_prefix"),
                 "source_ref": str(planned.get("source_ref") or f"main_agent_shared_prefix:{index + 1}"),
-                "cache_scope": str(planned.get("cache_scope") or "task"),
+                "cache_scope": _cache_scope(planned.get("cache_scope")),
                 "cache_role": cache_role,
                 "prefix_tier": prefix_tier,
                 "compression_role": str(planned.get("compression_role") or "preserve"),
@@ -316,6 +316,24 @@ def _shared_main_agent_prefix_messages_and_plan(
             }
         )
     return messages, cache_plan
+
+
+def _cache_scope(value: Any) -> str:
+    normalized = str(value or "").strip()
+    if normalized in {"global", "session", "none"}:
+        return normalized
+    if normalized:
+        return "none"
+    return "session"
+
+
+def _cache_prefix_tier(value: Any) -> str:
+    normalized = str(value or "").strip()
+    if normalized in {"provider_global", "session", "volatile", "none"}:
+        return normalized
+    if normalized:
+        return "volatile"
+    return "session"
 
 
 def _shared_prefix_model_message(message: dict[str, Any]) -> dict[str, Any]:
@@ -790,8 +808,8 @@ class MemoryMaintenanceAgent:
         shared_messages, shared_plan = _shared_main_agent_prefix_messages_and_plan(request.main_context)
         messages.extend(shared_messages)
         cache_plan.extend(shared_plan)
-        task_guidance_prefix_tier = "task" if shared_messages else "provider_global"
-        task_guidance_cache_scope = "task" if shared_messages else "global"
+        task_guidance_prefix_tier = "session" if shared_messages else "provider_global"
+        task_guidance_cache_scope = "session" if shared_messages else "global"
         task_guidance_cache_role = "session_stable" if shared_messages else "cacheable_prefix"
         _append_planned_message(
             messages,
@@ -817,9 +835,9 @@ class MemoryMaintenanceAgent:
             content=self.output_schema_prompt(),
             kind="memory_maintenance_output_schema",
             source_ref="memory_maintenance.output_schema",
-            cache_scope="task" if shared_messages else "session",
+            cache_scope="session",
             cache_role="session_stable",
-            prefix_tier="task" if shared_messages else "session",
+            prefix_tier="session",
             compression_role="preserve",
             metadata={
                 "authority_class": "memory_maintenance_output_contract",
@@ -840,13 +858,13 @@ class MemoryMaintenanceAgent:
                 content=_stable_json_block("Memory maintenance append-only message coverage entry", {"message_coverage_entry": entry_payload}),
                 kind="memory_maintenance_message_coverage_entry",
                 source_ref=f"memory_maintenance:message_coverage:{entry_ref}",
-                cache_scope="task",
+                cache_scope="session",
                 cache_role="session_stable",
-                prefix_tier="task",
+                prefix_tier="session",
                 compression_role="ref_only",
                 metadata={
                     "authority_class": "memory_maintenance_append_only_coverage",
-                    "cache_impact": "append_only_task_prefix",
+                    "cache_impact": "append_only_provider_visible_context_prefix",
                     "message_coverage_index": index,
                     "message_coverage_ref": entry_ref,
                     "stability_rule": "existing coverage entries are immutable; later messages append new coverage entries after them",

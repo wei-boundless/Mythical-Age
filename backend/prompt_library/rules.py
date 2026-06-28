@@ -10,9 +10,11 @@ RUNTIME_TOOL_USE_RULE = """
 调用工具前，确认它服务于当前请求、任务合同、权限边界和可见工具列表。
 不可见工具不能臆造；只有当前运行投影或工具观察明确显示权限、沙盒、网络、写入、git 或外部服务未授权时，才把它当作真实边界，不要预设自己缺权限。
 工具返回失败时，把失败当作事实观察，下一步必须改变参数、路径、范围、工具或计划；不要原样重复同一失败动作。
-工具返回后如果继续调用工具，必须给出基于观察的公开短判断；它只能描述已确认事实、缺口、调整方向或阶段结论，不能写成“正在继续处理”。
-当一组工具已经覆盖一个阶段时，先总结阶段结论和下一步，再继续；不要让用户只看到工具列表而看不到你的判断。
-不要求每个低层读取、搜索或枚举都单独写正文，但这不等于可以在长时间任务里沉默；跨多个文件、多个工具批次、多轮观察、失败恢复、写入验证或阶段切换时，必须主动给出用户能理解的阶段反馈。
+当工具观察改变了你的判断、计划、风险、失败原因、写入结果、验证结论或阶段边界时，你必须给用户一个可理解的公开短判断。
+公开短判断只能描述已确认事实、缺口、调整方向、阶段结论或下一步；不能写成“正在继续处理”，也不能暴露工具对象、动作字段、内部编号或隐藏推理。
+一组低层读取、搜索或枚举如果属于同一个很短的证据链，可以先连续执行，不必每个工具单独反馈；但一旦跨多个文件、多个工具批次、多轮观察、失败恢复、写入验证或阶段切换，就必须先形成阶段判断，再继续。
+如果当前动作形态没有公开反馈载体，不要夹带普通正文；在下一次结构化动作、控制动作、询问、阻塞或最终回答里补上同一判断目标的公开交代。
+系统不会替你补写反馈，也不会因为缺少反馈替你改变语义动作；反馈节奏由你负责。
 """.strip()
 
 
@@ -81,8 +83,8 @@ RUNTIME_PERMISSION_DENIAL_RULE = """
 
 RUNTIME_SUBAGENT_DELEGATION_RULE = """
 只有当问题需要隔离大量搜索噪声、外部资料、代码库广泛定位、记忆回溯、PDF 读取或专门验证时，才委派子 agent。
-普通聊天回合不直接启动子 agent；如果需要委派，先请求持续任务运行资源，并把委派目标、范围、证据要求和完成标准写进任务合同。
-只有持续任务执行回合可以调用 spawn_subagent、wait_subagent、list_subagents、send_subagent_message 或 close_subagent。
+普通聊天回合不要为了显得主动而委派；只有当当前可见工具和运行边界明确开放子 agent 生命周期工具，并且你的目标确实需要独立 specialist 时，才调用 spawn_subagent、wait_subagent、list_subagents、send_subagent_message 或 close_subagent。
+如果运行观察说明子 agent 需要持续工作资源、父工作资源或 runtime handle，而本轮没有该资源，再使用 request_task_run 申请可恢复的工作资源；不要在资源已经可用时为了旧规则先绕去开任务。
 委派 brief 必须包含目标、已知事实、范围、排除项、可用 context_refs、期望输出和失败处理。
 子 agent 未返回前，不能预测它的结论；多个互不依赖的问题可以并行委派，但不能重复委派同一搜索。
 """.strip()
@@ -957,8 +959,6 @@ def _cache_tier_from_scope(scope: str) -> str:
         return "global_static"
     if value == "static_environment":
         return "static_environment"
-    if value in {"task", "task_stable"}:
-        return "task_stable"
     if value in {"session", "session_stable"}:
         return "session_stable"
     if value in {"none", "volatile"}:
@@ -977,10 +977,6 @@ def _cache_boundary_rejection_reason(rule: PromptRule, section: PromptSection) -
     category = str(section.category or "").strip()
     if rule_tier == "static_environment" and category != "environment":
         return "prompt_rule_static_environment_owner_mismatch"
-    if rule_tier == "session_stable" and category not in {"agent", "personality", "skill"}:
-        return "prompt_rule_session_stable_owner_mismatch"
-    if rule_tier == "task_stable" and category not in {"task", "graph_node"}:
-        return "prompt_rule_task_stable_owner_mismatch"
     if rule_tier == "global_static" and category in {"task", "graph_node"}:
         return "prompt_rule_global_static_task_owner_mismatch"
     if rule_tier == "volatile":
@@ -1049,7 +1045,6 @@ def _allowed_section_tiers_for_rule_cache_tier(cache_tier: str) -> set[str]:
         "global_static": {"global_static"},
         "static_environment": {"static_environment"},
         "session_stable": {"session_stable"},
-        "task_stable": {"task_stable"},
         "volatile": {"volatile"},
     }
     return mapping.get(value, {value})

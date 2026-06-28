@@ -138,7 +138,6 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
                 "op.agent_todo",
                 "op.codebase_search",
                 "op.read_file",
-                "op.read_structured_file",
                 "op.list_dir",
                 "op.stat_path",
                 "op.path_exists",
@@ -255,6 +254,5 @@ class WorkerAgentFactory:
             runtime_profile=runtime_profile,
             spawn_result=spawn_result,
         )
-
 
 

@@ -3914,6 +3914,12 @@ body {
 
 .agent-workbench .public-run-activity__tool-round,
 .agent-workbench .public-run-activity__tool-window {
+  --tool-accent: var(--console-accent);
+  --tool-accent-soft: color-mix(in srgb, var(--tool-accent) 13%, transparent);
+  --tool-row-bg: color-mix(in srgb, var(--console-surface) 78%, transparent);
+  --tool-row-hover: color-mix(in srgb, var(--tool-accent-soft) 54%, var(--console-surface));
+  --tool-panel-bg: color-mix(in srgb, var(--console-surface) 86%, var(--console-bg-raised));
+  position: relative;
   min-width: 0;
   overflow: visible;
   border: 0;
@@ -3963,33 +3969,69 @@ body {
   box-shadow: none;
 }
 
+.agent-workbench .public-run-activity__tool-window[data-tool-family="write"],
+.agent-workbench .public-run-activity__tool-round[data-tool-family="write"] {
+  --tool-accent: var(--console-warning);
+}
+
+.agent-workbench .public-run-activity__tool-window[data-tool-family="search"],
+.agent-workbench .public-run-activity__tool-round[data-tool-family="search"],
+.agent-workbench .public-run-activity__tool-window[data-tool-family="inspect"],
+.agent-workbench .public-run-activity__tool-round[data-tool-family="inspect"] {
+  --tool-accent: var(--console-success);
+}
+
+.agent-workbench .public-run-activity__tool-window[data-tool-family="command"],
+.agent-workbench .public-run-activity__tool-round[data-tool-family="command"] {
+  --tool-accent: color-mix(in srgb, var(--console-text) 72%, var(--console-accent));
+}
+
+.agent-workbench .public-run-activity__tool-window--soft_error,
+.agent-workbench .public-run-activity__tool-round--soft_error,
+.agent-workbench .public-run-activity__tool-window--stopped,
+.agent-workbench .public-run-activity__tool-round--stopped {
+  --tool-accent: var(--console-warning);
+}
+
 .agent-workbench .public-run-activity__tool-round > summary,
 .agent-workbench .public-run-activity__tool-window > summary {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) 16px;
+  grid-template-columns: 28px minmax(0, 1fr) auto 26px;
   align-items: center;
-  gap: 12px;
-  min-height: 44px;
-  padding: 8px 6px;
+  gap: 10px;
+  min-height: 46px;
+  border-radius: 13px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--tool-accent) 9%, transparent), transparent 42%),
+    var(--tool-row-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--console-line-soft) 78%, transparent);
+  padding: 7px 8px;
   color: var(--console-text-soft);
   cursor: pointer;
   font-size: 13px;
   list-style: none;
-  transition: color 140ms ease, transform 140ms ease;
+  transition: background 140ms ease, box-shadow 140ms ease, color 140ms ease, transform 140ms ease;
 }
 
 .agent-workbench .public-run-activity__tool-round > summary {
-  grid-template-columns: 24px minmax(0, 1fr) auto 16px;
-  min-height: 46px;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  min-height: 48px;
 }
 
 .agent-workbench .public-run-activity__tool-window--nested > summary {
-  min-height: 38px;
-  padding: 7px 4px;
+  grid-template-columns: 24px minmax(0, 1fr) auto 24px;
+  min-height: 40px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--console-surface) 58%, transparent);
+  padding: 6px 7px;
 }
 
 .agent-workbench .public-run-activity__tool-round > summary:hover,
 .agent-workbench .public-run-activity__tool-window > summary:hover {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--tool-accent) 13%, transparent), transparent 48%),
+    var(--tool-row-hover);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tool-accent) 24%, var(--console-line-soft));
   color: var(--console-text);
 }
 
@@ -4038,11 +4080,12 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--console-accent);
+  width: 26px;
+  height: 26px;
+  border: 1px solid color-mix(in srgb, var(--tool-accent) 22%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--tool-accent) 10%, var(--console-surface));
+  color: var(--tool-accent);
   opacity: 0.9;
 }
 
@@ -4060,8 +4103,9 @@ body {
 }
 
 .agent-workbench .public-run-activity__tool-window--nested .public-run-activity__tool-window-icon {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
 }
 
 .agent-workbench .public-run-activity__tool-window[data-tool-family="write"] .public-run-activity__tool-window-icon,
@@ -4097,7 +4141,7 @@ body {
 .agent-workbench .public-run-activity__tool-window-copy,
 .agent-workbench .public-run-activity__tool-round-copy {
   display: grid;
-  gap: 1px;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -4110,8 +4154,8 @@ body {
 .agent-workbench .public-run-activity__tool-window-title,
 .agent-workbench .public-run-activity__tool-round-preview {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 7px;
   min-width: 0;
   overflow: hidden;
   color: var(--console-text);
@@ -4187,12 +4231,29 @@ body {
   min-width: max-content;
 }
 
+.agent-workbench .public-run-activity__tool-window-meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: max-content;
+}
+
 .agent-workbench .public-run-activity__tool-caret {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
   color: var(--console-muted);
-  transition: transform 140ms ease;
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+.agent-workbench .public-run-activity__tool-round > summary:hover .public-run-activity__tool-caret,
+.agent-workbench .public-run-activity__tool-window > summary:hover .public-run-activity__tool-caret {
+  background: color-mix(in srgb, var(--console-surface) 76%, transparent);
+  color: var(--tool-accent);
 }
 
 .agent-workbench .public-run-activity__reasoning-caret {
@@ -4237,6 +4298,36 @@ body {
   white-space: nowrap;
 }
 
+.agent-workbench .public-run-activity__tool-elapsed {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 22px;
+  border: 1px solid color-mix(in srgb, var(--console-line-soft) 82%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--console-surface) 76%, transparent);
+  color: var(--console-muted);
+  font-family: var(--console-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 720;
+  line-height: 1;
+  padding: 0 7px;
+  white-space: nowrap;
+}
+
+.agent-workbench .public-run-activity__tool-elapsed svg {
+  color: currentColor;
+}
+
+.agent-workbench .public-run-activity__tool-elapsed--active {
+  border-color: color-mix(in srgb, var(--tool-accent) 26%, var(--console-line-soft));
+  background: color-mix(in srgb, var(--tool-accent) 10%, var(--console-surface));
+  color: var(--tool-accent);
+}
+
 .agent-workbench .public-run-activity__tool-status-dot {
   width: 9px;
   height: 9px;
@@ -4266,8 +4357,10 @@ body {
 
 .agent-workbench .public-run-activity__tool-window-status--running .public-run-activity__tool-status-dot,
 .agent-workbench .public-run-activity__tool-round--running .public-run-activity__tool-status-dot {
-  border-color: var(--console-line-strong);
+  border-color: var(--tool-accent);
   background: var(--console-surface);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tool-accent) 14%, transparent);
+  animation: public-tool-pulse 1.6s ease-in-out infinite;
 }
 
 .agent-workbench .public-run-activity__tool-window-status--waiting,
@@ -4294,6 +4387,18 @@ body {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--console-muted) 25%, transparent);
 }
 
+.agent-workbench .public-run-activity__tool-window-status--stopped,
+.agent-workbench .public-run-activity__tool-round--stopped .public-run-activity__tool-window-status {
+  color: var(--console-muted);
+}
+
+.agent-workbench .public-run-activity__tool-window-status--stopped .public-run-activity__tool-status-dot,
+.agent-workbench .public-run-activity__tool-round--stopped .public-run-activity__tool-status-dot {
+  border-color: var(--console-muted);
+  background: var(--console-muted);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--console-muted) 22%, transparent);
+}
+
 .agent-workbench .public-run-activity__tool-round--soft_error .public-run-activity__tool-round-icon,
 .agent-workbench .public-run-activity__tool-window--soft_error .public-run-activity__tool-window-icon {
   color: var(--console-warning);
@@ -4308,32 +4413,97 @@ body {
   display: grid;
   gap: 10px;
   min-width: 0;
-  border: 1px solid var(--console-line);
-  width: min(100% - 40px, 980px);
-  margin: 4px 0 14px 42px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--tool-accent) 18%, var(--console-line-soft));
+  width: calc(100% - 42px);
+  max-width: none;
+  margin: 6px 0 14px 42px;
   border-radius: var(--console-radius-lg);
-  background: var(--console-surface);
-  box-shadow: var(--console-shadow-soft);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--tool-accent) 6%, transparent), transparent 46%),
+    var(--tool-panel-bg);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--console-surface) 72%, transparent);
   padding: 12px;
 }
 
 .agent-workbench .public-run-activity__tool-round-body {
   gap: 9px;
-  width: auto;
-  margin: 2px 0 14px 38px;
-  border-color: var(--console-line-soft);
+  width: calc(100% - 38px);
+  margin: 4px 0 14px 38px;
+  border-color: color-mix(in srgb, var(--tool-accent) 14%, var(--console-line-soft));
   border-radius: var(--console-radius-lg);
-  background: var(--console-surface);
+  background: color-mix(in srgb, var(--console-surface) 82%, var(--console-bg-raised));
   padding: 10px;
 }
 
 .agent-workbench .public-run-activity__tool-window--nested .public-run-activity__tool-window-body {
-  border-color: var(--console-line-soft);
-  width: min(100% - 32px, 940px);
-  margin: 2px 0 13px 32px;
+  border-color: color-mix(in srgb, var(--tool-accent) 12%, var(--console-line-soft));
+  width: calc(100% - 30px);
+  margin: 4px 0 13px 30px;
   border-radius: var(--console-radius-lg);
-  background: var(--console-surface);
+  background: color-mix(in srgb, var(--console-surface) 78%, var(--console-bg-raised));
   padding: 10px;
+}
+
+.agent-workbench .public-run-activity__tool-runtime {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--console-line-soft) 78%, transparent);
+  border-radius: var(--console-radius-md);
+  background: color-mix(in srgb, var(--console-bg) 54%, transparent);
+  padding: 7px 8px;
+}
+
+.agent-workbench .public-run-activity__tool-runtime-live,
+.agent-workbench .public-run-activity__tool-runtime-time {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border-radius: 999px;
+  color: var(--console-muted);
+  font-size: 11.5px;
+  font-weight: 720;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.agent-workbench .public-run-activity__tool-runtime-live {
+  border: 1px solid color-mix(in srgb, var(--tool-accent) 24%, transparent);
+  background: color-mix(in srgb, var(--tool-accent) 9%, transparent);
+  color: var(--tool-accent);
+  padding: 0 7px;
+}
+
+.agent-workbench .public-run-activity__tool-runtime-time {
+  font-family: var(--console-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-workbench .public-run-activity__tool-live-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border: 1px dashed color-mix(in srgb, var(--tool-accent) 28%, var(--console-line-soft));
+  border-radius: var(--console-radius-md);
+  background: color-mix(in srgb, var(--tool-accent) 7%, transparent);
+  color: var(--console-text-soft);
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1.45;
+  padding: 8px 10px;
+}
+
+.agent-workbench .public-run-activity__tool-live-indicator {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--tool-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--tool-accent) 12%, transparent);
 }
 
 .agent-workbench .public-run-activity__reasoning-body {
@@ -4564,8 +4734,11 @@ body {
   display: grid;
   gap: 0;
   min-width: 0;
+  max-height: clamp(160px, 36vh, 430px);
   margin: 0;
+  overflow: auto;
   padding: 0;
+  scrollbar-gutter: stable;
   list-style: none;
 }
 
@@ -4745,13 +4918,16 @@ body {
   margin: 0;
   border: 1px solid var(--console-line-soft);
   border-radius: var(--console-radius-md);
-  background: var(--console-bg);
+  background: color-mix(in srgb, var(--console-bg) 72%, var(--console-surface));
   padding: 6px 8px;
   color: var(--console-text);
   font-family: var(--console-font);
   font-size: 13px;
   line-height: 1.55;
+  max-height: clamp(120px, 30vh, 360px);
+  overflow: auto;
   overflow-wrap: anywhere;
+  scrollbar-gutter: stable;
   white-space: pre-wrap;
 }
 
@@ -4775,21 +4951,77 @@ body {
   color: var(--console-text-soft);
 }
 
-@container (max-width: 560px) {
-  .agent-workbench .public-run-activity__tool-round > summary,
-  .agent-workbench .public-run-activity__tool-window > summary {
-    grid-template-columns: 24px minmax(0, 1fr) 16px;
+@keyframes public-tool-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--tool-accent) 12%, transparent);
   }
 
-  .agent-workbench .public-run-activity__tool-round-meta {
-    grid-column: 2;
-    justify-self: start;
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--tool-accent) 5%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-workbench .public-run-activity__tool-window-status--running .public-run-activity__tool-status-dot,
+  .agent-workbench .public-run-activity__tool-round--running .public-run-activity__tool-status-dot {
+    animation: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .agent-workbench .public-run-activity__tool-window-title,
+  .agent-workbench .public-run-activity__tool-round-preview {
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+
+  .agent-workbench .public-run-activity__tool-target {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .agent-workbench .public-run-activity__tool-round-body,
   .agent-workbench .public-run-activity__tool-window-body {
     margin-left: 28px;
     width: calc(100% - 28px);
+  }
+}
+
+@container (max-width: 560px) {
+  .agent-workbench .public-run-activity__tool-window > summary {
+    grid-template-columns: 24px minmax(0, 1fr) auto 24px;
+    gap: 8px;
+  }
+
+  .agent-workbench .public-run-activity__tool-round > summary {
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .agent-workbench .public-run-activity__tool-round-meta,
+  .agent-workbench .public-run-activity__tool-window-meta {
+    justify-self: end;
+    flex-wrap: wrap;
+  }
+
+  .agent-workbench .public-run-activity__tool-round-body,
+  .agent-workbench .public-run-activity__tool-window-body {
+    margin-left: 28px;
+    width: calc(100% - 28px);
+  }
+
+  .agent-workbench .public-run-activity__tool-window-title,
+  .agent-workbench .public-run-activity__tool-round-preview {
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+
+  .agent-workbench .public-run-activity__tool-target {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .agent-workbench .public-run-activity__reasoning-window > summary {
@@ -7800,4 +8032,3 @@ body {
   font-weight: 560;
   line-height: 1.45;
 }
-

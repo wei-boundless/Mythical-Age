@@ -142,9 +142,9 @@ def test_visible_prefix_recovery_segment_plan_covers_appended_recovery_messages(
                 "model_message_index": 1,
                 "model_message_role": "user",
                 "source_ref": "test.user",
-                "cache_scope": "task",
+                "cache_scope": "session",
                 "cache_role": "session_stable",
-                "prefix_tier": "task",
+                "prefix_tier": "session",
                 "compression_role": "summarize",
             },
         ]

@@ -338,6 +338,7 @@ function toolLifecycleFromFrame(normalized: NormalizedProjectionFrame): ToolLife
   const id = toolCallId || toolLifecycleId;
   if (!id) return null;
   const state = text(frame.state) || stateForToolEvent(normalized.sourceEventType);
+  const eventCreatedAt = numericValue(frame.created_at);
   const target = text(frame.target || frame.subject_label);
   const argumentsPreview = text(frame.arguments_preview);
   const toolName = text(frame.tool_name);
@@ -355,6 +356,9 @@ function toolLifecycleFromFrame(normalized: NormalizedProjectionFrame): ToolLife
     commandLine: toolCommandLine(toolName, target, argumentsPreview),
     output: toolOutput(normalized, state),
     state,
+    startedAt: eventCreatedAt,
+    updatedAt: eventCreatedAt,
+    completedAt: isTerminalToolState(state) ? eventCreatedAt : undefined,
     sourceItemId: text(frame.source_item_id),
     sourceEventType: normalized.sourceEventType,
     sourceEventId: text(frame.source_event_id),
@@ -373,6 +377,9 @@ function mergeTool(existing: ToolLifecycle, incoming: ToolLifecycle): ToolLifecy
     ...(incomingIsOlder ? {} : withoutEmpty(incoming)),
     firstOffset: Math.min(existing.firstOffset, incoming.firstOffset),
     lastOffset: Math.max(existing.lastOffset, incoming.lastOffset),
+    startedAt: minPositiveNumber(existing.startedAt, incoming.startedAt),
+    updatedAt: maxPositiveNumber(existing.updatedAt, incoming.updatedAt),
+    completedAt: maxPositiveNumber(existing.completedAt, incoming.completedAt),
     visible: existing.visible || incoming.visible,
     pinned: existing.pinned || incoming.pinned,
     state: mergeLifecycleState(existing.state, incoming.state, incomingIsOlder),
@@ -618,6 +625,10 @@ function lifecycleStateRank(state: string) {
   return 0;
 }
 
+function isTerminalToolState(state: string) {
+  return lifecycleStateRank(state) >= 3;
+}
+
 function defaultStatusTitle(kind: StatusProjectionEvent["kind"]) {
   if (kind === "status_event") return "状态已更新";
   if (kind === "terminal_event") return "运行已停止";
@@ -710,6 +721,16 @@ function rawText(value: unknown) {
 function numericValue(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
+}
+
+function minPositiveNumber(...values: Array<number | undefined>) {
+  const numbers = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+  return numbers.length ? Math.min(...numbers) : undefined;
+}
+
+function maxPositiveNumber(...values: Array<number | undefined>) {
+  const numbers = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+  return numbers.length ? Math.max(...numbers) : undefined;
 }
 
 function record(value: unknown): Record<string, unknown> {

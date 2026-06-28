@@ -107,9 +107,10 @@ def model_action_request_from_payload(
     turn_id: str,
     require_public_progress_note: bool = False,
     require_public_action_state: bool = False,
-    public_response_required: bool = False,
+    public_feedback_expected: bool = False,
     allowed_action_types: tuple[str, ...] | set[str] | None = None,
 ) -> tuple[ModelActionRequest | None, dict[str, Any]]:
+    del public_feedback_expected
     raw = dict(payload or {})
     errors: list[str] = []
     authority = str(raw.get("authority") or "harness.loop.model_action_request").strip()
@@ -196,27 +197,19 @@ def model_action_request_from_payload(
         public_action_state=public_action_state,
     ) and action_type != "request_task_run":
         errors.append("public_task_lifecycle_claim_requires_request_task_run")
-    if public_response_required and action_type != "tool_call" and not has_model_public_response:
-        errors.append("public_response_required")
     if require_public_progress_note and not public_progress_note:
-        if not public_response_required:
-            if action_type == "tool_call" or not has_model_public_response:
-                contract_gaps.append(
-                    "public_progress_note_missing_for_tool_call"
-                    if action_type == "tool_call"
-                    else "public_progress_note_missing"
-                )
-        else:
-            errors.append("public_progress_note_required")
-    if require_public_action_state and not _has_public_action_state(public_action_state):
-        if not public_response_required:
+        if action_type == "tool_call" or not has_model_public_response:
             contract_gaps.append(
-                "public_action_state_missing_for_tool_call"
+                "public_progress_note_missing_for_tool_call"
                 if action_type == "tool_call"
-                else "public_action_state_missing"
+                else "public_progress_note_missing"
             )
-        else:
-            errors.append("public_action_state_required")
+    if require_public_action_state and not _has_public_action_state(public_action_state):
+        contract_gaps.append(
+            "public_action_state_missing_for_tool_call"
+            if action_type == "tool_call"
+            else "public_action_state_missing"
+        )
     if action_type == "respond" and not final_answer:
         errors.append("final_answer_required_for_respond")
     if action_type == "ask_user" and not user_question:
@@ -232,9 +225,9 @@ def model_action_request_from_payload(
         errors.append("task_run_contract_seed_required_for_request_task_run")
     if action_type == "request_task_run":
         if not public_progress_note:
-            errors.append("public_progress_note_required_for_request_task_run")
+            contract_gaps.append("public_progress_note_missing_for_request_task_run")
         if not _has_public_action_state(public_action_state):
-            errors.append("public_action_state_required_for_request_task_run")
+            contract_gaps.append("public_action_state_missing_for_request_task_run")
         if _has_non_empty_value(tool_call):
             errors.append("tool_call_not_allowed_for_request_task_run")
     if action_type == "active_work_control":
@@ -322,9 +315,9 @@ def task_execution_action_request_from_payload(
     payload: dict[str, Any] | None,
     *,
     turn_id: str,
-    require_public_progress_note: bool = True,
-    require_public_action_state: bool = True,
-    public_response_required: bool = False,
+    require_public_progress_note: bool = False,
+    require_public_action_state: bool = False,
+    public_feedback_expected: bool = False,
     allowed_action_types: tuple[str, ...] | set[str] | None = None,
 ) -> tuple[TaskExecutionModelActionRequest | None, dict[str, Any]]:
     raw = dict(payload or {})
@@ -343,7 +336,7 @@ def task_execution_action_request_from_payload(
         turn_id=turn_id,
         require_public_progress_note=require_public_progress_note,
         require_public_action_state=require_public_action_state,
-        public_response_required=public_response_required,
+        public_feedback_expected=public_feedback_expected,
         allowed_action_types=tuple(allowed_action_types or ("respond", "ask_user", "tool_call", "block")),
     )
     if forbidden_errors:

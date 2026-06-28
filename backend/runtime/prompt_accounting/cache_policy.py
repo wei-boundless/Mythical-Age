@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from typing import Any
 
 
-VALID_CACHE_SCOPES = {"global", "session", "task", "none"}
+VALID_CACHE_SCOPES = {"global", "session", "none"}
 VALID_CACHE_ROLES = {"cacheable_prefix", "session_stable", "volatile", "never_cache"}
-VALID_PREFIX_TIERS = {"provider_global", "session", "task", "volatile", "none"}
+VALID_PREFIX_TIERS = {"provider_global", "session", "volatile", "none"}
 VALID_COMPRESSION_ROLES = {"preserve", "summarize", "drop_if_cold", "ref_only"}
 STABLE_CACHE_ROLES = {"cacheable_prefix", "session_stable"}
 
@@ -29,8 +29,16 @@ def cache_policy_binding(
     prefix_tier: Any,
 ) -> CachePolicyBinding:
     role = str(cache_role or "volatile").strip() or "volatile"
-    scope = str(cache_scope or default_cache_scope(cache_role=role, prefix_tier=prefix_tier)).strip()
-    tier = str(prefix_tier or default_prefix_tier(cache_role=role, cache_scope=scope)).strip()
+    tier = normalize_prefix_tier(
+        prefix_tier,
+        cache_scope=cache_scope,
+        cache_role=role,
+    )
+    scope = normalize_cache_scope(
+        cache_scope or default_cache_scope(cache_role=role, prefix_tier=tier),
+        cache_role=role,
+        prefix_tier=tier,
+    )
     return CachePolicyBinding(cache_scope=scope, cache_role=role, prefix_tier=tier)
 
 
@@ -67,17 +75,15 @@ def cache_policy_findings(
         if binding.prefix_tier != "provider_global":
             findings.append({**base, "issue": "cacheable_prefix_tier_must_be_provider_global"})
     elif binding.cache_role == "session_stable":
-        if binding.cache_scope not in {"session", "task"}:
-            findings.append({**base, "issue": "session_stable_scope_must_be_session_or_task"})
-        if binding.prefix_tier not in {"session", "task"}:
-            findings.append({**base, "issue": "session_stable_tier_must_be_session_or_task"})
+        if binding.cache_scope != "session":
+            findings.append({**base, "issue": "session_stable_scope_must_be_session"})
+        if binding.prefix_tier != "session":
+            findings.append({**base, "issue": "session_stable_tier_must_be_session"})
         elif binding.cache_scope == "session" and binding.prefix_tier != "session":
             findings.append({**base, "issue": "session_scope_tier_must_be_session"})
-        elif binding.cache_scope == "task" and binding.prefix_tier != "task":
-            findings.append({**base, "issue": "task_scope_tier_must_be_task"})
     elif binding.cache_role == "volatile":
-        if binding.cache_scope not in {"none", "task"}:
-            findings.append({**base, "issue": "volatile_scope_must_be_none_or_task"})
+        if binding.cache_scope != "none":
+            findings.append({**base, "issue": "volatile_scope_must_be_none"})
         if binding.prefix_tier != "volatile":
             findings.append({**base, "issue": "volatile_tier_must_be_volatile"})
     elif binding.cache_role == "never_cache":
@@ -120,21 +126,19 @@ def require_valid_cache_policy(
 
 def default_cache_scope(*, cache_role: Any, prefix_tier: Any = "") -> str:
     role = str(cache_role or "").strip()
-    tier = str(prefix_tier or "").strip()
     if role == "cacheable_prefix":
         return "global"
     if role == "session_stable":
-        return "task" if tier == "task" else "session"
+        return "session"
     return "none"
 
 
 def default_prefix_tier(*, cache_role: Any, cache_scope: Any = "") -> str:
     role = str(cache_role or "").strip()
-    scope = str(cache_scope or "").strip()
     if role == "cacheable_prefix":
         return "provider_global"
     if role == "session_stable":
-        return "task" if scope == "task" else "session"
+        return "session"
     if role == "never_cache":
         return "none"
     return "volatile"
@@ -149,7 +153,25 @@ def normalize_prefix_tier(value: Any, *, cache_scope: Any, cache_role: Any) -> s
     normalized = str(value or "").strip()
     if normalized in VALID_PREFIX_TIERS:
         return normalized
+    if normalized:
+        return "none" if str(cache_role or "").strip() == "never_cache" else "volatile"
     return default_prefix_tier(cache_role=cache_role, cache_scope=cache_scope)
+
+
+def normalize_cache_scope(value: Any, *, cache_role: Any, prefix_tier: Any) -> str:
+    normalized = str(value or "").strip()
+    role = str(cache_role or "").strip()
+    if role == "cacheable_prefix" and normalized in {"", "none"}:
+        return "global"
+    if role == "session_stable" and normalized in {"", "none"}:
+        return "session"
+    if role in {"volatile", "never_cache"}:
+        return "none"
+    if normalized in VALID_CACHE_SCOPES:
+        return normalized
+    if normalized:
+        return "none"
+    return default_cache_scope(cache_role=cache_role, prefix_tier=prefix_tier)
 
 
 def normalize_compression_role(value: Any) -> str:
@@ -167,7 +189,7 @@ def is_cache_eligible_prefix(*, cache_role: Any, prefix_tier: Any) -> bool:
     if role == "cacheable_prefix":
         return tier == "provider_global"
     if role == "session_stable":
-        return tier in {"session", "task"}
+        return tier == "session"
     return False
 
 
@@ -176,9 +198,7 @@ def is_prefix_eligible_for_tier(*, cache_role: Any, prefix_tier: Any, tier: str)
     prefix = str(prefix_tier or "").strip()
     target = str(tier or "").strip()
     if role == "cacheable_prefix" and prefix == "provider_global":
-        return target in {"provider_global", "session", "task"}
+        return target in {"provider_global", "session"}
     if role == "session_stable" and prefix == "session":
-        return target in {"session", "task"}
-    if role == "session_stable" and prefix == "task":
-        return target == "task"
+        return target == "session"
     return False

@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "tool_count": 42,
+  "tool_count": 41,
   "tools": [
     {
       "name": "agent_todo",
@@ -975,69 +975,6 @@
       "prompt_exposure_policy": "schema_plus_guidance",
       "resource_exposure_policy": "none",
       "native_runtime_only": true,
-      "is_read_only": true,
-      "is_destructive": false,
-      "is_concurrency_safe": true
-    },
-    {
-      "name": "read_structured_file",
-      "display_name": "读取结构化文件",
-      "operation_id": "op.read_structured_file",
-      "module": "tools.structured_file_tool",
-      "contract": {
-        "required_inputs": [
-          "path"
-        ],
-        "required_bindings": [],
-        "optional_inputs": [],
-        "owner_scope": "explicit_path",
-        "allow_catalog_default": false,
-        "allow_history_binding": false,
-        "missing_binding_behavior": "clarify",
-        "context_policy": "inline",
-        "result_channel": "canonical"
-      },
-      "resolution_contract": {
-        "path_field": "path",
-        "path_kind": "workspace",
-        "binding_field": "",
-        "allow_message_extraction": false
-      },
-      "output_contract": {
-        "display_mode": "summary_text",
-        "finalization_policy": "none",
-        "persistence_policy": "persist_canonical"
-      },
-      "projection_contract": {
-        "task_summary_policy": "canonical_only",
-        "result_ref_policy": "default",
-        "memory_projection_policy": "canonical_only"
-      },
-      "capability_tags": [
-        "file",
-        "read",
-        "structured_config",
-        "workspace"
-      ],
-      "supported_modalities": [
-        "text",
-        "document",
-        "workspace"
-      ],
-      "safety_tags": [
-        "read"
-      ],
-      "route_hints": [
-        "tool",
-        "workspace_read",
-        "structured_config"
-      ],
-      "safe_for_auto_route": false,
-      "schema_identity": "local.tools/read_structured_file",
-      "runtime_visibility": "main_runtime",
-      "prompt_exposure_policy": "schema_only",
-      "resource_exposure_policy": "explicit_resource",
-      "native_runtime_only": false,
       "is_read_only": true,
       "is_destructive": false,
       "is_concurrency_safe": true
@@ -2760,8 +2697,7 @@
         "op.list_dir",
         "op.stat_path",
         "op.path_exists",
-        "op.glob_paths",
-        "op.read_structured_file"
+        "op.glob_paths"
       ],
       "risk_level": "低",
       "managed": true,

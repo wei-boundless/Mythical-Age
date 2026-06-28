@@ -595,11 +595,15 @@ export class WorkspaceRuntime {
     }));
 
     const restoredFromStreamCache = this.applySelectedSessionShell(summary.id, restoredRef);
-    if (!restoredFromStreamCache) {
+    if (restoredFromStreamCache) {
+      this.refreshSessionDetailsAfterRuntimeRestore(summary.id);
+    } else {
       const reattached = await this.reattachChatRunForSession(summary.id);
       if (!reattached) {
         void this.refreshSessionDetails(summary.id).catch(() => undefined);
         void this.hydrateLatestHarnessTurnSnapshot(summary.id).catch(() => undefined);
+      } else {
+        this.refreshSessionDetailsAfterRuntimeRestore(summary.id);
       }
     }
     this.store.setState((prev) => ({
@@ -732,11 +736,15 @@ export class WorkspaceRuntime {
           scope: nextSession.scope,
           poolKey: MAIN_CHAT_POOL_KEY,
         });
-        if (!restoredFromStreamCache) {
+        if (restoredFromStreamCache) {
+          this.refreshSessionDetailsAfterRuntimeRestore(sessionId);
+        } else {
           const reattached = await this.reattachChatRunForSession(sessionId);
           if (!reattached) {
             void this.refreshSessionDetails(sessionId).catch(() => undefined);
             void this.hydrateLatestHarnessTurnSnapshot(sessionId).catch(() => undefined);
+          } else {
+            this.refreshSessionDetailsAfterRuntimeRestore(sessionId);
           }
         }
       }
@@ -745,11 +753,15 @@ export class WorkspaceRuntime {
         scope: currentSession.scope,
         poolKey: MAIN_CHAT_POOL_KEY,
       });
-      if (!restoredFromStreamCache) {
+      if (restoredFromStreamCache) {
+        this.refreshSessionDetailsAfterRuntimeRestore(currentSession.id);
+      } else {
         const reattached = await this.reattachChatRunForSession(currentSession.id);
         if (!reattached) {
           void this.refreshSessionDetails(currentSession.id).catch(() => undefined);
           void this.hydrateLatestHarnessTurnSnapshot(currentSession.id).catch(() => undefined);
+        } else {
+          this.refreshSessionDetailsAfterRuntimeRestore(currentSession.id);
         }
       }
     }
@@ -977,11 +989,15 @@ export class WorkspaceRuntime {
       scope: nextSession.scope,
       poolKey: MAIN_CHAT_POOL_KEY,
     });
-    if (!restoredFromStreamCache) {
+    if (restoredFromStreamCache) {
+      this.refreshSessionDetailsAfterRuntimeRestore(nextSession.id);
+    } else {
       const reattached = await this.reattachChatRunForSession(nextSession.id);
       if (!reattached) {
         void this.refreshSessionDetails(nextSession.id).catch(() => undefined);
         void this.hydrateLatestHarnessTurnSnapshot(nextSession.id).catch(() => undefined);
+      } else {
+        this.refreshSessionDetailsAfterRuntimeRestore(nextSession.id);
       }
     }
   }
@@ -1116,12 +1132,15 @@ export class WorkspaceRuntime {
       poolKey: MAIN_CHAT_POOL_KEY,
     });
     if (restoredFromStreamCache) {
+      this.refreshSessionDetailsAfterRuntimeRestore(session.id);
       return;
     }
     const reattached = await this.reattachChatRunForSession(session.id);
     if (!reattached) {
       void this.refreshSessionDetails(session.id).catch(() => undefined);
       void this.hydrateLatestHarnessTurnSnapshot(session.id).catch(() => undefined);
+    } else {
+      this.refreshSessionDetailsAfterRuntimeRestore(session.id);
     }
   }
 
@@ -2546,10 +2565,12 @@ export class WorkspaceRuntime {
     }
     const restoredFromStreamCache = this.applySelectedSessionShell(normalized.sessionId, normalized);
     if (restoredFromStreamCache) {
+      this.refreshSessionDetailsAfterRuntimeRestore(normalized.sessionId);
       return;
     }
     const reattached = await this.reattachChatRunForSession(normalized.sessionId);
     if (reattached) {
+      this.refreshSessionDetailsAfterRuntimeRestore(normalized.sessionId);
       return;
     }
     await this.refreshSessionDetails(normalized.sessionId).catch(() => undefined);
@@ -3079,6 +3100,21 @@ export class WorkspaceRuntime {
     }
   }
 
+  private refreshSessionDetailsAfterRuntimeRestore(sessionId: string) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return;
+    }
+    void this.refreshSessionDetails(normalizedSessionId).catch((error) => {
+      console.debug("[workspace-runtime] runtime restore history hydration skipped", {
+        event: "runtime_restore_history_hydration_failed",
+        sessionId: normalizedSessionId,
+        error: this.errorMessage(error, "运行中会话历史恢复暂时失败。"),
+      });
+    });
+    void this.hydrateLatestHarnessTurnSnapshot(normalizedSessionId).catch(() => undefined);
+  }
+
   private chatRunCursorFromActiveRun(run: ChatRun | null | undefined): ChatStreamCursor | null {
     const streamRunId = runtimeText(run?.stream_run_id);
     const eventLogId = runtimeText(run?.event_log_id);
@@ -3095,7 +3131,19 @@ export class WorkspaceRuntime {
 
   private visibleSessionNeedsHistoryHydration(sessionId: string) {
     const state = this.store.getState();
-    return state.currentSessionId === sessionId && state.messages.length === 0;
+    if (state.currentSessionId !== sessionId) {
+      return false;
+    }
+    if (state.messages.length === 0) {
+      return true;
+    }
+    const session = state.sessions.find((item) => item.id === sessionId)
+      ?? state.projectSessions.find((item) => item.id === sessionId);
+    const persistedMessageCount = Number(session?.message_count ?? 0);
+    if (!Number.isFinite(persistedMessageCount) || persistedMessageCount <= 0) {
+      return false;
+    }
+    return state.messages.length < persistedMessageCount;
   }
 
   private chatRunCursorAlreadyReachedTerminal(run: { terminal_event?: string; latest_event_offset?: number }, cursor: ChatStreamCursor | null) {
@@ -6847,4 +6895,3 @@ function clientNow() {
   }
   return Date.now();
 }
-

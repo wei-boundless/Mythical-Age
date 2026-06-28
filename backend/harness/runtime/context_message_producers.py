@@ -280,7 +280,7 @@ class _AttachmentContextProducer:
                 payload={"attachment_context_index": attachment_context_index},
                 kind="attachment_context_index",
                 source_ref=f"{request.source_ref_prefix}:attachment_context_index",
-                cache_scope="task",
+                cache_scope="session",
                 cache_role="session_stable",
                 compression_role="ref_only",
                 metadata={
@@ -288,7 +288,7 @@ class _AttachmentContextProducer:
                     "authority_class": "attachment_context_index",
                     "content_source": "harness.runtime.dynamic_context.attachment_context_index",
                     "runtime_fragment_role": "attachment_context_index",
-                    "cache_impact": "task_prefix_attachment_index_snapshot",
+                    "cache_impact": "provider_visible_context_prefix_attachment_index_snapshot",
                 },
             ),
         )
@@ -314,7 +314,7 @@ class _EvidenceIndexCursorProducer:
                 ),
                 kind="evidence_index_cursor",
                 source_ref=f"{request.source_ref_prefix}:evidence_index_cursor",
-                cache_scope="task",
+                cache_scope="session",
                 cache_role="session_stable",
                 compression_role="ref_only",
                 metadata={
@@ -322,7 +322,7 @@ class _EvidenceIndexCursorProducer:
                     "authority_class": "evidence_index_cursor",
                     "content_source": "harness.runtime.dynamic_context.evidence_index_cursor",
                     "runtime_fragment_role": "evidence_index_cursor",
-                    "cache_impact": "task_prefix_evidence_cursor_snapshot",
+                    "cache_impact": "provider_visible_context_prefix_evidence_cursor_snapshot",
                 },
             ),
         )
@@ -357,7 +357,7 @@ class _ReadEvidenceContextProducer:
                     ),
                     kind="read_evidence_context",
                     source_ref=source_ref,
-                    cache_scope="task",
+                    cache_scope="session",
                     cache_role="session_stable",
                     compression_role="ref_only",
                     metadata={
@@ -365,7 +365,7 @@ class _ReadEvidenceContextProducer:
                         "authority_class": "append_only_read_evidence_context",
                         "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
                         "runtime_fragment_role": "read_evidence_ref",
-                        "cache_impact": "append_only_task_prefix",
+                        "cache_impact": "append_only_provider_visible_context_prefix",
                         "stability_rule": (
                             "read evidence refs already visible to the model are historical context; "
                             "new refs append as separate context messages and previous refs must not be rewritten"
@@ -467,7 +467,7 @@ class _EditorContextProducer:
                     payload={"editor_context_index": editor_context_index},
                     kind="editor_context_index",
                     source_ref=f"{request.source_ref_prefix}:editor_context_index",
-                    cache_scope="task",
+                    cache_scope="session",
                     cache_role="session_stable",
                     compression_role="ref_only",
                     metadata={
@@ -475,7 +475,7 @@ class _EditorContextProducer:
                         "authority_class": "editor_context_index",
                         "content_source": "harness.runtime.dynamic_context.editor_context_index",
                         "runtime_fragment_role": "editor_context_index",
-                        "cache_impact": "task_prefix_editor_context_index_snapshot",
+                        "cache_impact": "provider_visible_context_prefix_editor_context_index_snapshot",
                     },
                 )
             )
@@ -528,7 +528,7 @@ class _ToolObservationContextProducer:
                     payload={TOOL_TRANSCRIPT_DELTA_KIND: observation},
                     kind=TOOL_TRANSCRIPT_DELTA_KIND,
                     source_ref=f"{request.source_ref_prefix}:tool_transcript:{observation_ref}",
-                    cache_scope="task",
+                    cache_scope="session",
                     cache_role="session_stable",
                     compression_role="ref_only",
                     metadata={
@@ -541,7 +541,7 @@ class _ToolObservationContextProducer:
                             "this tool transcript entry is newly appended for the current follow-up; "
                             "later follow-ups must reuse it unchanged and append later tool results after it"
                         ),
-                        "cache_impact": "append_only_task_prefix",
+                        "cache_impact": "append_only_provider_visible_context_prefix",
                         "stability_rule": (
                             "tool transcript deltas are emitted as append-only context entries; existing "
                             "entries must not be rewritten when later tool results arrive"
@@ -579,7 +579,7 @@ class _SessionHistoryContextProducer:
                     payload=pinned_facts_payload,
                     kind="session_pinned_facts_context",
                     source_ref=f"{request.source_ref_prefix}_session_history:pinned_facts_context",
-                    cache_scope="task",
+                    cache_scope="session",
                     cache_role="session_stable",
                     compression_role="summarize",
                     metadata={
@@ -637,12 +637,12 @@ class _TaskStateReplayContextProducer:
                     payload={"task_state_replay_entry": entry},
                     kind="task_state_replay_entry",
                     source_ref=f"task_state_replay:{entry_ref}",
-                    cache_scope="task",
+                    cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
                         "authority_class": "runtime_state",
-                        "cache_impact": "append_only_task_prefix",
+                        "cache_impact": "append_only_provider_visible_context_prefix",
                         "stability_rule": "replay entries are append-only historical evidence; current invocation deltas remain in volatile task state",
                         "dynamic_context_report_ref": "task_state_replay_entries",
                         "projection_strategy": "bounded_task_state_replay_entry",

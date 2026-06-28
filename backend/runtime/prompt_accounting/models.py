@@ -6,9 +6,9 @@ from typing import Any, Literal
 
 TokenUsageSource = Literal["provider_usage", "local_prediction", "trace_estimate"]
 PromptCacheStatus = Literal["eligible", "hit", "miss", "bypassed", "invalidated"]
-PromptCacheScope = Literal["global", "org", "session", "task", "none"]
+PromptCacheScope = Literal["global", "org", "session", "none"]
 PromptCacheRole = Literal["cacheable_prefix", "session_stable", "volatile", "never_cache"]
-PromptPrefixTier = Literal["provider_global", "session", "task", "volatile", "none"]
+PromptPrefixTier = Literal["provider_global", "session", "volatile", "none"]
 CompressionRole = Literal["preserve", "summarize", "drop_if_cold", "ref_only"]
 PromptAuthorityClass = Literal[
     "contract",
@@ -207,6 +207,6 @@ def _cache_status(value: Any) -> PromptCacheStatus:
 
 def _cache_scope(value: Any) -> PromptCacheScope:
     scope = str(value or "").strip()
-    if scope in {"global", "org", "session", "task", "none"}:
+    if scope in {"global", "org", "session", "none"}:
         return scope  # type: ignore[return-value]
     return "none"

@@ -1468,7 +1468,7 @@ async def _replay_approved_pending_tool_call(
         turn_id=current_task.task_run_id,
         require_public_progress_note=False,
         require_public_action_state=False,
-        public_response_required=False,
+        public_feedback_expected=False,
         allowed_action_types=("tool_call",),
     )
     if action_request is None:
@@ -4332,7 +4332,7 @@ async def _invoke_task_model_action(
         turn_id=task_run_id,
         require_public_progress_note=True,
         require_public_action_state=True,
-        public_response_required=False,
+        public_feedback_expected=False,
         allowed_action_types=tuple(getattr(packet, "allowed_action_types", ()) or ()),
     )
     if action_request is None:
@@ -8568,7 +8568,6 @@ _EXPLORATION_ADVISORY_TOOLS = frozenset(
         "list_dir",
         "path_exists",
         "read_file",
-        "read_structured_file",
         "search_files",
         "search_text",
         "stat_path",
@@ -9622,7 +9621,6 @@ _DUPLICATE_GUARDED_READ_ONLY_TOOLS = frozenset(
         "list_dir",
         "path_exists",
         "read_file",
-        "read_structured_file",
         "search_files",
         "search_text",
         "stat_path",

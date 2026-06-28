@@ -39,7 +39,6 @@ _TRACE_ONLY_RUNTIME_STEP_SOURCES = {
     "tool_observation.summary",
 }
 _VISIBLE_RUNTIME_STATUS_KINDS = {
-    "agent_contract_feedback",
     "evidence_boundary_status",
     "reasoning_projection_state",
 }

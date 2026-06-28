@@ -126,7 +126,6 @@ def default_runtime_lane_descriptors() -> tuple[RuntimeLaneDescriptor, ...]:
             default_operations=(
                 "op.model_response",
                 "op.read_file",
-                "op.read_structured_file",
                 "op.search_text",
                 "op.search_files",
                 "op.web_search",
@@ -150,7 +149,6 @@ def default_runtime_lane_descriptors() -> tuple[RuntimeLaneDescriptor, ...]:
                 "op.model_response",
                 "op.agent_todo",
                 "op.read_file",
-                "op.read_structured_file",
                 "op.list_dir",
                 "op.stat_path",
                 "op.path_exists",
@@ -239,7 +237,7 @@ def default_runtime_lane_descriptors() -> tuple[RuntimeLaneDescriptor, ...]:
             "结构化数据分析子 Agent",
             "内置专业 Agent",
             "表格或结构化文件专业 Agent 执行数据读取、查询和分析的场景。",
-            default_operations=("op.model_response", "op.mcp_structured_data", "op.read_structured_file", "op.read_file"),
+            default_operations=("op.model_response", "op.mcp_structured_data", "op.read_file"),
             default_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             default_approval_policy="read_only_first",
             subagent_task_kinds=("table_analysis", "structured_data"),
@@ -508,6 +506,5 @@ def normalize_runtime_lane_sequence(
 
 def runtime_lane_option_payloads(*, include_non_requestable: bool = False) -> list[dict[str, Any]]:
     return DEFAULT_RUNTIME_LANE_REGISTRY.option_payloads(include_non_requestable=include_non_requestable)
-
 
 

@@ -361,7 +361,6 @@ def _public_runtime_control_signal_index(value: Any) -> dict[str, Any]:
         "max_recovery_attempts",
         "recovery_exhausted",
         "fresh_agent_decision_required",
-        "public_response_required",
         "tool_calls_allowed_after_signal",
     ):
         if key in signal:

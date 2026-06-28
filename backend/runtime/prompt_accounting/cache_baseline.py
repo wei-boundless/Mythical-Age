@@ -37,7 +37,6 @@ class PromptCacheBaselineRecord:
     stable_prefix_hash: str = ""
     provider_global_prefix_hash: str = ""
     session_prefix_hash: str = ""
-    task_prefix_hash: str = ""
     memory_segment_hash: str = ""
     provider_payload_prefix_hash: str = ""
     tool_catalog_hash: str = ""
@@ -76,7 +75,6 @@ class PromptCacheBaselineRecord:
             stable_prefix_hash=str(payload.get("stable_prefix_hash") or ""),
             provider_global_prefix_hash=str(payload.get("provider_global_prefix_hash") or ""),
             session_prefix_hash=str(payload.get("session_prefix_hash") or ""),
-            task_prefix_hash=str(payload.get("task_prefix_hash") or ""),
             memory_segment_hash=str(payload.get("memory_segment_hash") or ""),
             provider_payload_prefix_hash=str(payload.get("provider_payload_prefix_hash") or ""),
             tool_catalog_hash=str(payload.get("tool_catalog_hash") or ""),
@@ -157,7 +155,6 @@ class PromptCacheBaselineTracker:
             stable_prefix_hash=hashes["stable"],
             provider_global_prefix_hash=hashes["provider_global"],
             session_prefix_hash=hashes["session"],
-            task_prefix_hash=hashes["task"],
             memory_segment_hash=hashes["memory"],
             provider_payload_prefix_hash=hashes["provider_payload"],
             tool_catalog_hash=hashes["tool_catalog"],
@@ -283,7 +280,6 @@ def _baseline_hashes(*, segment_map: PromptSegmentMap, model_request: Any | None
         "stable": physical_spine_hash,
         "provider_global": physical_spine_hash,
         "session": physical_spine_hash,
-        "task": physical_spine_hash,
         "memory": _memory_segment_hash(segment_map.segments),
         "provider_payload": physical_spine_hash,
         "tool_catalog": str(getattr(model_request, "tool_catalog_hash", "") or provider_boundary.get("tool_catalog_hash") or ""),
@@ -358,7 +354,6 @@ def _changed_tiers(previous: PromptCacheBaselineRecord | None, hashes: dict[str,
         "stable": previous.stable_prefix_hash,
         "provider_global": previous.provider_global_prefix_hash,
         "session": previous.session_prefix_hash,
-        "task": previous.task_prefix_hash,
         "memory": previous.memory_segment_hash,
         "provider_payload": previous.provider_payload_prefix_hash,
         "tool_catalog": previous.tool_catalog_hash,

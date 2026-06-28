@@ -768,7 +768,6 @@ def _recent_requests(
                 "call_purpose": str(dict((local or usage or {}).get("diagnostics") or {}).get("call_purpose") or ""),
                 "provider_global_prefix_tokens": _int(dict(row.get("diagnostics") or {}).get("provider_global_prefix_predicted_tokens")),
                 "session_prefix_tokens": _int(dict(row.get("diagnostics") or {}).get("session_prefix_predicted_tokens")),
-                "task_prefix_tokens": _int(dict(row.get("diagnostics") or {}).get("task_prefix_predicted_tokens")),
                 "stable_prefix_tokens": _int(dict(row.get("diagnostics") or {}).get("stable_prefix_predicted_tokens")),
                 "stable_prefix_segments": _int(dict(row.get("diagnostics") or {}).get("stable_prefix_segment_count")),
                 "prefix_hash": str(row.get("prefix_hash") or ""),
@@ -809,7 +808,6 @@ def _recent_stability_reports(records: list[dict[str, Any]], *, limit: int) -> l
                 "stable_prefix_tokens": _int(row.get("stable_prefix_tokens")),
                 "provider_global_prefix_tokens": _int(row.get("provider_global_prefix_tokens")),
                 "session_prefix_tokens": _int(row.get("session_prefix_tokens")),
-                "task_prefix_tokens": _int(row.get("task_prefix_tokens")),
                 "stable_section_count": _int(row.get("stable_section_count")),
                 "volatile_token_count": _int(row.get("volatile_token_count")),
                 "stable_prefix_hash": str(row.get("stable_prefix_hash") or "")[:19],
@@ -1193,12 +1191,12 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
     _print_section(
         "recent_requests",
         payload["recent_requests"],
-        fields=("status", "provider_usage", "cache_metric_scope", "call_purpose", "prompt_tokens", "cached_tokens", "provider_returned_cache_miss_tokens", "hit_rate", "provider_returned_cache_hit_rate", "provider_global_prefix_tokens", "session_prefix_tokens", "task_prefix_tokens", "provider_payload_prefix_hash", "tool_catalog_hash", "cache_sensitive_params_hash", "assembly_request_fingerprint", "section_fingerprint", "prompt_composition_status", "prompt_composition_violations", "first_changed_section", "dynamic_param_diff", "likely_break_reason", "cache_break_reason", "cache_break_detail", "packet_ref"),
+        fields=("status", "provider_usage", "cache_metric_scope", "call_purpose", "prompt_tokens", "cached_tokens", "provider_returned_cache_miss_tokens", "hit_rate", "provider_returned_cache_hit_rate", "provider_global_prefix_tokens", "session_prefix_tokens", "stable_prefix_tokens", "provider_payload_prefix_hash", "tool_catalog_hash", "cache_sensitive_params_hash", "assembly_request_fingerprint", "section_fingerprint", "prompt_composition_status", "prompt_composition_violations", "first_changed_section", "dynamic_param_diff", "likely_break_reason", "cache_break_reason", "cache_break_detail", "packet_ref"),
     )
     _print_section(
         "prompt_stability_reports",
         payload["stability_reports"],
-        fields=("request_id", "stable_section_count", "provider_global_prefix_tokens", "session_prefix_tokens", "task_prefix_tokens", "stable_prefix_tokens", "volatile_token_count", "hit_rate", "provider_returned_cache_hit_rate", "provider_payload_prefix_hash", "tool_catalog_hash", "cache_sensitive_params_hash", "context_window_generation", "compaction_generation", "context_recovery_package", "active_history_messages", "first_changed_section", "dynamic_param_diff", "likely_break_reason"),
+        fields=("request_id", "stable_section_count", "provider_global_prefix_tokens", "session_prefix_tokens", "stable_prefix_tokens", "volatile_token_count", "hit_rate", "provider_returned_cache_hit_rate", "provider_payload_prefix_hash", "tool_catalog_hash", "cache_sensitive_params_hash", "context_window_generation", "compaction_generation", "context_recovery_package", "active_history_messages", "first_changed_section", "dynamic_param_diff", "likely_break_reason"),
     )
 
 

@@ -59,11 +59,6 @@ class PromptStabilityReporter:
             or dict(getattr(cache_record, "diagnostics", {}) or {}).get("session_prefix_hash")
             or _prefix_hash(tier_prefixes["session"])
         )
-        task_prefix_hash = str(
-            getattr(model_request, "task_prefix_hash", "")
-            or dict(getattr(cache_record, "diagnostics", {}) or {}).get("task_prefix_hash")
-            or _prefix_hash(tier_prefixes["task"])
-        )
         diagnostics = _diagnostics(
             stable_sections=stable_sections,
             previous_report=previous_report,
@@ -88,11 +83,9 @@ class PromptStabilityReporter:
             stable_prefix_hash=stable_prefix_hash,
             provider_global_prefix_hash=provider_global_prefix_hash,
             session_prefix_hash=session_prefix_hash,
-            task_prefix_hash=task_prefix_hash,
             stable_prefix_tokens=sum(int(section.predicted_tokens or 0) for section in stable_sections),
             provider_global_prefix_tokens=sum(int(segment.predicted_tokens or 0) for segment in tier_prefixes["provider_global"]),
             session_prefix_tokens=sum(int(segment.predicted_tokens or 0) for segment in tier_prefixes["session"]),
-            task_prefix_tokens=sum(int(segment.predicted_tokens or 0) for segment in tier_prefixes["task"]),
             stable_section_count=len(stable_sections),
             volatile_token_count=sum(int(section.predicted_tokens or 0) for section in volatile_sections),
             stable_sections=stable_sections,
@@ -415,7 +408,7 @@ def _likely_break_reason_with_provider_usage(
 
 def _tier_prefixes(segments: tuple[PromptSegment, ...]) -> dict[str, list[PromptSegment]]:
     result: dict[str, list[PromptSegment]] = {}
-    for tier in ("provider_global", "session", "task"):
+    for tier in ("provider_global", "session"):
         items: list[PromptSegment] = []
         for segment in segments:
             if is_prefix_eligible_for_tier(

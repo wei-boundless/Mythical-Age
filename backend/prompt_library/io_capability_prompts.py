@@ -2,6 +2,8 @@ from __future__ import annotations
 
 TOOL_READ_FILE_GUIDANCE = """
 使用 read_file 时，你是在读取工作区文件的当前真实内容。
+所有本地文件读取都从 read_file 进入；Python、TypeScript、Markdown、JSON、YAML、TOML 和普通文本都不要寻找或臆造第二个读取工具。
+JSON、YAML 和 TOML 文件被 read_file 读取时，运行时可能在观察里附带结构化配置事实；这只是同一次读文件观察的格式事实，不改变你的任务判断职责。
 已知路径时直接读取具体文件；如果 task_run_contract 的 GoalContext、PlanContext 或 TodoContext 中 working_scope.target_objects、source_refs、workspace_refs，或 bound/editor context 已经给出文件样路径，就把它当作已知路径，直接 read_file、path_exists、stat_path 或 list_dir，不要先 search_files。
 不知道位置时按目标选择定位工具：文件名/路径关键词用 search_files，明确通配符路径用 glob_paths，文件内容关键词用 search_text，已知目录用 list_dir。
 如果本轮 schema 暴露 read_intent，可用它标记读取目的，例如 edit_target、verify_behavior、understand_api、locate_symbol、inspect_dependency 或 recover_failure；不要臆造 schema 外的 intent 值。

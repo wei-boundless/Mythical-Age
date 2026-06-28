@@ -88,6 +88,7 @@ class ContextCommitCandidate:
     validity_scope: str = ""
     compaction_generation: str = ""
     cache_spine_hash: str = ""
+    provider_tool_protocol: dict[str, Any] = field(default_factory=dict)
     candidate_id: str = ""
     fork_anchor_delta: dict[str, Any] = field(default_factory=dict)
     authority: str = "runtime.context_management.context_commit_candidate"
@@ -129,11 +130,13 @@ class ContextCommitCandidate:
             validity_scope=str(metadata.get("validity_scope") or "").strip(),
             compaction_generation=str(metadata.get("compaction_generation") or "").strip(),
             cache_spine_hash=str(metadata.get("cache_spine_hash") or "").strip(),
+            provider_tool_protocol=dict(metadata.get("provider_tool_protocol") or {}),
         )
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["provider_message"] = dict(self.provider_message)
+        payload["provider_tool_protocol"] = dict(self.provider_tool_protocol)
         payload["fork_anchor_delta"] = dict(self.fork_anchor_delta)
         return payload
 

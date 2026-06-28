@@ -75,7 +75,6 @@ if TYPE_CHECKING:
 NATIVE_RUNTIME_TOOL_NAMES = {
     "read_file",
     "read_persisted_tool_result",
-    "read_structured_file",
     "search_files",
     "search_text",
     "glob_paths",
@@ -115,8 +114,6 @@ def build_native_runtime_tool(
         return NativePythonReplTool(capability_definition)
     if name == "memory_search":
         return NativeMemorySearchTool(capability_definition)
-    if name == "read_structured_file":
-        return NativeReadStructuredFileTool(capability_definition)
     if name == "search_files":
         return NativeSearchFilesTool(capability_definition)
     if name == "search_text":
@@ -420,6 +417,12 @@ class NativeReadFileTool(_NativeToolBase):
             )
             if artifact:
                 tool_result.update(_read_artifact_tool_result_fields(artifact, visible_exact=True))
+            structured_payload = _read_file_structured_payload(
+                tool_result=tool_result,
+                path=rel,
+                content=content,
+                repository_id=window.repository_id,
+            )
             text = window.text
         except Exception as exc:
             return self._envelope(
@@ -433,7 +436,7 @@ class NativeReadFileTool(_NativeToolBase):
             tool_args=args,
             status="ok",
             text=text,
-            structured_payload={"tool_result": tool_result},
+            structured_payload=structured_payload,
             observed_paths=(rel,),
             execution_receipt=context.execution_receipt,
         )
@@ -519,6 +522,13 @@ class NativeReadFileTool(_NativeToolBase):
             )
             if artifact:
                 tool_result.update(_read_artifact_tool_result_fields(artifact, visible_exact=True))
+            structured_payload = _read_file_structured_payload(
+                tool_result=tool_result,
+                path=display_path,
+                content=result.content,
+                repository_id=window.repository_id,
+                managed_file_ref=window.managed_file_ref,
+            )
             text = window.text
         except Exception as exc:
             return self._envelope(
@@ -539,7 +549,7 @@ class NativeReadFileTool(_NativeToolBase):
             status="ok",
             text=text,
             structured_payload={
-                "tool_result": tool_result,
+                **structured_payload,
                 "file_gateway": {
                     "access_decision": result.access_decision,
                     "root_binding": result.metadata.get("root_binding"),
@@ -2550,14 +2560,6 @@ class NativeMemorySearchTool(_NativeToolBase):
         project_scope = str(payload.get("project_id") or "").strip()
         if not project_scope and task_scope:
             project_scope = project_id_for_task_run(_native_runtime_base_dir(context), task_scope)
-        if not task_scope and not project_scope:
-            return ToolValidationResult(
-                allowed=False,
-                reason="memory_search_scope_required",
-                repair_instruction="memory_search requires runtime-bound task_run_id or project_id. Reassemble the runtime with memory scope before retrying.",
-                normalized_args=payload,
-                diagnostics={"missing_inputs": ["task_run_id_or_project_id"]},
-            )
         return ToolValidationResult(
             allowed=True,
             normalized_args={
@@ -2589,98 +2591,6 @@ class NativeMemorySearchTool(_NativeToolBase):
             status="ok",
             text=json.dumps(payload, ensure_ascii=False, sort_keys=True),
             structured_payload={"tool_result": {"kind": "memory_search", **payload}},
-            execution_receipt=context.execution_receipt,
-        )
-
-
-class NativeReadStructuredFileTool(_NativeToolBase):
-    async def call(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
-        return await asyncio.to_thread(self._call_sync, dict(args or {}), context)
-
-    def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
-        path = str(args.get("path") or "").strip()
-        gateway = self._file_gateway(context)
-        external_target = None
-        if gateway is not None:
-            try:
-                target = _gateway_target_for_path(context, gateway, action="read", path=path)
-                if target.external:
-                    external_target = target
-            except Exception:
-                external_target = None
-        if gateway is not None and external_target is not None:
-            try:
-                _repository, _binding, file_path, _logical_path, _access = gateway.resolve_physical_path(
-                    external_target.repository_id,
-                    external_target.logical_path,
-                    action="read",
-                    approval_fingerprint=_gateway_approval_fingerprint(context),
-                )
-                if not file_path.exists():
-                    raise FileNotFoundError("file does not exist")
-                if file_path.is_dir():
-                    raise IsADirectoryError("path is a directory")
-                data, data_format = _parse_structured_file(file_path)
-            except Exception as exc:
-                return self._envelope(
-                    tool_args=args,
-                    status="error",
-                    text=f"Structured read failed: {exc}",
-                    structured_payload={"tool_result": {"kind": "structured_file", "status": "error", "error": str(exc)}},
-                    execution_receipt=context.execution_receipt,
-                )
-            summary = _summarize(data)
-            return self._envelope(
-                tool_args=args,
-                status="ok",
-                text=summary,
-                structured_payload={
-                    "tool_result": {
-                        "kind": "structured_file",
-                        "path": external_target.display_path,
-                        "repository_id": external_target.repository_id,
-                        "format": data_format,
-                        "root_type": type(data).__name__,
-                        "data": data,
-                        "summary": summary,
-                    }
-                },
-                observed_paths=(external_target.display_path,),
-                execution_receipt=context.execution_receipt,
-            )
-        files = self._files(context)
-        try:
-            file_path = files.resolve(path, require_path=True)
-            if not file_path.exists():
-                raise FileNotFoundError("file does not exist")
-            if file_path.is_dir():
-                raise IsADirectoryError("path is a directory")
-            data, data_format = _parse_structured_file(file_path)
-        except Exception as exc:
-            return self._envelope(
-                tool_args=args,
-                status="error",
-                text=f"Structured read failed: {exc}",
-                structured_payload={"tool_result": {"kind": "structured_file", "status": "error", "error": str(exc)}},
-                execution_receipt=context.execution_receipt,
-            )
-        summary = _summarize(data)
-        rel = files.relative_path(file_path)
-        return self._envelope(
-            tool_args=args,
-            status="ok",
-            text=summary,
-            structured_payload={
-                "tool_result": {
-                    "kind": "structured_file",
-                    "path": rel,
-                    "format": data_format,
-                    "root_type": type(data).__name__,
-                    "data": data,
-                    "summary": summary,
-                }
-            },
-            observed_paths=(rel,),
             execution_receipt=context.execution_receipt,
         )
 
@@ -3200,15 +3110,90 @@ class NativePathExistsTool(_NativeToolBase):
         )
 
 
-def _parse_structured_file(file_path: Path) -> tuple[Any, str]:
-    suffix = file_path.suffix.lower()
+def _read_file_structured_payload(
+    *,
+    tool_result: dict[str, Any],
+    path: str,
+    content: str,
+    repository_id: str = "",
+    managed_file_ref: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"tool_result": tool_result}
+    structured_sidecar = _structured_file_sidecar(
+        path=path,
+        content=content,
+        repository_id=repository_id,
+        managed_file_ref=managed_file_ref,
+    )
+    if structured_sidecar:
+        payload["structured_file"] = structured_sidecar
+        tool_result["structured_file"] = {
+            key: value
+            for key, value in structured_sidecar.items()
+            if key not in {"data"}
+        }
+    return payload
+
+
+def _structured_file_sidecar(
+    *,
+    path: str,
+    content: str,
+    repository_id: str = "",
+    managed_file_ref: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    suffix = Path(str(path or "")).suffix.lower()
+    if suffix not in {".json", ".yaml", ".yml", ".toml"}:
+        return {}
+    try:
+        data, data_format = _parse_structured_content(content, suffix=suffix)
+    except Exception as exc:
+        return _drop_empty(
+            {
+                "kind": "structured_file",
+                "status": "error",
+                "path": str(path or "").strip(),
+                "repository_id": str(repository_id or "").strip(),
+                "managed_file_ref": dict(managed_file_ref or {}) or None,
+                "error": str(exc),
+                "authority": "runtime.tool_result.read_file.structured_sidecar.v1",
+            }
+        )
+    summary = _summarize(data)
+    return _drop_empty(
+        {
+            "kind": "structured_file",
+            "status": "ok",
+            "path": str(path or "").strip(),
+            "repository_id": str(repository_id or "").strip(),
+            "managed_file_ref": dict(managed_file_ref or {}) or None,
+            "format": data_format,
+            "root_type": type(data).__name__,
+            "data": data,
+            "summary": summary,
+            "authority": "runtime.tool_result.read_file.structured_sidecar.v1",
+        },
+        keep_keys={"data"},
+    )
+
+
+def _parse_structured_content(content: str, *, suffix: str) -> tuple[Any, str]:
     if suffix == ".json":
-        return json.loads(file_path.read_text(encoding="utf-8")), "json"
+        return json.loads(str(content or "")), "json"
     if suffix in {".yaml", ".yml"}:
-        return yaml.safe_load(file_path.read_text(encoding="utf-8")), "yaml"
+        return yaml.safe_load(str(content or "")), "yaml"
     if suffix == ".toml":
-        return tomllib.loads(file_path.read_text(encoding="utf-8")), "toml"
+        return tomllib.loads(str(content or "")), "toml"
     raise ValueError("supported formats are JSON, YAML, and TOML")
+
+
+def _drop_empty(payload: dict[str, Any], *, keep_keys: set[str] | None = None) -> dict[str, Any]:
+    keep = set(keep_keys or set())
+    return {
+        key: value
+        for key, value in dict(payload or {}).items()
+        if key in keep or value not in ("", None, [], {})
+    }
 
 
 def _summarize(value: Any, *, max_items: int = 30) -> str:
@@ -3244,17 +3229,20 @@ def _memory_search_payload(args: dict[str, Any], *, root_dir: Path) -> dict[str,
     query = str(args.get("query") or "").strip()
     task_scope = str(args.get("task_run_id") or "").strip()
     project_scope = str(args.get("project_id") or "").strip()
-    if not task_scope and not project_scope:
-        raise ValueError("memory_search requires task_run_id or project_id")
     repo_filter = {str(item or "").strip() for item in list(args.get("repositories") or []) if str(item or "").strip()}
     collection_filter = {str(item or "").strip() for item in list(args.get("collections") or []) if str(item or "").strip()}
     result_limit = max(1, min(int(args.get("limit") or 8), 20))
     service = MemoryRuntimeServices.from_runtime_root(root_dir).formal_memory
-    versions = tuple(
-        version
-        for version in service.store.list_versions(limit=2000)
-        if _memory_version_visible(version, task_run_id=task_scope, project_id=project_scope)
-    )
+    if task_scope or project_scope:
+        versions = tuple(
+            version
+            for version in service.store.list_versions(limit=2000)
+            if _memory_version_visible(version, task_run_id=task_scope, project_id=project_scope)
+        )
+        scope_mode = "bound"
+    else:
+        versions = tuple(service.store.list_versions(limit=500))
+        scope_mode = "unbound_default_window"
     terms = _memory_query_terms(query)
     matches: list[dict[str, Any]] = []
     for version in versions:
@@ -3305,7 +3293,12 @@ def _memory_search_payload(args: dict[str, Any], *, root_dir: Path) -> dict[str,
         "collections": sorted(collection_filter),
         "result_count": min(len(matches), result_limit),
         "results": matches[:result_limit],
-        "diagnostics": {"candidate_version_count": len(versions), "matched_version_count": len(matches), "search_terms": terms},
+        "diagnostics": {
+            "candidate_version_count": len(versions),
+            "matched_version_count": len(matches),
+            "search_terms": terms,
+            "scope_mode": scope_mode,
+        },
     }
 
 
@@ -4698,4 +4691,3 @@ def _artifact_ref_for_gateway_file(
     if repository_kind and repository_kind != "sandbox_workspace":
         artifact["bypass_sandbox_publish"] = True
     return artifact
-

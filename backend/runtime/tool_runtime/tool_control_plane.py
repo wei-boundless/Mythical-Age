@@ -169,32 +169,6 @@ class RuntimeToolControlPlane:
                     "dispatchable_tool_names": list(tool_plan.dispatchable_tool_names),
                 },
             )
-        if request.caller_kind != "task_run":
-            handler = _tool_handler_registry().handler_for(request)
-            if handler is None:
-                return _observation(
-                    request,
-                    status="error",
-                    text="caller tool dispatch is not connected for this caller",
-                    diagnostics={
-                        "stage": "caller_dispatch_not_connected",
-                        "caller_kind": request.caller_kind,
-                        "tool_plan_ref": tool_plan.plan_id,
-                    },
-                )
-            if handler.handler_id != "agent_turn_core":
-                return _observation(
-                    request,
-                    status="error",
-                    text="caller tool dispatch handler is not valid for this caller",
-                    diagnostics={
-                        "stage": "caller_dispatch_handler_mismatch",
-                        "handler_id": handler.handler_id,
-                        "caller_kind": request.caller_kind,
-                        "tool_plan_ref": tool_plan.plan_id,
-                    },
-                )
-            return await self._invoke_agent_turn_with_boundary_observation(request, tool_plan=tool_plan)
         handler = _tool_handler_registry().handler_for(request)
         if handler is None:
             return _observation(
@@ -207,6 +181,8 @@ class RuntimeToolControlPlane:
                     "tool_plan_ref": tool_plan.plan_id,
                 },
             )
+        if request.caller_kind != "task_run" and handler.handler_id == "agent_turn_core":
+            return await self._invoke_agent_turn_with_boundary_observation(request, tool_plan=tool_plan)
         directive, runtime_action, sandbox_policy, file_policy, resource_policy = _execution_contracts(request, tool_plan=tool_plan)
         execution_record = None
         execution_store = _execution_store(request)

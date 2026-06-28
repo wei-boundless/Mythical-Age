@@ -52,7 +52,6 @@ def default_tool_packages() -> tuple[ToolPackageDefinition, ...]:
                 "op.stat_path",
                 "op.path_exists",
                 "op.glob_paths",
-                "op.read_structured_file",
             ),
             risk_level="低",
             default_enabled=True,

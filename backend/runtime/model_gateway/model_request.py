@@ -53,7 +53,6 @@ class ModelRequestPacket:
     stable_prefix_hash: str = ""
     provider_global_prefix_hash: str = ""
     session_prefix_hash: str = ""
-    task_prefix_hash: str = ""
     provider_payload_prefix_hash: str = ""
     physical_cache_spine_message_subtotal_hash: str = ""
     transport_contract_hash: str = ""
@@ -168,7 +167,6 @@ class ModelRequestBuilder:
             stable_prefix_hash=stable_prefix_hash,
             provider_global_prefix_hash=tier_hashes["provider_global"],
             session_prefix_hash=tier_hashes["session"],
-            task_prefix_hash=tier_hashes["task"],
             provider_payload_prefix_hash=str(provider_payload_boundary.get("provider_payload_prefix_hash") or ""),
             physical_cache_spine_message_subtotal_hash=str(provider_payload_boundary.get("physical_cache_spine_message_subtotal_hash") or ""),
             transport_contract_hash=str(provider_payload_boundary.get("transport_contract_hash") or ""),
@@ -330,7 +328,6 @@ def _prefix_tier_hashes(bindings: tuple[ModelRequestSegmentBinding, ...]) -> dic
     tiers = {
         "provider_global": {"provider_global"},
         "session": {"provider_global", "session"},
-        "task": {"provider_global", "session", "task"},
     }
     result: dict[str, str] = {}
     ordered = sorted(bindings, key=lambda item: item.ordinal)
@@ -401,14 +398,14 @@ def _cache_role(value: Any) -> str:
 
 def _prefix_tier(value: Any, *, cache_scope: str, cache_role: str) -> str:
     normalized = str(value or "").strip()
-    if normalized in {"provider_global", "session", "task", "volatile", "none"}:
+    if normalized in {"provider_global", "session", "volatile", "none"}:
         return normalized
+    if normalized:
+        return "none" if cache_role == "never_cache" else "volatile"
     if cache_role == "cacheable_prefix":
         return "provider_global"
     if cache_role == "session_stable":
         scope = str(cache_scope or "").strip()
-        if scope == "task":
-            return "task"
         if scope == "session":
             return "session"
         if scope == "global":

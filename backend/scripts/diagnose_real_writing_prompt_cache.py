@@ -293,7 +293,7 @@ def _packet_report(
             prefix_tokens["stable_prefix"] += predicted.tokens
         else:
             stable_prefix_open = False
-        if prefix_tier in {"provider_global", "session", "task"}:
+        if prefix_tier in {"provider_global", "session"}:
             prefix_tokens[prefix_tier] += predicted.tokens
         elif prefix_tier in {"volatile", "none"}:
             prefix_tokens[prefix_tier] += predicted.tokens
@@ -464,7 +464,7 @@ def _packet_issues(*, segments: list[dict[str, Any]], provider_rows: list[dict[s
         )
     for item in segments:
         markers = list(item.get("runtime_field_markers") or [])
-        if str(item.get("prefix_tier") or "") in {"provider_global", "session", "task"} and markers:
+        if str(item.get("prefix_tier") or "") in {"provider_global", "session"} and markers:
             issues.append(
                 {
                     "code": "runtime_fields_in_stable_segment",
@@ -533,8 +533,6 @@ def _fallback_prefix_tier(planned: dict[str, Any]) -> str:
     if cache_role == "cacheable_prefix":
         return "provider_global"
     if cache_role == "session_stable":
-        if cache_scope == "task":
-            return "task"
         if cache_scope == "global":
             return "provider_global"
         return "session"

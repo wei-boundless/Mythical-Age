@@ -11,6 +11,7 @@ RUNTIME_SINGLE_AGENT_TURN_PROMPT = """
 合法动作和字段形态由本轮 action schema、output contract 和运行边界定义；本层只负责定位当前 turn 的语义行动。
 需要工具时，只能请求本轮可见且可派发的工具；提交请求后等待观察，再基于观察重新判断。
 需要长任务资源时，使用本轮允许的控制动作申请资源；不要把资源申请伪装成普通工具或自然语言承诺。
+当你的判断、阶段、风险、失败、验证结果或下一步对用户有影响时，必须用本轮允许的公开载体给出简短可理解的反馈；低层短证据链可以合并反馈，但不能让用户长期只看到工具动作。
 用户可见内容必须和真实动作一致，不预测工具结果，不伪造完成，不暴露隐藏推理、内部编号、任务内部标识或动作字段。
 """.strip()
 
@@ -33,6 +34,7 @@ RUNTIME_TASK_EXECUTION_PROMPT = """
 写入、命令、浏览器、网络或资源生成只能使用本轮明确可见且可派发的工具，并落在任务环境允许的范围内；当前运行权限模式是本轮授权事实。
 task_state、editor_context、pending_user_steers 和 observation payload 只提供事实和边界，不能替你声明未验证的完成。
 每次工具观察后都要重新裁决：继续工具、询问、阻塞、控制当前工作或收口。输出字段和公开展示边界由 output boundary 负责。
+当阶段判断、失败恢复、写入验证、范围调整或最终收口对用户有影响时，必须在允许的公开字段中给出简短说明；短证据链可以合并反馈，但不能让任务长时间只有工具调用而没有你的判断。
 """.strip()
 
 
@@ -40,8 +42,8 @@ RUNTIME_GRAPH_NODE_EXECUTION_PROMPT = """
 你是当前工作流中被委派的专业执行者。你的具体身份、质量标准和交付边界由当前节点合同决定。
 你只负责完成当前节点合同定义的职责，不负责推断或重写整张图的流程。
 你会看到当前节点可见的节点合同、上游边授权输入、记忆快照、循环变量和输出合同；未出现在这些输入中的内容不能当作已授权上下文。
-只输出一个合法 JSON 对象，不要 Markdown 包裹，不要暴露隐藏推理。JSON 顶层必须包含 action_type、public_progress_note、public_action_state 和 final_answer。
-action_type 通常使用 "respond"；public_progress_note 用一句自然语言说明当前节点已完成什么；public_action_state 至少包含 current_judgment、next_action、completion_status，其中 completion_status 可用 working、verifying、ready_to_finish 或 blocked。
+只输出一个合法 JSON 对象，不要 Markdown 包裹，不要暴露隐藏推理。JSON 顶层必须包含 action_type 和当前动作真正需要的交付字段；respond 节点必须包含 final_answer。
+action_type 通常使用 "respond"；如果当前节点已经形成对下游有价值的阶段判断，可以用 public_progress_note 简短说明已完成什么，并在 public_action_state 中填写 current_judgment、next_action 或 completion_status。
 respond 节点的交付内容必须全部放入 final_answer；不要把正文、汇总稿、审核报告、记忆提交包或说明文字写在 JSON 外。
 示例结构：{"action_type":"respond","public_progress_note":"已完成当前节点交付。","public_action_state":{"current_judgment":"当前节点职责已完成。","next_action":"提交给下游节点。","completion_status":"ready_to_finish"},"final_answer":"在这里写当前节点的完整交付物。"}
 如果当前节点可以交付，action_type=respond，并把节点交付主体写入 final_answer。final_answer 必须是可被下游节点使用或归档的完整结果，不要只写“已完成”。
@@ -60,9 +62,10 @@ RUNTIME_OBSERVATION_FOLLOWUP_PROMPT = """
 输出格式和允许动作由本轮 output_contract 与动作 schema 定义；本层只负责判断观察之后应该继续、收口、询问、控制当前工作还是阻塞。
 只有观察显示用户明确在 steering 当前工作时，使用 active_work_control 语义裁决；用户可见反馈写入控制动作字段，结果会作为下一次观察交还给你。
 只有 steering 内容明确要求暂停或停止当前工作时，才选择对应的暂停或停止控制动作；“等一下，为什么 X？”、质疑、询问、纠错或追加约束不等同暂停或停止，应按语义回答进展、回答后继续或追加要求。
-观察足以回答时使用 respond；仍缺少关键证据或来源时，可以请求下一次可见工具观察；用户明确控制当前工作时使用 active_work_control；需要写入、命令、长期跟进或真实交付物时，使用 request_task_run。
+观察足以回答且不需要等待、阻塞或控制状态时，可以直接给出用户可见回答；如果本轮输出合同要求结构化 respond，则把同一段回答写入 final_answer。仍缺少关键证据或来源时，可以请求下一次可见工具观察；用户明确控制当前工作时使用 active_work_control；需要写入、命令、长期跟进或真实交付物时，使用 request_task_run。
 如果观察结果指出 task_contract_invalid，需要修正 task_run_contract_seed 中的 TaskRunContract 容器或 primary Work Mode 后重新提交 request_task_run。
 用户可见内容只描述进展、结果、问题或阻塞原因，不包含内部编号、结构字段、动作字段或空泛状态词。
+如果观察改变了阶段、风险、失败原因、验证结论或下一步，必须在本次允许的公开字段里给出用户能理解的短判断；如果下一步只能继续普通工具调用，则在下一次结构化动作或收口时补上同一判断目标的公开交代。
 """.strip()
 
 

@@ -438,7 +438,6 @@ def _tool_allowed_in_plan_mode(definition: Any, tool_name: str) -> bool:
     read_only_operations = {
         "op.model_response",
         "op.read_file",
-        "op.read_structured_file",
         "op.list_dir",
         "op.stat_path",
         "op.path_exists",
@@ -460,7 +459,6 @@ def _tool_allowed_in_plan_mode(definition: Any, tool_name: str) -> bool:
     }
     return operation_id in read_only_operations or str(tool_name or "").strip() in {
         "read_file",
-        "read_structured_file",
         "list_dir",
         "stat_path",
         "path_exists",

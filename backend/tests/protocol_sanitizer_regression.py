@@ -173,7 +173,7 @@ def test_runtime_compiler_uses_provider_protocol_as_single_append_only_history_p
     second_current_segments = [item for item in second_segments if str(item.get("kind") or "") == "current_turn_user_context"]
     second_current = second_current_segments[-1]
     assert first_current["cache_role"] == "session_stable"
-    assert first_current["prefix_tier"] == "task"
+    assert first_current["prefix_tier"] == "session"
     assert dict(first_current["metadata"])["append_only_context_stream"] == "current_user_context"
     assert dict(second_current["metadata"])["append_only_context_stream"] == "current_user_context"
     assert len(second_current_segments) >= 2

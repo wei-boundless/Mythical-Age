@@ -546,7 +546,7 @@ def _satisfies_for_tool(
     command_receipt: dict[str, Any] | None = None,
     structured_payload: dict[str, Any] | None = None,
 ) -> tuple[str, ...]:
-    if tool_name in {"read_file", "read_structured_file", "search_text", "search_files", "glob_paths"}:
+    if tool_name in {"read_file", "search_text", "search_files", "glob_paths"}:
         if has_structured_envelope and status == "ok" and (observed_paths or tool_name in {"search_text", "search_files", "glob_paths"}):
             return ("read_material",)
         return ()
@@ -660,4 +660,3 @@ def _directory_satisfied_by_path(directory: str, candidate: str) -> bool:
     if not target or not observed:
         return False
     return observed == target or observed.startswith(target + "/") or observed.endswith("/" + target) or ("/" + target + "/") in ("/" + observed + "/")
-

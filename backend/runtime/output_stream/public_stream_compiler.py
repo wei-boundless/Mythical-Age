@@ -443,13 +443,13 @@ def project_public_stream_event(event_type: str, event: dict[str, Any]) -> list[
         data = _model_action_request_public_data(raw_data)
         return [(normalized, data)] if data else []
     if normalized == "agent_turn_terminal":
-        return []
+        data = _agent_turn_terminal_completed_data(raw_data)
+        return [(TURN_COMPLETED_EVENT, data)] if data else []
     if normalized == "runtime_evidence_projection_published":
         data = _runtime_evidence_projection_public_data(raw_data)
         return [(normalized, data)] if data else []
     if normalized == "agent_contract_feedback_required":
-        data = _agent_contract_feedback_status_public_data(raw_data)
-        return [("runtime_status", data)] if data else []
+        return []
     if normalized == "harness_run_started" and _is_turn_trace_only_harness_start(event):
         return []
     if normalized in {"step_summary_recorded", "runtime_step_summary"}:
@@ -568,6 +568,30 @@ def turn_completed_data(source_event_type: str, raw_data: dict[str, Any]) -> dic
     return {key: value for key, value in payload.items() if value not in ("", None)}
 
 
+def _agent_turn_terminal_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
+    raw_event = _record(raw_data.get("event"))
+    payload = _record(raw_event.get("payload")) or _record(raw_data.get("payload")) or dict(raw_data or {})
+    refs = _record(raw_event.get("refs"))
+    event_run_id = str(raw_event.get("run_id") or "").strip()
+    material = dict(payload or {})
+    material["status"] = _turn_completed_status_from_agent_terminal(material.get("status") or material.get("state"))
+    material.setdefault("turn_run_id", event_run_id if event_run_id.startswith("turnrun:") else "")
+    material.setdefault("turn_id", str(refs.get("turn_ref") or ""))
+    material.setdefault("runtime_event_id", str(raw_event.get("event_id") or raw_data.get("runtime_event_id") or ""))
+    material.setdefault("source_event_type", "agent_turn_terminal")
+    material.setdefault("completion_state", str(payload.get("completion_state") or payload.get("terminal_reason") or ""))
+    return turn_completed_data("agent_turn_terminal", material)
+
+
+def _turn_completed_status_from_agent_terminal(value: Any) -> str:
+    status = str(value or "").strip().lower()
+    if status in {"failed", "error"}:
+        return "failed"
+    if status in {"stopped", "aborted", "cancelled", "canceled", "blocked"}:
+        return "stopped"
+    return "completed"
+
+
 def public_terminal_reason(value: Any) -> str:
     reason = str(value or "").strip()
     label = _public_runtime_reason_label(reason)
@@ -635,33 +659,6 @@ def _stream_recovery_public_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     data["status"] = str(data.get("status") or payload.get("status") or "started")
     data["reason"] = str(data.get("reason") or payload.get("reason") or "partial_stream_error")
     data["runtime_event_id"] = str(raw_event.get("event_id") or raw_data.get("event_id") or "")
-    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
-
-
-def _agent_contract_feedback_status_public_data(raw_data: dict[str, Any]) -> dict[str, Any]:
-    raw_event = _record(raw_data.get("event"))
-    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
-    refs = _record(raw_event.get("refs"))
-    feedback = _record(payload.get("agent_contract_feedback") or raw_data.get("agent_contract_feedback"))
-    if not feedback:
-        return {}
-    failure = _record(feedback.get("contract_failure"))
-    reason = str(feedback.get("reason") or failure.get("reason") or "").strip()
-    detail = _safe_public_action_text(feedback.get("agent_feedback") or reason)
-    if not detail:
-        detail = "需要 agent 根据执行契约重新选择下一步动作。"
-    data = {
-        "title": "动作契约需要修正",
-        "detail": detail[:260],
-        "state": "waiting",
-        "status_kind": "agent_contract_feedback",
-        "phase": str(feedback.get("phase") or ""),
-        "turn_id": str(payload.get("turn_id") or feedback.get("turn_id") or refs.get("turn_ref") or ""),
-        "active_turn_id": str(payload.get("turn_id") or feedback.get("turn_id") or refs.get("turn_ref") or ""),
-        "turn_run_id": str(refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
-        "task_run_id": str(refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
-        "runtime_event_id": str(raw_event.get("event_id") or raw_data.get("event_id") or ""),
-    }
     return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
 
 
@@ -799,6 +796,11 @@ def _drop_empty_public_data(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _tool_action_public_events(raw_data: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     events: list[tuple[str, dict[str, Any]]] = []
+    payload = _semantic_event_payload(raw_data)
+    request = _record(payload.get("model_action_request") or raw_data.get("model_action_request"))
+    feedback_data = _model_action_public_feedback_data(raw_data, request=request)
+    if feedback_data:
+        events.append((ASSISTANT_PUBLIC_FEEDBACK_EVENT, feedback_data))
     request_items = _tool_call_requested_items(raw_data)
     if not request_items:
         return events
@@ -808,6 +810,35 @@ def _tool_action_public_events(raw_data: dict[str, Any]) -> list[tuple[str, dict
         if permission_data:
             events.append((TOOL_PERMISSION_DECIDED_EVENT, permission_data))
     return events
+
+
+def _model_action_public_feedback_data(raw_data: dict[str, Any], *, request: dict[str, Any]) -> dict[str, Any]:
+    if not request:
+        return {}
+    public_progress_note = _safe_public_action_text(request.get("public_progress_note"))
+    public_state = _record(request.get("public_action_state"))
+    current_judgment = _safe_public_action_text(public_state.get("current_judgment"))
+    next_action = _safe_public_action_text(public_state.get("next_action"))
+    if not any((public_progress_note, current_judgment, next_action)):
+        return {}
+    raw_event = _record(raw_data.get("event"))
+    payload = _semantic_event_payload(raw_data)
+    refs = _record(raw_event.get("refs"))
+    runtime_event_id = str(raw_event.get("event_id") or raw_data.get("event_id") or "").strip()
+    request_id = str(request.get("request_id") or refs.get("action_request_ref") or runtime_event_id or "").strip()
+    data = {
+        "status": "running",
+        "public_progress_note": public_progress_note,
+        "current_judgment": current_judgment,
+        "next_action": next_action,
+        "feedback_identity": f"model-action-feedback:{request_id or runtime_event_id}",
+        "turn_id": str(payload.get("turn_id") or raw_data.get("turn_id") or ""),
+        "active_turn_id": str(payload.get("turn_id") or raw_data.get("active_turn_id") or raw_data.get("turn_id") or ""),
+        "turn_run_id": str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
+        "runtime_event_id": runtime_event_id,
+    }
+    return _redact_public_stream_data(_drop_empty_public_data(data))
 
 
 def _tool_call_requested_items(raw_data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1456,8 +1487,6 @@ def _public_runtime_reason_label(reason: str) -> str:
         "missing_terminal_event": "输出流没有正常收口",
         "stream_exception": "输出流异常中断",
         "stream_cancelled": "输出流已取消",
-        "tool_budget_exhausted": "本轮工具预算已用完",
-        "single_turn_tool_iteration_limit": "本轮工具预算已用完",
         "single_agent_turn_empty_response": "agent 未生成可发布回复",
         "tool_limit_missing_answer": "agent 收口缺少可发布回复",
         "completed": "已完成",

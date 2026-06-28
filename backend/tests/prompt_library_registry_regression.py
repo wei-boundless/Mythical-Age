@@ -467,7 +467,7 @@ def test_prompt_assembly_enforces_authority_precedence_over_requested_order(tmp_
             title="Project boundary",
             content="project layer",
             allowed_invocation_kinds=("single_agent_turn",),
-            cache_scope="task_stable",
+            cache_scope="session",
         ),
         PromptResource(
             prompt_id="test.runtime.protocol",

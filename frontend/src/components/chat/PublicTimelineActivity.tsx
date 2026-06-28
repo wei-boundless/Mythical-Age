@@ -41,6 +41,9 @@ export type ActivityEntry = {
   reasoningContent?: string;
   reasoningMeta?: string;
   sections: Array<{ label: string; text: string }>;
+  startedAt?: number;
+  updatedAt?: number;
+  completedAt?: number;
   statusKind?: string;
   state?: string;
   statusLabel?: string;
@@ -76,6 +79,9 @@ export type ActivityRenderUnit =
       entries: ActivityEntry[];
       id: string;
       preview: string;
+      startedAt?: number;
+      updatedAt?: number;
+      completedAt?: number;
       statusLabel: string;
       statusTone: PublicTimelineActivityTone;
     };
@@ -293,12 +299,29 @@ function toolRoundFromEntries(entries: ActivityEntry[], roundKey: string): Activ
   return {
     kind: "tool_round",
     count,
+    completedAt: latestToolTime(entries, "completedAt"),
     entries,
     id: `tool-round:${roundKey || entries[0]?.id || "tools"}`,
     preview: toolRoundPreview(entries),
+    startedAt: earliestToolTime(entries, "startedAt"),
     statusLabel: toolRoundStatusLabel(statusTone),
     statusTone,
+    updatedAt: latestToolTime(entries, "updatedAt"),
   };
+}
+
+function earliestToolTime(entries: ActivityEntry[], key: "startedAt" | "updatedAt" | "completedAt") {
+  const values = entries
+    .map((entry) => entry[key])
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+  return values.length ? Math.min(...values) : undefined;
+}
+
+function latestToolTime(entries: ActivityEntry[], key: "startedAt" | "updatedAt" | "completedAt") {
+  const values = entries
+    .map((entry) => entry[key])
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+  return values.length ? Math.max(...values) : undefined;
 }
 
 function toolRoundPreview(entries: ActivityEntry[]) {
@@ -435,17 +458,20 @@ function toolEntryFromBlock(block: ToolProjectionBlock, index: number): Activity
     collapsed: typeof block.collapsed === "boolean" ? block.collapsed : undefined,
     commandLine: toolWindowCommandLine(block, sections),
     consoleLabel: toolWindowConsoleLabel(block),
+    completedAt: block.completedAt,
     detail,
     id: `tool-window:${stableId}`,
     kind: "tool_window",
     outputText,
     sections,
+    startedAt: block.startedAt,
     state: cleanText(block.state).toLowerCase(),
     statusLabel: toolWindowStatusLabel(block),
     statusTone: toolWindowStatusTone(block),
     text,
     toolFamily,
     toolRoundKey: toolWindowRoundKey(block),
+    updatedAt: block.updatedAt,
   };
 }
 
@@ -762,7 +788,7 @@ function isShellTool(block: ToolProjectionBlock) {
 function toolWindowFamily(block: ToolProjectionBlock): ToolUiFamily {
   const tool = cleanText(block.toolName || block.actionKind).toLowerCase();
   if (isCommandToolName(tool)) return "command";
-  if (["read_file", "read_files", "read_path", "read_structured_file", "attachment_extract_text"].includes(tool)) return "file";
+  if (["read_file", "read_files", "read_path", "attachment_extract_text"].includes(tool)) return "file";
   if (["search_files", "search_text", "glob_paths", "web_search", "deepsearch"].includes(tool)) return "search";
   if (["list_dir", "stat_path", "path_exists"].includes(tool)) return "inspect";
   if (["write_file", "edit_file", "batch_edit_file", "apply_patch"].includes(tool)) return "write";

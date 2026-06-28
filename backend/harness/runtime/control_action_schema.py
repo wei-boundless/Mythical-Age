@@ -132,7 +132,7 @@ def control_action_request_payload_from_native_tool_call(
 def provider_control_action_required_fields(action_type: str) -> list[str]:
     action = str(action_type or "").strip().lower()
     schema = _control_action_input_schema(action)
-    return list(schema.get("required") or []) if schema else []
+    return _semantic_required_fields(action) if schema else []
 
 
 def _compact_task_start_intent_from_args(args: dict[str, Any]) -> dict[str, Any]:
@@ -178,8 +178,8 @@ def _control_action_input_schema(action_name: str) -> dict[str, Any]:
         return _strict_object(
             {
                 "final_answer": _string("User-visible final answer."),
-                "public_progress_note": _string("Optional brief public note aligned with the answer."),
-                "public_action_state": _public_action_state_schema(),
+                "public_progress_note": _optional_string("Brief public note aligned with the answer when a separate progress note is useful."),
+                "public_action_state": _optional_public_action_state_schema(),
             },
             ["final_answer"],
         )
@@ -187,25 +187,25 @@ def _control_action_input_schema(action_name: str) -> dict[str, Any]:
         return _strict_object(
             {
                 "user_question": _string("The concrete question the user must answer."),
-                "public_progress_note": _string("Brief public reason why the question is needed."),
-                "public_action_state": _public_action_state_schema(),
+                "public_progress_note": _optional_string("Brief public reason why the question is needed."),
+                "public_action_state": _optional_public_action_state_schema(),
             },
-            ["user_question", "public_progress_note", "public_action_state"],
+            ["user_question"],
         )
     if action_name == "block":
         return _strict_object(
             {
                 "blocking_reason": _string("Concrete reason the work cannot continue."),
-                "public_progress_note": _string("Brief public blocking summary."),
-                "public_action_state": _public_action_state_schema(),
+                "public_progress_note": _optional_string("Brief public blocking summary."),
+                "public_action_state": _optional_public_action_state_schema(),
             },
-            ["blocking_reason", "public_progress_note", "public_action_state"],
+            ["blocking_reason"],
         )
     if action_name == "request_task_run":
         return _strict_object(
             {
-                "public_progress_note": _string("User-visible reason for requesting a long-task resource."),
-                "public_action_state": _public_action_state_schema(),
+                "public_progress_note": _optional_string("User-visible reason for requesting a long-task resource."),
+                "public_action_state": _optional_public_action_state_schema(),
                 "primary_mode": {"type": "string", "enum": list(TASK_START_PRIMARY_MODES)},
                 "task_shape": {"type": "string", "enum": list(TASK_RESOURCE_SHAPES)},
                 "minimum_viable_next_step": _string("First executable step after the resource is accepted."),
@@ -237,8 +237,6 @@ def _control_action_input_schema(action_name: str) -> dict[str, Any]:
                 ),
             },
             [
-                "public_progress_note",
-                "public_action_state",
                 "primary_mode",
                 "task_shape",
                 "minimum_viable_next_step",
@@ -255,10 +253,10 @@ def _control_action_input_schema(action_name: str) -> dict[str, Any]:
                 "instruction": _string("Instruction to append or apply to active work."),
                 "answer": _string("User-visible answer when action is answer_then_continue_active_work."),
                 "reason": _string("Reason for this control decision."),
-                "public_progress_note": _string("Brief public note aligned with this control action."),
-                "public_action_state": _public_action_state_schema(),
+                "public_progress_note": _optional_string("Brief public note aligned with this control action."),
+                "public_action_state": _optional_public_action_state_schema(),
             },
-            ["action", "public_progress_note", "public_action_state"],
+            ["action"],
         )
     if action_name == "resume_recoverable_work":
         return _strict_object(
@@ -268,10 +266,10 @@ def _control_action_input_schema(action_name: str) -> dict[str, Any]:
                 "task_run_id": _string("Optional canonical task_run_id if provided by runtime."),
                 "continuation_id": _string("Optional canonical continuation_id if provided by runtime."),
                 "reason": _string("Reason for resuming this work now."),
-                "public_progress_note": _string("Brief public resume note."),
-                "public_action_state": _public_action_state_schema(),
+                "public_progress_note": _optional_string("Brief public resume note."),
+                "public_action_state": _optional_public_action_state_schema(),
             },
-            ["work_ref", "resume_ref", "public_progress_note", "public_action_state"],
+            ["work_ref", "resume_ref"],
         )
     if action_name == "pause_for_user_steer":
         return _strict_object(
@@ -281,8 +279,8 @@ def _control_action_input_schema(action_name: str) -> dict[str, Any]:
                 "checkpoint_summary": _string("Recoverable checkpoint summary."),
                 "resume_hint": _string("What to inspect first after resume."),
                 "requires_user_input": {"type": "boolean"},
-                "public_progress_note": _string("Brief public pause note."),
-                "public_action_state": _public_action_state_schema(),
+                "public_progress_note": _optional_string("Brief public pause note."),
+                "public_action_state": _optional_public_action_state_schema(),
             },
             [
                 "reason",
@@ -290,11 +288,22 @@ def _control_action_input_schema(action_name: str) -> dict[str, Any]:
                 "checkpoint_summary",
                 "resume_hint",
                 "requires_user_input",
-                "public_progress_note",
-                "public_action_state",
             ],
         )
     return {}
+
+
+def _optional_public_action_state_schema() -> dict[str, Any]:
+    return {
+        "anyOf": [
+            _public_action_state_schema(),
+            {"type": "null"},
+        ],
+        "description": (
+            "Public action state when it helps the user understand a semantic phase change. "
+            "Use null rather than inventing feedback."
+        ),
+    }
 
 
 def _public_action_state_schema() -> dict[str, Any]:
@@ -315,6 +324,13 @@ def _public_action_state_schema() -> dict[str, Any]:
         },
         ["visible_status", "current_judgment", "next_action", "evidence_refs", "open_risks", "completion_status"],
     )
+
+
+def _optional_string(description: str = "") -> dict[str, Any]:
+    payload: dict[str, Any] = {"type": ["string", "null"]}
+    if description:
+        payload["description"] = f"{description} Use null rather than inventing feedback."
+    return payload
 
 
 def _mode_payload_schema() -> dict[str, Any]:
@@ -340,6 +356,32 @@ def _strict_object(properties: dict[str, Any], required: list[str]) -> dict[str,
         "required": property_names,
         "additionalProperties": False,
     }
+
+
+def _semantic_required_fields(action_name: str) -> list[str]:
+    return {
+        "respond": ["final_answer"],
+        "ask_user": ["user_question"],
+        "block": ["blocking_reason"],
+        "request_task_run": [
+            "primary_mode",
+            "task_shape",
+            "minimum_viable_next_step",
+            "working_scope",
+            "acceptance",
+            "mode_payload",
+            "todo_tool_contract",
+        ],
+        "active_work_control": ["action"],
+        "resume_recoverable_work": ["work_ref", "resume_ref"],
+        "pause_for_user_steer": [
+            "reason",
+            "steer_ref",
+            "checkpoint_summary",
+            "resume_hint",
+            "requires_user_input",
+        ],
+    }.get(action_name, [])
 
 
 def _string(description: str = "") -> dict[str, Any]:

@@ -92,7 +92,7 @@ def _ttl(*, cache_role: str, semantic_time: str, visibility: str) -> str:
 
 def _scope(spec: dict[str, Any]) -> str:
     cache_scope = _normalized(spec.get("cache_scope") or "")
-    if cache_scope in {"session", "task", "turn", "global"}:
+    if cache_scope in {"session", "turn", "global"}:
         return cache_scope
     if cache_scope == "none":
         return "turn"
@@ -126,8 +126,6 @@ def _cache_tier(*, cache_role: str, ttl: str, visibility: str) -> str:
         return "append-only"
     if cache_role in {"session", "session_stable"}:
         return "session"
-    if cache_role in {"task", "task_stable"}:
-        return "task"
     return "volatile"
 
 

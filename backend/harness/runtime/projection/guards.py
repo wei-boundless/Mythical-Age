@@ -23,7 +23,6 @@ INTERNAL_TOKENS = {
     "task_execution_packet",
     "terminal_reason",
     "tool_call",
-    "single_turn_tool_iteration_limit",
 }
 
 

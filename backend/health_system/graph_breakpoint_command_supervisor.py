@@ -13,14 +13,8 @@ from .registry import HealthRegistry
 
 logger = logging.getLogger(__name__)
 
-_PROTOCOL_REPAIR_VALIDATION_ERRORS = {
-    "public_progress_note_required",
-    "public_action_state_required",
-}
-_PROTOCOL_REPAIR_REQUIRED_SIGNATURE = {
-    "public_progress_note_required",
-    "public_action_state_required",
-}
+_PROTOCOL_REPAIR_VALIDATION_ERRORS: set[str] = set()
+_PROTOCOL_REPAIR_REQUIRED_SIGNATURE: set[str] = set()
 _AUTO_RESUME_REASONS = {
     "active_work_order_executor_missing_after_restart",
     "active_work_order_executor_missing",
@@ -415,6 +409,8 @@ class GraphBreakpointCommandSupervisor:
         validation_errors: list[str],
         reasons: list[str],
     ) -> bool:
+        if not _PROTOCOL_REPAIR_REQUIRED_SIGNATURE:
+            return False
         normalized = {item for item in validation_errors if item}
         if not _PROTOCOL_REPAIR_REQUIRED_SIGNATURE.issubset(normalized):
             return False

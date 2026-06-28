@@ -58,10 +58,8 @@ class PromptCachePlanner:
         combined_stable_prefix = []
         provider_global_prefix = []
         session_prefix = []
-        task_prefix = []
         collect_provider_global = True
         collect_session = True
-        collect_task = True
         collect_stable = True
         for segment in segment_map.segments:
             if _is_provider_payload_tool_blocker_segment(segment):
@@ -87,15 +85,7 @@ class PromptCachePlanner:
                 session_prefix.append(segment)
             else:
                 collect_session = False
-            if collect_task and is_prefix_eligible_for_tier(
-                cache_role=segment.cache_role,
-                prefix_tier=tier,
-                tier="task",
-            ):
-                task_prefix.append(segment)
-            else:
-                collect_task = False
-            if not collect_task and not is_cache_eligible_prefix(
+            if not collect_session and not is_cache_eligible_prefix(
                 cache_role=segment.cache_role,
                 prefix_tier=tier,
             ):
@@ -107,7 +97,6 @@ class PromptCachePlanner:
                 combined_stable_prefix=combined_stable_prefix,
                 provider_global_prefix=provider_global_prefix,
                 session_prefix=session_prefix,
-                task_prefix=task_prefix,
             ),
             **_prompt_manifest_cache_diagnostics(segment_map),
         }
@@ -204,13 +193,11 @@ def _prefix_diagnostics(
     combined_stable_prefix: list[Any],
     provider_global_prefix: list[Any],
     session_prefix: list[Any],
-    task_prefix: list[Any],
 ) -> dict[str, Any]:
     total_tokens = _total_predicted_tokens(segment_map)
     stable_prefix_tokens = sum(int(item.predicted_tokens or 0) for item in combined_stable_prefix)
     provider_global_tokens = sum(int(item.predicted_tokens or 0) for item in provider_global_prefix)
     session_tokens = sum(int(item.predicted_tokens or 0) for item in session_prefix)
-    task_tokens = sum(int(item.predicted_tokens or 0) for item in task_prefix)
     stable_role_tokens = sum(
         int(segment.predicted_tokens or 0)
         for segment in segment_map.segments
@@ -235,7 +222,7 @@ def _prefix_diagnostics(
         for segment in segment_map.segments
         if str(segment.kind or "") in APPEND_ONLY_REPLAY_SEGMENT_KINDS
         and str(segment.cache_role or "") in {"cacheable_prefix", "session_stable"}
-        and str(segment.prefix_tier or "") == "task"
+        and str(segment.prefix_tier or "") == "session"
     )
     replay_volatile_tokens = sum(
         int(segment.predicted_tokens or 0)
@@ -287,28 +274,23 @@ def _prefix_diagnostics(
         "prompt_stable_prefix_hash": stable_text_hash("|".join(segment.content_hash for segment in combined_stable_prefix)) if combined_stable_prefix else "",
         "provider_global_prefix_hash": stable_text_hash("|".join(segment.content_hash for segment in provider_global_prefix)) if provider_global_prefix else "",
         "session_prefix_hash": stable_text_hash("|".join(segment.content_hash for segment in session_prefix)) if session_prefix else "",
-        "task_prefix_hash": stable_text_hash("|".join(segment.content_hash for segment in task_prefix)) if task_prefix else "",
         "provider_global_prefix_segment_count": len(provider_global_prefix),
         "session_prefix_segment_count": len(session_prefix),
-        "task_prefix_segment_count": len(task_prefix),
         "predicted_prompt_tokens_total": total_tokens,
         "provider_global_prefix_predicted_tokens": provider_global_tokens,
         "session_prefix_predicted_tokens": session_tokens,
-        "task_prefix_predicted_tokens": task_tokens,
         "prompt_stable_prefix_predicted_tokens": stable_prefix_tokens,
         "prompt_stable_cache_role_predicted_tokens": stable_role_tokens,
         "volatile_predicted_tokens": volatile_tokens,
         "provider_tool_schema_blocker_predicted_tokens": provider_tool_schema_blocker_tokens,
         "body_after_prompt_stable_prefix_predicted_tokens": max(0, total_tokens - stable_prefix_tokens),
-        "body_after_task_prefix_predicted_tokens": max(0, total_tokens - task_tokens),
         "provider_global_prefix_token_ratio": _ratio(provider_global_tokens, total_tokens),
         "session_prefix_token_ratio": _ratio(session_tokens, total_tokens),
-        "task_prefix_token_ratio": _ratio(task_tokens, total_tokens),
         "prompt_stable_prefix_token_ratio": _ratio(stable_prefix_tokens, total_tokens),
         "volatile_token_ratio": _ratio(volatile_tokens, total_tokens),
         "top_volatile_segment_families": _top_volatile_segment_families(segment_map),
-        "append_only_replay_promoted_to_task_prefix": replay_stable_tokens > 0,
-        "append_only_replay_task_prefix_predicted_tokens": replay_stable_tokens,
+        "append_only_replay_promoted_to_provider_visible_context_prefix": replay_stable_tokens > 0,
+        "append_only_replay_context_prefix_predicted_tokens": replay_stable_tokens,
         "append_only_replay_volatile_predicted_tokens": replay_volatile_tokens,
         "read_evidence_exact_predicted_tokens": read_evidence_tokens,
         "attachment_context_index_predicted_tokens": attachment_context_index_tokens,
@@ -321,8 +303,8 @@ def _prefix_diagnostics(
         **_physical_cache_spine_boundary_diagnostics(segment_map),
         **_cache_read_target_diagnostics(
             segment_map=segment_map,
-            prefix_tokens=task_tokens,
-            prefix_source="segment_map_task_prefix",
+            prefix_tokens=stable_prefix_tokens,
+            prefix_source="segment_map_stable_prefix",
         ),
     }
 
@@ -1025,6 +1007,13 @@ def _plan_from_provider_payload_boundary(
             ],
             "physical_cache_spine_first_blocker": dict(selected_prefix.get("first_blocker") or {}),
             "physical_cache_spine_blockers": list(selected_prefix.get("blockers") or []),
+            "physical_cache_spine_tool_protocol_round_count": int(selected_prefix.get("provider_tool_protocol_round_count") or 0),
+            "physical_cache_spine_tool_protocol_rounds": list(selected_prefix.get("provider_tool_protocol_rounds") or []),
+            "physical_cache_spine_tool_protocol_round_ids": [
+                str(item.get("round_id") or "")
+                for item in list(selected_prefix.get("provider_tool_protocol_rounds") or [])
+                if isinstance(item, dict) and str(item.get("round_id") or "")
+            ],
             "physical_cache_spine_predicted_tokens": int(token_diagnostics.get("physical_cache_spine_predicted_tokens") or 0),
             "physical_cache_spine_expected_read_predicted_tokens": int(
                 token_diagnostics.get("physical_cache_spine_expected_read_predicted_tokens") or 0

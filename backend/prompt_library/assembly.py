@@ -513,7 +513,6 @@ def _assembly_cache_boundary_report(sections: tuple[PromptSection, ...]) -> dict
         "stable_section_count": len(sections),
         "global_static_section_count": prefix_tier_counts.get("provider_global", 0),
         "session_stable_section_count": prefix_tier_counts.get("session", 0),
-        "task_stable_section_count": prefix_tier_counts.get("task", 0),
         "volatile_section_count": prefix_tier_counts.get("volatile", 0) + prefix_tier_counts.get("none", 0),
         "section_fingerprint": _stable_payload_hash(_section_fingerprint_payload(sections)) if sections else "",
         "authority": "prompt_library.prompt_assembly_cache_boundary",
@@ -543,8 +542,6 @@ def _prefix_tier_from_cache_scope(cache_scope: str) -> str:
         return "provider_global"
     if scope in {"static_environment", "session", "session_stable"}:
         return "session"
-    if scope in {"task", "task_stable"}:
-        return "task"
     if scope in {"none"}:
         return "none"
     return "volatile"
@@ -602,7 +599,7 @@ def _contract_sections(
                 title=title,
                 content=content,
                 owner_layer="task",
-                cache_scope="task_stable",
+                cache_scope="session",
                 source_ref=f"{source_ref}:{contract_id}.{field}",
                 order=start_order + offset,
                 metadata={

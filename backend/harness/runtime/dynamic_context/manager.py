@@ -439,7 +439,7 @@ class DynamicContextManager:
                     input_chars=estimate_chars({"execution_state": request.execution_state, "observations": request.observations}),
                     output_chars=estimate_chars(task_state_replay_entries),
                     projection_strategy="append_only_task_state_replay_entries",
-                    cache_impact="task_prefix_append_only",
+                    cache_impact="provider_visible_context_prefix_append_only",
                     refs=tuple(_task_state_replay_refs(task_state_replay_entries)),
                 )
             )

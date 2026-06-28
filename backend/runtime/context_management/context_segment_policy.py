@@ -170,9 +170,9 @@ def _install_builtin_policy_defaults() -> None:
     register_context_segment_policy_defaults(
         kind="runtime_memory_context",
         section=CONTEXT_MEMORY_PREFIX,
-        prefix_cache_scope="task",
+        prefix_cache_scope="session",
         prefix_cache_role="session_stable",
-        prefix_tier="task",
+        prefix_tier="session",
         commit_policy="append_then_seal",
         replay_policy="provider_visible_ledger_replay",
         identity_policy="content_addressed_when_unkeyed",
@@ -541,8 +541,8 @@ def _cache_policy_for_section(
         role = _cache_role(cache_role)
         if role not in {"cacheable_prefix", "session_stable"}:
             role = "session_stable"
-        scope = str(cache_scope or "").strip()
-        if not scope or scope == "none":
+        scope = _cache_scope(cache_scope, default="global" if role == "cacheable_prefix" else "session")
+        if scope == "none":
             scope = "global" if role == "cacheable_prefix" else "session"
         return scope, role, _prefix_tier(prefix_tier, cache_scope=scope, cache_role=role)
     if section == CONTEXT_MEMORY_PREFIX:
@@ -551,16 +551,18 @@ def _cache_policy_for_section(
             return "none", "never_cache", "none"
         if role not in {"cacheable_prefix", "session_stable"}:
             role = "session_stable"
-        scope = str(cache_scope or "").strip() or "task"
+        scope = _cache_scope(cache_scope, default="session")
+        if scope == "none":
+            scope = "session"
         return scope, role, _prefix_tier(prefix_tier, cache_scope=scope, cache_role=role)
     if section == CONTEXT_APPEND:
         role = _cache_role(cache_role)
         if role == "never_cache":
             return "none", "never_cache", "none"
-        scope = str(cache_scope or "").strip()
-        if not scope or scope == "none":
-            scope = "task"
-        return scope, "session_stable", "task"
+        scope = _cache_scope(cache_scope, default="session")
+        if scope == "none":
+            scope = "session"
+        return scope, "session_stable", "session"
     return "none", "volatile", "volatile"
 
 
@@ -613,20 +615,29 @@ def _cache_role(value: Any) -> str:
 
 def _prefix_tier(value: Any, *, cache_scope: str, cache_role: str) -> str:
     explicit = str(value or "").strip()
-    if explicit in {"provider_global", "session", "task", "volatile", "none"}:
+    if explicit in {"provider_global", "session", "volatile", "none"}:
         return explicit
+    if explicit:
+        return "none" if cache_role == "never_cache" else "volatile"
     if cache_role == "cacheable_prefix":
         return "provider_global"
     if cache_role == "session_stable":
         scope = str(cache_scope or "").strip()
         if scope == "global":
             return "provider_global"
-        if scope == "task":
-            return "task"
         return "session"
     if cache_role == "never_cache":
         return "none"
     return "volatile"
+
+
+def _cache_scope(value: Any, *, default: str) -> str:
+    normalized = str(value or "").strip()
+    if normalized in {"global", "session", "none"}:
+        return normalized
+    if normalized:
+        return "none"
+    return str(default or "session")
 
 
 def _merge_defaults(

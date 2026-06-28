@@ -228,7 +228,6 @@ def build_task_execution_assembly_bundle(
                 "op.read_file",
                 "op.search_files",
                 "op.search_text",
-                "op.read_structured_file",
                 "op.web_search",
                 "op.fetch_url",
                 "op.write_file",
@@ -894,5 +893,4 @@ def _is_stage_execution_turn(current_turn_payload: dict[str, Any]) -> bool:
     if dict(current_turn_payload.get("task_result_ready_event") or {}):
         return True
     return False
-
 

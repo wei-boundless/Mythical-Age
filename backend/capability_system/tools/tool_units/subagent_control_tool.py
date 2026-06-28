@@ -59,11 +59,11 @@ class _SubagentLifecycleTool(BaseTool):
 
     def _run(self, run_manager: CallbackManagerForToolRun | None = None, **kwargs: Any) -> str:
         _ = run_manager, kwargs
-        raise RuntimeError("subagent_lifecycle_requires_task_runtime")
+        raise RuntimeError("subagent_lifecycle_requires_control_plane")
 
     async def _arun(self, run_manager: AsyncCallbackManagerForToolRun | None = None, **kwargs: Any) -> str:
         _ = run_manager, kwargs
-        raise RuntimeError("subagent_lifecycle_requires_task_runtime")
+        raise RuntimeError("subagent_lifecycle_requires_control_plane")
 
 
 class SpawnSubagentTool(_SubagentLifecycleTool):

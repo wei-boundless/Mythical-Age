@@ -10,7 +10,7 @@ from runtime.prompt_accounting.serializer import canonical_json, normalize_messa
 
 
 SegmentCacheRole = Literal["cacheable_prefix", "session_stable", "volatile", "never_cache"]
-SegmentPrefixTier = Literal["provider_global", "session", "task", "volatile", "none"]
+SegmentPrefixTier = Literal["provider_global", "session", "volatile", "none"]
 SegmentCompressionRole = Literal["preserve", "summarize", "drop_if_cold", "ref_only"]
 
 
@@ -48,7 +48,6 @@ class PromptSegmentPlan:
     stable_prefix_hash: str = ""
     provider_global_prefix_hash: str = ""
     session_prefix_hash: str = ""
-    task_prefix_hash: str = ""
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "runtime.prompt_segment_plan"
 
@@ -69,11 +68,9 @@ def build_prompt_segment_plan(
     stable_hash_parts: list[str] = []
     provider_global_hash_parts: list[str] = []
     session_hash_parts: list[str] = []
-    task_hash_parts: list[str] = []
     collect_stable_prefix = True
     collect_provider_global_prefix = True
     collect_session_prefix = True
-    collect_task_prefix = True
     for index, spec in enumerate(list(message_specs or [])):
         content = str(spec.get("content") or "")
         role = str(spec.get("role") or "user")
@@ -114,10 +111,6 @@ def build_prompt_segment_plan(
             session_hash_parts.append(model_message_hash)
         else:
             collect_session_prefix = False
-        if collect_task_prefix and prefix_tier in {"provider_global", "session", "task"}:
-            task_hash_parts.append(model_message_hash)
-        else:
-            collect_task_prefix = False
     seed = {
         "packet_id": packet_id,
         "invocation_kind": invocation_kind,
@@ -145,7 +138,6 @@ def build_prompt_segment_plan(
         stable_prefix_hash=stable_text_hash("|".join(stable_hash_parts)) if stable_hash_parts else "",
         provider_global_prefix_hash=stable_text_hash("|".join(provider_global_hash_parts)) if provider_global_hash_parts else "",
         session_prefix_hash=stable_text_hash("|".join(session_hash_parts)) if session_hash_parts else "",
-        task_prefix_hash=stable_text_hash("|".join(task_hash_parts)) if task_hash_parts else "",
         diagnostics=dict(diagnostics or {}),
     )
 
@@ -201,14 +193,14 @@ def _cache_role(value: Any) -> SegmentCacheRole:
 
 def _prefix_tier(value: Any, *, cache_scope: str, cache_role: str) -> SegmentPrefixTier:
     normalized = str(value or "").strip()
-    if normalized in {"provider_global", "session", "task", "volatile", "none"}:
+    if normalized in {"provider_global", "session", "volatile", "none"}:
         return normalized  # type: ignore[return-value]
+    if normalized:
+        return "none" if cache_role == "never_cache" else "volatile"
     if cache_role == "cacheable_prefix":
         return "provider_global"
     if cache_role == "session_stable":
         scope = str(cache_scope or "").strip()
-        if scope == "task":
-            return "task"
         if scope == "session":
             return "session"
         if scope == "global":
@@ -260,16 +252,16 @@ def _validate_prefix_tier_content(*, kind: str, prefix_tier: SegmentPrefixTier, 
     if payload is None:
         return
     runtime_fields = sorted(_runtime_instance_value_fields(payload))
-    if runtime_fields and prefix_tier != "task":
+    if runtime_fields and prefix_tier == "provider_global":
         raise ValueError(
-            "stable prefix segment contains runtime instance fields: "
+            "provider-global prefix segment contains runtime instance fields: "
             f"kind={kind} prefix_tier={prefix_tier} fields={','.join(runtime_fields)}"
         )
-    if prefix_tier in {"provider_global", "session"}:
+    if prefix_tier == "provider_global":
         semantic_fields = sorted(_semantic_payload_keys(payload) & TASK_SEMANTIC_FIELDS)
         if semantic_fields:
             raise ValueError(
-                "provider/session prefix segment contains task semantic fields: "
+                "provider-global prefix segment contains task semantic fields: "
                 f"kind={kind} prefix_tier={prefix_tier} fields={','.join(semantic_fields)}"
             )
 
