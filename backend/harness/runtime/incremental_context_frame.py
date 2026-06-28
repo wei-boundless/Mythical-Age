@@ -209,7 +209,7 @@ def build_task_execution_incremental_context_frame_payload(
     task_state_replay_entries: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
     current_observations: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
     execution_projection: dict[str, Any] | None = None,
-    turn_reflex_tail_context_payload: dict[str, Any] | None = None,
+    turn_state_attention_context_payload: dict[str, Any] | None = None,
     evidence_index_cursor_payload: dict[str, Any] | None = None,
     editor_context_payload: dict[str, Any] | None = None,
     read_evidence_payload: dict[str, Any] | None = None,
@@ -545,3 +545,4 @@ def _tool_call_function(call: dict[str, Any]) -> dict[str, Any]:
 
 def _payload_hash(payload: Any) -> str:
     return "sha256:" + hashlib.sha256(_canonical_json(payload).encode("utf-8", errors="ignore")).hexdigest()
+

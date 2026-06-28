@@ -23,6 +23,7 @@ from .mcp_models import (
 
 if TYPE_CHECKING:
     from .image_ocr_worker import ImageOCRWorker
+    from .office_document_worker import OfficeDocumentWorker
     from .pdf_worker import PDFWorker
     from .retrieval_worker import RetrievalWorker
     from .structured_data_worker import StructuredDataWorker
@@ -36,6 +37,7 @@ class EvidenceOrchestrator:
         pdf_worker: PDFWorker | None = None,
         structured_data_worker: StructuredDataWorker | None = None,
         image_ocr_worker: ImageOCRWorker | None = None,
+        office_document_worker: OfficeDocumentWorker | None = None,
         candidate_store=None,
         graph_store=None,
         output_policy,
@@ -44,11 +46,13 @@ class EvidenceOrchestrator:
         self.pdf_worker = pdf_worker
         self.structured_data_worker = structured_data_worker
         self.image_ocr_worker = image_ocr_worker
+        self.office_document_worker = office_document_worker
         self.worker_by_slot = {
             "retrieval_worker": retrieval_worker,
             "pdf_worker": pdf_worker,
             "structured_data_worker": structured_data_worker,
             "image_ocr_worker": image_ocr_worker,
+            "office_document_worker": office_document_worker,
         }
         self.candidate_store = candidate_store
         self.graph_store = graph_store
@@ -482,5 +486,4 @@ def _slug(value: str) -> str:
     compact = "".join(ch.lower() if ch.isalnum() else "-" for ch in str(value or "")).strip("-")
     compact = "-".join(item for item in compact.split("-") if item)
     return compact[:48] or "main"
-
 

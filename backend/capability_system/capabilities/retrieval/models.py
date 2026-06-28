@@ -5,16 +5,6 @@ from typing import Any
 
 
 @dataclass(slots=True)
-class ParsedChunk:
-    text: str
-    source: str
-    modality: str
-    page: int | None = None
-    section: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(slots=True)
 class RetrievalHit:
     text: str
     source: str

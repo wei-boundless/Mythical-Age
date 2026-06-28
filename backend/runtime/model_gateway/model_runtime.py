@@ -1302,9 +1302,9 @@ class ModelRuntime:
             )
             if cache_record is not None:
                 updated_cache_record = self._prompt_cache_planner.with_provider_usage(cache_record, provider_usage)
-                stable_prefix_predicted_tokens = int(
-                    dict(updated_cache_record.diagnostics or {}).get("provider_payload_prefix_predicted_tokens")
-                    or dict(updated_cache_record.diagnostics or {}).get("stable_prefix_predicted_tokens")
+                physical_cache_spine_predicted_tokens = int(
+                    dict(updated_cache_record.diagnostics or {}).get("physical_cache_spine_predicted_tokens")
+                    or dict(updated_cache_record.diagnostics or {}).get("provider_payload_prefix_predicted_tokens")
                     or 0
                 )
                 cached_tokens = max(int(provider_usage.cached_tokens or 0), int(provider_usage.cache_read_tokens or 0))
@@ -1317,8 +1317,8 @@ class ModelRuntime:
                     else None
                 )
                 cache_efficiency = (
-                    round(cached_tokens / stable_prefix_predicted_tokens, 4)
-                    if stable_prefix_predicted_tokens > 0
+                    round(cached_tokens / physical_cache_spine_predicted_tokens, 4)
+                    if physical_cache_spine_predicted_tokens > 0
                     else 0.0
                 )
                 updated_cache_record = replace(

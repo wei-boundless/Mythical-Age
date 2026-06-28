@@ -5,14 +5,10 @@ import json
 from typing import Any
 
 from .models import PromptCompositionSlot, RuntimePromptSlot, RuntimePromptSlotPlan
-from .tracing import runtime_source_kind_for_segment
-from runtime.context_management.context_segment_policy import (
-    CONTEXT_APPEND,
-    CONTEXT_MEMORY_PREFIX,
-    DYNAMIC_TAIL,
-    STATIC_PREFIX,
-    context_segment_policy_for_spec,
-    context_segment_policy_metadata,
+from .slot_policy import (
+    prompt_slot_policy_metadata,
+    resolve_prompt_slot_policy,
+    stability_for_prefix,
 )
 
 
@@ -28,13 +24,7 @@ def build_runtime_prompt_slot_plan(
             continue
         spec = _normalized_spec(raw_spec)
         kind = str(spec.get("kind") or "unknown_unplanned").strip() or "unknown_unplanned"
-        source_kind = runtime_source_kind_for_segment(spec)
-        policy = context_segment_policy_for_spec(spec)
-        layer = _layer_for_source_kind(source_kind)
-        if policy.section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
-            layer = "context_memory"
-        elif policy.section == DYNAMIC_TAIL:
-            layer = "runtime_dynamic"
+        slot_policy = resolve_prompt_slot_policy(spec)
         metadata = dict(spec.get("metadata") or {})
         prompt_source_manifest_id = str(metadata.get("runtime_prompt_source_manifest_id") or "")
         prompt_source_id = str(metadata.get("runtime_prompt_source_id") or "")
@@ -53,18 +43,20 @@ def build_runtime_prompt_slot_plan(
                 invocation_kind=str(invocation_kind or ""),
                 packet_id=str(packet_id or ""),
                 order=index,
-                layer=layer,
+                layer=slot_policy.layer,
                 slot_kind=kind,
                 target_role=str(spec.get("role") or "user"),
-                source_kind=source_kind,
+                source_kind=slot_policy.source_kind,
                 source_ref=str(spec.get("source_ref") or ""),
-                cache_scope=policy.prefix_cache_scope,
-                cache_role=policy.prefix_cache_role,
-                cache_tier=policy.prefix_tier,
-                dynamic_tier=_dynamic_tier(kind=kind, source_kind=source_kind, cache_role=policy.prefix_cache_role, policy=policy.to_dict()),
-                compression_role=str(spec.get("compression_role") or "summarize"),
-                authority_class=str(metadata.get("authority_class") or _authority_class_for_source_kind(source_kind)),
-                render_contract=_render_contract(spec, source_kind=source_kind),
+                cache_scope=slot_policy.cache_scope,
+                cache_role=slot_policy.cache_role,
+                prefix_tier=slot_policy.prefix_tier,
+                dynamic_tier=slot_policy.dynamic_tier,
+                load_phase=slot_policy.load_phase,
+                phase_order=slot_policy.phase_order,
+                compression_role=slot_policy.compression_role,
+                authority_class=slot_policy.authority_class,
+                render_contract=_render_contract(spec, source_kind=slot_policy.source_kind),
                 message_spec=spec,
                 content_hash=content_hash,
                 metadata={
@@ -72,7 +64,7 @@ def build_runtime_prompt_slot_plan(
                     "prompt_source_manifest_id": prompt_source_manifest_id,
                     "prompt_source_id": prompt_source_id,
                     "slot_source": "runtime_prompt_source_manifest",
-                    **context_segment_policy_metadata(policy),
+                    **prompt_slot_policy_metadata(slot_policy),
                 },
             )
         )
@@ -86,6 +78,9 @@ def build_runtime_prompt_slot_plan(
                 "kind": slot.slot_kind,
                 "layer": slot.layer,
                 "source_kind": slot.source_kind,
+                "prefix_tier": slot.prefix_tier,
+                "dynamic_tier": slot.dynamic_tier,
+                "load_phase": slot.load_phase,
                 "source_ref": slot.source_ref,
                 "content_hash": slot.content_hash,
             }
@@ -100,7 +95,9 @@ def build_runtime_prompt_slot_plan(
         diagnostics={
             "slot_count": len(slots),
             "layer_counts": _count_by(slots, "layer"),
+            "prefix_tier_counts": _count_by(slots, "prefix_tier"),
             "dynamic_tier_counts": _count_by(slots, "dynamic_tier"),
+            "load_phase_counts": _count_by(slots, "load_phase"),
             "source_kind_counts": _count_by(slots, "source_kind"),
             "authority": "prompt_composition.runtime_slot_plan.builder",
         },
@@ -117,10 +114,10 @@ def composition_slots_from_runtime_slot_plan(slot_plan: RuntimePromptSlotPlan) -
                 layer=slot.layer,
                 slot_kind=slot.slot_kind,
                 target_role=slot.target_role,
-                lifecycle=_lifecycle_for_slot(slot),
+                stability=stability_for_prefix(cache_role=slot.cache_role, prefix_tier=slot.prefix_tier),
                 cache_scope=slot.cache_scope,
                 cache_role=slot.cache_role,
-                prefix_tier=slot.cache_tier,
+                prefix_tier=slot.prefix_tier,
                 source_kind=slot.source_kind,
                 source_ref=slot.source_ref,
                 content_hash=slot.content_hash,
@@ -131,6 +128,8 @@ def composition_slots_from_runtime_slot_plan(slot_plan: RuntimePromptSlotPlan) -
                     "runtime_prompt_slot_plan_id": slot_plan.plan_id,
                     "authority_class": slot.authority_class,
                     "dynamic_tier": slot.dynamic_tier,
+                    "load_phase": slot.load_phase,
+                    "phase_order": slot.phase_order,
                     "render_contract": dict(slot.render_contract),
                 },
             )
@@ -160,188 +159,6 @@ def _render_contract(spec: dict[str, Any], *, source_kind: str) -> dict[str, Any
             "source_kind": source_kind,
         }
     )
-
-
-def _layer_for_source_kind(source_kind: str) -> str:
-    if source_kind == "runtime_baseline_refs":
-        return "runtime_protocol_stable"
-    if source_kind == "dynamic_context_fragment":
-        return "runtime_dynamic"
-    if source_kind in {
-        "runtime_read_evidence",
-        "runtime_bound_task_context",
-        "runtime_dynamic_boundary",
-        "runtime_active_skills",
-        "runtime_attachment_context_index",
-        "runtime_evidence_index_cursor",
-        "runtime_task_goal_context",
-        "runtime_task_plan_context",
-        "runtime_task_todo_context",
-        "runtime_editor_context_index",
-        "runtime_editor_evidence_delta",
-        "runtime_memory_context",
-    }:
-        return "runtime_dynamic"
-    if source_kind in {"runtime_action_schema", "tool_catalog"}:
-        return "capability_stable"
-    if source_kind in {"semantic_compaction_boundary", "runtime_lifecycle"}:
-        return "lifecycle_stable"
-    if source_kind == "runtime_file_evidence_policy":
-        return "file_evidence_policy_stable"
-    if source_kind == "runtime_artifact_scope":
-        return "artifact_scope_stable"
-    if source_kind == "runtime_project_instructions":
-        return "project_stable"
-    if source_kind == "runtime_contract":
-        return "task_contract_stable"
-    if source_kind == "runtime_task_boundary":
-        return "task_runtime_boundary_stable"
-    if source_kind in {"runtime_task_state_replay", "runtime_append_only_context"}:
-        return "append_only_task_evidence"
-    if source_kind == "runtime_read_evidence_context":
-        return "append_only_task_evidence"
-    if source_kind == "runtime_evidence_index_cursor":
-        return "runtime_dynamic"
-    if source_kind in {"runtime_task_goal_context", "runtime_task_plan_context", "runtime_task_todo_context"}:
-        return "runtime_dynamic"
-    if source_kind == "runtime_protocol":
-        return "runtime_protocol_stable"
-    return "legacy_runtime_stable"
-
-
-def _authority_class_for_source_kind(source_kind: str) -> str:
-    return {
-        "dynamic_context_fragment": "runtime_dynamic_context",
-        "runtime_action_schema": "runtime_action_schema",
-        "runtime_artifact_scope": "runtime_artifact_scope",
-        "runtime_bound_task_context": "bound_task_context",
-        "runtime_contract": "task_contract",
-        "runtime_environment_boundary": "environment_boundary",
-        "runtime_file_evidence_policy": "file_evidence_policy",
-        "runtime_lifecycle": "runtime_lifecycle_protocol",
-        "runtime_project_instructions": "project_instruction_boundary",
-        "runtime_task_boundary": "runtime_boundary",
-        "runtime_task_state_replay": "runtime_task_state_replay",
-        "runtime_append_only_context": "append_only_context",
-        "runtime_attachment_context_index": "attachment_context_index",
-        "runtime_evidence_index_cursor": "evidence_index_cursor",
-        "runtime_task_goal_context": "task_goal_context",
-        "runtime_task_plan_context": "task_plan_context",
-        "runtime_task_todo_context": "task_todo_context",
-        "runtime_editor_context_index": "editor_context_index",
-        "runtime_editor_evidence_delta": "editor_evidence_delta",
-        "runtime_memory_context": "runtime_memory_context",
-        "runtime_baseline_refs": "runtime_baseline_refs",
-        "runtime_read_evidence_context": "read_evidence_context",
-        "runtime_protocol": "runtime_protocol",
-        "tool_catalog": "tool_catalog",
-    }.get(source_kind, "runtime_prompt_slot")
-
-
-def _dynamic_tier(*, kind: str, source_kind: str, cache_role: str, policy: dict[str, Any] | None = None) -> str:
-    decision = dict(policy or {})
-    section = str(decision.get("section") or decision.get("context_cache_section") or "")
-    if section == STATIC_PREFIX:
-        return "stable_prefix"
-    if section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
-        if kind == "runtime_memory_context":
-            return "runtime_memory_context"
-        if kind in {"current_turn_user_context", "single_agent_turn_user_steer_context", "user_steering_context_append"}:
-            return "user_context_append"
-        if kind in {"provider_protocol_history", "single_agent_turn_tool_call", "tool_transcript_delta"}:
-            return "append_only_task_evidence"
-        return "context_memory_append"
-    if section == DYNAMIC_TAIL:
-        if kind == "read_evidence_injection":
-            return "current_exact_evidence"
-        if kind == "active_skills":
-            return "active_skills"
-        if kind == "graph_node_completion_prefix":
-            return "assistant_completion_prefix"
-        return "dynamic_context_tail"
-    if source_kind in {"runtime_task_state_replay", "runtime_append_only_context"} or kind == "task_state_replay_entry":
-        return "append_only_task_evidence"
-    if source_kind == "runtime_read_evidence_context" or kind == "read_evidence_context":
-        return "append_only_task_evidence"
-    if kind == "lifecycle_runtime_guidance":
-        return "dynamic_context_tail"
-    if kind in {"task_start_inherited_context", "task_runtime_boundary_dynamic"}:
-        return "runtime_cursor_prefix"
-    if source_kind == "runtime_attachment_context_index" or kind == "attachment_context_index":
-        return "attachment_context_index"
-    if source_kind == "runtime_evidence_index_cursor" or kind == "evidence_index_cursor":
-        return "evidence_index_cursor"
-    if source_kind in {"runtime_task_goal_context", "runtime_task_plan_context", "runtime_task_todo_context"} or kind in {
-        "task_goal_context",
-        "task_plan_context",
-        "task_todo_context",
-    }:
-        return "dynamic_context_tail"
-    if source_kind == "runtime_editor_context_index" or kind == "editor_context_index":
-        return "editor_context_index"
-    if kind == "graph_node_completion_prefix":
-        return "assistant_completion_prefix"
-    if kind == "active_skills":
-        return "active_skills"
-    if kind in {"bound_task_runtime_context"}:
-        return "file_evidence_cursor"
-    if source_kind == "runtime_memory_context" or kind == "runtime_memory_context":
-        return "runtime_memory_context"
-    if source_kind == "runtime_baseline_refs" or kind == "runtime_baseline_refs":
-        if cache_role in {"cacheable_prefix", "session_stable"}:
-            return "stable_prefix"
-        return "runtime_baseline_refs"
-    if kind == "dynamic_projection":
-        return "runtime_delta_tail"
-    if source_kind in {"runtime_incremental_context_frame", "runtime_incremental_context_cursor"} or kind in {
-        "incremental_context_frame",
-        "incremental_context_cursor",
-    }:
-        return "dynamic_context_tail"
-    if source_kind == "runtime_editor_evidence_delta" or kind == "current_editor_evidence_delta":
-        return "current_exact_evidence"
-    if kind == "read_evidence_injection":
-        return "current_exact_evidence"
-    if kind in {"session_history", "session_history_context"}:
-        return "history_replay"
-    if kind == "session_history_tail_context":
-        return "dynamic_context_tail"
-    if kind == "current_turn_user_context":
-        return "user_context_append"
-    if kind == "semantic_compaction_request":
-        return "user_editor_volatile"
-    if str(cache_role or "") not in {"volatile", "never_cache"}:
-        return "stable_prefix"
-    return "current_runtime_cursor"
-
-
-def _cache_tier(spec: dict[str, Any]) -> str:
-    explicit = str(spec.get("prefix_tier") or "").strip()
-    if explicit:
-        return explicit
-    cache_role = str(spec.get("cache_role") or "").strip()
-    cache_scope = str(spec.get("cache_scope") or "").strip()
-    if cache_role == "cacheable_prefix":
-        return "provider_global"
-    if cache_role == "session_stable":
-        if cache_scope == "task":
-            return "task"
-        if cache_scope == "global":
-            return "provider_global"
-        return "session"
-    if cache_role == "volatile":
-        return "volatile"
-    return "none"
-
-
-def _lifecycle_for_slot(slot: RuntimePromptSlot) -> str:
-    if slot.cache_role in {"volatile", "never_cache"} or slot.cache_tier in {"volatile", "none"}:
-        return "runtime_dynamic"
-    if slot.cache_tier == "provider_global":
-        return "global_static"
-    if slot.cache_tier == "task":
-        return "task_stable"
-    return "session_stable"
 
 
 def _count_by(slots: list[RuntimePromptSlot], field_name: str) -> dict[str, int]:

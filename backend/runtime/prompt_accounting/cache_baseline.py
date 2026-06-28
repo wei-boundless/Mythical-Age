@@ -7,17 +7,13 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-from runtime.prompt_accounting.cache_policy import is_cache_eligible_prefix, is_prefix_eligible_for_tier
-
 from .cache_planner import stable_text_hash
 from .models import PromptSegment, PromptSegmentMap
 from .provider_lane import normalize_provider_lane
 from .provider_payload_boundary import (
     provider_payload_boundary_diagnostics,
     provider_payload_cache_boundary,
-    provider_payload_selected_tier,
-    provider_payload_segments,
-    provider_payload_tier_prefix,
+    provider_payload_physical_cache_spine,
 )
 
 
@@ -286,110 +282,46 @@ class PromptCacheBaselineTracker:
 
 
 def _baseline_hashes(*, segment_map: PromptSegmentMap, model_request: Any | None) -> dict[str, str]:
-    tier_hashes = _tier_prefix_hashes(segment_map.segments)
     provider_boundary = provider_payload_cache_boundary(model_request)
-    provider_global = provider_payload_tier_prefix(provider_boundary, "provider_global")
-    session = provider_payload_tier_prefix(provider_boundary, "session")
-    task = provider_payload_tier_prefix(provider_boundary, "task")
+    physical_spine = provider_payload_physical_cache_spine(provider_boundary)
+    physical_spine_hash = str(
+        physical_spine.get("provider_payload_prefix_hash")
+        or provider_boundary.get("physical_cache_spine_hash")
+        or provider_boundary.get("cache_spine_hash")
+        or ""
+    )
     return {
-        "stable": str(getattr(model_request, "stable_prefix_hash", "") or dict(segment_map.metadata or {}).get("stable_prefix_hash") or tier_hashes["stable"]),
-        "provider_global": str(
-            getattr(model_request, "provider_global_prefix_hash", "")
-            or dict(segment_map.metadata or {}).get("provider_global_prefix_hash")
-            or tier_hashes["provider_global"]
-        ),
-        "session": str(getattr(model_request, "session_prefix_hash", "") or dict(segment_map.metadata or {}).get("session_prefix_hash") or tier_hashes["session"]),
-        "task": str(getattr(model_request, "task_prefix_hash", "") or dict(segment_map.metadata or {}).get("task_prefix_hash") or tier_hashes["task"]),
+        "stable": physical_spine_hash,
+        "provider_global": physical_spine_hash,
+        "session": physical_spine_hash,
+        "task": physical_spine_hash,
         "memory": _memory_segment_hash(segment_map.segments),
-        "provider_payload": str(getattr(model_request, "provider_payload_prefix_hash", "") or provider_boundary.get("provider_payload_prefix_hash") or ""),
-        "provider_payload_provider_global": str(
-            getattr(model_request, "provider_payload_provider_global_prefix_hash", "")
-            or provider_global.get("provider_payload_prefix_hash")
-            or ""
-        ),
-        "provider_payload_session": str(
-            getattr(model_request, "provider_payload_session_prefix_hash", "")
-            or session.get("provider_payload_prefix_hash")
-            or ""
-        ),
-        "provider_payload_task": str(
-            getattr(model_request, "provider_payload_task_prefix_hash", "")
-            or task.get("provider_payload_prefix_hash")
-            or ""
-        ),
+        "provider_payload": physical_spine_hash,
+        "provider_payload_provider_global": physical_spine_hash,
+        "provider_payload_session": physical_spine_hash,
+        "provider_payload_task": physical_spine_hash,
         "tool_catalog": str(getattr(model_request, "tool_catalog_hash", "") or provider_boundary.get("tool_catalog_hash") or ""),
         "stable_tool_catalog": str(getattr(model_request, "stable_tool_catalog_hash", "") or provider_boundary.get("stable_tool_catalog_hash") or ""),
         "cache_sensitive_params": str(getattr(model_request, "cache_sensitive_params_hash", "") or provider_boundary.get("cache_sensitive_params_hash") or ""),
     }
 
 
-def _tier_prefix_hashes(segments: tuple[PromptSegment, ...]) -> dict[str, str]:
-    provider_global: list[PromptSegment] = []
-    session: list[PromptSegment] = []
-    task: list[PromptSegment] = []
-    stable: list[PromptSegment] = []
-    for segment in segments:
-        if not is_cache_eligible_prefix(
-            cache_role=segment.cache_role,
-            prefix_tier=getattr(segment, "prefix_tier", ""),
-        ):
-            break
-        stable.append(segment)
-        tier = str(getattr(segment, "prefix_tier", "") or "none")
-        if is_prefix_eligible_for_tier(cache_role=segment.cache_role, prefix_tier=tier, tier="provider_global") and len(provider_global) == len(stable) - 1:
-            provider_global.append(segment)
-        if is_prefix_eligible_for_tier(cache_role=segment.cache_role, prefix_tier=tier, tier="session") and len(session) == len(stable) - 1:
-            session.append(segment)
-        if is_prefix_eligible_for_tier(cache_role=segment.cache_role, prefix_tier=tier, tier="task") and len(task) == len(stable) - 1:
-            task.append(segment)
-    return {
-        "stable": _segments_hash(stable),
-        "provider_global": _segments_hash(provider_global),
-        "session": _segments_hash(session),
-        "task": _segments_hash(task),
-    }
-
-
 def _baseline_segment_diagnostics(segment_map: PromptSegmentMap) -> dict[str, Any]:
     segments = list(segment_map.segments or [])
-    stable = _stable_prefix_segments(segments)
-    provider_global = _prefix_tier_segments(stable, {"provider_global"})
-    session = _prefix_tier_segments(stable, {"provider_global", "session"})
-    task = _prefix_tier_segments(stable, {"provider_global", "session", "task"})
+    physical_spine = _physical_cache_spine_segments(segments)
     memory = [segment for segment in segments if _is_memory_segment(segment)]
     return {
-        "stable": _segment_group_diagnostics(stable),
-        "provider_global": _segment_group_diagnostics(provider_global),
-        "session": _segment_group_diagnostics(session),
-        "task": _segment_group_diagnostics(task),
+        "physical_cache_spine": _segment_group_diagnostics(physical_spine),
         "memory": _segment_group_diagnostics(memory),
     }
 
 
-def _stable_prefix_segments(segments: list[PromptSegment]) -> list[PromptSegment]:
+def _physical_cache_spine_segments(segments: list[PromptSegment]) -> list[PromptSegment]:
     result: list[PromptSegment] = []
     for segment in segments:
-        if not is_cache_eligible_prefix(
-            cache_role=segment.cache_role,
-            prefix_tier=getattr(segment, "prefix_tier", ""),
-        ):
-            break
-        result.append(segment)
-    return result
-
-
-def _prefix_tier_segments(segments: list[PromptSegment], allowed_tiers: set[str]) -> list[PromptSegment]:
-    result: list[PromptSegment] = []
-    for segment in segments:
-        tier = str(getattr(segment, "prefix_tier", "") or "none")
-        target = (
-            "provider_global"
-            if allowed_tiers == {"provider_global"}
-            else "session"
-            if allowed_tiers == {"provider_global", "session"}
-            else "task"
-        )
-        if not is_prefix_eligible_for_tier(cache_role=segment.cache_role, prefix_tier=tier, tier=target):
+        metadata = dict(getattr(segment, "metadata", {}) or {})
+        lane = str(metadata.get("physical_prefix_lane") or "").strip()
+        if lane not in {"global_static_prefix", "provider_visible_context_prefix"}:
             break
         result.append(segment)
     return result
@@ -457,49 +389,34 @@ def _changed_tiers(previous: PromptCacheBaselineRecord | None, hashes: dict[str,
 
 def _provider_prefix_seal(model_request: Any | None) -> dict[str, Any]:
     boundary = provider_payload_cache_boundary(model_request)
-    selected_tier = provider_payload_selected_tier(boundary)
-    prefix_segments: list[dict[str, Any]] = []
-    if selected_tier == "none":
+    physical_spine = provider_payload_physical_cache_spine(boundary)
+    prefix_segments = [
+        dict(item)
+        for item in list(physical_spine.get("segments") or [])
+        if isinstance(item, dict)
+    ]
+    if not prefix_segments:
         return {
             "status": "empty",
-            "selected_tier": selected_tier,
+            "selected_boundary": "physical_cache_spine",
             "segment_count": 0,
             "segments": [],
         }
-    for raw_segment in sorted(
-        provider_payload_segments(model_request),
-        key=lambda item: int(dict(item).get("ordinal") or 0),
-    ):
-        segment = dict(raw_segment or {})
-        cache_role = str(segment.get("cache_role") or "")
-        prefix_tier = str(segment.get("prefix_tier") or "")
-        if not is_prefix_eligible_for_tier(
-            cache_role=cache_role,
-            prefix_tier=prefix_tier,
-            tier=selected_tier,
-        ):
-            break
-        prefix_segments.append(
-            {
-                "ordinal": int(segment.get("ordinal") or 0),
-                "kind": str(segment.get("kind") or ""),
-                "transport_location": str(segment.get("transport_location") or ""),
-                "content_hash": str(segment.get("content_hash") or ""),
-                "cache_role": cache_role,
-                "prefix_tier": prefix_tier,
-                "byte_length": int(segment.get("byte_length") or 0),
-            }
-        )
+    prefix_segments = sorted(prefix_segments, key=lambda item: int(item.get("ordinal") or 0))
     return {
-        "status": "sealed" if prefix_segments else "empty",
-        "selected_tier": selected_tier,
+        "status": "sealed",
+        "selected_boundary": "physical_cache_spine",
         "segment_count": len(prefix_segments),
         "byte_length": sum(int(item.get("byte_length") or 0) for item in prefix_segments),
         "content_hash": stable_text_hash(
             "|".join(str(item.get("content_hash") or "") for item in prefix_segments)
-        )
-        if prefix_segments
-        else "",
+        ),
+        "physical_cache_spine_hash": str(physical_spine.get("provider_payload_prefix_hash") or ""),
+        "physical_cache_spine_message_hash": str(
+            physical_spine.get("provider_payload_message_prefix_hash")
+            or physical_spine.get("message_prefix_hash")
+            or ""
+        ),
         "segments": prefix_segments,
     }
 
@@ -661,4 +578,3 @@ def _int(value: Any) -> int:
         return max(0, int(value or 0))
     except (TypeError, ValueError):
         return 0
-

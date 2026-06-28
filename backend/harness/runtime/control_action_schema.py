@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from .turn_neural_contract import TASK_ACCEPTANCE_MODES, TASK_RESOURCE_SHAPES, TASK_START_PRIMARY_MODES
+from .turn_operating_contract import TASK_ACCEPTANCE_MODES, TASK_RESOURCE_SHAPES, TASK_START_PRIMARY_MODES
 
 
 CONTROL_ACTION_TOOL_NAMES = frozenset(

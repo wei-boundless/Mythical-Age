@@ -6,7 +6,7 @@ from .models import compact_text, dict_tuple, drop_empty, stable_json_hash
 from .todo_plan_projection import project_todo_plan
 
 
-def build_turn_reflex_tail_contexts(
+def build_turn_state_attention_contexts(
     task_state: dict[str, Any],
     *,
     task_run_id: str = "",
@@ -61,7 +61,7 @@ def _task_goal_context(*, task_run_id: str, goal_contract: dict[str, Any]) -> di
                 "agent_use_contract": "Use this as the current turn goal anchor. Full goal/scope authority remains in the task resource contract.",
                 "authority": "harness.runtime.dynamic_context.turn_goal_resource_ref",
             },
-            "authority": "harness.runtime.dynamic_context.turn_reflex_tail_context.task_goal_context",
+            "authority": "harness.runtime.dynamic_context.turn_state_attention_context.task_goal_context",
         }
     )
 
@@ -115,7 +115,7 @@ def _task_plan_context(*, task_run_id: str, plan_contract: dict[str, Any]) -> di
                 "change_model": "plan_contract_baseline",
                 "authority": "harness.runtime.dynamic_context.task_plan_delta",
             },
-            "authority": "harness.runtime.dynamic_context.turn_reflex_tail_context.task_plan_context",
+            "authority": "harness.runtime.dynamic_context.turn_state_attention_context.task_plan_context",
         }
     )
 
@@ -185,7 +185,7 @@ def _task_todo_context(
                     "authority": "harness.runtime.dynamic_context.task_todo_delta",
                 }
             ),
-            "authority": "harness.runtime.dynamic_context.turn_reflex_tail_context.task_todo_context",
+            "authority": "harness.runtime.dynamic_context.turn_state_attention_context.task_todo_context",
         }
     )
 

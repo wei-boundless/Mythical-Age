@@ -22,7 +22,7 @@ def build_prompt_composition_graph(plan: PromptCompositionPlan) -> PromptComposi
                 "source_ref": slot.source_ref,
                 "source_kind": slot.source_kind,
                 "target_role": slot.target_role,
-                "lifecycle": slot.lifecycle,
+                "stability": slot.stability,
                 "cache_role": slot.cache_role,
                 "prefix_tier": slot.prefix_tier,
                 "order": slot.order,

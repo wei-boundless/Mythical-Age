@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "tool_count": 41,
+  "tool_count": 42,
   "tools": [
     {
       "name": "agent_todo",
@@ -2398,6 +2398,102 @@
       "is_concurrency_safe": false
     },
     {
+      "name": "office_document",
+      "display_name": "办公文档处理",
+      "operation_id": "op.office_document",
+      "module": "tools.office_document_tool",
+      "contract": {
+        "required_inputs": [
+          "action",
+          "path"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "output_path",
+          "target_file_type",
+          "operations",
+          "read_scope",
+          "max_blocks",
+          "allow_overwrite",
+          "verification_level"
+        ],
+        "owner_scope": "explicit_path",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "deny",
+        "context_policy": "isolated",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_if_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "office",
+        "document",
+        "word",
+        "excel",
+        "powerpoint",
+        "pdf",
+        "docx",
+        "xlsx",
+        "pptx",
+        "create",
+        "edit",
+        "inspect",
+        "verify",
+        "patch_plan"
+      ],
+      "supported_modalities": [
+        "document",
+        "spreadsheet",
+        "presentation",
+        "pdf"
+      ],
+      "safety_tags": [
+        "write",
+        "local_write",
+        "document_processing"
+      ],
+      "route_hints": [
+        "tool",
+        "office_document",
+        "document_processing",
+        "word",
+        "excel",
+        "powerpoint",
+        "pdf",
+        "docx",
+        "xlsx",
+        "pptx",
+        "append_section",
+        "update_cell",
+        "add_slide",
+        "delete_pages"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/office_document",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_plus_guidance",
+      "resource_exposure_policy": "explicit_resource",
+      "native_runtime_only": false,
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
+    },
+    {
       "name": "edit_file",
       "display_name": "编辑文件",
       "operation_id": "op.edit_file",
@@ -2692,6 +2788,27 @@
       "tags": [
         "filesystem",
         "write"
+      ],
+      "metadata": {}
+    },
+    {
+      "package_id": "pkg.office.document",
+      "title": "办公文档处理",
+      "description": "通过统一办公文档运行时读取、创建、编辑和验证 Word、Excel、PowerPoint 与 PDF 产物。",
+      "category": "文档数据",
+      "operation_ids": [
+        "op.office_document"
+      ],
+      "risk_level": "高",
+      "managed": true,
+      "default_enabled": false,
+      "tags": [
+        "office",
+        "document",
+        "word",
+        "excel",
+        "powerpoint",
+        "pdf"
       ],
       "metadata": {}
     },

@@ -9,11 +9,11 @@ from knowledge_system.conversion.structured_text import build_markdown_conversio
 from capability_system.capabilities.document_processing.pdf.analysis.parser import PdfSegment, PdfTextParser
 
 if TYPE_CHECKING:
-    from capability_system.capabilities.retrieval.models import ParsedChunk
-    from capability_system.capabilities.retrieval.parser_adapter import MultimodalParserAdapter
+    from capability_system.capabilities.document_processing.adapters.local_parser import LocalDocumentParser
+    from capability_system.capabilities.document_processing.models import DocumentParserChunk
 
 
-class DoclingConverter:
+class DocumentConversionResource:
     def __init__(
         self,
         *,
@@ -28,7 +28,7 @@ class DoclingConverter:
         self.repo_root = repo_root
         self.ocr_language = ocr_language
         self._pdf_parser = pdf_parser or PdfTextParser(root_dir=self._backend_root())
-        self._fallback_adapter: MultimodalParserAdapter | None = None
+        self._fallback_adapter: LocalDocumentParser | None = None
 
     def available(self) -> bool:
         if not self.enabled:
@@ -222,13 +222,13 @@ class DoclingConverter:
             )
         return pages
 
-    def _fallback_parser(self) -> MultimodalParserAdapter | None:
+    def _fallback_parser(self) -> LocalDocumentParser | None:
         if self.repo_root is None:
             return None
         if self._fallback_adapter is None:
-            from capability_system.capabilities.retrieval.parser_adapter import MultimodalParserAdapter
+            from capability_system.capabilities.document_processing.adapters.local_parser import LocalDocumentParser
 
-            self._fallback_adapter = MultimodalParserAdapter(
+            self._fallback_adapter = LocalDocumentParser(
                 repo_root=self.repo_root,
                 ocr_language=self.ocr_language,
             )
@@ -263,7 +263,7 @@ class DoclingConverter:
     def _blocks_from_parsed_chunks(
         self,
         record: SourceFileRecord,
-        chunks: list[ParsedChunk],
+        chunks: list[DocumentParserChunk],
     ) -> list[ConversionBlock]:
         blocks: list[ConversionBlock] = []
         for idx, chunk in enumerate(chunks):
@@ -289,7 +289,7 @@ class DoclingConverter:
             )
         return [block for block in blocks if block.text]
 
-    def _infer_block_type(self, chunk: ParsedChunk) -> str:
+    def _infer_block_type(self, chunk: DocumentParserChunk) -> str:
         modality = (chunk.modality or "text").lower()
         if modality == "table":
             return "table"

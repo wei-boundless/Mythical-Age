@@ -133,10 +133,10 @@ def _coverage(*, plan: PromptCompositionPlan, bindings: tuple[Any, ...]) -> dict
         and str(binding.cache_role or "") in {"cacheable_prefix", "session_stable"}
         and str(binding.prefix_tier or "") not in {"volatile", "none"}
     ]
-    legacy_runtime_bindings = [
+    unregistered_static_bindings = [
         binding
         for binding in stable_unregistered_bindings
-        if str(binding.binding_status or "") == "legacy_runtime_text"
+        if str(binding.binding_status or "") == "runtime_unregistered_static_text"
     ]
     return {
         "slot_count": len(plan.slots),
@@ -148,8 +148,8 @@ def _coverage(*, plan: PromptCompositionPlan, bindings: tuple[Any, ...]) -> dict
         "all_segments_explained": len(bindings) == sum(status_counts.values()),
         "stable_unregistered_segment_count": len(stable_unregistered_bindings),
         "stable_unregistered_segment_samples": _binding_samples(stable_unregistered_bindings),
-        "legacy_runtime_text_count": status_counts.get("legacy_runtime_text", 0),
-        "legacy_runtime_text_samples": _binding_samples(legacy_runtime_bindings),
+        "runtime_unregistered_static_text_count": status_counts.get("runtime_unregistered_static_text", 0),
+        "runtime_unregistered_static_text_samples": _binding_samples(unregistered_static_bindings),
         "dynamic_context_fragment_count": status_counts.get("dynamic_context_fragment", 0),
         "runtime_action_schema_count": status_counts.get("runtime_action_schema", 0),
         "runtime_artifact_scope_count": status_counts.get("runtime_artifact_scope", 0),
@@ -188,59 +188,107 @@ _PREFIX_TIER_ORDER = {
 }
 
 _LAYER_CACHE_POLICY = {
-    "global_static": {
+    "provider_global_stable": {
         "allowed_prefix_tiers": {"provider_global"},
         "allowed_cache_roles": {"cacheable_prefix"},
     },
-    "environment_stable": {
+    "session_stable_environment": {
         "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"cacheable_prefix", "session_stable"},
     },
-    "file_evidence_policy_stable": {
+    "session_stable_file_evidence": {
         "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "lifecycle_stable": {
+    "session_stable_turn_state": {
         "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"cacheable_prefix", "session_stable"},
     },
-    "project_stable": {
+    "session_stable_project": {
         "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "personality_stable": {
+    "session_stable_personality": {
         "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "agent_stable": {
+    "session_stable_agent": {
         "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "capability_stable": {
-        "allowed_prefix_tiers": {"session", "task"},
+    "session_stable_capability": {
+        "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "artifact_scope_stable": {
+    "task_stable_capability": {
         "allowed_prefix_tiers": {"task"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "task_contract_stable": {
+    "task_stable_scope": {
         "allowed_prefix_tiers": {"task"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "append_only_task_evidence": {
+    "task_stable_contract": {
+        "allowed_prefix_tiers": {"task"},
+        "allowed_cache_roles": {"session_stable"},
+    },
+    "append_only_runtime_evidence": {
         "allowed_prefix_tiers": {"session", "task", "volatile", "none"},
         "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
     },
-    "task_runtime_boundary_stable": {
-        "allowed_prefix_tiers": {"task"},
-        "allowed_cache_roles": {"session_stable"},
+    "context_memory_append": {
+        "allowed_prefix_tiers": {"session", "task", "volatile", "none"},
+        "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
     },
-    "runtime_protocol_stable": {
+    "session_stable_protocol": {
         "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "runtime_dynamic": {
+    "runtime_cursor_prefix": {
+        "allowed_prefix_tiers": {"volatile", "none"},
+        "allowed_cache_roles": {"volatile", "never_cache"},
+    },
+    "runtime_delta_tail": {
+        "allowed_prefix_tiers": {"volatile", "none"},
+        "allowed_cache_roles": {"volatile", "never_cache"},
+    },
+    "dynamic_context_tail": {
+        "allowed_prefix_tiers": {"volatile", "none"},
+        "allowed_cache_roles": {"volatile", "never_cache"},
+    },
+    "current_exact_evidence": {
+        "allowed_prefix_tiers": {"volatile", "none"},
+        "allowed_cache_roles": {"volatile", "never_cache"},
+    },
+    "current_turn_user_context": {
+        "allowed_prefix_tiers": {"session", "task", "volatile", "none"},
+        "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
+    },
+    "evidence_index_cursor": {
+        "allowed_prefix_tiers": {"session", "task", "volatile", "none"},
+        "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
+    },
+    "attachment_context_index": {
+        "allowed_prefix_tiers": {"session", "task", "volatile", "none"},
+        "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
+    },
+    "editor_context_index": {
+        "allowed_prefix_tiers": {"session", "task", "volatile", "none"},
+        "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
+    },
+    "file_evidence_cursor": {
+        "allowed_prefix_tiers": {"session", "task", "volatile", "none"},
+        "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
+    },
+    "runtime_memory_context": {
+        "allowed_prefix_tiers": {"session", "task", "volatile", "none"},
+        "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
+    },
+    "assistant_completion_prefix": {
+        "allowed_prefix_tiers": {"volatile", "none"},
+        "allowed_cache_roles": {"volatile", "never_cache"},
+    },
+    "volatile": {
         "allowed_prefix_tiers": {"volatile", "none"},
         "allowed_cache_roles": {"volatile", "never_cache"},
     },

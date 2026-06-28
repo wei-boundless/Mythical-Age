@@ -288,14 +288,21 @@ def worker_agent_description_for_blueprint(blueprint_id: str) -> str:
 
 
 def worker_prompt_metadata_for_blueprint(blueprint_id: str) -> dict[str, Any]:
-    prompt_ref = worker_prompt_ref_for_blueprint(blueprint_id)
-    if not prompt_ref:
+    spec = _worker_prompt_spec_for_blueprint(blueprint_id)
+    if spec is None:
         return {}
     return {
-        "worker_prompt_ref": prompt_ref,
-        "agent_prompt_refs_by_invocation": {"task_execution": [prompt_ref]},
+        "worker_prompt_ref": spec.prompt_id,
+        "prompt_set_refs": [f"prompt_set.worker.{spec.worker_kind}"],
         "prompt_authority": "prompt_library.worker_prompts",
     }
+
+
+def _worker_prompt_spec_for_blueprint(blueprint_id: str) -> WorkerPromptSpec | None:
+    target = str(blueprint_id or "").strip()
+    if not target:
+        return None
+    return next((spec for spec in WORKER_PROMPT_SPECS if target in spec.blueprint_ids), None)
 
 
 def _worker_prompt_resource(spec: WorkerPromptSpec) -> PromptResource:

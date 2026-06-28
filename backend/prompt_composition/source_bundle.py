@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .message_specs import message_spec_content_source
-from .tracing import runtime_source_kind_for_segment
+from .slot_policy import runtime_source_kind_for_segment
 
 
 @dataclass(frozen=True, slots=True)

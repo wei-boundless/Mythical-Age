@@ -1,0 +1,526 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from runtime.context_management.context_segment_policy import (
+    CONTEXT_APPEND,
+    CONTEXT_MEMORY_PREFIX,
+    DYNAMIC_TAIL,
+    STATIC_PREFIX,
+    ContextSegmentPolicy,
+    context_segment_policy_for_spec,
+    context_segment_policy_metadata,
+)
+
+
+STABLE_CACHE_ROLES = {"cacheable_prefix", "session_stable"}
+VOLATILE_CACHE_ROLES = {"volatile", "never_cache"}
+
+CONTEXT_APPEND_LAYER_NAMES = {
+    "append_only_runtime_evidence",
+    "attachment_context_index",
+    "current_turn_user_context",
+    "editor_context_index",
+    "evidence_index_cursor",
+    "file_evidence_cursor",
+    "runtime_memory_context",
+}
+
+PREFIX_TIER_ORDER = {
+    "provider_global": 100,
+    "session": 200,
+    "task": 300,
+    "volatile": 900,
+    "none": 990,
+}
+
+LOAD_PHASE_ORDER = {
+    "stable_prefix": 100,
+    "active_skills": 200,
+    "history_replay": 300,
+    "runtime_cursor_prefix": 350,
+    "append_only_runtime_evidence": 400,
+    "context_memory_append": 410,
+    "user_context_append": 420,
+    "evidence_index_cursor": 435,
+    "attachment_context_index": 440,
+    "editor_context_index": 450,
+    "current_runtime_cursor": 500,
+    "file_evidence_cursor": 600,
+    "current_exact_evidence": 620,
+    "user_editor_volatile": 700,
+    "runtime_baseline_refs": 760,
+    "runtime_delta_tail": 820,
+    "dynamic_context_tail": 870,
+    "runtime_memory_context": 880,
+    "assistant_completion_prefix": 900,
+    "unknown_dynamic": 990,
+}
+
+RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
+    "action_schema_static": "runtime_action_schema",
+    "artifact_scope_stable": "runtime_artifact_scope",
+    "bound_task_context_stable": "runtime_bound_task_context",
+    "environment_stable": "runtime_environment_boundary",
+    "file_evidence_policy_stable": "runtime_file_evidence_policy",
+    "turn_state_stable": "runtime_turn_state",
+    "project_instructions_stable": "runtime_project_instructions",
+    "semantic_compaction_stable_boundary": "semantic_compaction_boundary",
+    "task_contract_stable": "runtime_contract",
+    "task_prompt_contract": "runtime_contract",
+    "task_runtime_boundary_stable": "runtime_task_boundary",
+    "task_state_replay_entry": "runtime_task_state_replay",
+    "task_stable": "runtime_contract",
+    "tool_index_stable": "tool_catalog",
+    "turn_stable": "runtime_protocol",
+    "attachment_context_index": "runtime_attachment_context_index",
+    "evidence_index_cursor": "runtime_evidence_index_cursor",
+    "task_goal_context": "runtime_task_goal_context",
+    "task_plan_context": "runtime_task_plan_context",
+    "task_todo_context": "runtime_task_todo_context",
+    "editor_context_index": "runtime_editor_context_index",
+    "current_editor_evidence_delta": "runtime_editor_evidence_delta",
+    "runtime_memory_context": "runtime_memory_context",
+    "runtime_baseline_refs": "runtime_baseline_refs",
+    "incremental_context_frame": "runtime_incremental_context_frame",
+    "incremental_context_cursor": "runtime_incremental_context_cursor",
+    "read_evidence_context": "runtime_read_evidence_context",
+    "read_evidence_injection": "runtime_read_evidence",
+    "bound_task_runtime_context": "runtime_bound_task_context",
+    "task_runtime_boundary_dynamic": "runtime_dynamic_boundary",
+    "active_skills": "runtime_active_skills",
+    "session_history_tail_context": "runtime_session_history_tail_context",
+    "provider_protocol_history": "runtime_append_only_context",
+    "single_agent_turn_tool_call": "runtime_append_only_context",
+    "single_agent_turn_user_steer_context": "runtime_append_only_context",
+    "session_pinned_facts_context": "runtime_append_only_context",
+    "tool_transcript_delta": "runtime_append_only_context",
+    "user_steering_context_append": "runtime_append_only_context",
+    "user_steering_consumption_tail": "dynamic_context_fragment",
+}
+
+_KIND_LAYER = {
+    "agent_function_shared_stable": "task_stable_scope",
+    "agent_stable": "session_stable_agent",
+    "artifact_scope_stable": "task_stable_scope",
+    "attachment_context_index": "attachment_context_index",
+    "bound_task_context_stable": "task_stable_scope",
+    "bound_task_runtime_context": "file_evidence_cursor",
+    "current_editor_evidence_delta": "current_exact_evidence",
+    "current_turn_user_context": "current_turn_user_context",
+    "editor_context_index": "editor_context_index",
+    "environment_stable": "session_stable_environment",
+    "evidence_index_cursor": "evidence_index_cursor",
+    "file_evidence_policy_stable": "session_stable_file_evidence",
+    "graph_node_completion_prefix": "assistant_completion_prefix",
+    "graph_node_runtime_context": "file_evidence_cursor",
+    "incremental_context_cursor": "dynamic_context_tail",
+    "incremental_context_frame": "dynamic_context_tail",
+    "personality_stable": "session_stable_personality",
+    "project_instructions_stable": "session_stable_project",
+    "read_evidence_context": "append_only_runtime_evidence",
+    "read_evidence_injection": "current_exact_evidence",
+    "runtime_memory_context": "runtime_memory_context",
+    "single_agent_turn_tool_call": "append_only_runtime_evidence",
+    "task_goal_context": "dynamic_context_tail",
+    "task_plan_context": "dynamic_context_tail",
+    "task_runtime_boundary_dynamic": "runtime_cursor_prefix",
+    "task_runtime_boundary_stable": "task_stable_scope",
+    "task_start_inherited_context": "runtime_cursor_prefix",
+    "task_state_replay_entry": "append_only_runtime_evidence",
+    "task_todo_context": "dynamic_context_tail",
+    "tool_transcript_delta": "append_only_runtime_evidence",
+    "turn_state_guidance": "dynamic_context_tail",
+    "turn_state_stable": "session_stable_turn_state",
+}
+
+_KIND_TIER_LAYER = {
+    "action_schema_static": {
+        "session": "session_stable_capability",
+        "task": "task_stable_capability",
+        "default": "task_stable_capability",
+    },
+    "dynamic_projection": {
+        "volatile": "runtime_delta_tail",
+        "none": "runtime_delta_tail",
+        "default": "task_stable_scope",
+    },
+    "graph_task_shared_stable": {"default": "task_stable_contract"},
+    "runtime_baseline_refs": {
+        "session": "session_stable_protocol",
+        "default": "task_stable_scope",
+    },
+    "task_contract_stable": {"default": "task_stable_contract"},
+    "task_prompt_contract": {"default": "task_stable_contract"},
+    "tool_index_stable": {
+        "session": "session_stable_capability",
+        "task": "task_stable_capability",
+        "default": "task_stable_capability",
+    },
+}
+
+_SOURCE_KIND_LAYER = {
+    "dynamic_context_fragment": "dynamic_context_tail",
+    "runtime_active_skills": "dynamic_context_tail",
+    "runtime_artifact_scope": "task_stable_scope",
+    "runtime_attachment_context_index": "attachment_context_index",
+    "runtime_bound_task_context": "file_evidence_cursor",
+    "runtime_dynamic_boundary": "runtime_cursor_prefix",
+    "runtime_editor_context_index": "editor_context_index",
+    "runtime_editor_evidence_delta": "current_exact_evidence",
+    "runtime_environment_boundary": "session_stable_environment",
+    "runtime_evidence_index_cursor": "evidence_index_cursor",
+    "runtime_file_evidence_policy": "session_stable_file_evidence",
+    "runtime_incremental_context_cursor": "dynamic_context_tail",
+    "runtime_incremental_context_frame": "dynamic_context_tail",
+    "runtime_memory_context": "runtime_memory_context",
+    "runtime_project_instructions": "session_stable_project",
+    "runtime_read_evidence": "current_exact_evidence",
+    "runtime_read_evidence_context": "append_only_runtime_evidence",
+    "runtime_task_boundary": "task_stable_scope",
+    "runtime_task_goal_context": "dynamic_context_tail",
+    "runtime_task_plan_context": "dynamic_context_tail",
+    "runtime_task_state_replay": "append_only_runtime_evidence",
+    "runtime_task_todo_context": "dynamic_context_tail",
+    "tool_catalog": "task_stable_capability",
+}
+
+_SOURCE_KIND_TIER_LAYER = {
+    "runtime_action_schema": {
+        "session": "session_stable_capability",
+        "task": "task_stable_capability",
+        "default": "task_stable_capability",
+    },
+    "runtime_baseline_refs": {
+        "session": "session_stable_protocol",
+        "default": "task_stable_scope",
+    },
+    "runtime_contract": {"default": "task_stable_contract"},
+    "runtime_protocol": {
+        "session": "session_stable_protocol",
+        "default": "task_stable_scope",
+    },
+    "runtime_turn_state": {
+        "session": "session_stable_turn_state",
+        "default": "dynamic_context_tail",
+    },
+    "semantic_compaction_boundary": {
+        "session": "session_stable_turn_state",
+        "default": "dynamic_context_tail",
+    },
+}
+
+_AUTHORITY_CLASS_BY_SOURCE_KIND = {
+    "dynamic_context_fragment": "runtime_dynamic_context",
+    "runtime_action_schema": "runtime_action_schema",
+    "runtime_artifact_scope": "runtime_artifact_scope",
+    "runtime_attachment_context_index": "attachment_context_index",
+    "runtime_baseline_refs": "runtime_baseline_refs",
+    "runtime_bound_task_context": "bound_task_context",
+    "runtime_contract": "task_contract",
+    "runtime_dynamic_boundary": "runtime_boundary",
+    "runtime_editor_context_index": "editor_context_index",
+    "runtime_editor_evidence_delta": "editor_evidence_delta",
+    "runtime_environment_boundary": "environment_boundary",
+    "runtime_evidence_index_cursor": "evidence_index_cursor",
+    "runtime_file_evidence_policy": "file_evidence_policy",
+    "runtime_incremental_context_cursor": "incremental_context_cursor",
+    "runtime_incremental_context_frame": "incremental_context_frame",
+    "runtime_memory_context": "runtime_memory_context",
+    "runtime_project_instructions": "project_instruction_boundary",
+    "runtime_protocol": "runtime_protocol",
+    "runtime_read_evidence": "read_evidence",
+    "runtime_read_evidence_context": "read_evidence_context",
+    "runtime_task_boundary": "runtime_boundary",
+    "runtime_task_goal_context": "task_goal_context",
+    "runtime_task_plan_context": "task_plan_context",
+    "runtime_task_state_replay": "runtime_task_state_replay",
+    "runtime_task_todo_context": "task_todo_context",
+    "runtime_turn_state": "turn_state_guidance_protocol",
+    "runtime_unregistered_static_text": "unregistered_static_prompt",
+    "tool_catalog": "tool_catalog",
+}
+
+_CONTEXT_APPEND_DYNAMIC_TIER_BY_KIND = {
+    "current_turn_user_context": "user_context_append",
+    "provider_protocol_history": "append_only_runtime_evidence",
+    "runtime_memory_context": "runtime_memory_context",
+    "single_agent_turn_tool_call": "append_only_runtime_evidence",
+    "single_agent_turn_user_steer_context": "user_context_append",
+    "tool_transcript_delta": "append_only_runtime_evidence",
+    "user_steering_context_append": "user_context_append",
+}
+
+_DYNAMIC_TAIL_DYNAMIC_TIER_BY_KIND = {
+    "active_skills": "active_skills",
+    "graph_node_completion_prefix": "assistant_completion_prefix",
+    "read_evidence_injection": "current_exact_evidence",
+}
+
+_DYNAMIC_TIER_BY_LAYER = {
+    "append_only_runtime_evidence": "append_only_runtime_evidence",
+    "assistant_completion_prefix": "assistant_completion_prefix",
+    "attachment_context_index": "attachment_context_index",
+    "current_exact_evidence": "current_exact_evidence",
+    "current_turn_user_context": "user_context_append",
+    "editor_context_index": "editor_context_index",
+    "evidence_index_cursor": "evidence_index_cursor",
+    "file_evidence_cursor": "file_evidence_cursor",
+    "runtime_cursor_prefix": "runtime_cursor_prefix",
+    "runtime_delta_tail": "runtime_delta_tail",
+    "runtime_memory_context": "runtime_memory_context",
+}
+
+_DYNAMIC_TIER_BY_KIND = {
+    "active_skills": "active_skills",
+    "attachment_context_index": "attachment_context_index",
+    "bound_task_runtime_context": "file_evidence_cursor",
+    "current_editor_evidence_delta": "current_exact_evidence",
+    "current_turn_user_context": "user_context_append",
+    "dynamic_projection": "runtime_delta_tail",
+    "editor_context_index": "editor_context_index",
+    "evidence_index_cursor": "evidence_index_cursor",
+    "graph_node_completion_prefix": "assistant_completion_prefix",
+    "graph_node_runtime_context": "file_evidence_cursor",
+    "incremental_context_cursor": "dynamic_context_tail",
+    "incremental_context_frame": "dynamic_context_tail",
+    "read_evidence_context": "append_only_runtime_evidence",
+    "read_evidence_injection": "current_exact_evidence",
+    "runtime_memory_context": "runtime_memory_context",
+    "semantic_compaction_request": "user_editor_volatile",
+    "session_history": "history_replay",
+    "session_history_context": "history_replay",
+    "session_history_tail_context": "dynamic_context_tail",
+    "single_agent_turn_tool_call": "append_only_runtime_evidence",
+    "task_goal_context": "dynamic_context_tail",
+    "task_plan_context": "dynamic_context_tail",
+    "task_runtime_boundary_dynamic": "runtime_cursor_prefix",
+    "task_start_inherited_context": "runtime_cursor_prefix",
+    "task_state_replay_entry": "append_only_runtime_evidence",
+    "task_todo_context": "dynamic_context_tail",
+    "tool_transcript_delta": "append_only_runtime_evidence",
+    "turn_state_guidance": "dynamic_context_tail",
+}
+
+_DYNAMIC_TIER_BY_SOURCE_KIND = {
+    "runtime_baseline_refs": "runtime_baseline_refs",
+    "runtime_bound_task_context": "file_evidence_cursor",
+    "runtime_editor_evidence_delta": "current_exact_evidence",
+    "runtime_incremental_context_cursor": "dynamic_context_tail",
+    "runtime_incremental_context_frame": "dynamic_context_tail",
+    "runtime_memory_context": "runtime_memory_context",
+    "runtime_read_evidence": "current_exact_evidence",
+    "runtime_read_evidence_context": "append_only_runtime_evidence",
+    "runtime_task_goal_context": "dynamic_context_tail",
+    "runtime_task_plan_context": "dynamic_context_tail",
+    "runtime_task_state_replay": "append_only_runtime_evidence",
+    "runtime_task_todo_context": "dynamic_context_tail",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class PromptSlotPolicy:
+    source_kind: str
+    layer: str
+    cache_scope: str
+    cache_role: str
+    prefix_tier: str
+    dynamic_tier: str
+    load_phase: str
+    phase_order: int
+    compression_role: str
+    authority_class: str
+    context_policy: ContextSegmentPolicy
+    authority: str = "prompt_composition.slot_policy"
+
+
+def runtime_source_kind_for_segment(segment: dict[str, Any]) -> str:
+    payload = dict(segment or {})
+    kind = str(payload.get("kind") or "").strip()
+    source_kind = RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND.get(kind)
+    if source_kind:
+        return source_kind
+    context_policy = context_segment_policy_for_spec(payload)
+    if context_policy.section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
+        return "runtime_append_only_context"
+    if context_policy.section == DYNAMIC_TAIL:
+        return "dynamic_context_fragment"
+    if context_policy.section == STATIC_PREFIX:
+        return "runtime_unregistered_static_text"
+    return "unclassified_runtime_prompt"
+
+
+def resolve_prompt_slot_policy(
+    spec: dict[str, Any],
+    *,
+    source_kind: str = "",
+) -> PromptSlotPolicy:
+    payload = dict(spec or {})
+    metadata = dict(payload.get("metadata") or {})
+    payload["metadata"] = metadata
+    kind = str(payload.get("kind") or "unknown_unplanned").strip() or "unknown_unplanned"
+    resolved_source_kind = str(source_kind or "").strip() or runtime_source_kind_for_segment(payload)
+    context_policy = context_segment_policy_for_spec(payload)
+    cache_role = context_policy.prefix_cache_role
+    prefix_tier = context_policy.prefix_tier
+    layer = _layer_for_context_section(
+        _base_layer(
+            kind=kind,
+            source_kind=resolved_source_kind,
+            cache_role=cache_role,
+            prefix_tier=prefix_tier,
+        ),
+        section=context_policy.section,
+    )
+    dynamic_tier = _dynamic_tier(
+        kind=kind,
+        source_kind=resolved_source_kind,
+        cache_role=cache_role,
+        prefix_tier=prefix_tier,
+        layer=layer,
+    )
+    load_phase = load_phase_for_slot(slot_kind=kind, dynamic_tier=dynamic_tier)
+    return PromptSlotPolicy(
+        source_kind=resolved_source_kind,
+        layer=layer,
+        cache_scope=_cache_scope_for_prefix(
+            context_policy.prefix_cache_scope,
+            cache_role=cache_role,
+            prefix_tier=prefix_tier,
+        ),
+        cache_role=cache_role,
+        prefix_tier=prefix_tier,
+        dynamic_tier=dynamic_tier,
+        load_phase=load_phase,
+        phase_order=phase_order_for_load_phase(load_phase),
+        compression_role=normalize_compression_role(payload.get("compression_role")),
+        authority_class=str(metadata.get("authority_class") or _AUTHORITY_CLASS_BY_SOURCE_KIND.get(resolved_source_kind) or "runtime_prompt_slot"),
+        context_policy=context_policy,
+    )
+
+
+def prompt_slot_policy_metadata(policy: PromptSlotPolicy) -> dict[str, Any]:
+    return {
+        **context_segment_policy_metadata(policy.context_policy),
+        "prompt_slot_policy_source_kind": policy.source_kind,
+        "prompt_slot_policy_layer": policy.layer,
+        "prompt_slot_policy_prefix_tier": policy.prefix_tier,
+        "prompt_slot_policy_dynamic_tier": policy.dynamic_tier,
+        "prompt_slot_policy_load_phase": policy.load_phase,
+        "prompt_slot_policy_phase_order": policy.phase_order,
+        "prompt_slot_policy_authority_class": policy.authority_class,
+        "prompt_slot_policy_authority": policy.authority,
+    }
+
+
+def load_phase_for_slot(*, slot_kind: str, dynamic_tier: str) -> str:
+    kind = str(slot_kind or "").strip()
+    tier = str(dynamic_tier or "").strip()
+    if kind == "graph_node_completion_prefix":
+        return "assistant_completion_prefix"
+    if tier in LOAD_PHASE_ORDER:
+        return tier
+    return "unknown_dynamic"
+
+
+def phase_order_for_load_phase(load_phase: str) -> int:
+    return LOAD_PHASE_ORDER.get(str(load_phase or "").strip(), LOAD_PHASE_ORDER["unknown_dynamic"])
+
+
+def stability_for_prefix(*, cache_role: str, prefix_tier: str) -> str:
+    if cache_role in VOLATILE_CACHE_ROLES or prefix_tier in {"volatile", "none"}:
+        return "runtime_dynamic"
+    if prefix_tier == "provider_global":
+        return "global_static"
+    if prefix_tier == "task":
+        return "task_stable"
+    return "session_stable"
+
+
+def normalize_compression_role(value: Any) -> str:
+    normalized = str(value or "").strip()
+    if normalized in {"preserve", "summarize", "drop_if_cold", "ref_only"}:
+        return normalized
+    return "summarize"
+
+
+def _base_layer(*, kind: str, source_kind: str, cache_role: str, prefix_tier: str) -> str:
+    if prefix_tier == "provider_global" or cache_role == "cacheable_prefix":
+        return "provider_global_stable"
+    layer = _tiered_lookup(_KIND_TIER_LAYER.get(kind), prefix_tier)
+    if layer:
+        return layer
+    layer = _KIND_LAYER.get(kind)
+    if layer:
+        return layer
+    layer = _tiered_lookup(_SOURCE_KIND_TIER_LAYER.get(source_kind), prefix_tier)
+    if layer:
+        return layer
+    layer = _SOURCE_KIND_LAYER.get(source_kind)
+    if layer:
+        return layer
+    if cache_role in VOLATILE_CACHE_ROLES or prefix_tier in {"volatile", "none"}:
+        return "volatile"
+    return "session_stable_protocol" if prefix_tier == "session" else "task_stable_scope"
+
+
+def _layer_for_context_section(layer: str, *, section: str) -> str:
+    if section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
+        return _context_append_layer(layer)
+    if section == DYNAMIC_TAIL:
+        return "dynamic_context_tail"
+    if section == STATIC_PREFIX and layer == "volatile":
+        return "task_stable_scope"
+    return layer
+
+
+def _context_append_layer(layer: str) -> str:
+    normalized = str(layer or "").strip()
+    if normalized in CONTEXT_APPEND_LAYER_NAMES:
+        return normalized
+    return "context_memory_append"
+
+
+def _dynamic_tier(
+    *,
+    kind: str,
+    source_kind: str,
+    cache_role: str,
+    prefix_tier: str,
+    layer: str,
+) -> str:
+    if layer == "context_memory_append":
+        return _CONTEXT_APPEND_DYNAMIC_TIER_BY_KIND.get(kind, "context_memory_append")
+    if layer == "dynamic_context_tail":
+        return _DYNAMIC_TAIL_DYNAMIC_TIER_BY_KIND.get(kind, "dynamic_context_tail")
+    if cache_role in STABLE_CACHE_ROLES and prefix_tier not in {"volatile", "none"}:
+        return "stable_prefix"
+    dynamic_tier = _DYNAMIC_TIER_BY_LAYER.get(layer)
+    if dynamic_tier:
+        return dynamic_tier
+    dynamic_tier = _DYNAMIC_TIER_BY_KIND.get(kind)
+    if dynamic_tier:
+        return dynamic_tier
+    dynamic_tier = _DYNAMIC_TIER_BY_SOURCE_KIND.get(source_kind)
+    if dynamic_tier:
+        return dynamic_tier
+    return "current_runtime_cursor"
+
+
+def _cache_scope_for_prefix(value: Any, *, cache_role: str, prefix_tier: str) -> str:
+    if cache_role == "cacheable_prefix" or prefix_tier == "provider_global":
+        return "global"
+    if cache_role == "session_stable":
+        if prefix_tier == "task":
+            return "task"
+        return "session"
+    if prefix_tier in {"volatile", "none"}:
+        return "none"
+    return str(value or "none")
+
+
+def _tiered_lookup(mapping: dict[str, str] | None, prefix_tier: str) -> str:
+    if not mapping:
+        return ""
+    return mapping.get(prefix_tier) or mapping.get("default") or ""

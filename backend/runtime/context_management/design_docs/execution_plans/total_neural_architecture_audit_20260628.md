@@ -1,7 +1,8 @@
 # Total Neural Architecture Audit
 
 日期：2026-06-28  
-状态：总架构审计与实施前方案，待确认后才进行代码重构。  
+状态：历史审计记录，命名原则已被后续标准化设计取代。  
+说明：本文中的 `neural` 只保留为早期比喻语境，不作为后续代码、prompt 或模块命名依据；正式运行提示词体系以 `turn_runtime_prompt_system_standardization_design_20260628.md` 和 `prompt_library_wiring_standardization_design_20260628.md` 为准。  
 范围：审查 `backend/harness`、`backend/harness/graph*`、`backend/runtime/*`、`backend/orchestration/*`、`backend/permissions`、`backend/capability_system`、`backend/memory_system`、`backend/agent_system` 中的 agent 神经控制权威、旧神经结构和图系统边界。
 
 ## 1. 审计结论

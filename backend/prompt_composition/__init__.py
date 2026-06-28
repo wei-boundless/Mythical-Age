@@ -45,10 +45,11 @@ from .runtime_slot_plan import (
 from .section_renderer import (
     render_agent_prompt_instruction,
     render_environment_instruction,
-    render_lifecycle_instruction,
+    render_environment_guidance_instruction,
     render_personality_prompt_instruction,
     render_prompt_contract_instruction,
 )
+from .slot_policy import PromptSlotPolicy, resolve_prompt_slot_policy, runtime_source_kind_for_segment
 
 __all__ = [
     "PromptCompositionGraph",
@@ -63,6 +64,7 @@ __all__ = [
     "PromptAssemblyPlan",
     "PromptAssemblySlot",
     "PromptMaterializedPacket",
+    "PromptSlotPolicy",
     "PromptSource",
     "PromptSourceBundle",
     "CONTEXT_FRAGMENT_PROTOCOL",
@@ -93,11 +95,13 @@ __all__ = [
     "parse_context_fragments",
     "render_agent_prompt_instruction",
     "render_environment_instruction",
-    "render_lifecycle_instruction",
+    "render_environment_guidance_instruction",
     "render_model_messages_from_projection",
     "render_personality_prompt_instruction",
     "render_prompt_contract_instruction",
     "render_context_fragment",
     "render_runtime_payload_fragment",
     "render_text_context_fragment",
+    "resolve_prompt_slot_policy",
+    "runtime_source_kind_for_segment",
 ]

@@ -114,7 +114,7 @@ OPTION_LABELS: dict[str, str] = {
     "evidence_read": "证据读取",
     "evidence_alignment": "证据对齐",
     "reasoning_projection": "思考投影",
-    "lifecycle_resume_steer": "生命周期接续",
+    "turn_state_resume_steer": "状态接续",
     "output_projection": "输出投影",
     "recovery_closeout": "恢复收口",
     "op.model_response": "模型响应",
@@ -314,7 +314,7 @@ DEFAULT_CONTEXT_SYSTEM_GROUPS = (
     "evidence_read",
     "evidence_alignment",
     "reasoning_projection",
-    "lifecycle_resume_steer",
+    "turn_state_resume_steer",
     "output_projection",
     "recovery_closeout",
 )
@@ -332,7 +332,7 @@ CONTEXT_SYSTEM_GROUP_DESCRIPTIONS = {
     "evidence_read": "注入当前精确读取证据、证据索引和缺失证据恢复提示。",
     "evidence_alignment": "对齐回答与已读证据，投影证据边界状态。",
     "reasoning_projection": "保留 provider reasoning 协议字段，并默认只公开状态投影。",
-    "lifecycle_resume_steer": "接入 pause/resume/steer/retry 的追加式生命周期上下文。",
+    "turn_state_resume_steer": "接入 pause/resume/steer/retry 的当前 turn 状态接续上下文。",
     "output_projection": "控制最终回答、活动归档和公开投影收口。",
     "recovery_closeout": "接入结构化失败、恢复包和 closeout 控制。",
 }
@@ -730,4 +730,3 @@ async def set_agent_system_plan_mode(payload: AgentSystemModeRequest) -> dict[st
         "mode": str(config.get("agent_system_plan_mode", "primary") or "primary"),
         "supported_modes": ["primary"],
     }
-

@@ -69,6 +69,16 @@ def default_tool_packages() -> tuple[ToolPackageDefinition, ...]:
             tags=("filesystem", "write"),
         ),
         ToolPackageDefinition(
+            package_id="pkg.office.document",
+            title="办公文档处理",
+            description="通过统一办公文档运行时读取、创建、编辑和验证 Word、Excel、PowerPoint 与 PDF 产物。",
+            category="文档数据",
+            operation_ids=("op.office_document",),
+            risk_level="高",
+            default_enabled=False,
+            tags=("office", "document", "word", "excel", "powerpoint", "pdf"),
+        ),
+        ToolPackageDefinition(
             package_id="pkg.search.local",
             title="本地搜索",
             description="搜索工作区路径和文本内容。",

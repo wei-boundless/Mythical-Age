@@ -11,7 +11,7 @@ class PromptCompositionSlot:
     layer: str
     slot_kind: str
     target_role: str
-    lifecycle: str
+    stability: str
     cache_scope: str
     cache_role: str
     prefix_tier: str
@@ -118,8 +118,10 @@ class RuntimePromptSlot:
     source_ref: str
     cache_scope: str
     cache_role: str
-    cache_tier: str
+    prefix_tier: str
     dynamic_tier: str
+    load_phase: str
+    phase_order: int
     compression_role: str
     authority_class: str
     render_contract: dict[str, Any] = field(default_factory=dict)
@@ -172,7 +174,7 @@ class RuntimeContextLoadEntry:
     target_role: str
     source_kind: str
     source_ref: str
-    cache_tier: str
+    prefix_tier: str
     dynamic_tier: str
     authority_class: str
     render_contract: dict[str, Any] = field(default_factory=dict)

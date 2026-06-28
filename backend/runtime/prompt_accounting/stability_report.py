@@ -13,8 +13,7 @@ from .provider_payload_boundary import (
     provider_payload_boundary_diagnostics,
     provider_payload_cache_boundary,
     provider_payload_manifest_dict,
-    provider_payload_selected_tier,
-    provider_payload_tier_prefix,
+    provider_payload_physical_cache_spine,
 )
 from .stability_models import PromptStabilityReport, PromptStabilitySection
 
@@ -196,8 +195,7 @@ def _provider_payload_sections(
         return None
     by_id = {str(item.get("segment_id") or ""): item for item in segments}
     boundary = provider_payload_cache_boundary(model_request)
-    tier = provider_payload_selected_tier(boundary)
-    selected_prefix = provider_payload_tier_prefix(boundary, tier)
+    selected_prefix = provider_payload_physical_cache_spine(boundary)
     stable_ids = [str(item) for item in list(selected_prefix.get("segment_ids") or []) if str(item or "")]
     stable_set = set(stable_ids)
     token_lookup = _provider_payload_token_lookup(segment_map)
@@ -352,15 +350,15 @@ def _diagnostics(
     dynamic_params_changed: bool,
     model_request: Any | None,
 ) -> dict[str, Any]:
-    stable_prefix_changed = bool(first_changed)
+    physical_cache_spine_changed = bool(first_changed)
     return _drop_empty(
         {
             "has_previous_report": previous_report is not None,
-            "stable_prefix_changed": stable_prefix_changed,
+            "physical_cache_spine_changed": physical_cache_spine_changed,
             "dynamic_params_changed": dynamic_params_changed,
             "dynamic_param_diff": dynamic_param_diff,
             "likely_break_reason": _likely_break_reason(
-                stable_prefix_changed=stable_prefix_changed,
+                physical_cache_spine_changed=physical_cache_spine_changed,
                 dynamic_params_changed=dynamic_params_changed,
             ),
             "provider_payload": provider_payload_boundary_diagnostics(
@@ -394,12 +392,12 @@ def _top_level_diff(previous: dict[str, Any], current: dict[str, Any]) -> dict[s
     return diff
 
 
-def _likely_break_reason(*, stable_prefix_changed: bool, dynamic_params_changed: bool) -> str:
+def _likely_break_reason(*, physical_cache_spine_changed: bool, dynamic_params_changed: bool) -> str:
     if dynamic_params_changed:
         return "dynamic_request_params_changed"
-    if stable_prefix_changed:
-        return "stable_prefix_changed"
-    return "stable_prefix_unchanged"
+    if physical_cache_spine_changed:
+        return "physical_cache_spine_changed"
+    return "physical_cache_spine_unchanged"
 
 
 def _likely_break_reason_with_provider_usage(
@@ -411,11 +409,11 @@ def _likely_break_reason_with_provider_usage(
     if int(cached_tokens or 0) > 0:
         return "provider_cache_hit"
     existing = str(diagnostics.get("likely_break_reason") or "")
-    if existing and existing != "stable_prefix_unchanged":
+    if existing and existing not in {"stable_prefix_unchanged", "physical_cache_spine_unchanged"}:
         return existing
     if int(prompt_tokens or 0) > 0:
         return "provider_cache_cold_or_expired"
-    return existing or "stable_prefix_unchanged"
+    return existing or "physical_cache_spine_unchanged"
 
 
 def _tier_prefixes(segments: tuple[PromptSegment, ...]) -> dict[str, list[PromptSegment]]:

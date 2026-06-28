@@ -200,6 +200,13 @@ BASE_UNIT_DESCRIPTORS: tuple[UnitDescriptor, ...] = (
         capability_tags=("table", "data_analysis"),
     ),
     UnitDescriptor(
+        unit_id="mcp.office_document",
+        unit_type="mcp",
+        owner_module="backend.evidence.office_document_worker",
+        ports=("execution", "artifact", "trace"),
+        capability_tags=("office_document", "document_processing", "document_editing"),
+    ),
+    UnitDescriptor(
         unit_id="memory.facade",
         unit_type="memory",
         owner_module="backend.memory_system.facade",
@@ -870,5 +877,4 @@ def _dedupe_texts(values: list[str]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
-
 

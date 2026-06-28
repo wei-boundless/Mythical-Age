@@ -574,7 +574,7 @@ def _single_agent_turn_model_action_surface(
     return RuntimePacketModelActionSurface(
         allowed_action_types=allowed_action_types,
         surface_id=surface_id,
-        contract_ref="turn_neural_contract.action_surface",
+        contract_ref="turn_operating_contract.action_surface",
         diagnostics={
             "source": "runtime_capabilities_and_state_candidates",
             "may_request_task_run": bool(control_capabilities.get("may_request_task_run") is True),

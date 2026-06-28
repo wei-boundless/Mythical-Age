@@ -14,6 +14,7 @@ from core.project_layout import ProjectLayout
 from harness.runtime.environment_storage import apply_session_scoped_environment_storage
 from task_system.contracts.runtime_contracts import SkillRuntimeView, skill_runtime_view_from_skill_definition
 from task_system.environments import build_task_environment_catalog, task_environment_registry_from_backend_dir
+from prompt_library import build_runtime_prompt_wiring_plan
 
 from .operation_projection import project_operation_authorization
 from .tool_scheduling import operation_requests_from_runtime_contract
@@ -82,12 +83,6 @@ _GENERAL_AGENT_PROMPT_TEMPLATE_POLICY: dict[str, Any] = {
     "prompt_policy": {
         "template_id": "prompt_template.general.agent_runtime",
         "tool_guidance_prompt_defaults": _DEFAULT_TOOL_GUIDANCE_PROMPT_DEFAULTS,
-    },
-    "prompt_pack_refs_by_invocation": {
-        "single_agent_turn": ["runtime.pack.single_agent_turn"],
-        "task_execution": ["runtime.pack.task_execution"],
-        "tool_observation_followup": ["runtime.pack.observation_followup"],
-        "semantic_compaction": ["runtime.pack.semantic_compaction"],
     },
 }
 
@@ -167,6 +162,7 @@ _TOOL_CAPABILITY_GROUP_BY_OPERATION: dict[str, str] = {
     "op.text_metric": "file_work",
     "op.write_file": "artifact_generation",
     "op.edit_file": "artifact_generation",
+    "op.office_document": "artifact_generation",
     "op.image_generate": "artifact_generation",
     "op.mcp_image_ocr": "attachment_processing",
     "op.shell": "shell_execution",
@@ -196,7 +192,7 @@ _CONTEXT_CAPABILITY_GROUPS = (
     "evidence_context",
     "evidence_alignment",
     "current_dynamic_control",
-    "lifecycle_control",
+    "turn_state_control",
     "repair_feedback",
     "active_skill",
     "memory_write",
@@ -205,19 +201,19 @@ _CONTEXT_CAPABILITY_GROUPS = (
 )
 
 _SYSTEM_GROUP_CAPABILITY_GROUPS: dict[str, tuple[str, ...]] = {
-    "task_contract_intake": ("task_contracts", "runtime_contracts", "lifecycle_control", "repair_feedback"),
-    "react_loop": ("action_contracts", "tool_context", "lifecycle_control", "repair_feedback", "current_dynamic_control"),
+    "task_contract_intake": ("task_contracts", "runtime_contracts", "turn_state_control", "repair_feedback"),
+    "react_loop": ("action_contracts", "tool_context", "turn_state_control", "repair_feedback", "current_dynamic_control"),
     "tool_runtime": ("tool_context", "action_contracts", "repair_feedback"),
     "skill_runtime": ("active_skill", "runtime_contracts", "tool_context"),
-    "subagent_delegation": ("subagent_system", "action_contracts", "tool_context", "lifecycle_control", "repair_feedback"),
+    "subagent_delegation": ("subagent_system", "action_contracts", "tool_context", "turn_state_control", "repair_feedback"),
     "context_memory": ("context_memory", "task_state_context"),
     "memory_governance": ("memory_write", "context_memory", "repair_feedback"),
     "evidence_read": ("evidence_context", "tool_context", "repair_feedback"),
     "evidence_alignment": ("evidence_alignment", "evidence_context", "action_contracts", "repair_feedback"),
     "reasoning_projection": ("reasoning_projection", "runtime_contracts", "repair_feedback"),
-    "lifecycle_resume_steer": ("lifecycle_control", "current_dynamic_control", "context_memory", "repair_feedback"),
+    "turn_state_resume_steer": ("turn_state_control", "current_dynamic_control", "context_memory", "repair_feedback"),
     "output_projection": ("runtime_contracts", "repair_feedback"),
-    "recovery_closeout": ("repair_feedback", "lifecycle_control", "context_memory"),
+    "recovery_closeout": ("repair_feedback", "turn_state_control", "context_memory"),
 }
 
 _TOOL_CAPABILITY_SYSTEM_GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
@@ -281,7 +277,7 @@ _TOOL_CAPABILITY_SYSTEM_GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
         "feedback_channels": ("attachment_extract_result", "attachment_extract_error", "attachment_recovery"),
     },
     "subagent_delegation": {
-        "capability_groups": ("action_contracts", "tool_context", "lifecycle_control", "repair_feedback"),
+        "capability_groups": ("action_contracts", "tool_context", "turn_state_control", "repair_feedback"),
         "prompt_resources": ("tool.guidance.subagent", "runtime.rule.subagent_delegation", "runtime.rule.subagent_invocation_protocol"),
         "context_segments": ("tool_index_stable", "single_agent_turn_tool_call", "tool_transcript_delta"),
         "feedback_channels": ("subagent_result", "subagent_failure", "subagent_closeout"),
@@ -292,8 +288,8 @@ _TOOL_CAPABILITY_SYSTEM_GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
 @dataclass(frozen=True, slots=True)
 class RuntimeAssemblyProfile:
     profile_ref: str
-    prompt_pack_refs: tuple[str, ...] = ()
-    prompt_pack_refs_by_invocation: dict[str, Any] = field(default_factory=dict)
+    prompt_set_refs: tuple[str, ...] = ()
+    prompt_bindings: dict[str, Any] = field(default_factory=dict)
     operation_authorization_projection: dict[str, Any] = field(default_factory=dict)
     allowed_operations: tuple[str, ...] = ()
     interaction_policy: dict[str, Any] = field(default_factory=dict)
@@ -313,11 +309,8 @@ class RuntimeAssemblyProfile:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        payload["prompt_pack_refs"] = list(self.prompt_pack_refs)
-        payload["prompt_pack_refs_by_invocation"] = {
-            str(key): [str(item) for item in list(value or []) if str(item)]
-            for key, value in dict(self.prompt_pack_refs_by_invocation or {}).items()
-        }
+        payload["prompt_set_refs"] = list(self.prompt_set_refs)
+        payload["prompt_bindings"] = dict(self.prompt_bindings or {})
         payload["operation_authorization_projection"] = dict(self.operation_authorization_projection or {})
         payload["allowed_operations"] = list(self.allowed_operations)
         return payload
@@ -340,12 +333,12 @@ class RuntimeAssembly:
     engagement_run_ref: str = ""
     task_environment: dict[str, Any] = field(default_factory=dict)
     permission_mode: str = "default"
-    agent_prompt_refs: tuple[str, ...] = ()
-    agent_prompt_refs_by_invocation: dict[str, Any] = field(default_factory=dict)
     personality_prompt_refs: tuple[str, ...] = ()
     personality_prompt_selection: dict[str, Any] = field(default_factory=dict)
     environment_prompt_refs: tuple[str, ...] = ()
     prompt_mount_plan: dict[str, Any] = field(default_factory=dict)
+    prompt_wiring_plan: dict[str, Any] = field(default_factory=dict)
+    prompt_wiring_plans_by_invocation: dict[str, Any] = field(default_factory=dict)
     capability_directory: dict[str, Any] = field(default_factory=dict)
     skill_runtime_views: tuple[dict[str, Any], ...] = ()
     skill_activation: dict[str, Any] = field(default_factory=dict)
@@ -370,15 +363,16 @@ class RuntimeAssembly:
         payload["system_wiring_manifest"] = dict(self.system_wiring_manifest)
         payload["engagement_contract"] = dict(self.engagement_contract)
         payload["execution_strategy"] = dict(self.execution_strategy)
-        payload["agent_prompt_refs"] = list(self.agent_prompt_refs)
-        payload["agent_prompt_refs_by_invocation"] = {
-            str(key): [str(item) for item in list(value or []) if str(item)]
-            for key, value in dict(self.agent_prompt_refs_by_invocation or {}).items()
-        }
         payload["personality_prompt_refs"] = list(self.personality_prompt_refs)
         payload["personality_prompt_selection"] = dict(self.personality_prompt_selection)
         payload["environment_prompt_refs"] = list(self.environment_prompt_refs)
         payload["prompt_mount_plan"] = dict(self.prompt_mount_plan)
+        payload["prompt_wiring_plan"] = dict(self.prompt_wiring_plan)
+        payload["prompt_wiring_plans_by_invocation"] = {
+            str(key): dict(value)
+            for key, value in dict(self.prompt_wiring_plans_by_invocation or {}).items()
+            if str(key)
+        }
         payload["capability_directory"] = dict(self.capability_directory)
         payload["skill_runtime_views"] = [dict(item) for item in self.skill_runtime_views]
         payload["skill_activation"] = dict(self.skill_activation)
@@ -429,6 +423,13 @@ def assemble_runtime(
         personality_diagnostics=personality_selection.to_dict(),
         prompt_policy=profile.prompt_policy,
     )
+    prompt_wiring_plans_by_invocation = _build_runtime_prompt_wiring_plans_by_invocation(
+        base_dir=Path(backend_dir),
+        agent_profile=agent_runtime_profile,
+        environment_id=str(task_environment.get("environment_id") or ""),
+        runtime_contract=runtime_contract_payload,
+    )
+    prompt_wiring_plan = dict(prompt_wiring_plans_by_invocation.get("single_agent_turn") or {})
     task_requested_operations = operation_requests_from_runtime_contract(runtime_contract_payload)
     operation_projection = project_operation_authorization(
         agent_allowed_operations=profile.allowed_operations,
@@ -527,12 +528,12 @@ def assemble_runtime(
         engagement_run_ref=str(runtime_contract_payload.get("engagement_run_ref") or ""),
         task_environment=task_environment,
         permission_mode=normalized_permission_mode,
-        agent_prompt_refs=_agent_prompt_refs(agent_runtime_profile),
-        agent_prompt_refs_by_invocation=_agent_prompt_refs_by_invocation(agent_runtime_profile),
         personality_prompt_refs=personality_selection.personality_prompt_refs,
         personality_prompt_selection=personality_selection.to_dict(),
         environment_prompt_refs=prompt_mount_plan.environment_prompt_refs,
         prompt_mount_plan=prompt_mount_plan.to_dict(),
+        prompt_wiring_plan=prompt_wiring_plan,
+        prompt_wiring_plans_by_invocation=prompt_wiring_plans_by_invocation,
         capability_directory=capability_directory,
         skill_runtime_views=skill_runtime_views,
         skill_activation=skill_activation,
@@ -553,6 +554,8 @@ def assemble_runtime(
             "agent_profile_ref": str(getattr(agent_runtime_profile, "agent_profile_id", "") or ""),
             "task_environment": environment_diagnostics,
             "prompt_mount_plan": prompt_mount_plan.to_dict(),
+            "prompt_wiring_plan": prompt_wiring_plan,
+            "prompt_wiring_plans_by_invocation": prompt_wiring_plans_by_invocation,
             "personality_prompt_selection": personality_selection.to_dict(),
             "workspace_root": bound_workspace_root,
             "permission_mode": normalized_permission_mode,
@@ -603,8 +606,8 @@ def build_runtime_assembly_profile(
         base_operations = tuple(item for item in base_operations if item in set(explicit_operation_ceiling))
     return RuntimeAssemblyProfile(
         profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
-        prompt_pack_refs=_string_tuple(runtime_policy.get("prompt_pack_refs")),
-        prompt_pack_refs_by_invocation=dict(runtime_policy.get("prompt_pack_refs_by_invocation") or {}),
+        prompt_set_refs=_string_tuple(getattr(agent_runtime_profile, "prompt_set_refs", ()) or dict(getattr(agent_runtime_profile, "metadata", {}) or {}).get("prompt_set_refs")),
+        prompt_bindings=dict(getattr(agent_runtime_profile, "prompt_bindings", {}) or {}),
         operation_authorization_projection=dict(runtime_policy.get("operation_authorization_projection") or {}),
         allowed_operations=base_operations,
         interaction_policy=dict(runtime_policy.get("interaction_policy") or {}),
@@ -690,35 +693,115 @@ def _explicit_operation_ceiling_from_runtime_contract(runtime_contract: dict[str
     return tuple(operation for operation in scopes[0] if operation in allowed)
 
 
-def _agent_prompt_refs(agent_runtime_profile: Any | None) -> tuple[str, ...]:
-    metadata = dict(getattr(agent_runtime_profile, "metadata", {}) or {})
-    explicit = _string_tuple(metadata.get("agent_prompt_refs"))
-    if explicit:
-        return explicit
-    by_invocation = _agent_prompt_refs_by_invocation(agent_runtime_profile)
-    if by_invocation:
-        refs: list[str] = []
-        seen: set[str] = set()
-        for value in by_invocation.values():
-            for item in _string_tuple(value):
-                if item not in seen:
-                    seen.add(item)
-                    refs.append(item)
-        return tuple(refs)
-    return ()
+def _build_runtime_prompt_wiring_plans_by_invocation(
+    *,
+    base_dir: Path,
+    agent_profile: Any | None,
+    environment_id: str,
+    runtime_contract: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    invocation_kinds = (
+        "single_agent_turn",
+        "task_execution",
+        "tool_observation_followup",
+        "semantic_compaction",
+        "memory_maintenance",
+    )
+    result: dict[str, dict[str, Any]] = {}
+    for invocation_kind in invocation_kinds:
+        plan = build_runtime_prompt_wiring_plan(
+            base_dir=base_dir,
+            agent_profile=agent_profile,
+            invocation_kind=invocation_kind,
+            environment_id=environment_id,
+        ).to_dict()
+        plan = _apply_runtime_prompt_wiring_overrides(
+            plan,
+            runtime_contract=runtime_contract,
+            invocation_kind=invocation_kind,
+        )
+        has_refs = any(
+            dict(slot).get("refs") or dict(slot).get("pack_refs")
+            for slot in list(plan.get("slots") or [])
+            if isinstance(slot, dict)
+        )
+        if has_refs:
+            result[invocation_kind] = plan
+    return result
 
 
-def _agent_prompt_refs_by_invocation(agent_runtime_profile: Any | None) -> dict[str, tuple[str, ...]]:
-    metadata = dict(getattr(agent_runtime_profile, "metadata", {}) or {})
-    raw = metadata.get("agent_prompt_refs_by_invocation")
-    result: dict[str, tuple[str, ...]] = {
-        str(key): _string_tuple(value)
-        for key, value in dict(raw or {}).items()
-        if str(key).strip() and _string_tuple(value)
+def _apply_runtime_prompt_wiring_overrides(
+    plan: dict[str, Any],
+    *,
+    runtime_contract: dict[str, Any],
+    invocation_kind: str,
+) -> dict[str, Any]:
+    overrides = _runtime_prompt_wiring_overrides(
+        runtime_contract=runtime_contract,
+        invocation_kind=invocation_kind,
+    )
+    if not overrides:
+        return plan
+    next_plan = dict(plan or {})
+    slots = [dict(item) for item in list(next_plan.get("slots") or []) if isinstance(item, dict)]
+    for slot_name, override in overrides.items():
+        payload = dict(override or {}) if isinstance(override, dict) else {}
+        refs = _string_tuple(payload.get("refs"))
+        pack_refs = _string_tuple(payload.get("pack_refs"))
+        if not refs and not pack_refs:
+            continue
+        replace = bool(payload.get("replace", True) is not False)
+        if replace:
+            slots = [slot for slot in slots if str(slot.get("slot") or "") != str(slot_name or "")]
+        slots.append(
+            {
+                "slot": str(slot_name or ""),
+                "refs": list(refs),
+                "pack_refs": list(pack_refs),
+                "owner_layer": str(payload.get("owner_layer") or "runtime_contract"),
+                "cache_scope": str(payload.get("cache_scope") or "session"),
+                "visibility": str(payload.get("visibility") or "model_visible"),
+                "locked": bool(payload.get("locked", True) is not False),
+                "source_prompt_sets": ["runtime_contract.prompt_wiring_overrides"],
+                "metadata": {
+                    "override_source": "runtime_contract.prompt_wiring_overrides",
+                    **dict(payload.get("metadata") or {}),
+                },
+            }
+        )
+    next_plan["slots"] = slots
+    diagnostics = dict(next_plan.get("diagnostics") or {})
+    diagnostics["runtime_prompt_wiring_overrides"] = {
+        "invocation_kind": invocation_kind,
+        "slots": list(overrides),
+        "authority": "harness.runtime.assembly.runtime_prompt_wiring_overrides",
     }
-    if result:
-        return result
-    return {}
+    next_plan["diagnostics"] = diagnostics
+    return next_plan
+
+
+def _runtime_prompt_wiring_overrides(
+    *,
+    runtime_contract: dict[str, Any],
+    invocation_kind: str,
+) -> dict[str, dict[str, Any]]:
+    payload = dict(runtime_contract or {})
+    runtime_profile = dict(payload.get("runtime_profile") or {})
+    runtime_policy = dict(runtime_profile.get("runtime_policy") or runtime_profile.get("execution_policy") or {})
+    merged: dict[str, Any] = {}
+    for candidate in (
+        payload.get("prompt_wiring_overrides"),
+        runtime_profile.get("prompt_wiring_overrides"),
+        runtime_policy.get("prompt_wiring_overrides"),
+    ):
+        if isinstance(candidate, dict):
+            merged.update(dict(candidate))
+    invocation_payload = dict(merged.get(str(invocation_kind or "")) or {})
+    result: dict[str, dict[str, Any]] = {}
+    for slot_name, slot_payload in invocation_payload.items():
+        if isinstance(slot_payload, dict) and str(slot_name or "").strip():
+            result[str(slot_name).strip()] = dict(slot_payload)
+    return result
 
 
 def _skill_runtime_views_for_profile(
@@ -902,7 +985,7 @@ def _build_system_wiring_manifest(
     context_policy = dict(profile.context_policy or {})
     task_lifecycle_policy = dict(profile.task_lifecycle_policy or {})
     subagent_policy = dict(profile.subagent_policy or {})
-    environment_lifecycle = dict(task_environment.get("lifecycle_policy") or {})
+    environment_control_policy = dict(task_environment.get("lifecycle_policy") or {})
     environment_memory_space = dict(task_environment.get("memory_space") or {})
     control = dict(control_capabilities or {})
     selected_skill_ids = tuple(
@@ -961,9 +1044,9 @@ def _build_system_wiring_manifest(
         and system_group_allowed("evidence_alignment")
     )
     reasoning_projection_enabled = system_group_allowed("reasoning_projection")
-    lifecycle_resume_steer_enabled = bool(
-        (may_control_active_work or may_request_task_run or bool(environment_lifecycle))
-        and system_group_allowed("lifecycle_resume_steer")
+    turn_state_resume_steer_enabled = bool(
+        (may_control_active_work or may_request_task_run or bool(environment_control_policy))
+        and system_group_allowed("turn_state_resume_steer")
     )
     output_projection_enabled = system_group_allowed("output_projection")
     recovery_closeout_enabled = system_group_allowed("recovery_closeout")
@@ -975,12 +1058,12 @@ def _build_system_wiring_manifest(
             config={
                 "accept_task_contract": True,
                 "request_task_run_enabled": may_request_task_run,
-                "contract_strictness": "canonical_task_run_contract_seed",
+                "contract_strictness": "compact_task_start_intent_v3",
                 "task_lifecycle_policy": task_lifecycle_policy,
             },
             prompt_resources=(
                 "runtime.rule.turn_decision_alignment",
-                *_lifecycle_prompt_refs(prompt_mount_payload, "task_run_handoff"),
+                *_environment_guidance_prompt_refs(prompt_mount_payload, "task_run_handoff"),
             ),
             context_segments=("task_run_contract_stable", "task_prompt_contract"),
             feedback_channels=("contract_gap_repair", "task_run_handoff_repair"),
@@ -1034,7 +1117,7 @@ def _build_system_wiring_manifest(
             },
             prompt_resources=(
                 "tool.guidance.subagent",
-                *_lifecycle_prompt_refs(prompt_mount_payload, "subagent_delegation", "subagent_result_integration"),
+                *_environment_guidance_prompt_refs(prompt_mount_payload, "subagent_delegation", "subagent_result_integration"),
             ),
             context_segments=("single_agent_turn_tool_call", "tool_transcript_delta"),
             feedback_channels=("subagent_result", "subagent_failure", "subagent_closeout"),
@@ -1048,7 +1131,7 @@ def _build_system_wiring_manifest(
                 "history_scope": str(context_policy.get("history_scope") or ""),
                 "provider_visible_replay": True,
             },
-            prompt_resources=_lifecycle_prompt_refs(prompt_mount_payload, "memory_read_context"),
+            prompt_resources=_environment_guidance_prompt_refs(prompt_mount_payload, "memory_read_context"),
             context_segments=("context_memory_prefix", "context_append", "runtime_memory_context", "session_history", "task_state_replay_entry"),
             feedback_channels=("memory_read_recovery", "provider_visible_ledger_recovery"),
         ),
@@ -1062,7 +1145,7 @@ def _build_system_wiring_manifest(
                 "write_scope": str(memory_policy.get("write_scope") or ""),
                 "writeback_policy": str(memory_policy.get("writeback_policy") or memory_policy.get("write_scope") or ""),
             },
-            prompt_resources=_lifecycle_prompt_refs(prompt_mount_payload, "memory_write_handoff"),
+            prompt_resources=_environment_guidance_prompt_refs(prompt_mount_payload, "memory_write_handoff"),
             context_segments=("runtime_memory_context", "session_pinned_facts_context"),
             feedback_channels=("memory_write_candidate", "memory_write_rejected", "memory_conflict"),
         ),
@@ -1070,7 +1153,7 @@ def _build_system_wiring_manifest(
             enabled=evidence_read_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["evidence_read"],
             config={"exact_read_evidence": evidence_read_enabled},
-            prompt_resources=("tool.guidance.read_file", *_lifecycle_prompt_refs(prompt_mount_payload, "verification_gate")),
+            prompt_resources=("tool.guidance.read_file", *_environment_guidance_prompt_refs(prompt_mount_payload, "verification_gate")),
             context_segments=("read_evidence_context", "evidence_index_cursor", "attachment_context_index", "editor_context_index"),
             feedback_channels=("evidence_missing", "evidence_recovery"),
         ),
@@ -1105,15 +1188,15 @@ def _build_system_wiring_manifest(
             context_segments=("reasoning_trace_projection", "provider_reasoning_projection"),
             feedback_channels=("reasoning_trace_status", "reasoning_projection_state"),
         ),
-        "lifecycle_resume_steer": _system_group_manifest(
-            enabled=lifecycle_resume_steer_enabled,
-            capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["lifecycle_resume_steer"],
+        "turn_state_resume_steer": _system_group_manifest(
+            enabled=turn_state_resume_steer_enabled,
+            capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["turn_state_resume_steer"],
             config={
                 "may_control_active_work": may_control_active_work,
                 "steer_append_only": True,
                 "resume_replay_required": True,
             },
-            prompt_resources=_lifecycle_prompt_refs(prompt_mount_payload, "active_work_control", "user_steer_contract_revision"),
+            prompt_resources=_environment_guidance_prompt_refs(prompt_mount_payload, "active_work_control", "user_steer_contract_revision"),
             context_segments=("single_agent_turn_user_steer_context", "user_steering_context_append", "runtime_control_signal_tail"),
             feedback_channels=("resume_recovery", "user_steer_repair", "closeout_control"),
         ),
@@ -1121,7 +1204,7 @@ def _build_system_wiring_manifest(
             enabled=output_projection_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["output_projection"],
             config={"final_commit_required": True, "activity_archive": True},
-            prompt_resources=_lifecycle_prompt_refs(prompt_mount_payload, "finalization"),
+            prompt_resources=_environment_guidance_prompt_refs(prompt_mount_payload, "finalization"),
             context_segments=("dynamic_projection",),
             feedback_channels=("final_answer_boundary", "projection_closeout"),
         ),
@@ -1129,7 +1212,7 @@ def _build_system_wiring_manifest(
             enabled=recovery_closeout_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["recovery_closeout"],
             config={"structured_failure_required": True, "recovery_package_allowed": True},
-            prompt_resources=_lifecycle_prompt_refs(prompt_mount_payload, "tool_observation_recovery", "compaction_handoff"),
+            prompt_resources=_environment_guidance_prompt_refs(prompt_mount_payload, "tool_observation_recovery", "compaction_handoff"),
             context_segments=("provider_visible_ledger_recovery_checkpoint", "recovery_context_package", "recent_work_outcome"),
             feedback_channels=("structured_failure", "recovery_package", "closeout_control"),
         ),
@@ -1261,7 +1344,7 @@ def _tool_capability_system_group_manifests(
         group_id = f"tool_{capability_group}"
         prompt_resources = tuple(config.get("prompt_resources") or ())
         if capability_group == "task_planning":
-            prompt_resources = (*prompt_resources, *_lifecycle_prompt_refs(prompt_mount_plan, "plan_gate"))
+            prompt_resources = (*prompt_resources, *_environment_guidance_prompt_refs(prompt_mount_plan, "plan_gate"))
         result[group_id] = _system_group_manifest(
             enabled=bool(may_call_tools and tools),
             capability_groups=tuple(config.get("capability_groups") or ()),
@@ -1278,9 +1361,9 @@ def _tool_capability_system_group_manifests(
     return result
 
 
-def _lifecycle_prompt_refs(prompt_mount_plan: dict[str, Any], *slots: str) -> tuple[str, ...]:
-    defaults = dict(dict(prompt_mount_plan or {}).get("lifecycle_prompt_defaults") or {})
-    overrides = dict(dict(prompt_mount_plan or {}).get("lifecycle_prompt_overrides") or {})
+def _environment_guidance_prompt_refs(prompt_mount_plan: dict[str, Any], *slots: str) -> tuple[str, ...]:
+    defaults = dict(dict(prompt_mount_plan or {}).get("environment_guidance_prompt_defaults") or {})
+    overrides = dict(dict(prompt_mount_plan or {}).get("environment_guidance_prompt_overrides") or {})
     refs: list[str] = []
     for slot in slots:
         key = str(slot or "").strip()

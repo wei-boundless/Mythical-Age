@@ -17,7 +17,7 @@ def infer_quality_flags(
         flags.append("image_heavy")
     if len({block.page for block in blocks if block.page is not None}) >= 10:
         flags.append("multi_page")
-    if parser_backend != "docling":
+    if parser_backend in {"local_fallback", "fallback", "legacy_fallback"}:
         flags.append("fallback_parser")
     return tuple(dict.fromkeys(flags))
 

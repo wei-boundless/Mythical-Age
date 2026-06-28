@@ -1201,7 +1201,7 @@ def _execution_runtime_policy(value: Any) -> dict[str, Any]:
             "source": str(policy.get("source") or ""),
             "node_id": str(policy.get("node_id") or ""),
             "context_policy": dict(policy.get("context_policy") or {}),
-            "prompt_pack_refs_by_invocation": dict(policy.get("prompt_pack_refs_by_invocation") or {}),
+            "prompt_wiring_overrides": dict(policy.get("prompt_wiring_overrides") or {}),
             "operation_authorization_projection": dict(policy.get("operation_authorization_projection") or {}),
             "prompt_policy": dict(policy.get("prompt_policy") or {}),
             "subagent_policy": dict(policy.get("subagent_policy") or {}),
@@ -2526,7 +2526,16 @@ def _node_runtime_profile(*, graph_config: ExecutableGraphConfig, node: dict[str
             "source": "graph_node_config",
             "node_id": str(node.get("node_id") or ""),
             "context_policy": {"task_run_context": "disabled"},
-            "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution"]},
+            "prompt_wiring_overrides": {
+                "task_execution": {
+                    "runtime_prompt_pack": {
+                        "pack_refs": ["runtime.pack.graph_node_execution"],
+                        "replace": True,
+                        "owner_layer": "graph_system",
+                        "cache_scope": "static",
+                    }
+                }
+            },
             "prompt_policy": {
                 "environment_prompt_visibility": "hidden",
                 "environment_payload_visibility": "hidden",

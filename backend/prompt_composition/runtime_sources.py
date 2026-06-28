@@ -5,7 +5,7 @@ import json
 from typing import Any
 
 from .models import RuntimePromptSource, RuntimePromptSourceManifest
-from .tracing import runtime_source_kind_for_segment
+from .slot_policy import runtime_source_kind_for_segment
 
 
 def build_runtime_prompt_source_manifest(

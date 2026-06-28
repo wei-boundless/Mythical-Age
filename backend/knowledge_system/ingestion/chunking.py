@@ -9,6 +9,17 @@ from knowledge_system.ingestion.summaries import summarize_page_blocks, summariz
 
 _OBJECT_BLOCK_TYPES = {"table", "figure", "sheet_region", "json_field_group"}
 _LEAF_ELIGIBLE_BLOCK_TYPES = {"heading", "title", "paragraph", "list_item", "section_block"}
+_DOCUMENT_LINEAGE_METADATA_KEYS = (
+    "document_kernel_version",
+    "document_bundle_id",
+    "detected_family",
+    "detected_container",
+    "detected_extension",
+    "detected_confidence",
+    "source_parser_backend",
+    "source_parser_route",
+    "document_processing_route",
+)
 _DEFAULT_CHUNKING_POLICY = ChunkingPolicy(
     target_tokens=220,
     soft_max_tokens=320,
@@ -81,6 +92,7 @@ def build_indexable_units(
                 page=page,
                 block_type="page_summary",
                 metadata={
+                    **_document_lineage_metadata(document),
                     "page": page,
                     "parser_backend": document.parser_backend,
                     "source_type": document.source_type,
@@ -111,6 +123,7 @@ def build_indexable_units(
                 section_path=object_ref.section_path,
                 metadata={
                     **dict(object_ref.metadata),
+                    **_document_lineage_metadata(document),
                     "parser_backend": document.parser_backend,
                     "source_type": document.source_type,
                     "structure_contract_version": document.structure_contract_version,
@@ -231,6 +244,7 @@ def _build_leaf_and_parent_units(
                 node_kind="document",
                 block_type="document_summary",
                 metadata={
+                    **_document_lineage_metadata(document),
                     "title": document.title,
                     "parser_backend": document.parser_backend,
                     "source_type": document.source_type,
@@ -496,6 +510,7 @@ def _pseudo_block_from_split(block: NormalizedBlock, split_text: str, split_inde
 
 def _unit_metadata(document: NormalizedDocument, block: NormalizedBlock, *, unit_view: str) -> dict[str, object]:
     return {
+        **_document_lineage_metadata(document),
         **dict(block.metadata),
         "title": document.title,
         "section": block.section_label or " > ".join(str(item) for item in block.section_path if str(item).strip()),
@@ -511,6 +526,15 @@ def _unit_metadata(document: NormalizedDocument, block: NormalizedBlock, *, unit
         "drop_reasons": list(block.drop_reasons),
         "index_profiles": list(block.index_profiles),
         "unit_view": unit_view,
+    }
+
+
+def _document_lineage_metadata(document: NormalizedDocument) -> dict[str, object]:
+    metadata = dict(document.metadata or {})
+    return {
+        key: metadata[key]
+        for key in _DOCUMENT_LINEAGE_METADATA_KEYS
+        if key in metadata and metadata[key] not in (None, "")
     }
 
 

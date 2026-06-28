@@ -8,10 +8,11 @@ from core.project_layout import ProjectLayout
 from prompt_library.migrations import migrate_prompt_pack_payload, migrate_prompt_resource_payload
 
 from .agent_prompts import list_builtin_agent_prompt_resources
-from .environment_lifecycle_prompts import list_builtin_environment_lifecycle_prompt_resources
-from .models import PromptPack, PromptResource, prompt_pack_from_dict, prompt_resource_from_dict
+from .environment_guidance_prompts import list_builtin_environment_guidance_prompt_resources
+from .models import PromptPack, PromptResource, PromptSet, prompt_pack_from_dict, prompt_resource_from_dict, prompt_set_from_dict
 from .packs import list_builtin_prompt_packs, list_builtin_runtime_prompt_resources
 from .personality_prompts import list_builtin_personality_prompt_resources
+from .prompt_sets import list_builtin_prompt_sets
 from .rules import list_builtin_prompt_rule_resources
 from .rules import prompt_rule_from_resource
 from .system_prompts import list_builtin_system_prompt_resources
@@ -30,6 +31,10 @@ def _resources_path(base_dir: Path) -> Path:
 
 def _packs_path(base_dir: Path) -> Path:
     return _storage_root(base_dir) / "prompt_packs.json"
+
+
+def _prompt_sets_path(base_dir: Path) -> Path:
+    return _storage_root(base_dir) / "prompt_sets.json"
 
 
 def _read_json(path: Path, fallback: dict[str, Any]) -> dict[str, Any]:
@@ -86,7 +91,7 @@ class PromptLibraryRegistry:
                 *list_builtin_agent_prompt_resources(),
                 *list_builtin_personality_prompt_resources(),
                 *list_builtin_worker_prompt_resources(),
-                *list_builtin_environment_lifecycle_prompt_resources(),
+                *list_builtin_environment_guidance_prompt_resources(),
                 *list_builtin_environment_prompt_resources(),
                 *list_environment_prompt_resources_from_backend_dir(self.base_dir),
             )
@@ -180,6 +185,30 @@ class PromptLibraryRegistry:
         _write_json(_packs_path(self.base_dir), {"packs": [item.to_dict() for item in packs]})
         return normalized_pack
 
+    def list_prompt_sets(self) -> list[PromptSet]:
+        builtin_sets = {item.prompt_set_id: item for item in list_builtin_prompt_sets()}
+        stored_sets = {item.prompt_set_id: item for item in self._list_stored_prompt_sets(normalize=True)}
+        merged = {**builtin_sets, **stored_sets}
+        return sorted(merged.values(), key=lambda item: (item.owner_kind, item.owner_ref, item.prompt_set_id))
+
+    def get_prompt_set(self, prompt_set_id: str) -> PromptSet | None:
+        target = str(prompt_set_id or "").strip()
+        if not target:
+            return None
+        return next((item for item in self.list_prompt_sets() if item.prompt_set_id == target and item.active), None)
+
+    def upsert_prompt_set(self, prompt_set: PromptSet) -> PromptSet:
+        normalized_set = prompt_set_from_dict(prompt_set.to_dict())
+        sets = [
+            item
+            for item in self._list_stored_prompt_sets(normalize=True)
+            if item.prompt_set_id != normalized_set.prompt_set_id
+        ]
+        sets.append(normalized_set)
+        sets.sort(key=lambda item: (item.owner_kind, item.owner_ref, item.prompt_set_id))
+        _write_json(_prompt_sets_path(self.base_dir), {"prompt_sets": [item.to_dict() for item in sets]})
+        return normalized_set
+
     def _list_stored_resources(self, *, normalize: bool) -> list[PromptResource]:
         payload = _read_json(_resources_path(self.base_dir), {"resources": []})
         resources_by_id: dict[str, PromptResource] = {}
@@ -212,6 +241,21 @@ class PromptLibraryRegistry:
             if payload.get("packs") != normalized:
                 _write_json(_packs_path(self.base_dir), {"packs": normalized})
         return packs
+
+    def _list_stored_prompt_sets(self, *, normalize: bool) -> list[PromptSet]:
+        payload = _read_json(_prompt_sets_path(self.base_dir), {"prompt_sets": []})
+        sets_by_id: dict[str, PromptSet] = {}
+        for item in list(payload.get("prompt_sets") or []):
+            if not isinstance(item, dict):
+                continue
+            prompt_set = prompt_set_from_dict(item)
+            sets_by_id[prompt_set.prompt_set_id] = prompt_set
+        prompt_sets = sorted(sets_by_id.values(), key=lambda item: (item.owner_kind, item.owner_ref, item.prompt_set_id))
+        if normalize:
+            normalized = [item.to_dict() for item in prompt_sets]
+            if payload.get("prompt_sets") != normalized:
+                _write_json(_prompt_sets_path(self.base_dir), {"prompt_sets": normalized})
+        return prompt_sets
 
     def upsert_task_graph_node_role_prompt(
         self,
@@ -338,6 +382,7 @@ def _environment_prompt_resources_from_definitions(definitions: tuple[Any, ...],
                 )
             )
     return tuple(resources)
+
 
 
 

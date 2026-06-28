@@ -36,7 +36,7 @@ from prompt_composition import (
     parse_context_fragments,
     render_agent_prompt_instruction,
     render_environment_instruction,
-    render_lifecycle_instruction,
+    render_environment_guidance_instruction,
     render_model_messages_from_projection,
     render_personality_prompt_instruction,
     render_prompt_contract_instruction,
@@ -94,8 +94,8 @@ from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safet
 from .task_contract_manifest import TaskContractManifest, build_task_contract_manifest_from_contract
 from .tool_catalog_manifest import ToolCatalogManifest, build_tool_catalog_manifest
 from .tool_call_contract import ToolCallContract, build_tool_call_contract
-from .turn_neural_contract import (
-    build_turn_neural_contract,
+from .turn_operating_contract import (
+    build_turn_operating_contract,
     turn_action_request_contract_payload,
     turn_output_contract_payload,
 )
@@ -175,7 +175,7 @@ class RuntimeCompiler:
         )
         agent_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind=invocation_kind,
-            prompt_refs=_agent_prompt_refs_for_invocation(assembly_payload, invocation_kind=invocation_kind),
+            prompt_refs=_agent_work_role_refs_for_invocation(assembly_payload, invocation_kind=invocation_kind),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
             assembly_payload=assembly_payload,
@@ -225,7 +225,7 @@ class RuntimeCompiler:
                     role="system",
                     content=agent_prompt_assembly.content,
                     kind="semantic_compaction_role",
-                    source_ref=",".join(_agent_prompt_refs_for_invocation(assembly_payload, invocation_kind=invocation_kind)),
+                    source_ref=",".join(_agent_work_role_refs_for_invocation(assembly_payload, invocation_kind=invocation_kind)),
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -401,7 +401,11 @@ class RuntimeCompiler:
     ) -> RuntimeCompilationResult:
         initial_assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
         initial_profile_payload = dict(initial_assembly_payload.get("profile") or {})
-        prompt_pack_refs = _prompt_pack_refs_for_invocation(initial_profile_payload, invocation_kind="single_agent_turn")
+        prompt_pack_refs = _prompt_pack_refs_for_invocation(
+            initial_profile_payload,
+            invocation_kind="single_agent_turn",
+            assembly_payload=initial_assembly_payload,
+        )
         packet_context = build_single_agent_turn_packet_context(
             session_id=session_id,
             turn_id=turn_id,
@@ -455,7 +459,7 @@ class RuntimeCompiler:
             control_capabilities=effective_control_capabilities,
             planning_protocol=planning_protocol,
         )
-        turn_neural_contract = build_turn_neural_contract(
+        turn_operating_contract = build_turn_operating_contract(
             packet_context=packet_context,
             tool_call_contract=tool_call_contract,
             output_contract=output_contract,
@@ -525,7 +529,7 @@ class RuntimeCompiler:
         )
         agent_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="single_agent_turn",
-            prompt_refs=_agent_prompt_refs_for_invocation(assembly_payload, invocation_kind="single_agent_turn"),
+            prompt_refs=_agent_work_role_refs_for_invocation(assembly_payload, invocation_kind="single_agent_turn"),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
             assembly_payload=assembly_payload,
@@ -537,14 +541,14 @@ class RuntimeCompiler:
             task_environment_ref=task_environment_ref,
             assembly_payload=assembly_payload,
         )
-        environment_prompt_assembly, lifecycle_prompt_assembly = self._assemble_environment_prompt_layers(
+        environment_prompt_assembly, environment_guidance_prompt_assembly = self._assemble_environment_prompt_layers(
             prompt_mount_plan=prompt_mount_plan,
             agent_profile_ref=agent_profile_ref,
             assembly_payload=assembly_payload,
         )
-        runtime_lifecycle_prompt_assembly = self._assemble_prompt_refs(
+        turn_state_guidance_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="environment",
-            prompt_refs=tuple(prompt_mount_plan.runtime_lifecycle_prompt_refs or ()),
+            prompt_refs=tuple(prompt_mount_plan.turn_state_guidance_prompt_refs or ()),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=str(prompt_mount_plan.selected_environment_id or ""),
             assembly_payload=assembly_payload,
@@ -558,8 +562,8 @@ class RuntimeCompiler:
             environment_payload,
             environment_prompt_assembly=environment_prompt_assembly,
         )
-        lifecycle_instruction = render_lifecycle_instruction(lifecycle_prompt_assembly)
-        runtime_lifecycle_instruction = render_lifecycle_instruction(runtime_lifecycle_prompt_assembly)
+        environment_guidance_instruction = render_environment_guidance_instruction(environment_guidance_prompt_assembly)
+        turn_state_guidance_instruction = render_environment_guidance_instruction(turn_state_guidance_prompt_assembly)
         personality_instruction = render_personality_prompt_instruction(personality_prompt_assembly)
         agent_instruction = render_agent_prompt_instruction(agent_prompt_assembly, invocation_kind="single_agent_turn")
         stable_payload = {
@@ -569,7 +573,7 @@ class RuntimeCompiler:
                 prompt_mount_plan=prompt_mount_plan.to_dict(),
             ),
             "capability_directory": _capability_directory_model_visible_payload(assembly_payload),
-            "turn_neural_contract": turn_neural_contract.to_agent_visible_payload(),
+            "turn_operating_contract": turn_operating_contract.to_agent_visible_payload(),
             "output_contract": _stable_prompt_output_contract_payload(output_contract),
             **_project_instruction_model_payload(project_instruction_bundle),
         }
@@ -657,7 +661,7 @@ class RuntimeCompiler:
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
         attachment_context_payload, current_request_payload = _extract_attachment_context_payload(current_request_payload)
-        turn_reflex_tail_context_payload, current_request_payload = _extract_turn_reflex_tail_context_payload(current_request_payload)
+        turn_state_attention_context_payload, current_request_payload = _extract_turn_state_attention_context_payload(current_request_payload)
         editor_context_payload, current_request_payload = _extract_editor_context_payload(current_request_payload)
         current_turn_delta_payload = _current_turn_delta_model_payload(current_request_payload)
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
@@ -742,19 +746,19 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
-                    content=lifecycle_instruction,
-                    kind="lifecycle_stable",
-                    source_ref=",".join(prompt_mount_plan.lifecycle_prompt_refs),
+                    content=environment_guidance_instruction,
+                    kind="environment_guidance_stable",
+                    source_ref=",".join(prompt_mount_plan.environment_guidance_prompt_refs),
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "runtime_lifecycle_protocol",
-                        "lifecycle_prompt_keys": list(prompt_mount_plan.lifecycle_prompt_keys),
-                        "lifecycle_trigger_reasons": dict(prompt_mount_plan.lifecycle_trigger_reasons),
+                        "authority_class": "environment_guidance_protocol",
+                        "environment_guidance_prompt_keys": list(prompt_mount_plan.environment_guidance_prompt_keys),
+                        "environment_guidance_trigger_reasons": dict(prompt_mount_plan.environment_guidance_trigger_reasons),
                     },
                 )
-                if lifecycle_instruction.strip()
+                if environment_guidance_instruction.strip()
                 else None,
                 _message_spec(
                     role="system",
@@ -789,8 +793,8 @@ class RuntimeCompiler:
                     source_ref_prefix="single_agent_turn",
                     dynamic_context=dynamic_context,
                 ),
-                *_turn_reflex_tail_context_message_specs(
-                    turn_reflex_tail_context_payload,
+                *_turn_state_attention_context_message_specs(
+                    turn_state_attention_context_payload,
                     source_ref_prefix="single_agent_turn",
                     dynamic_context=dynamic_context,
                 ),
@@ -892,28 +896,28 @@ class RuntimeCompiler:
                 _message_spec(
                     role="system",
                     content=_runtime_control_context_content(
-                        runtime_lifecycle_instruction,
+                        turn_state_guidance_instruction,
                         validity_scope=turn_id,
-                        source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
+                        source_ref=",".join(prompt_mount_plan.turn_state_guidance_prompt_refs),
                         include_notice=False,
                     ),
-                    kind="lifecycle_runtime_guidance",
-                    source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
+                    kind="turn_state_guidance",
+                    source_ref=",".join(prompt_mount_plan.turn_state_guidance_prompt_refs),
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="preserve",
                     metadata=_current_runtime_tail_metadata(
                         {
-                            "authority_class": "runtime_lifecycle_guidance",
-                            "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
-                            "lifecycle_trigger_reasons": dict(prompt_mount_plan.runtime_lifecycle_trigger_reasons),
-                            "volatility_reason": "runtime lifecycle guidance is selected from active state such as memory, observations, steering, or recovery",
+                            "authority_class": "turn_state_guidance",
+                            "environment_guidance_prompt_keys": list(prompt_mount_plan.turn_state_guidance_prompt_keys),
+                            "environment_guidance_trigger_reasons": dict(prompt_mount_plan.turn_state_guidance_trigger_reasons),
+                            "volatility_reason": "turn state guidance is selected from active state such as memory, observations, steering, or recovery",
                         },
-                        semantic_slot="lifecycle_guidance",
+                        semantic_slot="turn_state_guidance",
                         validity_scope=turn_id,
                     ),
                 )
-                if runtime_lifecycle_instruction.strip()
+                if turn_state_guidance_instruction.strip()
                 else None,
                 _runtime_payload_spec(
                     role="system",
@@ -967,7 +971,7 @@ class RuntimeCompiler:
             "history",
             "user_message",
             "current_editor_evidence_delta",
-            "lifecycle_runtime_guidance",
+            "turn_state_guidance",
         )
         prompt_manifest = build_runtime_prompt_manifest(
             invocation_kind="single_agent_turn",
@@ -975,8 +979,8 @@ class RuntimeCompiler:
                 prompt_assembly,
                 personality_prompt_assembly,
                 environment_prompt_assembly,
-                lifecycle_prompt_assembly,
-                runtime_lifecycle_prompt_assembly,
+                environment_guidance_prompt_assembly,
+                turn_state_guidance_prompt_assembly,
                 agent_prompt_assembly,
                 invocation_kind="single_agent_turn",
             ),
@@ -995,7 +999,7 @@ class RuntimeCompiler:
         prompt_manifest["runtime_context_load_plan"] = context_load_plan.to_dict()
         prompt_manifest["prompt_mount_plan"] = prompt_mount_plan.to_dict()
         prompt_manifest["tool_call_contract"] = tool_call_contract.to_hidden_control_payload()
-        prompt_manifest["turn_neural_contract"] = turn_neural_contract.to_hidden_control_payload()
+        prompt_manifest["turn_operating_contract"] = turn_operating_contract.to_hidden_control_payload()
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
         prompt_manifest["protocol_sanitizer"] = dict(protocol_sanitizer.diagnostics)
         prompt_manifest["context_window"] = _context_window_report(
@@ -1048,7 +1052,7 @@ class RuntimeCompiler:
                 "agent_invocation_id": agent_invocation_id,
                 "runtime_assembly_id": str(assembly_payload.get("assembly_id") or ""),
                 "tool_call_contract": tool_call_contract.to_hidden_control_payload(),
-                "turn_neural_contract": turn_neural_contract.to_hidden_control_payload(),
+                "turn_operating_contract": turn_operating_contract.to_hidden_control_payload(),
             },
             context_refs=dynamic_context.context_refs,
             artifact_refs=dynamic_context.artifact_refs,
@@ -1060,7 +1064,7 @@ class RuntimeCompiler:
                 "model_input_authority": "prompt_composition.message_projection",
                 "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
                 "runtime_packet_context": packet_context.to_dict(),
-                "turn_neural_contract": turn_neural_contract.to_dict(),
+                "turn_operating_contract": turn_operating_contract.to_dict(),
                 "control_capabilities": dict(effective_control_capabilities),
                 "tool_call_contract": tool_call_contract.to_hidden_control_payload(),
                 "active_work_context_present": bool(active_work_context),
@@ -1116,7 +1120,11 @@ class RuntimeCompiler:
         tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
         graph_slot = _graph_slot_from_contract(contract)
         task_run_context_enabled = _task_run_context_enabled(profile_payload)
-        prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="task_execution")
+        prompt_pack_refs = _prompt_pack_refs_for_invocation(
+            profile_payload,
+            invocation_kind="task_execution",
+            assembly_payload=assembly_payload,
+        )
         prompt_policy = _runtime_prompt_policy(
             profile_payload=profile_payload,
             assembly_payload=assembly_payload,
@@ -1242,7 +1250,7 @@ class RuntimeCompiler:
         )
         agent_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="task_execution",
-            prompt_refs=_agent_prompt_refs_for_invocation(assembly_payload, invocation_kind="task_execution"),
+            prompt_refs=_agent_work_role_refs_for_invocation(assembly_payload, invocation_kind="task_execution"),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
             assembly_payload=assembly_payload,
@@ -1259,22 +1267,22 @@ class RuntimeCompiler:
             else _empty_prompt_assembly("personality", "promptasm:empty:task_execution_personality_policy_hidden")
         )
         if _prompt_policy_visible(prompt_policy, "environment_prompt_visibility", default=True):
-            environment_prompt_assembly, lifecycle_prompt_assembly = self._assemble_environment_prompt_layers(
+            environment_prompt_assembly, environment_guidance_prompt_assembly = self._assemble_environment_prompt_layers(
                 prompt_mount_plan=prompt_mount_plan,
                 agent_profile_ref=agent_profile_ref,
                 assembly_payload=assembly_payload,
             )
-            runtime_lifecycle_prompt_assembly = self._assemble_prompt_refs(
+            turn_state_guidance_prompt_assembly = self._assemble_prompt_refs(
                 invocation_kind="environment",
-                prompt_refs=tuple(prompt_mount_plan.runtime_lifecycle_prompt_refs or ()),
+                prompt_refs=tuple(prompt_mount_plan.turn_state_guidance_prompt_refs or ()),
                 agent_profile_ref=agent_profile_ref,
                 task_environment_ref=str(prompt_mount_plan.selected_environment_id or ""),
                 assembly_payload=assembly_payload,
             )
         else:
             environment_prompt_assembly = _empty_prompt_assembly("environment", "promptasm:empty:environment_policy_hidden")
-            lifecycle_prompt_assembly = _empty_prompt_assembly("environment", "promptasm:empty:lifecycle_policy_hidden")
-            runtime_lifecycle_prompt_assembly = _empty_prompt_assembly("environment", "promptasm:empty:runtime_lifecycle_policy_hidden")
+            environment_guidance_prompt_assembly = _empty_prompt_assembly("environment", "promptasm:empty:environment_guidance_policy_hidden")
+            turn_state_guidance_prompt_assembly = _empty_prompt_assembly("environment", "promptasm:empty:turn_state_guidance_policy_hidden")
         project_instruction_bundle = (
             collect_project_instruction_bundle(
                 base_dir=self.base_dir,
@@ -1301,13 +1309,13 @@ class RuntimeCompiler:
             if _prompt_policy_visible(prompt_policy, "environment_prompt_visibility", default=True)
             else ""
         )
-        lifecycle_instruction = (
-            render_lifecycle_instruction(lifecycle_prompt_assembly)
+        environment_guidance_instruction = (
+            render_environment_guidance_instruction(environment_guidance_prompt_assembly)
             if _prompt_policy_visible(prompt_policy, "environment_prompt_visibility", default=True)
             else ""
         )
-        runtime_lifecycle_instruction = (
-            render_lifecycle_instruction(runtime_lifecycle_prompt_assembly)
+        turn_state_guidance_instruction = (
+            render_environment_guidance_instruction(turn_state_guidance_prompt_assembly)
             if _prompt_policy_visible(prompt_policy, "environment_prompt_visibility", default=True)
             else ""
         )
@@ -1400,7 +1408,7 @@ class RuntimeCompiler:
         runtime_control_signals = canonical_runtime_control_signal_projection(
             execution_projection.get("runtime_control_signals")
         )
-        turn_reflex_tail_context_payload, volatile_payload = _extract_turn_reflex_tail_context_payload(volatile_payload)
+        turn_state_attention_context_payload, volatile_payload = _extract_turn_state_attention_context_payload(volatile_payload)
         evidence_index_cursor_payload, volatile_payload = _extract_evidence_index_cursor_payload(volatile_payload)
         editor_context_payload, volatile_payload = _extract_editor_context_payload(volatile_payload)
         bound_task_context = build_bound_task_context(
@@ -1435,9 +1443,9 @@ class RuntimeCompiler:
         )
         read_evidence_payload = packet_context.read_evidence_payload
         read_evidence_prompt_payload = _read_evidence_prompt_payload(read_evidence_payload)
-        turn_reflex_index_payload = _turn_reflex_index_payload_from_task_resource(
+        turn_attention_index_payload = _turn_attention_index_payload_from_task_resource(
             task_contract_payload=task_contract_payload,
-            turn_reflex_tail_context_payload=turn_reflex_tail_context_payload,
+            turn_state_attention_context_payload=turn_state_attention_context_payload,
             task_state_payload=task_state_payload,
         )
         incremental_context_frame_payload = build_task_execution_incremental_context_frame_payload(
@@ -1447,7 +1455,7 @@ class RuntimeCompiler:
             task_state_replay_entries=dynamic_context.task_state_replay_entries,
             current_observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
             execution_projection=execution_projection,
-            turn_reflex_tail_context_payload=turn_reflex_tail_context_payload,
+            turn_state_attention_context_payload=turn_state_attention_context_payload,
             evidence_index_cursor_payload=evidence_index_cursor_payload,
             editor_context_payload=editor_context_payload,
             read_evidence_payload=read_evidence_payload,
@@ -1502,19 +1510,19 @@ class RuntimeCompiler:
                 (
                     _message_spec(
                         role="system",
-                        content=lifecycle_instruction,
-                        kind="lifecycle_stable",
-                        source_ref=",".join(prompt_mount_plan.lifecycle_prompt_refs),
+                        content=environment_guidance_instruction,
+                        kind="environment_guidance_stable",
+                        source_ref=",".join(prompt_mount_plan.environment_guidance_prompt_refs),
                         cache_scope="session",
                         cache_role="session_stable",
                         compression_role="preserve",
                         metadata={
-                            "authority_class": "runtime_lifecycle_protocol",
-                            "lifecycle_prompt_keys": list(prompt_mount_plan.lifecycle_prompt_keys),
-                            "lifecycle_trigger_reasons": dict(prompt_mount_plan.lifecycle_trigger_reasons),
+                            "authority_class": "environment_guidance_protocol",
+                            "environment_guidance_prompt_keys": list(prompt_mount_plan.environment_guidance_prompt_keys),
+                            "environment_guidance_trigger_reasons": dict(prompt_mount_plan.environment_guidance_trigger_reasons),
                         },
                     )
-                    if lifecycle_instruction.strip()
+                    if environment_guidance_instruction.strip()
                     else None
                 ),
                 (
@@ -1662,8 +1670,8 @@ class RuntimeCompiler:
                     source_ref_prefix="task_execution",
                     dynamic_context=dynamic_context,
                 ),
-                *_turn_reflex_tail_context_message_specs(
-                    turn_reflex_tail_context_payload,
+                *_turn_state_attention_context_message_specs(
+                    turn_state_attention_context_payload,
                     source_ref_prefix="task_execution",
                     dynamic_context=dynamic_context,
                 ),
@@ -1804,28 +1812,28 @@ class RuntimeCompiler:
                 _message_spec(
                     role="system",
                     content=_runtime_control_context_content(
-                        runtime_lifecycle_instruction,
+                        turn_state_guidance_instruction,
                         validity_scope=f"{task_run_id}:{invocation_index}",
-                        source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
+                        source_ref=",".join(prompt_mount_plan.turn_state_guidance_prompt_refs),
                         include_notice=False,
                     ),
-                    kind="lifecycle_runtime_guidance",
-                    source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
+                    kind="turn_state_guidance",
+                    source_ref=",".join(prompt_mount_plan.turn_state_guidance_prompt_refs),
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="preserve",
                     metadata=_current_runtime_tail_metadata(
                         {
-                            "authority_class": "runtime_lifecycle_guidance",
-                            "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
-                            "lifecycle_trigger_reasons": dict(prompt_mount_plan.runtime_lifecycle_trigger_reasons),
-                            "volatility_reason": "runtime lifecycle guidance is selected from active state such as memory, observations, steering, or recovery",
+                            "authority_class": "turn_state_guidance",
+                            "environment_guidance_prompt_keys": list(prompt_mount_plan.turn_state_guidance_prompt_keys),
+                            "environment_guidance_trigger_reasons": dict(prompt_mount_plan.turn_state_guidance_trigger_reasons),
+                            "volatility_reason": "turn state guidance is selected from active state such as memory, observations, steering, or recovery",
                         },
-                        semantic_slot="lifecycle_guidance",
+                        semantic_slot="turn_state_guidance",
                         validity_scope=f"{task_run_id}:{invocation_index}",
                     ),
                 )
-                if runtime_lifecycle_instruction.strip()
+                if turn_state_guidance_instruction.strip()
                 else None,
                 _runtime_payload_spec(
                     role="system",
@@ -1880,29 +1888,29 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
-                    title="Turn Reflex Index",
-                    payload=turn_reflex_index_payload,
-                    kind="turn_reflex_index",
-                    visible_kind="turn_reflex_index",
-                    source_ref=f"turn_reflex_index:{task_contract_manifest.source_ref}",
+                    title="Turn Attention Index",
+                    payload=turn_attention_index_payload,
+                    kind="turn_attention_index",
+                    visible_kind="turn_attention_index",
+                    source_ref=f"turn_attention_index:{task_contract_manifest.source_ref}",
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="preserve",
                     metadata=_current_runtime_tail_metadata(
                         {
-                            "authority_class": "turn_reflex_index",
-                            "runtime_fragment_role": "current_turn_reflex_anchor_index",
+                            "authority_class": "turn_attention_index",
+                            "runtime_fragment_role": "current_turn_attention_anchor_index",
                             "projection_strategy": "tail_attention_index_for_current_turn",
-                            "content_source": "harness.runtime.task_contract_manifest_and_turn_reflex_tail_context",
+                            "content_source": "harness.runtime.task_contract_manifest_and_turn_state_attention_context",
                             "volatility_reason": "current todo cursor and active execution focus may change each invocation",
                             "cache_impact": "volatile_suffix_only",
-                            "stability_rule": "This index repeats current anchors for attention only; full authority remains in TaskRunContract, turn reflex tail context, runtime boundary, and tool observations.",
+                            "stability_rule": "This index repeats current anchors for attention only; full authority remains in TaskRunContract, turn state attention context, runtime boundary, and tool observations.",
                         },
-                        semantic_slot="turn_reflex_index",
+                        semantic_slot="turn_attention_index",
                         validity_scope=f"{task_run_id}:{invocation_index}",
                     ),
                 )
-                if turn_reflex_index_payload
+                if turn_attention_index_payload
                 else None,
                 _runtime_payload_spec(
                     role="user",
@@ -1986,7 +1994,7 @@ class RuntimeCompiler:
             "current_editor_evidence_delta",
             "read_evidence_injection",
             "incremental_context_cursor",
-            "lifecycle_runtime_guidance",
+            "turn_state_guidance",
         )
         prompt_manifest = build_runtime_prompt_manifest(
             invocation_kind="task_execution",
@@ -1994,8 +2002,8 @@ class RuntimeCompiler:
                 prompt_assembly,
                 personality_prompt_assembly,
                 environment_prompt_assembly,
-                lifecycle_prompt_assembly,
-                runtime_lifecycle_prompt_assembly,
+                environment_guidance_prompt_assembly,
+                turn_state_guidance_prompt_assembly,
                 agent_prompt_assembly,
                 task_prompt_assembly,
                 invocation_kind="task_execution",
@@ -2129,7 +2137,11 @@ class RuntimeCompiler:
         }
         permission_policy = dict(profile_payload.get("permission_policy") or {"permission_scope": "bounded_read_observation"})
         permission_policy.setdefault("permission_scope", str(permission_policy.get("scope") or "bounded_read_observation"))
-        prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="tool_observation_followup")
+        prompt_pack_refs = _prompt_pack_refs_for_invocation(
+            profile_payload,
+            invocation_kind="tool_observation_followup",
+            assembly_payload=assembly_payload,
+        )
         tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
         observation_allowed_actions = ("respond", "ask_user", "tool_call", "request_task_run", "block")
         tool_call_contract = build_tool_call_contract(
@@ -2201,7 +2213,7 @@ class RuntimeCompiler:
         )
         agent_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="tool_observation_followup",
-            prompt_refs=_agent_prompt_refs_for_invocation(assembly_payload, invocation_kind="tool_observation_followup"),
+            prompt_refs=_agent_work_role_refs_for_invocation(assembly_payload, invocation_kind="tool_observation_followup"),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
             assembly_payload=assembly_payload,
@@ -2213,14 +2225,14 @@ class RuntimeCompiler:
             task_environment_ref=task_environment_ref,
             assembly_payload=assembly_payload,
         )
-        environment_prompt_assembly, lifecycle_prompt_assembly = self._assemble_environment_prompt_layers(
+        environment_prompt_assembly, environment_guidance_prompt_assembly = self._assemble_environment_prompt_layers(
             prompt_mount_plan=prompt_mount_plan,
             agent_profile_ref=agent_profile_ref,
             assembly_payload=assembly_payload,
         )
-        runtime_lifecycle_prompt_assembly = self._assemble_prompt_refs(
+        turn_state_guidance_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="environment",
-            prompt_refs=tuple(prompt_mount_plan.runtime_lifecycle_prompt_refs or ()),
+            prompt_refs=tuple(prompt_mount_plan.turn_state_guidance_prompt_refs or ()),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=str(prompt_mount_plan.selected_environment_id or ""),
             assembly_payload=assembly_payload,
@@ -2234,8 +2246,8 @@ class RuntimeCompiler:
             environment_payload,
             environment_prompt_assembly=environment_prompt_assembly,
         )
-        lifecycle_instruction = render_lifecycle_instruction(lifecycle_prompt_assembly)
-        runtime_lifecycle_instruction = render_lifecycle_instruction(runtime_lifecycle_prompt_assembly)
+        environment_guidance_instruction = render_environment_guidance_instruction(environment_guidance_prompt_assembly)
+        turn_state_guidance_instruction = render_environment_guidance_instruction(turn_state_guidance_prompt_assembly)
         personality_instruction = render_personality_prompt_instruction(personality_prompt_assembly)
         agent_instruction = render_agent_prompt_instruction(agent_prompt_assembly, invocation_kind="tool_observation_followup")
         stable_payload = {
@@ -2289,7 +2301,7 @@ class RuntimeCompiler:
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
         attachment_context_payload, current_request_payload = _extract_attachment_context_payload(current_request_payload)
-        turn_reflex_tail_context_payload, current_request_payload = _extract_turn_reflex_tail_context_payload(current_request_payload)
+        turn_state_attention_context_payload, current_request_payload = _extract_turn_state_attention_context_payload(current_request_payload)
         editor_context_payload, current_request_payload = _extract_editor_context_payload(current_request_payload)
         tool_observation_context_payload, current_request_payload = _extract_tool_observation_context_payload(
             current_request_payload
@@ -2368,19 +2380,19 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
-                    content=lifecycle_instruction,
-                    kind="lifecycle_stable",
-                    source_ref=",".join(prompt_mount_plan.lifecycle_prompt_refs),
+                    content=environment_guidance_instruction,
+                    kind="environment_guidance_stable",
+                    source_ref=",".join(prompt_mount_plan.environment_guidance_prompt_refs),
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "runtime_lifecycle_protocol",
-                        "lifecycle_prompt_keys": list(prompt_mount_plan.lifecycle_prompt_keys),
-                        "lifecycle_trigger_reasons": dict(prompt_mount_plan.lifecycle_trigger_reasons),
+                        "authority_class": "environment_guidance_protocol",
+                        "environment_guidance_prompt_keys": list(prompt_mount_plan.environment_guidance_prompt_keys),
+                        "environment_guidance_trigger_reasons": dict(prompt_mount_plan.environment_guidance_trigger_reasons),
                     },
                 )
-                if lifecycle_instruction.strip()
+                if environment_guidance_instruction.strip()
                 else None,
                 _message_spec(
                     role="system",
@@ -2424,8 +2436,8 @@ class RuntimeCompiler:
                     source_ref_prefix="observation_followup",
                     dynamic_context=dynamic_context,
                 ),
-                *_turn_reflex_tail_context_message_specs(
-                    turn_reflex_tail_context_payload,
+                *_turn_state_attention_context_message_specs(
+                    turn_state_attention_context_payload,
                     source_ref_prefix="observation_followup",
                     dynamic_context=dynamic_context,
                 ),
@@ -2473,28 +2485,28 @@ class RuntimeCompiler:
                 _message_spec(
                     role="system",
                     content=_runtime_control_context_content(
-                        runtime_lifecycle_instruction,
+                        turn_state_guidance_instruction,
                         validity_scope=f"{turn_id}:observation_followup:{len(observations) + 1}",
-                        source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
+                        source_ref=",".join(prompt_mount_plan.turn_state_guidance_prompt_refs),
                         include_notice=False,
                     ),
-                    kind="lifecycle_runtime_guidance",
-                    source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
+                    kind="turn_state_guidance",
+                    source_ref=",".join(prompt_mount_plan.turn_state_guidance_prompt_refs),
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="preserve",
                     metadata=_current_runtime_tail_metadata(
                         {
-                            "authority_class": "runtime_lifecycle_guidance",
-                            "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
-                            "lifecycle_trigger_reasons": dict(prompt_mount_plan.runtime_lifecycle_trigger_reasons),
-                            "volatility_reason": "runtime lifecycle guidance is selected from observation followup state and must expire after this follow-up boundary",
+                            "authority_class": "turn_state_guidance",
+                            "environment_guidance_prompt_keys": list(prompt_mount_plan.turn_state_guidance_prompt_keys),
+                            "environment_guidance_trigger_reasons": dict(prompt_mount_plan.turn_state_guidance_trigger_reasons),
+                            "volatility_reason": "turn state guidance is selected from observation followup state and must expire after this follow-up boundary",
                         },
-                        semantic_slot="lifecycle_guidance",
+                        semantic_slot="turn_state_guidance",
                         validity_scope=f"{turn_id}:observation_followup:{len(observations) + 1}",
                     ),
                 )
-                if runtime_lifecycle_instruction.strip()
+                if turn_state_guidance_instruction.strip()
                 else None,
                 _runtime_payload_spec(
                     role="system",
@@ -2564,7 +2576,7 @@ class RuntimeCompiler:
             "history",
             "task_plan_context",
             "editor_context_index",
-            "lifecycle_runtime_guidance",
+            "turn_state_guidance",
             "runtime_memory_context",
         )
         observation_volatile_refs = (
@@ -2580,8 +2592,8 @@ class RuntimeCompiler:
                 prompt_assembly,
                 personality_prompt_assembly,
                 environment_prompt_assembly,
-                lifecycle_prompt_assembly,
-                runtime_lifecycle_prompt_assembly,
+                environment_guidance_prompt_assembly,
+                turn_state_guidance_prompt_assembly,
                 agent_prompt_assembly,
                 invocation_kind="tool_observation_followup",
             ),
@@ -2783,14 +2795,14 @@ class RuntimeCompiler:
             overlay_environment_prompt_assembly,
             invocation_kind="environment",
         )
-        lifecycle_prompt_assembly = self._assemble_prompt_refs(
+        environment_guidance_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="environment",
-            prompt_refs=tuple(prompt_mount_plan.lifecycle_prompt_refs or ()),
+            prompt_refs=tuple(prompt_mount_plan.environment_guidance_prompt_refs or ()),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=str(prompt_mount_plan.selected_environment_id or ""),
             assembly_payload=assembly_payload,
         )
-        return environment_prompt_assembly, lifecycle_prompt_assembly
+        return environment_prompt_assembly, environment_guidance_prompt_assembly
 
     def _assemble_personality_prompt_layer(
         self,
@@ -3528,7 +3540,7 @@ def _extract_attachment_context_payload(payload: dict[str, Any] | None) -> tuple
     return attachment_payload, _drop_empty_payload(current)
 
 
-def _extract_turn_reflex_tail_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
+def _extract_turn_state_attention_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
     current = dict(payload or {})
     task_mode_payload = _drop_empty_payload(
         {
@@ -3735,7 +3747,7 @@ def _read_evidence_context_source_ref(
     return f"{source_ref_prefix}:read_evidence_context:{digest or fallback_index}"
 
 
-def _turn_reflex_tail_context_message_specs(
+def _turn_state_attention_context_message_specs(
     payload: dict[str, Any] | None,
     *,
     source_ref_prefix: str,
@@ -3748,7 +3760,7 @@ def _turn_reflex_tail_context_message_specs(
             "key": "task_goal_context",
             "title": "turn goal resource context",
             "authority_class": "turn_goal_resource_context",
-            "content_source": "harness.runtime.dynamic_context.turn_reflex_tail_context.task_goal_context",
+            "content_source": "harness.runtime.dynamic_context.turn_state_attention_context.task_goal_context",
             "runtime_fragment_role": "turn_goal_resource_context",
             "semantic_slot": "turn_goal_resource_context",
             "semantic_rank": 21,
@@ -3757,7 +3769,7 @@ def _turn_reflex_tail_context_message_specs(
             "key": "task_plan_context",
             "title": "turn plan cursor context",
             "authority_class": "turn_plan_cursor_context",
-            "content_source": "harness.runtime.dynamic_context.turn_reflex_tail_context.task_plan_context",
+            "content_source": "harness.runtime.dynamic_context.turn_state_attention_context.task_plan_context",
             "runtime_fragment_role": "turn_plan_cursor_context",
             "semantic_slot": "turn_plan_cursor_context",
             "semantic_rank": 22,
@@ -3766,7 +3778,7 @@ def _turn_reflex_tail_context_message_specs(
             "key": "task_todo_context",
             "title": "turn todo cursor context",
             "authority_class": "turn_todo_cursor_context",
-            "content_source": "harness.runtime.dynamic_context.turn_reflex_tail_context.task_todo_context",
+            "content_source": "harness.runtime.dynamic_context.turn_state_attention_context.task_todo_context",
             "runtime_fragment_role": "turn_todo_cursor_context",
             "semantic_slot": "turn_todo_cursor_context",
             "semantic_rank": 23,
@@ -3803,7 +3815,7 @@ def _turn_reflex_tail_context_message_specs(
                     "context_prefix_tier": "volatile",
                     "context_commit_policy": "never_commit",
                     "context_replay_policy": "current_dynamic_tail_only",
-                    "stability_rule": "Turn reflex tail segments are current resource/cursor state and must not be sealed into provider-visible memory.",
+                    "stability_rule": "Turn state attention segments are current resource/cursor state and must not be sealed into provider-visible memory.",
                 },
             )
         )
@@ -4825,8 +4837,8 @@ def _runtime_control_context_content(
         else body
     )
     return render_text_context_fragment(
-        kind="lifecycle_runtime_guidance",
-        title="当前运行生命周期边界",
+        kind="turn_state_guidance",
+        title="当前运行工作提示边界",
         text=text,
         role="system",
         source_ref=source_ref,
@@ -5238,7 +5250,7 @@ def _user_steering_task_payload(execution_state: dict[str, Any] | None) -> dict[
     return {
         "authority": "harness.runtime.task_execution.user_steering_task_payload",
         "source": "active_task_steer_queue",
-        "policy_ref": "lifecycle_stable.user_steer_contract_revision",
+        "policy_ref": "environment_guidance_stable.user_steer_contract_revision",
         "pending_user_steer_count": len(pending_steers),
         "pending_user_steers": pending_steers,
     }
@@ -5269,7 +5281,7 @@ def _user_steering_context_append_payload(payload: dict[str, Any] | None) -> dic
     return {
         "authority": "harness.runtime.task_execution.user_steering_context_append",
         "source": str(data.get("source") or "active_task_steer_queue"),
-        "policy_ref": str(data.get("policy_ref") or "lifecycle_stable.user_steer_contract_revision"),
+        "policy_ref": str(data.get("policy_ref") or "environment_guidance_stable.user_steer_contract_revision"),
         "pending_user_steer_count": len(steers),
         "pending_user_steers": steers,
     }
@@ -5418,7 +5430,6 @@ def _runtime_prompt_precedence_report(sections: tuple[Any, ...]) -> dict[str, An
         "personality": 25,
         "runtime": 30,
         "environment": 40,
-        "lifecycle": 45,
         "tool": 50,
         "skill": 60,
         "project": 70,
@@ -5429,7 +5440,7 @@ def _runtime_prompt_precedence_report(sections: tuple[Any, ...]) -> dict[str, An
         category = str(getattr(section, "category", "") or "")
         subtype = str(getattr(section, "subtype", "") or "")
         prompt_ref = str(getattr(section, "prompt_ref", "") or "")
-        layer = "lifecycle" if category == "environment" and (subtype.startswith("lifecycle_") or ".lifecycle." in prompt_ref) else category
+        layer = "environment" if category == "environment" and (subtype.startswith("guidance_") or ".guidance." in prompt_ref) else category
         if layer not in precedence:
             layer = "unknown"
         entries.append(
@@ -5443,7 +5454,7 @@ def _runtime_prompt_precedence_report(sections: tuple[Any, ...]) -> dict[str, An
             }
         )
     return {
-        "policy": "system>override>coordinator>agent>personality>runtime>environment>lifecycle>tool>skill>project>contract",
+        "policy": "system>override>coordinator>agent>personality>runtime>environment>tool>skill>project>contract",
         "behavior": "enforced_precedence_order",
         "entries": entries,
         "authority": "harness.runtime.prompt_precedence_report",
@@ -5464,12 +5475,58 @@ def _string_dict(value: Any) -> dict[str, str]:
     }
 
 
-def _prompt_pack_refs_for_invocation(profile_payload: dict[str, Any], *, invocation_kind: str) -> tuple[str, ...]:
-    by_invocation = dict(profile_payload.get("prompt_pack_refs_by_invocation") or {})
-    refs = _string_tuple(by_invocation.get(invocation_kind))
-    if refs:
-        return refs
-    return _string_tuple(profile_payload.get("prompt_pack_refs"))
+def _prompt_pack_refs_for_invocation(
+    profile_payload: dict[str, Any],
+    *,
+    invocation_kind: str,
+    assembly_payload: dict[str, Any] | None = None,
+) -> tuple[str, ...]:
+    return _prompt_wiring_pack_refs_for_slot(
+        dict(assembly_payload or {}),
+        invocation_kind=invocation_kind,
+        slot_name="runtime_prompt_pack",
+    )
+
+
+def _prompt_wiring_refs_for_slot(
+    assembly_payload: dict[str, Any],
+    *,
+    invocation_kind: str,
+    slot_name: str,
+) -> tuple[str, ...]:
+    slot = _prompt_wiring_slot(assembly_payload, invocation_kind=invocation_kind, slot_name=slot_name)
+    return _string_tuple(slot.get("refs"))
+
+
+def _prompt_wiring_pack_refs_for_slot(
+    assembly_payload: dict[str, Any],
+    *,
+    invocation_kind: str,
+    slot_name: str,
+) -> tuple[str, ...]:
+    slot = _prompt_wiring_slot(assembly_payload, invocation_kind=invocation_kind, slot_name=slot_name)
+    return _string_tuple(slot.get("pack_refs"))
+
+
+def _prompt_wiring_slot(
+    assembly_payload: dict[str, Any],
+    *,
+    invocation_kind: str,
+    slot_name: str,
+) -> dict[str, Any]:
+    plans_by_invocation = dict(assembly_payload.get("prompt_wiring_plans_by_invocation") or {})
+    plan = dict(plans_by_invocation.get(str(invocation_kind or "").strip()) or {})
+    if not plan:
+        plan = dict(assembly_payload.get("prompt_wiring_plan") or {})
+    if str(plan.get("invocation_kind") or "").strip() != str(invocation_kind or "").strip():
+        return {}
+    target = str(slot_name or "").strip()
+    for raw_slot in list(plan.get("slots") or []):
+        if not isinstance(raw_slot, dict):
+            continue
+        if str(raw_slot.get("slot") or "").strip() == target:
+            return dict(raw_slot)
+    return {}
 
 
 def _runtime_prompt_policy(
@@ -5527,21 +5584,21 @@ def _prompt_mount_plan_manifest_payload(prompt_mount_plan: Any, *, prompt_policy
     hidden_refs = list(payload.get("environment_prompt_refs") or [])
     hidden_base_refs = list(payload.get("base_prompt_refs") or [])
     hidden_overlay_refs = list(payload.get("overlay_prompt_refs") or [])
-    hidden_lifecycle_refs = list(payload.get("lifecycle_prompt_refs") or [])
-    hidden_runtime_lifecycle_refs = list(payload.get("runtime_lifecycle_prompt_refs") or [])
-    hidden_lifecycle_keys = list(payload.get("lifecycle_prompt_keys") or [])
-    hidden_runtime_lifecycle_keys = list(payload.get("runtime_lifecycle_prompt_keys") or [])
-    hidden_lifecycle_trigger_reasons = dict(payload.get("lifecycle_trigger_reasons") or {})
-    hidden_runtime_lifecycle_trigger_reasons = dict(payload.get("runtime_lifecycle_trigger_reasons") or {})
+    hidden_environment_guidance_refs = list(payload.get("environment_guidance_prompt_refs") or [])
+    hidden_turn_state_guidance_refs = list(payload.get("turn_state_guidance_prompt_refs") or [])
+    hidden_guidance_keys = list(payload.get("environment_guidance_prompt_keys") or [])
+    hidden_runtime_guidance_keys = list(payload.get("turn_state_guidance_prompt_keys") or [])
+    hidden_environment_guidance_trigger_reasons = dict(payload.get("environment_guidance_trigger_reasons") or {})
+    hidden_turn_state_guidance_trigger_reasons = dict(payload.get("turn_state_guidance_trigger_reasons") or {})
     payload["environment_prompt_refs"] = []
     payload["base_prompt_refs"] = []
     payload["overlay_prompt_refs"] = []
-    payload["lifecycle_prompt_refs"] = []
-    payload["runtime_lifecycle_prompt_refs"] = []
-    payload["lifecycle_prompt_keys"] = []
-    payload["runtime_lifecycle_prompt_keys"] = []
-    payload["lifecycle_trigger_reasons"] = {}
-    payload["runtime_lifecycle_trigger_reasons"] = {}
+    payload["environment_guidance_prompt_refs"] = []
+    payload["turn_state_guidance_prompt_refs"] = []
+    payload["environment_guidance_prompt_keys"] = []
+    payload["turn_state_guidance_prompt_keys"] = []
+    payload["environment_guidance_trigger_reasons"] = {}
+    payload["turn_state_guidance_trigger_reasons"] = {}
     diagnostics = dict(payload.get("diagnostics") or {})
     diagnostics.update(
         {
@@ -5549,12 +5606,12 @@ def _prompt_mount_plan_manifest_payload(prompt_mount_plan: Any, *, prompt_policy
             "hidden_environment_prompt_refs": hidden_refs,
             "hidden_base_prompt_refs": hidden_base_refs,
             "hidden_overlay_prompt_refs": hidden_overlay_refs,
-            "hidden_lifecycle_prompt_refs": hidden_lifecycle_refs,
-            "hidden_runtime_lifecycle_prompt_refs": hidden_runtime_lifecycle_refs,
-            "hidden_lifecycle_prompt_keys": hidden_lifecycle_keys,
-            "hidden_runtime_lifecycle_prompt_keys": hidden_runtime_lifecycle_keys,
-            "hidden_lifecycle_trigger_reasons": hidden_lifecycle_trigger_reasons,
-            "hidden_runtime_lifecycle_trigger_reasons": hidden_runtime_lifecycle_trigger_reasons,
+            "hidden_environment_guidance_prompt_refs": hidden_environment_guidance_refs,
+            "hidden_turn_state_guidance_prompt_refs": hidden_turn_state_guidance_refs,
+            "hidden_environment_guidance_prompt_keys": hidden_guidance_keys,
+            "hidden_turn_state_guidance_prompt_keys": hidden_runtime_guidance_keys,
+            "hidden_environment_guidance_trigger_reasons": hidden_environment_guidance_trigger_reasons,
+            "hidden_turn_state_guidance_trigger_reasons": hidden_turn_state_guidance_trigger_reasons,
             "authority": "runtime.prompt_policy",
         }
     )
@@ -5585,12 +5642,12 @@ def _build_tool_catalog_manifest_for_mount_plan(
     )
 
 
-def _agent_prompt_refs_for_invocation(assembly_payload: dict[str, Any], *, invocation_kind: str) -> tuple[str, ...]:
-    by_invocation = dict(assembly_payload.get("agent_prompt_refs_by_invocation") or {})
-    refs = _string_tuple(by_invocation.get(invocation_kind))
-    if refs:
-        return refs
-    return _string_tuple(assembly_payload.get("agent_prompt_refs"))
+def _agent_work_role_refs_for_invocation(assembly_payload: dict[str, Any], *, invocation_kind: str) -> tuple[str, ...]:
+    return _prompt_wiring_refs_for_slot(
+        assembly_payload,
+        invocation_kind=invocation_kind,
+        slot_name="agent_work_role",
+    )
 
 
 def _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload: dict[str, Any]) -> dict[str, Any]:
@@ -5943,7 +6000,7 @@ def _model_decision_contract_payload(
             "block_requires_top_level_blocking_reason": "action_type=block 时，真实阻塞原因必须写在顶层 blocking_reason。",
             "request_task_run_uses_compact_task_start_intent": (
                 "action_type=request_task_run 时，只在 task_run_contract_seed 内填写紧凑 TaskStartIntent；"
-                "这是申请长任务资源的控制动作，不是普通工具调用，也不是第二套模型生命周期。"
+                "这是申请长任务资源的控制动作，不是普通工具调用，也不是第二套模型工作提示。"
             ),
             **(
                 {
@@ -6014,7 +6071,7 @@ def _model_decision_contract_payload(
             "pure_control_feedback_is_carried_by_control_payload_and_projection": True,
             "do_not_emit_detached_assistant_body_for_pure_control": True,
             "public_feedback_must_match_action_type": True,
-            "task_lifecycle_claim_requires_request_task_run": True,
+            "task_resource_claim_requires_request_task_run": True,
         },
     }
 
@@ -6230,7 +6287,7 @@ def _environment_model_visible_payload(
                 "environment_prompt_count": len(prompt_refs),
                 "base_prompt_count": len(mount_plan.base_prompt_refs),
                 "overlay_prompt_count": len(mount_plan.overlay_prompt_refs),
-                "lifecycle_prompt_count": len(mount_plan.lifecycle_prompt_refs),
+                "environment_guidance_prompt_count": len(mount_plan.environment_guidance_prompt_refs),
                 "personality_prompt_count": len(mount_plan.personality_prompt_refs),
             }
         ),
@@ -6488,10 +6545,10 @@ def _capability_directory_model_visible_payload(assembly_payload: dict[str, Any]
     )
 
 
-def _turn_reflex_index_payload_from_task_resource(
+def _turn_attention_index_payload_from_task_resource(
     *,
     task_contract_payload: dict[str, Any],
-    turn_reflex_tail_context_payload: dict[str, Any],
+    turn_state_attention_context_payload: dict[str, Any],
     task_state_payload: dict[str, Any],
 ) -> dict[str, Any]:
     contract_root = dict(dict(task_contract_payload or {}).get("task_run_contract") or {})
@@ -6516,15 +6573,15 @@ def _turn_reflex_index_payload_from_task_resource(
         if isinstance(item, str) and _looks_like_project_path(item)
     ]
     acceptance = dict(contract_root.get("acceptance_contract") or task_run_context.get("acceptance_contract") or {})
-    plan_focus = _task_attention_plan_focus(plan_contract, turn_reflex_tail_context_payload)
-    todo_focus = _task_attention_todo_focus(todo_contract, turn_reflex_tail_context_payload, task_state_payload)
+    plan_focus = _task_attention_plan_focus(plan_contract, turn_state_attention_context_payload)
+    todo_focus = _task_attention_todo_focus(todo_contract, turn_state_attention_context_payload, task_state_payload)
     return _drop_empty_payload(
         {
-            "turn_reflex_index": _drop_empty_payload(
+            "turn_attention_index": _drop_empty_payload(
                 {
-                    "authority": "harness.runtime.turn_reflex_index",
+                    "authority": "harness.runtime.turn_attention_index",
                     "agent_use_contract": (
-                        "Before choosing the next action, re-anchor on this current turn reflex index. "
+                        "Before choosing the next action, re-anchor on this current turn attention index. "
                         "Use it as a volatile attention guide for the active resource, scope, plan cursor, "
                         "todo cursor, acceptance boundary, runtime boundary, and tool observations."
                     ),
@@ -6611,8 +6668,8 @@ def _task_attention_working_scope(*values: Any) -> dict[str, Any]:
     )
 
 
-def _task_attention_plan_focus(plan_contract: dict[str, Any], turn_reflex_tail_context_payload: dict[str, Any]) -> dict[str, Any]:
-    plan_tail = dict(dict(turn_reflex_tail_context_payload or {}).get("task_plan_context") or {})
+def _task_attention_plan_focus(plan_contract: dict[str, Any], turn_state_attention_context_payload: dict[str, Any]) -> dict[str, Any]:
+    plan_tail = dict(dict(turn_state_attention_context_payload or {}).get("task_plan_context") or {})
     baseline = dict(plan_tail.get("task_plan_baseline") or {})
     items = list(baseline.get("items") or plan_contract.get("major_steps") or [])
     summarized_items = _attention_item_summaries(items, id_key="step_id", text_keys=("title", "content", "summary"), limit=6)
@@ -6637,11 +6694,11 @@ def _task_attention_plan_focus(plan_contract: dict[str, Any], turn_reflex_tail_c
 
 def _task_attention_todo_focus(
     todo_contract: dict[str, Any],
-    turn_reflex_tail_context_payload: dict[str, Any],
+    turn_state_attention_context_payload: dict[str, Any],
     task_state_payload: dict[str, Any],
 ) -> dict[str, Any]:
     _ = task_state_payload
-    todo_tail = dict(dict(turn_reflex_tail_context_payload or {}).get("task_todo_context") or {})
+    todo_tail = dict(dict(turn_state_attention_context_payload or {}).get("task_todo_context") or {})
     baseline = dict(todo_tail.get("task_todo_baseline") or {})
     cursor = dict(todo_tail.get("todo_cursor") or {})
     baseline_items = list(baseline.get("items") or todo_contract.get("items") or [])
@@ -7499,3 +7556,8 @@ def _ensure_environment_storage_dirs_for_runtime(base_dir: Path, environment_pay
         return
     project_root = ProjectLayout.from_backend_dir(base_dir).project_root.resolve()
     ensure_environment_storage_dirs(project_root=project_root, storage_space=storage)
+
+
+
+
+

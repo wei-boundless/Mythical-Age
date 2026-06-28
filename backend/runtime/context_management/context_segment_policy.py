@@ -64,7 +64,7 @@ STATIC_PREFIX_KINDS = {
     "file_evidence_policy_stable",
     "global_static",
     "graph_task_shared_stable",
-    "lifecycle_stable",
+    "environment_guidance_stable",
     "personality_stable",
     "project_instructions_stable",
     "runtime_baseline_refs",
@@ -115,7 +115,8 @@ CURRENT_CONTROL_TAIL_KINDS = {
     "graph_node_completion_prefix",
     "graph_node_runtime_context",
     "incremental_context_cursor",
-    "lifecycle_runtime_guidance",
+    "turn_state_guidance",
+    "turn_attention_index",
     "partial_stream_recovery_instruction",
     "partial_stream_recovery_visible_prefix",
     "read_evidence_injection",
@@ -283,7 +284,8 @@ def _install_builtin_policy_defaults() -> None:
             identity_policy="content_addressed_when_unkeyed",
         )
     for kind, slot in {
-        "lifecycle_runtime_guidance": "lifecycle_guidance",
+        "turn_state_guidance": "turn_state_guidance",
+        "turn_attention_index": "turn_attention_index",
         "runtime_control_signal_tail": "runtime_control_contract",
         "single_agent_turn_followup_action_contract": "action_contract",
         "single_agent_turn_followup_message": "runtime_followup_contract",

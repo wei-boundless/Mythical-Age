@@ -497,6 +497,48 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             metadata={"source_class": "attachment"},
         ),
         _descriptor(
+            "op.office_document",
+            "document",
+            "Office document processing",
+            "Inspect, create, edit, convert, and verify Word, Excel, PowerPoint, and PDF files through the unified office document runtime.",
+            aliases=("office_document", "office_file", "document_office", "mcp_office_document"),
+            risk_tags=("document_processing", "local_read", "local_write", "office_document"),
+            read_only=False,
+            destructive=False,
+            idempotent=False,
+            open_world=False,
+            concurrency_safe=False,
+            requires_user_interaction=True,
+            requires_approval_by_default=True,
+            max_result_size_chars=120_000,
+            deferred_loading=True,
+            safety_validator_ref="filesystem_path",
+            metadata={
+                "source_class": "document",
+                "model_visible_tools": ["office_document"],
+                "file_families": ["word", "excel", "powerpoint", "pdf"],
+                "tool_call_guidance": [
+                    "Use office_document for .docx, .xlsx, .pptx, and .pdf structure-aware processing.",
+                    "Use inspect/read before edit when stable anchors are not known.",
+                    "Use create/edit operations with explicit target anchors and payloads; prefer output_path for edits.",
+                    "Do not use write_file, edit_file, shell, or ad-hoc scripts for Office/PDF binary structure.",
+                    "Treat failed or degraded verification_report as incomplete work.",
+                ],
+                "supported_operations": {
+                    "word": ["append_paragraph", "append_section", "replace_paragraph_text", "insert_paragraph_after"],
+                    "excel": ["create_sheet", "update_cell", "set_formula", "append_rows"],
+                    "powerpoint": ["add_slide", "insert_text_box", "replace_shape_text"],
+                    "pdf": ["add_page", "append_text", "delete_pages", "reorder_pages", "split_pages", "merge_pdfs"],
+                },
+                "anchor_contract": {
+                    "word": ["paragraph_index", "paragraph_number", "contains"],
+                    "excel": ["sheet_name", "cell_ref"],
+                    "powerpoint": ["slide_number", "slide_index", "shape_id", "shape_index", "contains"],
+                    "pdf": ["pages"],
+                },
+            },
+        ),
+        _descriptor(
             "op.git_status",
             "vcs",
             "Git status",
@@ -782,5 +824,3 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
 
 def build_default_operation_registry() -> OperationRegistry:
     return OperationRegistry(default_operation_descriptors())
-
-

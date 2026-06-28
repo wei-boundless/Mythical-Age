@@ -7,7 +7,6 @@ __all__ = [
     "ConversionBlock",
     "ConversionResult",
     "DocumentCacheLayout",
-    "DoclingConverter",
     "SourceFileRecord",
     "build_markdown_blocks",
     "build_markdown_conversion_result",
@@ -19,7 +18,6 @@ _EXPORTS = {
     "ConversionBlock": ("knowledge_system.conversion.models", "ConversionBlock"),
     "ConversionResult": ("knowledge_system.conversion.models", "ConversionResult"),
     "DocumentCacheLayout": ("knowledge_system.conversion.cache", "DocumentCacheLayout"),
-    "DoclingConverter": ("knowledge_system.conversion.docling_converter", "DoclingConverter"),
     "SourceFileRecord": ("knowledge_system.conversion.models", "SourceFileRecord"),
     "build_markdown_blocks": ("knowledge_system.conversion.structured_text", "build_markdown_blocks"),
     "build_markdown_conversion_result": ("knowledge_system.conversion.structured_text", "build_markdown_conversion_result"),
@@ -30,7 +28,6 @@ _EXPORTS = {
 if TYPE_CHECKING:
     from knowledge_system.conversion.cache import DocumentCacheLayout
     from knowledge_system.conversion.discovery import discover_source_files
-    from knowledge_system.conversion.docling_converter import DoclingConverter
     from knowledge_system.conversion.models import ConversionBlock, ConversionResult, SourceFileRecord
     from knowledge_system.conversion.quality import infer_quality_flags
     from knowledge_system.conversion.structured_text import build_markdown_blocks, build_markdown_conversion_result

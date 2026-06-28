@@ -29,6 +29,7 @@ MEMORY_MANAGER_AGENT_ID = "agent:1"
 MEMORY_MANAGER_PROFILE_ID = "memory_system_agent"
 MEMORY_MANAGER_RUNTIME_TEMPLATE_IDS = ("builtin.system.memory_manager", "runtime.template.memory_manager")
 MEMORY_MANAGER_PROMPT_REF = "agent.memory_system_agent.memory_maintenance.work_role"
+MEMORY_MANAGER_PROMPT_SET_REF = "prompt_set.agent.memory_system"
 MEMORY_MANAGER_ALLOWED_OPERATIONS = {"op.model_response", "op.memory_read", "op.memory_write_candidate"}
 MEMORY_MANAGER_REQUIRED_SCOPES = {
     "conversation_readonly",
@@ -59,7 +60,7 @@ class MemoryMaintenanceAgentRegistration:
     allowed_operations: tuple[str, ...] = ()
     blocked_operations: tuple[str, ...] = ()
     allowed_memory_scopes: tuple[str, ...] = ()
-    prompt_refs_by_invocation: dict[str, tuple[str, ...]] | None = None
+    prompt_set_refs: tuple[str, ...] = ()
     allow_nested_subagents: bool = False
     authority: str = "memory_system.memory_maintenance_agent_registration"
 
@@ -68,10 +69,7 @@ class MemoryMaintenanceAgentRegistration:
         payload["allowed_operations"] = list(self.allowed_operations)
         payload["blocked_operations"] = list(self.blocked_operations)
         payload["allowed_memory_scopes"] = list(self.allowed_memory_scopes)
-        payload["prompt_refs_by_invocation"] = {
-            key: list(value)
-            for key, value in dict(self.prompt_refs_by_invocation or {}).items()
-        }
+        payload["prompt_set_refs"] = list(self.prompt_set_refs)
         return payload
 
 
@@ -85,10 +83,11 @@ def memory_maintenance_registration_from_profile(profile: Any) -> MemoryMaintena
         allowed_operations=tuple(str(item) for item in tuple(getattr(profile, "allowed_operations", ()) or ()) if str(item)),
         blocked_operations=tuple(str(item) for item in tuple(getattr(profile, "blocked_operations", ()) or ()) if str(item)),
         allowed_memory_scopes=tuple(str(item) for item in tuple(getattr(profile, "allowed_memory_scopes", ()) or ()) if str(item)),
-        prompt_refs_by_invocation={
-            str(key): tuple(str(item) for item in list(value or []) if str(item))
-            for key, value in dict(metadata.get("agent_prompt_refs_by_invocation") or {}).items()
-        },
+        prompt_set_refs=tuple(
+            str(item).strip()
+            for item in tuple(getattr(profile, "prompt_set_refs", ()) or metadata.get("prompt_set_refs") or ())
+            if str(item).strip()
+        ),
         allow_nested_subagents=bool(getattr(subagent_policy, "allow_nested_subagents", False)),
     )
     _validate_memory_maintenance_registration(registration)
@@ -389,9 +388,8 @@ def _validate_memory_maintenance_registration(registration: MemoryMaintenanceAge
     missing_scopes = sorted(MEMORY_MANAGER_REQUIRED_SCOPES - scopes)
     if missing_scopes:
         errors.append("memory_manager_missing_memory_scopes:" + ",".join(missing_scopes))
-    prompt_refs = dict(registration.prompt_refs_by_invocation or {})
-    if MEMORY_MANAGER_PROMPT_REF not in set(prompt_refs.get("memory_maintenance") or ()):
-        errors.append("memory_manager_missing_memory_maintenance_prompt_ref")
+    if MEMORY_MANAGER_PROMPT_SET_REF not in set(registration.prompt_set_refs):
+        errors.append("memory_manager_missing_memory_maintenance_prompt_set")
     if registration.allow_nested_subagents:
         errors.append("memory_manager_must_not_allow_nested_subagents")
     if errors:

@@ -9,40 +9,37 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from capability_system.capabilities.document_processing.content_cleaner import ParsedContentCleaner
+from capability_system.capabilities.document_processing.models import DocumentParserChunk
 from capability_system.capabilities.document_processing.pdf.analysis.parser import PdfSegment, PdfTextParser
 
-from dataclasses import dataclass
 from typing import Callable
-
-from .cleaner import ParsedContentCleaner
-from .models import ParsedChunk
-
-
-@dataclass(frozen=True)
-class ParserCapability:
-    """描述一个 parser 能处理的扩展名集合。"""
-    extensions: frozenset[str]
-    label: str = ""
 
 
 class ParserRegistry:
     """集中管理扩展名到解析函数的映射。"""
 
     def __init__(self) -> None:
-        self._map: dict[str, Callable[[Path], list[ParsedChunk]]] = {}
+        self._map: dict[str, Callable[[Path], list[DocumentParserChunk]]] = {}
 
-    def register(self, extensions: frozenset[str], parser_fn: Callable[[Path], list[ParsedChunk]], *, label: str = "") -> None:
+    def register(
+        self,
+        extensions: frozenset[str],
+        parser_fn: Callable[[Path], list[DocumentParserChunk]],
+        *,
+        label: str = "",
+    ) -> None:
         for ext in extensions:
             self._map[ext.lower()] = parser_fn
 
-    def resolve(self, suffix: str) -> Callable[[Path], list[ParsedChunk]] | None:
+    def resolve(self, suffix: str) -> Callable[[Path], list[DocumentParserChunk]] | None:
         return self._map.get(suffix.lower())
 
     def supported_extensions(self) -> frozenset[str]:
         return frozenset(self._map.keys())
 
 
-class MultimodalParserAdapter:
+class LocalDocumentParser:
     """Local multimodal parser for the current agent stack.
 
     This adapter intentionally avoids hard dependency on RAG-Anything. Instead it
@@ -98,7 +95,7 @@ class MultimodalParserAdapter:
             "xlsx": self._xlsx_available(),
         }
 
-    def parse_file(self, path: Path) -> list[ParsedChunk]:
+    def parse_file(self, path: Path) -> list[DocumentParserChunk]:
         suffix = path.suffix.lower()
         parser_fn = self._registry.resolve(suffix)
         if parser_fn is not None:
@@ -109,16 +106,21 @@ class MultimodalParserAdapter:
         resolved = path.resolve()
         try:
             relative = resolved.relative_to(self.backend_root)
-        except ValueError as exc:
-            raise ValueError(f"Refusing to parse file outside backend root: {resolved}") from exc
-        return str(relative).replace(os.sep, "/")
+            return str(relative).replace(os.sep, "/")
+        except ValueError:
+            pass
+        try:
+            relative = resolved.relative_to(self.repo_root.resolve())
+            return str(relative).replace(os.sep, "/")
+        except ValueError:
+            return resolved.name
 
-    def _parse_text_file(self, path: Path) -> list[ParsedChunk]:
+    def _parse_text_file(self, path: Path) -> list[DocumentParserChunk]:
         text = self._clean_text(self._read_text_file(path), modality="text")
         if not text:
             return []
         return [
-            ParsedChunk(
+            DocumentParserChunk(
                 text=text,
                 source=self._source(path),
                 modality="text",
@@ -126,7 +128,7 @@ class MultimodalParserAdapter:
             )
         ]
 
-    def _parse_json_file(self, path: Path) -> list[ParsedChunk]:
+    def _parse_json_file(self, path: Path) -> list[DocumentParserChunk]:
         raw_text = self._read_text_file(path)
         try:
             payload = json.loads(raw_text)
@@ -155,7 +157,7 @@ class MultimodalParserAdapter:
         if not joined:
             return []
         return [
-            ParsedChunk(
+            DocumentParserChunk(
                 text=joined,
                 source=self._source(path),
                 modality="text",
@@ -163,13 +165,13 @@ class MultimodalParserAdapter:
             )
         ]
 
-    def _parse_csv_file(self, path: Path) -> list[ParsedChunk]:
+    def _parse_csv_file(self, path: Path) -> list[DocumentParserChunk]:
         rows = self._read_csv_rows(path, max_rows=self.max_csv_rows)
         rows = self.cleaner.clean_table_rows(rows)
         if len(rows) <= 1:
             return []
 
-        chunks: list[ParsedChunk] = []
+        chunks: list[DocumentParserChunk] = []
         for item in self._table_row_windows(
             sheet_name=path.stem,
             rows=rows,
@@ -177,7 +179,7 @@ class MultimodalParserAdapter:
             source_format="csv",
         ):
             chunks.append(
-                ParsedChunk(
+                DocumentParserChunk(
                     text=str(item["text"]),
                     source=self._source(path),
                     modality="table",
@@ -197,7 +199,7 @@ class MultimodalParserAdapter:
             )
         return chunks
 
-    def _parse_pdf_file(self, path: Path) -> list[ParsedChunk]:
+    def _parse_pdf_file(self, path: Path) -> list[DocumentParserChunk]:
         if not self._pdf_parser.available():
             return []
         parse_document = getattr(self._pdf_parser, "parse_document", None)
@@ -211,7 +213,7 @@ class MultimodalParserAdapter:
         else:
             segments = list(self._pdf_parser.extract_segments(path))
             parse_diagnostics = []
-        chunks: list[ParsedChunk] = []
+        chunks: list[DocumentParserChunk] = []
         for segment in self._limit_pdf_segments(segments):
             if not segment.text.strip():
                 continue
@@ -229,7 +231,7 @@ class MultimodalParserAdapter:
                 **segment.metadata,
             }
             chunks.append(
-                ParsedChunk(
+                DocumentParserChunk(
                     text=cleaned_text,
                     source=self._source(path),
                     modality=segment.modality,
@@ -259,7 +261,7 @@ class MultimodalParserAdapter:
             limited.append(segment)
         return limited
 
-    def _parse_image_file(self, path: Path) -> list[ParsedChunk]:
+    def _parse_image_file(self, path: Path) -> list[DocumentParserChunk]:
         description_lines = [f"Image file: {path.name}"]
         metadata: dict[str, Any] = {"parser": "native_multimodal", "format": "image"}
 
@@ -285,7 +287,7 @@ class MultimodalParserAdapter:
 
         cleaned_text = self._clean_text("\n".join(description_lines).strip(), modality="image")
         return [
-            ParsedChunk(
+            DocumentParserChunk(
                 text=cleaned_text,
                 source=self._source(path),
                 modality="image",
@@ -293,13 +295,13 @@ class MultimodalParserAdapter:
             )
         ]
 
-    def _parse_docx_file(self, path: Path) -> list[ParsedChunk]:
+    def _parse_docx_file(self, path: Path) -> list[DocumentParserChunk]:
         texts = self._extract_docx_text(path)
         cleaned_text = self._clean_text("\n".join(texts), modality="text")
         if not cleaned_text:
             return []
         return [
-            ParsedChunk(
+            DocumentParserChunk(
                 text=cleaned_text,
                 source=self._source(path),
                 modality="text",
@@ -307,15 +309,15 @@ class MultimodalParserAdapter:
             )
         ]
 
-    def _parse_pptx_file(self, path: Path) -> list[ParsedChunk]:
+    def _parse_pptx_file(self, path: Path) -> list[DocumentParserChunk]:
         slides = self._extract_pptx_text(path)
-        chunks: list[ParsedChunk] = []
+        chunks: list[DocumentParserChunk] = []
         for slide_number, slide_text in slides:
             cleaned_slide = self._clean_text(slide_text, modality="text")
             if not cleaned_slide:
                 continue
             chunks.append(
-                ParsedChunk(
+                DocumentParserChunk(
                     text=cleaned_slide,
                     source=self._source(path),
                     modality="text",
@@ -325,9 +327,9 @@ class MultimodalParserAdapter:
             )
         return chunks
 
-    def _parse_xlsx_file(self, path: Path) -> list[ParsedChunk]:
+    def _parse_xlsx_file(self, path: Path) -> list[DocumentParserChunk]:
         sheets = self._extract_xlsx_chunks(path)
-        chunks: list[ParsedChunk] = []
+        chunks: list[DocumentParserChunk] = []
         for item in sheets:
             sheet_name = str(item["sheet_name"])
             sheet_text = str(item["text"])
@@ -350,7 +352,7 @@ class MultimodalParserAdapter:
                 "unit_view": "table_row_window",
             }
             chunks.append(
-                ParsedChunk(
+                DocumentParserChunk(
                     text=cleaned_sheet,
                     source=self._source(path),
                     modality="table",
@@ -360,13 +362,13 @@ class MultimodalParserAdapter:
             )
         return chunks
 
-    def _parse_binary_office_file(self, path: Path) -> list[ParsedChunk]:
+    def _parse_binary_office_file(self, path: Path) -> list[DocumentParserChunk]:
         return [
-            ParsedChunk(
+            DocumentParserChunk(
                 text=(
                     f"Binary Office file detected: {path.name}\n"
                     "Direct parsing is not implemented for this binary format. "
-                    "Please convert it to docx/pptx/xlsx or PDF for better capability_system.capabilities.retrieval."
+                    "Please convert it to docx/pptx/xlsx or PDF for stronger document processing."
                 ),
                 source=self._source(path),
                 modality="text",

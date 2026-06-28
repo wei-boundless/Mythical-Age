@@ -33,6 +33,7 @@ _BUILTIN_OPERATION_TO_TOOL = {
     "op.git_push": "git_push",
     "op.write_file": "write_file",
     "op.edit_file": "edit_file",
+    "op.office_document": "office_document",
     "op.shell": "terminal",
     "op.python_repl": "python_repl",
     "op.agent_todo": "agent_todo",

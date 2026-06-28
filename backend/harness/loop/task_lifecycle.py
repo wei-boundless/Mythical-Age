@@ -121,7 +121,11 @@ def contract_from_action_request(
     seed = _seed_with_layered_contract_aliases(dict(getattr(action_request, "task_run_contract_seed", {}) or action_request.task_contract_seed or {}))
     errors: list[str] = []
     if "container_contract" not in seed or "work_modes" not in seed:
-        seed = _legacy_seed_to_task_run_contract_seed(seed)
+        seed = (
+            _compact_seed_to_task_run_contract_seed(seed)
+            if _is_compact_task_start_intent(seed)
+            else _legacy_seed_to_task_run_contract_seed(seed)
+        )
     container_contract = dict(seed.get("container_contract") or {})
     work_modes = _dict_tuple(seed.get("work_modes"))
     primary_mode = _primary_work_mode(work_modes, container_contract=container_contract)
@@ -331,6 +335,100 @@ def _legacy_seed_to_task_run_contract_seed(seed: dict[str, Any]) -> dict[str, An
         "memory_contract": dict(payload.get("memory_contract") or {}),
         "acceptance_contract": dict(payload.get("acceptance_contract") or {"acceptance_mode": "checkpoint"}),
         "runtime_requirements": {"permission_requirements": dict(payload.get("permission_requirements") or {})},
+    }
+
+
+def _is_compact_task_start_intent(seed: dict[str, Any]) -> bool:
+    payload = dict(seed or {})
+    if str(payload.get("contract_shape") or "").strip() == "compact_task_start_intent_v3":
+        return True
+    compact_keys = {
+        "primary_mode",
+        "task_shape",
+        "minimum_viable_next_step",
+        "working_scope",
+        "acceptance",
+        "mode_payload",
+    }
+    return bool(compact_keys.intersection(payload)) and not (
+        "container_contract" in payload or "work_modes" in payload
+    )
+
+
+def _compact_seed_to_task_run_contract_seed(seed: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(seed or {})
+    primary_kind = str(payload.get("primary_mode") or "plan").strip()
+    if primary_kind not in {"goal", "plan"}:
+        primary_kind = "plan"
+    task_shape = str(payload.get("task_shape") or "standard").strip() or "standard"
+    minimum_next_step = _first_text(
+        payload.get("minimum_viable_next_step"),
+        "推进当前 primary Work Mode 的下一步。",
+    )
+    working_scope = dict(payload.get("working_scope") or {}) if isinstance(payload.get("working_scope"), dict) else {}
+    mode_payload = dict(payload.get("mode_payload") or {}) if isinstance(payload.get("mode_payload"), dict) else {}
+    summary = _first_text(mode_payload.get("summary"), minimum_next_step)
+    steps = list(_string_tuple(mode_payload.get("steps"))) or [minimum_next_step]
+    if primary_kind == "goal":
+        primary_contract = {
+            "user_visible_goal": summary,
+            "task_run_goal": summary,
+            "success_definition": _first_text(mode_payload.get("success_definition"), summary),
+            "completion_evidence": list(_string_tuple(mode_payload.get("notes"))),
+            "working_scope": working_scope,
+        }
+    else:
+        primary_contract = {
+            "strategy_summary": summary,
+            "major_steps": steps,
+            "plan_status": "agent_managed",
+            "replan_policy": {},
+            "working_scope": working_scope,
+        }
+    primary_ref = f"work-mode:{primary_kind}:primary"
+    acceptance = dict(payload.get("acceptance") or {}) if isinstance(payload.get("acceptance"), dict) else {}
+    return {
+        "contract_version": "task_run_contract_v1",
+        "container_contract": {
+            "entry_reason": summary,
+            "task_shape": task_shape,
+            "continuity_required": True,
+            "control_required": True,
+            "projection_required": True,
+            "checkpoint_required": True,
+            "minimum_viable_next_step": minimum_next_step,
+            "primary_work_mode_ref": primary_ref,
+            "supporting_mode_refs": [],
+            "mode_transition_policy": {
+                "agent_may_propose_transition": True,
+                "system_may_infer_transition": False,
+                "requires_accepted_event": True,
+            },
+        },
+        "work_modes": [
+            {
+                "mode_instance_id": primary_ref,
+                "mode_kind": primary_kind,
+                "mode_role": "primary",
+                "status": "draft",
+                "depends_on_mode_refs": [],
+                "contract": primary_contract,
+                "task_shape": task_shape,
+            }
+        ],
+        "lifecycle_contract": {},
+        "feedback_contract": {},
+        "memory_contract": {},
+        "acceptance_contract": {
+            "acceptance_mode": str(acceptance.get("mode") or "checkpoint").strip() or "checkpoint",
+            "completion_criteria": list(_string_tuple(acceptance.get("criteria"))),
+            "final_answer_requirements": list(_string_tuple(acceptance.get("final_answer_requirements"))),
+        },
+        "runtime_requirements": {
+            "permission_requirements": {},
+            "resource_requirements": {},
+            "safety_boundaries": list(_string_tuple(payload.get("safety_boundaries"))),
+        },
     }
 
 

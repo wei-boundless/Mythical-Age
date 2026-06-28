@@ -2,7 +2,14 @@
 
 ## 0. 文档状态
 
-状态：待用户审阅后实施。
+状态：已按本设计执行第一轮标准化落地，2026-06-28。
+
+实施记录：
+
+- 旧 `runtime.rule.lifecycle_control` 主链路已切断，替换为 `runtime.rule.turn_state_orientation`。
+- `TurnNeuralContract` 已改为 `TurnOperatingContract`，动态尾部从 `turn_reflex` 改为 `turn_state_attention` / `turn_attention_index`。
+- `lifecycle_runtime_guidance` 已收束为 `turn_state_guidance`，只表达当前 turn 状态提示，不再作为第二套生命周期控制。
+- `request_task_run`、`active_work_control` 等动作名暂不改动；旧 TaskRun 执行生命周期保持切断，等待后续任务体系重做。
 
 本文解决的是提示词系统管理问题，不是单条 prompt 去重问题。此前使用的“神经系统”只能作为比喻，用来说明 prompt、状态、动作、协议、输出之间需要形成稳定反射链路；正式架构命名必须回到实际功能：`turn`、`runtime prompt`、`action contract`、`output boundary`、`state guidance`、`protocol schema`。
 
@@ -58,7 +65,32 @@
 - `backend/harness/runtime/dynamic_context/turn_reflex_tail_context.py`
   - 名称仍使用 `reflex` 比喻。实际功能是当前 turn 的状态注意力尾部索引。
 
-### 2.2 外部成熟 agent 参考
+### 2.2 原始 Turn Prompt 与生命周期提示词冲突审计
+
+本次重构必须先承认一个事实：冲突不是 `RUNTIME_TURN_DECISION_ALIGNMENT_RULE` 和 `RUNTIME_LIFECYCLE_CONTROL_RULE` 两条规则之间的局部重复，而是原始 turn prompt、生命周期 prompt、运行合同 payload、compiler 动态注入和 repair 文案共同覆盖了同一组语义权威。
+
+| 来源 | 当前实际内容 | 冲突对象 | 问题性质 | 目标归属 |
+|---|---|---|---|---|
+| `RUNTIME_SINGLE_AGENT_TURN_PROMPT` | 讲行动裁决、合法动作、字段和 JSON 形态、`public_action_state`、工具前后公开反馈、最终收口 | `turn_decision_alignment`、`output_boundary`、`turn_action_request_contract_payload` | invocation prompt 越权讲字段协议和输出边界 | 只保留“本轮会话行动定位”，字段协议迁入 schema/Action Protocol，公开输出迁入 Output Boundary |
+| `RUNTIME_TASK_EXECUTION_PROMPT` | 讲任务合同、工具执行、文件写入策略、`public_progress_note`、`public_action_state`、`final_answer` | 任务合同、工具规则、输出边界、生命周期环境提示 | 任务执行 prompt 混合角色定位、工具策略、输出协议和持续任务生命周期 | 暂时隔离为旧任务入口；后续任务体系重做时拆为 task contract、tool guidance、output guidance |
+| `RUNTIME_OBSERVATION_FOLLOWUP_PROMPT` | 讲观察后重新判断、何时 `request_task_run`、何时 `active_work_control`、如何写公开判断 | decision rule、lifecycle runtime guidance、repair feedback | 观察跟进 prompt 同时做动作选择和展示收口 | 只保留“观察是事实输入，重新裁决下一步”；字段和展示规则外移 |
+| `RUNTIME_TURN_DECISION_ALIGNMENT_RULE` | 讲动作选择，同时讲公开进展、`public_action_state.current_judgment` | output boundary、single turn prompt、operating contract | 决策层借用了输出层权威 | 只选择动作，不解释 public fields |
+| `RUNTIME_LIFECYCLE_CONTROL_RULE` | 讲生命周期阶段、动作推进、todo、工具事件、`public_progress_note`、`final_answer`、closeout | decision rule、output boundary、dynamic tail | 用“生命周期控制”覆盖 turn 决策、状态注意力和输出边界 | 删除旧规则，替换为 `turn_state_orientation` |
+| `environment.*.lifecycle.action_selection` | 按 coding/office/general 分环境再讲一次动作选择骨架 | runtime decision rule、runtime pack prompt | 环境提示词拥有第二套动作决策入口 | 改为环境能力/工作形态 guidance；动作选择由统一 decision rule 承担 |
+| `environment.*.lifecycle.finalization` | 分环境解释最终回复、验证、风险、能力不足和内部字段禁止 | output boundary、runtime output contract | 输出边界按环境重复定义 | 迁为 environment-specific output guidance，只补充领域验收重点，不重写全局 output boundary |
+| `turn_action_request_contract_payload` | 在协议 payload 中写 `turn_reflex.selection`、字段用途、forbidden 和 `request_task_run` 示例 | prompt rules、control action schema、output contract | schema/contract 对象携带大段 agent-facing prompt prose | 结构字段和不可变短契约留在核心模块；可变/领域化解释迁入 prompt library |
+| `turn_output_contract_payload` | 在 output contract 里写 `action_selection_rules` 和 action protocol 行为说明 | decision rule、system call protocol | 输出合同反向参与动作选择 | output contract 只表达输出提交边界和提交格式；动作选择移除 |
+| compiler `lifecycle_runtime_guidance` | 根据当前状态动态选择 lifecycle prompt 并作为 system text 注入 | dynamic tail、turn_state_orientation、environment prompt set | compiler 拥有一条不经过统一 slot 计划的动态提示词总线 | 改为 `turn_state_guidance` / `turn_attention_index`，由 wiring plan 决定 slot |
+| `single_agent_turn.py` repair 文案 | 针对缺字段、非法动作、污染 final answer 给出修复提示 | 全局 rules、output boundary | repair 文案可保留，但不能上升为全局 doctrine | 只作为局部协议反馈，指向本次非法动作和当前 schema |
+
+结论：
+
+- 原始 turn prompt 需要精简，不应再承担字段说明、生命周期控制和输出收口。
+- 生命周期提示词不应作为横跨所有 turn 的第二控制系统；其中可保留的内容要按功能拆入环境 guidance、工具 guidance、恢复 feedback、输出领域补充和动态状态注意力。
+- `turn_operating_contract` 应成为结构化运行合同。不可变核心契约、schema、字段语义、提交边界和 provider 严格 tool/function calling 定义可以直接保留在代码中，因为它们不是 agent 可配置资源。
+- 需要迁入 prompt library 的不是所有字符串，而是会随 agent、环境、任务形态、工作角色、工具域或项目策略变化的 agent-facing prose。不可变核心契约可以留在代码中，但必须集中封装、命名稳定、只出现一次，并通过 manifest/slot 暴露其 authority，而不是散落在 compiler、repair、pack 和环境 lifecycle prompt 中重复解释。
+
+### 2.3 外部成熟 agent 参考
 
 只抽取结构性原则，不复制命名。
 
@@ -109,6 +141,34 @@ Prompt 规则必须分层：
 当前用户输入、active work、todo cursor、恢复线索、观察结果、当前文件证据进入动态尾部。
 
 技术 metadata 应进入 `context_fragment` metadata 或 provider schema，不作为自然语言 prompt 重复出现。
+
+### 3.4 不可变核心契约原则
+
+不是所有模型可见内容都应该进入 prompt library。Prompt library 管理的是可组合、可替换、可按 agent/environment/task 绑定的提示词资源；不可变核心契约属于 runtime control plane，可以直接放在代码中集中维护。
+
+允许保留在代码中的内容：
+
+- provider strict tool/function calling schema。
+- action object 字段定义、required paths、字段类型和解析规则。
+- output commit 的结构化边界。
+- action surface、tool transport、permission/admission 的不可变协议描述。
+- context fragment metadata、manifest、diagnostics、authority id。
+
+不应保留在 runtime 代码中散落书写的内容：
+
+- agent 工作角色说明。
+- 环境差异化行动准则。
+- 任务形态、工具域、项目策略、写作/办公/coding 等领域判断标准。
+- 可由不同 agent 覆盖或扩展的行为提示。
+- 与 prompt library 中已有规则重复的长段自然语言说明。
+
+核心契约留在代码中的条件：
+
+- 只有一个权威生成点。
+- 不通过自然语言重复覆盖 prompt library 的职责。
+- 以 locked slot 或 manifest 的形式暴露给 prompt assembly 和运行诊断。
+- 文案尽量短，服务于协议理解，不承担 agent 角色训练或环境策略。
+- 不能被 agent prompt、environment prompt 或项目 prompt 覆盖。
 
 ## 4. 目标分层
 

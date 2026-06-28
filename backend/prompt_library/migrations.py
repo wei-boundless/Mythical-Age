@@ -18,6 +18,7 @@ _DIRECT_PROMPT_REFS = (
     "runtime.semantic_compaction",
     "runtime.rule.system_call_protocol",
     "runtime.rule.turn_decision_alignment",
+    "runtime.rule.turn_state_orientation",
     "runtime.rule.tool_use",
     "runtime.rule.output_boundary",
     "runtime.rule.error_recovery",
@@ -48,24 +49,24 @@ _DIRECT_PROMPT_REFS = (
     "environment.coding.vibe_workspace.orientation",
     "environment.office.file_search.orientation",
     "environment.general.workspace.orientation",
-    "environment.general.lifecycle.context_intake",
-    "environment.general.lifecycle.request_judgment",
-    "environment.general.lifecycle.work_relation",
-    "environment.general.lifecycle.environment_capability_alignment",
-    "environment.general.lifecycle.plan_gate",
-    "environment.general.lifecycle.action_selection",
-    "environment.general.lifecycle.active_work_control",
-    "environment.general.lifecycle.task_run_handoff",
-    "environment.general.lifecycle.user_steer_contract_revision",
-    "environment.general.lifecycle.tool_dispatch",
-    "environment.general.lifecycle.tool_observation_recovery",
-    "environment.general.lifecycle.subagent_delegation",
-    "environment.general.lifecycle.subagent_result_integration",
-    "environment.general.lifecycle.verification_gate",
-    "environment.general.lifecycle.memory_read_context",
-    "environment.general.lifecycle.memory_write_handoff",
-    "environment.general.lifecycle.compaction_handoff",
-    "environment.general.lifecycle.finalization",
+    "environment.general.guidance.context_intake",
+    "environment.general.guidance.request_judgment",
+    "environment.general.guidance.work_relation",
+    "environment.general.guidance.environment_capability_alignment",
+    "environment.general.guidance.plan_gate",
+    "environment.general.guidance.action_boundary",
+    "environment.general.guidance.active_work_control",
+    "environment.general.guidance.task_run_handoff",
+    "environment.general.guidance.user_steer_contract_revision",
+    "environment.general.guidance.tool_dispatch",
+    "environment.general.guidance.tool_observation_recovery",
+    "environment.general.guidance.subagent_delegation",
+    "environment.general.guidance.subagent_result_integration",
+    "environment.general.guidance.verification_gate",
+    "environment.general.guidance.memory_read_context",
+    "environment.general.guidance.memory_write_handoff",
+    "environment.general.guidance.compaction_handoff",
+    "environment.general.guidance.finalization",
     "agent.main_interactive_agent.single_agent_turn.work_role",
     "agent.main_interactive_agent.task_execution.work_role",
     "agent.main_interactive_agent.tool_observation_followup.work_role",
@@ -115,9 +116,42 @@ PROMPT_REF_MIGRATIONS.update(
         "system.foundation.context_and_cache.v1": ("system.foundation.context_memory_cache",),
         "runtime.rule.intent_feedback": ("runtime.rule.turn_decision_alignment",),
         "runtime.rule.intent_feedback.v1": ("runtime.rule.turn_decision_alignment",),
+        "runtime.rule.lifecycle_control": ("runtime.rule.turn_state_orientation",),
+        "runtime.rule.lifecycle_control.v1": ("runtime.rule.turn_state_orientation",),
         "tool.guidance.git.v1": ("tool.guidance.git_read", "tool.guidance.git_write"),
     }
 )
+_ENVIRONMENT_GUIDANCE_PROMPT_SLOTS = (
+    "context_intake",
+    "request_judgment",
+    "work_relation",
+    "environment_capability_alignment",
+    "plan_gate",
+    "action_boundary",
+    "active_work_control",
+    "task_run_handoff",
+    "user_steer_contract_revision",
+    "tool_dispatch",
+    "tool_observation_recovery",
+    "subagent_delegation",
+    "subagent_result_integration",
+    "verification_gate",
+    "memory_read_context",
+    "memory_write_handoff",
+    "compaction_handoff",
+    "finalization",
+)
+for _environment_prefix in ("general", "coding", "office"):
+    for _slot in _ENVIRONMENT_GUIDANCE_PROMPT_SLOTS:
+        _old_slot = "action_selection" if _slot == "action_boundary" else _slot
+        _old_ref = f"environment.{_environment_prefix}.lifecycle.{_old_slot}"
+        _new_ref = f"environment.{_environment_prefix}.guidance.{_slot}"
+        PROMPT_REF_MIGRATIONS[_old_ref] = (_new_ref,)
+        PROMPT_REF_MIGRATIONS[f"{_old_ref}.v1"] = (_new_ref,)
+        if _slot == "action_boundary":
+            _old_guidance_ref = f"environment.{_environment_prefix}.guidance.action_selection"
+            PROMPT_REF_MIGRATIONS[_old_guidance_ref] = (_new_ref,)
+            PROMPT_REF_MIGRATIONS[f"{_old_guidance_ref}.v1"] = (_new_ref,)
 
 
 def migrate_prompt_ref(value: Any) -> str:
@@ -238,3 +272,4 @@ def _migrate_prompt_rule_payload(payload: dict[str, Any]) -> dict[str, Any]:
         if key in next_payload:
             next_payload[key] = list(migrate_prompt_ref_sequence(next_payload.get(key)))
     return next_payload
+

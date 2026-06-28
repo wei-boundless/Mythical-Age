@@ -32,7 +32,7 @@ class TurnActionSurface:
     resource_requirements: dict[str, Any] = field(default_factory=dict)
     source_authority: str = "harness.runtime.packet_context.model_action_surface"
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "harness.runtime.turn_neural_contract.action_surface"
+    authority: str = "harness.runtime.turn_operating_contract.action_surface"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -54,18 +54,18 @@ class TurnActionTransport:
     provider_control_tools_enabled: bool = False
     action_object_fallback_enabled: bool = False
     control_schema_authority: str = "harness.runtime.control_action_schema"
-    authority: str = "harness.runtime.turn_neural_contract.action_transport"
+    authority: str = "harness.runtime.turn_operating_contract.action_transport"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 @dataclass(frozen=True, slots=True)
-class TurnReflexIndex:
+class TurnAttentionIndex:
     index_id: str
     payload: dict[str, Any]
     cache_policy: dict[str, Any] = field(default_factory=dict)
-    authority: str = "harness.runtime.turn_neural_contract.turn_reflex_index"
+    authority: str = "harness.runtime.turn_operating_contract.turn_attention_index"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -77,7 +77,7 @@ class TurnReflexIndex:
 
 
 @dataclass(frozen=True, slots=True)
-class TurnNeuralContract:
+class TurnOperatingContract:
     contract_id: str
     turn_id: str
     invocation_kind: str
@@ -86,7 +86,7 @@ class TurnNeuralContract:
     action_request_contract: dict[str, Any]
     output_commit_contract: dict[str, Any]
     trace_contract: dict[str, Any] = field(default_factory=dict)
-    authority: str = "harness.runtime.turn_neural_contract"
+    authority: str = "harness.runtime.turn_operating_contract"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -120,7 +120,7 @@ class TurnNeuralContract:
                     "task_shape_values": list(TASK_RESOURCE_SHAPES),
                 },
             },
-            "authority": "harness.runtime.turn_neural_contract.agent_visible",
+            "authority": "harness.runtime.turn_operating_contract.agent_visible",
         }
 
     def to_hidden_control_payload(self) -> dict[str, Any]:
@@ -162,12 +162,12 @@ def turn_action_surface_from_packet_context(packet_context: Any, *, tool_call_co
     )
 
 
-def build_turn_neural_contract(
+def build_turn_operating_contract(
     *,
     packet_context: Any,
     tool_call_contract: Any | None = None,
     output_contract: dict[str, Any] | None = None,
-) -> TurnNeuralContract:
+) -> TurnOperatingContract:
     surface = turn_action_surface_from_packet_context(packet_context, tool_call_contract=tool_call_contract)
     transport_payload = _tool_contract_payload(tool_call_contract)
     transport_identity = {
@@ -194,8 +194,8 @@ def build_turn_neural_contract(
         "surface_id": surface.surface_id,
         "transport_id": transport.transport_id,
     }
-    return TurnNeuralContract(
-        contract_id=f"turn-neural-contract:{_digest(identity)}",
+    return TurnOperatingContract(
+        contract_id=f"turn-operating-contract:{_digest(identity)}",
         turn_id=str(getattr(packet_context, "turn_id", "") or ""),
         invocation_kind=str(getattr(packet_context, "invocation_kind", "") or ""),
         action_surface=surface,
@@ -228,10 +228,10 @@ def turn_action_request_contract_payload(
     )
     return {
         "contract_name": "turn_action_request",
-        "authority": "harness.runtime.turn_neural_contract.action_request_contract",
+        "authority": "harness.runtime.turn_operating_contract.action_request_contract",
         "action_surface_ref": str(action_surface_ref or ""),
         "allowed_action_types": list(visible_allowed),
-        "turn_reflex": {
+        "turn_attention": {
             "identity": "你正在执行当前 turn。先回应用户当前输入，再选择一个本轮动作。",
             "single_lifecycle": "所有动作都发生在当前 turn；任务资源、工具、恢复、控制和最终回复不是第二套模型生命周期。",
             "selection": [
@@ -371,16 +371,9 @@ def turn_output_contract_payload(
         forbidden.append("active_work_control")
     return {
         "format": "natural_response_or_turn_action",
-        "authority": "harness.runtime.turn_neural_contract.output_commit_contract",
+        "authority": "harness.runtime.turn_operating_contract.output_commit_contract",
         "allowed_actions": list(allowed),
         "forbidden": list(dict.fromkeys(forbidden)),
-        "action_selection_rules": [
-            "你只在当前 turn 中行动；先回应用户当前输入，再选择一个合法动作。",
-            "当前 turn 能完成时使用 respond；需要观察时使用 tool_call；需要用户信息时使用 ask_user。",
-            "需要系统保存目标、计划游标、恢复点、阶段反馈或验收边界时，提交 request_task_run 申请长任务资源。",
-            "request_task_run 只是资源申请，不是普通工具调用，也不是第二套模型执行循环。",
-            "公开反馈和 action_type 必须描述同一个下一步。",
-        ],
         "action_protocol": {
             "single_control_action_per_turn": True,
             "structured_action": {
@@ -443,15 +436,15 @@ def turn_output_contract_payload(
     }
 
 
-def turn_reflex_index_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def turn_attention_index_payload(payload: dict[str, Any]) -> dict[str, Any]:
     content = dict(payload or {})
     if not content:
         return {}
     return {
-        "turn_reflex_index": {
-            "authority": "harness.runtime.turn_neural_contract.turn_reflex_index",
+        "turn_attention_index": {
+            "authority": "harness.runtime.turn_operating_contract.turn_attention_index",
             "agent_use_contract": (
-                "Before choosing the next action, re-anchor on this turn reflex index. "
+                "Before choosing the next action, re-anchor on this turn attention index. "
                 "It is a volatile attention guide for current goal, plan cursor, todo cursor, scope, "
                 "acceptance, and runtime boundary. Do not treat it as a separate task mode."
             ),
@@ -504,3 +497,4 @@ def _resource_requirements_from_packet(packet_context: Any) -> dict[str, Any]:
 def _digest(payload: Any) -> str:
     data = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(data.encode("utf-8")).hexdigest()[:20]
+

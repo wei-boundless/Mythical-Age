@@ -453,7 +453,12 @@ def _cache_boundary(
 ) -> dict[str, Any]:
     transport = dict(transport_contract or {})
     transport_contract_hash = str(transport.get("contract_hash") or "")
-    stable_message_prefix = _contiguous_stable_message_prefix(segments)
+    physical_cache_spine = _physical_cache_spine_prefix_diagnostics(
+        segments,
+        transport_contract_hash=transport_contract_hash,
+    )
+    physical_prefix_hash = str(physical_cache_spine.get("provider_payload_prefix_hash") or "")
+    physical_message_hash = str(physical_cache_spine.get("provider_payload_message_prefix_hash") or "")
     stable_tool_capability_segments = [
         segment
         for segment in segments
@@ -468,7 +473,7 @@ def _cache_boundary(
         )
         for tier in ("provider_global", "session", "task")
     }
-    selected_tier, selected_prefix = _selected_tier_prefix(tier_prefixes)
+    selected_tier = "physical_cache_spine" if physical_prefix_hash else "none"
     tool_segments = [segment for segment in segments if segment.transport_location == "tools"]
     request_param_segments = [segment for segment in segments if segment.transport_location == "request_params"]
     tool_option_segments = [segment for segment in segments if segment.transport_location == "tool_call_options"]
@@ -478,29 +483,42 @@ def _cache_boundary(
         *tool_option_segments,
         *response_format_segments,
     ]
-    stable_prefix_segments = _provider_prefix_segments_for_tier(segments, tier=selected_tier)
     cache_spine = _cache_spine_diagnostics(
         segments,
         transport_contract_hash=transport_contract_hash,
     )
     return {
         "selected_prefix_key_tier": selected_tier,
-        "provider_payload_prefix_hash": str(selected_prefix.get("provider_payload_prefix_hash") or ""),
-        "provider_payload_message_prefix_hash": str(selected_prefix.get("message_prefix_hash") or ""),
+        "provider_payload_prefix_hash": physical_prefix_hash,
+        "provider_payload_message_prefix_hash": physical_message_hash,
         "transport_contract_ref": str(transport.get("contract_id") or ""),
         "transport_contract_hash": transport_contract_hash,
         "stable_transport_contract_hash": transport_contract_hash,
         "transport_contract_component_count": int(transport.get("component_count") or 0),
         "transport_contract_components": list(transport.get("components") or []),
-        "selected_boundary_segment_id": str(selected_prefix.get("boundary_segment_id") or ""),
-        "stable_segment_count": len(stable_prefix_segments),
-        "stable_segment_hash": str(selected_prefix.get("provider_payload_prefix_hash") or ""),
-        "stable_message_prefix_hash": _segments_hash(stable_message_prefix),
-        "stable_message_prefix_physical_hash": _physical_prefix_hash(
+        "selected_boundary_segment_id": str(physical_cache_spine.get("boundary_segment_id") or ""),
+        "physical_cache_spine": physical_cache_spine,
+        "physical_cache_spine_hash": physical_prefix_hash,
+        "physical_cache_spine_message_hash": physical_message_hash,
+        "physical_cache_spine_segment_count": int(physical_cache_spine.get("segment_count") or 0),
+        "physical_cache_spine_message_segment_count": int(physical_cache_spine.get("message_segment_count") or 0),
+        "physical_cache_spine_segment_ids": list(physical_cache_spine.get("segment_ids") or []),
+        "physical_cache_spine_segments": list(physical_cache_spine.get("segments") or []),
+        "physical_cache_spine_boundary_segment_id": str(physical_cache_spine.get("boundary_segment_id") or ""),
+        "physical_cache_spine_boundary_kind": str(physical_cache_spine.get("boundary_kind") or ""),
+        "physical_cache_spine_boundary_ordinal": int(physical_cache_spine.get("boundary_ordinal") or 0),
+        "physical_cache_spine_boundary_content_hash": str(physical_cache_spine.get("boundary_content_hash") or ""),
+        "physical_cache_spine_lane_counts": dict(physical_cache_spine.get("lane_counts") or {}),
+        "physical_cache_spine_lane_order": list(physical_cache_spine.get("lane_order") or []),
+        "physical_cache_spine_authority": str(physical_cache_spine.get("authority") or ""),
+        "legacy_stable_segment_count": int(physical_cache_spine.get("segment_count") or 0),
+        "legacy_stable_segment_hash": physical_prefix_hash,
+        "legacy_stable_message_prefix_hash": physical_message_hash,
+        "legacy_stable_message_prefix_physical_hash": _physical_prefix_hash(
             transport_contract_hash=transport_contract_hash,
-            message_prefix_hash=_segments_hash(stable_message_prefix),
+            message_prefix_hash=physical_message_hash,
         ),
-        "stable_message_prefix_segment_count": len(stable_message_prefix),
+        "legacy_stable_message_prefix_segment_count": int(physical_cache_spine.get("message_segment_count") or 0),
         "tool_catalog_hash": _segments_hash(tool_segments),
         "stable_tool_catalog_hash": _segments_hash(stable_tool_capability_segments),
         "cache_sensitive_params_hash": _segments_hash(cache_sensitive_segments),
@@ -521,14 +539,16 @@ def _cache_boundary(
         "cache_spine_segment_count": int(cache_spine.get("cache_spine_segment_count") or 0),
         "cache_spine_lane_counts": dict(cache_spine.get("cache_spine_lane_counts") or {}),
         "cache_spine_lane_order": list(cache_spine.get("cache_spine_lane_order") or []),
+        "cache_spine_after_tail_violations": list(cache_spine.get("stable_after_tail_violations") or []),
+        "cache_spine_after_tail_violation_count": int(cache_spine.get("stable_after_tail_violation_count") or 0),
         "stable_after_tail_violations": list(cache_spine.get("stable_after_tail_violations") or []),
         "stable_after_tail_violation_count": int(cache_spine.get("stable_after_tail_violation_count") or 0),
+        "legacy_prefix_tier_diagnostics": {
+            "selected_tier_by_label": _selected_tier_prefix(tier_prefixes)[0],
+            "tier_prefixes": tier_prefixes,
+        },
         "authority": "runtime.model_gateway.provider_payload.cache_boundary",
     }
-
-
-def _contiguous_stable_message_prefix(segments: tuple[ProviderPayloadSegment, ...]) -> list[ProviderPayloadSegment]:
-    return _provider_visible_structural_prefix_segments(segments)
 
 
 def _cache_spine_diagnostics(
@@ -674,6 +694,71 @@ def _is_provider_visible_structural_prefix_segment(segment: ProviderPayloadSegme
     return lane in {
         "global_static_prefix",
         "provider_visible_context_prefix",
+    }
+
+
+def _physical_cache_spine_prefix_diagnostics(
+    segments: tuple[ProviderPayloadSegment, ...],
+    *,
+    transport_contract_hash: str,
+) -> dict[str, Any]:
+    prefix_segments = _provider_visible_structural_prefix_segments(segments)
+    boundary = prefix_segments[-1] if prefix_segments else None
+    message_prefix_hash = _segments_hash(prefix_segments)
+    lane_counts: dict[str, int] = {}
+    lane_order: list[str] = []
+    segment_payloads: list[dict[str, Any]] = []
+    for segment in prefix_segments:
+        metadata = dict(segment.metadata or {})
+        lane = str(metadata.get("physical_prefix_lane") or "").strip()
+        if lane:
+            lane_counts[lane] = lane_counts.get(lane, 0) + 1
+            if lane not in lane_order:
+                lane_order.append(lane)
+        segment_payloads.append(
+            {
+                "segment_id": segment.segment_id,
+                "kind": segment.kind,
+                "transport_location": segment.transport_location,
+                "ordinal": int(segment.ordinal or 0),
+                "source_ref": segment.source_ref,
+                "content_hash": segment.content_hash,
+                "byte_length": int(segment.byte_length or 0),
+                "physical_prefix_lane": lane,
+                "cache_role": segment.cache_role,
+                "prefix_tier": segment.prefix_tier,
+                "cache_spine_generation": str(metadata.get("cache_spine_generation") or ""),
+                "provider_visible_boundary": str(metadata.get("context_provider_visible_boundary") or ""),
+            }
+        )
+    return {
+        "provider_payload_prefix_hash": _physical_prefix_hash(
+            transport_contract_hash=transport_contract_hash,
+            message_prefix_hash=message_prefix_hash,
+        )
+        if prefix_segments or transport_contract_hash
+        else "",
+        "provider_payload_message_prefix_hash": message_prefix_hash,
+        "message_prefix_hash": message_prefix_hash,
+        "transport_contract_hash": str(transport_contract_hash or ""),
+        "segment_count": len(prefix_segments),
+        "message_segment_count": len(prefix_segments),
+        "tool_segment_count": 0,
+        "segment_ids": [segment.segment_id for segment in prefix_segments],
+        "kinds": [segment.kind for segment in prefix_segments],
+        "segments": segment_payloads,
+        "boundary_segment_id": boundary.segment_id if boundary is not None else "",
+        "boundary_kind": boundary.kind if boundary is not None else "",
+        "boundary_ordinal": int(boundary.ordinal or 0) if boundary is not None else 0,
+        "boundary_content_hash": boundary.content_hash if boundary is not None else "",
+        "provider_visible_boundary_source": "physical_cache_spine",
+        "provider_visible_boundaries": [
+            str(dict(segment.metadata or {}).get("context_provider_visible_boundary") or "")
+            for segment in prefix_segments
+        ],
+        "lane_counts": lane_counts,
+        "lane_order": lane_order,
+        "authority": "runtime.model_gateway.provider_payload.physical_cache_spine",
     }
 
 

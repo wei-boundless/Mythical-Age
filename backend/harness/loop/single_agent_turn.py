@@ -877,6 +877,7 @@ def _tool_followup_action_contract_messages(
     turn_id: str,
     allowed_action_types: tuple[str, ...],
     tool_iteration: int,
+    output_contract: SingleAgentOutputChannelContract,
     evidence_delta_summary: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     allowed = tuple(str(item) for item in tuple(allowed_action_types or ()) if str(item))
@@ -884,6 +885,7 @@ def _tool_followup_action_contract_messages(
     payload = {
         "allowed_action_types": list(allowed),
         "required_fields": _agent_visible_action_fields(allowed),
+        "output_channel_contract": output_contract.to_dict(),
         "tool_call_allowed": "tool_call" in set(allowed),
         "long_task_resource_boundary": {
             "definition": "长任务资源用于保存目标、计划游标、todo 游标、恢复点、阶段反馈、控制边界和验收边界。",
@@ -891,9 +893,9 @@ def _tool_followup_action_contract_messages(
             "tool_call_when": "如果当前 turn 仍能直接查证、修改、验证并收口，可以继续普通工具；公开反馈不要宣称已经申请或绑定长任务资源。",
         },
         "output": {
-            "natural_response": "事实已经足够回答用户时，可以直接写给用户看的自然回应；这表示你选择结束本轮普通对话。",
-            "structured_action": "需要继续工具、请求任务生命周期、控制当前工作、显式询问或显式阻塞时，选择本轮允许的动作；provider 工具/控制动作可用时直接选择对应动作并填写参数。",
-            "respond": "如果你使用结构化 respond，把用户可见自然语言正文写入 final_answer。",
+            "natural_response": "事实已经足够回答用户时，选择 action_type=respond，并把用户可见自然语言正文完整写入 final_answer；不要把正文写在动作对象之外。",
+            "structured_action": "本阶段必须提交一个可唯一识别的动作；需要继续工具、请求任务生命周期、控制当前工作、显式询问或显式阻塞时，选择本轮允许的动作；provider 工具/控制动作可用时直接选择对应动作并填写参数。",
+            "respond": "回答用户时提交 action_type=respond，并把用户可见自然语言正文写入 final_answer。",
             "ask_user": "需要让本轮停在等待用户补充的状态时，提交 action_type=ask_user，并填写 user_question。",
             "block": "事实、权限或环境不足以可靠继续，需要让本轮停在阻塞状态时，提交 action_type=block，并填写 blocking_reason。",
             "tool_call": "仍需工具观察且本轮允许 tool_call 时，提交一个工具行动；公开说明用于表达判断，工具名和参数放在本次工具行动里。",
@@ -922,17 +924,17 @@ def _tool_followup_action_contract_messages(
     )
     instruction = (
         "你是正在根据刚才工具观察决定下一步的 coding agent。\n"
-        "请根据观察决定下一步：可以直接给用户自然回应，也可以选择一个本轮允许的工具或控制动作。\n"
+        "请根据观察决定下一步，并只提交一个本轮允许的动作。\n"
         f"{json.dumps(payload, ensure_ascii=False, sort_keys=True)}\n\n"
         f"{evidence_instruction}"
-        "如果已经足够回答用户，可以直接写完整自然语言回复；如果使用 respond 控制动作或结构化 respond，把正文写入 final_answer。\n"
-        "如果需要用户补充，可以直接提出问题；如果需要让本轮停在等待用户补充的状态，提交 action_type=ask_user，并填写 user_question。\n"
-        "如果当前事实或权限不足，可以直接说明阻塞；如果需要让本轮停在阻塞状态，提交 action_type=block，并填写 blocking_reason。\n"
+        "如果已经足够回答用户，提交 action_type=respond，并把完整自然语言回复写入 final_answer；不要输出动作对象之外的 Markdown 正文。\n"
+        "如果需要用户补充，提交 action_type=ask_user，并把问题写入 user_question；不要在动作对象之外直接提问。\n"
+        "如果当前事实或权限不足，提交 action_type=block，并把阻塞说明写入 blocking_reason；不要在动作对象之外直接说明阻塞。\n"
         "如果你判断需要系统分配长任务资源来保存目标、计划游标、todo 游标、恢复点、阶段反馈或验收边界，提交 action_type=request_task_run。\n"
         "request_task_run 只填写紧凑 TaskStartIntent：primary_mode、task_shape、minimum_viable_next_step、working_scope、acceptance、mode_payload；内部 TaskRunContract 由运行时生成。"
         "如果仍需工具观察且本轮允许 tool_call，只按本轮工具行动合同发起工具行动；"
         "工具前置说明可以作为公开进展，但不能宣称已经或即将绑定长任务资源；TaskStartIntent 必须留在 request_task_run 动作对象内。\n"
-        "不要同时给出自然回应和动作；如果需要工具观察，请在本次工具行动中写清工具名和参数。"
+        "不要同时给出动作外正文和动作；如果需要工具观察，请在本次工具行动中写清工具名和参数。"
     )
     return _append_model_messages_without_rewriting_context(
         model_messages,
@@ -3087,23 +3089,24 @@ async def run_single_agent_turn(
                     tool_iteration=tool_iteration,
                     turn_id=turn_id,
                 )
+                current_output_contract = _action_output_channel_contract()
                 followup_invocation_messages = _tool_followup_action_contract_messages(
                     [dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)],
                     turn_id=turn_id,
                     allowed_action_types=current_allowed_action_types,
                     tool_iteration=tool_iteration,
+                    output_contract=current_output_contract,
                     evidence_delta_summary=evidence_delta_summary,
                 )
-                current_output_contract = _single_agent_output_channel_contract(action_transport_required=False)
                 followup_prompt_manifest = {
                     **dict(followup_prompt_manifest or {}),
                     "tool_followup_action_guidance": True,
                     "evidence_alignment_system_group_enabled": evidence_alignment_enabled,
                     "evidence_delta_summary_included": bool(evidence_delta_summary),
-                    "assistant_body_form": "natural_response_or_action_object_final_answer",
+                    "assistant_body_form": "action_object_with_final_answer_for_respond",
                     "control_action_submission": "provider_tool_selection_when_available",
                     "output_channel_contract": current_output_contract.to_dict(),
-                    "natural_response_terminal_when_no_action": True,
+                    "natural_response_terminal_when_no_action": False,
                     "synthetic_incremental_context_frame": "omitted_from_provider_visible_messages",
                     "synthetic_incremental_context_frame_reason": (
                         "deepseek_prefix_cache_does_not_reliably_extend_after_mid_transcript_system_frames"
@@ -4646,10 +4649,47 @@ def _plain_assistant_text_is_allowed_response(
     assistant_text: str,
     *,
     allowed_action_types: tuple[str, ...],
+    output_contract: SingleAgentOutputChannelContract | None = None,
 ) -> bool:
     if not str(assistant_text or "").strip():
         return False
+    if not _output_channel_allows_direct_visible_text(output_contract):
+        return False
     return "respond" in {str(item) for item in tuple(allowed_action_types or ()) if str(item)}
+
+
+def _direct_visible_text_not_allowed_error(
+    *,
+    phase: str,
+    assistant_text: str,
+    output_contract: SingleAgentOutputChannelContract | None,
+    allowed_action_types: tuple[str, ...],
+    parse_diagnostics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return _single_agent_protocol_error(
+        code="single_agent_turn_direct_visible_text_not_allowed",
+        reason="direct_visible_text_not_allowed",
+        diagnostics={
+            "phase": phase,
+            "allowed_action_types": list(allowed_action_types),
+            "output_channel_contract": (
+                output_contract.to_dict()
+                if output_contract is not None
+                else _single_agent_output_channel_contract(action_transport_required=False).to_dict()
+            ),
+            "parse_diagnostics": dict(parse_diagnostics or {}),
+            "previous_response_preview": _compact_text(assistant_text, limit=600),
+            "action_issue": _protocol_action_issue(
+                category="protocol_violation",
+                code="direct_visible_text_not_allowed",
+                requested_action_type="respond",
+                repair_instruction=(
+                    "本轮输出通道不接受 raw assistant 正文。"
+                    "如果要回答用户，提交 action_type=respond，并把用户可见最终正文写入 final_answer。"
+                ),
+            ),
+        },
+    )
 
 
 def _single_agent_action_request_from_response(
@@ -4898,6 +4938,7 @@ def _single_agent_action_request_from_response(
             and _plain_assistant_text_is_allowed_response(
                 assistant_text,
                 allowed_action_types=allowed_action_types,
+                output_contract=channel_contract,
             )
         ):
             if contains_internal_protocol(assistant_text) or contains_inline_pseudo_tool_call(assistant_text):
@@ -4914,6 +4955,18 @@ def _single_agent_action_request_from_response(
                 action_request=None,
                 native_tool_calls=[],
                 assistant_final_text=assistant_text,
+            )
+        if assistant_text and not _output_channel_allows_direct_visible_text(channel_contract):
+            return SingleAgentActionParse(
+                action_request=None,
+                native_tool_calls=[],
+                error=_direct_visible_text_not_allowed_error(
+                    phase=phase,
+                    assistant_text=assistant_text,
+                    output_contract=channel_contract,
+                    allowed_action_types=allowed_action_types,
+                    parse_diagnostics=dict(protocol.parse_diagnostics or {}),
+                ),
             )
         if require_json_action:
             return SingleAgentActionParse(

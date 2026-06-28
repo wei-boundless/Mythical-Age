@@ -6,36 +6,13 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .source_bundle import PromptSource, PromptSourceBundle
-from runtime.context_management.context_segment_policy import (
-    CONTEXT_APPEND,
-    CONTEXT_MEMORY_PREFIX,
-    DYNAMIC_TAIL,
-    STATIC_PREFIX,
-    context_segment_policy_for_spec,
-    context_segment_policy_metadata,
+from .slot_policy import (
+    PREFIX_TIER_ORDER,
+    STABLE_CACHE_ROLES,
+    VOLATILE_CACHE_ROLES,
+    prompt_slot_policy_metadata,
+    resolve_prompt_slot_policy,
 )
-
-
-STABLE_CACHE_ROLES = {"cacheable_prefix", "session_stable"}
-VOLATILE_CACHE_ROLES = {"volatile", "never_cache"}
-
-CONTEXT_APPEND_LAYER_NAMES = {
-    "append_only_runtime_evidence",
-    "attachment_context_index",
-    "current_turn_user_context",
-    "editor_context_index",
-    "evidence_index_cursor",
-    "file_evidence_cursor",
-    "runtime_memory_context",
-}
-
-PREFIX_TIER_ORDER = {
-    "provider_global": 100,
-    "session": 200,
-    "task": 300,
-    "volatile": 900,
-    "none": 990,
-}
 
 @dataclass(frozen=True, slots=True)
 class PromptAssemblySlot:
@@ -189,40 +166,24 @@ def _slot_from_source(source: PromptSource, *, provider_profile: dict[str, Any])
         "cache_scope": source.cache_scope,
         "cache_role": source.cache_role,
         "prefix_tier": source.prefix_tier,
+        "compression_role": source.compression_role,
         "metadata": dict(source.metadata or {}),
     }
-    policy = context_segment_policy_for_spec(source_spec)
-    cache_role = policy.prefix_cache_role
-    prefix_tier = policy.prefix_tier
-    source_cache_scope = policy.prefix_cache_scope
-    layer = _layer_for_source(source, cache_role=cache_role, prefix_tier=prefix_tier)
-    if policy.section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
-        layer = _context_append_layer(layer)
-    elif policy.section == DYNAMIC_TAIL:
-        layer = "dynamic_context_tail"
-    elif policy.section == STATIC_PREFIX and layer == "volatile":
-        layer = "task_stable_scope"
-    dynamic_tier = _dynamic_tier_for_source(source, cache_role=cache_role, prefix_tier=prefix_tier, layer=layer)
-    cache_scope = _cache_scope_for_tier(
-        source_cache_scope,
-        cache_role=cache_role,
-        prefix_tier=prefix_tier,
-        layer=layer,
-    )
+    slot_policy = resolve_prompt_slot_policy(source_spec, source_kind=source.source_kind)
     slot_id = _slot_id(
         packet_id=source.packet_id,
         invocation_kind=source.invocation_kind,
         source_id=source.source_id,
         kind=source.kind,
-        layer=layer,
-        prefix_tier=prefix_tier,
+        layer=slot_policy.layer,
+        prefix_tier=slot_policy.prefix_tier,
     )
     metadata = {
         **dict(source.metadata or {}),
-        "prompt_source_kind": source.source_kind,
+        "prompt_source_kind": slot_policy.source_kind,
         "prompt_source_order": int(source.source_order or 0),
-        "assembly_decided_by": "prompt_composition.assembly_plan",
-        **context_segment_policy_metadata(policy),
+        "assembly_decided_by": "prompt_composition.slot_policy",
+        **prompt_slot_policy_metadata(slot_policy),
     }
     return PromptAssemblySlot(
         slot_id=slot_id,
@@ -231,188 +192,21 @@ def _slot_from_source(source: PromptSource, *, provider_profile: dict[str, Any])
         packet_id=source.packet_id,
         source_order=source.source_order,
         assembly_order=0,
-        layer=layer,
+        layer=slot_policy.layer,
         slot_kind=source.kind,
         target_role=source.role,
-        source_kind=source.source_kind,
+        source_kind=slot_policy.source_kind,
         source_ref=source.source_ref,
-        cache_scope=cache_scope,
-        cache_role=cache_role,
-        prefix_tier=prefix_tier,
-        dynamic_tier=dynamic_tier,
-        compression_role=_compression_role(source.compression_role),
+        cache_scope=slot_policy.cache_scope,
+        cache_role=slot_policy.cache_role,
+        prefix_tier=slot_policy.prefix_tier,
+        dynamic_tier=slot_policy.dynamic_tier,
+        compression_role=slot_policy.compression_role,
         content_hash=source.content_hash,
         model_message_hash=source.model_message_hash,
         message_spec=dict(source.message_spec or {}),
         metadata=metadata,
     )
-
-
-def _context_append_layer(layer: str) -> str:
-    normalized = str(layer or "").strip()
-    if normalized in CONTEXT_APPEND_LAYER_NAMES:
-        return normalized
-    return "context_memory_append"
-
-
-def _layer_for_source(source: PromptSource, *, cache_role: str, prefix_tier: str) -> str:
-    kind = str(source.kind or "")
-    source_kind = str(source.source_kind or "")
-    if prefix_tier == "provider_global" or cache_role == "cacheable_prefix":
-        return "provider_global_stable"
-    if kind in {"action_schema_static", "tool_index_stable"} or source_kind in {
-        "runtime_action_schema",
-        "tool_catalog",
-    }:
-        return "session_stable_capability" if prefix_tier == "session" else "task_stable_capability"
-    if kind == "file_evidence_policy_stable" or source_kind == "runtime_file_evidence_policy":
-        return "session_stable_file_evidence"
-    if kind in {"environment_stable"} or source_kind == "runtime_environment_boundary":
-        return "session_stable_environment"
-    if kind == "lifecycle_stable" or (source_kind == "runtime_lifecycle" and prefix_tier == "session"):
-        return "session_stable_lifecycle"
-    if kind == "lifecycle_runtime_guidance" or source_kind == "runtime_lifecycle":
-        return "dynamic_context_tail"
-    if kind == "personality_stable":
-        return "session_stable_personality"
-    if kind == "agent_stable":
-        return "session_stable_agent"
-    if kind == "project_instructions_stable" or source_kind == "runtime_project_instructions":
-        return "session_stable_project"
-    if kind in {"task_contract_stable", "task_prompt_contract", "graph_task_shared_stable"} or source_kind == "runtime_contract":
-        return "task_stable_contract"
-    if kind in {
-        "bound_task_context_stable",
-        "artifact_scope_stable",
-        "agent_function_shared_stable",
-        "task_runtime_boundary_stable",
-    } or source_kind in {"runtime_artifact_scope", "runtime_task_boundary"}:
-        return "task_stable_scope"
-    if kind in {"task_runtime_boundary_dynamic", "task_start_inherited_context"} or source_kind == "runtime_dynamic_boundary":
-        return "runtime_cursor_prefix"
-    if kind == "runtime_baseline_refs" or source_kind == "runtime_baseline_refs":
-        return "session_stable_protocol" if prefix_tier == "session" else "task_stable_scope"
-    if kind == "dynamic_projection":
-        return "runtime_delta_tail" if prefix_tier in {"volatile", "none"} else "task_stable_scope"
-    if kind in {
-        "read_evidence_context",
-        "task_state_replay_entry",
-        "single_agent_turn_tool_call",
-        "tool_transcript_delta",
-    } or source_kind in {"runtime_task_state_replay", "runtime_read_evidence_context"}:
-        return "append_only_runtime_evidence"
-    if kind in {"task_goal_context", "task_plan_context", "task_todo_context"} or source_kind in {
-        "runtime_task_goal_context",
-        "runtime_task_plan_context",
-        "runtime_task_todo_context",
-    }:
-        return "dynamic_context_tail"
-    if kind == "evidence_index_cursor" or source_kind == "runtime_evidence_index_cursor":
-        return "evidence_index_cursor"
-    if kind == "attachment_context_index" or source_kind == "runtime_attachment_context_index":
-        return "attachment_context_index"
-    if kind == "editor_context_index" or source_kind == "runtime_editor_context_index":
-        return "editor_context_index"
-    if kind in {"read_evidence_injection"}:
-        return "current_exact_evidence"
-    if kind == "current_editor_evidence_delta" or source_kind == "runtime_editor_evidence_delta":
-        return "current_exact_evidence"
-    if kind in {"bound_task_runtime_context", "graph_node_runtime_context"} or source_kind == "runtime_bound_task_context":
-        return "file_evidence_cursor"
-    if kind == "runtime_memory_context" or source_kind == "runtime_memory_context":
-        return "runtime_memory_context"
-    if kind in {"incremental_context_frame", "incremental_context_cursor"} or source_kind in {
-        "runtime_incremental_context_frame",
-        "runtime_incremental_context_cursor",
-    }:
-        return "dynamic_context_tail"
-    if kind == "current_turn_user_context":
-        return "current_turn_user_context"
-    if kind == "graph_node_completion_prefix":
-        return "assistant_completion_prefix"
-    if cache_role in VOLATILE_CACHE_ROLES or prefix_tier in {"volatile", "none"}:
-        return "volatile"
-    return "session_stable_protocol" if prefix_tier == "session" else "task_stable_scope"
-
-
-def _dynamic_tier_for_source(source: PromptSource, *, cache_role: str, prefix_tier: str, layer: str) -> str:
-    kind = str(source.kind or "")
-    source_kind = str(source.source_kind or "")
-    if layer == "context_memory_append":
-        if kind in {"provider_protocol_history", "single_agent_turn_tool_call", "tool_transcript_delta"}:
-            return "append_only_runtime_evidence"
-        if kind == "runtime_memory_context":
-            return "runtime_memory_context"
-        if kind in {"current_turn_user_context", "single_agent_turn_user_steer_context", "user_steering_context_append"}:
-            return "user_context_append"
-        return "context_memory_append"
-    if layer == "dynamic_context_tail":
-        if kind == "read_evidence_injection":
-            return "current_exact_evidence"
-        if kind == "active_skills":
-            return "active_skills"
-        if kind == "graph_node_completion_prefix":
-            return "assistant_completion_prefix"
-        return "dynamic_context_tail"
-    if cache_role in STABLE_CACHE_ROLES and prefix_tier not in {"volatile", "none"}:
-        return "stable_prefix"
-    if layer == "append_only_runtime_evidence" or source_kind in {
-        "runtime_task_state_replay",
-        "runtime_read_evidence_context",
-    }:
-        return "append_only_runtime_evidence"
-    if layer == "runtime_cursor_prefix" or kind in {"task_runtime_boundary_dynamic", "task_start_inherited_context"}:
-        return "runtime_cursor_prefix"
-    if layer == "dynamic_context_tail" or kind == "lifecycle_runtime_guidance":
-        return "dynamic_context_tail"
-    if kind == "runtime_baseline_refs" or source_kind == "runtime_baseline_refs":
-        return "stable_prefix" if cache_role in STABLE_CACHE_ROLES and prefix_tier not in {"volatile", "none"} else "runtime_baseline_refs"
-    if kind == "dynamic_projection":
-        return "runtime_delta_tail"
-    if kind in {"task_goal_context", "task_plan_context", "task_todo_context"} or source_kind in {
-        "runtime_task_goal_context",
-        "runtime_task_plan_context",
-        "runtime_task_todo_context",
-    }:
-        return "dynamic_context_tail"
-    if kind == "evidence_index_cursor" or source_kind == "runtime_evidence_index_cursor":
-        return "evidence_index_cursor"
-    if kind == "attachment_context_index" or source_kind == "runtime_attachment_context_index":
-        return "attachment_context_index"
-    if kind == "editor_context_index" or source_kind == "runtime_editor_context_index":
-        return "editor_context_index"
-    if kind == "read_evidence_injection":
-        return "current_exact_evidence"
-    if kind == "current_editor_evidence_delta" or source_kind == "runtime_editor_evidence_delta":
-        return "current_exact_evidence"
-    if kind in {"bound_task_runtime_context", "graph_node_runtime_context"}:
-        return "file_evidence_cursor"
-    if kind in {
-        "read_evidence_context",
-        "single_agent_turn_tool_call",
-        "tool_transcript_delta",
-    }:
-        return "append_only_runtime_evidence"
-    if kind in {"session_history", "session_history_context", "provider_protocol_history"}:
-        return "history_replay"
-    if kind == "session_history_tail_context":
-        return "dynamic_context_tail"
-    if kind == "current_turn_user_context":
-        return "user_context_append"
-    if kind == "semantic_compaction_request":
-        return "user_editor_volatile"
-    if kind == "runtime_memory_context" or source_kind == "runtime_memory_context":
-        return "runtime_memory_context"
-    if kind in {"incremental_context_frame", "incremental_context_cursor"} or source_kind in {
-        "runtime_incremental_context_frame",
-        "runtime_incremental_context_cursor",
-    }:
-        return "dynamic_context_tail"
-    if kind == "active_skills":
-        return "active_skills"
-    if kind == "graph_node_completion_prefix":
-        return "assistant_completion_prefix"
-    return "runtime_cursor"
 
 
 def _diagnostics(slots: list[PromptAssemblySlot]) -> dict[str, Any]:
@@ -471,50 +265,6 @@ def _diagnostics(slots: list[PromptAssemblySlot]) -> dict[str, Any]:
         ),
         "assembly_reordered_slot_count": sum(1 for slot in slots if slot.assembly_order != slot.source_order),
     }
-
-
-def _cache_role(value: Any) -> str:
-    normalized = str(value or "").strip()
-    if normalized in {"cacheable_prefix", "session_stable", "volatile", "never_cache"}:
-        return normalized
-    return "volatile"
-
-
-def _prefix_tier(value: Any, *, cache_scope: str, cache_role: str) -> str:
-    explicit = str(value or "").strip()
-    if explicit in {"provider_global", "session", "task", "volatile", "none"}:
-        return explicit
-    if cache_role == "cacheable_prefix":
-        return "provider_global"
-    if cache_role == "session_stable":
-        scope = str(cache_scope or "").strip()
-        if scope == "task":
-            return "task"
-        if scope == "global":
-            return "provider_global"
-        return "session"
-    if cache_role == "never_cache":
-        return "none"
-    return "volatile"
-
-
-def _cache_scope_for_tier(value: Any, *, cache_role: str, prefix_tier: str, layer: str) -> str:
-    if cache_role == "cacheable_prefix" or prefix_tier == "provider_global":
-        return "global"
-    if cache_role == "session_stable":
-        if prefix_tier == "task":
-            return "task"
-        return "session"
-    if prefix_tier in {"volatile", "none"}:
-        return "none"
-    return str(value or "none")
-
-
-def _compression_role(value: Any) -> str:
-    normalized = str(value or "").strip()
-    if normalized in {"preserve", "summarize", "drop_if_cold", "ref_only"}:
-        return normalized
-    return "summarize"
 
 
 def _count_by(slots: list[PromptAssemblySlot], field_name: str) -> dict[str, int]:

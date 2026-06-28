@@ -56,8 +56,8 @@ def message_spec_content_source(*, kind: str, cache_role: str, source_ref: str) 
         return "prompt_composition.section_renderer.agent"
     if normalized_kind in {"environment_stable"}:
         return "prompt_composition.section_renderer.environment"
-    if normalized_kind == "lifecycle_stable":
-        return "prompt_composition.section_renderer.lifecycle"
+    if normalized_kind == "turn_state_stable":
+        return "prompt_composition.section_renderer.turn_state"
     if normalized_kind == "file_evidence_policy_stable":
         return "harness.runtime.file_evidence_policy"
     if normalized_kind == "project_instructions_stable":

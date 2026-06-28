@@ -1063,9 +1063,11 @@ def _turn_terminal_spec(data: dict[str, Any]) -> dict[str, Any]:
         return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
     if state not in {"failed", "error", "stopped", "aborted", "cancelled", "canceled", "blocked"}:
         return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
+    if state in {"failed", "error", "blocked"}:
+        return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
     if _is_runtime_protocol_terminal(data):
         return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
-    terminal_kind = "terminal_event" if state in {"stopped", "aborted", "cancelled", "canceled"} else "recovery_event"
+    terminal_kind = "terminal_event"
     detail = public_text(
         data.get("error_summary")
         or data.get("stopped_reason")
@@ -1074,11 +1076,11 @@ def _turn_terminal_spec(data: dict[str, Any]) -> dict[str, Any]:
         or data.get("error"),
         limit=260,
     )
-    title = "运行已停止" if terminal_kind == "terminal_event" else _runtime_recovery_title(detail)
+    title = "运行已停止"
     return _typed_status_spec(
         data,
         kind=terminal_kind,
-        state="stopped" if terminal_kind == "terminal_event" else "failed",
+        state="stopped",
         title=title,
         detail=detail,
         item_id=stable_id(

@@ -1,12 +1,14 @@
 # Retrieval MCP
 
-This package contains the local retrieval MCP unit and the local parsing helpers
-still needed by the current document conversion pipeline.
+This package contains the local retrieval MCP unit. Document parsing is owned by
+`capability_system.capabilities.document_processing.DocumentProcessingKernel`;
+retrieval only consumes its RAG projection.
 
 The active chat/retrieval path is:
 
 1. `RetrievalService` builds a route plan.
-2. `RetrievalBootstrapper` discovers and converts source documents.
+2. `RetrievalBootstrapper` discovers source documents and asks
+   `DocumentProcessingKernel` for `RagProjection`.
 3. `knowledge_system.ingestion` cleans blocks and builds hierarchical index units.
 4. `LlamaIndexRetrievalBackend` stores dense vectors in Qdrant and lexical BM25
    data under the external indexes root resolved by `ProjectLayout.indexes_dir`.
@@ -15,7 +17,7 @@ The active chat/retrieval path is:
 
 ## Supported inputs
 
-- PDF: local extraction with `pdfplumber` / `pypdf`, or MinerU API when configured
+- PDF: document-processing PDF extraction with `pdfplumber` / `pypdf`, or MinerU API when configured
 - Images: OCR with RapidOCR when available
 - Markdown / text
 - JSON
@@ -35,8 +37,9 @@ Binary `.doc/.ppt/.xls` files are recognized, but the parser will only produce a
   Rewrites and routes queries to collection/filter/policy plans.
 - `reranker.py`
   Provides no-op, heuristic, local cross-encoder, and remote API rerankers.
-- `parser_adapter.py`
-  Local multimodal parser kept as a fallback for document conversion.
+- `../document_processing/`
+  Owns format detection, document parsing resources, RAG projection metadata, and
+  document/evidence anchors.
 - `registry.py`
   Collection wrapper around the active retrieval backend. New runtime code
   should prefer `capability_system.capabilities.retrieval.RetrievalService`.
@@ -80,4 +83,4 @@ python -m capability_system.capabilities.retrieval.cli query --query "What is de
 - OCR is optional. If RapidOCR is not installed, image parsing still keeps image metadata but will not extract text.
 - PDF extraction is optional. If `pypdf` is not installed, PDFs will be skipped.
 - Embedding settings still come from the current backend config.
-- The `clean` command lets you preview cleaned chunks before rebuilding the index.
+- The `clean` command lets you preview the document kernel RAG projection before rebuilding the index.

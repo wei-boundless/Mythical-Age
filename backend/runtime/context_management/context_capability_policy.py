@@ -25,7 +25,7 @@ TASK_STATE_CONTEXT = "task_state_context"
 EVIDENCE_CONTEXT = "evidence_context"
 EVIDENCE_ALIGNMENT = "evidence_alignment"
 CURRENT_DYNAMIC_CONTROL = "current_dynamic_control"
-LIFECYCLE_CONTROL = "lifecycle_control"
+TURN_STATE_CONTROL = "turn_state_control"
 REPAIR_FEEDBACK = "repair_feedback"
 ACTIVE_SKILL = "active_skill"
 MEMORY_WRITE = "memory_write"
@@ -44,7 +44,7 @@ DEFAULT_CONTEXT_CAPABILITY_GROUPS = (
     EVIDENCE_CONTEXT,
     EVIDENCE_ALIGNMENT,
     CURRENT_DYNAMIC_CONTROL,
-    LIFECYCLE_CONTROL,
+    TURN_STATE_CONTROL,
     REPAIR_FEEDBACK,
     ACTIVE_SKILL,
     MEMORY_WRITE,
@@ -357,9 +357,9 @@ def _capability_group_for_prompt_resource(resource: dict[str, Any]) -> tuple[str
     if rule_kind:
         group = _group_for_rule_kind(rule_kind)
         return group, rule_kind, "contract", "prompt_rule_kind_capability_catalog"
-    if category == "environment" and subtype.startswith("lifecycle_"):
-        slot = subtype.removeprefix("lifecycle_")
-        return _group_for_lifecycle_slot(slot), slot, "contract", "environment_lifecycle_slot"
+    if category == "environment" and subtype.startswith("guidance_"):
+        slot = subtype.removeprefix("guidance_")
+        return _group_for_environment_guidance_slot(slot), slot, "contract", "environment_guidance_slot"
     if category == "agent":
         return STATIC_IDENTITY, "agent_role", "contract", "agent_prompt"
     if category == "personality":
@@ -375,8 +375,8 @@ def _capability_group_for_prompt_resource(resource: dict[str, Any]) -> tuple[str
 
 def _contract_group_for_slot(slot: str, *, kind: str) -> str:
     normalized = str(slot or "").strip()
-    if normalized in {"runtime_control_contract", "lifecycle_guidance"}:
-        return LIFECYCLE_CONTROL
+    if normalized in {"runtime_control_contract", "turn_state_guidance"}:
+        return TURN_STATE_CONTROL
     if normalized in {"answer_evidence_alignment_contract", "evidence_alignment_contract"}:
         return EVIDENCE_ALIGNMENT
     if normalized in {"action_contract", "visible_prefix_recovery_contract"}:
@@ -402,14 +402,14 @@ def _group_for_rule_kind(rule_kind: str) -> str:
         return TOOL_CONTEXT
     if "permission" in value or "system_call" in value or "turn_decision" in value or "plan_mode" in value:
         return ACTION_CONTRACTS
-    if "lifecycle" in value:
-        return LIFECYCLE_CONTROL
+    if "turn_state" in value:
+        return TURN_STATE_CONTROL
     if value.startswith("coding.") or value.startswith("file_management."):
         return STATIC_IDENTITY
     return RUNTIME_CONTRACTS
 
 
-def _group_for_lifecycle_slot(slot: str) -> str:
+def _group_for_environment_guidance_slot(slot: str) -> str:
     value = str(slot or "").strip()
     if value in {"memory_read_context"}:
         return CONTEXT_MEMORY
@@ -421,9 +421,9 @@ def _group_for_lifecycle_slot(slot: str) -> str:
         return TOOL_CONTEXT
     if value in {"tool_observation_recovery", "verification_gate", "compaction_handoff", "finalization"}:
         return REPAIR_FEEDBACK
-    if value in {"active_work_control", "action_selection", "task_run_handoff", "user_steer_contract_revision", "plan_gate", "request_judgment"}:
+    if value in {"active_work_control", "action_boundary", "task_run_handoff", "user_steer_contract_revision", "plan_gate", "request_judgment"}:
         return ACTION_CONTRACTS
-    return LIFECYCLE_CONTROL
+    return TURN_STATE_CONTROL
 
 
 _KIND_GROUPS: dict[str, tuple[str, str, str]] = {
@@ -466,8 +466,9 @@ _KIND_GROUPS: dict[str, tuple[str, str, str]] = {
     "partial_stream_recovery_instruction": (REPAIR_FEEDBACK, "visible_prefix_recovery_contract", "feedback"),
     "partial_stream_recovery_visible_prefix": (REPAIR_FEEDBACK, "visible_prefix_recovery_context", "feedback"),
     "active_skills": (ACTIVE_SKILL, "active_skill_body", "content"),
-    "lifecycle_runtime_guidance": (LIFECYCLE_CONTROL, "lifecycle_guidance", "contract"),
-    "runtime_control_signal_tail": (LIFECYCLE_CONTROL, "runtime_control_signal", "control"),
+    "turn_state_guidance": (TURN_STATE_CONTROL, "turn_state_guidance", "contract"),
+    "turn_attention_index": (TASK_STATE_CONTEXT, "turn_attention_index", "content"),
+    "runtime_control_signal_tail": (TURN_STATE_CONTROL, "runtime_control_signal", "control"),
     "dynamic_projection": (CURRENT_DYNAMIC_CONTROL, "runtime_delta_tail", "control"),
     "volatile_runtime_state": (CURRENT_DYNAMIC_CONTROL, "volatile_runtime_state", "control"),
     "session_history_tail_context": (CURRENT_DYNAMIC_CONTROL, "session_history_tail", "control"),
@@ -494,8 +495,10 @@ _SEMANTIC_SLOT_GROUPS: dict[str, tuple[str, str]] = {
     "provider_reasoning_projection": (REASONING_PROJECTION, "content"),
     "tool_transcript": (TOOL_CONTEXT, "content"),
     "action_contract": (ACTION_CONTRACTS, "contract"),
-    "lifecycle_guidance": (LIFECYCLE_CONTROL, "contract"),
-    "runtime_control_contract": (LIFECYCLE_CONTROL, "control"),
+    "turn_state_guidance": (TURN_STATE_CONTROL, "contract"),
+    "turn_attention_index": (TASK_STATE_CONTEXT, "content"),
+    "turn_state_guidance": (TURN_STATE_CONTROL, "contract"),
+    "runtime_control_contract": (TURN_STATE_CONTROL, "control"),
     "visible_prefix_recovery_contract": (REPAIR_FEEDBACK, "feedback"),
     "visible_prefix_recovery_context": (REPAIR_FEEDBACK, "feedback"),
     "provider_visible_ledger_recovery": (REPAIR_FEEDBACK, "feedback"),
@@ -628,3 +631,4 @@ def _json_stable(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return repr(value)
+

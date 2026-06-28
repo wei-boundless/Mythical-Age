@@ -2,7 +2,9 @@
 
 ## 0. 文档状态
 
-状态：等待用户审阅后再实施。
+状态：历史方案，已被 `turn_runtime_prompt_system_standardization_design_20260628.md` 取代。
+
+说明：本文保留为早期审计记录，不再作为实施基准。正式代码和新设计不再使用 `neural`、`reflex` 等比喻命名；对应概念以 `turn_operating_contract`、`turn_state_attention`、`turn_attention_index` 和 `turn_state_guidance` 为准。
 
 本文解决的问题不是“任务系统怎么写提示词”，而是先把 `turn` 原本的合同审查清楚，并把任务资源、工具动作、active work 控制、公开反馈、观察结果、状态写回和最终输出整合成一条标准化神经系统。
 

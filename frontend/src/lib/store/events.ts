@@ -196,6 +196,13 @@ const ACTIVE_TASK_GATE_RELEASE_STATES = new Set([
   "canceled",
 ]);
 
+const TURN_COMPLETED_GATE_RELEASE_STATES = new Set([
+  ...ACTIVE_TASK_GATE_RELEASE_STATES,
+  "failed",
+  "error",
+  "blocked",
+]);
+
 const ACTIVE_TASK_GATE_RELEASE_REASONS = new Set([
   "stop_active_work",
   "conversation_stop",
@@ -243,7 +250,7 @@ function streamEventReleasesActiveTaskTurnGate(
   if (eventName === "stopped") {
     return true;
   }
-  if (eventName === TURN_COMPLETED_EVENT && ACTIVE_TASK_GATE_RELEASE_STATES.has(status)) {
+  if (eventName === TURN_COMPLETED_EVENT && TURN_COMPLETED_GATE_RELEASE_STATES.has(status)) {
     return true;
   }
   if (eventName === "runtime_status" && phase === "work_control" && ACTIVE_TASK_GATE_RELEASE_STATES.has(state)) {

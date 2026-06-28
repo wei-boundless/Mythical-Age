@@ -199,6 +199,7 @@ class HarnessRuntimeFacade:
 
     def _build_evidence_orchestrator(self):
         from evidence.orchestrator import EvidenceOrchestrator
+        from evidence.office_document_worker import OfficeDocumentWorker
         from evidence.output_policy import RAGEvidenceOutputPolicy
         from evidence.pdf_worker import PDFWorker
         from evidence.retrieval_worker import RetrievalWorker
@@ -208,6 +209,7 @@ class HarnessRuntimeFacade:
             retrieval_worker=RetrievalWorker(retrieval_service=self._retrieval_service),
             pdf_worker=PDFWorker(root_dir=self.base_dir),
             structured_data_worker=StructuredDataWorker(root_dir=self.base_dir),
+            office_document_worker=OfficeDocumentWorker(root_dir=self.base_dir),
             output_policy=RAGEvidenceOutputPolicy(model_runtime=self.model_runtime),
         )
 

@@ -82,10 +82,32 @@ def _runtime_profile(**payload: Any) -> AgentRuntimeProfile:
 def _main_agent_runtime_policy(environment_id: str) -> dict[str, Any]:
     return {
         "default_task_environment_id": environment_id,
-        "prompt_policy": {
-            "lifecycle_prompt_authority": "selected_environment",
-        }
+        "prompt_policy": {},
     }
+
+
+def _main_agent_prompt_set_refs(agent_kind: str) -> tuple[str, ...]:
+    environment_set = {
+        "coding": "prompt_set.environment.coding",
+        "office": "prompt_set.environment.office",
+        "general": "prompt_set.environment.general",
+    }.get(str(agent_kind or "").strip(), "prompt_set.environment.general")
+    agent_set = {
+        "coding": "prompt_set.agent.main_coding",
+        "office": "prompt_set.agent.main_office",
+        "general": "prompt_set.agent.main_interactive",
+    }.get(str(agent_kind or "").strip(), "prompt_set.agent.main_interactive")
+    return ("prompt_set.runtime.default_turn", agent_set, environment_set)
+
+
+def _agent_prompt_set_refs(prompt_set_ref: str) -> tuple[str, ...]:
+    value = str(prompt_set_ref or "").strip()
+    return (value,) if value else ()
+
+
+def _worker_prompt_set_refs(worker_kind: str) -> tuple[str, ...]:
+    value = str(worker_kind or "").strip()
+    return (f"prompt_set.worker.{value}",) if value else ()
 
 
 def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
@@ -93,6 +115,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
     office_packages = (
         ToolPackageSelection(package_id="pkg.filesystem.read"),
         ToolPackageSelection(package_id="pkg.filesystem.write"),
+        ToolPackageSelection(package_id="pkg.office.document"),
         ToolPackageSelection(package_id="pkg.search.local"),
         ToolPackageSelection(package_id="pkg.web"),
         ToolPackageSelection(package_id="pkg.memory"),
@@ -100,11 +123,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         ToolPackageSelection(package_id="pkg.mcp.local"),
         ToolPackageSelection(package_id="pkg.subagent.lifecycle"),
     )
-    main_prompt_refs = {
-        "single_agent_turn": ["agent.main_interactive_agent.single_agent_turn.work_role"],
-        "tool_observation_followup": ["agent.main_interactive_agent.tool_observation_followup.work_role"],
-        "task_execution": ["agent.main_interactive_agent.task_execution.work_role"],
-    }
     main_subagent_policy = SubagentPolicy(
         enabled=True,
         allowed_subagent_ids=(
@@ -158,11 +176,11 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             ),
             subagent_policy=main_subagent_policy,
             lifecycle_policy="system_builtin",
+            prompt_set_refs=_main_agent_prompt_set_refs("general"),
             metadata={
                 "runtime_template_id": "builtin.main.default",
                 "main_agent_kind": "general",
                 "default_task_environment_id": "env.general.workspace",
-                "agent_prompt_refs_by_invocation": main_prompt_refs,
                 "runtime_policy": _main_agent_runtime_policy("env.general.workspace"),
             },
         ),
@@ -185,11 +203,11 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             ),
             subagent_policy=main_subagent_policy,
             lifecycle_policy="system_builtin",
+            prompt_set_refs=_main_agent_prompt_set_refs("coding"),
             metadata={
                 "runtime_template_id": "builtin.main.coding",
                 "main_agent_kind": "coding",
                 "default_task_environment_id": "env.coding.vibe_workspace",
-                "agent_prompt_refs_by_invocation": main_prompt_refs,
                 "runtime_policy": _main_agent_runtime_policy("env.coding.vibe_workspace"),
             },
         ),
@@ -212,11 +230,11 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             ),
             subagent_policy=office_subagent_policy,
             lifecycle_policy="system_builtin",
+            prompt_set_refs=_main_agent_prompt_set_refs("office"),
             metadata={
                 "runtime_template_id": "builtin.main.office",
                 "main_agent_kind": "office",
                 "default_task_environment_id": "env.office.file_search",
-                "agent_prompt_refs_by_invocation": main_prompt_refs,
                 "runtime_policy": _main_agent_runtime_policy("env.office.file_search"),
             },
         ),
@@ -229,13 +247,11 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_context_sections=("task", "runtime_trace", "memory_runtime_view", "prompt_manifest", "runtime_contracts"),
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
+            prompt_set_refs=_agent_prompt_set_refs("prompt_set.agent.memory_system"),
             metadata={
                 "system_key": "memory_system",
                 "manager_kind": "memory",
                 "runtime_template_id": "builtin.system.memory_manager",
-                "agent_prompt_refs_by_invocation": {
-                    "memory_maintenance": ["agent.memory_system_agent.memory_maintenance.work_role"],
-                },
             },
         ),
         _runtime_profile(
@@ -350,13 +366,11 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                     "response_format": {"type": "json_object"},
                 }
             ),
+            prompt_set_refs=_agent_prompt_set_refs("prompt_set.agent.context_compactor"),
             metadata={
                 "system_key": "context_management",
                 "manager_kind": "context_compaction",
                 "runtime_template_id": "builtin.system.context_compactor",
-                "agent_prompt_refs_by_invocation": {
-                    "semantic_compaction": ["agent.context_compactor_agent.semantic_compaction.work_role"],
-                },
                 "worker_kind": "semantic_compaction",
                 "subagent_task_kind": "semantic_compaction",
                 "input_contract": {
@@ -408,15 +422,13 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
+            prompt_set_refs=_worker_prompt_set_refs("knowledge_search"),
             metadata={
                 "worker_kind": "knowledge_search",
                 "subagent_task_kind": "knowledge_search",
                 "subagent_task_kinds": ("knowledge_search", "knowledge_retrieval", "evidence_lookup", "retrieval"),
                 "runtime_template_id": "runtime.template.knowledge_search",
                 "worker_prompt_ref": "worker.prompt.knowledge_search",
-                "agent_prompt_refs_by_invocation": {
-                    "task_execution": ["worker.prompt.knowledge_search"],
-                },
             },
         ),
         _runtime_profile(
@@ -428,14 +440,12 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
+            prompt_set_refs=_worker_prompt_set_refs("pdf_analysis"),
             metadata={
                 "worker_kind": "pdf_analysis",
                 "subagent_task_kind": "pdf_reading",
                 "runtime_template_id": "builtin.specialist.pdf_reader",
                 "worker_prompt_ref": "worker.prompt.pdf_analysis",
-                "agent_prompt_refs_by_invocation": {
-                    "task_execution": ["worker.prompt.pdf_analysis"],
-                },
             },
         ),
         _runtime_profile(
@@ -447,14 +457,12 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
+            prompt_set_refs=_worker_prompt_set_refs("structured_data_analysis"),
             metadata={
                 "worker_kind": "structured_data_analysis",
                 "subagent_task_kind": "table_analysis",
                 "runtime_template_id": "builtin.specialist.table_analyst",
                 "worker_prompt_ref": "worker.prompt.structured_data_analysis",
-                "agent_prompt_refs_by_invocation": {
-                    "task_execution": ["worker.prompt.structured_data_analysis"],
-                },
             },
         ),
         _runtime_profile(
@@ -482,6 +490,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
+            prompt_set_refs=_worker_prompt_set_refs("web_research"),
             metadata={
                 "worker_kind": "web_research",
                 "subagent_task_kind": "web_research",
@@ -507,9 +516,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "context_policy": "fresh_specialist_summary_and_refs_only",
                 "runtime_template_id": "builtin.specialist.web_researcher",
                 "worker_prompt_ref": "worker.prompt.web_research",
-                "agent_prompt_refs_by_invocation": {
-                    "task_execution": ["worker.prompt.web_research"],
-                },
                 "runtime_config": {
                     "template_id": "runtime.template.deepsearch",
                     "runtime_kind": "search_agent",
@@ -566,6 +572,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
+            prompt_set_refs=_worker_prompt_set_refs("codebase_search"),
             metadata={
                 "worker_kind": "codebase_search",
                 "subagent_task_kind": "codebase_search",
@@ -585,9 +592,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "context_policy": "fresh_specialist_summary_and_refs_only",
                 "runtime_template_id": "runtime.template.codebase_search",
                 "worker_prompt_ref": "worker.prompt.codebase_search",
-                "agent_prompt_refs_by_invocation": {
-                    "task_execution": ["worker.prompt.codebase_search"],
-                },
                 "runtime_config": {
                     "template_id": "runtime.template.codebase_search",
                     "runtime_kind": "codebase_search_agent",
@@ -627,15 +631,13 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
+            prompt_set_refs=_worker_prompt_set_refs("memory_search"),
             metadata={
                 "worker_kind": "memory_search",
                 "subagent_task_kind": "memory_search",
                 "subagent_task_kinds": ("memory_search", "memory_lookup", "memory_recall"),
                 "runtime_template_id": "runtime.template.memory_search",
                 "worker_prompt_ref": "worker.prompt.memory_search",
-                "agent_prompt_refs_by_invocation": {
-                    "task_execution": ["worker.prompt.memory_search"],
-                },
                 "runtime_config": {
                     "template_id": "runtime.template.memory_search",
                     "runtime_kind": "memory_search_agent",
@@ -657,6 +659,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             approval_policy="read_only_first",
             trace_policy="runtime_event_log",
             lifecycle_policy="system_builtin",
+            prompt_set_refs=_worker_prompt_set_refs("verification"),
             metadata={
                 "worker_kind": "completion_verification",
                 "subagent_task_kind": "completion_verification",
@@ -671,9 +674,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "when_to_use": "当主 Agent 已有候选回答、产物或执行证据，但需要独立检查是否满足用户目标、是否缺少证据、是否需要返工时使用。",
                 "runtime_template_id": "builtin.specialist.verifier",
                 "worker_prompt_ref": "worker.prompt.verification",
-                "agent_prompt_refs_by_invocation": {
-                    "task_execution": ["worker.prompt.verification"],
-                },
                 "output_contract": {
                     "required_fields": ("verdict", "checks", "risks"),
                     "verdict_values": ("PASS", "FAIL", "PARTIAL"),
@@ -712,6 +712,8 @@ def _profile_from_dict(payload: dict[str, Any]) -> AgentRuntimeProfile:
         trace_policy=str(payload.get("trace_policy") or "runtime_event_log"),
         lifecycle_policy=str(payload.get("lifecycle_policy") or "agent_system_managed"),
         model_profile=parse_agent_model_profile(payload.get("model_profile")),
+        prompt_set_refs=tuple(str(item).strip() for item in list(payload.get("prompt_set_refs") or []) if str(item).strip()),
+        prompt_bindings=dict(payload.get("prompt_bindings") or {}),
         metadata=metadata,
     )
 
@@ -879,6 +881,8 @@ class AgentRuntimeRegistry:
             trace_policy=str(trace_policy or "runtime_event_log").strip() or "runtime_event_log",
             lifecycle_policy=str(lifecycle_policy or "agent_system_managed").strip() or "agent_system_managed",
             model_profile=parse_agent_model_profile(model_profile if model_profile is not None else (current.model_profile.to_dict() if current else {})),
+            prompt_set_refs=current.prompt_set_refs if current else (),
+            prompt_bindings=dict(current.prompt_bindings or {}) if current else {},
             metadata=metadata_payload,
         )
         profiles = [item for item in self.list_profiles() if item.agent_id != target]
@@ -1054,7 +1058,6 @@ def _enforce_system_builtin_profile_payload(
                 "prompt_template_id",
                 "main_agent_kind",
                 "default_task_environment_id",
-                "agent_prompt_refs_by_invocation",
                 "runtime_policy",
                 "worker_kind",
                 "subagent_task_kind",
@@ -1177,6 +1180,3 @@ def _without_allowed_operations(blocked_operations: Any, *, allowed_operations: 
         seen.add(value)
         result.append(value)
     return tuple(result)
-
-
-

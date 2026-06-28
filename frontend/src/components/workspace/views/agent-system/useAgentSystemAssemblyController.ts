@@ -343,6 +343,13 @@ export function useAgentSystemAssemblyController() {
     : activeSection === "custom_agent"
       ? [["groups", "分组", String(agentGroups.length)], ...agentLayerTabs]
       : agentLayerTabs;
+  const activeLayerAvailable = layerTabs.some(([value]) => value === activeLayer);
+  const fallbackActiveLayer = layerTabs[0]?.[0] ?? "identity";
+  useEffect(() => {
+    if (!activeLayerAvailable) {
+      setActiveLayer(fallbackActiveLayer);
+    }
+  }, [activeLayerAvailable, fallbackActiveLayer]);
   const assemblyNavGroups: LayerNavGroup[] = selectionKind === "group"
     ? [{ title: "Agent 组", items: layerTabs }]
     : [
@@ -726,7 +733,6 @@ export function useAgentSystemAssemblyController() {
 }
 
 export type AgentSystemAssemblyController = ReturnType<typeof useAgentSystemAssemblyController>;
-
 
 
 

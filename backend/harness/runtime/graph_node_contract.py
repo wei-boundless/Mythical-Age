@@ -66,7 +66,7 @@ def _graph_node_runtime_profile(
         "runtime_policy": {
             "source": "graph_slot.node_contract",
             "context_policy": {"task_run_context": "disabled"},
-            "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution"]},
+            "prompt_wiring_overrides": _graph_node_prompt_wiring_overrides(),
             "prompt_policy": _graph_node_prompt_policy(),
             "operation_authorization_projection": {
                 "model_visible": "summary_without_denials",
@@ -108,7 +108,7 @@ def _graph_node_runtime_contract(graph_config: Any, work_order: Any) -> dict[str
             "graph_run_id": work_order.graph_run_id,
             "node_id": work_order.node_id,
             "context_policy": {"task_run_context": "disabled"},
-            "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution"]},
+            "prompt_wiring_overrides": _graph_node_prompt_wiring_overrides(),
             "prompt_policy": _graph_node_prompt_policy(),
             "operation_authorization_projection": {
                 "model_visible": "summary_without_denials",
@@ -153,6 +153,19 @@ def _graph_node_prompt_policy() -> dict[str, str]:
         "project_instruction_visibility": "hidden",
         "personality_prompt_visibility": "hidden",
         "runtime_environment_boundary_visibility": "hidden",
+    }
+
+
+def _graph_node_prompt_wiring_overrides() -> dict[str, Any]:
+    return {
+        "task_execution": {
+            "runtime_prompt_pack": {
+                "pack_refs": ["runtime.pack.graph_node_execution"],
+                "replace": True,
+                "owner_layer": "graph_system",
+                "cache_scope": "static",
+            }
+        }
     }
 
 
@@ -237,4 +250,3 @@ def _validate_existing_graph_node_task_run(task_run: TaskRun, *, graph_run_id: s
         raise ValueError("Existing graph node TaskRun graph_run_id mismatch")
     if str(diagnostics.get("graph_work_order_id") or "") != str(work_order_id or ""):
         raise ValueError("Existing graph node TaskRun work_order_id mismatch")
-

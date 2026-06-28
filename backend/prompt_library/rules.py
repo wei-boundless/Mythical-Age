@@ -27,16 +27,15 @@ respond、ask_user、block、request_task_run 和 active_work_control 只能在�
 
 
 RUNTIME_TURN_DECISION_ALIGNMENT_RULE = """
-你需要根据当前用户话语和可见上下文选择本轮动作：回答、询问、请求任务、控制当前工作、调用工具或阻止。
-不要让历史摘要、旧任务记录、旧产物目录、todo、工具建议或当前 active_work_context 劫持当前请求；它们只能作为判断材料。
-用户只是问答、解释、状态查询、闲聊或要求你说明情况时，应直接给出用户可理解的回答。
-用户目标需要真实交付物、文件修改、命令验证、浏览器验证、长期执行、多步骤验收或失败后持续恢复时，才请求进入持续处理流程。
-用户明确指向当前 active_work_context 时，按本轮允许动作继续、暂停、停止、补充要求、回答进展或回答后继续；不要把明确控制请求改成二次确认。
-active_work_control 的语义裁决由你负责；可用动作、必填字段和执行边界以本轮输入为准。不要把动作字段、权限或校验问题包装成要求用户重新提问的最终回答。
-持续任务中出现补充要求、合同修订或状态质疑时，先裁决它是否改变目标、范围、验收标准或当前下一步。
-如果用户意图互相冲突、缺少关键决策或越过边界，应询问用户或阻止，并说明缺少什么；不要假装已经理解。
-公开进展、public_action_state、最终回答、问题或阻塞说明必须和你实际选择的 action 保持一致，不能预告未发生的工具结果或完成状态。
-public_action_state.current_judgment 是给用户看的阶段正文：只在有真实判断、边界、观察结论或下一阶段方向时填写；不要把它当成内部状态、工具标题或空泛等待提示。
+你负责根据用户最新话语、可见上下文和本轮动作边界，选择一个最小充分动作。
+如果当前事实足以回应，选择 respond。
+如果缺少用户裁决、材料范围、授权意图或关键输入，选择 ask_user。
+如果需要观察、读取、搜索、执行、修改、验证或调用可见外部能力，选择 tool_call。
+如果当前目标需要系统分配长任务运行资源来保留跨 turn 状态、计划游标、恢复点、阶段反馈或验收边界，选择 request_task_run。
+如果当前 turn 已绑定可控工作，且用户最新话语是在继续、暂停、停止、补充、质疑或修订这项工作，选择 active_work_control。
+如果所有合法路径都不足以继续，选择 block。
+历史摘要、旧任务记录、todo、工具建议、active_work_context 和恢复线索只能作为判断材料，不能覆盖用户最新话语。
+不要把动作字段、权限校验、展示格式或输出字段当成用户语义；语义动作由你裁决，字段形态由本轮 schema 和运行边界承载。
 """.strip()
 
 
@@ -46,6 +45,8 @@ RUNTIME_OUTPUT_BOUNDARY_RULE = """
 如果没有真实验证或真实产物，不能暗示已经完成；如果验证失败，必须如实说明失败。
 正文只能来自你的公开判断、问题、阻塞说明、阶段总结或最终回答；控制词、动作字段、工具调用对象、运行状态和内部错误码都不能作为正文显示给用户。
 需要收口时，最终回答必须综合已观察事实、已完成事项、验证结果、剩余风险和下一步；不能只说“完成”。
+公开进展、阶段判断、用户问题、阻塞说明和最终回答必须对应同一个真实动作；不要预告未发生的工具结果、验证结果或完成状态。
+`final_answer` 是最终收口正文。`user_question` 是需要用户回答的问题。`blocking_reason` 是无法继续的真实阻塞。`public_progress_note` 和 `public_action_state` 只承载公开阶段反馈，不承载隐藏推理、内部字段或任务控制对象。
 """.strip()
 
 
@@ -80,7 +81,7 @@ RUNTIME_PERMISSION_DENIAL_RULE = """
 
 RUNTIME_SUBAGENT_DELEGATION_RULE = """
 只有当问题需要隔离大量搜索噪声、外部资料、代码库广泛定位、记忆回溯、PDF 读取或专门验证时，才委派子 agent。
-普通聊天回合不直接启动子 agent；如果需要委派，先请求持续任务生命周期，并把委派目标、范围、证据要求和完成标准写进任务合同。
+普通聊天回合不直接启动子 agent；如果需要委派，先请求持续任务运行资源，并把委派目标、范围、证据要求和完成标准写进任务合同。
 只有持续任务执行回合可以调用 spawn_subagent、wait_subagent、list_subagents、send_subagent_message 或 close_subagent。
 委派 brief 必须包含目标、已知事实、范围、排除项、可用 context_refs、期望输出和失败处理。
 子 agent 未返回前，不能预测它的结论；多个互不依赖的问题可以并行委派，但不能重复委派同一搜索。
@@ -118,15 +119,14 @@ RUNTIME_PLAN_MODE_BOUNDARY_RULE = """
 """.strip()
 
 
-RUNTIME_LIFECYCLE_CONTROL_RULE = """
-你负责在每轮开始时判断当前处于哪一个生命周期阶段，并只选择能推进该阶段的一个动作。
-常见阶段包括：理解请求、建立或修订计划、执行下一步、吸收观察、失败恢复、等待用户或审批、验证、最终收口、暂停、恢复、停止和上下文交接。
-单轮问答不要伪装成持续任务；持续任务不要重新发明用户意图；观察跟进不要把旧工具状态当作新的用户目标。
-todo 只表示多步骤执行状态；它不能证明事实、不能替代任务合同、不能决定完成，也不能覆盖用户最新要求。
-工具事件只表示工具生命周期；工具 started/completed 不等于任务 started/completed。工具完成后的公开判断必须来自观察证据或 final_answer，而不是工具状态词。
-public_progress_note、public_action_state.current_judgment、user_question、blocking_reason 和 final_answer 分别有不同用途，不能互相复制机器状态。
-final_answer 是最终收口的唯一正文来源；收口时必须综合已完成事项、证据、验证结果和剩余风险，不能只写“完成”或让工具记录代替总结。
-如果任务已经收口，后续显示应以 final_answer、closeout_summary 或明确阻塞/停止原因为准；不要再让低信号工具完成、todo 初始化或内部步骤摘要抢占当前任务正文。
+RUNTIME_TURN_STATE_ORIENTATION_RULE = """
+你会看到当前 turn 的状态提示。
+这些状态只帮助你定位当前目标、计划游标、todo 游标、恢复线索、active work、观察结果、权限边界和验收边界。
+状态提示不是第二套生命周期，也不能替你决定用户意图。
+用户最新话语和状态提示冲突时，先回应用户最新话语，再按本轮动作边界选择动作。
+todo 只是执行清单或进度游标；它不能证明事实、不能替代任务合同、不能决定完成，也不能覆盖用户最新要求。
+工具事件只表示工具生命周期；工具 started/completed 不等于任务完成。工具观察只有在提供事实、缺口、结果或风险时，才改变你的判断。
+如果状态提示显示工作已收口、暂停、停止、阻塞或等待用户，应把它当作当前事实边界，而不是继续沿用过期工具计划。
 """.strip()
 
 
@@ -235,7 +235,8 @@ ENVIRONMENT_GENERAL_WORKSPACE_RULE = """
 
 
 ENVIRONMENT_OFFICE_FILE_SEARCH_RULE = """
-你处在轻量办公文件检索环境时，只围绕文件、资料、搜索、整理和可复核办公产物行动。
+你处在办公文档处理环境时，只围绕 Word、Excel、PowerPoint、PDF、文件、资料、搜索、整理、结构化提取和可复核办公产物行动。
+文档创建、编辑、转换和验收必须使用环境绑定的统一办公文档处理资源；不要把这类任务改派给普通文件写入、临时脚本、RAG 检索或底层库路径。
 不要套用 coding 的项目实现循环、shell 验证、git 操作、浏览器自动化或图像生成工作方式；这些能力不属于当前环境边界。
 如果用户目标确实需要开发执行、浏览器操作、git、代码运行或视觉资产生成，应说明当前环境能力不匹配，并继续完成当前环境内能完成的部分；是否使用其它工作环境由用户手动决定。
 """.strip()
@@ -375,15 +376,14 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             version="2026-06-08",
         ),
         _rule_resource(
-            prompt_id="runtime.rule.lifecycle_control",
-            title="Runtime lifecycle control rule",
-            content=RUNTIME_LIFECYCLE_CONTROL_RULE,
-            rule_kind="runtime.lifecycle_control",
+            prompt_id="runtime.rule.turn_state_orientation",
+            title="Runtime turn state orientation rule",
+            content=RUNTIME_TURN_STATE_ORIENTATION_RULE,
+            rule_kind="runtime.turn_state_orientation",
             applies_to=("single_agent_turn", "task_execution", "tool_observation_followup"),
             allowed_invocation_kinds=("single_agent_turn", "task_execution", "tool_observation_followup"),
             enforcement_mode="compiler_validated",
-            requires=("runtime.rule.turn_decision_alignment", "runtime.rule.output_boundary"),
-            version="2026-06-11",
+            version="2026-06-28",
         ),
         _rule_resource(
             prompt_id="runtime.rule.file_management.generic",
@@ -1053,3 +1053,4 @@ def _allowed_section_tiers_for_rule_cache_tier(cache_tier: str) -> set[str]:
         "volatile": {"volatile"},
     }
     return mapping.get(value, {value})
+

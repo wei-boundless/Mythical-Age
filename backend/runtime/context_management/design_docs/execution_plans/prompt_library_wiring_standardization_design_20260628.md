@@ -2,11 +2,21 @@
 
 ## 0. 文档状态
 
-状态：待用户审阅后实施。
+状态：已按本设计执行第一轮标准化落地，2026-06-28。
+
+实施记录：
+
+- 已新增 `PromptSet`、`AgentPromptBinding`、`RuntimePromptWiringPlan`，并让 runtime assembly 生成按 invocation 区分的接线计划。
+- compiler 已优先消费 wiring plan 中的 `runtime_prompt_pack` 和 `agent_work_role` slot；旧散列配置不再作为主接线权威。
+- 三个主 agent 已通过 PromptSet 绑定通用主 agent 工作角色和各自 environment PromptSet；memory、context compactor、worker agent 也已接入各自 PromptSet。
+- 旧 environment lifecycle prompt 已迁移为 environment guidance prompt；旧 ref 仅保留在 migration 映射中。
+- 运行链路中的 `agent_prompt_refs` 与 profile 级 `prompt_pack_refs` 兜底已清理；图节点执行改用 `prompt_wiring_overrides` 覆盖 `runtime_prompt_pack` slot，不再借旧 `prompt_pack_refs_by_invocation` 主链路。
 
 本文承接 `Turn 运行提示词系统标准化重构设计书`，继续解决提示词库和运行接线的治理问题。目标不是把现有 prompt 简单拆短，而是把提示词资源、提示词组合、agent 私有配置、环境变体、运行状态提示、provider 协议和最终模型消息装配成一套可维护的标准系统。
 
 最终目标：每一个 agent 都可以拥有自己的提示词配置；runtime 根据当前 invocation、agent、环境、工具能力、状态和协议边界，解析出一份明确的运行接线计划，再编译成模型可见消息和 provider schema。
+
+重要边界：prompt library 负责可配置、可组合、可按 agent/environment/task 绑定的提示词资源；不可变核心运行契约不需要配置，允许直接保留在代码中集中维护。provider strict tool/function calling schema、action object 字段定义、output commit 结构边界、permission/admission 协议和 context fragment metadata 属于 runtime control plane，不应为了“入库”而变成可覆盖 prompt。
 
 ## 1. 当前问题
 
@@ -30,6 +40,7 @@
 正确终态：
 
 ```text
+CoreRuntimeContract / ProviderSchema (locked)
 PromptResource
 -> PromptPack
 -> PromptSet
@@ -98,6 +109,7 @@ PromptResource
 - wiring plan 管本次 invocation 的接线结果。
 - compiler 只渲染 wiring plan，不重新判断应该挂什么。
 - agent 可以配置 prompt set，但不能绕过 runtime action/permission/output 边界。
+- 不可变核心契约由代码集中定义，并作为 locked runtime slot 进入 wiring manifest；prompt library 不能覆盖它，只能在领域 prompt 中补充如何理解当前环境、工具和验收标准。
 
 ## 4. 标准模型
 
@@ -279,7 +291,7 @@ RuntimePromptWiringPlan 取代当前 `PromptMountPlan` 的总线地位。
 
 ### 5.3 协议和 schema slots
 
-这些不作为自然语言 prompt 主体：
+这些不作为自然语言 prompt 主体，也不作为 agent 可覆盖的 PromptResource。它们由代码中的不可变核心契约生成，进入 provider schema、context metadata、manifest 或 locked runtime slot：
 
 - `action_protocol_schema`
 - `control_action_schema`
@@ -287,7 +299,7 @@ RuntimePromptWiringPlan 取代当前 `PromptMountPlan` 的总线地位。
 - `output_commit_schema`
 - `context_fragment_metadata`
 
-它们进入 provider schema、context metadata 或结构化 payload。
+如果这些核心契约需要给 agent 可见短说明，应由同一个核心契约模块生成紧凑说明，并在 wiring plan 中标记为 `locked_core_contract`。不要在 runtime prompt、environment prompt、repair prompt 和 compiler 中分别写一份近似解释。
 
 ## 6. 三个主 Agent 的环境提示词迁移
 

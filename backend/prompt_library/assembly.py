@@ -345,7 +345,6 @@ _PROMPT_LAYER_PRECEDENCE = {
     "personality": 25,
     "runtime": 30,
     "environment": 40,
-    "lifecycle": 45,
     "tool": 50,
     "skill": 60,
     "project": 70,
@@ -399,7 +398,7 @@ def build_prompt_precedence_report(sections: tuple[PromptSection, ...]) -> dict[
             }
         )
     return {
-        "policy": "system>override>coordinator>agent>personality>runtime>environment>lifecycle>tool>skill>project>contract",
+        "policy": "system>override>coordinator>agent>personality>runtime>environment>tool>skill>project>contract",
         "behavior": "enforced_precedence_order",
         "entries": entries,
         "authority": "prompt_library.prompt_assembly_precedence",
@@ -446,8 +445,8 @@ def _prompt_section_layer(section: PromptSection) -> str:
     owner_layer = str(section.owner_layer or "").strip()
     resource_type = str(dict(section.metadata or {}).get("resource_type") or "").strip()
     prompt_ref = str(section.prompt_ref or "").strip()
-    if category == "environment" and (subtype.startswith("lifecycle_") or ".lifecycle." in prompt_ref):
-        return "lifecycle"
+    if category == "environment" and (subtype.startswith("guidance_") or ".guidance." in prompt_ref):
+        return "environment"
     if category in {"task", "graph_node"}:
         return "contract"
     if category in {"utility", "mcp"}:

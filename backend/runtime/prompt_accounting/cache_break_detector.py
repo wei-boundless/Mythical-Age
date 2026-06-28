@@ -80,7 +80,7 @@ class PromptCacheBreakDetector:
                 provider_usage=provider_usage,
                 previous_repeated_records=repeated_prefix,
                 latest_previous=latest_previous,
-                reason="provider_cache_read_under_required_stable_boundary",
+                reason="provider_cache_read_under_required_physical_cache_spine_boundary",
                 created_at=created_at,
                 extra_diagnostics={
                     "cached_tokens": cached_tokens,
@@ -233,8 +233,10 @@ def _changed_payload_reason(
         return "transport_contract_changed"
     if _diag_value(previous_diag, "transport_contract_hash") != _diag_value(current_diag, "transport_contract_hash"):
         return "transport_contract_changed"
-    if _diag_value(previous_diag, "stable_message_prefix_hash") != _diag_value(current_diag, "stable_message_prefix_hash"):
-        return "stable_message_prefix_changed"
+    if _diag_value(previous_diag, "physical_cache_spine_hash") != _diag_value(current_diag, "physical_cache_spine_hash"):
+        return "physical_cache_spine_changed"
+    if _diag_value(previous_diag, "physical_cache_spine_message_hash") != _diag_value(current_diag, "physical_cache_spine_message_hash"):
+        return "physical_cache_spine_message_changed"
     if _diag_value(previous_diag, "tool_catalog_hash") != _diag_value(current_diag, "tool_catalog_hash"):
         previous_tool_count = _diag_int(previous_diag, "provider_payload_tool_prefix_segment_count")
         current_tool_count = _diag_int(current_diag, "provider_payload_tool_prefix_segment_count")
@@ -267,8 +269,9 @@ def _provider_payload_diagnostics(
         "provider_payload_prefix_key_tier",
         "transport_contract_hash",
         "stable_transport_contract_hash",
+        "physical_cache_spine_hash",
+        "physical_cache_spine_message_hash",
         "transport_contract_ref",
-        "stable_message_prefix_hash",
         "tool_catalog_hash",
         "stable_tool_catalog_hash",
         "cache_sensitive_params_hash",

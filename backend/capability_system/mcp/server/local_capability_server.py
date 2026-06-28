@@ -187,6 +187,7 @@ class LocalCapabilityMCPExecutor:
         pdf_worker = None
         structured_data_worker = None
         image_ocr_worker = None
+        office_document_worker = None
         if route == "pdf":
             from evidence.pdf_worker import PDFWorker
 
@@ -199,11 +200,16 @@ class LocalCapabilityMCPExecutor:
             from evidence.image_ocr_worker import ImageOCRWorker
 
             image_ocr_worker = ImageOCRWorker(root_dir=_workspace_root_for_mcp(self.backend_dir))
+        elif route == "office_document":
+            from evidence.office_document_worker import OfficeDocumentWorker
+
+            office_document_worker = OfficeDocumentWorker(root_dir=_workspace_root_for_mcp(self.backend_dir))
         return EvidenceOrchestrator(
             retrieval_worker=RetrievalWorker(retrieval_service=self.retrieval_service),
             pdf_worker=pdf_worker,
             structured_data_worker=structured_data_worker,
             image_ocr_worker=image_ocr_worker,
+            office_document_worker=office_document_worker,
             output_policy=output_policy,
         )
 

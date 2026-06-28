@@ -12,7 +12,7 @@ from .control_events import RuntimeSignalScope
 class RuntimePacketModelActionSurface:
     allowed_action_types: tuple[str, ...]
     surface_id: str = ""
-    contract_ref: str = "turn_neural_contract.action_surface"
+    contract_ref: str = "turn_operating_contract.action_surface"
     source_authority: str = "harness.runtime.packet_assembler.model_action_surface"
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
