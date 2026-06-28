@@ -7,12 +7,10 @@ from runtime.prompt_accounting.serializer import canonical_json, normalize_messa
 
 from .context_segment_policy import (
     CONTEXT_APPEND,
-    CONTEXT_MEMORY_PREFIX,
     STATIC_PREFIX,
     context_segment_policy_for_spec,
     context_segment_policy_metadata,
 )
-from .tool_transcript import is_tool_transcript_kind
 
 
 def current_followup_append_context_policy(
@@ -34,7 +32,7 @@ def current_followup_append_context_policy(
         "context_prefix_cache_role": "volatile",
         "context_prefix_tier": "volatile",
         "context_commit_policy": "append_then_seal",
-        "context_replay_policy": "current_append_commit_on_provider_success_then_next_ledger_replay",
+        "context_replay_policy": "current_append_commit_on_provider_success_then_next_physical_prefix_frame",
         "provider_visible_history_status": "current_tool_round_pending_provider_success",
         "provider_visible_history_authority": "runtime.context_management.followup_context_rebase.current_append",
         "provider_visible_history_model_message_hash": _stable_model_message_hash(dict(message or {})),
@@ -63,7 +61,7 @@ def current_followup_append_context_policy(
     }
 
 
-def sealed_followup_base_context_policy(
+def physical_frame_covered_followup_base_context_policy(
     base: dict[str, Any],
     *,
     message: dict[str, Any],
@@ -80,7 +78,7 @@ def sealed_followup_base_context_policy(
                 **dict(metadata or {}),
                 **context_segment_policy_metadata(policy),
                 "provider_visible_history_status": "static_context",
-                "provider_visible_history_authority": "runtime.context_management.followup_context_rebase.base_replay",
+                "provider_visible_history_authority": "runtime.context_management.followup_context_rebase.static_prefix",
             },
         }
 
@@ -89,56 +87,43 @@ def sealed_followup_base_context_policy(
         for key, value in dict(metadata or {}).items()
         if str(key).startswith("context_")
     }
-    sealed_metadata = {
+    covered_metadata = {
         **_without_context_classification_metadata(dict(metadata or {})),
         "previous_context_structure": original_context,
-        "context_cache_section": CONTEXT_MEMORY_PREFIX,
+        "context_cache_section": CONTEXT_APPEND,
         "context_semantic_slot": str(dict(metadata or {}).get("context_semantic_slot") or "provider_visible_history"),
-        "context_commit_policy": "replay_only_already_materialized",
-        "context_replay_policy": "provider_visible_history_replay",
-        "provider_visible_history_status": "sealed_from_prior_model_request",
-        "provider_visible_history_authority": "runtime.context_management.followup_context_rebase.base_replay",
+        "context_commit_policy": "never_commit",
+        "context_replay_policy": "physical_prefix_frame_replay_only",
+        "physical_context_frame_covered": True,
+        "physical_context_frame_covered_reason": "old follow-up base context is replayed only by the physical prefix frame",
+        "provider_visible_history_status": "covered_by_physical_prefix_frame",
+        "provider_visible_history_authority": "runtime.context_management.followup_context_rebase.frame_covered_marker",
         "provider_visible_history_model_message_hash": _stable_model_message_hash(dict(message or {})),
-        "cache_impact": "sealed_provider_visible_history",
+        "cache_impact": "covered_by_physical_prefix_frame",
         "stability_rule": (
             "this message was already sent to the provider in an earlier request; "
-            "the follow-up path must replay the exact provider-visible bytes and treat it as sealed context history"
+            "the follow-up path must not replay it directly because old-context replay is owned by the physical prefix frame"
         ),
     }
-    sealed_spec = {
+    covered_spec = {
         **dict(base or {}),
-        "cache_scope": "session",
-        "cache_role": "session_stable",
-        "prefix_tier": "session",
-        "metadata": sealed_metadata,
+        "cache_scope": "none",
+        "cache_role": "never_cache",
+        "prefix_tier": "none",
+        "metadata": covered_metadata,
     }
-    policy = context_segment_policy_for_spec(sealed_spec, default_section=CONTEXT_MEMORY_PREFIX)
+    policy = context_segment_policy_for_spec(covered_spec, default_section=CONTEXT_APPEND)
     return {
-        "cache_scope": "session",
-        "cache_role": "session_stable",
-        "prefix_tier": "session",
+        "cache_scope": "none",
+        "cache_role": "never_cache",
+        "prefix_tier": "none",
         "metadata": {
-            **sealed_metadata,
+            **covered_metadata,
             **context_segment_policy_metadata(policy),
+            "physical_context_frame_covered": True,
+            "context_replay_policy": "physical_prefix_frame_replay_only",
         },
-        "kind": provider_visible_history_replay_kind(base, message=message),
     }
-
-
-def provider_visible_history_replay_kind(base: dict[str, Any], *, message: dict[str, Any]) -> str:
-    original_kind = str(dict(base or {}).get("kind") or "").strip()
-    role = str(dict(message or {}).get("role") or "").strip()
-    if is_tool_transcript_kind(original_kind, include_historical=True):
-        return "provider_visible_tool_transcript_replay"
-    if role == "tool" or (role == "assistant" and dict(message or {}).get("tool_calls")):
-        return "provider_visible_tool_transcript_replay"
-    if original_kind in {"current_turn_user_context", "single_agent_turn_user_steer_context", "user_steering_context_append"}:
-        return "provider_visible_user_context_replay"
-    if role == "user":
-        return "provider_visible_user_message_replay"
-    if role == "assistant":
-        return "provider_visible_assistant_message_replay"
-    return original_kind or "provider_visible_context_replay"
 
 
 def _without_context_classification_metadata(metadata: dict[str, Any]) -> dict[str, Any]:

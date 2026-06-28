@@ -590,6 +590,9 @@ def _projection_frames_from_public_events(public_events: list[dict[str, Any]]) -
         frame_id = str(frame.get("frame_id") or frame.get("projection_id") or "").strip()
         if not frame_id or frame_id in seen:
             continue
+        event_created_at = _float_value(event.get("created_at"), fallback=0.0)
+        if event_created_at > 0 and not _float_value(frame.get("created_at"), fallback=0.0):
+            frame = {**frame, "created_at": event_created_at}
         seen.add(frame_id)
         frames.append(frame)
     return sorted(frames, key=lambda item: (_int_value(item.get("event_offset"), fallback=0), str(item.get("frame_id") or "")))

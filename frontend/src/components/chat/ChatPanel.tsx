@@ -7,6 +7,7 @@ import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
 import { SessionTodoPanel } from "@/components/chat/SessionTodoPanel";
+import { messagesWithActiveProjectionViews, type ProjectedMessage } from "@/components/chat/projectedMessages";
 import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
 import { openSessionProjectInVSCode } from "@/lib/api";
 import { publicRuntimeStatusText } from "@/lib/runtimeStatusText";
@@ -344,21 +345,6 @@ function chatScrollerIsNearBottom(scroller: HTMLElement) {
   return distanceFromBottom <= 96;
 }
 
-function messagesWithActiveProjectionViews(
-  messages: Message[],
-  activeProjectionsByKey: StoreState["activeProjectionsByKey"],
-) {
-  return messages.map((message) => {
-    const key = message.projectionKeyString ?? "";
-    const projection = key ? activeProjectionsByKey[key] : undefined;
-    const projectionView = projection?.view ?? message.projectionView;
-    if (!projectionView || projectionView === message.projectionView) {
-      return message;
-    }
-    return { ...message, projectionView };
-  });
-}
-
 function readableActionError(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : "";
   if (!message) return fallback;
@@ -372,7 +358,7 @@ function readableActionError(error: unknown, fallback: string) {
 }
 
 export function shouldSuppressSessionActivityBar(
-  messages: Message[],
+  messages: ProjectedMessage[],
   active: boolean,
   activity?: StoreState["sessionActivity"],
 ) {

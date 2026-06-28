@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from prompt_library.tool_prompts import tool_guidance_payload_for_visible_tools
-from .tool_schema_identity import canonical_provider_input_schema, provider_input_schema_ref
+from .tool_schema_identity import canonical_provider_tool_binding_schema, provider_input_schema_ref
 
 _MODEL_VISIBLE_PROMPT_POLICIES = {"schema_only", "schema_plus_guidance"}
 _SPECIAL_CONTRACT_TOOL_NAMES = {
@@ -162,7 +162,7 @@ def _model_visible_tool_entry(tool_payload: dict[str, Any]) -> dict[str, Any]:
             }.items()
             if value
         }
-    input_schema = canonical_provider_input_schema(tool)
+    input_schema = canonical_provider_tool_binding_schema(tool)
     if input_schema:
         input_schema_summary = _input_schema_summary(input_schema)
         payload["input_schema_summary"] = input_schema_summary

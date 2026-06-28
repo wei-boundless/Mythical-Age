@@ -110,7 +110,6 @@ def model_action_request_from_payload(
     public_feedback_expected: bool = False,
     allowed_action_types: tuple[str, ...] | set[str] | None = None,
 ) -> tuple[ModelActionRequest | None, dict[str, Any]]:
-    del public_feedback_expected
     raw = dict(payload or {})
     errors: list[str] = []
     authority = str(raw.get("authority") or "harness.loop.model_action_request").strip()
@@ -197,6 +196,8 @@ def model_action_request_from_payload(
         public_action_state=public_action_state,
     ) and action_type != "request_task_run":
         errors.append("public_task_lifecycle_claim_requires_request_task_run")
+    if public_feedback_expected and action_type == "tool_call" and not has_model_public_response:
+        contract_gaps.append("public_feedback_omitted_for_tool_call")
     if require_public_progress_note and not public_progress_note:
         if action_type == "tool_call" or not has_model_public_response:
             contract_gaps.append(

@@ -25,6 +25,7 @@ export function projectionViewFromLedger(ledger: ChronologicalProjectionLedger |
       target: tool.target,
       commandLine: tool.commandLine,
       output: tool.output,
+      contentWindow: tool.contentWindow,
       toolCallId: tool.toolCallId,
       toolLifecycleId: tool.toolLifecycleId,
       toolName: tool.toolName,

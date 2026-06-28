@@ -341,8 +341,10 @@ export type PublicProjectionFrame = {
   arguments_preview?: string;
   target?: string;
   collapsed?: boolean;
+  duration_ms?: number;
   trace_refs?: string[];
   artifact_refs?: Array<Record<string, unknown>>;
+  content_window?: PublicToolContentWindow;
   commit?: {
     state: "checked" | "committed" | "failed" | "skipped" | string;
     commit_event_offset?: number;
@@ -350,6 +352,29 @@ export type PublicProjectionFrame = {
     content_sha256?: string;
   };
   diagnostics?: Record<string, unknown>;
+};
+
+export type PublicToolContentWindow = {
+  authority?: string;
+  content_available?: boolean;
+  kind?: "read_file" | string;
+  path?: string;
+  status?: string;
+  text?: string;
+  start_line?: number;
+  end_line?: number;
+  returned_lines?: number;
+  line_count?: number;
+  total_lines?: number;
+  has_more?: boolean;
+  next_start_line?: number;
+  truncated?: boolean;
+  preview_lines?: number;
+  preview_truncated?: boolean;
+  content_sha256?: string;
+  exact_artifact_ref?: string;
+  reused_observation_ref?: string;
+  reusable_result_ref?: string;
 };
 
 export type PublicChatTimelineDelta = {

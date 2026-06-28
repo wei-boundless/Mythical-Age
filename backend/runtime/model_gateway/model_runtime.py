@@ -36,6 +36,9 @@ from runtime.prompt_accounting.provider_lane import (
 from runtime.prompt_accounting.serializer import canonical_json
 from runtime.context_management.context_commit_record import create_provider_request_context_commit_record
 from runtime.context_management.context_candidates import ContextCommitCandidate
+from runtime.context_management.physical_prefix_frame_ledger import (
+    append_physical_prefix_frame_from_provider_success,
+)
 from runtime.context_management.provider_visible_context_ledger import (
     confirm_provider_visible_context_entries,
     latest_provider_visible_context_success_anchor,
@@ -237,7 +240,7 @@ class ModelRuntime:
                     accounting_context=accounting_context,
                 )
                 effective_messages = _messages_with_chat_prefix_protocol(messages, spec=effective_spec)
-                effective_messages, effective_accounting_context = self._provider_visible_append_only_passthrough(
+                effective_messages, effective_accounting_context = self._provider_visible_physical_context_passthrough(
                     effective_messages,
                     spec=effective_spec,
                     accounting_context=accounting_context,
@@ -318,7 +321,7 @@ class ModelRuntime:
                     accounting_context=accounting_context,
                 )
                 effective_messages = _messages_with_chat_prefix_protocol(messages, spec=effective_spec)
-                effective_messages, effective_accounting_context = self._provider_visible_append_only_passthrough(
+                effective_messages, effective_accounting_context = self._provider_visible_physical_context_passthrough(
                     effective_messages,
                     spec=effective_spec,
                     accounting_context=accounting_context,
@@ -410,7 +413,7 @@ class ModelRuntime:
                     accounting_context=accounting_context,
                 )
                 effective_messages = _messages_with_chat_prefix_protocol(messages, spec=effective_spec)
-                effective_messages, effective_accounting_context = self._provider_visible_append_only_passthrough(
+                effective_messages, effective_accounting_context = self._provider_visible_physical_context_passthrough(
                     effective_messages,
                     spec=effective_spec,
                     accounting_context=accounting_context,
@@ -499,7 +502,7 @@ class ModelRuntime:
                     accounting_context=accounting_context,
                 )
                 effective_messages = _messages_with_chat_prefix_protocol(messages, spec=effective_spec)
-                effective_messages, effective_accounting_context = self._provider_visible_append_only_passthrough(
+                effective_messages, effective_accounting_context = self._provider_visible_physical_context_passthrough(
                     effective_messages,
                     spec=effective_spec,
                     accounting_context=accounting_context,
@@ -1231,6 +1234,18 @@ class ModelRuntime:
             self._finish_model_trace_span(accounting, provider_usage=None, error=error)
             return
         provider_visible_confirmation = self._confirm_provider_visible_context_success(accounting, response=response)
+        physical_prefix_frame_confirmation = self._confirm_physical_prefix_frame_success(
+            accounting,
+            response=response,
+            provider_visible_confirmation=provider_visible_confirmation,
+        )
+        if physical_prefix_frame_confirmation:
+            accounting["physical_prefix_frame_confirmation"] = dict(physical_prefix_frame_confirmation)
+        if physical_prefix_frame_confirmation:
+            provider_visible_confirmation = {
+                **dict(provider_visible_confirmation or {}),
+                "physical_prefix_frame": physical_prefix_frame_confirmation,
+            }
         self._record_provider_request_context_commit(
             accounting,
             status="succeeded",
@@ -1266,6 +1281,7 @@ class ModelRuntime:
             )
             model_request = accounting.get("model_request")
             cache_policy = getattr(model_request, "cache_policy", None)
+            physical_prefix_frame_diagnostics = _physical_prefix_frame_diagnostics_from_accounting(accounting)
             if cache_policy is not None:
                 provider_usage = replace(
                     provider_usage,
@@ -1283,6 +1299,7 @@ class ModelRuntime:
                         "provider_lane": str(accounting.get("provider_lane") or ""),
                         "physical_payload_family_hash": str(accounting.get("physical_payload_family_hash") or ""),
                         "physical_payload_family": dict(accounting.get("physical_payload_family") or {}),
+                        **physical_prefix_frame_diagnostics,
                         "duration_seconds": duration_seconds,
                     },
                 )
@@ -1323,6 +1340,7 @@ class ModelRuntime:
                         "provider_cache_miss_tokens": cache_miss_tokens,
                         "provider_returned_cache_hit_rate": provider_returned_cache_hit_rate,
                         "cache_efficiency": cache_efficiency,
+                        **physical_prefix_frame_diagnostics,
                     },
                 )
                 ledger.record_prompt_cache(updated_cache_record)
@@ -1383,6 +1401,66 @@ class ModelRuntime:
         except Exception:
             logger.debug("Failed to confirm provider-visible context ledger entries", exc_info=True)
             return {"status": "failed", "authority": "runtime.model_gateway.model_runtime.provider_visible_context_confirm"}
+
+    def _confirm_physical_prefix_frame_success(
+        self,
+        accounting: dict[str, Any],
+        *,
+        response: Any,
+        provider_visible_confirmation: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        payload = dict(accounting or {})
+        model_request = payload.get("model_request")
+        request_id = str(payload.get("request_id") or getattr(model_request, "request_id", "") or "").strip()
+        session_id = str(payload.get("session_id") or "").strip()
+        storage_root = _context_commit_storage_root_from_accounting(payload)
+        scope = _context_commit_scope_from_accounting(payload) or session_id
+        if not model_request or not request_id or not storage_root or not scope:
+            return {}
+        model_request_diagnostics = dict(getattr(model_request, "diagnostics", {}) or {})
+        provider_transport_payload = dict(model_request_diagnostics.get("provider_transport_payload") or {})
+        confirmations = [
+            dict(item)
+            for item in list(dict(provider_visible_confirmation or {}).get("confirmations") or [])
+            if isinstance(item, dict)
+        ]
+        current_append_entry_indexes = [
+            _int(item.get("entry_index"))
+            for item in confirmations
+            if _int(item.get("entry_index")) > 0
+            and str(item.get("already_confirmed") or "").strip().lower() not in {"1", "true", "yes"}
+        ]
+        try:
+            return append_physical_prefix_frame_from_provider_success(
+                storage_root=storage_root,
+                scope=scope,
+                provider=str(payload.get("provider") or getattr(model_request, "provider", "") or ""),
+                model=str(payload.get("model") or getattr(model_request, "model", "") or ""),
+                provider_lane=str(payload.get("provider_lane") or ""),
+                request_id=request_id,
+                run_id=str(payload.get("run_id") or ""),
+                task_run_id=str(payload.get("task_run_id") or ""),
+                session_id=session_id,
+                turn_id=str(dict(payload.get("accounting_context") or {}).get("turn_id") or ""),
+                provider_payload_manifest=getattr(model_request, "provider_payload_manifest", None),
+                provider_payload_messages_hash=str(
+                    provider_transport_payload.get("messages_hash")
+                    or getattr(model_request, "canonical_hash", "")
+                    or ""
+                ),
+                physical_payload_family_hash=str(payload.get("physical_payload_family_hash") or ""),
+                current_append_entry_indexes=current_append_entry_indexes,
+                provider_visible_confirmation=dict(provider_visible_confirmation or {}),
+                provider_messages=list(tuple(getattr(model_request, "messages", ()) or ())),
+                response_ref=_provider_response_ref(response),
+                reason="provider_request_succeeded",
+            )
+        except Exception:
+            logger.debug("Failed to confirm physical prefix frame", exc_info=True)
+            return {
+                "status": "failed",
+                "authority": "runtime.model_gateway.model_runtime.physical_prefix_frame_confirm",
+            }
 
     def _record_provider_request_context_commit(
         self,
@@ -1659,7 +1737,7 @@ class ModelRuntime:
             **dict(adapter_result.request_params_for_accounting or {}),
         }
 
-    def _provider_visible_append_only_passthrough(
+    def _provider_visible_physical_context_passthrough(
         self,
         messages: list[Any],
         *,
@@ -1669,22 +1747,22 @@ class ModelRuntime:
     ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         context = dict(accounting_context or {})
         provider_messages = [dict(item) for item in provider_message_payloads(list(messages or []))]
-        if context.get("provider_visible_append_only_context") is not True:
+        if context.get("provider_visible_physical_context") is not True:
             return provider_messages, accounting_context
         prompt_manifest = dict(context.get("prompt_manifest") or {})
-        prompt_manifest["provider_visible_append_only_transport"] = {
+        prompt_manifest["provider_visible_physical_context_transport"] = {
             "status": "standardized",
             "input_message_count": len(provider_messages),
-            "rule": "provider_gateway_preserves_upstream_append_only_message_order_after_tool_protocol_standardization",
-            "authority": "runtime.model_gateway.model_runtime.append_only_passthrough",
+            "rule": "provider_gateway_preserves_physical_context_assembler_order_after_tool_protocol_standardization",
+            "authority": "runtime.model_gateway.model_runtime.physical_context_transport_passthrough",
         }
         sanitized = standardize_provider_tool_protocol_messages(
             provider_messages,
             turn_id=str(context.get("turn_id") or ""),
-            source=f"runtime.model_gateway.model_runtime.{call_kind}.append_only_provider_boundary",
+            source=f"runtime.model_gateway.model_runtime.{call_kind}.physical_context_provider_boundary",
         )
         provider_messages = [dict(item) for item in sanitized.messages]
-        prompt_manifest["provider_visible_append_only_transport"].update(
+        prompt_manifest["provider_visible_physical_context_transport"].update(
             {
                 "output_message_count": len(provider_messages),
                 "tool_protocol_diagnostics": dict(sanitized.diagnostics),
@@ -2055,7 +2133,7 @@ def _context_commit_scope_from_accounting(accounting: dict[str, Any]) -> str:
         value = str(candidate.scope or "").strip()
         if value:
             return value
-    for key in ("provider_visible_context_ledger_scope", "session_id"):
+    for key in ("provider_visible_context_ledger_scope", "provider_visible_context_scope", "provider_cache_scope_id", "session_id"):
         value = str(context.get(key) or payload.get(key) or "").strip()
         if value:
             return value
@@ -2217,7 +2295,7 @@ def _previous_prompt_cache_records(ledger: Any, *, run_id: str, task_run_id: str
     list_recent = getattr(ledger, "list_recent_prompt_cache", None)
     if callable(list_recent):
         try:
-            return list(
+            records = list(
                 list_recent(
                     run_id=run_id,
                     task_run_id=task_run_id,
@@ -2226,6 +2304,9 @@ def _previous_prompt_cache_records(ledger: Any, *, run_id: str, task_run_id: str
                 )
                 or []
             )
+            if session_id and (run_id or task_run_id):
+                records.extend(list_recent(session_id=session_id, limit=128) or [])
+            return _dedupe_prompt_cache_records(records)
         except Exception:
             logger.debug("Failed to read recent prompt cache records.", exc_info=True)
             return []
@@ -2235,7 +2316,7 @@ def _previous_prompt_cache_records(ledger: Any, *, run_id: str, task_run_id: str
     if not callable(list_prompt_cache):
         return []
     try:
-        return list(
+        records = list(
             list_prompt_cache(
                 run_id=run_id,
                 task_run_id=task_run_id,
@@ -2243,9 +2324,41 @@ def _previous_prompt_cache_records(ledger: Any, *, run_id: str, task_run_id: str
             )
             or []
         )
+        if session_id and (run_id or task_run_id):
+            records.extend(list_prompt_cache(session_id=session_id) or [])
+        return _dedupe_prompt_cache_records(records)
     except Exception:
         logger.debug("Failed to read prompt cache records.", exc_info=True)
         return []
+
+
+def _dedupe_prompt_cache_records(records: list[Any]) -> list[Any]:
+    deduped: dict[str, Any] = {}
+    for record in list(records or []):
+        key = str(getattr(record, "cache_record_id", "") or getattr(record, "record_id", "") or "")
+        if not key:
+            key = f"{getattr(record, 'request_id', '')}:{getattr(record, 'created_at', '')}"
+        previous = deduped.get(key)
+        if previous is None or float(getattr(record, "created_at", 0.0) or 0.0) >= float(getattr(previous, "created_at", 0.0) or 0.0):
+            deduped[key] = record
+    return sorted(deduped.values(), key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0))
+
+
+def _physical_prefix_frame_diagnostics_from_accounting(accounting: dict[str, Any]) -> dict[str, Any]:
+    frame = dict(dict(accounting or {}).get("physical_prefix_frame_confirmation") or {})
+    if not frame:
+        return {}
+    return {
+        "physical_prefix_frame_id": str(frame.get("frame_id") or ""),
+        "physical_prefix_previous_frame_id": str(frame.get("previous_frame_id") or ""),
+        "physical_prefix_frame_source_request_id": str(frame.get("source_request_id") or ""),
+        "physical_prefix_frame_turn_id": str(frame.get("source_turn_id") or ""),
+        "physical_prefix_frame_status": str(frame.get("status") or ""),
+        "physical_prefix_frame_segment_count": _int(frame.get("segment_count")),
+        "physical_prefix_frame_message_segment_count": _int(frame.get("message_segment_count")),
+        "physical_prefix_frame_tool_segment_count": _int(frame.get("tool_segment_count")),
+        "physical_prefix_frame_authority": str(frame.get("authority") or ""),
+    }
 
 
 def _prompt_accounting_scoped_reads_are_expensive(ledger: Any) -> bool:

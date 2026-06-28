@@ -1,4 +1,4 @@
-import type { PublicProjectionFrame, PublicTodoItem } from "@/lib/api";
+import type { PublicProjectionFrame, PublicTodoItem, PublicToolContentWindow } from "@/lib/api";
 
 export type ProjectionDisplayMode = "live" | "committed" | "closeout" | "recovery" | "log_only";
 
@@ -70,6 +70,7 @@ export type ToolLifecycle = {
   argumentsPreview: string;
   commandLine: string;
   output: string;
+  contentWindow?: PublicToolContentWindow;
   state: string;
   startedAt?: number;
   updatedAt?: number;
@@ -170,6 +171,7 @@ export type ToolProjectionBlock = {
   target: string;
   commandLine: string;
   output: string;
+  contentWindow?: PublicToolContentWindow;
   toolCallId: string;
   toolLifecycleId: string;
   toolName: string;

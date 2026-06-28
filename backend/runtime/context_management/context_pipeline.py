@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from runtime.prompt_accounting.provider_lane import provider_lane_from_accounting_context
+
 from .context_candidates import context_candidate_from_message_spec
 from .context_capability_policy import apply_context_capability_profile
 from .context_segment_policy import (
@@ -16,6 +18,7 @@ from .context_segment_policy import (
     context_segment_policy_metadata,
 )
 from .physical_context_plan import annotate_specs_with_physical_context_plan
+from .physical_context_assembler import assemble_physical_context_spine
 from .provider_visible_context_ledger import assemble_provider_visible_context_specs
 
 
@@ -183,6 +186,10 @@ def apply_provider_visible_context_ledger_to_specs(
         write_scope=scope,
     )
     provider, model = provider_model_from_selection(model_selection)
+    provider_lane = provider_lane_from_model_selection(
+        model_selection,
+        invocation_kind=invocation_kind,
+    )
     static_prefix: list[dict[str, Any]] = []
     provider_visible_candidates: list[tuple[int, dict[str, Any]]] = []
     current_turn_tail_specs: list[dict[str, Any]] = []
@@ -219,7 +226,7 @@ def apply_provider_visible_context_ledger_to_specs(
             continue
         current_turn_tail_specs.append(spec)
 
-    ledger_specs_with_order = assemble_provider_visible_context_specs(
+    current_append_specs_with_order = assemble_provider_visible_context_specs(
         provider_visible_candidates,
         storage_root=storage_root,
         scope=scope,
@@ -229,32 +236,36 @@ def apply_provider_visible_context_ledger_to_specs(
         provider=provider,
         model=model,
     )
-    ledger_specs = [dict(spec) for _order, spec in list(ledger_specs_with_order or []) if isinstance(spec, dict)]
-    inherited_ledger_spec_count = sum(
-        1
-        for spec in ledger_specs
-        if str(dict(dict(spec).get("metadata") or {}).get("provider_visible_context_inherited_from_scope") or "").strip()
+    current_append_specs = [
+        dict(spec)
+        for _order, spec in list(current_append_specs_with_order or [])
+        if isinstance(spec, dict)
+    ]
+    physical_assembly = assemble_physical_context_spine(
+        static_prefix_specs=static_prefix,
+        provider_visible_ledger_specs=current_append_specs,
+        current_tail_specs=current_turn_tail_specs,
+        storage_root=storage_root,
+        scope=scope,
+        provider=provider,
+        model=model,
+        provider_lane=provider_lane,
     )
-    if not provider_visible_candidates and not ledger_specs:
-        return clean_specs, {
-            "status": "skipped",
-            "reason": "no_provider_visible_context_candidates_or_confirmed_ledger_entries",
-            "invocation_kind": str(invocation_kind or ""),
-            "authority": "runtime.context_management.context_pipeline.provider_visible_context_ledger",
-        }
-    return [*static_prefix, *ledger_specs, *current_turn_tail_specs], {
+    return [dict(item) for item in physical_assembly.message_specs], {
         "status": "applied",
         "scope": scope,
         "invocation_kind": str(invocation_kind or ""),
         "provider": provider,
         "model": model,
+        "provider_lane": provider_lane,
         "compaction_generation": normalize_context_compaction_generation(compaction_generation),
         "context_candidate_count": context_candidate_count,
         "converted_dynamic_tail_replay_only_count": 0,
         "blocked_dynamic_tail_replay_count": blocked_dynamic_tail_replay_count,
         "non_sealable_context_append_tail_count": non_sealable_context_append_count,
-        "ledger_materialized_spec_count": len(ledger_specs),
-        "fork_inherited_provider_visible_spec_count": inherited_ledger_spec_count,
+        "provider_visible_current_append_spec_count": len(current_append_specs),
+        "physical_context_assembly": dict(physical_assembly.diagnostics or {}),
+        "fork_inherited_provider_visible_spec_count": 0,
         "fork_inherited_provider_visible_scope": str(inheritance_contract.get("inherited_scope") or ""),
         "fork_inherited_provider_visible_anchor_id": str(
             dict(inheritance_contract.get("inherited_anchor") or {}).get("anchor_id") or ""
@@ -284,7 +295,7 @@ def apply_provider_visible_context_ledger_to_specs(
             dict(inheritance_contract.get("fork_point_content_replacement_state") or {}).get("replacement_count")
         ),
         "current_turn_tail_spec_count": len(current_turn_tail_specs),
-        "physical_replay_rule": "static_prefix_then_confirmed_provider_visible_context_then_current_turn_tail",
+        "physical_replay_rule": "static_prefix_then_confirmed_physical_frame_then_current_append_then_dynamic_tail",
         "authority": "runtime.context_management.context_pipeline.provider_visible_context_ledger",
     }
 
@@ -442,22 +453,33 @@ def provider_model_from_selection(model_selection: dict[str, Any] | None) -> tup
     )
 
 
+def provider_lane_from_model_selection(
+    model_selection: dict[str, Any] | None,
+    *,
+    invocation_kind: str,
+) -> str:
+    selection = dict(model_selection or {})
+    return provider_lane_from_accounting_context(
+        {
+            "provider_lane": str(selection.get("provider_lane") or ""),
+            "source": str(invocation_kind or ""),
+            "prompt_manifest": {"invocation_kind": str(invocation_kind or "")},
+        },
+        call_kind=str(invocation_kind or ""),
+    )
+
+
 def sealed_provider_visible_replay_spec(spec: dict[str, Any]) -> bool:
     metadata = dict(spec.get("metadata") or {})
     if metadata.get("provider_protocol_replay") is True:
         return True
     payload_authority = str(metadata.get("provider_visible_payload_authority") or "").strip()
-    if payload_authority.endswith(".replay"):
+    if payload_authority == "runtime.context_management.physical_prefix_frame.replay":
         return True
     replay_policy = str(metadata.get("context_replay_policy") or "").strip()
-    if replay_policy == "provider_visible_ledger_replay":
+    if replay_policy == "physical_prefix_frame_replay" and str(metadata.get("physical_prefix_frame_id") or "").strip():
         return True
-    if (
-        metadata.get("provider_visible_context_ledger_authority")
-        and metadata.get("provider_visible_context_ledger_commit_stage") != "provider_success_required"
-    ):
-        return True
-    return str(metadata.get("provider_visible_history_status") or "") == "sealed_from_prior_model_request"
+    return str(metadata.get("provider_visible_history_status") or "") == "sealed_from_physical_prefix_frame"
 
 
 def _annotated_context_capability_bypass_spec(spec: dict[str, Any]) -> dict[str, Any]:

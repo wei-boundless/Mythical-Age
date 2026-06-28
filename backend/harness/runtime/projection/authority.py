@@ -144,10 +144,12 @@ def build_public_projection_frame(
         "arguments_preview",
         "target",
         "collapsed",
+        "duration_ms",
         "plan_id",
         "active_item_id",
         "completion_ready",
         "todo_items",
+        "content_window",
     ):
         value = frame_spec.get(key)
         if value not in ("", None, [], {}):

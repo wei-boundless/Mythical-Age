@@ -64,6 +64,8 @@ TOOL_FAILURE_FEEDBACK_RE = re.compile(
     flags=re.IGNORECASE,
 )
 LINE_NUMBERED_TOOL_OUTPUT_RE = re.compile(r"(?m)^\s*\d{1,6}\s*\|")
+PUBLIC_READ_WINDOW_MAX_CHARS = 50000
+PUBLIC_READ_WINDOW_MAX_LINES = 500
 
 PUBLIC_EVENT_DATA_ALLOWLIST = {
     "chat_run_started": {"status"},
@@ -315,6 +317,7 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "target",
         "arguments_preview",
         "runtime_event_id",
+        "created_at",
     },
     TOOL_PERMISSION_DECIDED_EVENT: {
         "item_id",
@@ -328,6 +331,7 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "permission_reason",
         "system_reason",
         "runtime_event_id",
+        "created_at",
     },
     TOOL_ITEM_STARTED_EVENT: {
         "item_id",
@@ -342,6 +346,7 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "arguments_preview",
         "state",
         "runtime_event_id",
+        "created_at",
     },
     TOOL_ITEM_COMPLETED_EVENT: {
         "item_id",
@@ -358,7 +363,9 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "observation",
         "error",
         "duration_ms",
+        "content_window",
         "runtime_event_id",
+        "created_at",
     },
     TURN_COMPLETED_EVENT: {
         "turn_run_id",
@@ -881,6 +888,7 @@ def _tool_call_requested_items(raw_data: dict[str, Any]) -> list[dict[str, Any]]
             "tool_name": tool_name,
             "target": target,
             "arguments_preview": _tool_arguments_preview(args),
+            "created_at": _public_created_at(raw_data, raw_event, payload, request, tool),
         }
         if runtime_event_id:
             data["runtime_event_id"] = f"{runtime_event_id}:tool:{index + 1}" if len(tool_calls) > 1 else runtime_event_id
@@ -950,6 +958,7 @@ def _tool_permission_decided_data(raw_data: dict[str, Any], *, request_data: dic
         "permission_decision": decision,
         "permission_reason": _safe_public_action_text(admission.get("user_visible_reason")),
         "system_reason": _safe_public_action_text(admission.get("system_reason")),
+        "created_at": _public_created_at(raw_data, raw_event, payload, admission),
     }
     event_id = str(raw_event.get("event_id") or "").strip()
     if event_id:
@@ -978,6 +987,7 @@ def _tool_item_started_data(raw_data: dict[str, Any]) -> dict[str, Any]:
         "target": _safe_public_action_text(payload.get("target")),
         "arguments_preview": _safe_public_action_text(payload.get("arguments_preview")),
         "state": str(payload.get("state") or "running"),
+        "created_at": _public_created_at(raw_data, raw_event, payload),
     }
     event_id = str(raw_event.get("event_id") or "").strip()
     if event_id:
@@ -1034,6 +1044,19 @@ def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
         result_envelope=result_envelope,
         tool_name=tool_name,
     )
+    content_window = _read_file_content_window_payload(
+        tool_name=tool_name,
+        result_envelope=result_envelope,
+        tool_args=tool_args,
+    )
+    created_at = _public_created_at(raw_data, raw_event, tool_observation, observation, execution_receipt)
+    duration_ms = _public_duration_ms(
+        execution_receipt,
+        result_envelope,
+        tool_observation,
+        observation,
+        completed_at=created_at,
+    )
     data: dict[str, Any] = {
         "item_id": tool_call_id,
         "tool_lifecycle_id": tool_lifecycle_id,
@@ -1052,8 +1075,11 @@ def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
         "state": state,
         "observation": observation_text,
         "error": error if state == "error" else "",
-        "duration_ms": execution_receipt.get("duration_ms"),
+        "duration_ms": duration_ms,
+        "created_at": created_at,
     }
+    if content_window:
+        data["content_window"] = content_window
     event_id = str(raw_event.get("event_id") or "").strip()
     if event_id:
         data["runtime_event_id"] = event_id
@@ -1309,6 +1335,171 @@ def _safe_tool_observation_text(
         if text:
             return text[:500]
     return ""
+
+
+def _read_file_content_window_payload(
+    *,
+    tool_name: str,
+    result_envelope: dict[str, Any],
+    tool_args: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    normalized_tool = str(tool_name or "").strip().lower()
+    if normalized_tool not in {"read_file", "read_files", "read_path"}:
+        return {}
+    structured = _record(result_envelope.get("structured_payload"))
+    result_payload = _record(result_envelope.get("result"))
+    tool_result = _record(
+        structured.get("tool_result")
+        or result_envelope.get("tool_result")
+        or result_payload.get("tool_result")
+    )
+    result_kind = str(tool_result.get("kind") or "").strip().lower()
+    if result_kind == "read_file_reuse":
+        return _read_file_reuse_content_window_payload(tool_result=tool_result)
+    if str(tool_result.get("status") or result_envelope.get("status") or "").strip().lower() == "error":
+        return {}
+    raw_text = str(
+        result_envelope.get("text")
+        or tool_result.get("text")
+        or result_payload.get("text")
+        or ""
+    )
+    metadata_indicates_read = bool(
+        result_kind in {"read_file", "text_file"}
+        or tool_result.get("path")
+        or tool_result.get("start_line") is not None
+        or tool_result.get("end_line") is not None
+    )
+    if not raw_text.strip():
+        return {}
+    if not metadata_indicates_read and not LINE_NUMBERED_TOOL_OUTPUT_RE.search(raw_text):
+        return {}
+    args = dict(tool_args or {})
+    if result_kind == "read_file_reuse":
+        return {}
+    clipped_text, preview_truncated, preview_lines = _bounded_read_window_text(raw_text)
+    if not clipped_text.strip():
+        return {}
+    return {
+        "kind": "read_file",
+        "path": str(tool_result.get("path") or result_envelope.get("path") or args.get("path") or "").strip(),
+        "text": clipped_text,
+        "start_line": _public_int(tool_result.get("start_line") or args.get("start_line")),
+        "end_line": _public_int(tool_result.get("end_line")),
+        "returned_lines": _public_int(tool_result.get("returned_lines")),
+        "line_count": _public_int(tool_result.get("line_count") or args.get("line_count")),
+        "total_lines": _public_int(tool_result.get("total_lines")),
+        "has_more": bool(tool_result.get("has_more") is True),
+        "next_start_line": _public_int(tool_result.get("next_start_line")),
+        "truncated": bool(tool_result.get("truncated") is True),
+        "preview_lines": preview_lines,
+        "preview_truncated": preview_truncated,
+        "content_sha256": str(tool_result.get("content_sha256") or "").strip(),
+        "authority": "runtime.output_stream.read_file_content_window.v1",
+    }
+
+
+def _read_file_reuse_content_window_payload(*, tool_result: dict[str, Any]) -> dict[str, Any]:
+    path = str(tool_result.get("path") or "").strip()
+    start_line = _public_int(tool_result.get("start_line"))
+    end_line = _public_int(tool_result.get("end_line"))
+    range_label = f"{start_line}-{end_line}" if start_line is not None and end_line is not None else ""
+    refs = [
+        str(tool_result.get("reused_observation_ref") or tool_result.get("observation_ref") or "").strip(),
+        str(tool_result.get("exact_artifact_ref") or "").strip(),
+        str(tool_result.get("reusable_result_ref") or "").strip(),
+    ]
+    ref_text = " / ".join(item for item in refs if item)
+    text_parts = [
+        "复用上次读取窗口：文件状态未变化，本次工具没有重新返回全文。",
+        f"文件：{path}" if path else "",
+        f"范围：{range_label} 行" if range_label else "",
+        f"引用：{ref_text}" if ref_text else "",
+    ]
+    clipped_text, preview_truncated, preview_lines = _bounded_read_window_text("\n".join(item for item in text_parts if item))
+    return {
+        "kind": "read_file_reuse",
+        "status": str(tool_result.get("status") or "reuse_unchanged").strip(),
+        "content_available": False,
+        "path": path,
+        "text": clipped_text,
+        "start_line": start_line,
+        "end_line": end_line,
+        "returned_lines": _public_int(tool_result.get("returned_lines")),
+        "line_count": _public_int(tool_result.get("line_count")),
+        "total_lines": _public_int(tool_result.get("total_lines")),
+        "has_more": bool(tool_result.get("has_more") is True),
+        "next_start_line": _public_int(tool_result.get("next_start_line")),
+        "preview_lines": preview_lines,
+        "preview_truncated": preview_truncated,
+        "content_sha256": str(tool_result.get("content_sha256") or "").strip(),
+        "reused_observation_ref": str(tool_result.get("reused_observation_ref") or tool_result.get("observation_ref") or "").strip(),
+        "exact_artifact_ref": str(tool_result.get("exact_artifact_ref") or "").strip(),
+        "reusable_result_ref": str(tool_result.get("reusable_result_ref") or "").strip(),
+        "authority": "runtime.output_stream.read_file_reuse_window.v1",
+    }
+
+
+def _public_created_at(*sources: dict[str, Any]) -> float | None:
+    for source in sources:
+        for key in ("created_at", "updated_at", "started_at", "completed_at"):
+            value = source.get(key)
+            try:
+                timestamp = float(value)
+            except (TypeError, ValueError):
+                continue
+            if timestamp > 0:
+                return timestamp
+    return None
+
+
+def _public_duration_ms(*sources: dict[str, Any], completed_at: float | None = None) -> int | None:
+    for source in sources:
+        value = source.get("duration_ms")
+        try:
+            duration = float(value)
+        except (TypeError, ValueError):
+            continue
+        if duration >= 0:
+            return int(round(duration))
+    started_at = _public_timestamp_for_keys(*sources, keys=("started_at", "created_at"))
+    ended_at = _public_timestamp_for_keys(*sources, keys=("completed_at", "ended_at", "updated_at")) or completed_at
+    if started_at and ended_at and ended_at >= started_at:
+        return int(round((ended_at - started_at) * 1000))
+    return None
+
+
+def _public_timestamp_for_keys(*sources: dict[str, Any], keys: tuple[str, ...]) -> float | None:
+    for source in sources:
+        for key in keys:
+            value = source.get(key)
+            try:
+                timestamp = float(value)
+            except (TypeError, ValueError):
+                continue
+            if timestamp > 0:
+                return timestamp
+    return None
+
+
+def _bounded_read_window_text(value: str) -> tuple[str, bool, int]:
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+    lines = text.split("\n")
+    selected = lines[:PUBLIC_READ_WINDOW_MAX_LINES]
+    line_truncated = len(lines) > len(selected)
+    bounded = "\n".join(selected)
+    char_truncated = len(bounded) > PUBLIC_READ_WINDOW_MAX_CHARS
+    if char_truncated:
+        bounded = bounded[:PUBLIC_READ_WINDOW_MAX_CHARS].rstrip()
+    return bounded, bool(line_truncated or char_truncated), len(selected)
+
+
+def _public_int(value: Any) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number >= 0 else None
 
 
 def _safe_tool_feedback_text(value: Any) -> str:

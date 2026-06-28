@@ -174,7 +174,7 @@ def _install_builtin_policy_defaults() -> None:
         prefix_cache_role="session_stable",
         prefix_tier="session",
         commit_policy="append_then_seal",
-        replay_policy="provider_visible_ledger_replay",
+        replay_policy="physical_prefix_frame_replay",
         identity_policy="content_addressed_when_unkeyed",
     )
     for stream, slot in STREAM_CONTEXT_APPEND_SLOT_DEFAULTS.items():
@@ -305,7 +305,7 @@ def context_segment_policy_for_spec(
         replay_policy=_first_text(
             metadata.get("context_replay_policy"),
             defaults.replay_policy,
-            "provider_visible_ledger_replay" if section == CONTEXT_MEMORY_PREFIX else "new_append_materialize_once",
+            "physical_prefix_frame_replay" if section == CONTEXT_MEMORY_PREFIX else "new_append_materialize_once",
         ),
         provider_adapter_contract=_first_text(
             metadata.get("provider_adapter_contract"),
@@ -487,7 +487,7 @@ def _section_from_authoritative_context_metadata(payload: dict[str, Any], *, met
     if str(metadata.get("provider_visible_context_ledger_commit_stage") or "").strip() == "provider_success_required":
         return CONTEXT_APPEND
     history_status = str(metadata.get("provider_visible_history_status") or "").strip()
-    if history_status == "sealed_from_prior_model_request":
+    if history_status == "sealed_from_physical_prefix_frame":
         return CONTEXT_MEMORY_PREFIX
     if history_status == "current_tool_round_pending_provider_success":
         return CONTEXT_APPEND

@@ -43,6 +43,26 @@ from .physical_context_plan import (
     annotate_specs_with_physical_context_plan,
     build_physical_context_plan,
 )
+from .physical_context_assembler import (
+    PHYSICAL_CONTEXT_ASSEMBLER_AUTHORITY,
+    PhysicalContextAssemblyResult,
+    assemble_physical_context_spine,
+)
+from .physical_prefix_frame_ledger import (
+    PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
+    append_physical_prefix_frame_from_provider_success,
+    latest_confirmed_physical_prefix_frame,
+    load_physical_prefix_frame_ledger,
+    physical_prefix_frame_ledger_path,
+    safe_physical_prefix_frame_scope_filename,
+    save_physical_prefix_frame_ledger,
+)
+from .physical_prefix_frame_models import (
+    PHYSICAL_PREFIX_FRAME_CONFIRMED_STATUS,
+    PHYSICAL_PREFIX_FRAME_SCHEMA_VERSION,
+    PhysicalPrefixFrame,
+    PhysicalPrefixFrameSegment,
+)
 from .provider_visible_context_ledger import (
     PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT,
     PROVIDER_VISIBLE_CONTEXT_LEDGER_CONFIRMED_STATUS,
@@ -156,6 +176,20 @@ __all__ = [
     "TRANSPORT_CONTRACT",
     "annotate_specs_with_physical_context_plan",
     "build_physical_context_plan",
+    "PHYSICAL_CONTEXT_ASSEMBLER_AUTHORITY",
+    "PhysicalContextAssemblyResult",
+    "assemble_physical_context_spine",
+    "PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY",
+    "append_physical_prefix_frame_from_provider_success",
+    "latest_confirmed_physical_prefix_frame",
+    "load_physical_prefix_frame_ledger",
+    "physical_prefix_frame_ledger_path",
+    "safe_physical_prefix_frame_scope_filename",
+    "save_physical_prefix_frame_ledger",
+    "PHYSICAL_PREFIX_FRAME_CONFIRMED_STATUS",
+    "PHYSICAL_PREFIX_FRAME_SCHEMA_VERSION",
+    "PhysicalPrefixFrame",
+    "PhysicalPrefixFrameSegment",
     "compact_child_result_observation",
     "estimate_json_bytes",
     "estimate_text_bytes",
@@ -213,4 +247,3 @@ __all__ = [
     "is_historical_tool_transcript_kind",
     "is_tool_transcript_kind",
 ]
-

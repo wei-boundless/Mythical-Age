@@ -31,6 +31,10 @@ class ProviderCacheLedgerRecord:
     provider: str = ""
     model: str = ""
     provider_lane: str = ""
+    physical_prefix_frame_id: str = ""
+    physical_prefix_previous_frame_id: str = ""
+    physical_prefix_frame_source_request_id: str = ""
+    physical_prefix_frame_turn_id: str = ""
     physical_payload_family_hash: str = ""
     physical_payload_family: dict[str, Any] = field(default_factory=dict)
     physical_cache_spine_hash: str = ""
@@ -86,6 +90,10 @@ class ProviderCacheLedgerRecord:
             provider=str(payload.get("provider") or ""),
             model=str(payload.get("model") or ""),
             provider_lane=str(payload.get("provider_lane") or ""),
+            physical_prefix_frame_id=str(payload.get("physical_prefix_frame_id") or ""),
+            physical_prefix_previous_frame_id=str(payload.get("physical_prefix_previous_frame_id") or ""),
+            physical_prefix_frame_source_request_id=str(payload.get("physical_prefix_frame_source_request_id") or ""),
+            physical_prefix_frame_turn_id=str(payload.get("physical_prefix_frame_turn_id") or ""),
             physical_payload_family_hash=str(payload.get("physical_payload_family_hash") or ""),
             physical_payload_family=dict(payload.get("physical_payload_family") or {}),
             physical_cache_spine_hash=str(payload.get("physical_cache_spine_hash") or ""),
@@ -174,6 +182,22 @@ def build_provider_cache_ledger_record(
         provider=str(provider_usage.provider or cache_record.provider or ""),
         model=str(provider_usage.model or cache_record.model or ""),
         provider_lane=str(diagnostics.get("provider_lane") or usage_diagnostics.get("provider_lane") or ""),
+        physical_prefix_frame_id=str(diagnostics.get("physical_prefix_frame_id") or usage_diagnostics.get("physical_prefix_frame_id") or ""),
+        physical_prefix_previous_frame_id=str(
+            diagnostics.get("physical_prefix_previous_frame_id")
+            or usage_diagnostics.get("physical_prefix_previous_frame_id")
+            or ""
+        ),
+        physical_prefix_frame_source_request_id=str(
+            diagnostics.get("physical_prefix_frame_source_request_id")
+            or usage_diagnostics.get("physical_prefix_frame_source_request_id")
+            or ""
+        ),
+        physical_prefix_frame_turn_id=str(
+            diagnostics.get("physical_prefix_frame_turn_id")
+            or usage_diagnostics.get("physical_prefix_frame_turn_id")
+            or ""
+        ),
         physical_payload_family_hash=family_hash,
         physical_payload_family=dict(diagnostics.get("physical_payload_family") or usage_diagnostics.get("physical_payload_family") or {}),
         physical_cache_spine_hash=spine_hash,
@@ -211,6 +235,21 @@ def build_provider_cache_ledger_record(
             "provider_cache_read_coverage_evidence": str(diagnostics.get("provider_cache_read_required_coverage_evidence") or ""),
             "transport_contract_hash": str(diagnostics.get("transport_contract_hash") or ""),
             "transport_contract_component_count": int(diagnostics.get("transport_contract_component_count") or 0),
+            "physical_prefix_frame_status": str(diagnostics.get("physical_prefix_frame_status") or usage_diagnostics.get("physical_prefix_frame_status") or ""),
+            "physical_prefix_frame_turn_id": str(diagnostics.get("physical_prefix_frame_turn_id") or usage_diagnostics.get("physical_prefix_frame_turn_id") or ""),
+            "physical_prefix_frame_segment_count": int(diagnostics.get("physical_prefix_frame_segment_count") or usage_diagnostics.get("physical_prefix_frame_segment_count") or 0),
+            "physical_cache_spine_expected_read_scope": str(
+                diagnostics.get("physical_cache_spine_expected_read_scope")
+                or "provider_message_prefix"
+            ),
+            "physical_cache_spine_message_predicted_tokens": int(diagnostics.get("physical_cache_spine_message_predicted_tokens") or 0),
+            "physical_cache_spine_sidecar_predicted_tokens": int(diagnostics.get("physical_cache_spine_sidecar_predicted_tokens") or 0),
+            "physical_cache_spine_sidecar_transport_predicted_tokens": int(
+                diagnostics.get("physical_cache_spine_sidecar_transport_predicted_tokens")
+                or diagnostics.get("physical_cache_spine_tool_predicted_tokens")
+                or 0
+            ),
+            "physical_cache_spine_tool_transport_selected": int(diagnostics.get("physical_cache_spine_tool_transport_selected") or 0),
             "physical_cache_spine_first_blocker": dict(diagnostics.get("physical_cache_spine_first_blocker") or {}),
             "physical_cache_spine_blockers": list(diagnostics.get("physical_cache_spine_blockers") or []),
         },

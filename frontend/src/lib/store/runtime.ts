@@ -443,7 +443,9 @@ export class WorkspaceRuntime {
       let preferLatestVisibleSession = false;
       const persistedSessionRef = await this.readPersistedCurrentSessionRef();
       const rememberedSessionRef = readRememberedSessionRef();
-      const restoreCandidates = this.startupSessionRestoreCandidates(persistedSessionRef, rememberedSessionRef);
+      const restoreCandidates = rememberedSessionRef?.updatedAt
+        ? this.startupSessionRestoreCandidates(rememberedSessionRef, persistedSessionRef)
+        : this.startupSessionRestoreCandidates(persistedSessionRef, rememberedSessionRef);
       for (const candidate of restoreCandidates) {
         const restored = await this.restoreRememberedSessionOnStartup(candidate);
         restoredCurrentSession = restored === "restored";
@@ -506,14 +508,7 @@ export class WorkspaceRuntime {
       seen.add(key);
       candidates.push(normalized);
     }
-    return candidates.sort((left, right) => {
-      const rightUpdatedAt = Number(right.updatedAt || 0);
-      const leftUpdatedAt = Number(left.updatedAt || 0);
-      if (rightUpdatedAt !== leftUpdatedAt) {
-        return rightUpdatedAt - leftUpdatedAt;
-      }
-      return 0;
-    });
+    return candidates;
   }
 
   private async readPersistedCurrentSessionRef() {
@@ -1559,15 +1554,16 @@ export class WorkspaceRuntime {
     if (message.role !== "assistant") {
       return true;
     }
-    return Boolean(message.projectionKeyString || message.projectionView);
+    return Boolean(message.projectionKeyString);
   }
 
   private mergeActiveStreamProjectionMessage(current: Message, refreshed: Message): Message {
     if (current.role !== refreshed.role) {
       return current;
     }
+    const currentBase = stripLegacyMessageProjectionView(current);
     return {
-      ...current,
+      ...currentBase,
       content: current.content || refreshed.content,
       toolCalls: current.toolCalls.length ? current.toolCalls : refreshed.toolCalls,
       retrievals: current.retrievals.length ? current.retrievals : refreshed.retrievals,
@@ -1578,7 +1574,6 @@ export class WorkspaceRuntime {
       sourceTaskRunId: current.sourceTaskRunId || refreshed.sourceTaskRunId,
       sourceTurnRunId: current.sourceTurnRunId || refreshed.sourceTurnRunId,
       projectionKeyString: refreshed.projectionKeyString || current.projectionKeyString,
-      projectionView: current.projectionView ?? refreshed.projectionView,
       closeoutSummary: current.closeoutSummary ?? refreshed.closeoutSummary,
       runtimeLogRef: current.runtimeLogRef ?? refreshed.runtimeLogRef,
       toolEventCount: current.toolEventCount ?? refreshed.toolEventCount,
@@ -1641,12 +1636,35 @@ export class WorkspaceRuntime {
     if (candidateOffset !== currentOffset) {
       return candidateOffset > currentOffset;
     }
+    const candidateQuality = this.projectionStateCompletenessScore(candidate);
+    const currentQuality = this.projectionStateCompletenessScore(current);
+    if (candidateQuality !== currentQuality) {
+      return candidateQuality > currentQuality;
+    }
     if (!current.view && candidate.view) {
       return true;
     }
     const candidateContentLength = String(candidate.view?.canonicalContent ?? candidate.ledger?.bodyText ?? "").length;
     const currentContentLength = String(current.view?.canonicalContent ?? current.ledger?.bodyText ?? "").length;
     return candidateContentLength > currentContentLength;
+  }
+
+  private projectionStateCompletenessScore(projection: StoreState["activeProjectionsByKey"][string]) {
+    const ledger = projection.ledger;
+    const tools = ledger?.toolLifecycles ?? [];
+    let score = 0;
+    score += tools.length * 8;
+    score += (ledger?.bodySegments?.length ?? 0) * 4;
+    score += (ledger?.todoPlans?.length ?? 0) * 3;
+    score += (ledger?.statusEvents?.length ?? 0);
+    for (const tool of tools) {
+      if (tool.contentWindow?.text) score += 160;
+      if (tool.startedAt) score += 12;
+      if (tool.updatedAt) score += 4;
+      if (tool.completedAt) score += 16;
+      if (tool.output) score += 4;
+    }
+    return score;
   }
 
   private sortMessagesBySourceIndex(messages: Message[]) {
@@ -1661,26 +1679,26 @@ export class WorkspaceRuntime {
 
   private mergeVolatileMessageProgress(refreshedMessages: Message[], currentMessages: Message[]) {
     if (!currentMessages.some((message) => this.messageHasRuntimeVolatileState(message))) {
-      return refreshedMessages;
+      return refreshedMessages.map(stripLegacyMessageProjectionView);
     }
     const currentVolatileMessages = currentMessages.filter((message) =>
       message.role === "assistant" && this.messageHasRuntimeVolatileState(message)
     );
     const currentById = new Map(currentVolatileMessages.map((message) => [message.id, message]));
     const refreshedWithMergedProgress = refreshedMessages.map((message) => {
+      const messageBase = stripLegacyMessageProjectionView(message);
       if (message.role !== "assistant") {
-        return message;
+        return messageBase;
       }
       const current = currentById.get(message.id)
         ?? this.findCurrentRuntimeMessageForRefresh(message, currentVolatileMessages);
       if (!current || !this.messageHasRuntimeVolatileState(current)) {
-        return message;
+        return messageBase;
       }
       return {
-        ...message,
+        ...messageBase,
         runtimeProgress: this.mergeMessageRuntimeProgress(message.runtimeProgress, current.runtimeProgress ?? []),
         projectionKeyString: message.projectionKeyString ?? current.projectionKeyString,
-        projectionView: message.projectionView ?? current.projectionView,
         closeoutSummary: message.closeoutSummary ?? current.closeoutSummary,
         runtimeLogRef: message.runtimeLogRef ?? current.runtimeLogRef,
         toolEventCount: message.toolEventCount ?? current.toolEventCount,
@@ -1710,7 +1728,7 @@ export class WorkspaceRuntime {
       !refreshedMessageIds.has(message.id)
       && !this.refreshedMessagesContainRuntimeAnchor(refreshedWithMergedProgress, message)
       && this.refreshedHistoryContainsRuntimeTurn(refreshedMessages, message)
-    );
+    ).map(stripLegacyMessageProjectionView);
     return [...refreshedWithMergedProgress, ...preservedRuntimeMessages]
       .sort((left, right) => {
         const leftIndex = left.sourceIndex ?? Number.MAX_SAFE_INTEGER;
@@ -1725,7 +1743,6 @@ export class WorkspaceRuntime {
     return Boolean(
       message.runtimeProgress?.length
       || message.projectionKeyString
-      || message.projectionView
       || message.closeoutSummary
       || message.runtimeLogRef
       || message.toolEventCount
@@ -6716,6 +6733,11 @@ export class WorkspaceRuntime {
     }
     return message;
   }
+}
+
+function stripLegacyMessageProjectionView(message: Message): Message {
+  const { projectionView: _discarded, ...rest } = message;
+  return rest;
 }
 
 function finiteNumber(value: unknown): number | undefined {

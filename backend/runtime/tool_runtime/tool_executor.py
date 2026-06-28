@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -550,6 +551,7 @@ class ToolRuntimeExecutor:
             sandbox_policy=policy_payload,
             explicit_context=invocation_context,
         )
+        tool_timer = _start_tool_execution_timer()
         tool_context = ToolUseContext(
             workspace_root=execution_root,
             sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
@@ -594,17 +596,21 @@ class ToolRuntimeExecutor:
                 "observation": build_recoverable_tool_invocation_observation(
                     task_run_id=task_run_id,
                     request_ref=action_request.request_id,
-                    directive_ref=directive.directive_id,
-                    tool_name=tool_name,
-                    tool_call_id=tool_call_id,
-                    tool_args=tool_args,
-                    error=validation.repair_instruction or error,
-                    execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
-                    invocation_validation={
-                        "missing_inputs": list(validation.diagnostics.get("missing_inputs") or []),
-                        "contract": {"required_inputs": _required_inputs_from_definition(definition)},
-                    },
-                ),
+                            directive_ref=directive.directive_id,
+                            tool_name=tool_name,
+                            tool_call_id=tool_call_id,
+                            tool_args=tool_args,
+                            error=validation.repair_instruction or error,
+                            execution_receipt=_timed_execution_receipt(
+                                build_execution_receipt(current_record, error=error).to_dict(),
+                                timer=_finish_tool_execution_timer(tool_timer),
+                                completed=True,
+                            ),
+                            invocation_validation={
+                                "missing_inputs": list(validation.diagnostics.get("missing_inputs") or []),
+                                "contract": {"required_inputs": _required_inputs_from_definition(definition)},
+                            },
+                        ),
                 "execution_record": current_record,
                 "recoverable_error": error,
             }
@@ -629,7 +635,11 @@ class ToolRuntimeExecutor:
                     policy="tool_permission",
                     reason=error,
                     repair_instruction=permission.repair_instruction or error,
-                    execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
+                    execution_receipt=_timed_execution_receipt(
+                        build_execution_receipt(current_record, error=error).to_dict(),
+                        timer=_finish_tool_execution_timer(tool_timer),
+                        completed=True,
+                    ),
                     diagnostics=permission.diagnostics,
                 ),
                 "execution_record": current_record,
@@ -665,7 +675,11 @@ class ToolRuntimeExecutor:
                             tool_call_id=tool_call_id,
                             tool_args=tool_args,
                             error=error,
-                            execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
+                            execution_receipt=_timed_execution_receipt(
+                                build_execution_receipt(current_record, error=error).to_dict(),
+                                timer=_finish_tool_execution_timer(tool_timer),
+                                completed=True,
+                            ),
                             failure_kind="duplicate_tool_invocation",
                             error_code=error,
                             repair_instruction="Use a new tool invocation id after reconciling the in-flight or terminal tool call.",
@@ -685,6 +699,7 @@ class ToolRuntimeExecutor:
                 runtime_host=getattr(self.tool_runtime, "runtime_host", None),
                 tool_invocation_id=invocation_context.tool_invocation_id,
             )
+            _finish_tool_execution_timer(tool_timer)
         except asyncio.CancelledError as exc:
             signal = _tool_signal(getattr(self.tool_runtime, "runtime_host", None), invocation_context.tool_invocation_id)
             interruption = _tool_interruption_error(signal)
@@ -711,7 +726,11 @@ class ToolRuntimeExecutor:
                     tool_call_id=tool_call_id,
                     tool_args=tool_args,
                     error=error,
-                    execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
+                    execution_receipt=_timed_execution_receipt(
+                        build_execution_receipt(current_record, error=error).to_dict(),
+                        timer=_finish_tool_execution_timer(tool_timer),
+                        completed=True,
+                    ),
                     failure_kind=interruption["failure_kind"],
                     error_code=interruption["error_code"],
                     repair_instruction=interruption["repair_instruction"],
@@ -737,7 +756,11 @@ class ToolRuntimeExecutor:
                     tool_call_id=tool_call_id,
                     tool_args=tool_args,
                     error=error,
-                    execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
+                    execution_receipt=_timed_execution_receipt(
+                        build_execution_receipt(current_record, error=error).to_dict(),
+                        timer=_finish_tool_execution_timer(tool_timer),
+                        completed=True,
+                    ),
                 ),
                 "execution_record": current_record,
                 "error": error,
@@ -754,7 +777,11 @@ class ToolRuntimeExecutor:
             tool_name=tool_name,
             tool_args=tool_args,
             text=text,
-            execution_receipt=build_execution_receipt(current_record).to_dict(),
+            execution_receipt=_timed_execution_receipt(
+                build_execution_receipt(current_record).to_dict(),
+                timer=tool_timer,
+                completed=True,
+            ),
             result_ref=result_ref,
             truncated=truncated,
             sandbox=sandbox_context.to_dict() if sandbox_context else None,
@@ -806,6 +833,25 @@ class ToolRuntimeExecutor:
                 result_ref=result_ref,
                 result_payload=result_payload,
             )
+        final_execution_receipt = _timed_execution_receipt(
+            build_execution_receipt(current_record).to_dict(),
+            timer=tool_timer,
+            completed=True,
+        )
+        envelope = _finalize_runtime_tool_envelope(
+            envelope=envelope,
+            tool_name=tool_name,
+            tool_args=tool_args,
+            text=text,
+            execution_receipt=final_execution_receipt,
+            result_ref=result_ref,
+            truncated=truncated,
+            sandbox=sandbox_context.to_dict() if sandbox_context else None,
+            tool_call_id=tool_call_id,
+            action_request_id=action_request.request_id,
+            caller_kind=invocation_context.caller_kind,
+            caller_ref=invocation_context.caller_ref,
+        )
         observation = build_tool_result_observation(
             task_run_id=task_run_id,
             request_ref=action_request.request_id,
@@ -815,7 +861,7 @@ class ToolRuntimeExecutor:
             tool_args=tool_args,
             result=text,
             truncated=truncated,
-            execution_receipt=build_execution_receipt(current_record).to_dict(),
+            execution_receipt=final_execution_receipt,
             result_ref=result_ref,
             result_envelope=envelope.to_dict(),
         )
@@ -1000,11 +1046,13 @@ class ToolRuntimeExecutor:
             tool_args=tool_args,
             file_evidence_scope=file_evidence_scope,
         )
+        tool_timer = _start_tool_execution_timer()
         execution_receipt = _core_execution_receipt(
             invocation_context,
             tool_name=tool_name,
             operation_id=operation_id or expected_operation_id,
             status="dispatched",
+            started_at=tool_timer["started_at"],
         )
         tool_context = ToolUseContext(
             workspace_root=execution_root,
@@ -1058,6 +1106,7 @@ class ToolRuntimeExecutor:
                 recoverable_error=error,
                 sandbox=sandbox_context.to_dict() if sandbox_context else {},
                 diagnostics={"tool_validation": validation.diagnostics},
+                timer=tool_timer,
             )
         tool_args = dict(validation.normalized_args or tool_args)
         permission = runtime_tool.check_permissions(tool_args, tool_context)
@@ -1072,6 +1121,7 @@ class ToolRuntimeExecutor:
                 recoverable_error=error,
                 sandbox=sandbox_context.to_dict() if sandbox_context else {},
                 diagnostics={"tool_permission": permission.diagnostics},
+                timer=tool_timer,
             )
         try:
             registry = registry_for(getattr(self.tool_runtime, "runtime_host", None))
@@ -1107,6 +1157,7 @@ class ToolRuntimeExecutor:
                             "existing_status": exc.status,
                             "authority": "runtime.tool_invocation_control",
                         },
+                        timer=tool_timer,
                     )
             envelope = await _call_runtime_tool_with_control(
                 runtime_tool,
@@ -1135,6 +1186,7 @@ class ToolRuntimeExecutor:
                     "error_code": interruption["error_code"],
                     "repair_instruction": interruption["repair_instruction"],
                 },
+                timer=tool_timer,
             )
         except Exception as exc:
             error = f"Tool execution failed: {exc}"
@@ -1149,6 +1201,7 @@ class ToolRuntimeExecutor:
                 text=error,
                 error=error,
                 sandbox=sandbox_context.to_dict() if sandbox_context else {},
+                timer=tool_timer,
             )
         text = str(envelope.text or "")
         limit = max(0, int(max_result_size_chars or 0))
@@ -1156,6 +1209,7 @@ class ToolRuntimeExecutor:
         if truncated:
             text = text[:limit]
         result_ref = f"tool-result:{tool_invocation_id}"
+        _finish_tool_execution_timer(tool_timer)
         final_execution_receipt = {
             **dict(envelope.execution_receipt or execution_receipt),
             **_core_execution_receipt(
@@ -1165,6 +1219,9 @@ class ToolRuntimeExecutor:
                 status="failed" if envelope.status == "error" else "completed",
                 result_ref=result_ref,
                 error=str(envelope.error or "") if envelope.status == "error" else "",
+                started_at=_positive_receipt_time(dict(envelope.execution_receipt or execution_receipt).get("started_at"))
+                or tool_timer["started_at"],
+                completed_at=tool_timer["completed_at"],
             ),
         }
         envelope = _finalize_runtime_tool_envelope(
@@ -1307,9 +1364,11 @@ def _core_execution_receipt(
     status: str,
     result_ref: str = "",
     error: str = "",
+    started_at: float | None = None,
+    completed_at: float | None = None,
 ) -> dict[str, Any]:
     invocation_id = str(invocation_context.tool_invocation_id or "").strip()
-    return {
+    receipt: dict[str, Any] = {
         "execution_id": f"rtcore:{invocation_id or 'unknown'}",
         "request_ref": invocation_id,
         "status": str(status or "").strip(),
@@ -1330,6 +1389,55 @@ def _core_execution_receipt(
         "idempotency_key": str(invocation_context.idempotency_key or ""),
         "authority": "runtime.tool_runtime.core_execution_receipt",
     }
+    normalized_started_at = _positive_receipt_time(started_at)
+    normalized_completed_at = _positive_receipt_time(completed_at)
+    if normalized_started_at is not None:
+        receipt["started_at"] = normalized_started_at
+    if normalized_completed_at is not None:
+        receipt["completed_at"] = normalized_completed_at
+    if normalized_started_at is not None and normalized_completed_at is not None and normalized_completed_at >= normalized_started_at:
+        receipt["duration_ms"] = int(round((normalized_completed_at - normalized_started_at) * 1000))
+    return receipt
+
+
+def _positive_receipt_time(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _start_tool_execution_timer() -> dict[str, float]:
+    return {"started_at": time.time(), "completed_at": 0.0}
+
+
+def _finish_tool_execution_timer(timer: dict[str, float]) -> dict[str, float]:
+    if _positive_receipt_time(timer.get("completed_at")) is None:
+        timer["completed_at"] = time.time()
+    return timer
+
+
+def _timed_execution_receipt(
+    receipt: dict[str, Any],
+    *,
+    timer: dict[str, float],
+    completed: bool,
+) -> dict[str, Any]:
+    payload = dict(receipt or {})
+    started_at = _positive_receipt_time(timer.get("started_at")) or _positive_receipt_time(payload.get("started_at"))
+    completed_at = (
+        _positive_receipt_time(timer.get("completed_at"))
+        if completed
+        else _positive_receipt_time(payload.get("completed_at"))
+    )
+    if started_at is not None:
+        payload["started_at"] = started_at
+    if completed and completed_at is not None:
+        payload["completed_at"] = completed_at
+    if completed and started_at is not None and completed_at is not None and completed_at >= started_at:
+        payload["duration_ms"] = int(round((completed_at - started_at) * 1000))
+    return payload
 
 
 def _core_invocation_context(
@@ -1385,6 +1493,7 @@ def _core_error_result(
     error: str = "",
     sandbox: dict[str, Any] | None = None,
     diagnostics: dict[str, Any] | None = None,
+    timer: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     result_ref = f"tool-result:{invocation_context.tool_invocation_id}" if invocation_context.tool_invocation_id else ""
     final_error = str(error or recoverable_error or text or "tool_execution_failed")
@@ -1396,6 +1505,12 @@ def _core_error_result(
         result_ref=result_ref,
         error=final_error,
     )
+    if timer is not None:
+        execution_receipt = _timed_execution_receipt(
+            execution_receipt,
+            timer=_finish_tool_execution_timer(timer),
+            completed=True,
+        )
     envelope = build_tool_result_envelope(
         tool_name=tool_name,
         tool_args=tool_args,

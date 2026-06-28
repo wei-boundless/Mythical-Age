@@ -339,6 +339,11 @@ function toolLifecycleFromFrame(normalized: NormalizedProjectionFrame): ToolLife
   if (!id) return null;
   const state = text(frame.state) || stateForToolEvent(normalized.sourceEventType);
   const eventCreatedAt = numericValue(frame.created_at);
+  const durationMs = numericValue(frame.duration_ms);
+  const durationSeconds = durationMs !== undefined ? Math.max(0, durationMs / 1000) : undefined;
+  const inferredStartedAt = normalized.sourceEventType === "tool_item_completed" && eventCreatedAt && durationSeconds !== undefined
+    ? Math.max(0, eventCreatedAt - durationSeconds)
+    : eventCreatedAt;
   const target = text(frame.target || frame.subject_label);
   const argumentsPreview = text(frame.arguments_preview);
   const toolName = text(frame.tool_name);
@@ -355,8 +360,9 @@ function toolLifecycleFromFrame(normalized: NormalizedProjectionFrame): ToolLife
     argumentsPreview,
     commandLine: toolCommandLine(toolName, target, argumentsPreview),
     output: toolOutput(normalized, state),
+    contentWindow: toolContentWindowFromFrame(frame.content_window),
     state,
-    startedAt: eventCreatedAt,
+    startedAt: inferredStartedAt,
     updatedAt: eventCreatedAt,
     completedAt: isTerminalToolState(state) ? eventCreatedAt : undefined,
     sourceItemId: text(frame.source_item_id),
@@ -367,6 +373,35 @@ function toolLifecycleFromFrame(normalized: NormalizedProjectionFrame): ToolLife
     visible: projectionFrameIsVisible(normalized),
     pinned: normalized.mainVisibility === "pinned" || normalized.retention === "pinned_until_resolved",
     collapsed: typeof frame.collapsed === "boolean" ? frame.collapsed : undefined,
+  };
+}
+
+function toolContentWindowFromFrame(value: unknown) {
+  const payload = record(value);
+  const textValue = rawText(payload.text);
+  const kind = text(payload.kind);
+  if (!textValue || !["read_file", "read_file_reuse", "text_file"].includes(kind)) return undefined;
+  return {
+    authority: text(payload.authority),
+    content_available: typeof payload.content_available === "boolean" ? payload.content_available : undefined,
+    kind,
+    path: text(payload.path),
+    status: text(payload.status),
+    text: textValue,
+    start_line: numericValue(payload.start_line),
+    end_line: numericValue(payload.end_line),
+    returned_lines: numericValue(payload.returned_lines),
+    line_count: numericValue(payload.line_count),
+    total_lines: numericValue(payload.total_lines),
+    has_more: payload.has_more === true,
+    next_start_line: numericValue(payload.next_start_line),
+    truncated: payload.truncated === true,
+    preview_lines: numericValue(payload.preview_lines),
+    preview_truncated: payload.preview_truncated === true,
+    content_sha256: text(payload.content_sha256),
+    exact_artifact_ref: text(payload.exact_artifact_ref),
+    reused_observation_ref: text(payload.reused_observation_ref),
+    reusable_result_ref: text(payload.reusable_result_ref),
   };
 }
 

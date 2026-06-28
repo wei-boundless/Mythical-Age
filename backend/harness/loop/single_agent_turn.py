@@ -74,6 +74,7 @@ from runtime.context_management import (
     NEVER_REPLAY_TAIL,
     PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT,
     STATIC_PREFIX,
+    assemble_physical_context_spine,
     annotate_specs_with_physical_context_plan,
     context_segment_is_provider_visible_sealable_spec,
     context_segment_policy_for_spec,
@@ -84,7 +85,7 @@ from runtime.context_management import (
 )
 from runtime.context_management.followup_context_rebase import (
     current_followup_append_context_policy,
-    sealed_followup_base_context_policy,
+    physical_frame_covered_followup_base_context_policy,
 )
 from runtime.context_management.provider_tool_protocol import annotate_provider_tool_round_specs
 from runtime.output_stream.public_contract import TURN_COMPLETED_EVENT
@@ -897,69 +898,31 @@ def _tool_followup_action_contract_messages(
 ) -> list[dict[str, Any]]:
     allowed = tuple(str(item) for item in tuple(allowed_action_types or ()) if str(item))
     evidence_summary = _drop_empty_dict(dict(evidence_delta_summary or {}))
-    output_contract_payload = output_contract.to_dict()
-    if "respond" in set(allowed):
-        output_contract_payload.update(
-            {
-                "natural_response_carrier": "assistant_message_or_respond.final_answer",
-                "assistant_message_accepted_for_respond": True,
-                "raw_assistant_text_allowed_when_no_other_action": True,
-            }
-        )
     payload = {
+        "context_kind": "tool_observation_followup",
+        "tool_followup_iteration": int(tool_iteration or 0),
         "allowed_action_types": list(allowed),
         "required_fields": _agent_visible_action_fields(allowed),
-        "output_channel_contract": output_contract_payload,
         "tool_call_allowed": "tool_call" in set(allowed),
-        "long_task_resource_boundary": {
-            "definition": "长任务资源用于保存目标、计划游标、todo 游标、恢复点、阶段反馈、控制边界和验收边界。",
-            "request_task_run_when": "如果新的观察让你判断需要系统分配资源来保存这些边界，就提交 request_task_run。",
-            "tool_call_when": "如果当前 turn 仍能直接查证、修改、验证并收口，可以继续普通工具；公开反馈不要宣称已经申请或绑定长任务资源。",
-        },
-        "output": {
-            "natural_response": "事实已经足够回答用户且不需要改变等待/阻塞/任务生命周期时，可以直接输出给用户看的自然语言正文；也可以提交 action_type=respond 并把正文写入 final_answer。",
-            "structured_action": "需要继续工具、请求任务生命周期、控制当前工作、显式询问或显式阻塞时，提交一个可唯一识别的结构化动作，并选择本轮允许的 action_type。",
-            "respond": "回答用户时可以直接自然回复；如果使用结构化动作，则提交 action_type=respond，并把用户可见正文写入 final_answer。",
-            "ask_user": "需要让本轮停在等待用户补充的状态时，提交 action_type=ask_user，并填写 user_question。",
-            "block": "事实、权限或环境不足以可靠继续，需要让本轮停在阻塞状态时，提交 action_type=block，并填写 blocking_reason。",
-            "tool_call": "仍需工具观察且本轮允许 tool_call 时，提交一个工具行动；工具调用只承载要执行的动作，公开说明只能放在结构化动作字段或后续收口回复中。",
-        },
-        "tool_followup_iteration": int(tool_iteration or 0),
+        "output_channel": _tool_followup_output_channel_cursor(output_contract, allowed_action_types=allowed),
+        "contract_refs": _tool_followup_contract_refs(allowed),
     }
     if evidence_summary:
-        payload["evidence_delta_summary"] = evidence_summary
-        payload["answer_evidence_alignment_contract"] = {
-            "contract_ref": "answer_evidence_alignment_contract",
-            "required_agent_behavior": [
-                "only_claim_what_current_evidence_supports",
-                "disclose_coverage_boundary_when_partial",
-                "do_not_claim_full_file_review_from_window_evidence",
-                "continue_tool_use_or_ask_or_block_when_evidence_insufficient",
-                "do_not_claim_execution_without_receipt",
-            ],
-        }
+        payload["evidence_delta"] = _tool_followup_evidence_cursor(evidence_summary)
     evidence_instruction = (
-        "先用 evidence_delta_summary 校准证据边界：只把 usable_as 范围表述为已确认；"
-        "not_usable_as 里的内容不能扩张成结论。"
-        "如果证据不足，请继续调用允许的工具、询问用户或明确阻塞；"
-        "如果收口回答，请说明已确认范围和未确认边界。\n"
+        "先按 evidence_delta 的当前观察和边界游标校准结论；证据规则见 answer_evidence_alignment_contract。\n"
         if evidence_summary
         else ""
     )
     instruction = (
         "你是正在根据刚才工具观察决定下一步的 coding agent。\n"
-        "先理解刚才观察改变了什么，再决定当前 turn 的下一步；只提交一个本轮允许的动作。\n"
+        "先判断刚才观察改变了什么，再为当前 turn 选择一个允许动作；保持用户目标和已确认事实不变。\n"
         f"{json.dumps(payload, ensure_ascii=False, sort_keys=True)}\n\n"
         f"{evidence_instruction}"
-        "如果已经足够回答用户，并且不需要让运行时进入等待或阻塞状态，可以直接输出完整自然语言回复；Markdown 可以用于清晰排版。\n"
-        "如果你选择用结构化 respond，也可以提交 action_type=respond，并把完整自然语言回复写入 final_answer。\n"
-        "如果需要用户补充并让本轮停在等待用户状态，提交 action_type=ask_user，并把问题写入 user_question。\n"
-        "如果当前事实或权限不足并需要记录阻塞状态，提交 action_type=block，并把阻塞说明写入 blocking_reason。\n"
-        "如果你判断需要系统分配长任务资源来保存目标、计划游标、todo 游标、恢复点、阶段反馈或验收边界，提交 action_type=request_task_run。\n"
-        "request_task_run 只填写紧凑 TaskStartIntent：primary_mode、task_shape、minimum_viable_next_step、working_scope、acceptance、mode_payload；内部 TaskRunContract 由运行时生成。"
-        "如果仍需工具观察且本轮允许 tool_call，只按本轮工具行动合同发起工具行动；"
-        "工具前置说明可以作为公开进展，但不能宣称已经或即将绑定长任务资源；TaskStartIntent 必须留在 request_task_run 动作对象内。\n"
-        "不要同时给出自然正文和另一个动作对象；如果需要工具观察，请在本次工具行动中写清工具名和参数。"
+        "事实足够时直接给用户完整自然语言回复，或提交 respond.final_answer。"
+        "需要继续观察时提交一个 tool_call；需要用户补充时提交 ask_user；事实或权限不足时提交 block。"
+        "需要长期保存目标、计划、todo、恢复点或验收边界时提交 request_task_run，并只填写紧凑 TaskStartIntent。"
+        "不要同时给出自然正文和另一个动作对象。"
     )
     return _append_model_messages_without_rewriting_context(
         model_messages,
@@ -973,6 +936,78 @@ def _tool_followup_action_contract_messages(
         ],
         turn_id=turn_id,
         source="harness.loop.single_agent_turn.tool_followup_action_contract",
+    )
+
+
+def _tool_followup_output_channel_cursor(
+    output_contract: SingleAgentOutputChannelContract,
+    *,
+    allowed_action_types: tuple[str, ...],
+) -> dict[str, Any]:
+    payload = output_contract.to_dict()
+    respond_allowed = "respond" in {str(item) for item in tuple(allowed_action_types or ()) if str(item)}
+    return _drop_empty_dict(
+        {
+            "shape_ref": "action_schema_static.action_shape_rules",
+            "public_response_ref": "action_schema_static.public_response_obligation",
+            "phase": str(payload.get("phase") or ""),
+            "action_required": payload.get("action_required") if isinstance(payload.get("action_required"), bool) else None,
+            "provider_json_object_required": (
+                payload.get("provider_json_object_required")
+                if isinstance(payload.get("provider_json_object_required"), bool)
+                else None
+            ),
+            "direct_visible_text_allowed": (
+                payload.get("direct_visible_text_stream_allowed")
+                if isinstance(payload.get("direct_visible_text_stream_allowed"), bool)
+                else None
+            ),
+            "raw_assistant_text_allowed": (
+                payload.get("raw_assistant_text_allowed")
+                if isinstance(payload.get("raw_assistant_text_allowed"), bool)
+                else None
+            ),
+            "natural_response_carrier": (
+                "assistant_message_or_respond.final_answer"
+                if respond_allowed
+                else str(payload.get("natural_response_carrier") or "")
+            ),
+        }
+    )
+
+
+def _tool_followup_contract_refs(allowed_action_types: tuple[str, ...]) -> dict[str, Any]:
+    allowed = {str(item) for item in tuple(allowed_action_types or ()) if str(item)}
+    return _drop_empty_dict(
+        {
+            "action_schema": "action_schema_static",
+            "action_type": "action_schema_static.action_type",
+            "action_shape": "action_schema_static.action_shape_rules",
+            "public_response": "action_schema_static.public_response_obligation",
+            "tool_call_shape": "action_schema_static.action_shape_rules.tool_call" if "tool_call" in allowed else "",
+            "task_lifecycle": (
+                "model_turn_action.task_lifecycle_action_contract"
+                if "request_task_run" in allowed
+                else ""
+            ),
+            "evidence_alignment": "answer_evidence_alignment_contract",
+        }
+    )
+
+
+def _tool_followup_evidence_cursor(evidence_summary: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(evidence_summary or {})
+    return _drop_empty_dict(
+        {
+            "summary_ref": str(payload.get("summary_ref") or ""),
+            "tool_iteration": payload.get("tool_iteration"),
+            "current_observation_count": payload.get("current_observation_count"),
+            "cumulative_observation_count": payload.get("cumulative_observation_count"),
+            "new_observations": list(payload.get("new_observations") or [])[:4],
+            "ledger_cursor": dict(payload.get("ledger_cursor") or {}),
+            "evidence_boundary_cursor": dict(payload.get("evidence_boundary_cursor") or {}),
+            "contract_ref": str(payload.get("contract_ref") or "answer_evidence_alignment_contract"),
+        }
     )
 
 
@@ -1941,7 +1976,7 @@ async def run_single_agent_turn(
                         "source": _AGENT_CLOSEOUT_SOURCE,
                         "provider_lane": PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
                         "segment_plan": closeout_segment_plan,
-                        "provider_visible_append_only_context": True,
+                        "provider_visible_physical_context": True,
                         "reasoning_projection_public_visible": reasoning_projection_public_visible,
                         "prompt_manifest": {
                             **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
@@ -2141,7 +2176,7 @@ async def run_single_agent_turn(
                 "source": "harness.single_agent_turn",
                 "provider_lane": PROVIDER_LANE_AGENT_TOOL_LOOP,
                 "segment_plan": dict(compilation.packet.segment_plan or {}),
-                "provider_visible_append_only_context": True,
+                "provider_visible_physical_context": True,
                 "reasoning_projection_public_visible": reasoning_projection_public_visible,
                 "prompt_manifest": {
                     **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
@@ -2201,7 +2236,7 @@ async def run_single_agent_turn(
                         "source": "harness.single_agent_turn.active_turn_steer",
                         "provider_lane": PROVIDER_LANE_AGENT_TOOL_LOOP,
                         "segment_plan": steer_segment_plan,
-                        "provider_visible_append_only_context": True,
+                        "provider_visible_physical_context": True,
                         "reasoning_projection_public_visible": reasoning_projection_public_visible,
                         "prompt_manifest": {
                             **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
@@ -2326,7 +2361,7 @@ async def run_single_agent_turn(
                         ),
                         "provider_lane": PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
                         "segment_plan": recovery_segment_plan,
-                        "provider_visible_append_only_context": True,
+                        "provider_visible_physical_context": True,
                         "reasoning_projection_public_visible": reasoning_projection_public_visible,
                         "prompt_manifest": {
                             **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
@@ -2894,8 +2929,8 @@ async def run_single_agent_turn(
                 **dict(followup_prompt_manifest or {}),
                 "segment_plan_ref": str(followup_segment_plan.get("segment_plan_id") or ""),
                 "provider_lane": PROVIDER_LANE_AGENT_TOOL_LOOP,
-                "append_only_followup_order": True,
-                "physical_message_order": "append_only_context_including_dynamic_tail",
+                "physical_context_assembly": "physical_prefix_frame_then_current_append_then_dynamic_tail",
+                "physical_message_order": "physical_context_assembler",
             }
             response = None
             async for model_event in _invoke_single_turn_model_with_stream_events(
@@ -2912,7 +2947,7 @@ async def run_single_agent_turn(
                     "source": "harness.single_agent_turn.tool_followup",
                     "provider_lane": PROVIDER_LANE_AGENT_TOOL_LOOP,
                     "segment_plan": followup_segment_plan,
-                    "provider_visible_append_only_context": True,
+                    "provider_visible_physical_context": True,
                     "provider_visible_context_ledger_storage_root": str(provider_visible_followup_ledger.get("storage_root") or ""),
                     "provider_visible_context_scope": str(provider_visible_followup_ledger.get("provider_visible_context_scope") or ""),
                     "reasoning_projection_public_visible": reasoning_projection_public_visible,
@@ -3061,7 +3096,7 @@ async def run_single_agent_turn(
                         ),
                         "provider_lane": PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
                         "segment_plan": recovery_segment_plan,
-                        "provider_visible_append_only_context": True,
+                        "provider_visible_physical_context": True,
                         "reasoning_projection_public_visible": reasoning_projection_public_visible,
                         "prompt_manifest": {
                             **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
@@ -3618,8 +3653,8 @@ async def run_single_agent_turn(
         raise
 
 
-def _uses_provider_visible_append_only_context(accounting_context: dict[str, Any] | None) -> bool:
-    return bool(dict(accounting_context or {}).get("provider_visible_append_only_context") is True)
+def _uses_provider_visible_physical_context(accounting_context: dict[str, Any] | None) -> bool:
+    return bool(dict(accounting_context or {}).get("provider_visible_physical_context") is True)
 
 
 async def _invoke_single_turn_model(
@@ -3639,7 +3674,7 @@ async def _invoke_single_turn_model(
             model_selection = _model_selection_with_json_object_contract(model_selection)
     elif native_tools:
         model_selection = _model_selection_for_native_tool_protocol(model_selection, native_tools=native_tools)
-    if _uses_provider_visible_append_only_context(accounting_context):
+    if _uses_provider_visible_physical_context(accounting_context):
         model_messages = _copy_model_messages_without_rewriting(model_messages)
     else:
         model_messages = _sanitize_model_messages(
@@ -3898,7 +3933,7 @@ async def _invoke_single_turn_model_with_stream_events(
         yield {"type": _INTERNAL_MODEL_RESPONSE_EVENT, "response": response, "assistant_stream_normalizer": None}
         return
 
-    if _uses_provider_visible_append_only_context(accounting_context):
+    if _uses_provider_visible_physical_context(accounting_context):
         model_messages = _copy_model_messages_without_rewriting(model_messages)
     else:
         model_messages = _sanitize_model_messages(
@@ -4430,7 +4465,7 @@ async def _repair_single_agent_admission_failure(
             "source": "harness.single_agent_turn.admission_repair",
             "provider_lane": PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
             "segment_plan": repair_segment_plan,
-            "provider_visible_append_only_context": True,
+            "provider_visible_physical_context": True,
             "prompt_manifest": {
                 **dict(dict(accounting_context or {}).get("prompt_manifest") or {}),
                 "invocation_kind": "single_agent_turn_admission_repair",
@@ -5501,6 +5536,12 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
             "请重新选择一个一致动作：如果确实需要资源，提交 action_type=request_task_run 并填写紧凑 TaskStartIntent；"
             "如果只是要在当前 turn 内继续工具处理，请使用 action_type=tool_call，并改写公开反馈。"
         )
+    if "public_feedback_required_for_tool_call" in errors:
+        return (
+            "本轮工具动作需要给用户一条简短阶段反馈。请保留同一个工具意图，"
+            "并在顶层 public_progress_note 或 public_action_state.current_judgment 中写明要核对的公开事实；"
+            "不要把反馈写成普通正文，也不要把尚未完成的工具动作说成已经完成。"
+        )
     if action_type == "resume_recoverable_work":
         recovery_resume = payload.get("recovery_resume")
         recovery_resume_obj = dict(recovery_resume or {}) if isinstance(recovery_resume, dict) else {}
@@ -5705,12 +5746,10 @@ def _tool_action_request_from_native_tool_calls(
         tool_name = str(call.get("name") or "").strip()
         if not tool_name or tool_name.lower() in _ACTION_OBJECT_ONLY_ACTION_NAMES or is_control_action_tool_name(tool_name):
             continue
-        args = dict(call.get("args") or {})
+        args, public_note, public_action_state = _native_tool_action_args_and_public_feedback(dict(call.get("args") or {}))
         call_id = str(call.get("id") or "").strip()
         if not call_id:
             continue
-        public_note = _native_tool_public_note(args)
-        public_action_state = {"completion_status": "waiting_for_tool"}
         request_id = f"model-action:{turn_id}:single-agent-tool:{iteration}:{_stable_action_suffix(call_id or tool_name)}"
         tool_call = _normalized_transport_tool_call(
             call,
@@ -5730,8 +5769,10 @@ def _tool_action_request_from_native_tool_calls(
                 "source": str(call.get("source") or ""),
             },
         }
-        if public_note:
+        if public_note and not str(public_action_state.get("current_judgment") or "").strip():
             public_action_state["current_judgment"] = public_note
+        if public_note:
+            diagnostics["public_feedback_sidecar"] = "native_tool_args"
         else:
             diagnostics["contract_gaps"] = ["public_feedback_omitted_for_native_tool_call"]
         return ModelActionRequest(
@@ -5782,6 +5823,68 @@ def _model_action_request_has_public_response(action_request: ModelActionRequest
     return False
 
 
+_NATIVE_TOOL_PUBLIC_FEEDBACK_ARG_KEYS = {
+    "public_progress_note",
+    "public_note",
+    "current_judgment",
+    "user_visible_reason",
+    "public_action_state",
+}
+
+
+def _native_tool_action_args_and_public_feedback(args: dict[str, Any]) -> tuple[dict[str, Any], str, dict[str, Any]]:
+    raw_args = dict(args or {})
+    clean_args = {
+        key: value
+        for key, value in raw_args.items()
+        if str(key) not in _NATIVE_TOOL_PUBLIC_FEEDBACK_ARG_KEYS
+    }
+    public_note = _native_tool_public_note(raw_args)
+    public_action_state = _native_tool_public_action_state(raw_args, public_note=public_note)
+    return clean_args, public_note, public_action_state
+
+
+def _native_tool_public_action_state(args: dict[str, Any], *, public_note: str) -> dict[str, Any]:
+    raw_state = args.get("public_action_state")
+    state_payload = dict(raw_state or {}) if isinstance(raw_state, dict) else {}
+    state: dict[str, Any] = {"completion_status": "waiting_for_tool"}
+    current_judgment = public_runtime_progress_summary(
+        state_payload.get("current_judgment")
+        or args.get("current_judgment")
+        or public_note
+        or ""
+    ).strip()
+    next_action = public_runtime_progress_summary(state_payload.get("next_action") or "").strip()
+    visible_status = public_runtime_progress_summary(state_payload.get("visible_status") or "").strip()
+    completion_status = public_runtime_progress_summary(state_payload.get("completion_status") or "").strip()
+    if current_judgment:
+        state["current_judgment"] = current_judgment[:220].rstrip()
+    if next_action:
+        state["next_action"] = next_action[:220].rstrip()
+    if visible_status:
+        state["visible_status"] = visible_status[:80].rstrip()
+    if completion_status:
+        state["completion_status"] = completion_status[:80].rstrip()
+    open_risks = _native_tool_public_string_list(state_payload.get("open_risks"))
+    if open_risks:
+        state["open_risks"] = open_risks[:6]
+    evidence_refs = _native_tool_public_string_list(state_payload.get("evidence_refs"))
+    if evidence_refs:
+        state["evidence_refs"] = evidence_refs[:8]
+    return state
+
+
+def _native_tool_public_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    for item in value:
+        text = public_runtime_progress_summary(item or "").strip()
+        if text:
+            result.append(text[:180].rstrip())
+    return result
+
+
 _TOOL_OBSERVATION_FAILURE_STATUSES = {
     "error",
     "failed",
@@ -5827,6 +5930,7 @@ def _normalized_tool_status(value: Any) -> str:
 
 
 def _native_tool_public_note(args: dict[str, Any]) -> str:
+    state = dict(args.get("public_action_state") or {}) if isinstance(args.get("public_action_state"), dict) else {}
     for key in (
         "public_progress_note",
         "public_note",
@@ -5836,6 +5940,9 @@ def _native_tool_public_note(args: dict[str, Any]) -> str:
         text = public_runtime_progress_summary(args.get(key) or "").strip()
         if text:
             return text[:160].rstrip()
+    text = public_runtime_progress_summary(state.get("current_judgment") or "").strip()
+    if text:
+        return text[:160].rstrip()
     return ""
 
 
@@ -7223,6 +7330,12 @@ def _single_agent_turn_followup_prompt_payload(
         scope=provider_visible_context_scope,
         model_selection=model_selection,
     )
+    specs, physical_assembly_diagnostics = _single_agent_turn_followup_physical_context_assembly(
+        specs,
+        storage_root=storage_root,
+        provider_visible_context_scope=provider_visible_context_scope,
+        model_selection=model_selection,
+    )
     specs = _with_provider_payload_hashes(specs)
     specs, physical_plan = annotate_specs_with_physical_context_plan(specs)
     append_only_messages = [
@@ -7240,6 +7353,11 @@ def _single_agent_turn_followup_prompt_payload(
         base_segment_plan=base_segment_plan,
         physical_plan=physical_plan.to_dict(),
     )
+    segment_plan.setdefault("diagnostics", {})
+    segment_plan["diagnostics"] = {
+        **dict(segment_plan.get("diagnostics") or {}),
+        "physical_context_assembly": physical_assembly_diagnostics,
+    }
     segment_plan = _annotate_single_agent_followup_segment_plan(
         segment_plan,
         packet_id=str(packet_id or ""),
@@ -7263,6 +7381,79 @@ def _single_agent_turn_followup_prompt_payload(
             )
         )
     return append_only_messages, segment_plan
+
+
+def _single_agent_turn_followup_physical_context_assembly(
+    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    storage_root: Path | None,
+    provider_visible_context_scope: str,
+    model_selection: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if storage_root is None or not str(provider_visible_context_scope or "").strip():
+        return [dict(item) for item in list(specs or []) if isinstance(item, dict)], {
+            "status": "skipped",
+            "reason": "missing_scope_or_storage_root",
+            "authority": "harness.loop.single_agent_turn.followup_physical_context_assembly",
+        }
+    provider, model = _provider_model_from_selection(model_selection)
+    static_prefix: list[dict[str, Any]] = []
+    provider_visible_specs: list[dict[str, Any]] = []
+    dynamic_tail: list[dict[str, Any]] = []
+    frame_covered_spec_count = 0
+    for raw_spec in list(specs or []):
+        if not isinstance(raw_spec, dict):
+            continue
+        spec = dict(raw_spec)
+        policy = context_segment_policy_for_spec(spec)
+        metadata = dict(spec.get("metadata") or {})
+        if metadata.get("physical_context_frame_covered") is True:
+            frame_covered_spec_count += 1
+            continue
+        if policy.section == STATIC_PREFIX:
+            static_prefix.append(spec)
+            continue
+        if _followup_spec_routes_to_physical_provider_visible_memory(spec, policy=policy, metadata=metadata):
+            provider_visible_specs.append(spec)
+            continue
+        dynamic_tail.append(spec)
+    assembly = assemble_physical_context_spine(
+        static_prefix_specs=static_prefix,
+        provider_visible_ledger_specs=provider_visible_specs,
+        current_tail_specs=dynamic_tail,
+        storage_root=storage_root,
+        scope=str(provider_visible_context_scope or "").strip(),
+        provider=provider,
+        model=model,
+        provider_lane=PROVIDER_LANE_AGENT_TOOL_LOOP,
+    )
+    return [dict(item) for item in assembly.message_specs], {
+        **dict(assembly.diagnostics or {}),
+        "input_static_prefix_spec_count": len(static_prefix),
+        "input_provider_visible_spec_count": len(provider_visible_specs),
+        "input_dynamic_tail_spec_count": len(dynamic_tail),
+        "input_frame_covered_spec_count": frame_covered_spec_count,
+        "authority": "harness.loop.single_agent_turn.followup_physical_context_assembly",
+    }
+
+
+def _followup_spec_routes_to_physical_provider_visible_memory(
+    spec: dict[str, Any],
+    *,
+    policy: Any,
+    metadata: dict[str, Any],
+) -> bool:
+    if str(policy.section or "") == CONTEXT_MEMORY_PREFIX:
+        return True
+    if str(policy.section or "") != CONTEXT_APPEND:
+        return False
+    if str(metadata.get("provider_visible_context_ledger_commit_stage") or "").strip() == "provider_success_required":
+        return True
+    if str(metadata.get("context_commit_policy") or getattr(policy, "commit_policy", "") or "").strip() != "append_then_seal":
+        return False
+    if str(metadata.get("context_replay_policy") or getattr(policy, "replay_policy", "") or "").strip() == "current_dynamic_tail_only":
+        return False
+    return context_segment_is_provider_visible_sealable_spec(spec)
 
 
 def _standardize_followup_provider_tool_protocol_specs(
@@ -7608,7 +7799,7 @@ def _followup_provider_visible_candidate_source_spec(spec: dict[str, Any]) -> di
         "context_cache_section": CONTEXT_APPEND,
         "fixed_context_package": "context_memory_append",
         "context_commit_policy": "append_then_seal",
-        "context_replay_policy": "current_append_commit_on_provider_success_then_next_ledger_replay",
+        "context_replay_policy": "current_append_commit_on_provider_success_then_next_physical_prefix_frame",
         "context_identity_policy": "content_addressed_when_unkeyed",
         "semantic_commit_class": _followup_provider_visible_replay_only_class(kind),
         "provider_visible_replay_only": True,
@@ -7649,11 +7840,11 @@ def _is_followup_provider_visible_replayed_prefix(
     history_status = str(metadata.get("provider_visible_history_status") or "").strip()
     if commit_policy.startswith("replay_only"):
         return True
-    if replay_policy in {"provider_visible_history_replay", "provider_visible_ledger_replay"}:
+    if replay_policy in {"physical_prefix_frame_replay", "physical_prefix_frame_replay_only"}:
         return True
-    if payload_authority == "runtime.context_management.provider_visible_context_ledger.replay":
+    if payload_authority == "runtime.context_management.physical_prefix_frame.replay":
         return True
-    return history_status in {"sealed_from_prior_model_request", "static_context"}
+    return history_status in {"sealed_from_physical_prefix_frame", "covered_by_physical_prefix_frame", "static_context"}
 
 
 def _is_followup_provider_visible_current_append(
@@ -7825,8 +8016,8 @@ def _annotate_single_agent_followup_segment_plan(
         segment["metadata"] = {
             **metadata,
             **ledger_metadata,
-            "provider_visible_context_authority": "runtime.context_management.provider_visible_context_ledger",
-            "provider_visible_context_stage": "current_append_or_existing_ledger_replay",
+            "provider_visible_context_authority": _provider_visible_manifest_segment_authority(ledger_metadata),
+            "provider_visible_context_stage": _provider_visible_manifest_segment_stage(ledger_metadata),
             "provider_visible_context_packet_ref": str(packet_id or ""),
             "provider_visible_hash": provider_visible_hash,
         }
@@ -7852,6 +8043,23 @@ def _provider_visible_metadata_by_followup_ordinal(
         if provider_keys:
             result[int(ordinal or 0)] = provider_keys
     return result
+
+
+def _provider_visible_manifest_segment_authority(metadata: dict[str, Any]) -> str:
+    payload_authority = str(dict(metadata or {}).get("provider_visible_payload_authority") or "").strip()
+    if payload_authority == "runtime.context_management.physical_prefix_frame.replay":
+        return "runtime.context_management.physical_context_assembler"
+    return "runtime.context_management.provider_visible_context_ledger"
+
+
+def _provider_visible_manifest_segment_stage(metadata: dict[str, Any]) -> str:
+    payload_authority = str(dict(metadata or {}).get("provider_visible_payload_authority") or "").strip()
+    if payload_authority == "runtime.context_management.physical_prefix_frame.replay":
+        return "physical_prefix_frame_replay"
+    commit_stage = str(dict(metadata or {}).get("provider_visible_context_ledger_commit_stage") or "").strip()
+    if commit_stage == "provider_success_required":
+        return "current_append_pending_provider_success"
+    return "provider_visible_context_candidate"
 
 
 def _followup_provider_visible_messages_by_ordinal(
@@ -8257,7 +8465,7 @@ def _single_agent_turn_followup_base_message_spec(
                 metadata=metadata,
             )
             if is_current_tool_round
-            else sealed_followup_base_context_policy(
+            else physical_frame_covered_followup_base_context_policy(
                 base,
                 message=message,
                 metadata=metadata,
@@ -8288,12 +8496,12 @@ def _single_agent_turn_followup_base_message_spec(
             "semantic_commit_class": "current_runtime_control",
             "cache_impact": "current_dynamic_tail_only",
             "stability_rule": "previous runtime-control tail text is current-control context only and must not be sealed into provider-visible history",
-            "cache_policy_rebased": "disabled_physical_source_order_append_only",
+            "cache_policy_rebased": "physical_context_assembler_current_dynamic_tail",
         }
     else:
         metadata = {
             **metadata,
-            "cache_policy_rebased": "disabled_physical_source_order_append_only",
+            "cache_policy_rebased": "physical_context_assembler_current_message_annotation",
         }
     result = {
         "role": str(message.get("role") or "user"),
@@ -8449,7 +8657,7 @@ def _single_agent_turn_followup_message_spec(
                 "context_prefix_cache_role": "volatile",
                 "context_prefix_tier": "volatile",
                 "context_commit_policy": "append_then_seal",
-                "context_replay_policy": "current_append_commit_on_provider_success_then_next_ledger_replay",
+                "context_replay_policy": "current_append_commit_on_provider_success_then_next_physical_prefix_frame",
                 "context_identity_policy": "content_addressed_when_unkeyed",
                 "semantic_commit_class": "tool_transcript",
                 "provider_visible_history_status": "current_tool_round_pending_provider_success",
@@ -8458,7 +8666,7 @@ def _single_agent_turn_followup_message_spec(
                 "cache_impact": "current_tool_transcript_append_promotes_to_next_prefix",
                 "stability_rule": (
                     "current tool transcript is provider-visible in this follow-up request; "
-                    "after provider success it is sealed for exact ledger replay"
+                    "after provider success it is sealed into the next physical prefix frame"
                 ),
                 "volatility_reason": "current tool round transcript is new append content before provider success",
             }
@@ -8474,7 +8682,7 @@ def _single_agent_turn_followup_message_spec(
                 "context_prefix_cache_role": "volatile",
                 "context_prefix_tier": "volatile",
                 "context_commit_policy": "append_then_seal",
-                "context_replay_policy": "current_append_commit_on_provider_success_then_next_ledger_replay",
+                "context_replay_policy": "current_append_commit_on_provider_success_then_next_physical_prefix_frame",
                 "context_identity_policy": "content_addressed_when_unkeyed",
                 "semantic_commit_class": "current_user_context",
                 "provider_visible_history_status": "current_user_context_pending_provider_success",
@@ -8511,7 +8719,7 @@ def _single_agent_turn_followup_message_spec(
                 "source_route": "single_agent_turn_followup",
             }
         )
-    metadata["cache_policy_rebased"] = "disabled_physical_source_order_append_only"
+    metadata["cache_policy_rebased"] = "physical_context_assembler_current_message_annotation"
     return {
         "role": role,
         "content": str(message.get("content") or ""),
@@ -8553,7 +8761,7 @@ def _followup_base_segment_conflicts_with_message_shape(base: dict[str, Any], me
     if role == "tool":
         return not (
             is_tool_transcript_kind(kind, include_historical=True)
-            or kind == "provider_visible_tool_transcript_replay"
+            or kind == "physical_prefix_frame_tool_transcript_replay"
         )
     return False
 
@@ -8582,7 +8790,7 @@ def _rebased_followup_source_ref(*, kind: str, message: dict[str, Any], fallback
         return _followup_tool_message_source_ref(message, prefix="single_agent_turn.tool_call")
     if (
         is_tool_transcript_kind(kind, include_historical=True)
-        or kind == "provider_visible_tool_transcript_replay"
+        or kind == "physical_prefix_frame_tool_transcript_replay"
         or str(message.get("role") or "") == "tool"
     ):
         return _followup_tool_message_source_ref(message, prefix="single_agent_turn.tool_transcript")

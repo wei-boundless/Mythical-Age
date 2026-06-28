@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .tool_catalog_manifest import ToolCatalogManifest
-from .tool_schema_identity import canonical_provider_input_schema, json_stable
+from .tool_schema_identity import canonical_provider_tool_binding_schema, json_stable, schema_with_public_feedback_sidecar
 
 
 def provider_tool_bindings_for_available_tools(
@@ -15,7 +15,7 @@ def provider_tool_bindings_for_available_tools(
         name = str(tool.get("tool_name") or tool.get("name") or "").strip()
         if not name:
             continue
-        schema = canonical_provider_input_schema(tool)
+        schema = canonical_provider_tool_binding_schema(tool)
         binding = {
             "name": name,
             "description": str(tool.get("description") or tool.get("display_name") or name),
@@ -27,6 +27,10 @@ def provider_tool_bindings_for_available_tools(
             binding["metadata"] = dict(tool.get("metadata") or {})
         bindings.append(binding)
     return sorted(bindings, key=lambda item: str(item.get("name") or ""))
+
+
+def tool_schema_with_public_feedback_sidecar(schema: dict[str, Any] | None) -> dict[str, Any]:
+    return schema_with_public_feedback_sidecar(schema)
 
 
 def stable_tool_schema_catalog_payload(

@@ -1047,15 +1047,21 @@ def _provider_payload_prefix_token_diagnostics(
         selected_prefix=selected,
     )
     context_append_tokens = _context_append_prefix_predicted_tokens(segment_map, tier=tier)
-    expected_cache_read_tokens = prefix_tokens
+    # Provider cache usage is reported against the chat-message prefix. Native
+    # tool schemas travel as provider sidecar transport and are tracked as
+    # physical-family inputs, not as required message-prefix cache reads.
+    expected_cache_read_tokens = message_tokens
     tool_prefix_selected = int(selected.get("tool_segment_count") or 0) > 0
     blocker_tool_schema_tokens = _provider_tool_schema_blocker_predicted_tokens(segment_map)
     return {
         "physical_cache_spine_message_predicted_tokens": message_tokens,
         "physical_cache_spine_tool_predicted_tokens": tool_tokens,
+        "physical_cache_spine_sidecar_predicted_tokens": tool_tokens,
         "provider_tool_schema_blocker_predicted_tokens": blocker_tool_schema_tokens,
         "context_append_prefix_predicted_tokens": context_append_tokens,
         "physical_cache_spine_expected_read_predicted_tokens": expected_cache_read_tokens,
+        "physical_cache_spine_expected_read_scope": "provider_message_prefix",
+        "physical_cache_spine_sidecar_transport_predicted_tokens": tool_tokens,
         "physical_cache_spine_tool_transport_selected": int(tool_prefix_selected),
         "physical_cache_spine_predicted_tokens": prefix_tokens,
         "physical_cache_spine_contract_predicted_tokens": prefix_tokens,

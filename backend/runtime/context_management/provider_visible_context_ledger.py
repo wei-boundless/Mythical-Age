@@ -20,18 +20,12 @@ from .context_segment_policy import (
     context_segment_policy_metadata,
 )
 from .context_candidates import ContextCommitCandidate
-from .provider_tool_protocol import (
-    closed_provider_tool_round_entries,
-    provider_tool_protocol_from_entry,
-)
-from .tool_transcript import is_tool_transcript_kind
 
 
 PROVIDER_VISIBLE_CONTEXT_LEDGER_SCHEMA_VERSION = 2
 PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT = DEFAULT_PROVIDER_ADAPTER_CONTRACT
 PROVIDER_VISIBLE_CONTEXT_LEDGER_CONFIRMED_STATUS = "confirmed_provider_visible"
 PROVIDER_VISIBLE_CONTEXT_PREFIX = "provider_visible_context_prefix"
-_LEGACY_REPLAYABLE_COMMIT_STATUSES = {"materialized_for_provider_request"}
 
 
 def assemble_provider_visible_context_specs(
@@ -46,12 +40,11 @@ def assemble_provider_visible_context_specs(
     model: str = "",
     adapter_contract: str = PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT,
 ) -> list[tuple[int, dict[str, Any]]]:
-    """Return provider-visible context by ledger replay plus new append items.
+    """Return current provider-visible append candidates.
 
-    The ledger is the authority for previously materialized provider-visible
-    context. Incoming specs are only candidates for new append entries; if a
-    candidate is already represented in the ledger, the stored provider-visible
-    message wins.
+    The provider-visible ledger records and de-duplicates append candidates,
+    but it is not allowed to replay old context into provider messages. Old
+    context replay is owned only by the physical prefix frame ledger.
 
     """
 
@@ -59,7 +52,7 @@ def assemble_provider_visible_context_specs(
     normalized_inherited_scope = str(inherited_scope or "").strip()
     normalized_generation = _normalize_compaction_generation(compaction_generation)
     normalized_adapter = str(adapter_contract or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT).strip()
-    inherited_entries, inherited_recovery_events = _inherited_ledger_entries_for_anchor(
+    inherited_entries, _inherited_recovery_events = _inherited_ledger_entries_for_anchor(
         storage_root=storage_root,
         scope=normalized_inherited_scope,
         anchor=dict(inherited_anchor or {}),
@@ -160,27 +153,7 @@ def assemble_provider_visible_context_specs(
     if changed:
         save_provider_visible_context_ledger(storage_root=storage_root, scope=normalized_scope, ledger=ledger)
 
-    inherited_specs = [
-        (
-            order,
-            _mark_inherited_provider_visible_spec(
-                spec,
-                inherited_scope=normalized_inherited_scope,
-                write_scope=normalized_scope,
-                anchor=dict(inherited_anchor or {}),
-            ),
-        )
-        for order, spec in _materialize_ledger_entries(
-            inherited_entries,
-            scope=normalized_inherited_scope,
-            recovery_events=inherited_recovery_events,
-        )
-    ]
-    return [
-        *inherited_specs,
-        *_materialize_ledger_entries(existing_entries, scope=normalized_scope, recovery_events=list(ledger.get("recovery_events") or [])),
-        *current_append_specs,
-    ]
+    return [*current_append_specs]
 
 
 def provider_visible_context_append_candidate_spec(
@@ -942,247 +915,6 @@ def _anchor_terminal_entry_index(anchor: dict[str, Any]) -> int:
     return 0
 
 
-def _mark_inherited_provider_visible_spec(
-    spec: dict[str, Any],
-    *,
-    inherited_scope: str,
-    write_scope: str,
-    anchor: dict[str, Any],
-) -> dict[str, Any]:
-    payload = dict(spec or {})
-    metadata = {
-        **dict(payload.get("metadata") or {}),
-        "provider_visible_context_inherited_from_scope": str(inherited_scope or ""),
-        "provider_visible_context_write_scope": str(write_scope or ""),
-        "fork_point_provider_visible_anchor_id": str(dict(anchor or {}).get("anchor_id") or ""),
-        "fork_point_provider_visible_terminal_entry_index": _anchor_terminal_entry_index(dict(anchor or {})),
-        "context_replay_policy": "fork_inherited_provider_visible_ledger_replay",
-        "provider_visible_inheritance_authority": "runtime.context_management.provider_visible_context_ledger.fork_inheritance",
-    }
-    payload["metadata"] = metadata
-    return payload
-
-
-def _materialize_ledger_specs(ledger: dict[str, Any], *, scope: str) -> list[tuple[int, dict[str, Any]]]:
-    entries = sorted(
-        [dict(item) for item in list(dict(ledger or {}).get("entries") or []) if isinstance(item, dict)],
-        key=lambda item: (_safe_int(item.get("entry_index")), str(item.get("item_key") or "")),
-    )
-    return _materialize_ledger_entries(
-        entries,
-        scope=scope,
-        recovery_events=[dict(item) for item in list(dict(ledger or {}).get("recovery_events") or []) if isinstance(item, dict)],
-    )
-
-
-def _materialize_ledger_entries(
-    entries: list[dict[str, Any]],
-    *,
-    scope: str,
-    recovery_events: list[dict[str, Any]] | None = None,
-) -> list[tuple[int, dict[str, Any]]]:
-    ordered_entries = sorted(
-        [dict(item) for item in list(entries or []) if isinstance(item, dict)],
-        key=lambda item: (_safe_int(item.get("entry_index")), str(item.get("item_key") or "")),
-    )
-    result: list[tuple[int, dict[str, Any]]] = []
-    recovery_payloads = [dict(item) for item in list(recovery_events or []) if isinstance(item, dict)]
-    if recovery_payloads and not ordered_entries:
-        result.append((0, _recovery_spec_from_failure(recovery_payloads[-1], scope=scope)))
-    index = 0
-    emitted_tool_round_ids: set[str] = set()
-    while index < len(ordered_entries):
-        entry = ordered_entries[index]
-        order = _safe_int(entry.get("entry_index"))
-        if order <= 0:
-            index += 1
-            continue
-        if not _ledger_entry_confirmed(entry):
-            index += 1
-            continue
-        tool_protocol = provider_tool_protocol_from_entry(entry)
-        tool_round_id = str(tool_protocol.get("round_id") or "").strip()
-        if tool_round_id:
-            if tool_round_id in emitted_tool_round_ids:
-                index += 1
-                continue
-            group_entries = closed_provider_tool_round_entries(ordered_entries, round_id=tool_round_id)
-            if not group_entries:
-                index += 1
-                continue
-            round_start = min(_safe_int(item.get("entry_index")) for item in group_entries if _safe_int(item.get("entry_index")) > 0)
-            for round_offset, group_entry in enumerate(group_entries):
-                group_order = max(1, round_start) * 1000 + round_offset
-                result.append((group_order, _spec_from_ledger_entry(group_entry, scope=scope)))
-            emitted_tool_round_ids.add(tool_round_id)
-            index += 1
-            continue
-        message = _provider_visible_message(dict(entry.get("provider_visible_message") or {}))
-        if _provider_visible_message_role(message) == "tool":
-            index += 1
-            continue
-        expected_tool_call_ids = _provider_visible_assistant_tool_call_ids(message)
-        if expected_tool_call_ids:
-            group_entries, next_index = _closed_tool_round_entries(
-                ordered_entries,
-                start_index=index,
-                expected_tool_call_ids=expected_tool_call_ids,
-            )
-            if not group_entries:
-                index += 1
-                continue
-            for group_entry in group_entries:
-                group_order = _safe_int(group_entry.get("entry_index"))
-                if group_order > 0:
-                    result.append((group_order, _spec_from_ledger_entry(group_entry, scope=scope)))
-            index = next_index
-            continue
-        result.append((order, _spec_from_ledger_entry(entry, scope=scope)))
-        index += 1
-    return result
-
-
-def _closed_tool_round_entries(
-    entries: list[dict[str, Any]],
-    *,
-    start_index: int,
-    expected_tool_call_ids: list[str],
-) -> tuple[list[dict[str, Any]], int]:
-    expected = [str(item).strip() for item in list(expected_tool_call_ids or []) if str(item).strip()]
-    if not expected or start_index < 0 or start_index >= len(entries):
-        return [], start_index + 1
-    group = [dict(entries[start_index])]
-    found: set[str] = set()
-    index = start_index + 1
-    while index < len(entries) and len(found) < len(set(expected)):
-        candidate = dict(entries[index])
-        if not _ledger_entry_confirmed(candidate):
-            index += 1
-            continue
-        message = _provider_visible_message(dict(candidate.get("provider_visible_message") or {}))
-        role = _provider_visible_message_role(message)
-        if role != "tool":
-            break
-        tool_call_id = str(message.get("tool_call_id") or "").strip()
-        if tool_call_id not in expected or tool_call_id in found:
-            break
-        group.append(candidate)
-        found.add(tool_call_id)
-        index += 1
-    if set(expected).issubset(found):
-        return group, index
-    return [], start_index + 1
-
-
-def _provider_visible_message_role(message: dict[str, Any]) -> str:
-    return str(dict(message or {}).get("role") or "").strip()
-
-
-def _provider_visible_assistant_tool_call_ids(message: dict[str, Any]) -> list[str]:
-    payload = dict(message or {})
-    if _provider_visible_message_role(payload) != "assistant":
-        return []
-    ids: list[str] = []
-    for raw_call in list(payload.get("tool_calls") or []):
-        if not isinstance(raw_call, dict):
-            continue
-        call_id = str(dict(raw_call).get("id") or "").strip()
-        if call_id and call_id not in ids:
-            ids.append(call_id)
-    return ids
-
-
-def _spec_from_ledger_entry(entry: dict[str, Any], *, scope: str) -> dict[str, Any]:
-    order = _safe_int(entry.get("entry_index"))
-    message = _provider_visible_message(dict(entry.get("provider_visible_message") or {}))
-    missing_message = not bool(message)
-    failure: dict[str, Any] = {}
-    if missing_message:
-        failure = _structured_failure(
-            scope=scope,
-            code="provider_visible_message_missing_for_entry",
-            message="provider-visible ledger entry cannot be replayed because message content is absent",
-            details={
-                "entry_index": order,
-                "item_key": str(entry.get("item_key") or ""),
-                "provider_visible_hash": str(entry.get("provider_visible_hash") or ""),
-            },
-        )
-        return _recovery_spec_from_failure(failure, scope=scope, order=order)
-    semantic_commit_class = str(entry.get("semantic_commit_class") or "context_memory_append")
-    replay_only = semantic_commit_class.startswith("provider_visible_replay_only")
-    entry_kind = str(entry.get("kind") or "").strip()
-    provider_tool_protocol = provider_tool_protocol_from_entry(entry)
-    metadata = {
-        "context_cache_section": "context_memory_prefix",
-        "fixed_context_package": "context_memory_prefix",
-        "physical_prefix_lane": PROVIDER_VISIBLE_CONTEXT_PREFIX,
-        "semantic_visibility": str(entry.get("semantic_visibility") or ("historical_only" if replay_only else "active")),
-        "validity_scope": str(entry.get("validity_scope") or ""),
-        "compaction_generation": str(entry.get("compaction_generation") or ""),
-        "cache_spine_hash": str(entry.get("cache_spine_hash") or ""),
-        "provider_visible_context_ledger_scope": scope,
-        "provider_visible_context_ledger_entry_index": order,
-        "provider_visible_context_ledger_item_key": str(entry.get("item_key") or ""),
-        "provider_visible_context_ledger_authority": "runtime.context_management.provider_visible_context_ledger",
-        "provider_visible_hash": str(entry.get("provider_visible_hash") or provider_visible_message_hash(message)),
-        "provider_visible_payload_form": "provider_chat_completion_message",
-        "provider_visible_payload_authority": "runtime.context_management.provider_visible_context_ledger.replay",
-        "semantic_commit_class": semantic_commit_class,
-        "provider_visible_replay_original_kind": entry_kind,
-        "provider_visible_replay_kind_authority": "runtime.context_management.provider_visible_context_ledger.replay_kind",
-        "provider_visible_replay_only": replay_only,
-        "semantic_memory_visible": not replay_only,
-        "semantic_memory_commit_policy": "never_commit" if replay_only else "append_then_seal",
-        "content_source": "runtime.context_management.provider_visible_context_ledger.replay",
-    }
-    if provider_tool_protocol:
-        metadata["provider_tool_protocol"] = provider_tool_protocol
-    spec = {
-        "role": str(message.get("role") or "system"),
-        "content": str(message.get("content") if message.get("content") is not None else ""),
-        "kind": _provider_visible_ledger_replay_kind(entry_kind, semantic_commit_class, message),
-        "source_ref": str(entry.get("source_ref") or entry.get("item_key") or ""),
-        "cache_scope": "session",
-        "cache_role": "session_stable",
-        "prefix_tier": "session",
-        "compression_role": "preserve",
-        "metadata": metadata,
-        "model_message": message,
-    }
-    policy = context_segment_policy_for_spec(spec, default_section="context_memory_prefix")
-    spec["metadata"] = {
-        **metadata,
-        **context_segment_policy_metadata(policy),
-    }
-    return spec
-
-
-def _provider_visible_ledger_replay_kind(
-    entry_kind: str,
-    semantic_commit_class: str,
-    message: dict[str, Any],
-) -> str:
-    kind = str(entry_kind or "").strip()
-    semantic_class = str(semantic_commit_class or "").strip()
-    role = str(dict(message or {}).get("role") or "").strip()
-    if semantic_class in {"tool_transcript", "provider_visible_replay_only_tool_transcript"}:
-        return "provider_visible_tool_transcript_replay"
-    if is_tool_transcript_kind(kind, include_historical=True):
-        return "provider_visible_tool_transcript_replay"
-    if role == "tool" or (role == "assistant" and dict(message or {}).get("tool_calls")):
-        return "provider_visible_tool_transcript_replay"
-    if semantic_class in {"current_user_context", "provider_visible_replay_only_user_steer"}:
-        return "provider_visible_user_context_replay"
-    if kind in {"current_turn_user_context", "single_agent_turn_user_steer_context", "user_steering_context_append"}:
-        return "provider_visible_user_context_replay"
-    if role == "user":
-        return "provider_visible_user_message_replay"
-    if role == "assistant":
-        return "provider_visible_assistant_message_replay"
-    return kind or "provider_visible_context_replay"
-
-
 def _current_context_append_spec_from_candidate(
     spec: dict[str, Any],
     *,
@@ -1225,7 +957,7 @@ def _current_context_append_spec_from_candidate(
         "provider_visible_context_candidate_provider": str(provider or ""),
         "provider_visible_context_candidate_model": str(model or ""),
         "provider_adapter_contract": str(adapter_contract or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT),
-        "context_replay_policy": "current_append_commit_on_provider_success_then_next_ledger_replay",
+        "context_replay_policy": "current_append_commit_on_provider_success_then_next_physical_prefix_frame",
     }
     payload["cache_scope"] = str(getattr(policy, "prefix_cache_scope", "") or payload.get("cache_scope") or "session")
     payload["cache_role"] = str(getattr(policy, "prefix_cache_role", "") or payload.get("cache_role") or "session_stable")
@@ -1235,38 +967,6 @@ def _current_context_append_spec_from_candidate(
     payload["model_message"] = _provider_visible_message(provider_visible_message)
     payload["metadata"] = metadata
     return payload
-
-
-def _recovery_spec_from_failure(failure: dict[str, Any], *, scope: str, order: int = 0) -> dict[str, Any]:
-    content = (
-        "Provider-visible context ledger recovery checkpoint\n"
-        + json.dumps(dict(failure or {}), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    )
-    spec = {
-        "role": "system",
-        "content": content,
-        "kind": "provider_visible_ledger_recovery_checkpoint",
-        "source_ref": f"provider_visible_ledger_recovery:{scope}:{order}",
-        "cache_scope": "session",
-        "cache_role": "session_stable",
-        "prefix_tier": "session",
-        "compression_role": "preserve",
-        "metadata": {
-            "context_cache_section": "context_memory_prefix",
-            "fixed_context_package": "context_memory_prefix",
-            "provider_visible_context_ledger_scope": scope,
-            "provider_visible_context_ledger_recovery_required": True,
-            "provider_visible_context_ledger_structured_failure": dict(failure or {}),
-            "semantic_commit_class": "ledger_recovery_context",
-        },
-        "model_message": {"role": "system", "content": content},
-    }
-    policy = context_segment_policy_for_spec(spec, default_section="context_memory_prefix")
-    spec["metadata"] = {
-        **dict(spec.get("metadata") or {}),
-        **context_segment_policy_metadata(policy),
-    }
-    return spec
 
 
 def _provider_visible_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
@@ -1354,9 +1054,7 @@ def _previous_entry_hash(ledger: dict[str, Any]) -> str:
 
 def _ledger_entry_confirmed(entry: dict[str, Any]) -> bool:
     status = str(dict(entry or {}).get("commit_status") or "").strip()
-    if status == PROVIDER_VISIBLE_CONTEXT_LEDGER_CONFIRMED_STATUS:
-        return True
-    return status in _LEGACY_REPLAYABLE_COMMIT_STATUSES
+    return status == PROVIDER_VISIBLE_CONTEXT_LEDGER_CONFIRMED_STATUS
 
 
 def _confirmed_ledger_entries(ledger: dict[str, Any]) -> list[dict[str, Any]]:

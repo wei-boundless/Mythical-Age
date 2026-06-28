@@ -61,7 +61,11 @@ def provider_lane_from_accounting_context(
         return PROVIDER_LANE_AGENT_TOOL_LOOP
     if "active-turn-steer" in haystack or "active_turn_steer" in haystack:
         return PROVIDER_LANE_AGENT_TOOL_LOOP
-    if source.startswith("harness.single_agent_turn") or source.startswith("harness.loop.single_agent_turn"):
+    if (
+        "single_agent_turn" in haystack
+        or source.startswith("harness.single_agent_turn")
+        or source.startswith("harness.loop.single_agent_turn")
+    ):
         return PROVIDER_LANE_AGENT_TOOL_LOOP
     if "compaction" in haystack:
         return PROVIDER_LANE_COMPACTION

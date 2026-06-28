@@ -40,6 +40,7 @@ export type Message = {
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
   runtimeProgress?: RuntimeProgressEntry[];
+  /** @deprecated Store messages only keep projectionKeyString; render views from activeProjectionsByKey. */
   projectionView?: ChronologicalProjectionView;
   projectionKeyString?: string;
   closeoutSummary?: string;
@@ -572,4 +573,3 @@ export type AppStore = StoreState &
   StoreActions & {
     editableFiles: string[];
   };
-

@@ -9,6 +9,7 @@ import { StatusLine, toolRoundStatusLabel } from "./AssistantTrace";
 import { TodoPlan } from "./TodoPlan";
 import { ToolRound, ToolWindow } from "./ToolTrace";
 
+import { workbenchMarkdownComponents } from "@/components/markdown/WorkbenchMarkdownComponents";
 import { publicRuntimeStatusText } from "@/lib/runtimeStatusText";
 import type {
   ActivityArchiveProjectionBlock,
@@ -34,6 +35,7 @@ export type ActivityEntry = {
   collapsed?: boolean;
   commandLine?: string;
   consoleLabel?: string;
+  contentWindow?: ToolProjectionBlock["contentWindow"];
   detail?: string;
   id: string;
   kind: "activity_archive" | "body_note" | "reasoning_window" | "status_line" | "todo_plan" | "tool_window";
@@ -44,6 +46,8 @@ export type ActivityEntry = {
   startedAt?: number;
   updatedAt?: number;
   completedAt?: number;
+  firstOffset?: number;
+  lastOffset?: number;
   statusKind?: string;
   state?: string;
   statusLabel?: string;
@@ -82,6 +86,8 @@ export type ActivityRenderUnit =
       startedAt?: number;
       updatedAt?: number;
       completedAt?: number;
+      firstOffset?: number;
+      lastOffset?: number;
       statusLabel: string;
       statusTone: PublicTimelineActivityTone;
     };
@@ -234,7 +240,7 @@ function BodyNote({ entry }: { entry: ActivityEntry }) {
       data-status-tone={statusTone}
     >
       <div className="public-run-activity__body markdown">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        <ReactMarkdown components={workbenchMarkdownComponents} remarkPlugins={[remarkGfm]}>
           {bodyText}
         </ReactMarkdown>
       </div>
@@ -282,7 +288,9 @@ function ReasoningWindow({ entry }: { entry: ActivityEntry }) {
         <div className="public-run-activity__reasoning-body" role="region" aria-label="运行中的模型思考观察">
           {reasoningContent ? (
             <div className="public-run-activity__reasoning-text markdown markdown--reasoning-projection">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{reasoningContent}</ReactMarkdown>
+              <ReactMarkdown components={workbenchMarkdownComponents} remarkPlugins={[remarkGfm]}>
+                {reasoningContent}
+              </ReactMarkdown>
             </div>
           ) : (
             <p>暂无可见思考内容。</p>
@@ -301,7 +309,9 @@ function toolRoundFromEntries(entries: ActivityEntry[], roundKey: string): Activ
     count,
     completedAt: latestToolTime(entries, "completedAt"),
     entries,
+    firstOffset: earliestToolOffset(entries, "firstOffset"),
     id: `tool-round:${roundKey || entries[0]?.id || "tools"}`,
+    lastOffset: latestToolOffset(entries, "lastOffset"),
     preview: toolRoundPreview(entries),
     startedAt: earliestToolTime(entries, "startedAt"),
     statusLabel: toolRoundStatusLabel(statusTone),
@@ -321,6 +331,20 @@ function latestToolTime(entries: ActivityEntry[], key: "startedAt" | "updatedAt"
   const values = entries
     .map((entry) => entry[key])
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+  return values.length ? Math.max(...values) : undefined;
+}
+
+function earliestToolOffset(entries: ActivityEntry[], key: "firstOffset" | "lastOffset") {
+  const values = entries
+    .map((entry) => entry[key])
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0);
+  return values.length ? Math.min(...values) : undefined;
+}
+
+function latestToolOffset(entries: ActivityEntry[], key: "firstOffset" | "lastOffset") {
+  const values = entries
+    .map((entry) => entry[key])
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0);
   return values.length ? Math.max(...values) : undefined;
 }
 
@@ -458,8 +482,10 @@ function toolEntryFromBlock(block: ToolProjectionBlock, index: number): Activity
     collapsed: typeof block.collapsed === "boolean" ? block.collapsed : undefined,
     commandLine: toolWindowCommandLine(block, sections),
     consoleLabel: toolWindowConsoleLabel(block),
+    contentWindow: block.contentWindow,
     completedAt: block.completedAt,
     detail,
+    firstOffset: block.firstOffset,
     id: `tool-window:${stableId}`,
     kind: "tool_window",
     outputText,
@@ -469,6 +495,7 @@ function toolEntryFromBlock(block: ToolProjectionBlock, index: number): Activity
     statusLabel: toolWindowStatusLabel(block),
     statusTone: toolWindowStatusTone(block),
     text,
+    lastOffset: block.lastOffset,
     toolFamily,
     toolRoundKey: toolWindowRoundKey(block),
     updatedAt: block.updatedAt,

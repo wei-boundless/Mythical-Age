@@ -172,12 +172,18 @@ def _record_scope_matches(previous: PromptCacheRecord, current: PromptCacheRecor
     current_family = _record_physical_payload_family_hash(current)
     if (previous_family or current_family) and previous_family != current_family:
         return False
+    previous_cache_scope = _record_cache_scope(previous)
+    current_cache_scope = _record_cache_scope(current)
+    if previous_cache_scope and current_cache_scope:
+        return previous_cache_scope == current_cache_scope
+    if previous.session_id and current.session_id:
+        return previous.session_id == current.session_id
+    if current.session_id:
+        return previous.session_id == current.session_id
     if current.task_run_id:
         return previous.task_run_id == current.task_run_id
     if current.run_id:
         return previous.run_id == current.run_id
-    if current.session_id:
-        return previous.session_id == current.session_id
     return True
 
 
@@ -189,6 +195,16 @@ def _record_provider_lane(record: PromptCacheRecord) -> str:
 def _record_physical_payload_family_hash(record: PromptCacheRecord) -> str:
     diagnostics = dict(record.diagnostics or {})
     return str(diagnostics.get("physical_payload_family_hash") or "")
+
+
+def _record_cache_scope(record: PromptCacheRecord) -> str:
+    diagnostics = dict(record.diagnostics or {})
+    return str(
+        diagnostics.get("provider_cache_scope_id")
+        or diagnostics.get("cache_scope_id")
+        or diagnostics.get("session_cache_scope_id")
+        or ""
+    ).strip()
 
 
 def _latest_record(records: list[PromptCacheRecord]) -> PromptCacheRecord | None:

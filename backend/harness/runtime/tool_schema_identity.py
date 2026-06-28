@@ -17,6 +17,40 @@ def canonical_provider_input_schema(tool_payload: dict[str, Any]) -> dict[str, A
     )
 
 
+def canonical_provider_tool_binding_schema(tool_payload: dict[str, Any]) -> dict[str, Any]:
+    return schema_with_public_feedback_sidecar(canonical_provider_input_schema(tool_payload))
+
+
+def schema_with_public_feedback_sidecar(schema: dict[str, Any] | None) -> dict[str, Any]:
+    payload = canonical_json_schema_object(schema or {})
+    if str(payload.get("type") or "object") != "object":
+        return payload
+    properties = dict(payload.get("properties") or {})
+    properties.setdefault(
+        "public_progress_note",
+        {
+            "type": "string",
+            "description": (
+                "Optional user-visible progress note for this tool action. "
+                "Use it only when the user should see why this observation or action is needed."
+            ),
+        },
+    )
+    properties.setdefault(
+        "current_judgment",
+        {
+            "type": "string",
+            "description": (
+                "Optional short user-visible judgment for this tool action. "
+                "Do not include hidden reasoning or raw tool output."
+            ),
+        },
+    )
+    payload["properties"] = properties
+    payload.setdefault("type", "object")
+    return json_stable(payload)
+
+
 def canonical_json_schema_object(schema: dict[str, Any]) -> dict[str, Any]:
     payload = copy.deepcopy(dict(schema or {}))
     payload.setdefault("type", "object")

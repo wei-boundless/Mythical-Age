@@ -698,6 +698,8 @@ def _tool_completed_spec(data: dict[str, Any]) -> dict[str, Any]:
         "subject_label": subject,
         "arguments_preview": text(data.get("arguments_preview")),
         "target": text(data.get("target")),
+        "content_window": record(data.get("content_window")),
+        "duration_ms": data.get("duration_ms"),
     }
     if _is_agent_todo_tool(tool_name):
         return _agent_todo_completed_status_spec(data, detail=detail, failed=failed)

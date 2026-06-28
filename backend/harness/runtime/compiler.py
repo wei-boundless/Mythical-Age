@@ -1529,7 +1529,7 @@ class RuntimeCompiler:
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="task_execution",
-            provider_visible_context_scope=task_run_id,
+            provider_visible_context_scope=session_id,
             storage_root=self.base_dir,
             model_selection=dict(model_selection or {}),
             context_capability_profile=_context_capability_profile_from_runtime_assembly(assembly_payload),
@@ -4183,11 +4183,8 @@ def _dynamic_context_metadata_violations(specs: list[dict[str, Any]]) -> list[di
 
 
 def _is_sealed_provider_visible_replay_metadata(metadata: dict[str, Any]) -> bool:
-    authority = str(metadata.get("provider_visible_context_ledger_authority") or "")
     payload_authority = str(metadata.get("provider_visible_payload_authority") or "")
-    if authority != "runtime.context_management.provider_visible_context_ledger":
-        return False
-    return payload_authority == "runtime.context_management.provider_visible_context_ledger.replay"
+    return payload_authority == "runtime.context_management.physical_prefix_frame.replay"
 
 
 def _dynamic_context_segment_metadata(
@@ -4218,7 +4215,7 @@ def _current_user_context_append_metadata(payload: dict[str, Any] | None) -> dic
         "context_prefix_cache_role": "volatile",
         "context_prefix_tier": "volatile",
         "context_commit_policy": "append_then_seal",
-        "context_replay_policy": "current_append_commit_on_provider_success_then_next_ledger_replay",
+        "context_replay_policy": "current_append_commit_on_provider_success_then_next_physical_prefix_frame",
         "cache_impact": "current_context_append_promotes_to_next_prefix",
         "stability_rule": (
             "current user input is new provider-visible context for this turn; it can be sealed after "

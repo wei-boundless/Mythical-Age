@@ -1698,7 +1698,9 @@ def _observation_from_core_result(
 def _execution_receipt(record: Any | None, *, error: str = "") -> dict[str, Any]:
     if record is None:
         return {}
-    return {
+    started_at = _positive_receipt_time(getattr(record, "started_at", 0.0))
+    completed_at = _positive_receipt_time(getattr(record, "completed_at", 0.0))
+    receipt = {
         "execution_id": str(getattr(record, "execution_id", "") or ""),
         "request_ref": str(getattr(record, "request_ref", "") or ""),
         "status": str(getattr(record, "status", "") or ""),
@@ -1707,6 +1709,21 @@ def _execution_receipt(record: Any | None, *, error: str = "") -> dict[str, Any]
         "error": str(error or ""),
         "authority": "runtime.execution_receipt",
     }
+    if started_at is not None:
+        receipt["started_at"] = started_at
+    if completed_at is not None:
+        receipt["completed_at"] = completed_at
+    if started_at is not None and completed_at is not None and completed_at >= started_at:
+        receipt["duration_ms"] = int(round((completed_at - started_at) * 1000))
+    return receipt
+
+
+def _positive_receipt_time(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
 
 
 def _approval_state_from_request(request: ToolInvocationRequest) -> ApprovalState | None:

@@ -9,6 +9,7 @@ import type { editor as MonacoEditorNamespace } from "monaco-editor";
 
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { RuntimeLogPanel, type RuntimeLogTarget } from "@/components/layout/RuntimeLogPanel";
+import { workbenchMarkdownComponents } from "@/components/markdown/WorkbenchMarkdownComponents";
 import { useWorkbenchShellControls } from "@/components/layout/WorkbenchShell";
 import { SessionProjectionPanel, sessionProjectionPageKey, sessionProjectionPageTitle, type SessionProjectionTarget } from "@/components/workspace/projections/SessionProjectionPanel";
 import { getFileChangeDiff, openManagedFileInVSCode, type FileChangeDiffPayload } from "@/lib/api";
@@ -295,7 +296,7 @@ function CenterWorkspaceFileLayer({
         ) : previewActive ? (
           <article className="center-workspace-file__reader markdown">
             {inspectorContent.trim() ? (
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown components={workbenchMarkdownComponents} remarkPlugins={[remarkGfm]}>
                 {inspectorContent}
               </ReactMarkdown>
             ) : (
