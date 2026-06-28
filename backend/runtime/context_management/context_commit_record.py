@@ -129,7 +129,7 @@ def create_provider_request_context_commit_record(
         "tool_count": _safe_int(request_payload.get("tool_count")),
         "provider_payload_manifest_ref": str(request_payload.get("provider_payload_manifest_ref") or ""),
         "provider_payload_prefix_hash": str(request_payload.get("provider_payload_prefix_hash") or ""),
-        "provider_payload_message_prefix_hash": str(request_payload.get("provider_payload_message_prefix_hash") or ""),
+        "physical_cache_spine_message_subtotal_hash": str(request_payload.get("physical_cache_spine_message_subtotal_hash") or ""),
         "provider_payload_messages_hash": str(request_payload.get("provider_payload_messages_hash") or ""),
         "transport_contract_hash": str(request_payload.get("transport_contract_hash") or ""),
         "transport_contract_ref": str(request_payload.get("transport_contract_ref") or ""),
@@ -276,7 +276,7 @@ def _model_request_projection(model_request: Any) -> dict[str, Any]:
             or ""
         ),
         "provider_payload_prefix_hash": str(payload.get("provider_payload_prefix_hash") or ""),
-        "provider_payload_message_prefix_hash": str(payload.get("provider_payload_message_prefix_hash") or ""),
+        "physical_cache_spine_message_subtotal_hash": str(payload.get("physical_cache_spine_message_subtotal_hash") or ""),
         "provider_payload_messages_hash": str(provider_transport.get("messages_hash") or payload.get("canonical_hash") or ""),
         "transport_contract_hash": str(payload.get("transport_contract_hash") or ""),
         "transport_contract_ref": str(payload.get("transport_contract_ref") or provider_payload_cache_boundary.get("transport_contract_ref") or ""),
@@ -286,8 +286,8 @@ def _model_request_projection(model_request: Any) -> dict[str, Any]:
         "provider_payload_cache_boundary": provider_payload_cache_boundary,
         "provider_payload_segments": provider_payload_segments,
         "provider_payload_transport_contract": provider_payload_transport_contract,
-        "cache_spine_hash": str(provider_payload_cache_boundary.get("cache_spine_hash") or ""),
-        "compaction_generation": str(provider_payload_cache_boundary.get("cache_spine_generation") or ""),
+        "cache_spine_hash": str(provider_payload_cache_boundary.get("physical_cache_spine_hash") or ""),
+        "compaction_generation": "",
         "prompt_manifest": prompt_manifest,
     }
 
@@ -330,7 +330,7 @@ def _tool_context_projection(model_request: Any) -> dict[str, Any]:
                     "tool_observation_ref": str(metadata.get("tool_observation_ref") or ""),
                     "tool_call_id": str(metadata.get("tool_call_id") or ""),
                     "content_hash": str(segment.get("content_hash") or metadata.get("content_hash") or ""),
-                    "physical_prefix_lane": str(metadata.get("physical_prefix_lane") or ""),
+                    "physical_prefix_lane": str(segment.get("physical_prefix_lane") or metadata.get("physical_prefix_lane") or ""),
                     "compaction_generation": str(metadata.get("compaction_generation") or ""),
                 }
             )

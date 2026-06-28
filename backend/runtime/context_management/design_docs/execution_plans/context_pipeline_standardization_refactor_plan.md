@@ -169,8 +169,8 @@ stale parent read range -> fork materialization skips stale range -> child read 
 - provider success typed commit 已接入：`model_runtime` 只生成 `ContextCommitCandidate`，ledger confirm 只接受 typed candidate，避免裸 dict 字段继续作为封存主契约。
 - fork snapshot 已补齐工具/read/replacement 继承锚：`fork_point_tool_context_anchor`、`fork_point_read_evidence_state_ref`、`fork_point_content_replacement_state_ref` 进入 `forked_from`，compiler/context pipeline diagnostics 可见这些锚。
 - fork child 会在创建时把 parent session 的 file evidence snapshot 物化到 child session scope；后续 `read_file` evidence reuse 读取 child scope 即可复用 fork 点前未变化的 exact read window，不需要重新把旧全文放进动态尾。
-- cache planner 已增加 expected miss budget 诊断：把低于 95% 的预测 miss 拆成 `current_context_append`、`dynamic_or_never_replay_tail`、`provider_transport_sidecar`、`uncategorized_non_prefix_payload`。前两类是正常新增/当前轮尾部成本，最后一类必须按 cache pollution 审查。
-- provider sidecar 已按语义空间改成 hidden current-turn transport adapter：single-agent turn 默认 `json_action`，profile/runtime/model 可切换 `provider_native`；工具调用决策由 agent 的结构化 `tool_call` action 表达；provider payload 只在存在 sidecar 时验证其 schema_ref 是否匹配稳定工具目录。
+- cache planner 已增加 expected miss budget 诊断：把低于 95% 的预测 miss 拆成 `current_context_append`、`dynamic_or_never_replay_tail`、`provider_tool_schema_blocker`、`uncategorized_non_prefix_payload`。前两类是正常新增/当前轮尾部成本，最后一类必须按 cache pollution 审查。
+- provider tools schema 已按 provider physical prefix/blocker 建模：single-agent turn 默认 `json_action`，profile/runtime/model 可切换 `provider_native`；工具调用决策由 agent 的结构化 `tool_call` action 表达；validated provider tools schema 进入 physical spine，unvalidated schema 只作为 `provider_tool_schema_blocker` 阻断后续 prefix。
 - 稳定工具前缀已单源化：message prefix 不再生成 `tool_schema_catalog`，只保留 `Tool Capability Surface` / `tool_index_stable`，包含 agent 能理解的工具语义、关键字段名、使用边界和 schema_ref。
 - JSON action 工具协议已补齐 `tool_calls[]`：`model_action_protocol.py` 统一解析单个 `tool_call` 与批量 `tool_calls[]`，single-agent turn 将批量请求拆成同一轮的多个 tool action，并复用已有 `tool_batch_plan` 做 admission、资源锁规划、执行和 transcript 封存。
 - 反馈契约已同步升级：`tool_calls[]` 是一个语义动作内的一组工具请求，`public_progress_note` 只描述共同查证目标；工具观察返回后由 agent 按是否改变公开结论、风险、阻塞、验收状态或下一步来汇总反馈，不按工具条数逐项播报。

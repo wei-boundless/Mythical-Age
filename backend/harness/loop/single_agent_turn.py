@@ -83,6 +83,10 @@ from runtime.context_management import (
     DYNAMIC_TAIL,
     provider_visible_context_append_candidate_spec,
 )
+from runtime.context_management.followup_context_rebase import (
+    current_followup_append_context_policy,
+    sealed_followup_base_context_policy,
+)
 from runtime.output_stream.public_contract import TURN_COMPLETED_EVENT
 from runtime.context_management.tool_transcript import (
     TOOL_TRANSCRIPT_DELTA_KIND,
@@ -126,7 +130,6 @@ from runtime.model_gateway.stream_recovery import (
     stream_error_code,
     visible_prefix_utf8_bytes,
 )
-from runtime.output_stream.public_contract import ASSISTANT_PUBLIC_FEEDBACK_EVENT
 from runtime.shared.models import TurnRun
 from runtime.shared.tool_identity import canonical_action_tool_call_id, ensure_tool_call_id
 from runtime.tool_runtime import ToolInvocationRequest, ToolObservation, build_round_tool_call_options
@@ -170,8 +173,6 @@ def _configured_single_turn_tool_iterations() -> int:
 _MAX_SINGLE_TURN_TOOL_ITERATIONS = _configured_single_turn_tool_iterations()
 _TOOL_LIMIT_CLOSEOUT_ACTION_TYPES = ("respond", "ask_user", "block")
 _AGENT_CLOSEOUT_SOURCE = "harness.single_agent_turn.agent_closeout"
-_AGENT_CONTRACT_FEEDBACK_SOURCE = "harness.single_agent_turn.agent_contract_feedback"
-_ASSISTANT_CONTENT_PREAMBLE_PROGRESS_SOURCE = "model_action.assistant_content_preamble"
 _PARTIAL_STREAM_RECOVERY_SOURCE = "harness.single_agent_turn.partial_stream_recovery"
 _CONSECUTIVE_TOOL_FAILURE_CLOSEOUT_THRESHOLD = 3
 _MAX_SINGLE_TURN_PROTOCOL_RECOVERY_ATTEMPTS = 3
@@ -312,6 +313,7 @@ def _agent_visible_action_facts(signal: dict[str, Any] | None) -> dict[str, Any]
     diagnostics = dict(protocol_error.get("diagnostics") or {})
     detected_action = dict(payload.get("detected_unexecuted_action") or diagnostics.get("detected_json_action") or {})
     previous_payload = payload.get("rejected_json_action_payload") or diagnostics.get("rejected_json_action_payload")
+    model_error = dict(payload.get("model_error") or {})
     return _drop_empty_dict(
         {
             "kind": _agent_visible_signal_kind(payload),
@@ -349,6 +351,15 @@ def _agent_visible_action_facts(signal: dict[str, Any] | None) -> dict[str, Any]
             ),
             "previous_tool_intents_not_executed": list(payload.get("previous_tool_intents_not_executed") or []),
             "previous_response_preview": _compact_text(payload.get("previous_response_preview"), limit=900),
+            "model_error": _drop_empty_dict(
+                {
+                    "code": str(model_error.get("code") or model_error.get("failure_code") or ""),
+                    "reason": str(model_error.get("reason") or ""),
+                    "provider": str(model_error.get("provider") or ""),
+                    "model": str(model_error.get("model") or ""),
+                    "retryable": model_error.get("retryable") if isinstance(model_error.get("retryable"), bool) else None,
+                }
+            ),
             "observed_facts": dict(payload.get("observed_facts") or {}),
         }
     )
@@ -510,7 +521,7 @@ def _agent_authored_closeout_content_from_response(
         iteration=closeout_attempt,
         allowed_action_types=_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES,
         phase=f"agent_closeout:{phase}",
-        output_contract=_single_agent_output_channel_contract(action_transport_required=False),
+        output_contract=_action_output_channel_contract(phase=f"closeout_decision:{phase}"),
         allow_model_tool_calls=True,
     )
     if action_parse.error:
@@ -652,6 +663,66 @@ def _consecutive_tool_failure_closeout_control_signal(
     }
 
 
+def _model_invocation_failure_closeout_control_signal(
+    *,
+    turn_id: str,
+    packet_ref: str,
+    phase: str,
+    response: dict[str, Any],
+    recent_observations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    payload = dict(response or {})
+    model_error = _drop_empty_dict(
+        {
+            "code": str(payload.get("code") or payload.get("failure_code") or "single_agent_turn_model_failed"),
+            "reason": str(payload.get("reason") or payload.get("code") or "single_agent_turn_model_failed"),
+            "failure_code": str(payload.get("failure_code") or payload.get("code") or ""),
+            "error_summary": str(payload.get("error_summary") or payload.get("content") or ""),
+            "provider": str(payload.get("provider") or ""),
+            "model": str(payload.get("model") or ""),
+            "retryable": payload.get("retryable") if isinstance(payload.get("retryable"), bool) else None,
+        }
+    )
+    instruction = (
+        "本轮后续模型调用失败，当前不能继续工具循环。"
+        "你必须基于已经观察到的事实和这次失败事实收口，选择 respond、ask_user 或 block；"
+        "不要继续发起工具调用，不要把内部错误对象、事件编号或运行诊断当作用户回复。"
+    )
+    return {
+        "observation_type": "runtime_control_signal",
+        "source": "system:runtime_control_signal",
+        "signal_kind": "model_invocation_failed",
+        "runtime_control_state": "agent_closeout_required",
+        "turn_id": turn_id,
+        "packet_ref": packet_ref,
+        "phase": phase,
+        "agent_closeout_required": True,
+        "allowed_agent_actions": list(_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES),
+        "tool_calls_allowed_after_signal": False,
+        "feedback_contract": _feedback_contract_payload(
+            source="model_invocation_failed",
+            public_response_required=True,
+            tool_calls_allowed=False,
+            allowed_action_types=list(_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES),
+        ),
+        "model_error": model_error,
+        "observed_facts": _drop_empty_dict(
+            {
+                "recent_observations": [dict(item) for item in list(recent_observations or [])[-3:]],
+                "recent_observation_count": len(list(recent_observations or [])),
+            }
+        ),
+        "repair_instruction": instruction,
+        "structured_signal": {
+            "code": "single_agent_turn_model_invocation_failed",
+            "message": instruction,
+            "origin": "single_agent_turn_model_invocation_boundary",
+            "retryable": model_error.get("retryable"),
+        },
+        "authority": "harness.loop.single_agent_turn.runtime_control_signal",
+    }
+
+
 def _model_protocol_violation_control_signal(
     *,
     turn_id: str,
@@ -705,8 +776,9 @@ def _model_protocol_violation_control_signal(
         instruction += f"具体修复：{specific_repair}"
     if public_response_required:
         instruction += (
-            "本次仍处在公开反馈义务内；如果继续请求工具，必须写入 public_progress_note "
-            "或 public_action_state.current_judgment，说明已确认事实、影响和下一步。"
+            "本次仍需要你对用户当前问题形成可见交代；如果继续查证，请在结构化动作的 public_progress_note "
+            "或 public_action_state.current_judgment 中说明已确认事实、影响和下一步。"
+            "如果你直接调用普通工具，不要在工具调用前后夹带普通正文；等观察返回后再用 respond、ask_user 或 block 收口。"
         )
     if not tool_calls_allowed:
         instruction += "当前阶段没有可继续执行的工具动作；请在 allowed_agent_actions 内选择回答、询问、阻塞或其他已开放动作。"
@@ -894,11 +966,11 @@ def _tool_followup_action_contract_messages(
         },
         "output": {
             "natural_response": "事实已经足够回答用户时，选择 action_type=respond，并把用户可见自然语言正文完整写入 final_answer；不要把正文写在动作对象之外。",
-            "structured_action": "本阶段必须提交一个可唯一识别的动作；需要继续工具、请求任务生命周期、控制当前工作、显式询问或显式阻塞时，选择本轮允许的动作；provider 工具/控制动作可用时直接选择对应动作并填写参数。",
+            "structured_action": "本阶段必须提交一个可唯一识别的动作；需要继续工具、请求任务生命周期、控制当前工作、显式询问或显式阻塞时，选择本轮允许的动作。",
             "respond": "回答用户时提交 action_type=respond，并把用户可见自然语言正文写入 final_answer。",
             "ask_user": "需要让本轮停在等待用户补充的状态时，提交 action_type=ask_user，并填写 user_question。",
             "block": "事实、权限或环境不足以可靠继续，需要让本轮停在阻塞状态时，提交 action_type=block，并填写 blocking_reason。",
-            "tool_call": "仍需工具观察且本轮允许 tool_call 时，提交一个工具行动；公开说明用于表达判断，工具名和参数放在本次工具行动里。",
+            "tool_call": "仍需工具观察且本轮允许 tool_call 时，提交一个工具行动；工具调用只承载要执行的动作，公开说明只能放在结构化动作字段或后续收口回复中。",
         },
         "tool_followup_iteration": int(tool_iteration or 0),
     }
@@ -924,7 +996,7 @@ def _tool_followup_action_contract_messages(
     )
     instruction = (
         "你是正在根据刚才工具观察决定下一步的 coding agent。\n"
-        "请根据观察决定下一步，并只提交一个本轮允许的动作。\n"
+        "先理解刚才观察改变了什么，再决定当前 turn 的下一步；只提交一个本轮允许的动作。\n"
         f"{json.dumps(payload, ensure_ascii=False, sort_keys=True)}\n\n"
         f"{evidence_instruction}"
         "如果已经足够回答用户，提交 action_type=respond，并把完整自然语言回复写入 final_answer；不要输出动作对象之外的 Markdown 正文。\n"
@@ -974,20 +1046,16 @@ def _agent_authored_closeout_messages(
     )
     stop_context = _agent_visible_stop_context(closeout_lifecycle)
     instruction = (
-        "你是一名需要向用户说明当前阶段结果的 coding agent。\n"
-        "你收到的是本轮停止继续执行后的事实摘要；现在必须由你亲自判断如何回应用户。\n"
-        "你可以直接写给用户看的自然语言阶段反馈；如果需要让本轮停在等待用户补充或阻塞状态，也可以只输出一个结构化动作对象。\n"
-        "结构化动作对象的 action_type 只能是 respond、ask_user 或 block。\n"
-        "如果当前信息足够，直接写自然语言最终回应，或选择 respond 并把正文写入 final_answer。\n"
-        "如果还需要用户选择或补充信息，直接提出问题；如果本轮必须等待用户补充，选择 ask_user 并把问题写入 user_question。\n"
-        "如果事实、权限或环境不足以可靠继续，直接说明阻塞；如果本轮必须停在阻塞状态，选择 block 并把阻塞原因写入 blocking_reason。\n"
-        "如果停止原因是工具预算耗尽、当前阶段没有可继续执行的工具动作、连续工具失败或前一次回复没有形成可发布内容，"
-        "必须在用户可见字段里写成你自己的判断：当前已经确认哪些事实、哪些仍未确认、继续需要什么。"
-        "不要把调试字段、动作字段名、内部 ref、运行诊断或生命周期记录写进用户可见字段。\n"
-        "如果遇到搜索参数、路径、权限、读取窗口、上下文预算或大文件边界，请把它当作可恢复的执行事实："
-        "说明应缩小范围、把目录放在 roots、把具体文件放在 paths、按 read_file 窗口继续读取、提高上下文预算，"
-        "或把工作升级为项目级任务继续处理。\n"
-        "如果你还没有完成用户目标，要在用户可见字段里明确说未完成和可继续的具体方向；不要把工具记录当作最终成果。\n\n"
+        "你是正在为当前 turn 收口的 coding agent。\n"
+        "你收到的是本轮不能继续执行后的事实摘要。现在由你亲自判断如何向用户交代；这一步的可见解释由你负责。\n"
+        "这一阶段不能再调用工具，只能选择 respond、ask_user 或 block 中的一个动作。\n"
+        "先判断事实是否足够：足够说明当前结果时，选择 respond，并把自然、完整的用户回复写入 final_answer。\n"
+        "如果需要用户做选择或补充信息，选择 ask_user，并把用户能直接回答的问题写入 user_question。\n"
+        "如果事实、权限、环境或模型调用状态不足以可靠继续，选择 block，并把阻塞边界写入 blocking_reason。\n"
+        "你的可见回复要按时间顺序交代：已经确认了什么、哪里停住了、哪些目标还没有完成、用户或下一轮可以怎样继续。"
+        "不要把工具记录、内部字段名、事件编号、运行诊断或生命周期对象当成给用户的正文。\n"
+        "如果停止事实来自搜索参数、路径、权限、读取窗口、上下文预算、大文件边界或模型调用失败，把它当作执行事实来解释影响和可继续方向。\n"
+        "如果你还没有完成用户目标，要明确说未完成；不要把未验证的工作说成已经完成。\n\n"
         "当前阶段事实如下，只用于你理解原因和边界，不要逐字泄露内部字段：\n"
         f"{json.dumps({'current_stop_context': stop_context}, ensure_ascii=False, sort_keys=True)}"
     )
@@ -1094,199 +1162,6 @@ def _agent_contract_feedback_required_lifecycle(
         },
         "authority": "harness.loop.single_agent_turn.agent_contract_feedback_lifecycle",
     }
-
-
-def _agent_contract_feedback_safe_closeout_content(
-    *,
-    contract_feedback: dict[str, Any],
-    protocol_error: dict[str, Any],
-    control_signal: dict[str, Any],
-    closeout_signal: dict[str, Any],
-    previous_invalid_response: str = "",
-) -> str:
-    del previous_invalid_response
-    protocol = dict(protocol_error or {})
-    primary_reason = _public_protocol_failure_reason(protocol)
-    feedback_reasons = _public_contract_feedback_reasons(contract_feedback)
-    control_reason = _public_control_signal_failure_reason(control_signal)
-    closeout_reason = _public_control_signal_failure_reason(closeout_signal)
-    reasons = _unique_public_reasons(
-        [
-            primary_reason,
-            *feedback_reasons,
-            control_reason,
-            closeout_reason,
-        ]
-    )
-    if not reasons:
-        reasons = ["动作合同没有形成可执行、可发布的下一步"]
-    if _protocol_error_mentions_request_task_run(protocol):
-        opening = "本轮已经停止，长任务资源没有成功申请。"
-    else:
-        opening = "本轮已经停止，当前动作没有通过执行合同。"
-    return "\n".join(
-        [
-            opening,
-            f"原因：{'；'.join(reasons[:3])}。",
-            "我没有把未通过执行的动作细节当作回复发布；本轮会话上下文、失败事实和已确认目标仍然保留，后续可以基于这些信息继续重试。",
-        ]
-    )
-
-
-def _public_protocol_failure_reason(protocol_error: dict[str, Any]) -> str:
-    protocol = dict(protocol_error or {})
-    validation_reasons = _public_validation_error_reasons(_protocol_validation_errors(protocol))
-    if validation_reasons:
-        subject = "任务启动合同" if _protocol_error_mentions_request_task_run(protocol) else "动作合同"
-        return f"{subject}没有通过校验，{'、'.join(validation_reasons)}"
-    code = str(protocol.get("code") or "").strip()
-    reason = str(protocol.get("reason") or "").strip()
-    if _protocol_error_mentions_request_task_run(protocol):
-        if code == "single_agent_turn_invalid_native_action" or "action_object_required_for_control_action" in reason:
-            return "长任务资源申请的合同参数没有被后端接受"
-        return "长任务资源申请没有通过当前动作边界"
-    if code or reason:
-        return "上一条动作没有通过当前动作边界"
-    return ""
-
-
-def _protocol_validation_errors(protocol_error: dict[str, Any]) -> list[str]:
-    protocol = dict(protocol_error or {})
-    diagnostics = dict(protocol.get("diagnostics") or {})
-    errors: list[str] = []
-    errors.extend(str(item) for item in str(protocol.get("reason") or "").split(";") if str(item).strip())
-    errors.extend(str(item) for item in list(diagnostics.get("validation_errors") or []) if str(item).strip())
-    for native_error in list(diagnostics.get("native_action_errors") or []):
-        if not isinstance(native_error, dict):
-            continue
-        errors.extend(str(item) for item in str(native_error.get("reason") or "").split(";") if str(item).strip())
-        action_diagnostics = dict(native_error.get("model_action_diagnostics") or {})
-        errors.extend(str(item) for item in list(action_diagnostics.get("validation_errors") or []) if str(item).strip())
-    return _unique_public_reasons(errors)
-
-
-def _public_validation_error_reasons(errors: list[str]) -> list[str]:
-    normalized = {str(item).strip() for item in list(errors or []) if str(item).strip()}
-    reasons: list[str] = []
-    if {
-        "task_run_contract_seed_required_for_request_task_run",
-        "task_run_contract_seed_must_be_object",
-    }.intersection(normalized):
-        reasons.append("长任务资源申请意图缺失或不是对象")
-    if {
-        "compact_task_start_intent.minimum_viable_next_step_required",
-        "compact_task_start_intent.working_scope_required",
-        "compact_task_start_intent.acceptance_mode_required",
-    }.intersection(normalized) or any(
-        item.startswith("compact_task_start_intent.contract_shape_unsupported")
-        or item.startswith("compact_task_start_intent.primary_mode_unsupported")
-        or item.startswith("compact_task_start_intent.task_shape_unsupported")
-        for item in normalized
-    ):
-        reasons.append("长任务资源申请意图缺少主工作契约、资源形态、最小下一步、范围或验收模式")
-    if {
-        "container_contract.minimum_viable_next_step_required_for_request_task_run",
-        "work_modes.exactly_one_primary_required_for_request_task_run",
-        "work_modes_required_for_request_task_run",
-        "container_contract.primary_work_mode_ref_must_point_to_primary_work_mode",
-    }.intersection(normalized):
-        reasons.append("长任务资源申请意图无法生成完整的主工作契约")
-    if any(item.startswith("primary_") and item.endswith("_required_for_request_task_run") for item in normalized):
-        reasons.append("主工作模式的最低可执行内容不完整")
-    if "acceptance_contract.acceptance_mode_required_for_request_task_run" in normalized:
-        reasons.append("缺少验收模式")
-    if {
-        "public_progress_note_required_for_request_task_run",
-        "public_action_state_required_for_request_task_run",
-    }.intersection(normalized):
-        reasons.append("长任务资源申请说明或当前执行判断缺失")
-    if {
-        "public_response_required",
-        "public_progress_note_required",
-        "public_action_state_required",
-    }.intersection(normalized):
-        reasons.append("缺少可发布给用户的回应或当前判断")
-    if not reasons and normalized:
-        reasons.append("动作参数形状不符合当前合同")
-    return reasons
-
-
-def _protocol_error_mentions_request_task_run(protocol_error: dict[str, Any]) -> bool:
-    protocol = dict(protocol_error or {})
-    diagnostics = dict(protocol.get("diagnostics") or {})
-    values: list[str] = []
-    values.extend(str(item) for item in list(diagnostics.get("tool_names") or []) if str(item))
-    action_issue = dict(diagnostics.get("action_issue") or protocol.get("action_issue") or {})
-    values.append(str(action_issue.get("requested_action_type") or ""))
-    values.append(str(action_issue.get("requested_tool_name") or ""))
-    for native_error in list(diagnostics.get("native_action_errors") or []):
-        if not isinstance(native_error, dict):
-            continue
-        native_issue = dict(native_error.get("action_issue") or {})
-        native_call = dict(native_error.get("native_tool_call") or {})
-        values.append(str(native_issue.get("requested_action_type") or ""))
-        values.append(str(native_issue.get("requested_tool_name") or ""))
-        values.append(str(native_call.get("name") or ""))
-    return any(value == "request_task_run" for value in values)
-
-
-def _public_contract_feedback_reasons(contract_feedback: dict[str, Any]) -> list[str]:
-    feedback = dict(contract_feedback or {})
-    failure = dict(feedback.get("contract_failure") or {})
-    reasons: list[str] = []
-    for item in list(failure.get("specific_feedback") or []):
-        if not isinstance(item, dict):
-            continue
-        code = str(item.get("code") or "").strip()
-        if code == "action_object_required_for_control_action":
-            reasons.append("动作参数没有通过合同校验")
-        elif code:
-            situation = str(item.get("situation_feedback") or "").strip()
-            if situation and not _public_reason_contains_internal_terms(situation):
-                reasons.append(situation.rstrip("。"))
-    return _unique_public_reasons(reasons)
-
-
-def _public_control_signal_failure_reason(control_signal: dict[str, Any]) -> str:
-    signal = dict(control_signal or {})
-    commit_reason = str(signal.get("commit_reason") or "").strip()
-    if not commit_reason:
-        return ""
-    leak_flags = [str(item) for item in list(signal.get("answer_leak_flags") or []) if str(item)]
-    if any("runtime_protocol" in flag or "internal_protocol" in flag for flag in leak_flags):
-        return "候选收口混入动作格式或运行记录，无法作为自然回应展示"
-    if commit_reason in {"empty_final_text", "missing_answer"}:
-        return "候选收口为空，没有形成可展示反馈"
-    return "候选收口没有通过会话输出门禁"
-
-
-def _public_reason_contains_internal_terms(text: str) -> bool:
-    lowered = str(text or "").lower()
-    return any(
-        token in lowered
-        for token in (
-            "model_action_request",
-            "tool_call",
-            "tool sidecar",
-            "canonical native",
-            "native_tool",
-            "provider_native",
-            "runtime_control_signal",
-            "json action",
-        )
-    )
-
-
-def _unique_public_reasons(values: list[str] | tuple[str, ...]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for value in values:
-        text = str(value or "").strip().strip("。")
-        if not text or text in seen:
-            continue
-        seen.add(text)
-        result.append(text)
-    return result
 
 
 def _agent_contract_feedback_message(
@@ -1697,19 +1572,31 @@ def _turn_status_from_public_terminal_event(event: dict[str, Any]) -> str:
 
 @dataclass(frozen=True, slots=True)
 class SingleAgentOutputChannelContract:
+    phase: str
     action_transport_required: bool
     provider_json_object_required: bool
     visible_body_source: str
     direct_visible_text_stream_allowed: bool
+    raw_assistant_text_allowed: bool
+    action_required: bool
+    natural_response_carrier: str
+    preferred_action_transport: str = ""
+    fallback_action_transport: str = ""
     action_authority: str = "harness.loop.model_action_request"
     authority: str = "harness.loop.single_agent_turn.output_channel_contract"
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "phase": str(self.phase or ""),
             "action_transport_required": bool(self.action_transport_required),
+            "action_required": bool(self.action_required),
             "provider_json_object_required": bool(self.provider_json_object_required),
             "visible_body_source": str(self.visible_body_source or ""),
             "direct_visible_text_stream_allowed": bool(self.direct_visible_text_stream_allowed),
+            "raw_assistant_text_allowed": bool(self.raw_assistant_text_allowed),
+            "natural_response_carrier": str(self.natural_response_carrier or ""),
+            "preferred_action_transport": str(self.preferred_action_transport or ""),
+            "fallback_action_transport": str(self.fallback_action_transport or ""),
             "action_identity_bound_by_runtime": True,
         }
 
@@ -1717,8 +1604,11 @@ class SingleAgentOutputChannelContract:
 def _single_agent_output_channel_contract(
     *,
     action_transport_required: bool,
+    phase: str = "initial_decision",
     provider_json_object_required: bool | None = None,
     direct_visible_text_stream_allowed: bool | None = None,
+    preferred_action_transport: str = "",
+    fallback_action_transport: str = "",
 ) -> SingleAgentOutputChannelContract:
     action_required = bool(action_transport_required)
     json_required = action_required if provider_json_object_required is None else bool(provider_json_object_required)
@@ -1728,43 +1618,39 @@ def _single_agent_output_channel_contract(
         else bool(direct_visible_text_stream_allowed)
     )
     return SingleAgentOutputChannelContract(
+        phase=str(phase or ("action_decision" if action_required else "initial_decision")),
         action_transport_required=action_required,
         provider_json_object_required=json_required,
         visible_body_source="model_action_user_field" if action_required else "assistant_text",
         direct_visible_text_stream_allowed=direct_stream_allowed,
+        raw_assistant_text_allowed=bool(direct_stream_allowed and not action_required),
+        action_required=action_required,
+        natural_response_carrier="respond.final_answer" if action_required else "assistant_message",
+        preferred_action_transport=str(
+            preferred_action_transport
+            or ("provider_control_tool_or_json_action_object" if action_required else "assistant_message_or_action")
+        ),
+        fallback_action_transport=str(
+            fallback_action_transport
+            or ("json_action_object" if action_required else "json_action_object_when_action_selected")
+        ),
     )
-
-
-_DIRECT_VISIBLE_TEXT_DECISION_ACTIONS = {
-    "active_work_control",
-    "ask_user",
-    "block",
-    "pause_for_user_steer",
-    "request_task_run",
-    "resume_recoverable_work",
-    "tool_call",
-}
-
-
-def _direct_visible_text_stream_allowed_for_actions(allowed_action_types: tuple[str, ...]) -> bool:
-    allowed = {str(item or "").strip() for item in tuple(allowed_action_types or ()) if str(item or "").strip()}
-    return not bool(allowed.intersection(_DIRECT_VISIBLE_TEXT_DECISION_ACTIONS))
 
 
 def _output_channel_contract_from_capabilities(
     capabilities: dict[str, Any] | None,
     *,
-    allowed_action_types: tuple[str, ...] = (),
+    phase: str = "initial_decision",
 ) -> SingleAgentOutputChannelContract:
     payload = dict(capabilities or {})
     return _single_agent_output_channel_contract(
+        phase=phase,
         action_transport_required=bool(payload.get("requires_json_action_protocol") is True),
-        direct_visible_text_stream_allowed=_direct_visible_text_stream_allowed_for_actions(tuple(allowed_action_types or ())),
     )
 
 
-def _action_output_channel_contract() -> SingleAgentOutputChannelContract:
-    return _single_agent_output_channel_contract(action_transport_required=True)
+def _action_output_channel_contract(phase: str = "action_decision") -> SingleAgentOutputChannelContract:
+    return _single_agent_output_channel_contract(action_transport_required=True, phase=phase)
 
 
 def _output_channel_allows_direct_visible_text(contract: SingleAgentOutputChannelContract | None) -> bool:
@@ -1789,7 +1675,6 @@ class SingleAgentActionParse:
     tool_actions: tuple[ModelActionRequest, ...] = ()
     control_action: ModelActionRequest | None = None
     assistant_final_text: str = ""
-    packet_public_progress_note: str = ""
 
 
 async def run_single_agent_turn(
@@ -1884,7 +1769,7 @@ async def run_single_agent_turn(
                 _update_turn_run_event_offset(runtime_host, turn_run=turn_run, event=evidence_event)
         initial_output_contract = _output_channel_contract_from_capabilities(
             dict(compilation.packet.diagnostics.get("control_capabilities") or {}),
-            allowed_action_types=tuple(compilation.packet.allowed_action_types or ()),
+            phase="initial_decision",
         )
         yield {
             "type": "single_agent_turn_started",
@@ -2075,6 +1960,7 @@ async def run_single_agent_turn(
         ) -> AsyncIterator[dict[str, Any]]:
             nonlocal terminal_recorded, assistant_stream_normalizer
             previous_invalid_response = ""
+            closeout_model_error: dict[str, Any] = {}
             for attempt in (1, 2):
                 closeout_messages = _agent_authored_closeout_messages(
                     model_messages,
@@ -2121,9 +2007,13 @@ async def run_single_agent_turn(
                             "segment_plan_ref": str(closeout_segment_plan.get("segment_plan_id") or ""),
                         },
                     },
-                    native_tools=current_native_tools_transport(),
+                    native_tools=_native_tools_for_packet(
+                        _TOOL_LIMIT_CLOSEOUT_ACTION_TYPES,
+                        available_tools=(),
+                        tool_call_contract=current_tool_call_contract,
+                    ),
                     allow_assistant_text_delta=False,
-                    output_contract=_single_agent_output_channel_contract(action_transport_required=False),
+                    output_contract=_action_output_channel_contract(phase=f"closeout_decision:{phase}"),
                 ):
                     if model_event.get("type") == _INTERNAL_MODEL_RESPONSE_EVENT:
                         closeout_response = model_event.get("response")
@@ -2132,6 +2022,12 @@ async def run_single_agent_turn(
                     capture_assistant_stream_event(model_event)
                     yield model_event
                 if isinstance(closeout_response, dict) and closeout_response.get("type") == "error":
+                    closeout_model_error = dict(closeout_response)
+                    previous_invalid_response = json.dumps(
+                        {"closeout_model_error": _runtime_error_payload(closeout_response)},
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )[:1200]
                     break
                 closeout_content, closeout_parse_issue = _agent_authored_closeout_content_from_response(
                     closeout_response,
@@ -2225,52 +2121,27 @@ async def run_single_agent_turn(
                     contract_feedback=contract_feedback,
                 )
                 yield {"type": "agent_contract_feedback_required", "event": lifecycle_event}
-            safe_closeout = _agent_contract_feedback_safe_closeout_content(
-                contract_feedback=contract_feedback,
-                protocol_error=feedback_protocol_error,
-                control_signal=feedback_control_signal,
-                closeout_signal=dict(control_signal or {}),
-                previous_invalid_response=previous_invalid_response,
-            )
-            commit_decision = await _commit_final_message(
-                commit_assistant_message,
-                runtime_host=runtime_host,
-                turn_run=turn_run,
-                session_id=session_id,
-                turn_id=turn_id,
-                content=safe_closeout,
-                answer_channel="conversation",
-                answer_source=_AGENT_CONTRACT_FEEDBACK_SOURCE,
-                api_protocol_messages=[
-                    *api_protocol_messages,
-                    _assistant_protocol_message_from_content(safe_closeout, turn_id=turn_id),
-                ],
-                main_context=memory_maintenance_main_context_for_commit(),
-            )
-            async for event in emit_terminal_then_final(
-                content=safe_closeout,
-                answer_channel="conversation",
-                answer_source=_AGENT_CONTRACT_FEEDBACK_SOURCE,
-                terminal_status="failed",
-                terminal_reason="agent_contract_feedback_required",
-                final_extra={
-                    "runtime_branch": dict(runtime_branch or {}),
-                    "completion_state": "agent_contract_feedback_required",
-                    "agent_closeout_attempts": 2,
-                    "agent_contract_feedback": contract_feedback,
-                    "safe_user_closeout": True,
-                },
-                terminal_payload={
-                    "completion_state": "agent_contract_feedback_required",
-                    "agent_closeout_attempts": 2,
-                    "agent_contract_feedback": contract_feedback,
-                    "safe_user_closeout": True,
-                    **({"runtime_control_signal": feedback_control_signal} if feedback_control_signal else {}),
-                    **({"protocol_error": feedback_protocol_error} if feedback_protocol_error else {}),
-                },
-                commit_decision=commit_decision,
-            ):
-                yield event
+            if runtime_host is not None and turn_run is not None:
+                terminal = _record_turn_terminal(
+                    runtime_host,
+                    turn_run=turn_run,
+                    turn_id=turn_id,
+                    status="failed",
+                    terminal_reason="agent_contract_feedback_required",
+                    payload=terminal_payload_with_stream_continuity(
+                        {
+                            "completion_state": "agent_contract_feedback_required",
+                            "agent_closeout_attempts": 2,
+                            "agent_contract_feedback": contract_feedback,
+                            "agent_authored_closeout_missing": True,
+                            **({"closeout_model_error": closeout_model_error} if closeout_model_error else {}),
+                            **({"runtime_control_signal": feedback_control_signal} if feedback_control_signal else {}),
+                            **({"protocol_error": feedback_protocol_error} if feedback_protocol_error else {}),
+                        }
+                    ),
+                )
+                terminal_recorded = True
+                yield {"type": "agent_turn_terminal", "event": terminal}
 
         def final_commit_not_committed(commit: FinalMessageCommit) -> bool:
             receipt = dict(commit.receipt or {})
@@ -2393,7 +2264,7 @@ async def run_single_agent_turn(
                 )
                 for steer_event in active_turn_steer_batch.events:
                     yield dict(steer_event)
-                current_output_contract = _action_output_channel_contract()
+                current_output_contract = _action_output_channel_contract(phase="active_turn_steer_decision")
                 model_messages, steer_segment_plan = _single_agent_turn_followup_prompt_payload(
                     base_segment_plan=dict(model_messages_segment_plan or {}),
                     model_messages=model_messages,
@@ -2507,7 +2378,7 @@ async def run_single_agent_turn(
                     allowed_action_types=current_allowed_action_types,
                     recovery_exhausted=recovery_exhausted,
                 )
-                current_output_contract = _action_output_channel_contract()
+                current_output_contract = _action_output_channel_contract(phase="runtime_recovery_decision")
                 model_messages, recovery_segment_plan = _single_agent_turn_followup_prompt_payload(
                     base_segment_plan=dict(model_messages_segment_plan or {}),
                     model_messages=model_messages,
@@ -2586,29 +2457,6 @@ async def run_single_agent_turn(
                 ):
                     yield event
                 return
-            if (
-                action_parse.packet_public_progress_note
-                and runtime_host is not None
-                and turn_run is not None
-                and not _assistant_stream_has_emitted_public_feedback(
-                    assistant_stream_normalizer,
-                    action_parse.packet_public_progress_note,
-                )
-            ):
-                yield _record_assistant_public_feedback(
-                    runtime_host,
-                    run_id=turn_run.turn_run_id,
-                    turn_id=turn_id,
-                    step="model_action_public_feedback",
-                    status="running",
-                    summary=action_parse.packet_public_progress_note,
-                    presentation_source=_ASSISTANT_CONTENT_PREAMBLE_PROGRESS_SOURCE,
-                    feedback_identity=_model_public_feedback_identity(
-                        packet_ref=current_packet_ref,
-                        tool_iteration=tool_iteration,
-                        tool_actions=tool_actions,
-                    ),
-                )
             tool_iteration += 1
             invocation_rows: list[dict[str, Any]] = []
             for tool_action in tool_actions:
@@ -3026,7 +2874,7 @@ async def run_single_agent_turn(
                 current_tool_call_contract = _tool_call_contract_from_packet(followup_compilation.packet)
                 current_output_contract = _output_channel_contract_from_capabilities(
                     dict(followup_compilation.packet.diagnostics.get("control_capabilities") or {}),
-                    allowed_action_types=tuple(followup_compilation.packet.allowed_action_types or ()),
+                    phase="tool_followup_decision",
                 )
                 if runtime_host is not None and turn_run is not None:
                     compaction_payload = dict(mid_turn_compaction.get("compaction") or {})
@@ -3089,7 +2937,7 @@ async def run_single_agent_turn(
                     tool_iteration=tool_iteration,
                     turn_id=turn_id,
                 )
-                current_output_contract = _action_output_channel_contract()
+                current_output_contract = _action_output_channel_contract(phase="tool_followup_decision")
                 followup_invocation_messages = _tool_followup_action_contract_messages(
                     [dict(item) for item in list(followup_context_messages or []) if isinstance(item, dict)],
                     turn_id=turn_id,
@@ -3169,20 +3017,32 @@ async def run_single_agent_turn(
                 yield model_event
             model_messages = _copy_model_messages_without_rewriting(followup_invocation_messages)
         if isinstance(response, dict) and response.get("type") == "error":
+            terminal_reason = str(response.get("code") or "single_agent_turn_failed")
+            control_signal = _model_invocation_failure_closeout_control_signal(
+                turn_id=turn_id,
+                packet_ref=current_packet_ref,
+                phase="model_invocation",
+                response=dict(response),
+                recent_observations=tool_observation_payloads,
+            )
             if runtime_host is not None and turn_run is not None:
-                terminal = _record_turn_terminal(
+                event = _record_turn_runtime_control_signal(
                     runtime_host,
                     turn_run=turn_run,
                     turn_id=turn_id,
-                    status="failed",
-                    terminal_reason=str(response.get("code") or "single_agent_turn_failed"),
-                    payload=terminal_payload_with_stream_continuity(
-                        {"model_error": _runtime_error_payload(response)}
-                    ),
+                    packet_ref=current_packet_ref,
+                    control_signal=control_signal,
                 )
-                terminal_recorded = True
-                yield {"type": "agent_turn_terminal", "event": terminal}
-            yield response
+                yield {"type": "turn_runtime_control_signal_observed", "event": event}
+            async for event in emit_agent_authored_closeout(
+                reason=terminal_reason,
+                phase="model_invocation_failed",
+                terminal_reason=terminal_reason,
+                control_signal=control_signal,
+                completion_state="model_invocation_failed",
+            ):
+                yield event
+            terminal_recorded = True
             return
         if repaired_or_parsed_final_action is not None:
             action_parse = repaired_or_parsed_final_action
@@ -3253,7 +3113,7 @@ async def run_single_agent_turn(
                     allowed_action_types=current_allowed_action_types,
                     recovery_exhausted=recovery_exhausted,
                 )
-                current_output_contract = _action_output_channel_contract()
+                current_output_contract = _action_output_channel_contract(phase="runtime_recovery_decision")
                 model_messages, recovery_segment_plan = _single_agent_turn_followup_prompt_payload(
                     base_segment_plan=dict(model_messages_segment_plan or {}),
                     model_messages=model_messages,
@@ -3853,7 +3713,9 @@ async def _invoke_single_turn_model(
     model_selection: dict[str, Any],
     accounting_context: dict[str, Any],
     native_tools: list[dict[str, Any]],
+    output_contract: SingleAgentOutputChannelContract | None = None,
 ) -> Any:
+    channel_contract = output_contract or _single_agent_output_channel_contract(action_transport_required=False)
     if _uses_provider_visible_append_only_context(accounting_context):
         model_messages = _copy_model_messages_without_rewriting(model_messages)
     else:
@@ -3871,7 +3733,10 @@ async def _invoke_single_turn_model(
     plain_invoker = getattr(model_runtime, "invoke_messages", None)
     if native_tools and callable(tool_invoker):
         try:
-            tool_call_options = _round_tool_call_options_for_native_tools(native_tools)
+            tool_call_options = _round_tool_call_options_for_native_tools(
+                native_tools,
+                output_contract=channel_contract,
+            )
             return await tool_invoker(
                 model_messages,
                 native_tools,
@@ -3881,6 +3746,29 @@ async def _invoke_single_turn_model(
             )
         except Exception as exc:
             logger.exception("single agent turn model tool invocation failed")
+            if _native_tool_invocation_should_fallback_to_json_action(
+                channel_contract,
+                native_tools=native_tools,
+                error=exc,
+            ) and callable(plain_invoker):
+                try:
+                    return await call_model_invoker(
+                        plain_invoker,
+                        model_messages,
+                        model_selection=_model_selection_with_json_object_contract(model_selection),
+                        accounting_context={
+                            **dict(accounting_context or {}),
+                            "provider_native_action_fallback": {
+                                "from": "provider_native_tools",
+                                "to": "json_action_object",
+                                "phase": str(channel_contract.phase or ""),
+                                "reason": _native_tool_invocation_fallback_reason(exc),
+                            },
+                        },
+                    )
+                except Exception as fallback_exc:
+                    logger.exception("single agent turn JSON action fallback invocation failed")
+                    return _single_agent_model_failure_event(fallback_exc)
             return _single_agent_model_failure_event(exc)
     if callable(plain_invoker):
         try:
@@ -3986,9 +3874,52 @@ def _native_tools_include_strict(native_tools: list[dict[str, Any]] | tuple[dict
 
 def _round_tool_call_options_for_native_tools(
     native_tools: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    output_contract: SingleAgentOutputChannelContract | None = None,
 ):
     max_tool_calls = 1 if _native_tools_include_strict(native_tools) else len(list(native_tools or []))
-    return build_round_tool_call_options(max_tool_calls=max_tool_calls)
+    tool_choice = "required" if _output_channel_requires_action(output_contract) else None
+    return build_round_tool_call_options(max_tool_calls=max_tool_calls, tool_choice=tool_choice)
+
+
+def _native_tool_invocation_should_fallback_to_json_action(
+    output_contract: SingleAgentOutputChannelContract,
+    *,
+    native_tools: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    error: Exception,
+) -> bool:
+    if not native_tools or not _output_channel_requires_action(output_contract):
+        return False
+    if isinstance(error, ModelRuntimeError):
+        if error.code in {"timeout", "rate_limit", "insufficient_balance", "provider_unavailable"}:
+            return False
+        detail = str(error.detail or "")
+    else:
+        detail = str(error or "")
+    lowered = detail.lower()
+    if any(
+        token in lowered
+        for token in (
+            "tool_choice",
+            "parallel_tool_calls",
+            "tools",
+            "tool call",
+            "tool_calls",
+            "function calling",
+            "strict",
+            "unsupported",
+            "not support",
+            "not supported",
+        )
+    ):
+        return True
+    return isinstance(error, ModelRuntimeError) and error.code == "provider_error"
+
+
+def _native_tool_invocation_fallback_reason(error: Exception) -> str:
+    if isinstance(error, ModelRuntimeError):
+        return str(error.code or "provider_native_tool_invocation_failed")
+    return "provider_native_tool_invocation_failed"
 
 
 def _model_selection_with_action_budget(model_selection: dict[str, Any]) -> dict[str, Any]:
@@ -4018,12 +3949,6 @@ async def _invoke_single_turn_model_with_stream_events(
     output_contract: SingleAgentOutputChannelContract | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     channel_contract = output_contract or _single_agent_output_channel_contract(action_transport_required=False)
-    if native_tools:
-        channel_contract = _single_agent_output_channel_contract(
-            action_transport_required=False,
-            provider_json_object_required=False,
-            direct_visible_text_stream_allowed=False,
-        )
     if channel_contract.provider_json_object_required:
         if native_tools:
             model_selection = _model_selection_for_native_tool_protocol(model_selection, native_tools=native_tools)
@@ -4040,6 +3965,7 @@ async def _invoke_single_turn_model_with_stream_events(
             model_selection=model_selection,
             accounting_context=accounting_context,
             native_tools=native_tools,
+            output_contract=channel_contract,
         )
         yield {"type": _INTERNAL_MODEL_RESPONSE_EVENT, "response": response, "assistant_stream_normalizer": None}
         return
@@ -4059,8 +3985,6 @@ async def _invoke_single_turn_model_with_stream_events(
     )
     tool_streamer = getattr(model_runtime, "astream_messages_with_tools", None)
     plain_streamer = getattr(model_runtime, "astream_messages", None)
-    # Native tool responses can carry both a public preamble and tool calls.
-    # Keep that preamble on the explicit public_progress_note -> assistant_public_feedback path.
     emit_assistant_text_delta = (
         bool(stream_policy.get("emit_assistant_text_delta", True) is not False)
         and bool(allow_assistant_text_delta)
@@ -4113,7 +4037,10 @@ async def _invoke_single_turn_model_with_stream_events(
     aggregated_response: Any = None
     try:
         if native_tools and callable(tool_streamer):
-            tool_call_options = _round_tool_call_options_for_native_tools(native_tools)
+            tool_call_options = _round_tool_call_options_for_native_tools(
+                native_tools,
+                output_contract=channel_contract,
+            )
             async for stream_item_kind, chunk in iterate_stream_with_due_ticks(
                 tool_streamer(
                     model_messages,
@@ -4174,6 +4101,7 @@ async def _invoke_single_turn_model_with_stream_events(
                 model_selection=model_selection,
                 accounting_context=accounting_context,
                 native_tools=native_tools,
+                output_contract=channel_contract,
             )
             for frame_event in _assistant_stream_end_events(
                 assistant_normalizer,
@@ -4185,6 +4113,33 @@ async def _invoke_single_turn_model_with_stream_events(
             return
     except Exception as exc:
         logger.exception("single agent turn streaming model invocation failed")
+        if _native_tool_invocation_should_fallback_to_json_action(
+            channel_contract,
+            native_tools=native_tools,
+            error=exc,
+        ):
+            fallback_response = await _invoke_single_turn_model(
+                model_runtime=model_runtime,
+                model_messages=model_messages,
+                model_selection=_model_selection_with_json_object_contract(model_selection),
+                accounting_context={
+                    **dict(accounting_context or {}),
+                    "provider_native_action_fallback": {
+                        "from": "provider_native_tools_stream",
+                        "to": "json_action_object",
+                        "phase": str(channel_contract.phase or ""),
+                        "reason": _native_tool_invocation_fallback_reason(exc),
+                    },
+                },
+                native_tools=[],
+                output_contract=channel_contract,
+            )
+            yield {
+                "type": _INTERNAL_MODEL_RESPONSE_EVENT,
+                "response": fallback_response,
+                "assistant_stream_normalizer": assistant_normalizer,
+            }
+            return
         if should_recover_partial_visible_stream(
             stream_policy,
             raw_content=raw_content,
@@ -4536,7 +4491,7 @@ async def _repair_single_agent_admission_failure(
     repair_response = await _invoke_single_turn_model(
         model_runtime=model_runtime,
         model_messages=repair_messages,
-        model_selection=dict(model_selection or {}),
+        model_selection=_model_selection_with_json_object_contract(dict(model_selection or {})),
         accounting_context={
             **dict(accounting_context or {}),
             "request_id": request_id,
@@ -4579,6 +4534,7 @@ async def _repair_single_agent_admission_failure(
         iteration=iteration,
         allowed_action_types=allowed_action_types,
         phase=phase,
+        output_contract=_action_output_channel_contract(phase="admission_repair_decision"),
         require_json_action=True,
     )
     if repaired.error or repaired.action_request is None:
@@ -4706,18 +4662,10 @@ def _single_agent_action_request_from_response(
     allow_model_tool_calls: bool = False,
     public_response_required: bool = False,
 ) -> SingleAgentActionParse:
-    if allow_model_tool_calls:
-        channel_contract = _single_agent_output_channel_contract(
-            action_transport_required=False,
-            provider_json_object_required=False,
-            direct_visible_text_stream_allowed=False,
-        )
-        require_json_action = False
-    else:
-        channel_contract = output_contract or _single_agent_output_channel_contract(
-            action_transport_required=bool(require_json_action)
-        )
-        require_json_action = _output_channel_requires_action(channel_contract)
+    channel_contract = output_contract or _single_agent_output_channel_contract(
+        action_transport_required=bool(require_json_action)
+    )
+    require_json_action = _output_channel_requires_action(channel_contract)
     protocol = model_response_protocol_from_response(
         response,
         request_id=request_id,
@@ -4728,10 +4676,6 @@ def _single_agent_action_request_from_response(
     native_tool_calls = [dict(item) for item in protocol.native_tool_calls]
     assistant_text = str(protocol.content or "").strip()
     json_payload = dict(protocol.json_payload or {})
-    json_payload = _json_action_payload_with_transport_public_note(
-        json_payload,
-        parse_diagnostics=dict(protocol.parse_diagnostics or {}),
-    )
     json_action_like = _is_model_action_json_payload(json_payload)
     malformed_action_like = (
         bool(json_payload)
@@ -4989,7 +4933,6 @@ def _single_agent_action_request_from_response(
                 ),
             )
         return SingleAgentActionParse(action_request=None, native_tool_calls=[])
-    packet_public_progress_note = _public_progress_note_from_packet_content(protocol.content).strip()
     native_parse = _action_requests_from_native_tool_calls_with_diagnostics(
         native_tool_calls,
         turn_id=turn_id,
@@ -4997,8 +4940,6 @@ def _single_agent_action_request_from_response(
         iteration=iteration,
         allowed_action_types=allowed_action_types,
         public_response_required=public_response_required,
-        packet_public_response_present=bool(packet_public_progress_note),
-        packet_public_progress_note=packet_public_progress_note,
     )
     sidecar_actions = list(native_parse.actions)
     if native_parse.errors:
@@ -5076,7 +5017,6 @@ def _single_agent_action_request_from_response(
             action_request=tool_actions[0] if len(tool_actions) == 1 else None,
             native_tool_calls=native_tool_calls,
             tool_actions=tool_actions,
-            packet_public_progress_note=packet_public_progress_note,
         )
     if control_actions:
         if len(control_actions) != 1:
@@ -5103,7 +5043,6 @@ def _single_agent_action_request_from_response(
             action_request=control_actions[0],
             native_tool_calls=native_tool_calls,
             control_action=control_actions[0],
-            packet_public_progress_note=packet_public_progress_note,
         )
     if require_json_action:
         return SingleAgentActionParse(
@@ -5145,58 +5084,6 @@ def _is_model_action_json_payload(payload: dict[str, Any]) -> bool:
     if "action_type" in payload:
         return True
     return authority.startswith("harness.loop.") and "action" in payload
-
-
-def _json_action_payload_with_transport_public_note(
-    payload: dict[str, Any],
-    *,
-    parse_diagnostics: dict[str, Any],
-) -> dict[str, Any]:
-    action_payload = dict(payload or {})
-    if not action_payload:
-        return action_payload
-    action_type = str(action_payload.get("action_type") or "").strip()
-    if action_type != "tool_call":
-        return action_payload
-    if str(action_payload.get("public_progress_note") or "").strip():
-        return action_payload
-    public_action_state = dict(action_payload.get("public_action_state") or {}) if isinstance(action_payload.get("public_action_state"), dict) else {}
-    if str(public_action_state.get("current_judgment") or "").strip():
-        return action_payload
-    candidate = str(dict(parse_diagnostics or {}).get("ignored_leading_text") or "").strip()
-    note = _public_progress_note_from_transport_preamble(candidate)
-    if not note:
-        return action_payload
-    return {
-        **action_payload,
-        "public_progress_note": note,
-        "public_action_state": {
-            **public_action_state,
-            "current_judgment": str(public_action_state.get("current_judgment") or note).strip(),
-            "completion_status": str(public_action_state.get("completion_status") or "waiting_for_tool"),
-        },
-    }
-
-
-def _public_progress_note_from_transport_preamble(value: Any) -> str:
-    text = _compact_text(value, limit=300)
-    if not text:
-        return ""
-    if contains_internal_protocol(text) or contains_inline_pseudo_tool_call(text):
-        return ""
-    normalized = public_runtime_progress_summary(text)
-    if not normalized:
-        return ""
-    if contains_internal_protocol(normalized) or contains_inline_pseudo_tool_call(normalized):
-        return ""
-    return _compact_text(normalized, limit=240)
-
-
-def _public_progress_note_from_packet_content(value: Any) -> str:
-    visible = sanitize_visible_assistant_content(str(value or "")).strip()
-    if not visible:
-        return ""
-    return _public_progress_note_from_transport_preamble(visible)
 
 
 def _json_action_parse_transport(parse_diagnostics: dict[str, Any] | None) -> dict[str, Any]:
@@ -5264,7 +5151,7 @@ def _mixed_public_text_and_action_intent_error(
     repair_instruction = (
         "上一轮输出里同时出现了公开表达和行动表达，行动没有进入执行队列。"
         "请继续根据用户目标和已确认事实选择当前可执行动作。"
-        "如果要回答用户，给出自然回应或使用 respond.final_answer；"
+        "如果要回答用户，提交 respond 动作，并把自然回应写入 final_answer；"
         "如果还需要查证，按本轮工具行动合同提交工具动作。"
         "需要保留的公开判断放入 public_progress_note 或 public_action_state.current_judgment。"
     )
@@ -5293,8 +5180,6 @@ def _action_requests_from_native_tool_calls(
     iteration: int,
     allowed_action_types: tuple[str, ...] = ("respond", "tool_call"),
     public_response_required: bool = False,
-    packet_public_response_present: bool = False,
-    packet_public_progress_note: str = "",
 ) -> list[ModelActionRequest]:
     return list(
         _action_requests_from_native_tool_calls_with_diagnostics(
@@ -5304,8 +5189,6 @@ def _action_requests_from_native_tool_calls(
             iteration=iteration,
             allowed_action_types=allowed_action_types,
             public_response_required=public_response_required,
-            packet_public_response_present=packet_public_response_present,
-            packet_public_progress_note=packet_public_progress_note,
         ).actions
     )
 
@@ -5318,8 +5201,6 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
     iteration: int,
     allowed_action_types: tuple[str, ...] = ("respond", "tool_call"),
     public_response_required: bool = False,
-    packet_public_response_present: bool = False,
-    packet_public_progress_note: str = "",
 ) -> NativeActionRequestParse:
     actions: list[ModelActionRequest] = []
     errors: list[dict[str, Any]] = []
@@ -5409,22 +5290,8 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
                 }
             )
             continue
-        if packet_public_progress_note and not _model_action_request_has_public_response(action):
-            public_action_state = dict(action.public_action_state or {})
-            public_action_state.setdefault("current_judgment", packet_public_progress_note)
-            public_action_state.setdefault("next_action", packet_public_progress_note)
-            action = replace(
-                action,
-                public_progress_note=packet_public_progress_note,
-                public_action_state=public_action_state,
-                diagnostics={
-                    **dict(action.diagnostics or {}),
-                    "public_progress_note_source": "assistant_content_preamble",
-                },
-            )
         if (
             public_response_required
-            and not packet_public_response_present
             and not _model_action_request_has_public_response(action)
         ):
             diagnostics = dict(action.diagnostics or {})
@@ -6041,8 +5908,6 @@ def _native_tool_public_note(args: dict[str, Any]) -> str:
         "public_progress_note",
         "public_note",
         "current_judgment",
-        "reason",
-        "purpose",
         "user_visible_reason",
     ):
         text = public_runtime_progress_summary(args.get(key) or "").strip()
@@ -8409,13 +8274,13 @@ def _single_agent_turn_followup_base_message_spec(
     prefix_tier = str(base.get("prefix_tier") or "volatile")
     if seal_provider_visible_history:
         sealed = (
-            _current_followup_append_context_policy(
+            current_followup_append_context_policy(
                 base,
                 message=message,
                 metadata=metadata,
             )
             if is_current_tool_round
-            else _sealed_followup_base_context_policy(
+            else sealed_followup_base_context_policy(
                 base,
                 message=message,
                 metadata=metadata,
@@ -8470,162 +8335,6 @@ def _single_agent_turn_followup_base_message_spec(
         "model_message": dict(message),
     }
     return result
-
-
-def _current_followup_append_context_policy(
-    base: dict[str, Any],
-    *,
-    message: dict[str, Any],
-    metadata: dict[str, Any],
-) -> dict[str, Any]:
-    append_metadata = {
-        **_without_context_classification_metadata(dict(metadata or {})),
-        "previous_context_structure": {
-            key: value
-            for key, value in dict(metadata or {}).items()
-            if str(key).startswith("context_")
-        },
-        "context_cache_section": CONTEXT_APPEND,
-        "context_semantic_slot": str(dict(metadata or {}).get("context_semantic_slot") or "tool_transcript"),
-        "context_prefix_cache_scope": "none",
-        "context_prefix_cache_role": "volatile",
-        "context_prefix_tier": "volatile",
-        "context_commit_policy": "append_then_seal",
-        "context_replay_policy": "current_append_commit_on_provider_success_then_next_ledger_replay",
-        "provider_visible_history_status": "current_tool_round_pending_provider_success",
-        "provider_visible_history_authority": "harness.loop.single_agent_turn.followup_current_append",
-        "provider_visible_history_model_message_hash": stable_model_message_hash(dict(message or {})),
-        "cache_impact": "current_context_append_promotes_to_next_prefix",
-        "stability_rule": (
-            "this message belongs to the current tool round; it is provider-visible now, "
-            "but must not be counted as cache-readable until a provider success confirms it for later replay"
-        ),
-    }
-    append_spec = {
-        **dict(base or {}),
-        "cache_scope": "none",
-        "cache_role": "volatile",
-        "prefix_tier": "volatile",
-        "metadata": append_metadata,
-    }
-    policy = context_segment_policy_for_spec(append_spec, default_section=CONTEXT_APPEND)
-    return {
-        "cache_scope": "none",
-        "cache_role": "volatile",
-        "prefix_tier": "volatile",
-        "metadata": {
-            **append_metadata,
-            **context_segment_policy_metadata(policy),
-        },
-    }
-
-
-def _sealed_followup_base_context_policy(
-    base: dict[str, Any],
-    *,
-    message: dict[str, Any],
-    metadata: dict[str, Any],
-) -> dict[str, Any]:
-    original_policy = context_segment_policy_for_spec(base)
-    if original_policy.section == STATIC_PREFIX:
-        policy = original_policy
-        return {
-            "cache_scope": str(base.get("cache_scope") or policy.prefix_cache_scope or "session"),
-            "cache_role": str(base.get("cache_role") or policy.prefix_cache_role or "session_stable"),
-            "prefix_tier": str(base.get("prefix_tier") or policy.prefix_tier or "session"),
-            "metadata": {
-                **dict(metadata or {}),
-                **context_segment_policy_metadata(policy),
-                "provider_visible_history_status": "static_context",
-                "provider_visible_history_authority": "harness.loop.single_agent_turn.followup_base_replay",
-            },
-        }
-
-    original_context = {
-        key: value
-        for key, value in dict(metadata or {}).items()
-        if str(key).startswith("context_")
-    }
-    sealed_metadata = {
-        **_without_context_classification_metadata(dict(metadata or {})),
-        "previous_context_structure": original_context,
-        "context_cache_section": CONTEXT_MEMORY_PREFIX,
-        "context_semantic_slot": str(dict(metadata or {}).get("context_semantic_slot") or "provider_visible_history"),
-        "context_commit_policy": "replay_only_already_materialized",
-        "context_replay_policy": "provider_visible_history_replay",
-        "provider_visible_history_status": "sealed_from_prior_model_request",
-        "provider_visible_history_authority": "harness.loop.single_agent_turn.followup_base_replay",
-        "provider_visible_history_model_message_hash": stable_model_message_hash(dict(message or {})),
-        "cache_impact": "sealed_provider_visible_history",
-        "stability_rule": (
-            "this message was already sent to the provider in an earlier request; "
-            "the follow-up path must replay the exact provider-visible bytes and treat it as sealed context history"
-        ),
-    }
-    sealed_spec = {
-        **dict(base or {}),
-        "cache_scope": "task",
-        "cache_role": "session_stable",
-        "prefix_tier": "task",
-        "metadata": sealed_metadata,
-    }
-    policy = context_segment_policy_for_spec(sealed_spec, default_section=CONTEXT_MEMORY_PREFIX)
-    return {
-        "cache_scope": "task",
-        "cache_role": "session_stable",
-        "prefix_tier": "task",
-        "metadata": {
-            **sealed_metadata,
-            **context_segment_policy_metadata(policy),
-        },
-        "kind": _provider_visible_history_replay_kind(base, message=message),
-    }
-
-
-def _provider_visible_history_replay_kind(base: dict[str, Any], *, message: dict[str, Any]) -> str:
-    original_kind = str(dict(base or {}).get("kind") or "").strip()
-    role = str(dict(message or {}).get("role") or "").strip()
-    if is_tool_transcript_kind(original_kind, include_historical=True):
-        return "provider_visible_tool_transcript_replay"
-    if role == "tool" or (role == "assistant" and dict(message or {}).get("tool_calls")):
-        return "provider_visible_tool_transcript_replay"
-    if original_kind in {"current_turn_user_context", "single_agent_turn_user_steer_context", "user_steering_context_append"}:
-        return "provider_visible_user_context_replay"
-    if role == "user":
-        return "provider_visible_user_message_replay"
-    if role == "assistant":
-        return "provider_visible_assistant_message_replay"
-    return original_kind or "provider_visible_context_replay"
-
-
-def _without_context_classification_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(metadata or {})
-    for key in (
-        "authority",
-        "cache_role",
-        "cache_scope",
-        "context_cache_section",
-        "context_commit_policy",
-        "context_contract_mapping_authority",
-        "context_contract_ref",
-        "context_contract_slot",
-        "context_identity_policy",
-        "context_prefix_cache_role",
-        "context_prefix_cache_scope",
-        "context_prefix_tier",
-        "context_repair_feedback_slot",
-        "context_replay_policy",
-        "context_segment_policy",
-        "context_semantic_slot",
-        "context_semantic_slot_rank",
-        "fixed_context_package",
-        "memory_commit_policy",
-        "prefix_tier",
-        "reason",
-        "semantic_commit_class",
-    ):
-        payload.pop(key, None)
-    return payload
 
 
 def _single_agent_turn_followup_message_spec(
@@ -9590,131 +9299,6 @@ def _agent_scope_refs(agent_scope: dict[str, Any] | None) -> dict[str, str]:
     if run_cell_id:
         refs["run_cell_ref"] = run_cell_id
     return refs
-
-
-def _record_step_summary(
-    runtime_host: Any,
-    *,
-    run_id: str,
-    turn_id: str,
-    step: str,
-    status: str,
-    summary: str,
-    presentation_source: str = "",
-    feedback_identity: str = "",
-) -> dict[str, Any]:
-    payload, event = _append_step_summary_record(
-        runtime_host,
-        run_id=run_id,
-        turn_id=turn_id,
-        step=step,
-        status=status,
-        summary=summary,
-        presentation_source=presentation_source,
-        feedback_identity=feedback_identity,
-    )
-    return {"type": "runtime_step_summary", **payload, "event": event}
-
-
-def _record_assistant_public_feedback(
-    runtime_host: Any,
-    *,
-    run_id: str,
-    turn_id: str,
-    step: str,
-    status: str,
-    summary: str,
-    presentation_source: str = "",
-    feedback_identity: str = "",
-) -> dict[str, Any]:
-    payload, event = _append_step_summary_record(
-        runtime_host,
-        run_id=run_id,
-        turn_id=turn_id,
-        step=step,
-        status=status,
-        summary=summary,
-        presentation_source=presentation_source,
-        feedback_identity=feedback_identity,
-    )
-    return {"type": ASSISTANT_PUBLIC_FEEDBACK_EVENT, **payload, "event": event}
-
-
-def _append_step_summary_record(
-    runtime_host: Any,
-    *,
-    run_id: str,
-    turn_id: str,
-    step: str,
-    status: str,
-    summary: str,
-    presentation_source: str = "",
-    feedback_identity: str = "",
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    visible_summary = public_runtime_progress_summary(summary)
-    payload = {
-        "turn_id": turn_id,
-        "step": step,
-        "status": status,
-        "summary": visible_summary,
-        "public_progress_note": visible_summary,
-    }
-    if presentation_source:
-        payload["presentation_source"] = presentation_source
-    if feedback_identity:
-        payload["feedback_identity"] = feedback_identity
-    refs = {"turn_ref": turn_id}
-    if feedback_identity:
-        refs["runtime_invocation_packet_ref"] = feedback_identity
-    event = runtime_host.event_log.append(
-        run_id,
-        "step_summary_recorded",
-        payload=payload,
-        refs=refs,
-    )
-    turn_run = runtime_host.state_index.get_turn_run(run_id)
-    if turn_run is not None:
-        runtime_host.state_index.upsert_turn_run(
-            replace(
-                turn_run,
-                updated_at=event.created_at,
-                latest_event_offset=event.offset,
-                diagnostics={
-                    **dict(turn_run.diagnostics or {}),
-                    "latest_step": step,
-                    "latest_step_status": status,
-                    "latest_step_summary": visible_summary,
-                    "latest_public_progress_note": visible_summary,
-                },
-            )
-        )
-    return payload, event.to_dict()
-
-
-def _model_public_feedback_identity(
-    *,
-    packet_ref: str,
-    tool_iteration: int,
-    tool_actions: list[ModelActionRequest],
-) -> str:
-    action_refs = [
-        str(getattr(item, "request_id", "") or "").strip()
-        for item in list(tool_actions or [])
-        if str(getattr(item, "request_id", "") or "").strip()
-    ]
-    action_ref = "|".join(action_refs) if action_refs else "no-action-ref"
-    return f"model-packet-public-feedback:{packet_ref}:tool-iteration:{int(tool_iteration or 0)}:actions:{action_ref}"
-
-
-def _assistant_stream_has_emitted_public_feedback(
-    assistant_stream_normalizer: AssistantStreamNormalizer | None,
-    public_progress_note: str,
-) -> bool:
-    if assistant_stream_normalizer is None:
-        return False
-    return assistant_stream_normalizer.has_emitted_public_text(
-        public_runtime_progress_summary(public_progress_note)
-    )
 
 
 def _assistant_stream_continuity_after_event(

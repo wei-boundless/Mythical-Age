@@ -39,6 +39,16 @@ class PromptSegment:
     prefix_tier: PromptPrefixTier = "volatile"
     compression_role: CompressionRole = "summarize"
     authority_class: PromptAuthorityClass = "unknown"
+    transport_location: str = ""
+    prefix_family: str = ""
+    semantic_source: str = ""
+    logical_segment_ref: str = ""
+    semantic_slot: str = ""
+    physical_prefix_lane: str = ""
+    boundary_participation: str = "excluded"
+    exclusion_reason: str = ""
+    consumer_contracts: tuple[str, ...] = ()
+    forbidden_authorities: tuple[str, ...] = ()
     source: str = ""
     created_at: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)

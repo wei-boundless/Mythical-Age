@@ -7,6 +7,7 @@ from typing import Any
 
 from .context_segment_policy import (
     CONTEXT_APPEND,
+    CONTEXT_MEMORY_PREFIX,
     CURRENT_CONTROL_TAIL_KINDS,
 )
 
@@ -184,7 +185,7 @@ def _provider_payload_segment_commit_eligible(payload: dict[str, Any], *, metada
         return False
 
     section = str(metadata.get("context_cache_section") or metadata.get("context_policy_section") or "").strip()
-    if section != CONTEXT_APPEND:
+    if section not in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
         return False
 
     if str(metadata.get("context_commit_policy") or "").strip() != "append_then_seal":

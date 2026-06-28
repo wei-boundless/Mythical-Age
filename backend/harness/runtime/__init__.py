@@ -12,6 +12,10 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "AgentRunSupervisor": ("harness.runtime.agent_run_supervisor", "AgentRunSupervisor"),
     "AgentRuntimeCell": ("harness.runtime.agent_runtime_cell", "AgentRuntimeCell"),
     "AgentRuntimeServices": ("harness.runtime.services", "AgentRuntimeServices"),
+    "ContextMessageProducer": ("harness.runtime.context_message_producers", "ContextMessageProducer"),
+    "ContextMessageProducerRegistry": ("harness.runtime.context_message_producers", "ContextMessageProducerRegistry"),
+    "ContextMessageProducerRequest": ("harness.runtime.context_message_producers", "ContextMessageProducerRequest"),
+    "ContextMessageProjection": ("harness.runtime.context_message_producers", "ContextMessageProjection"),
     "ExecutionContext": ("harness.runtime.execution_context", "ExecutionContext"),
     "OutputCommitAuthority": ("harness.runtime.output_commit_authority", "OutputCommitAuthority"),
     "OutputCommitRequest": ("harness.runtime.output_commit_authority", "OutputCommitRequest"),
@@ -47,6 +51,14 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "assemble_runtime": ("harness.runtime.assembly", "assemble_runtime"),
     "build_execution_context": ("harness.runtime.execution_context", "build_execution_context"),
+    "build_context_message_projection": (
+        "harness.runtime.context_message_producers",
+        "build_context_message_projection",
+    ),
+    "build_default_context_message_producer_registry": (
+        "harness.runtime.context_message_producers",
+        "build_default_context_message_producer_registry",
+    ),
     "build_registered_semantic_compaction_worker": (
         "harness.runtime.semantic_compaction_adapter",
         "build_registered_semantic_compaction_worker",

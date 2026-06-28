@@ -76,6 +76,24 @@ from .context_segment_policy import (
     context_segment_routes_to_dynamic_tail,
     register_context_segment_policy_defaults,
 )
+from .context_segment_registry import (
+    ContextSegmentKindDeclaration,
+    context_segment_capability_defaults,
+    context_segment_content_source_defaults,
+    context_segment_declared_kinds,
+    context_segment_dynamic_tier_defaults,
+    context_segment_kind_capability,
+    context_segment_kind_content_source,
+    context_segment_kind_declaration,
+    context_segment_kind_declarations,
+    context_segment_kind_dynamic_tier,
+    context_segment_kind_layer,
+    context_segment_kind_semantic_slot,
+    context_segment_kind_source_kind,
+    context_segment_layer_defaults,
+    context_segment_semantic_slot_defaults,
+    context_segment_source_kind_defaults,
+)
 from runtime_objects.tool_result_storage import (
     DEFAULT_FIELD_SIZE_LIMIT_BYTES,
     DEFAULT_PAYLOAD_BUDGET_BYTES,
@@ -163,6 +181,22 @@ __all__ = [
     "context_segment_routes_to_context_append",
     "context_segment_routes_to_dynamic_tail",
     "register_context_segment_policy_defaults",
+    "ContextSegmentKindDeclaration",
+    "context_segment_capability_defaults",
+    "context_segment_content_source_defaults",
+    "context_segment_declared_kinds",
+    "context_segment_dynamic_tier_defaults",
+    "context_segment_kind_capability",
+    "context_segment_kind_content_source",
+    "context_segment_kind_declaration",
+    "context_segment_kind_declarations",
+    "context_segment_kind_dynamic_tier",
+    "context_segment_kind_layer",
+    "context_segment_kind_semantic_slot",
+    "context_segment_kind_source_kind",
+    "context_segment_layer_defaults",
+    "context_segment_semantic_slot_defaults",
+    "context_segment_source_kind_defaults",
     "APPEND_ONLY_CONTEXT_KINDS",
     "CONTEXT_APPEND",
     "CONTEXT_MEMORY_PREFIX",
@@ -179,5 +213,4 @@ __all__ = [
     "is_historical_tool_transcript_kind",
     "is_tool_transcript_kind",
 ]
-
 

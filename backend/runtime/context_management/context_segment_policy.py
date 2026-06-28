@@ -3,13 +3,17 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, replace
 from typing import Any
 
+from .context_segment_registry import (
+    CONTEXT_APPEND,
+    CONTEXT_MEMORY_PREFIX,
+    DYNAMIC_TAIL,
+    STATIC_PREFIX,
+    context_segment_declared_kinds,
+    context_segment_kind_declarations,
+    context_segment_semantic_slot_defaults,
+)
 
 DEFAULT_PROVIDER_ADAPTER_CONTRACT = "deepseek_v4_provider_visible_message_v1"
-
-STATIC_PREFIX = "static_prefix"
-CONTEXT_MEMORY_PREFIX = "context_memory_prefix"
-CONTEXT_APPEND = "context_append"
-DYNAMIC_TAIL = "dynamic_tail"
 
 DEFAULT_CONTEXT_APPEND_SLOT_RANKS: dict[str, int] = {
     "recovery_or_recent_work_facts": 10,
@@ -26,24 +30,7 @@ DEFAULT_CONTEXT_APPEND_SLOT_RANKS: dict[str, int] = {
     "action_contract": 95,
 }
 
-KIND_CONTEXT_APPEND_SLOT_DEFAULTS: dict[str, str] = {
-    "current_turn_user_context": "current_user_intent",
-    "single_agent_turn_user_steer_context": "active_user_steer_content",
-    "user_steering_context_append": "active_user_steer_content",
-    "provider_visible_ledger_recovery_checkpoint": "recovery_or_recent_work_facts",
-    "recovery_context_package": "recovery_or_recent_work_facts",
-    "recent_work_outcome": "recovery_or_recent_work_facts",
-    "runtime_memory_context": "selected_memory_and_task_state_facts",
-    "task_state_replay_entry": "selected_memory_and_task_state_facts",
-    "read_evidence_context": "evidence_refs_and_file_state_facts",
-    "evidence_index_cursor": "evidence_refs_and_file_state_facts",
-    "attachment_context_index": "evidence_refs_and_file_state_facts",
-    "editor_context_index": "evidence_refs_and_file_state_facts",
-    "provider_protocol_history": "provider_protocol_history",
-    "single_agent_turn_followup_action_contract": "action_contract",
-    "single_agent_turn_tool_call": "tool_transcript",
-    "tool_transcript_delta": "tool_transcript",
-}
+KIND_CONTEXT_APPEND_SLOT_DEFAULTS: dict[str, str] = context_segment_semantic_slot_defaults()
 
 STREAM_CONTEXT_APPEND_SLOT_DEFAULTS: dict[str, str] = {
     "current_user_context": "current_user_intent",
@@ -54,85 +41,12 @@ STREAM_CONTEXT_APPEND_SLOT_DEFAULTS: dict[str, str] = {
     "tool_transcript": "tool_transcript",
 }
 
-STATIC_PREFIX_KINDS = {
-    "action_schema_static",
-    "agent_function_shared_stable",
-    "agent_stable",
-    "artifact_scope_stable",
-    "bound_task_context_stable",
-    "environment_stable",
-    "file_evidence_policy_stable",
-    "global_static",
-    "graph_task_shared_stable",
-    "environment_guidance_stable",
-    "personality_stable",
-    "project_instructions_stable",
-    "runtime_baseline_refs",
-    "task_run_contract_stable",
-    "task_prompt_contract",
-    "task_stable",
-    "tool_index_stable",
-    "turn_stable",
-}
-
-MEMORY_CONTEXT_KINDS = {
-    "attachment_context_index",
-    "editor_context_index",
-    "evidence_index_cursor",
-    "incremental_context_frame",
-    "provider_protocol_history",
-    "read_evidence_context",
-    "runtime_memory_context",
-    "session_pinned_facts_context",
-    "current_turn_user_context",
-    "single_agent_turn_tool_call",
-    "single_agent_turn_user_steer_context",
-    "task_start_inherited_context",
-    "task_state_replay_entry",
-    "tool_transcript_delta",
-    "user_steering_context_append",
-}
-
-APPEND_ONLY_CONTEXT_KINDS = {
-    "incremental_context_frame",
-    "provider_protocol_history",
-    "read_evidence_context",
-    "runtime_memory_context",
-    "session_pinned_facts_context",
-    "current_turn_user_context",
-    "single_agent_turn_tool_call",
-    "single_agent_turn_user_steer_context",
-    "task_state_replay_entry",
-    "tool_transcript_delta",
-    "user_steering_context_append",
-}
-
-CURRENT_CONTROL_TAIL_KINDS = {
-    "accumulated_context_boundary",
-    "active_skills",
-    "current_editor_evidence_delta",
-    "dynamic_projection",
-    "graph_node_completion_prefix",
-    "graph_node_runtime_context",
-    "incremental_context_cursor",
-    "turn_state_guidance",
-    "turn_attention_index",
-    "partial_stream_recovery_instruction",
-    "partial_stream_recovery_visible_prefix",
-    "read_evidence_injection",
-    "runtime_control_signal_tail",
-    "semantic_compaction_request",
-    "session_history_tail_context",
-    "single_agent_turn_followup_action_contract",
-    "single_agent_turn_followup_message",
-    "task_goal_context",
-    "task_plan_context",
-    "task_runtime_boundary_dynamic",
-    "task_todo_context",
-    "user_steering_consumption_tail",
-    "volatile_runtime_state",
-    "volatile_task_state",
-}
+STATIC_PREFIX_KINDS = set(context_segment_declared_kinds(section=STATIC_PREFIX))
+MEMORY_CONTEXT_KINDS = set(context_segment_declared_kinds(section=CONTEXT_APPEND)) | set(
+    context_segment_declared_kinds(section=CONTEXT_MEMORY_PREFIX)
+)
+APPEND_ONLY_CONTEXT_KINDS = set(context_segment_declared_kinds(append_only=True))
+CURRENT_CONTROL_TAIL_KINDS = set(context_segment_declared_kinds(section=DYNAMIC_TAIL))
 
 MEMORY_DYNAMIC_TIERS = {
     "append_only_runtime_evidence",
@@ -248,8 +162,21 @@ def register_context_segment_policy_defaults(
 
 
 def _install_builtin_policy_defaults() -> None:
-    for kind, slot in KIND_CONTEXT_APPEND_SLOT_DEFAULTS.items():
-        register_context_segment_policy_defaults(kind=kind, semantic_slot=slot)
+    for declaration in context_segment_kind_declarations():
+        defaults = declaration.policy_defaults()
+        if not any(defaults.values()):
+            continue
+        register_context_segment_policy_defaults(kind=declaration.kind, **defaults)
+    register_context_segment_policy_defaults(
+        kind="runtime_memory_context",
+        section=CONTEXT_MEMORY_PREFIX,
+        prefix_cache_scope="task",
+        prefix_cache_role="session_stable",
+        prefix_tier="task",
+        commit_policy="append_then_seal",
+        replay_policy="provider_visible_ledger_replay",
+        identity_policy="content_addressed_when_unkeyed",
+    )
     for stream, slot in STREAM_CONTEXT_APPEND_SLOT_DEFAULTS.items():
         register_context_segment_policy_defaults(stream=stream, semantic_slot=slot)
     for kind, rank in {
@@ -286,6 +213,7 @@ def _install_builtin_policy_defaults() -> None:
     for kind, slot in {
         "turn_state_guidance": "turn_state_guidance",
         "turn_attention_index": "turn_attention_index",
+        "turn_operating_contract": "turn_operating_contract",
         "runtime_control_signal_tail": "runtime_control_contract",
         "single_agent_turn_followup_action_contract": "action_contract",
         "single_agent_turn_followup_message": "runtime_followup_contract",
@@ -327,8 +255,8 @@ def context_segment_policy_for_spec(
     defaults = _policy_defaults(payload, metadata=metadata)
     kind = str(payload.get("kind") or metadata.get("kind") or "unknown_unplanned").strip() or "unknown_unplanned"
     section = _first_text(
-        _section_from_authoritative_context_metadata(payload, metadata=metadata),
         defaults.section,
+        _section_from_authoritative_context_metadata(payload, metadata=metadata),
         _section_for_payload(payload, metadata=metadata, defaults=defaults),
         metadata.get("context_policy_section"),
         default_section,
@@ -337,18 +265,18 @@ def context_segment_policy_for_spec(
     if section not in {STATIC_PREFIX, CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND, DYNAMIC_TAIL}:
         section = default_section
     prefix_cache_scope = _first_text(
-        metadata.get("context_prefix_cache_scope"),
         defaults.prefix_cache_scope,
+        metadata.get("context_prefix_cache_scope"),
         payload.get("cache_scope"),
     )
     prefix_cache_role = _first_text(
-        metadata.get("context_prefix_cache_role"),
         defaults.prefix_cache_role,
+        metadata.get("context_prefix_cache_role"),
         payload.get("cache_role"),
     )
     prefix_tier = _first_text(
-        metadata.get("context_prefix_tier"),
         defaults.prefix_tier,
+        metadata.get("context_prefix_tier"),
         payload.get("prefix_tier"),
     )
     resolved_scope, resolved_role, resolved_tier = _cache_policy_for_section(
@@ -629,12 +557,10 @@ def _cache_policy_for_section(
         role = _cache_role(cache_role)
         if role == "never_cache":
             return "none", "never_cache", "none"
-        if role == "volatile":
-            return "none", "volatile", "volatile"
-        if role not in {"cacheable_prefix", "session_stable"}:
-            role = "session_stable"
-        scope = str(cache_scope or "").strip() or "task"
-        return scope, role, _prefix_tier(prefix_tier, cache_scope=scope, cache_role=role)
+        scope = str(cache_scope or "").strip()
+        if not scope or scope == "none":
+            scope = "task"
+        return scope, "session_stable", "task"
     return "none", "volatile", "volatile"
 
 

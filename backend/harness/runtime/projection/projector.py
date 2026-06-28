@@ -34,7 +34,6 @@ from runtime.output_stream.public_contract import (
 _TRACE_ONLY_TOOL_NAMES = {"read_persisted_tool_result"}
 _COMMAND_TOOL_NAMES = {"bash", "cmd", "command", "powershell", "python_repl", "shell", "terminal"}
 _TRACE_ONLY_RUNTIME_STEP_SOURCES = {
-    "model_action.assistant_content_preamble",
     "runtime.protocol_repair",
     "system.tool_call_status",
     "tool_observation.summary",

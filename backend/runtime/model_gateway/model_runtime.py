@@ -25,6 +25,7 @@ from runtime.prompt_accounting import (
     PromptCacheBreakDetector,
     PromptCachePlanner,
     PromptStabilityReporter,
+    build_provider_cache_ledger_record,
     extract_provider_usage,
 )
 from runtime.prompt_accounting.provider_lane import (
@@ -1116,9 +1117,6 @@ class ModelRuntime:
                 "model_request_session_prefix_hash": model_request.session_prefix_hash,
                 "model_request_task_prefix_hash": model_request.task_prefix_hash,
                 "model_request_provider_payload_prefix_hash": model_request.provider_payload_prefix_hash,
-                "model_request_provider_payload_provider_global_prefix_hash": model_request.provider_payload_provider_global_prefix_hash,
-                "model_request_provider_payload_session_prefix_hash": model_request.provider_payload_session_prefix_hash,
-                "model_request_provider_payload_task_prefix_hash": model_request.provider_payload_task_prefix_hash,
                 "model_request_tool_catalog_hash": model_request.tool_catalog_hash,
                 "model_request_stable_tool_catalog_hash": model_request.stable_tool_catalog_hash,
                 "model_request_cache_sensitive_params_hash": model_request.cache_sensitive_params_hash,
@@ -1282,9 +1280,6 @@ class ModelRuntime:
                         "session_prefix_hash": str(getattr(model_request, "session_prefix_hash", "") or ""),
                         "task_prefix_hash": str(getattr(model_request, "task_prefix_hash", "") or ""),
                         "provider_payload_prefix_hash": str(getattr(model_request, "provider_payload_prefix_hash", "") or ""),
-                        "provider_payload_provider_global_prefix_hash": str(getattr(model_request, "provider_payload_provider_global_prefix_hash", "") or ""),
-                        "provider_payload_session_prefix_hash": str(getattr(model_request, "provider_payload_session_prefix_hash", "") or ""),
-                        "provider_payload_task_prefix_hash": str(getattr(model_request, "provider_payload_task_prefix_hash", "") or ""),
                         "tool_catalog_hash": str(getattr(model_request, "tool_catalog_hash", "") or ""),
                         "stable_tool_catalog_hash": str(getattr(model_request, "stable_tool_catalog_hash", "") or ""),
                         "cache_sensitive_params_hash": str(getattr(model_request, "cache_sensitive_params_hash", "") or ""),
@@ -1304,7 +1299,6 @@ class ModelRuntime:
                 updated_cache_record = self._prompt_cache_planner.with_provider_usage(cache_record, provider_usage)
                 physical_cache_spine_predicted_tokens = int(
                     dict(updated_cache_record.diagnostics or {}).get("physical_cache_spine_predicted_tokens")
-                    or dict(updated_cache_record.diagnostics or {}).get("provider_payload_prefix_predicted_tokens")
                     or 0
                 )
                 cached_tokens = max(int(provider_usage.cached_tokens or 0), int(provider_usage.cache_read_tokens or 0))
@@ -1335,6 +1329,16 @@ class ModelRuntime:
                     },
                 )
                 ledger.record_prompt_cache(updated_cache_record)
+                record_provider_cache_ledger = getattr(ledger, "record_provider_cache_ledger", None)
+                if callable(record_provider_cache_ledger):
+                    record_provider_cache_ledger(
+                        build_provider_cache_ledger_record(
+                            cache_record=updated_cache_record,
+                            provider_usage=provider_usage,
+                            previous_cache_records=previous_cache_records,
+                            created_at=finished_at,
+                        )
+                    )
                 break_record = self._prompt_cache_break_detector.detect(
                     cache_record=updated_cache_record,
                     provider_usage=provider_usage,
@@ -1375,7 +1379,7 @@ class ModelRuntime:
                     or getattr(model_request, "canonical_hash", "")
                     or ""
                 ),
-                provider_payload_message_prefix_hash=str(getattr(model_request, "provider_payload_message_prefix_hash", "") or ""),
+                physical_cache_spine_message_subtotal_hash=str(getattr(model_request, "physical_cache_spine_message_subtotal_hash", "") or ""),
                 transport_contract_hash=str(getattr(model_request, "transport_contract_hash", "") or ""),
                 request_message_count=len(tuple(getattr(model_request, "messages", ()) or ())),
             )
@@ -2268,12 +2272,14 @@ def _previous_stability_report(
 
 def _model_request_prefix_hash_for_tier(model_request: Any, *, prefix_key_tier: str) -> str:
     tier = str(prefix_key_tier or "").strip()
+    if tier == "physical_cache_spine":
+        return str(getattr(model_request, "provider_payload_prefix_hash", "") or "")
     if tier == "task":
-        return str(getattr(model_request, "provider_payload_task_prefix_hash", "") or getattr(model_request, "task_prefix_hash", "") or "")
+        return str(getattr(model_request, "task_prefix_hash", "") or "")
     if tier == "session":
-        return str(getattr(model_request, "provider_payload_session_prefix_hash", "") or getattr(model_request, "session_prefix_hash", "") or "")
+        return str(getattr(model_request, "session_prefix_hash", "") or "")
     if tier == "provider_global":
-        return str(getattr(model_request, "provider_payload_provider_global_prefix_hash", "") or getattr(model_request, "provider_global_prefix_hash", "") or "")
+        return str(getattr(model_request, "provider_global_prefix_hash", "") or "")
     if tier in {"stable", "provider_payload"}:
         return str(getattr(model_request, "provider_payload_prefix_hash", "") or getattr(model_request, "stable_prefix_hash", "") or "")
     return ""

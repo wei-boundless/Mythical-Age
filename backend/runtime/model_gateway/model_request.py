@@ -55,10 +55,7 @@ class ModelRequestPacket:
     session_prefix_hash: str = ""
     task_prefix_hash: str = ""
     provider_payload_prefix_hash: str = ""
-    provider_payload_provider_global_prefix_hash: str = ""
-    provider_payload_session_prefix_hash: str = ""
-    provider_payload_task_prefix_hash: str = ""
-    provider_payload_message_prefix_hash: str = ""
+    physical_cache_spine_message_subtotal_hash: str = ""
     transport_contract_hash: str = ""
     transport_contract_ref: str = ""
     tool_catalog_hash: str = ""
@@ -158,7 +155,6 @@ class ModelRequestBuilder:
         if provider_payload_manifest is None:
             raise ValueError("provider payload plan did not produce a manifest")
         provider_payload_boundary = dict(provider_payload_manifest.cache_boundary or {})
-        provider_payload_tiers = dict(provider_payload_boundary.get("tier_prefixes") or {})
         return ModelRequestPacket(
             request_id=str(request_id or ""),
             provider=str(provider or ""),
@@ -174,10 +170,7 @@ class ModelRequestBuilder:
             session_prefix_hash=tier_hashes["session"],
             task_prefix_hash=tier_hashes["task"],
             provider_payload_prefix_hash=str(provider_payload_boundary.get("provider_payload_prefix_hash") or ""),
-            provider_payload_provider_global_prefix_hash=str(dict(provider_payload_tiers.get("provider_global") or {}).get("provider_payload_prefix_hash") or ""),
-            provider_payload_session_prefix_hash=str(dict(provider_payload_tiers.get("session") or {}).get("provider_payload_prefix_hash") or ""),
-            provider_payload_task_prefix_hash=str(dict(provider_payload_tiers.get("task") or {}).get("provider_payload_prefix_hash") or ""),
-            provider_payload_message_prefix_hash=str(provider_payload_boundary.get("provider_payload_message_prefix_hash") or ""),
+            physical_cache_spine_message_subtotal_hash=str(provider_payload_boundary.get("physical_cache_spine_message_subtotal_hash") or ""),
             transport_contract_hash=str(provider_payload_boundary.get("transport_contract_hash") or ""),
             transport_contract_ref=str(provider_payload_boundary.get("transport_contract_ref") or ""),
             tool_catalog_hash=str(provider_payload_boundary.get("tool_catalog_hash") or ""),

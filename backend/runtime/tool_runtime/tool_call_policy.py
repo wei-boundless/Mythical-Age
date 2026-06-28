@@ -23,9 +23,13 @@ class ToolCallBindingOptions:
         return kwargs
 
 
-def build_round_tool_call_options(*, max_tool_calls: int) -> ToolCallBindingOptions | None:
+def build_round_tool_call_options(
+    *,
+    max_tool_calls: int,
+    tool_choice: dict[str, Any] | str | bool | None = None,
+) -> ToolCallBindingOptions | None:
     if max(1, int(max_tool_calls or 1)) <= 1:
-        return ToolCallBindingOptions(parallel_tool_calls=False)
-    return ToolCallBindingOptions(parallel_tool_calls=True)
+        return ToolCallBindingOptions(tool_choice=tool_choice, parallel_tool_calls=False)
+    return ToolCallBindingOptions(tool_choice=tool_choice, parallel_tool_calls=True)
 
 

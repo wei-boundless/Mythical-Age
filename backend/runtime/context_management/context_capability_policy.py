@@ -13,6 +13,9 @@ from .context_segment_policy import (
     context_segment_policy_for_spec,
     context_segment_policy_metadata,
 )
+from .context_segment_registry import (
+    context_segment_kind_capability,
+)
 
 
 STATIC_IDENTITY = "static_identity"
@@ -321,9 +324,10 @@ def _capability_group_for_spec(spec: dict[str, Any]) -> tuple[str, str, str, str
         return REPAIR_FEEDBACK, policy.repair_feedback_slot, "feedback", "policy_repair_feedback_slot"
     if policy.contract_slot:
         return _contract_group_for_slot(policy.contract_slot, kind=kind), policy.contract_slot, "contract", "policy_contract_slot"
-    if kind in _KIND_GROUPS:
-        group, slot, member = _KIND_GROUPS[kind]
-        return group, slot, member, "kind_capability_catalog"
+    registry_capability = context_segment_kind_capability(kind)
+    if registry_capability:
+        group, slot, member = registry_capability
+        return group, slot, member, "kind_capability_registry"
     semantic_slot = str(policy.semantic_slot or "").strip()
     if semantic_slot in _SEMANTIC_SLOT_GROUPS:
         group, member = _SEMANTIC_SLOT_GROUPS[semantic_slot]
@@ -375,7 +379,7 @@ def _capability_group_for_prompt_resource(resource: dict[str, Any]) -> tuple[str
 
 def _contract_group_for_slot(slot: str, *, kind: str) -> str:
     normalized = str(slot or "").strip()
-    if normalized in {"runtime_control_contract", "turn_state_guidance"}:
+    if normalized in {"runtime_control_contract", "turn_state_guidance", "turn_operating_contract"}:
         return TURN_STATE_CONTROL
     if normalized in {"answer_evidence_alignment_contract", "evidence_alignment_contract"}:
         return EVIDENCE_ALIGNMENT
@@ -425,56 +429,6 @@ def _group_for_environment_guidance_slot(slot: str) -> str:
         return ACTION_CONTRACTS
     return TURN_STATE_CONTROL
 
-
-_KIND_GROUPS: dict[str, tuple[str, str, str]] = {
-    "action_schema_static": (ACTION_CONTRACTS, "action_schema", "contract"),
-    "task_run_contract_stable": (TASK_CONTRACTS, "task_run_contract", "contract"),
-    "task_prompt_contract": (TASK_CONTRACTS, "task_prompt_contract", "contract"),
-    "tool_index_stable": (TOOL_CONTEXT, "tool_index", "contract"),
-    "single_agent_turn_tool_call": (TOOL_CONTEXT, "tool_transcript", "content"),
-    "tool_transcript_delta": (TOOL_CONTEXT, "tool_transcript", "content"),
-    "runtime_memory_context": (CONTEXT_MEMORY, "runtime_memory_context", "content"),
-    "session_history": (CONTEXT_MEMORY, "history_replay", "content"),
-    "session_history_context": (CONTEXT_MEMORY, "history_replay", "content"),
-    "provider_protocol_history": (CONTEXT_MEMORY, "provider_protocol_history", "content"),
-    "current_turn_user_context": (CONTEXT_MEMORY, "current_user_intent", "content"),
-    "single_agent_turn_user_steer_context": (CONTEXT_MEMORY, "active_user_steer_content", "content"),
-    "user_steering_context_append": (CONTEXT_MEMORY, "active_user_steer_content", "content"),
-    "task_state_replay_entry": (TASK_STATE_CONTEXT, "task_state_replay", "content"),
-    "task_goal_context": (TASK_STATE_CONTEXT, "task_goal_context", "content"),
-    "task_plan_context": (TASK_STATE_CONTEXT, "task_plan_context", "content"),
-    "task_todo_context": (TASK_STATE_CONTEXT, "task_todo_context", "content"),
-    "task_start_inherited_context": (TASK_STATE_CONTEXT, "task_start_inherited_context", "content"),
-    "bound_task_runtime_context": (TASK_STATE_CONTEXT, "bound_task_runtime_context", "content"),
-    "read_evidence_context": (EVIDENCE_CONTEXT, "read_evidence_context", "content"),
-    "read_evidence_injection": (EVIDENCE_CONTEXT, "current_exact_evidence", "content"),
-    "evidence_index_cursor": (EVIDENCE_CONTEXT, "evidence_index_cursor", "content"),
-    "evidence_delta_summary": (EVIDENCE_ALIGNMENT, "evidence_semantic_summary", "content"),
-    "evidence_semantic_summary": (EVIDENCE_ALIGNMENT, "evidence_semantic_summary", "content"),
-    "read_coverage_projection": (EVIDENCE_ALIGNMENT, "read_coverage_projection", "content"),
-    "execution_action_evidence": (EVIDENCE_ALIGNMENT, "execution_action_evidence", "content"),
-    "answer_evidence_alignment_contract": (EVIDENCE_ALIGNMENT, "answer_evidence_alignment_contract", "contract"),
-    "answer_alignment_feedback": (EVIDENCE_ALIGNMENT, "answer_alignment_feedback", "feedback"),
-    "attachment_context_index": (EVIDENCE_CONTEXT, "attachment_context_index", "content"),
-    "editor_context_index": (EVIDENCE_CONTEXT, "editor_context_index", "content"),
-    "current_editor_evidence_delta": (EVIDENCE_CONTEXT, "current_editor_evidence_delta", "content"),
-    "reasoning_trace_projection": (REASONING_PROJECTION, "reasoning_trace_projection", "content"),
-    "provider_reasoning_projection": (REASONING_PROJECTION, "provider_reasoning_projection", "content"),
-    "provider_visible_ledger_recovery_checkpoint": (REPAIR_FEEDBACK, "provider_visible_ledger_recovery", "feedback"),
-    "recovery_context_package": (REPAIR_FEEDBACK, "recovery_context_package", "feedback"),
-    "recent_work_outcome": (REPAIR_FEEDBACK, "recent_work_outcome", "feedback"),
-    "partial_stream_recovery_instruction": (REPAIR_FEEDBACK, "visible_prefix_recovery_contract", "feedback"),
-    "partial_stream_recovery_visible_prefix": (REPAIR_FEEDBACK, "visible_prefix_recovery_context", "feedback"),
-    "active_skills": (ACTIVE_SKILL, "active_skill_body", "content"),
-    "turn_state_guidance": (TURN_STATE_CONTROL, "turn_state_guidance", "contract"),
-    "turn_attention_index": (TASK_STATE_CONTEXT, "turn_attention_index", "content"),
-    "runtime_control_signal_tail": (TURN_STATE_CONTROL, "runtime_control_signal", "control"),
-    "dynamic_projection": (CURRENT_DYNAMIC_CONTROL, "runtime_delta_tail", "control"),
-    "volatile_runtime_state": (CURRENT_DYNAMIC_CONTROL, "volatile_runtime_state", "control"),
-    "session_history_tail_context": (CURRENT_DYNAMIC_CONTROL, "session_history_tail", "control"),
-    "graph_node_runtime_context": (CURRENT_DYNAMIC_CONTROL, "graph_node_runtime_context", "control"),
-}
-
 _SEMANTIC_SLOT_GROUPS: dict[str, tuple[str, str]] = {
     "recovery_or_recent_work_facts": (REPAIR_FEEDBACK, "feedback"),
     "provider_protocol_history": (CONTEXT_MEMORY, "content"),
@@ -495,9 +449,10 @@ _SEMANTIC_SLOT_GROUPS: dict[str, tuple[str, str]] = {
     "provider_reasoning_projection": (REASONING_PROJECTION, "content"),
     "tool_transcript": (TOOL_CONTEXT, "content"),
     "action_contract": (ACTION_CONTRACTS, "contract"),
+    "capability_catalog": (TOOL_CONTEXT, "contract"),
     "turn_state_guidance": (TURN_STATE_CONTROL, "contract"),
     "turn_attention_index": (TASK_STATE_CONTEXT, "content"),
-    "turn_state_guidance": (TURN_STATE_CONTROL, "contract"),
+    "turn_operating_contract": (TURN_STATE_CONTROL, "contract"),
     "runtime_control_contract": (TURN_STATE_CONTROL, "control"),
     "visible_prefix_recovery_contract": (REPAIR_FEEDBACK, "feedback"),
     "visible_prefix_recovery_context": (REPAIR_FEEDBACK, "feedback"),

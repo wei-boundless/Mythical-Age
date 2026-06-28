@@ -193,7 +193,7 @@ class SessionManager:
                 "fork_point_provider_request_commit_id": str(provider_request_commit.get("record_id") or ""),
                 "fork_point_provider_request_cache_spine_hash": str(provider_request_commit.get("cache_spine_hash") or ""),
                 "fork_point_provider_payload_prefix_hash": str(provider_request_commit.get("provider_payload_prefix_hash") or ""),
-                "fork_point_provider_payload_message_prefix_hash": str(provider_request_commit.get("provider_payload_message_prefix_hash") or ""),
+                "fork_point_physical_cache_spine_message_subtotal_hash": str(provider_request_commit.get("physical_cache_spine_message_subtotal_hash") or ""),
                 "fork_point_provider_payload_messages_hash": str(provider_request_commit.get("provider_payload_messages_hash") or ""),
                 "fork_point_transport_contract_hash": str(provider_request_commit.get("transport_contract_hash") or ""),
                 "fork_point_cache_sensitive_params_hash": str(provider_request_commit.get("cache_sensitive_params_hash") or ""),

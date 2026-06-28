@@ -229,17 +229,25 @@ def _changed_payload_reason(
         _diag_value(previous_diag, "section_fingerprint") != _diag_value(current_diag, "section_fingerprint")
     ):
         return "prompt_section_fingerprint_changed"
-    if _diag_value(previous_diag, "stable_transport_contract_hash") != _diag_value(current_diag, "stable_transport_contract_hash"):
-        return "transport_contract_changed"
     if _diag_value(previous_diag, "transport_contract_hash") != _diag_value(current_diag, "transport_contract_hash"):
         return "transport_contract_changed"
     if _diag_value(previous_diag, "physical_cache_spine_hash") != _diag_value(current_diag, "physical_cache_spine_hash"):
         return "physical_cache_spine_changed"
-    if _diag_value(previous_diag, "physical_cache_spine_message_hash") != _diag_value(current_diag, "physical_cache_spine_message_hash"):
+    if _diag_list(previous_diag, "physical_cache_spine_segment_ids") != _diag_list(current_diag, "physical_cache_spine_segment_ids"):
+        return "physical_cache_spine_segments_changed"
+    if _diag_list(previous_diag, "physical_cache_spine_transport_locations") != _diag_list(current_diag, "physical_cache_spine_transport_locations"):
+        return "physical_cache_spine_transport_locations_changed"
+    if _diag_list(previous_diag, "physical_cache_spine_roles") != _diag_list(current_diag, "physical_cache_spine_roles"):
+        return "physical_cache_spine_roles_changed"
+    if _diag_list(previous_diag, "physical_cache_spine_prefix_families") != _diag_list(current_diag, "physical_cache_spine_prefix_families"):
+        return "physical_cache_spine_prefix_families_changed"
+    if _diag_list(previous_diag, "physical_cache_spine_boundary_participations") != _diag_list(current_diag, "physical_cache_spine_boundary_participations"):
+        return "physical_cache_spine_boundary_participations_changed"
+    if _diag_value(previous_diag, "physical_cache_spine_message_subtotal_hash") != _diag_value(current_diag, "physical_cache_spine_message_subtotal_hash"):
         return "physical_cache_spine_message_changed"
     if _diag_value(previous_diag, "tool_catalog_hash") != _diag_value(current_diag, "tool_catalog_hash"):
-        previous_tool_count = _diag_int(previous_diag, "provider_payload_tool_prefix_segment_count")
-        current_tool_count = _diag_int(current_diag, "provider_payload_tool_prefix_segment_count")
+        previous_tool_count = _diag_int(previous_diag, "physical_cache_spine_tool_segment_count")
+        current_tool_count = _diag_int(current_diag, "physical_cache_spine_tool_segment_count")
         if previous_tool_count != current_tool_count:
             return "tool_count_changed"
         return "tool_schema_hash_changed"
@@ -265,12 +273,10 @@ def _provider_payload_diagnostics(
     current_diag = dict(current.diagnostics or {})
     keys = (
         "provider_payload_prefix_hash",
-        "provider_payload_message_prefix_hash",
         "provider_payload_prefix_key_tier",
         "transport_contract_hash",
-        "stable_transport_contract_hash",
         "physical_cache_spine_hash",
-        "physical_cache_spine_message_hash",
+        "physical_cache_spine_message_subtotal_hash",
         "transport_contract_ref",
         "tool_catalog_hash",
         "stable_tool_catalog_hash",
@@ -278,8 +284,13 @@ def _provider_payload_diagnostics(
         "provider_params_hash",
         "tool_call_options_hash",
         "response_format_hash",
-        "provider_payload_tool_prefix_segment_count",
-        "provider_payload_message_prefix_segment_count",
+        "physical_cache_spine_tool_segment_count",
+        "physical_cache_spine_message_segment_count",
+        "physical_cache_spine_transport_locations",
+        "physical_cache_spine_roles",
+        "physical_cache_spine_prefix_families",
+        "physical_cache_spine_boundary_participations",
+        "physical_cache_spine_first_blocker",
     )
     return {
         key: {
@@ -332,6 +343,13 @@ def _diag_raw(diagnostics: dict[str, Any], key: str) -> Any:
         prompt_assembly = dict(diagnostics.get("prompt_assembly") or {})
         value = prompt_assembly.get(key)
     return value
+
+
+def _diag_list(diagnostics: dict[str, Any], key: str) -> list[str]:
+    value = _diag_raw(diagnostics, key)
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
 
 
 def _diag_value(diagnostics: dict[str, Any], key: str) -> str:

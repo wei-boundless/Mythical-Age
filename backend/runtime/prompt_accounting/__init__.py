@@ -10,6 +10,7 @@ from .models import (
     PromptSegment,
     PromptSegmentMap,
 )
+from .provider_cache_ledger import ProviderCacheLedgerRecord, build_provider_cache_ledger_record
 from .provider_usage import extract_provider_usage
 from .serializer import CanonicalPromptSerializer
 from .stability_models import PromptStabilityReport, PromptStabilitySection
@@ -31,11 +32,13 @@ __all__ = [
     "PromptCacheRecord",
     "PromptSegment",
     "PromptSegmentMap",
+    "ProviderCacheLedgerRecord",
     "PromptStabilityReport",
     "PromptStabilityReporter",
     "PromptStabilitySection",
     "TokenCounterRegistry",
     "extract_provider_usage",
+    "build_provider_cache_ledger_record",
     "prompt_cache_key",
     "stable_text_hash",
 ]

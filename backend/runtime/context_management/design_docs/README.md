@@ -6,6 +6,8 @@
 
 - `semantic_space/agent_semantic_operating_model_20260628.md`：上层 Agent Semantic Operating Model。
 - `execution_plans/harness_neural_system_consolidation_plan_20260628.md`：harness 神经控制体系收束、分集和 graph system 独立的总实施方案。
+- `execution_plans/agent_lifecycle_output_channel_contract_design_20260628.md`：Agent 生命周期、系统运行反应、输出通道契约和 action/respond.final_answer 分层基准。
+- `execution_plans/provider_payload_physical_cache_spine_authority_plan_20260628.md`：Provider payload physical cache spine 权威、prefix structural correspondence model 和旧 prefix 链路清理计划。
 - `execution_plans/total_neural_architecture_audit_20260628.md`：后端总神经架构审计，按语义模型审查 harness、graph、runtime、orchestration 和旧神经结构清理边界。
 - `execution_plans/system_ownership_directory_audit_20260628.md`：项目总目录和后端一级系统归属审计，明确每个系统的权威、模糊目录裁决和命名治理规则。
 - `execution_plans/backend_code_structure_semantic_refactor_plan_20260628.md`：按语义空间模型整理后端代码结构的迁移计划。

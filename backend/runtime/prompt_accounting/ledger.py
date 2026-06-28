@@ -11,6 +11,7 @@ from typing import Any
 from .cache_baseline import PromptCacheBaselineRecord, PromptCacheBaselineTracker
 from .cache_break_detector import PromptCacheBreakRecord
 from .models import ModelTokenUsageRecord, PromptCacheRecord, PromptSegment, PromptSegmentMap
+from .provider_cache_ledger import ProviderCacheLedgerRecord
 from .provider_lane import PROVIDER_LANE_AGENT_TOOL_LOOP, normalize_provider_lane
 from .stability_models import PromptStabilityReport
 
@@ -28,6 +29,7 @@ class PromptAccountingLedger:
         "segments.jsonl",
         "token_usage.jsonl",
         "prompt_cache.jsonl",
+        "provider_cache_ledger.jsonl",
         "prompt_cache_breaks.jsonl",
         "prompt_stability.jsonl",
     )
@@ -36,6 +38,7 @@ class PromptAccountingLedger:
         "segments.jsonl",
         "token_usage.jsonl",
         "prompt_cache.jsonl",
+        "provider_cache_ledger.jsonl",
         "prompt_cache_baselines.jsonl",
         "prompt_cache_breaks.jsonl",
         "prompt_stability.jsonl",
@@ -64,6 +67,7 @@ class PromptAccountingLedger:
         self._retained_token_stats_cache: tuple[tuple[int, int], dict[str, Any]] | None = None
         self._recent_token_usage: list[ModelTokenUsageRecord] = []
         self._recent_prompt_cache: list[PromptCacheRecord] = []
+        self._recent_provider_cache_ledger: list[ProviderCacheLedgerRecord] = []
         self._recent_prompt_cache_baselines: list[PromptCacheBaselineRecord] = []
         self._recent_prompt_stability: list[PromptStabilityReport] = []
         self._bootstrap_context_usage_latest_from_summary_index()
@@ -120,6 +124,10 @@ class PromptAccountingLedger:
         self._append_jsonl("prompt_cache.jsonl", record.to_dict())
         self._remember_recent(self._recent_prompt_cache, record)
         self._upsert_cache_summary(record)
+
+    def record_provider_cache_ledger(self, record: ProviderCacheLedgerRecord) -> None:
+        self._append_jsonl("provider_cache_ledger.jsonl", record.to_dict())
+        self._remember_recent(self._recent_provider_cache_ledger, record)
 
     def record_prompt_cache_baseline(self, record: PromptCacheBaselineRecord) -> None:
         self._append_jsonl("prompt_cache_baselines.jsonl", record.to_dict())
@@ -233,6 +241,41 @@ class PromptAccountingLedger:
             session_id=session_id,
             limit=limit,
             key_fn=lambda record: record.cache_record_id or f"{record.request_id}:{record.created_at}",
+        )
+
+    def list_provider_cache_ledger(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[ProviderCacheLedgerRecord]:
+        records: dict[str, ProviderCacheLedgerRecord] = {}
+        for row in self._read_jsonl("provider_cache_ledger.jsonl", run_id=run_id, task_run_id=task_run_id, session_id=session_id):
+            if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
+                continue
+            if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
+                continue
+            if session_id and str(row.get("session_id") or "") != session_id:
+                continue
+            record = ProviderCacheLedgerRecord.from_dict(row)
+            key = record.ledger_id or f"{record.request_id}:{record.created_at}"
+            previous = records.get(key)
+            if previous is None or record.created_at >= previous.created_at:
+                records[key] = record
+        return sorted(records.values(), key=lambda item: item.created_at)
+
+    def list_recent_provider_cache_ledger(
+        self,
+        *,
+        run_id: str = "",
+        task_run_id: str = "",
+        session_id: str = "",
+        limit: int = 128,
+    ) -> list[ProviderCacheLedgerRecord]:
+        with self._lock:
+            records = list(self._recent_provider_cache_ledger)
+        return _recent_records(
+            records,
+            run_id=run_id,
+            task_run_id=task_run_id,
+            session_id=session_id,
+            limit=limit,
+            key_fn=lambda record: record.ledger_id or f"{record.request_id}:{record.created_at}",
         )
 
     def list_prompt_cache_baselines(
@@ -628,6 +671,7 @@ class PromptAccountingLedger:
             "segments": self._rewrite_without_tasks("segments.jsonl", targets),
             "token_usage": self._rewrite_without_tasks("token_usage.jsonl", targets),
             "prompt_cache": self._rewrite_without_tasks("prompt_cache.jsonl", targets),
+            "provider_cache_ledger": self._rewrite_without_tasks("provider_cache_ledger.jsonl", targets),
             "prompt_cache_baselines": self._rewrite_without_tasks("prompt_cache_baselines.jsonl", targets),
             "prompt_cache_breaks": self._rewrite_without_tasks("prompt_cache_breaks.jsonl", targets),
             "prompt_stability": self._rewrite_without_tasks("prompt_stability.jsonl", targets),
@@ -654,6 +698,7 @@ class PromptAccountingLedger:
             "segments": self._rewrite_without_session_or_tasks("segments.jsonl", normalized, targets),
             "token_usage": self._rewrite_without_session_or_tasks("token_usage.jsonl", normalized, targets),
             "prompt_cache": self._rewrite_without_session_or_tasks("prompt_cache.jsonl", normalized, targets),
+            "provider_cache_ledger": self._rewrite_without_session_or_tasks("provider_cache_ledger.jsonl", normalized, targets),
             "prompt_cache_baselines": self._rewrite_without_session_or_tasks("prompt_cache_baselines.jsonl", normalized, targets),
             "prompt_cache_breaks": self._rewrite_without_session_or_tasks("prompt_cache_breaks.jsonl", normalized, targets),
             "prompt_stability": self._rewrite_without_session_or_tasks("prompt_stability.jsonl", normalized, targets),
@@ -2455,6 +2500,16 @@ def _segment_from_dict(payload: dict[str, Any]) -> PromptSegment:
         cache_role=payload.get("cache_role", "volatile"),
         prefix_tier=payload.get("prefix_tier", "volatile"),
         compression_role=payload.get("compression_role", "summarize"),
+        transport_location=str(payload.get("transport_location") or ""),
+        prefix_family=str(payload.get("prefix_family") or ""),
+        semantic_source=str(payload.get("semantic_source") or ""),
+        logical_segment_ref=str(payload.get("logical_segment_ref") or ""),
+        semantic_slot=str(payload.get("semantic_slot") or ""),
+        physical_prefix_lane=str(payload.get("physical_prefix_lane") or ""),
+        boundary_participation=str(payload.get("boundary_participation") or "excluded"),
+        exclusion_reason=str(payload.get("exclusion_reason") or ""),
+        consumer_contracts=tuple(str(item) for item in list(payload.get("consumer_contracts") or [])),
+        forbidden_authorities=tuple(str(item) for item in list(payload.get("forbidden_authorities") or [])),
         source=str(payload.get("source") or ""),
         created_at=float(payload.get("created_at") or 0.0),
         metadata=dict(payload.get("metadata") or {}),

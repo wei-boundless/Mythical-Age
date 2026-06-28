@@ -1024,9 +1024,9 @@
 
 .agent-workbench .chat-thread__messages {
   box-sizing: border-box;
-  width: min(100%, 1480px);
-  max-width: 100%;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
   gap: 24px;
   padding: 32px 24px calc(var(--chat-footer-height, 220px) + 72px);
   background: transparent;
@@ -1403,7 +1403,7 @@
 .agent-workbench .message-copy-button {
   position: absolute;
   top: 2px;
-  right: 0;
+  right: -34px;
   z-index: 2;
   display: inline-grid;
   width: 28px;
@@ -1439,7 +1439,7 @@
   grid-column: 1;
   width: min(100%, 1240px);
   max-width: 1240px;
-  justify-self: start;
+  justify-self: center;
   color: var(--console-text);
   font-family: var(--console-text-font);
   font-size: var(--console-text-size);
@@ -1642,7 +1642,7 @@
   font-family: var(--console-text-font);
   font-size: var(--console-text-size);
   line-height: 1.68;
-  padding-right: 40px;
+  padding-right: 0;
 }
 
 .agent-workbench .markdown--assistant-closeout > *:first-child {
@@ -1663,6 +1663,8 @@
 .agent-workbench .markdown--assistant-closeout > h4,
 .agent-workbench .markdown--assistant-closeout > hr {
   max-width: var(--closeout-reader-width);
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .agent-workbench .markdown--assistant-closeout h1,
@@ -1676,23 +1678,23 @@
 }
 
 .agent-workbench .markdown--assistant-closeout h1 {
-  margin: 0 0 12px;
+  margin: 0 auto 12px;
   font-size: 1.48em;
 }
 
 .agent-workbench .markdown--assistant-closeout h2 {
-  margin: 20px 0 8px;
+  margin: 20px auto 8px;
   font-size: 1.24em;
 }
 
 .agent-workbench .markdown--assistant-closeout h3 {
-  margin: 16px 0 7px;
+  margin: 16px auto 7px;
   font-size: 1.04em;
   font-weight: 740;
 }
 
 .agent-workbench .markdown--assistant-closeout h4 {
-  margin: 14px 0 6px;
+  margin: 14px auto 6px;
   color: var(--console-text-soft);
   font-size: 0.94em;
   font-weight: 700;
@@ -1702,13 +1704,13 @@
   color: var(--console-text);
   font-size: inherit;
   line-height: 1.7;
-  margin: 0 0 9px;
+  margin: 0 auto 9px;
 }
 
 .agent-workbench .chat-message-shell__content.markdown.markdown--assistant-closeout p {
   font-size: inherit;
   line-height: 1.68;
-  margin: 0 0 8px;
+  margin: 0 auto 8px;
 }
 
 .agent-workbench .markdown--assistant-closeout strong {
@@ -1720,7 +1722,7 @@
   height: 1px;
   border: 0;
   background: linear-gradient(90deg, color-mix(in srgb, var(--console-line) 70%, transparent), transparent);
-  margin: 10px 0 11px;
+  margin: 10px auto 11px;
 }
 
 .agent-workbench .markdown--assistant-closeout hr + hr {
@@ -1734,7 +1736,7 @@
   color: var(--console-text);
   font-size: inherit;
   line-height: 1.66;
-  margin: 0 0 10px;
+  margin: 0 auto 10px;
   padding-left: 1.45rem;
 }
 
@@ -1774,7 +1776,7 @@
 }
 
 .agent-workbench .markdown--assistant-closeout blockquote {
-  margin: 10px 0 12px;
+  margin: 10px auto 12px;
   border-left: 3px solid color-mix(in srgb, var(--console-accent) 62%, var(--closeout-line));
   border-radius: 0;
   background: transparent;
@@ -1969,7 +1971,7 @@
   gap: 6px;
   width: min(100%, var(--closeout-wide-width));
   max-width: 100%;
-  margin: 8px 0 12px;
+  margin: 8px auto 12px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -1982,7 +1984,7 @@
 }
 
 .agent-workbench .markdown--assistant-closeout .markdown-fenced-report--nested {
-  margin: 5px 0 2px;
+  margin: 5px auto 2px;
   background: transparent;
   font-size: 0.98em;
   padding: 0;
@@ -2018,13 +2020,13 @@
   color: color-mix(in srgb, var(--console-text) 90%, var(--console-text-soft));
   font-size: inherit;
   line-height: 1.66;
-  margin: 0 0 7px;
+  margin: 0 auto 7px;
 }
 
 .agent-workbench .markdown--assistant-closeout .markdown-fenced-report ul,
 .agent-workbench .markdown--assistant-closeout .markdown-fenced-report ol {
   gap: 3px;
-  margin: 0 0 8px;
+  margin: 0 auto 8px;
   padding-left: 1.35rem;
 }
 
@@ -2034,19 +2036,19 @@
 
 .agent-workbench .markdown--assistant-closeout .markdown-fenced-report .markdown-table-frame {
   width: 100%;
-  margin: 8px 0 2px;
+  margin: 8px auto 2px;
 }
 
 .agent-workbench .markdown--assistant-closeout .markdown-fenced-report pre {
   width: 100%;
-  margin: 7px 0 2px;
+  margin: 7px auto 2px;
 }
 
 .agent-workbench .markdown--assistant-closeout pre {
   box-sizing: border-box;
   width: min(100%, var(--closeout-wide-width));
   max-width: 100%;
-  margin: 10px 0 12px;
+  margin: 10px auto 12px;
   border: 1px solid var(--closeout-line);
   border-radius: 8px;
   background: color-mix(in srgb, var(--console-bg-raised) 82%, var(--console-surface));
@@ -2105,7 +2107,7 @@
 .agent-workbench .markdown--assistant-closeout .markdown-table-frame {
   width: min(100%, var(--closeout-wide-width));
   max-width: 100%;
-  margin: 12px 0 14px;
+  margin: 12px auto 14px;
   border: 1px solid var(--closeout-line-strong);
   border-radius: 8px;
   background: var(--console-surface);
@@ -2194,9 +2196,10 @@
 }
 
 .agent-workbench .markdown--assistant-closeout img {
+  display: block;
   max-width: min(100%, var(--closeout-wide-width));
   height: auto;
-  margin: 10px 0 12px;
+  margin: 10px auto 12px;
   border-radius: 8px;
 }
 
@@ -3129,6 +3132,11 @@
   }
 
   .agent-workbench .message-edit-button {
+    right: 0;
+    top: -20px;
+  }
+
+  .agent-workbench .message-copy-button {
     right: 0;
     top: -20px;
   }

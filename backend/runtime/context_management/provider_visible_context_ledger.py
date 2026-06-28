@@ -11,6 +11,7 @@ from runtime.model_gateway.lightweight_chat_model import provider_message_payloa
 
 from .context_segment_policy import (
     CONTEXT_APPEND,
+    CONTEXT_MEMORY_PREFIX,
     CURRENT_CONTROL_TAIL_KINDS,
     DYNAMIC_TAIL,
     DEFAULT_PROVIDER_ADAPTER_CONTRACT,
@@ -255,7 +256,7 @@ def confirm_provider_visible_context_entries(
     response_ref: str = "",
     provider_payload_prefix_hash: str = "",
     provider_payload_messages_hash: str = "",
-    provider_payload_message_prefix_hash: str = "",
+    physical_cache_spine_message_subtotal_hash: str = "",
     transport_contract_hash: str = "",
     request_message_count: int = 0,
 ) -> dict[str, Any]:
@@ -454,7 +455,7 @@ def confirm_provider_visible_context_entries(
                 response_ref=response_ref,
                 provider_payload_prefix_hash=provider_payload_prefix_hash,
                 provider_payload_messages_hash=provider_payload_messages_hash,
-                provider_payload_message_prefix_hash=provider_payload_message_prefix_hash,
+                physical_cache_spine_message_subtotal_hash=physical_cache_spine_message_subtotal_hash,
                 transport_contract_hash=transport_contract_hash,
                 request_message_count=request_message_count,
                 request_entry_indexes=[
@@ -669,7 +670,7 @@ def _record_provider_success_anchor(
     response_ref: str,
     provider_payload_prefix_hash: str,
     provider_payload_messages_hash: str,
-    provider_payload_message_prefix_hash: str,
+    physical_cache_spine_message_subtotal_hash: str,
     transport_contract_hash: str,
     request_message_count: int,
     request_entry_indexes: list[int] | tuple[int, ...],
@@ -714,7 +715,7 @@ def _record_provider_success_anchor(
         "compaction_generation": _normalize_compaction_generation(last_entry.get("compaction_generation")),
         "provider_payload_prefix_hash": str(provider_payload_prefix_hash or ""),
         "provider_payload_messages_hash": str(provider_payload_messages_hash or ""),
-        "provider_payload_message_prefix_hash": str(provider_payload_message_prefix_hash or ""),
+        "physical_cache_spine_message_subtotal_hash": str(physical_cache_spine_message_subtotal_hash or ""),
         "transport_contract_hash": str(transport_contract_hash or ""),
         "request_message_count": _safe_int(request_message_count),
         "created_at": time.time(),
@@ -1169,6 +1170,8 @@ def _current_context_append_spec_from_candidate(
 ) -> dict[str, Any]:
     payload = dict(spec or {})
     storage_root_text = str(Path(storage_root).resolve()) if storage_root is not None else ""
+    policy_section = str(getattr(policy, "section", "") or CONTEXT_APPEND)
+    fixed_context_package = "context_memory_prefix" if policy_section == CONTEXT_MEMORY_PREFIX else "context_memory_append"
     semantic_commit_class = str(
         dict(payload.get("metadata") or {}).get("semantic_commit_class")
         or getattr(policy, "semantic_slot", "")
@@ -1177,8 +1180,8 @@ def _current_context_append_spec_from_candidate(
     metadata = {
         **dict(payload.get("metadata") or {}),
         **context_segment_policy_metadata(policy),
-        "context_cache_section": "context_append",
-        "fixed_context_package": "context_memory_append",
+        "context_cache_section": policy_section,
+        "fixed_context_package": fixed_context_package,
         "provider_visible_context_ledger_scope": str(scope or ""),
         "provider_visible_context_ledger_storage_root": storage_root_text,
         "provider_visible_context_ledger_commit_stage": "provider_success_required",

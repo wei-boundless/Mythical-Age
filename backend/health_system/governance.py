@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from runtime.prompt_accounting import ModelTokenUsageRecord, PromptCacheRecord, TokenCounterRegistry
+from runtime.prompt_accounting import ModelTokenUsageRecord, PromptCacheRecord, ProviderCacheLedgerRecord, TokenCounterRegistry
 from runtime.prompt_accounting.ledger import summarize_usage_records
 
 from .artifact_governance_view import HealthArtifactGovernanceViewBuilder
@@ -435,6 +435,82 @@ class HealthGovernanceBuilder:
             return "warning"
         return "normal"
 
+    def _provider_cache_ledger_view(self, *, limit: int = 100) -> dict[str, Any]:
+        records = self._provider_cache_ledger_records(limit=max(1, min(int(limit or 100), 200)))
+        prompt_tokens = sum(int(getattr(record, "prompt_tokens", 0) or 0) for record in records)
+        cached_tokens = sum(int(getattr(record, "cached_tokens", 0) or 0) for record in records)
+        miss_tokens = sum(int(getattr(record, "miss_tokens", 0) or 0) for record in records)
+        status_counts: dict[str, int] = {}
+        for record in records:
+            status = str(getattr(record, "cache_status", "") or "unknown")
+            status_counts[status] = status_counts.get(status, 0) + 1
+        rows = [self._provider_cache_ledger_row(record) for record in records]
+        return {
+            "authority": "health_system.governance.provider_cache_ledger",
+            "source": "prompt_accounting.provider_cache_ledger",
+            "summary": {
+                "record_count": len(records),
+                "prompt_tokens": prompt_tokens,
+                "cached_tokens": cached_tokens,
+                "miss_tokens": miss_tokens,
+                "hit_rate": round(cached_tokens / max(1, cached_tokens + miss_tokens), 4) if records else 0.0,
+                "provider_under_read_tokens": sum(int(getattr(record, "provider_under_read_tokens", 0) or 0) for record in records),
+                "local_physical_break_count": int(status_counts.get("local_physical_break", 0)),
+                "provider_under_read_count": int(status_counts.get("provider_under_read", 0)),
+                "cold_start_count": int(status_counts.get("cold_start", 0)),
+                "hit_count": int(status_counts.get("hit", 0)),
+                "status_counts": status_counts,
+            },
+            "records": rows,
+            "updated_at": self.now,
+        }
+
+    def _provider_cache_ledger_records(self, *, limit: int = 100, task_run_id: str = "") -> list[ProviderCacheLedgerRecord]:
+        ledger = self.prompt_accounting_ledger
+        if ledger is None:
+            return []
+        list_records = getattr(ledger, "list_provider_cache_ledger", None)
+        if callable(list_records):
+            try:
+                records = list(list_records(task_run_id=task_run_id)) if task_run_id else list(list_records())
+            except Exception:
+                records = []
+            if records:
+                return sorted(records, key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0), reverse=True)[: max(1, min(int(limit or 100), 200))]
+        list_recent = getattr(ledger, "list_recent_provider_cache_ledger", None)
+        if callable(list_recent):
+            try:
+                return list(list_recent(task_run_id=task_run_id, limit=max(1, min(int(limit or 100), 200))))
+            except Exception:
+                return []
+        return []
+
+    @staticmethod
+    def _provider_cache_ledger_row(record: ProviderCacheLedgerRecord) -> dict[str, Any]:
+        return {
+            "ledger_id": str(getattr(record, "ledger_id", "") or ""),
+            "request_id": str(getattr(record, "request_id", "") or ""),
+            "run_id": str(getattr(record, "run_id", "") or ""),
+            "task_run_id": str(getattr(record, "task_run_id", "") or ""),
+            "session_id": str(getattr(record, "session_id", "") or ""),
+            "provider": str(getattr(record, "provider", "") or ""),
+            "model": str(getattr(record, "model", "") or ""),
+            "provider_lane": str(getattr(record, "provider_lane", "") or ""),
+            "cache_status": str(getattr(record, "cache_status", "") or ""),
+            "break_status": str(getattr(record, "break_status", "") or ""),
+            "prompt_tokens": int(getattr(record, "prompt_tokens", 0) or 0),
+            "cached_tokens": int(getattr(record, "cached_tokens", 0) or 0),
+            "miss_tokens": int(getattr(record, "miss_tokens", 0) or 0),
+            "hit_rate": float(getattr(record, "hit_rate", 0.0) or 0.0),
+            "physical_cache_spine_hash": str(getattr(record, "physical_cache_spine_hash", "") or ""),
+            "physical_cache_spine_segment_kinds": list(getattr(record, "physical_cache_spine_segment_kinds", ()) or ()),
+            "provider_under_read_tokens": int(getattr(record, "provider_under_read_tokens", 0) or 0),
+            "current_context_append_tokens": int(getattr(record, "current_context_append_tokens", 0) or 0),
+            "dynamic_tail_tokens": int(getattr(record, "dynamic_tail_tokens", 0) or 0),
+            "uncacheable_sidecar_tokens": int(getattr(record, "uncacheable_sidecar_tokens", 0) or 0),
+            "created_at": float(getattr(record, "created_at", 0.0) or 0.0),
+        }
+
     def build_token_usage(self, *, limit: int = 100) -> dict[str, Any]:
         scan_limit = max(120, min(max(int(limit or 100) * 6, 160), 500))
         scanned_task_runs = self._recent_task_runs(limit=scan_limit)
@@ -477,7 +553,9 @@ class HealthGovernanceBuilder:
             key=lambda item: float(item.get("updated_at") or item.get("created_at") or 0.0),
             reverse=True,
         )[: max(1, min(int(limit or 100), 100))]
-        return self._token_usage(combined)
+        payload = self._token_usage(combined)
+        payload["provider_cache_ledger"] = self._provider_cache_ledger_view(limit=max(1, min(int(limit or 100), 100)))
+        return payload
 
     def build_efficiency(self, *, limit: int = 100) -> dict[str, Any]:
         return self._efficiency(self.build_tasks(limit=limit)["tasks"])
@@ -1501,6 +1579,7 @@ class HealthGovernanceBuilder:
                 "segment_maps": [],
                 "usage_records": [],
                 "cache_records": [],
+                "provider_cache_ledger": [],
                 "summary": {},
             }
         try:
@@ -1515,6 +1594,10 @@ class HealthGovernanceBuilder:
             cache_records = [item.to_dict() for item in ledger.list_prompt_cache(task_run_id=task_run_id)[-20:]]
         except Exception:
             cache_records = []
+        provider_cache_ledger = [
+            self._provider_cache_ledger_row(record)
+            for record in self._provider_cache_ledger_records(limit=20, task_run_id=task_run_id)
+        ]
         try:
             summary = dict(ledger.summarize_task(task_run_id) or {})
         except Exception:
@@ -1522,10 +1605,11 @@ class HealthGovernanceBuilder:
         return {
             "authority": "health_system.governance.prompt_accounting_detail",
             "task_run_id": task_run_id,
-            "available": bool(segment_maps or usage_records or cache_records),
+            "available": bool(segment_maps or usage_records or cache_records or provider_cache_ledger),
             "segment_maps": segment_maps,
             "usage_records": usage_records,
             "cache_records": cache_records,
+            "provider_cache_ledger": provider_cache_ledger,
             "summary": summary,
         }
 
@@ -1711,5 +1795,3 @@ def _safe_object_id(value: str) -> str:
     raw = str(value or "")
     safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in raw).strip("_")
     return safe[:180] or "work_rollout"
-
-

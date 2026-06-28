@@ -59,10 +59,10 @@ from runtime.context_management.context_pipeline import (
     normalize_context_compaction_generation,
     sealed_provider_visible_replay_spec,
 )
-from runtime.context_management.tool_transcript import TOOL_TRANSCRIPT_DELTA_KIND
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies
 
 from .artifact_scope import runtime_artifact_scope_from_environment
+from .context_message_producers import build_context_message_projection
 from .dynamic_context import DynamicContextInput, DynamicContextManager, DynamicContextProjection, dynamic_context_storage_root
 from .envelope import RuntimeEnvelope
 from .invocation_packet import RuntimeInvocationPacket
@@ -566,17 +566,19 @@ class RuntimeCompiler:
         turn_state_guidance_instruction = render_environment_guidance_instruction(turn_state_guidance_prompt_assembly)
         personality_instruction = render_personality_prompt_instruction(personality_prompt_assembly)
         agent_instruction = render_agent_prompt_instruction(agent_prompt_assembly, invocation_kind="single_agent_turn")
-        stable_payload = {
-            "control_capabilities": dict(effective_control_capabilities),
-            "task_environment": _environment_model_visible_payload(
-                environment_payload,
-                prompt_mount_plan=prompt_mount_plan.to_dict(),
-            ),
-            "capability_directory": _capability_directory_model_visible_payload(assembly_payload),
-            "turn_operating_contract": turn_operating_contract.to_agent_visible_payload(),
-            "output_contract": _stable_prompt_output_contract_payload(output_contract),
-            **_project_instruction_model_payload(project_instruction_bundle),
-        }
+        task_environment_context_payload = _environment_model_visible_payload(
+            environment_payload,
+            prompt_mount_plan=prompt_mount_plan.to_dict(),
+        )
+        capability_directory_payload = _capability_directory_model_visible_payload(assembly_payload)
+        capability_catalog_payload = _capability_catalog_payload(capability_directory_payload)
+        current_operating_contract_payload = _single_agent_turn_current_operating_contract_payload(
+            control_capabilities=effective_control_capabilities,
+            turn_operating_contract=turn_operating_contract.to_agent_visible_payload(),
+            output_contract=_prompt_output_contract_payload(output_contract),
+            capability_directory=capability_directory_payload,
+        )
+        project_instruction_payload = _project_instruction_model_payload(project_instruction_bundle)
         tool_index_payload = (
             tool_catalog_manifest.to_model_visible_payload(include_catalog_hash=True)
             if single_turn_tools
@@ -610,15 +612,6 @@ class RuntimeCompiler:
         )
         runtime_baseline_refs_payload = _runtime_baseline_refs_model_visible_payload(dynamic_context)
         dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or dynamic_context.dynamic_runtime_delta or {})
-        evidence_index_cursor_payload, dynamic_payload = _extract_evidence_index_cursor_payload(dynamic_payload)
-        file_evidence_scope_payload = dynamic_payload.pop("file_evidence_scope", None)
-        if evidence_index_cursor_payload and isinstance(file_evidence_scope_payload, dict):
-            evidence_index_cursor_payload = {
-                **evidence_index_cursor_payload,
-                "file_evidence_scope": dict(file_evidence_scope_payload),
-            }
-        for derived_evidence_key in ("file_evidence_decisions", "read_resource_state", "evidence_confidence"):
-            dynamic_payload.pop(derived_evidence_key, None)
         runtime_memory_context_payload = _memory_context_model_visible_payload(
             memory_context or session_context_payload.get("memory_context")
         )
@@ -659,10 +652,17 @@ class RuntimeCompiler:
             dynamic_payload = _drop_empty_payload({**dynamic_payload, **volatile_runtime_payload})
             volatile_runtime_payload = {}
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
-        session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
-        attachment_context_payload, current_request_payload = _extract_attachment_context_payload(current_request_payload)
-        turn_state_attention_context_payload, current_request_payload = _extract_turn_state_attention_context_payload(current_request_payload)
-        editor_context_payload, current_request_payload = _extract_editor_context_payload(current_request_payload)
+        context_message_projection = build_context_message_projection(
+            invocation_kind="single_agent_turn",
+            source_ref_prefix="single_agent_turn",
+            dynamic_context=dynamic_context,
+            dynamic_payload=dynamic_payload,
+            volatile_payload=volatile_payload,
+            read_evidence_prompt_payload=read_evidence_prompt_payload,
+        )
+        dynamic_payload = context_message_projection.dynamic_payload
+        current_request_payload = context_message_projection.current_request_payload
+        context_message_specs = list(context_message_projection.message_specs)
         current_turn_delta_payload = _current_turn_delta_model_payload(current_request_payload)
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
@@ -702,15 +702,59 @@ class RuntimeCompiler:
                 else None,
                 _runtime_payload_spec(
                     role="system",
-                    title="Operating Contract",
-                    payload=stable_payload,
-                    kind="turn_stable",
-                    visible_kind="operating_contract",
-                    source_ref="single_agent_turn_stable_boundary",
+                    title="Task Environment Context",
+                    payload=task_environment_context_payload,
+                    kind="task_environment_context",
+                    visible_kind="task_environment",
+                    source_ref=task_environment_ref,
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
-                ),
+                    metadata={
+                        "authority_class": "task_environment_context",
+                        "content_source": "harness.runtime.environment_model_visible_payload",
+                        "cache_impact": "session_prefix_task_environment_context",
+                    },
+                )
+                if task_environment_context_payload
+                else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Capability Catalog",
+                    payload=capability_catalog_payload,
+                    kind="capability_catalog",
+                    visible_kind="capability_catalog",
+                    source_ref=_capability_catalog_source_ref(capability_catalog_payload),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "capability_catalog",
+                        "content_source": "harness.runtime.capability_directory_catalog",
+                        "cache_impact": "session_prefix_capability_catalog",
+                        "routing_boundary": "Current requested groups and preferred namespaces stay in the turn operating contract tail.",
+                    },
+                )
+                if capability_catalog_payload
+                else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Project Instructions",
+                    payload=project_instruction_payload,
+                    kind="project_instructions_stable",
+                    source_ref=project_instruction_bundle.prompt_ref,
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "project_instruction_boundary",
+                        "cache_impact": "project_prefix_stable",
+                        "projection_strategy": "scoped_project_instruction_bundle",
+                        "content_source": "harness.runtime.project_instructions",
+                    },
+                )
+                if project_instruction_payload
+                else None,
                 _runtime_payload_spec(
                     role="system",
                     title="File evidence policy",
@@ -788,36 +832,7 @@ class RuntimeCompiler:
                 )
                 if runtime_baseline_refs_payload
                 else None,
-                *_attachment_context_message_specs(
-                    attachment_context_payload,
-                    source_ref_prefix="single_agent_turn",
-                    dynamic_context=dynamic_context,
-                ),
-                *_turn_state_attention_context_message_specs(
-                    turn_state_attention_context_payload,
-                    source_ref_prefix="single_agent_turn",
-                    dynamic_context=dynamic_context,
-                ),
-                *_evidence_index_cursor_message_specs(
-                    evidence_index_cursor_payload,
-                    source_ref_prefix="single_agent_turn",
-                    dynamic_context=dynamic_context,
-                ),
-                *_editor_context_message_specs(
-                    editor_context_payload,
-                    source_ref_prefix="single_agent_turn",
-                    dynamic_context=dynamic_context,
-                ),
-                *_read_evidence_context_message_specs(
-                    read_evidence_prompt_payload,
-                    source_ref_prefix="single_agent_turn",
-                    dynamic_context=dynamic_context,
-                ),
-                *_session_history_tail_context_message_specs(
-                    session_history_payload,
-                    source_ref="single_agent_turn_session_history",
-                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="session_history") if session_history_payload else {},
-                ),
+                *context_message_specs,
                 _runtime_payload_spec(
                     role="system",
                     title="Selected memory context",
@@ -893,6 +908,29 @@ class RuntimeCompiler:
                         validity_scope=turn_id,
                     ),
                 ),
+                _runtime_payload_spec(
+                    role="system",
+                    title="Turn Operating Contract",
+                    payload=current_operating_contract_payload,
+                    preamble=_runtime_control_context_notice(validity_scope=turn_id),
+                    kind="turn_operating_contract",
+                    visible_kind="turn_operating_contract",
+                    source_ref="single_agent_turn_operating_contract",
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="preserve",
+                    metadata=_current_runtime_tail_metadata(
+                        {
+                            "authority_class": "turn_operating_contract",
+                            "content_source": "harness.runtime.turn_operating_contract",
+                            "volatility_reason": "current turn action surface, output protocol, and capability routing are bound to the provider request",
+                        },
+                        semantic_slot="turn_operating_contract",
+                        validity_scope=turn_id,
+                    ),
+                )
+                if current_operating_contract_payload
+                else None,
                 _message_spec(
                     role="system",
                     content=_runtime_control_context_content(
@@ -1394,23 +1432,36 @@ class RuntimeCompiler:
             )
         )
         runtime_baseline_refs_payload = _runtime_baseline_refs_model_visible_payload(dynamic_context)
-        dynamic_payload = dict(dynamic_context.dynamic_runtime_delta or dynamic_context.dynamic_runtime_projection or {})
-        inherited_start_context_payload = dict(dynamic_context.inherited_start_context_projection or {})
-        attachment_context_payload, inherited_start_context_payload = _extract_attachment_context_payload(inherited_start_context_payload)
+        raw_dynamic_payload = dict(dynamic_context.dynamic_runtime_delta or dynamic_context.dynamic_runtime_projection or {})
+        raw_inherited_start_context_payload = dict(dynamic_context.inherited_start_context_projection or {})
         runtime_memory_context_payload = _memory_context_model_visible_payload(memory_context)
         recovery_packet_payload = _recovery_packet_model_visible_payload(
             task_run_diagnostics.get("recovery_packet")
         )
+        dynamic_payload = dict(raw_dynamic_payload)
         if recovery_packet_payload:
             dynamic_payload["recovery_packet"] = recovery_packet_payload
-        volatile_payload = dict(dynamic_context.volatile_state_projection or {})
+        raw_dynamic_payload = dict(dynamic_payload)
+        raw_volatile_payload = dict(dynamic_context.volatile_state_projection or {})
         execution_projection = dict(dict(execution_state or {}).get("system_projection") or {})
         runtime_control_signals = canonical_runtime_control_signal_projection(
             execution_projection.get("runtime_control_signals")
         )
-        turn_state_attention_context_payload, volatile_payload = _extract_turn_state_attention_context_payload(volatile_payload)
-        evidence_index_cursor_payload, volatile_payload = _extract_evidence_index_cursor_payload(volatile_payload)
-        editor_context_payload, volatile_payload = _extract_editor_context_payload(volatile_payload)
+        context_payload_projection = build_context_message_projection(
+            invocation_kind="task_execution",
+            source_ref_prefix="task_execution",
+            dynamic_context=dynamic_context,
+            dynamic_payload=raw_dynamic_payload,
+            volatile_payload=raw_volatile_payload,
+            inherited_start_context_payload=raw_inherited_start_context_payload,
+        )
+        dynamic_payload = context_payload_projection.dynamic_payload
+        volatile_payload = context_payload_projection.volatile_payload
+        inherited_start_context_payload = context_payload_projection.inherited_start_context_payload
+        attachment_context_payload = context_payload_projection.attachment_context_payload
+        turn_state_attention_context_payload = context_payload_projection.turn_state_attention_context_payload
+        evidence_index_cursor_payload = context_payload_projection.evidence_index_cursor_payload
+        editor_context_payload = context_payload_projection.editor_context_payload
         bound_task_context = build_bound_task_context(
             contract=contract,
             planning_protocol=planning_protocol,
@@ -1420,7 +1471,6 @@ class RuntimeCompiler:
         )
         bound_task_context_payload = bound_task_context.to_stable_model_visible_payload()
         bound_task_runtime_context_payload = bound_task_context.to_runtime_model_visible_payload()
-        task_state_replay_specs = _task_state_replay_message_specs(dynamic_context.task_state_replay_entries)
         task_state_payload = dict(volatile_payload.get("task_state") or {})
         packet_context = build_task_execution_packet_context(
             session_id=session_id,
@@ -1443,6 +1493,17 @@ class RuntimeCompiler:
         )
         read_evidence_payload = packet_context.read_evidence_payload
         read_evidence_prompt_payload = _read_evidence_prompt_payload(read_evidence_payload)
+        context_message_projection = build_context_message_projection(
+            invocation_kind="task_execution",
+            source_ref_prefix="task_execution",
+            dynamic_context=dynamic_context,
+            dynamic_payload=raw_dynamic_payload,
+            volatile_payload=raw_volatile_payload,
+            inherited_start_context_payload=raw_inherited_start_context_payload,
+            read_evidence_prompt_payload=read_evidence_prompt_payload,
+            task_state_replay_entries=dynamic_context.task_state_replay_entries,
+        )
+        context_message_specs = list(context_message_projection.message_specs)
         turn_attention_index_payload = _turn_attention_index_payload_from_task_resource(
             task_contract_payload=task_contract_payload,
             turn_state_attention_context_payload=turn_state_attention_context_payload,
@@ -1665,32 +1726,7 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
-                *_attachment_context_message_specs(
-                    attachment_context_payload,
-                    source_ref_prefix="task_execution",
-                    dynamic_context=dynamic_context,
-                ),
-                *_turn_state_attention_context_message_specs(
-                    turn_state_attention_context_payload,
-                    source_ref_prefix="task_execution",
-                    dynamic_context=dynamic_context,
-                ),
-                *_evidence_index_cursor_message_specs(
-                    evidence_index_cursor_payload,
-                    source_ref_prefix="task_execution",
-                    dynamic_context=dynamic_context,
-                ),
-                *_read_evidence_context_message_specs(
-                    read_evidence_prompt_payload,
-                    source_ref_prefix="task_execution",
-                    dynamic_context=dynamic_context,
-                ),
-                *_editor_context_message_specs(
-                    editor_context_payload,
-                    source_ref_prefix="task_execution",
-                    dynamic_context=dynamic_context,
-                ),
-                *task_state_replay_specs,
+                *context_message_specs,
                 _runtime_payload_spec(
                     role="system",
                     title="Task start inherited context",
@@ -1853,8 +1889,8 @@ class RuntimeCompiler:
                     kind="runtime_memory_context",
                     visible_kind="selected_memory_context",
                     source_ref=_runtime_memory_context_source_ref(runtime_memory_context_payload),
-                    cache_scope="none",
-                    cache_role="volatile",
+                    cache_scope="task",
+                    cache_role="session_stable",
                     compression_role="summarize",
                     metadata={
                         "authority_class": "runtime_memory_context",
@@ -2299,13 +2335,17 @@ class RuntimeCompiler:
             dict(session_context or {}).get("memory_context")
         )
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
-        session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
-        attachment_context_payload, current_request_payload = _extract_attachment_context_payload(current_request_payload)
-        turn_state_attention_context_payload, current_request_payload = _extract_turn_state_attention_context_payload(current_request_payload)
-        editor_context_payload, current_request_payload = _extract_editor_context_payload(current_request_payload)
-        tool_observation_context_payload, current_request_payload = _extract_tool_observation_context_payload(
-            current_request_payload
+        context_message_projection = build_context_message_projection(
+            invocation_kind="tool_observation_followup",
+            source_ref_prefix="observation_followup",
+            dynamic_context=dynamic_context,
+            dynamic_payload=dynamic_payload,
+            volatile_payload=volatile_payload,
+            read_evidence_prompt_payload=read_evidence_prompt_payload,
         )
+        dynamic_payload = context_message_projection.dynamic_payload
+        current_request_payload = context_message_projection.current_request_payload
+        context_message_specs = list(context_message_projection.message_specs)
         current_turn_delta_payload = _current_turn_delta_model_payload(current_request_payload)
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
@@ -2431,36 +2471,7 @@ class RuntimeCompiler:
                 )
                 if runtime_baseline_refs_payload
                 else None,
-                *_attachment_context_message_specs(
-                    attachment_context_payload,
-                    source_ref_prefix="observation_followup",
-                    dynamic_context=dynamic_context,
-                ),
-                *_turn_state_attention_context_message_specs(
-                    turn_state_attention_context_payload,
-                    source_ref_prefix="observation_followup",
-                    dynamic_context=dynamic_context,
-                ),
-                *_editor_context_message_specs(
-                    editor_context_payload,
-                    source_ref_prefix="observation_followup",
-                    dynamic_context=dynamic_context,
-                ),
-                *_tool_observation_context_message_specs(
-                    tool_observation_context_payload,
-                    source_ref_prefix="observation_followup",
-                    dynamic_context=dynamic_context,
-                ),
-                *_read_evidence_context_message_specs(
-                    read_evidence_prompt_payload,
-                    source_ref_prefix="observation_followup",
-                    dynamic_context=dynamic_context,
-                ),
-                *_session_history_tail_context_message_specs(
-                    session_history_payload,
-                    source_ref="observation_followup_session_history",
-                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="session_history") if session_history_payload else {},
-                ),
+                *context_message_specs,
                 _runtime_payload_spec(
                     role="system",
                     title="Current Runtime Boundary",
@@ -2934,7 +2945,7 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
         "action_type": "|".join(allowed),
         "allowed_action_types": list(allowed),
         "action_shape_rules": [
-            "提交一个可唯一识别的本次行动；推荐使用一个顶层结构化对象，Markdown 代码块或简短说明只作为传输包装。",
+            "每次只选择一个本轮行动。需要用动作对象时，把动作写成一个顶层结构化对象；不要把给用户看的说明写在动作对象之外。",
             "respond 必须把用户可见最终回复写在顶层 final_answer；不要写 payload.final_answer、payload.content、action.final_answer 或 action.content。",
             "ask_user 必须把用户要回答的问题写在顶层 user_question；不要把询问用户伪装成工具调用。",
             "block 必须把真实阻塞原因写在顶层 blocking_reason。",
@@ -2949,12 +2960,14 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
             ),
         ],
         "public_response_obligation": {
-            "rule": "你必须回应用户当前输入本身。回应可以是直接回答、解释你的公开判断、说明需要查证哪个事实才能判断、指出当前不能回答的原因，或说明会把用户的新要求并入本轮处理范围。长任务资源执行时，内部工具可以不可见，但工具动作不能替代对用户输入的回应。",
-            "first_visible_response": [
-                "如果已经足以回答，使用 respond/final_answer。",
-                "如果需要查证后才能判断，使用 tool_call/tool_calls，同时在 public_progress_note 中说明要查证的公开事实和为什么它关系到用户问题；tool_calls[] 是同一判断目标内的一批工具请求，public_progress_note 只写这一批请求共同服务的公开判断目标，不逐工具列名；public_action_state.current_judgment 可以补充当前公开判断，但不能替代空白回应；不要写隐藏推理。",
-                "如果用户是在追问为什么、哪里卡住、是否正常、为什么没回应，必须先解释当前已知状态或你需要核对的状态对象；不要直接继续旧任务。",
-                "如果用户只是明确说继续、恢复、接着执行，并且没有提出新问题，才可以只承接执行。"
+            "rule": "你始终要服务用户当前输入。工具可以帮你获得事实，但工具动作本身不是给用户的回答。",
+            "turn_sequence": [
+                "第一步先判断当前是否已经足以回答。足以回答时，选择 respond，并把完整自然语言回复写入 final_answer。",
+                "第二步，如果还需要查证、读取、修改或验证，选择 tool_call/tool_calls。直接调用工具时，只填写当前工具参数；如果工具参数没有明确公开说明字段，这次输出就只会被理解为工具动作。不要在工具调用前后另写普通正文来解释，因为普通正文不会被当作公开反馈。",
+                "第三步，如果你使用结构化 action object 来发起工具动作，并且需要先向用户说明为什么查证，就把这句话写入 public_progress_note；它只说明本批工具共同要确认的公开事实，不逐个复述工具名。",
+                "第四步，工具观察返回后，重新判断：事实足够就 respond；缺用户决定就 ask_user；事实、权限或环境不足就 block；仍需查证且本轮允许时再继续 tool_call。",
+                "第五步，如果用户问的是为什么卡住、为什么没回应、是否正常，先解释你已经知道的状态或需要核对的状态，再决定是否继续执行。",
+                "只有用户只是明确说继续、恢复、接着执行，并且没有提出新问题时，才可以只承接执行。"
             ],
             "tool_observation_reporting": {
                 "must_explain_when": [
@@ -2980,7 +2993,7 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
                 "把工具名、动作字段或执行步骤列表当成给用户的回答。"
             ]
         },
-        "public_progress_note": "一句用户可理解的公开语义回应；用户输入或用户 steer 触发的 tool_call/tool_calls 必须填写，用于回应用户当前输入或说明为什么需要先查证。批量 tool_calls[] 只写这一批工具共同服务的公开判断目标，不逐工具列名。不要写内部事件、隐藏推理或泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
+        "public_progress_note": "只在结构化 action object、控制动作，或工具参数明确提供同名公开字段时使用。它是你写给用户看的短判断：说明本轮要确认什么、为什么要查证、或为什么要申请资源。直接工具调用只填写当前工具参数；不要把公开说明写在工具调用前后的普通文本里。不要写内部事件、隐藏推理、泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
         "public_action_state": {
             "visible_status": "机器状态；thinking|waiting_for_tool|tool_returned|responding|blocked。不是用户可见正文；不要复制到 public_progress_note、current_judgment、next_action、final_answer 或 blocking_reason。",
             "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写本轮已经确定的事实或边界，不写隐藏推理。",
@@ -3409,10 +3422,27 @@ def _runtime_observations_model_visible_payload(value: Any) -> dict[str, Any]:
     }
 
 
-def _stable_prompt_output_contract_payload(output_contract: dict[str, Any]) -> dict[str, Any]:
+def _prompt_output_contract_payload(output_contract: dict[str, Any]) -> dict[str, Any]:
     payload = dict(output_contract or {})
     payload.pop("planning_protocol", None)
     return _drop_empty_payload(payload)
+
+
+def _single_agent_turn_current_operating_contract_payload(
+    *,
+    control_capabilities: dict[str, Any],
+    turn_operating_contract: dict[str, Any],
+    output_contract: dict[str, Any],
+    capability_directory: dict[str, Any],
+) -> dict[str, Any]:
+    return _drop_empty_payload(
+        {
+            "control_capabilities": dict(control_capabilities or {}),
+            "turn_operating_contract": dict(turn_operating_contract or {}),
+            "output_contract": dict(output_contract or {}),
+            "capability_routing": _capability_routing_payload(capability_directory),
+        }
+    )
 
 
 def _single_agent_turn_output_contract(
@@ -3420,11 +3450,13 @@ def _single_agent_turn_output_contract(
     allowed_actions: tuple[str, ...],
     control_capabilities: dict[str, Any],
     planning_protocol: dict[str, Any] | None = None,
+    phase: str = "initial_decision",
 ) -> dict[str, Any]:
     return turn_output_contract_payload(
         allowed_actions=allowed_actions,
         control_capabilities=control_capabilities,
         planning_protocol=planning_protocol,
+        phase=phase,
     )
 
 def _active_work_model_visible_payload(
@@ -3487,15 +3519,6 @@ def _turn_input_facts_model_visible_payload(facts: dict[str, Any] | None) -> dic
     )
 
 
-def _split_volatile_request_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
-    source = dict(payload or {})
-    history_payload = dict(source.get("history") or {}) if isinstance(source.get("history"), dict) else {}
-    current_request = dict(source)
-    current_request.pop("history", None)
-    session_history = dict(history_payload)
-    return _drop_empty_payload(session_history), _drop_empty_payload(current_request)
-
-
 def _current_turn_delta_model_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
     current = dict(payload or {})
     user_message = str(current.pop("user_message", "") or "")
@@ -3517,591 +3540,6 @@ def _current_turn_delta_model_payload(payload: dict[str, Any] | None) -> dict[st
             },
         }
     )
-
-
-def _extract_editor_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
-    current = dict(payload or {})
-    editor_payload = _drop_empty_payload(
-        {
-            "editor_context_index": current.pop("editor_context_index", None),
-            "current_editor_evidence_delta": current.pop("current_editor_evidence_delta", None),
-        }
-    )
-    return editor_payload, _drop_empty_payload(current)
-
-
-def _extract_attachment_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
-    current = dict(payload or {})
-    attachment_payload = _drop_empty_payload(
-        {
-            "attachment_context_index": current.pop("attachment_context_index", None),
-        }
-    )
-    return attachment_payload, _drop_empty_payload(current)
-
-
-def _extract_turn_state_attention_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
-    current = dict(payload or {})
-    task_mode_payload = _drop_empty_payload(
-        {
-            "task_goal_context": current.pop("task_goal_context", None),
-            "task_plan_context": current.pop("task_plan_context", None),
-            "task_todo_context": current.pop("task_todo_context", None),
-        }
-    )
-    return task_mode_payload, _drop_empty_payload(current)
-
-
-def _extract_tool_observation_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
-    current = dict(payload or {})
-    observations_payload = (
-        dict(current.get("observations") or {}) if isinstance(current.get("observations"), dict) else {}
-    )
-    latest_observations = [
-        _drop_empty_payload(dict(item))
-        for item in list(observations_payload.get("latest_observations") or [])
-        if isinstance(item, dict)
-    ]
-    latest_observations = [item for item in latest_observations if item]
-    if not latest_observations:
-        return {}, _drop_empty_payload(current)
-
-    remaining_observations = dict(observations_payload)
-    remaining_observations.pop("latest_observations", None)
-    if set(remaining_observations) <= {"authority"}:
-        remaining_observations = {}
-    if remaining_observations:
-        current["observations"] = _drop_empty_payload(remaining_observations)
-    else:
-        current.pop("observations", None)
-    return {
-        "observations": {
-            "latest_observations": latest_observations,
-        }
-    }, _drop_empty_payload(current)
-
-
-def _extract_evidence_index_cursor_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
-    current = dict(payload or {})
-    evidence_payload = _drop_empty_payload(
-        {
-            "evidence_index_cursor": current.pop("evidence_index_cursor", None),
-        }
-    )
-    return evidence_payload, _drop_empty_payload(current)
-
-
-def _attachment_context_message_specs(
-    payload: dict[str, Any] | None,
-    *,
-    source_ref_prefix: str,
-    dynamic_context: DynamicContextProjection,
-) -> list[dict[str, Any]]:
-    attachment_context_index = dict(payload or {}).get("attachment_context_index")
-    if not attachment_context_index:
-        return []
-    return [
-        _runtime_payload_spec(
-            role="system",
-            title="Attachment context index",
-            payload={"attachment_context_index": attachment_context_index},
-            kind="attachment_context_index",
-            source_ref=f"{source_ref_prefix}:attachment_context_index",
-            cache_scope="task",
-            cache_role="session_stable",
-            compression_role="ref_only",
-            metadata={
-                **_dynamic_context_segment_metadata(dynamic_context, source="attachment_context_index"),
-                "authority_class": "attachment_context_index",
-                "content_source": "harness.runtime.dynamic_context.attachment_context_index",
-                "runtime_fragment_role": "attachment_context_index",
-                "cache_impact": "task_prefix_attachment_index_snapshot",
-            },
-        )
-    ]
-
-
-def _evidence_index_cursor_message_specs(
-    payload: dict[str, Any] | None,
-    *,
-    source_ref_prefix: str,
-    dynamic_context: DynamicContextProjection,
-) -> list[dict[str, Any]]:
-    data = dict(payload or {})
-    evidence_index_cursor = data.get("evidence_index_cursor")
-    if not evidence_index_cursor:
-        return []
-    return [
-        _runtime_payload_spec(
-            role="system",
-            title="Evidence index cursor",
-            payload=_drop_empty_payload(
-                {
-                    "file_evidence_scope": data.get("file_evidence_scope"),
-                    "evidence_index_cursor": evidence_index_cursor,
-                }
-            ),
-            kind="evidence_index_cursor",
-            source_ref=f"{source_ref_prefix}:evidence_index_cursor",
-            cache_scope="task",
-            cache_role="session_stable",
-            compression_role="ref_only",
-            metadata={
-                **_dynamic_context_segment_metadata(dynamic_context, source="evidence_index_cursor"),
-                "authority_class": "evidence_index_cursor",
-                "content_source": "harness.runtime.dynamic_context.evidence_index_cursor",
-                "runtime_fragment_role": "evidence_index_cursor",
-                "cache_impact": "task_prefix_evidence_cursor_snapshot",
-            },
-        )
-    ]
-
-
-def _read_evidence_context_message_specs(
-    payload: dict[str, Any] | None,
-    *,
-    source_ref_prefix: str,
-    dynamic_context: DynamicContextProjection,
-) -> list[dict[str, Any]]:
-    data = dict(payload or {})
-    refs = [_drop_empty_payload(dict(item)) for item in list(data.get("read_evidence_refs") or []) if isinstance(item, dict)]
-    refs = [item for item in refs if item]
-    if not refs:
-        return []
-    projection_policy = _read_evidence_context_projection_policy(data.get("projection_policy"))
-    specs: list[dict[str, Any]] = []
-    for index, evidence_ref in enumerate(refs, start=1):
-        source_ref = _read_evidence_context_source_ref(
-            evidence_ref,
-            source_ref_prefix=source_ref_prefix,
-            fallback_index=index,
-        )
-        specs.append(
-            _runtime_payload_spec(
-                role="system",
-                title=f"Read evidence context {index}",
-                payload=_drop_empty_payload(
-                    {
-                        "read_evidence_ref": evidence_ref,
-                        "projection_policy": projection_policy,
-                    }
-                ),
-                kind="read_evidence_context",
-                source_ref=source_ref,
-                cache_scope="task",
-                cache_role="session_stable",
-                compression_role="ref_only",
-                metadata={
-                    **_optional_dynamic_context_segment_metadata(dynamic_context, source="read_evidence_context"),
-                    "authority_class": "append_only_read_evidence_context",
-                    "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
-                    "runtime_fragment_role": "read_evidence_ref",
-                    "cache_impact": "append_only_task_prefix",
-                    "stability_rule": (
-                        "read evidence refs already visible to the model are historical context; "
-                        "new refs append as separate context messages and previous refs must not be rewritten"
-                    ),
-                    "append_only_context_package": "read_evidence_context",
-                    "append_only_context_stream": "read_evidence",
-                    "append_only_stream_index": index,
-                },
-            )
-        )
-    return specs
-
-
-def _read_evidence_context_projection_policy(value: Any) -> dict[str, Any]:
-    policy = dict(value or {}) if isinstance(value, dict) else {}
-    return _drop_empty_payload(
-        {
-            "historical_read_evidence": policy.get("historical_read_evidence"),
-            "rehydration": policy.get("rehydration"),
-        }
-    )
-
-
-def _read_evidence_context_source_ref(
-    evidence_ref: dict[str, Any],
-    *,
-    source_ref_prefix: str,
-    fallback_index: int,
-) -> str:
-    payload = dict(evidence_ref or {})
-    stable_ref = str(
-        payload.get("artifact_ref")
-        or payload.get("exact_artifact_ref")
-        or payload.get("evidence_ref")
-        or payload.get("observation_ref")
-        or payload.get("tool_call_id")
-        or ""
-    ).strip()
-    if stable_ref:
-        return f"{source_ref_prefix}:read_evidence_context:{_short_hash(stable_ref, prefix_chars=16)}"
-    seed = {
-        "path": str(payload.get("path") or ""),
-        "start_line": payload.get("start_line"),
-        "end_line": payload.get("end_line"),
-        "content_sha256": str(payload.get("content_sha256") or ""),
-    }
-    digest = _stable_json_hash(seed).removeprefix("sha256:")[:16]
-    return f"{source_ref_prefix}:read_evidence_context:{digest or fallback_index}"
-
-
-def _turn_state_attention_context_message_specs(
-    payload: dict[str, Any] | None,
-    *,
-    source_ref_prefix: str,
-    dynamic_context: DynamicContextProjection,
-) -> list[dict[str, Any]]:
-    data = dict(payload or {})
-    specs: list[dict[str, Any]] = []
-    for descriptor in (
-        {
-            "key": "task_goal_context",
-            "title": "turn goal resource context",
-            "authority_class": "turn_goal_resource_context",
-            "content_source": "harness.runtime.dynamic_context.turn_state_attention_context.task_goal_context",
-            "runtime_fragment_role": "turn_goal_resource_context",
-            "semantic_slot": "turn_goal_resource_context",
-            "semantic_rank": 21,
-        },
-        {
-            "key": "task_plan_context",
-            "title": "turn plan cursor context",
-            "authority_class": "turn_plan_cursor_context",
-            "content_source": "harness.runtime.dynamic_context.turn_state_attention_context.task_plan_context",
-            "runtime_fragment_role": "turn_plan_cursor_context",
-            "semantic_slot": "turn_plan_cursor_context",
-            "semantic_rank": 22,
-        },
-        {
-            "key": "task_todo_context",
-            "title": "turn todo cursor context",
-            "authority_class": "turn_todo_cursor_context",
-            "content_source": "harness.runtime.dynamic_context.turn_state_attention_context.task_todo_context",
-            "runtime_fragment_role": "turn_todo_cursor_context",
-            "semantic_slot": "turn_todo_cursor_context",
-            "semantic_rank": 23,
-        },
-    ):
-        key = str(descriptor["key"])
-        context_payload = data.get(key)
-        if not context_payload:
-            continue
-        specs.append(
-            _runtime_payload_spec(
-                role="system",
-                title=str(descriptor["title"]).title(),
-                payload={key: context_payload},
-                kind=key,
-                source_ref=f"{source_ref_prefix}:{key}",
-                cache_scope="none",
-                cache_role="volatile",
-                compression_role="ref_only",
-                metadata={
-                    **_dynamic_context_segment_metadata(dynamic_context, source=key),
-                    "authority_class": str(descriptor["authority_class"]),
-                    "content_source": str(descriptor["content_source"]),
-                    "runtime_fragment_role": str(descriptor["runtime_fragment_role"]),
-                    "cache_impact": "dynamic_tail_only",
-                    "context_cache_section": DYNAMIC_TAIL,
-                    "context_capability_group": "task_state_context",
-                    "context_capability_slot": str(descriptor["semantic_slot"]),
-                    "context_capability_member": "content",
-                    "context_semantic_slot": str(descriptor["semantic_slot"]),
-                    "context_semantic_slot_rank": int(descriptor["semantic_rank"]),
-                    "context_prefix_cache_scope": "none",
-                    "context_prefix_cache_role": "volatile",
-                    "context_prefix_tier": "volatile",
-                    "context_commit_policy": "never_commit",
-                    "context_replay_policy": "current_dynamic_tail_only",
-                    "stability_rule": "Turn state attention segments are current resource/cursor state and must not be sealed into provider-visible memory.",
-                },
-            )
-        )
-    return specs
-
-
-def _editor_context_message_specs(
-    payload: dict[str, Any] | None,
-    *,
-    source_ref_prefix: str,
-    dynamic_context: DynamicContextProjection,
-) -> list[dict[str, Any]]:
-    editor_payload = dict(payload or {})
-    specs: list[dict[str, Any]] = []
-    editor_context_index = editor_payload.get("editor_context_index")
-    if editor_context_index:
-        specs.append(
-            _runtime_payload_spec(
-                role="system",
-                title="Editor context index",
-                payload={"editor_context_index": editor_context_index},
-                kind="editor_context_index",
-                source_ref=f"{source_ref_prefix}:editor_context_index",
-                cache_scope="task",
-                cache_role="session_stable",
-                compression_role="ref_only",
-                metadata={
-                    **_dynamic_context_segment_metadata(dynamic_context, source="editor_context_index"),
-                    "authority_class": "editor_context_index",
-                    "content_source": "harness.runtime.dynamic_context.editor_context_index",
-                    "runtime_fragment_role": "editor_context_index",
-                    "cache_impact": "task_prefix_editor_context_index_snapshot",
-                },
-            )
-        )
-    editor_evidence_delta = editor_payload.get("current_editor_evidence_delta")
-    if editor_evidence_delta:
-        specs.append(
-            _runtime_payload_spec(
-                role="system",
-                title="Current editor evidence",
-                payload={"current_editor_evidence_delta": editor_evidence_delta},
-                kind="current_editor_evidence_delta",
-                source_ref=f"{source_ref_prefix}:current_editor_evidence_delta",
-                cache_scope="none",
-                cache_role="volatile",
-                compression_role="preserve",
-                metadata={
-                    **_dynamic_context_segment_metadata(dynamic_context, source="editor_exact_evidence_delta"),
-                    "authority_class": "editor_evidence_delta",
-                    "content_source": "harness.runtime.dynamic_context.current_editor_evidence_delta",
-                    "runtime_fragment_role": "current_editor_evidence_delta",
-                },
-            )
-        )
-    return specs
-
-
-def _tool_observation_context_message_specs(
-    payload: dict[str, Any] | None,
-    *,
-    source_ref_prefix: str,
-    dynamic_context: DynamicContextProjection,
-) -> list[dict[str, Any]]:
-    observations_payload = (
-        dict(dict(payload or {}).get("observations") or {})
-        if isinstance(dict(payload or {}).get("observations"), dict)
-        else {}
-    )
-    observations = [
-        _drop_empty_payload(dict(item))
-        for item in list(observations_payload.get("latest_observations") or [])
-        if isinstance(item, dict)
-    ]
-    observations = [item for item in observations if item]
-    specs: list[dict[str, Any]] = []
-    for index, observation in enumerate(observations, start=1):
-        observation_ref = _tool_observation_entry_ref(observation, fallback_index=index)
-        specs.append(
-            _runtime_payload_spec(
-                role="system",
-                title=f"Current turn tool result {observation_ref}",
-                payload={TOOL_TRANSCRIPT_DELTA_KIND: observation},
-                kind=TOOL_TRANSCRIPT_DELTA_KIND,
-                source_ref=f"{source_ref_prefix}:tool_transcript:{observation_ref}",
-                cache_scope="task",
-                cache_role="session_stable",
-                compression_role="ref_only",
-                metadata={
-                    **_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
-                    "authority_class": "append_only_tool_transcript_delta",
-                    "source_route": "observation_followup_projector",
-                    "canonical_kind": TOOL_TRANSCRIPT_DELTA_KIND,
-                    "semantic_title": "Current turn tool result",
-                    "volatility_reason": (
-                        "this tool transcript entry is newly appended for the current follow-up; "
-                        "later follow-ups must reuse it unchanged and append later tool results after it"
-                    ),
-                    "cache_impact": "append_only_task_prefix",
-                    "stability_rule": (
-                        "tool transcript deltas are emitted as append-only context entries; existing "
-                        "entries must not be rewritten when later tool results arrive"
-                    ),
-                    "content_source": "harness.runtime.dynamic_context.tool_transcript_delta",
-                    "runtime_fragment_role": "tool_transcript_delta",
-                    "append_only_context_package": "tool_transcript",
-                    "append_only_context_stream": "tool_transcript",
-                    "append_only_event_offset": _safe_int(observation.get("event_offset")),
-                    "append_only_created_at": _safe_float(observation.get("created_at")),
-                    "append_only_stream_index": index,
-                    "tool_observation_ref": observation_ref,
-                },
-            )
-        )
-    return specs
-
-
-def _tool_observation_entry_ref(observation: dict[str, Any], *, fallback_index: int) -> str:
-    explicit = str(
-        observation.get("observation_id")
-        or observation.get("observation_ref")
-        or observation.get("tool_result_ref")
-        or ""
-    ).strip()
-    if explicit:
-        return explicit
-    digest = hashlib.sha256(
-        json.dumps(_json_stable(observation), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
-            "utf-8",
-            errors="ignore",
-        )
-    ).hexdigest()[:12]
-    return f"observation:{digest or fallback_index}"
-
-
-def _session_history_tail_context_message_specs(
-    payload: dict[str, Any] | None,
-    *,
-    source_ref: str,
-    metadata: dict[str, Any] | None = None,
-) -> list[dict[str, Any]]:
-    clean_payload = _drop_empty_payload(dict(payload or {}))
-    if not clean_payload:
-        return []
-    pinned_facts_payload = _session_history_pinned_facts_context_payload(clean_payload)
-    tail_payload = _session_history_tail_context_payload(clean_payload)
-    specs: list[dict[str, Any]] = []
-    if pinned_facts_payload:
-        specs.append(
-            _runtime_payload_spec(
-                role="system",
-                title="Recent session pinned facts",
-                payload=pinned_facts_payload,
-                kind="session_pinned_facts_context",
-                source_ref=f"{source_ref}:pinned_facts_context",
-                cache_scope="task",
-                cache_role="session_stable",
-                compression_role="summarize",
-                metadata={
-                    **dict(metadata or {}),
-                    "authority_class": "natural_history_pinned_facts",
-                    "cache_impact": "context_append_then_sealed_prefix",
-                    "stability_rule": "pinned facts are rememberable context; changes append as new context rather than living in the dynamic tail",
-                    "session_history_component": "pinned_facts_context",
-                    "append_only_context_package": "historical_context",
-                    "append_only_context_stream": "session_pinned_facts",
-                },
-            )
-        )
-    if tail_payload:
-        specs.append(
-            _runtime_payload_spec(
-                role="system",
-                title="Recent session context signals",
-                payload=tail_payload,
-                kind="session_history_tail_context",
-                source_ref=f"{source_ref}:tail_context",
-                cache_scope="none",
-                cache_role="volatile",
-                compression_role="summarize",
-                metadata={
-                    **dict(metadata or {}),
-                    "authority_class": "natural_history_tail_context",
-                    "cache_impact": "volatile_suffix_only",
-                    "volatility_reason": (
-                        "recent work outcome may be refreshed independently of append-only history, "
-                        "so it stays after the locked historical prefix"
-                    ),
-                    "stability_rule": "volatile session tail context stays after append-only history and provider protocol replay",
-                    "session_history_component": "tail_context",
-                },
-            )
-        )
-    return specs
-
-
-def _session_history_tail_context_payload(clean_payload: dict[str, Any]) -> dict[str, Any]:
-    session_context = dict(clean_payload.get("session_context") or {}) if isinstance(clean_payload.get("session_context"), dict) else {}
-    recent_work_outcome = (
-        dict(session_context.get("recent_work_outcome") or {})
-        if isinstance(session_context.get("recent_work_outcome"), dict)
-        else {}
-    )
-    return _drop_empty_payload(
-        {
-            "recent_work_outcome": recent_work_outcome,
-        }
-    )
-
-
-def _session_history_pinned_facts_context_payload(clean_payload: dict[str, Any]) -> dict[str, Any]:
-    pinned_facts = [
-        _drop_empty_payload(dict(item))
-        for item in list(clean_payload.get("pinned_facts") or [])
-        if isinstance(item, dict)
-    ]
-    pinned_facts = [item for item in pinned_facts if item]
-    return _drop_empty_payload(
-        {
-            "pinned_facts": pinned_facts,
-        }
-    )
-
-
-def _timestamp_from_message_identity(value: Any) -> float:
-    text = str(value or "").strip()
-    if not text:
-        return 0.0
-    digits = []
-    for char in text:
-        if char.isdigit():
-            digits.append(char)
-            continue
-        break
-    if len(digits) < 10:
-        return 0.0
-    prefix = "".join(digits)
-    try:
-        if len(prefix) >= 13:
-            return max(0.0, int(prefix[:13]) / 1000.0)
-        return max(0.0, float(int(prefix[:10])))
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _task_state_replay_message_specs(entries: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
-    specs: list[dict[str, Any]] = []
-    for index, raw_entry in enumerate(tuple(entries or ()), start=1):
-        entry = _drop_empty_payload(dict(raw_entry or {}))
-        if not entry:
-            continue
-        entry_ref = _task_state_replay_entry_ref(entry, fallback_index=index)
-        specs.append(
-            _runtime_payload_spec(
-                role="system",
-                title=f"Task execution replayed state evidence {entry_ref}",
-                payload={"task_state_replay_entry": entry},
-                kind="task_state_replay_entry",
-                source_ref=f"task_state_replay:{entry_ref}",
-                cache_scope="task",
-                cache_role="session_stable",
-                compression_role="preserve",
-                metadata={
-                    "authority_class": "runtime_state",
-                    "cache_impact": "append_only_task_prefix",
-                    "stability_rule": "replay entries are append-only historical evidence; current invocation deltas remain in volatile task state",
-                    "dynamic_context_report_ref": "task_state_replay_entries",
-                    "projection_strategy": "bounded_task_state_replay_entry",
-                    "task_state_replay_entry_index": index,
-                    "task_state_replay_entry_ref": entry_ref,
-                    "content_source": "runtime.dynamic_context.task_state_replay_entry",
-                    "runtime_fragment_role": "append_only_task_state_evidence",
-                },
-            )
-        )
-    return specs
-
-
-def _task_state_replay_entry_ref(entry: dict[str, Any], *, fallback_index: int) -> str:
-    explicit_ref = str(entry.get("observation_ref") or entry.get("entry_ref") or "").strip()
-    if explicit_ref:
-        return explicit_ref
-    digest = hashlib.sha256(
-        json.dumps(entry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8", errors="ignore")
-    ).hexdigest()[:12]
-    return f"entry:{digest or fallback_index}"
 
 
 def _provider_protocol_message_specs(
@@ -4510,7 +3948,7 @@ def _provider_visible_context_inheritance_from_session_context(
         "fork_point_provider_request_commit_id": str(forked_from.get("fork_point_provider_request_commit_id") or ""),
         "fork_point_provider_request_cache_spine_hash": str(forked_from.get("fork_point_provider_request_cache_spine_hash") or ""),
         "fork_point_provider_payload_prefix_hash": str(forked_from.get("fork_point_provider_payload_prefix_hash") or ""),
-        "fork_point_provider_payload_message_prefix_hash": str(forked_from.get("fork_point_provider_payload_message_prefix_hash") or ""),
+        "fork_point_physical_cache_spine_message_subtotal_hash": str(forked_from.get("fork_point_physical_cache_spine_message_subtotal_hash") or ""),
         "fork_point_provider_payload_messages_hash": str(forked_from.get("fork_point_provider_payload_messages_hash") or ""),
         "fork_point_transport_contract_hash": str(forked_from.get("fork_point_transport_contract_hash") or ""),
         "fork_point_cache_sensitive_params_hash": str(forked_from.get("fork_point_cache_sensitive_params_hash") or ""),
@@ -5976,20 +5414,41 @@ def _model_decision_contract_payload(
     tool_contract = tool_call_contract.to_hidden_control_payload() if tool_call_contract is not None else {}
     ordinary_tool_submission = str(tool_contract.get("ordinary_tool_submission") or "none")
     control_action_submission = str(tool_contract.get("control_action_submission") or "none")
+    ordinary_initial_response_allowed = str(invocation_kind or "") == "single_agent_turn"
+    model_invocation_phase = "initial_decision" if ordinary_initial_response_allowed else f"{str(invocation_kind or 'runtime')}_action_decision"
     return {
         "authority": "harness.runtime.model_decision_contract",
         "prompt_authority": "runtime_action_contract",
         "invocation_kind": str(invocation_kind or ""),
+        "model_invocation_phase": model_invocation_phase,
         "semantic_actions": semantic_actions,
         "control_actions": control_actions,
-        "assistant_response_form": "assistant_message",
+        "assistant_response_form": (
+            "ordinary_initial_assistant_message"
+            if ordinary_initial_response_allowed
+            else "model_action_user_visible_field"
+        ),
+        "natural_response_carrier": (
+            "assistant_message"
+            if ordinary_initial_response_allowed
+            else "respond.final_answer"
+        ),
         "ordinary_tool_action": "choose_available_tool_and_fill_arguments"
         if ordinary_tool_submission != "none"
         else "not_available",
         "control_action_submission": control_action_submission if control_actions else "none",
-        "action_object_required_for": "non_provider_control_fallback_only",
-        "assistant_text_allowed_when_no_action": True,
-        "required_action_form": "assistant_message_or_tool_action_or_control_action",
+        "action_object_required_for": (
+            "non_provider_control_fallback_only"
+            if ordinary_initial_response_allowed
+            else "all_action_phase_decisions_without_provider_control_tool"
+        ),
+        "assistant_text_allowed_when_no_action": bool(ordinary_initial_response_allowed),
+        "required_action_form": (
+            "assistant_message_or_tool_action_or_control_action"
+            if ordinary_initial_response_allowed
+            else "tool_action_or_control_action_or_structured_action_object"
+        ),
+        "action_phase_natural_response_carrier": "respond.final_answer",
         "action_object_shape": {
             "authority": "harness.loop.model_action_request",
             "single_unambiguous_action_required": True,
@@ -6029,7 +5488,7 @@ def _model_decision_contract_payload(
                         "没有 pending_user_steers 的普通任务暂停。",
                         "已经真正处理并消费该 steer 的情况。",
                     ],
-                    "resume_contract": "系统只在 task_run 上记录暂停事实和恢复句柄；恢复后由你根据上下文缓存、pending steer 和 runtime facts 判断下一步。",
+                    "resume_contract": "暂停后会留下可恢复的事实和句柄；恢复时，你仍要根据上下文缓存、pending steer 和 runtime facts 重新判断下一步。",
                 }
             }
             if pause_for_user_steer_allowed
@@ -6543,6 +6002,77 @@ def _capability_directory_model_visible_payload(assembly_payload: dict[str, Any]
             "authority": str(directory.get("authority") or "harness.runtime.capability_directory"),
         }
     )
+
+
+def _capability_catalog_payload(value: Any) -> dict[str, Any]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    groups: list[dict[str, Any]] = []
+    for item in list(payload.get("capability_groups") or []):
+        if not isinstance(item, dict):
+            continue
+        group_id = str(item.get("group_id") or "").strip()
+        if not group_id:
+            continue
+        candidate_tools = [
+            dict(tool)
+            for tool in list(item.get("candidate_tools") or [])
+            if isinstance(tool, dict) and str(tool.get("tool_name") or "").strip()
+        ]
+        candidate_skills = [
+            dict(skill)
+            for skill in list(item.get("candidate_skills") or [])
+            if isinstance(skill, dict) and str(skill.get("skill_id") or "").strip()
+        ]
+        if group_id != "general_task" and not candidate_tools and not candidate_skills:
+            continue
+        groups.append(
+            _drop_empty_payload(
+                {
+                    "group_id": group_id,
+                    "title": str(item.get("title") or "").strip(),
+                    "use_when": str(item.get("use_when") or "").strip(),
+                    "tool_namespaces": [
+                        str(value).strip()
+                        for value in list(item.get("tool_namespaces") or [])
+                        if str(value).strip()
+                    ],
+                    "candidate_tools": candidate_tools,
+                    "candidate_skills": candidate_skills,
+                    "loading_mode": str(item.get("loading_mode") or "").strip(),
+                }
+            )
+        )
+    return _drop_empty_payload(
+        {
+            "capability_groups": groups,
+            "skill_selection_available": bool(payload.get("skill_selection_available") is True),
+            "authority": str(payload.get("authority") or "harness.runtime.capability_directory"),
+        }
+    )
+
+
+def _capability_routing_payload(value: Any) -> dict[str, Any]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    return _drop_empty_payload(
+        {
+            "requested_capability_groups": [
+                str(item).strip()
+                for item in list(payload.get("requested_capability_groups") or [])
+                if str(item).strip()
+            ],
+            "preferred_tool_namespaces": [
+                str(item).strip()
+                for item in list(payload.get("preferred_tool_namespaces") or [])
+                if str(item).strip()
+            ],
+            "tool_search_available": bool(payload.get("tool_search_available") is True),
+            "authority": str(payload.get("authority") or "harness.runtime.capability_directory"),
+        }
+    )
+
+
+def _capability_catalog_source_ref(payload: dict[str, Any]) -> str:
+    return "capability_catalog:" + _stable_json_hash(payload).removeprefix("sha256:")[:20]
 
 
 def _turn_attention_index_payload_from_task_resource(

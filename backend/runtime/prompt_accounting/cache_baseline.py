@@ -40,9 +40,6 @@ class PromptCacheBaselineRecord:
     task_prefix_hash: str = ""
     memory_segment_hash: str = ""
     provider_payload_prefix_hash: str = ""
-    provider_payload_provider_global_prefix_hash: str = ""
-    provider_payload_session_prefix_hash: str = ""
-    provider_payload_task_prefix_hash: str = ""
     tool_catalog_hash: str = ""
     stable_tool_catalog_hash: str = ""
     cache_sensitive_params_hash: str = ""
@@ -82,9 +79,6 @@ class PromptCacheBaselineRecord:
             task_prefix_hash=str(payload.get("task_prefix_hash") or ""),
             memory_segment_hash=str(payload.get("memory_segment_hash") or ""),
             provider_payload_prefix_hash=str(payload.get("provider_payload_prefix_hash") or ""),
-            provider_payload_provider_global_prefix_hash=str(payload.get("provider_payload_provider_global_prefix_hash") or ""),
-            provider_payload_session_prefix_hash=str(payload.get("provider_payload_session_prefix_hash") or ""),
-            provider_payload_task_prefix_hash=str(payload.get("provider_payload_task_prefix_hash") or ""),
             tool_catalog_hash=str(payload.get("tool_catalog_hash") or ""),
             stable_tool_catalog_hash=str(payload.get("stable_tool_catalog_hash") or ""),
             cache_sensitive_params_hash=str(payload.get("cache_sensitive_params_hash") or ""),
@@ -166,9 +160,6 @@ class PromptCacheBaselineTracker:
             task_prefix_hash=hashes["task"],
             memory_segment_hash=hashes["memory"],
             provider_payload_prefix_hash=hashes["provider_payload"],
-            provider_payload_provider_global_prefix_hash=hashes["provider_payload_provider_global"],
-            provider_payload_session_prefix_hash=hashes["provider_payload_session"],
-            provider_payload_task_prefix_hash=hashes["provider_payload_task"],
             tool_catalog_hash=hashes["tool_catalog"],
             stable_tool_catalog_hash=hashes["stable_tool_catalog"],
             cache_sensitive_params_hash=hashes["cache_sensitive_params"],
@@ -286,8 +277,6 @@ def _baseline_hashes(*, segment_map: PromptSegmentMap, model_request: Any | None
     physical_spine = provider_payload_physical_cache_spine(provider_boundary)
     physical_spine_hash = str(
         physical_spine.get("provider_payload_prefix_hash")
-        or provider_boundary.get("physical_cache_spine_hash")
-        or provider_boundary.get("cache_spine_hash")
         or ""
     )
     return {
@@ -297,9 +286,6 @@ def _baseline_hashes(*, segment_map: PromptSegmentMap, model_request: Any | None
         "task": physical_spine_hash,
         "memory": _memory_segment_hash(segment_map.segments),
         "provider_payload": physical_spine_hash,
-        "provider_payload_provider_global": physical_spine_hash,
-        "provider_payload_session": physical_spine_hash,
-        "provider_payload_task": physical_spine_hash,
         "tool_catalog": str(getattr(model_request, "tool_catalog_hash", "") or provider_boundary.get("tool_catalog_hash") or ""),
         "stable_tool_catalog": str(getattr(model_request, "stable_tool_catalog_hash", "") or provider_boundary.get("stable_tool_catalog_hash") or ""),
         "cache_sensitive_params": str(getattr(model_request, "cache_sensitive_params_hash", "") or provider_boundary.get("cache_sensitive_params_hash") or ""),
@@ -319,9 +305,7 @@ def _baseline_segment_diagnostics(segment_map: PromptSegmentMap) -> dict[str, An
 def _physical_cache_spine_segments(segments: list[PromptSegment]) -> list[PromptSegment]:
     result: list[PromptSegment] = []
     for segment in segments:
-        metadata = dict(getattr(segment, "metadata", {}) or {})
-        lane = str(metadata.get("physical_prefix_lane") or "").strip()
-        if lane not in {"global_static_prefix", "provider_visible_context_prefix"}:
+        if str(getattr(segment, "boundary_participation", "") or "") != "included":
             break
         result.append(segment)
     return result
@@ -334,6 +318,10 @@ def _segment_group_diagnostics(segments: list[PromptSegment]) -> dict[str, Any]:
         "content_hash": _segments_hash(segments),
         "segment_ids": [segment.segment_id for segment in segments],
         "kinds": [segment.kind for segment in segments],
+        "transport_locations": [str(getattr(segment, "transport_location", "") or "") for segment in segments],
+        "roles": [str(getattr(segment, "role", "") or "") for segment in segments],
+        "prefix_families": [str(getattr(segment, "prefix_family", "") or "") for segment in segments],
+        "boundary_participations": [str(getattr(segment, "boundary_participation", "") or "") for segment in segments],
     }
 
 
@@ -373,9 +361,6 @@ def _changed_tiers(previous: PromptCacheBaselineRecord | None, hashes: dict[str,
         "task": previous.task_prefix_hash,
         "memory": previous.memory_segment_hash,
         "provider_payload": previous.provider_payload_prefix_hash,
-        "provider_payload_provider_global": previous.provider_payload_provider_global_prefix_hash,
-        "provider_payload_session": previous.provider_payload_session_prefix_hash,
-        "provider_payload_task": previous.provider_payload_task_prefix_hash,
         "tool_catalog": previous.tool_catalog_hash,
         "stable_tool_catalog": previous.stable_tool_catalog_hash,
         "cache_sensitive_params": previous.cache_sensitive_params_hash,
@@ -412,11 +397,7 @@ def _provider_prefix_seal(model_request: Any | None) -> dict[str, Any]:
             "|".join(str(item.get("content_hash") or "") for item in prefix_segments)
         ),
         "physical_cache_spine_hash": str(physical_spine.get("provider_payload_prefix_hash") or ""),
-        "physical_cache_spine_message_hash": str(
-            physical_spine.get("provider_payload_message_prefix_hash")
-            or physical_spine.get("message_prefix_hash")
-            or ""
-        ),
+        "physical_cache_spine_message_subtotal_hash": str(physical_spine.get("physical_cache_spine_message_subtotal_hash") or ""),
         "segments": prefix_segments,
     }
 

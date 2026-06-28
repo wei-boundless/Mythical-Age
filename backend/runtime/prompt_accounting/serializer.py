@@ -5,7 +5,7 @@ import json
 import time
 from typing import Any
 
-from runtime.prompt_accounting.cache_policy import is_cache_eligible_prefix, normalize_cache_role, normalize_compression_role, normalize_prefix_tier
+from runtime.prompt_accounting.cache_policy import normalize_cache_role, normalize_compression_role, normalize_prefix_tier
 
 from .cache_planner import stable_text_hash
 from .models import PromptSegment, PromptSegmentMap
@@ -13,6 +13,20 @@ from .token_counter import TokenCounterRegistry
 
 
 REASONING_CONTENT_CHARS_PER_TOKEN_ESTIMATE = 4
+_PREFIX_CONSUMER_CONTRACTS = (
+    "runtime.prompt_accounting.serializer",
+    "runtime.prompt_accounting.cache_planner",
+    "runtime.prompt_accounting.cache_baseline",
+    "runtime.prompt_accounting.cache_break_detector",
+    "runtime.prompt_accounting.provider_cache_ledger",
+)
+_SEGMENT_IDENTITY_FORBIDDEN_AUTHORITIES = (
+    "runtime.prompt_accounting.serializer.reclassify_prefix_family",
+    "runtime.prompt_accounting.cache_planner.reclassify_prefix_family",
+    "runtime.prompt_accounting.provider_cache_ledger.reclassify_prefix_family",
+    "runtime.prompt_accounting.cache_break_detector.reclassify_prefix_family",
+    "frontend.presentation.reclassify_prefix_family",
+)
 
 
 def canonical_json(value: Any) -> str:
@@ -60,12 +74,12 @@ class CanonicalPromptSerializer:
         planned_by_index = _bindings_by_message_index(bindings) if bindings else _plan_segments_by_message_index(plan)
         provider_payload_manifest = _model_request_provider_payload_manifest(model_request)
         provider_tool_segment = _provider_payload_tool_segment(provider_payload_manifest)
+        provider_messages_by_index = _provider_payload_message_segments_by_index(provider_payload_manifest)
         tool_schema_profile = provider_tool_segment or _unmanifested_tool_schema_profile(
             normalized_tools=normalized_tools,
             has_provider_payload_manifest=bool(provider_payload_manifest),
         )
         tool_schema_inserted = False
-        message_transport_prefix_open = True
         segments: list[PromptSegment] = []
         ordinal = 0
 
@@ -77,65 +91,56 @@ class CanonicalPromptSerializer:
             segment_payload = canonical_json({"tools": normalized_tools})
             token_count = self.token_counter.count_text(segment_payload, provider=provider, model=model)
             tool_schema_metadata = dict(tool_schema_profile.get("metadata") or {})
-            message_prefix_eligible_component = bool(
-                normalized_tools
-                and is_cache_eligible_prefix(
-                    cache_role=str(tool_schema_profile.get("cache_role") or ""),
-                    prefix_tier=str(tool_schema_profile.get("prefix_tier") or ""),
-                )
-            )
-            sidecar_tool_schema_component = bool(
-                normalized_tools
-                and (
-                    tool_schema_metadata.get("provider_payload_sidecar_component") is not False
-                    or str(tool_schema_metadata.get("provider_payload_transport_location") or "") == "tools"
-                )
-            )
-            tool_schema_prefix_component = bool(message_prefix_eligible_component and message_transport_prefix_open)
+            boundary_participation = str(tool_schema_profile.get("boundary_participation") or "excluded")
+            tool_schema_prefix_component = bool(normalized_tools and boundary_participation == "included")
+            blocker_tool_schema_component = bool(normalized_tools and boundary_participation == "blocker")
             segments.append(
                 PromptSegment(
-                    segment_id=_segment_id(request_id, ordinal, str(tool_schema_profile.get("kind") or "native_tool_binding_schema"), segment_payload),
+                    segment_id=str(
+                        tool_schema_metadata.get("provider_payload_segment_id")
+                        or tool_schema_profile.get("segment_id")
+                        or _segment_id(request_id, ordinal, str(tool_schema_profile.get("kind") or "native_tool_binding_schema"), segment_payload)
+                    ),
                     request_id=request_id,
                     run_id=canonical_run_id,
                     task_run_id=str(task_run_id or ""),
                     session_id=str(session_id or ""),
                     kind=str(tool_schema_profile.get("kind") or "native_tool_binding_schema"),
                     ordinal=ordinal,
-                    role="tool_schema",
-                    content_hash=stable_text_hash(segment_payload),
-                    byte_length=len(segment_payload.encode("utf-8", errors="ignore")),
+                    role=str(tool_schema_profile.get("role") or "tool_schema"),
+                    content_hash=str(tool_schema_profile.get("content_hash") or stable_text_hash(segment_payload)),
+                    byte_length=int(tool_schema_profile.get("byte_length") or len(segment_payload.encode("utf-8", errors="ignore"))),
                     predicted_tokens=token_count.tokens,
                     cache_role=str(tool_schema_profile.get("cache_role") or "never_cache"),
                     prefix_tier=str(tool_schema_profile.get("prefix_tier") or "none"),
                     compression_role="preserve",
-                    authority_class="transport_sidecar_diagnostic"
-                    if sidecar_tool_schema_component and not tool_schema_prefix_component
-                    else "contract",
+                    authority_class="contract" if tool_schema_prefix_component else "unknown",
+                    transport_location=str(tool_schema_profile.get("transport_location") or "tools"),
+                    prefix_family=str(tool_schema_profile.get("prefix_family") or ""),
+                    semantic_source=str(tool_schema_profile.get("semantic_source") or ""),
+                    logical_segment_ref=str(tool_schema_profile.get("logical_segment_ref") or ""),
+                    semantic_slot=str(tool_schema_profile.get("semantic_slot") or ""),
+                    physical_prefix_lane=str(tool_schema_profile.get("physical_prefix_lane") or ""),
+                    boundary_participation=boundary_participation,
+                    exclusion_reason=str(tool_schema_profile.get("exclusion_reason") or ""),
+                    consumer_contracts=_tuple_text(tool_schema_profile.get("consumer_contracts")),
+                    forbidden_authorities=_tuple_text(tool_schema_profile.get("forbidden_authorities")),
                     source=str(tool_schema_profile.get("source") or "model_request.tools"),
                     created_at=timestamp,
                     metadata={
                         "tool_count": len(normalized_tools),
                         "token_count_mode": token_count.mode,
                         "provider_payload_transport_location": "tools",
-                        "provider_payload_sidecar_component": sidecar_tool_schema_component,
-                        "provider_payload_prefix_component": tool_schema_prefix_component,
                         "transport_contract_component": bool(
-                            tool_schema_metadata.get("transport_contract_component") is not False
+                            tool_schema_metadata.get("transport_contract_component") is True
                         ),
                         "transport_contract_role": str(
                             tool_schema_metadata.get("transport_contract_role")
-                            or "stable_provider_tool_schema"
+                            or ("provider_tool_schema_blocker" if blocker_tool_schema_component else "")
                         ),
-                        "transport_sidecar_role": str(
-                            tool_schema_metadata.get("transport_sidecar_role")
-                            or "native_tool_binding_schema"
-                        ),
-                        "message_prefix_cacheable": tool_schema_prefix_component,
-                        "provider_payload_prefix_component_reason": (
-                            "transport_prefix_open"
-                            if tool_schema_prefix_component
-                            else "native_tools_are_provider_sidecar_not_message_prefix"
-                        ),
+                        "provider_payload_boundary_participation": boundary_participation,
+                        "provider_payload_prefix_family": str(tool_schema_profile.get("prefix_family") or ""),
+                        "provider_tool_schema_blocker": blocker_tool_schema_component,
                         **tool_schema_metadata,
                     },
                 )
@@ -150,7 +155,6 @@ class CanonicalPromptSerializer:
             cache_role = _cache_role(planned.get("cache_role")) if planned else "never_cache"
             prefix_tier = _prefix_tier(planned.get("prefix_tier"), cache_scope=str(planned.get("cache_scope") or "none"), cache_role=cache_role) if planned else "none"
             compression_role = _compression_role(planned.get("compression_role")) if planned else "summarize"
-            stable_message = is_cache_eligible_prefix(cache_role=cache_role, prefix_tier=prefix_tier)
             ordinal += 1
             authority_class = _authority_class(
                 planned,
@@ -160,9 +164,19 @@ class CanonicalPromptSerializer:
             )
             token_count = self.token_counter.count_text(segment_payload, provider=provider, model=model)
             reasoning_token_supplement = _reasoning_content_token_supplement(message)
+            planned_metadata = _planned_metadata(planned)
+            provider_message_segment = provider_messages_by_index.get(index, {})
+            source_ref = str(planned.get("source_ref") or "model_request.message") if planned else "model_request.unplanned_message"
+            identity = _message_prompt_segment_identity(
+                planned=planned,
+                planned_metadata=planned_metadata,
+                provider_segment=provider_message_segment,
+                kind=kind,
+                source_ref=source_ref,
+            )
             segments.append(
                 PromptSegment(
-                    segment_id=_segment_id(request_id, ordinal, kind, segment_payload),
+                    segment_id=str(provider_message_segment.get("segment_id") or _segment_id(request_id, ordinal, kind, segment_payload)),
                     request_id=request_id,
                     run_id=canonical_run_id,
                     task_run_id=str(task_run_id or ""),
@@ -170,14 +184,24 @@ class CanonicalPromptSerializer:
                     kind=kind,
                     ordinal=ordinal,
                     role=str(message.get("role") or ""),
-                    content_hash=stable_text_hash(segment_payload),
-                    byte_length=len(segment_payload.encode("utf-8", errors="ignore")),
+                    content_hash=str(provider_message_segment.get("content_hash") or stable_text_hash(segment_payload)),
+                    byte_length=int(provider_message_segment.get("byte_length") or len(segment_payload.encode("utf-8", errors="ignore"))),
                     predicted_tokens=token_count.tokens + reasoning_token_supplement,
                     cache_role=cache_role,
                     prefix_tier=prefix_tier,
                     compression_role=compression_role,
                     authority_class=authority_class,
-                    source=str(planned.get("source_ref") or "model_request.message") if planned else "model_request.unplanned_message",
+                    transport_location=str(identity.get("transport_location") or "messages"),
+                    prefix_family=str(identity.get("prefix_family") or ""),
+                    semantic_source=str(identity.get("semantic_source") or ""),
+                    logical_segment_ref=str(identity.get("logical_segment_ref") or ""),
+                    semantic_slot=str(identity.get("semantic_slot") or ""),
+                    physical_prefix_lane=str(identity.get("physical_prefix_lane") or ""),
+                    boundary_participation=str(identity.get("boundary_participation") or "excluded"),
+                    exclusion_reason=str(identity.get("exclusion_reason") or ""),
+                    consumer_contracts=_tuple_text(identity.get("consumer_contracts")),
+                    forbidden_authorities=_tuple_text(identity.get("forbidden_authorities")),
+                    source=source_ref,
                     created_at=timestamp,
                     metadata={
                         "token_count_mode": token_count.mode,
@@ -186,12 +210,19 @@ class CanonicalPromptSerializer:
                             if reasoning_token_supplement
                             else {}
                         ),
-                        **_planned_metadata(planned),
+                        **planned_metadata,
+                        **(
+                            {
+                                "provider_payload_manifest_ref": str(provider_payload_manifest.get("manifest_id") or ""),
+                                "provider_payload_segment_id": str(provider_message_segment.get("segment_id") or ""),
+                                "provider_payload_authority": str(provider_message_segment.get("authority") or ""),
+                            }
+                            if provider_message_segment
+                            else {}
+                        ),
                     },
                 )
             )
-            if not stable_message:
-                message_transport_prefix_open = False
         if normalized_tools and not tool_schema_inserted:
             append_tool_schema_segment()
         return PromptSegmentMap(
@@ -448,6 +479,17 @@ def _unmanifested_tool_schema_profile(
         "cache_role": "never_cache",
         "prefix_tier": "none",
         "source": "model_request.tools",
+        "transport_location": "tools",
+        "role": "tool_schema",
+        "prefix_family": "provider_tool_schema_blocker",
+        "semantic_source": "runtime.provider_payload_manifest",
+        "logical_segment_ref": "",
+        "semantic_slot": "tool_index",
+        "physical_prefix_lane": "provider_tool_schema_blocker",
+        "boundary_participation": "blocker",
+        "exclusion_reason": reason,
+        "consumer_contracts": _PREFIX_CONSUMER_CONTRACTS,
+        "forbidden_authorities": _SEGMENT_IDENTITY_FORBIDDEN_AUTHORITIES,
         "metadata": {
             "tool_count": len(normalized_tools),
             "cache_note": "native_tool_binding_schema_requires_provider_payload_manifest",
@@ -455,13 +497,12 @@ def _unmanifested_tool_schema_profile(
             "native_tool_binding_reason": reason,
             "provider_payload_manifest_required": True,
             "provider_payload_transport_location": "tools",
-            "provider_payload_sidecar_component": True,
-            "provider_payload_prefix_component": False,
-            "transport_contract_component": True,
-            "transport_contract_role": "stable_provider_tool_schema_missing_manifest",
-            "transport_sidecar_role": "native_tool_binding_schema",
-            "sidecar_drift_status": "missing_manifest",
+            "transport_contract_component": False,
+            "transport_contract_role": "provider_tool_schema_blocker_missing_manifest",
+            "tool_schema_blocker_drift_status": "missing_manifest",
             "message_prefix_cacheable": False,
+            "physical_prefix_blocker": True,
+            "physical_prefix_lane": "provider_tool_schema_blocker",
         },
     }
 
@@ -528,13 +569,27 @@ def _provider_payload_tool_segment(manifest: dict[str, Any]) -> dict[str, Any]:
         metadata = dict(item.get("metadata") or {})
         transport_contract = dict(dict(manifest or {}).get("transport_contract") or {})
         return {
+            "segment_id": str(item.get("segment_id") or ""),
             "kind": str(item.get("kind") or "native_tool_binding_schema"),
+            "role": str(item.get("role") or "tool_schema"),
+            "transport_location": str(item.get("transport_location") or "tools"),
+            "content_hash": str(item.get("content_hash") or ""),
+            "byte_length": _int_value(item.get("byte_length")),
             "cache_role": _cache_role(item.get("cache_role")),
             "prefix_tier": _prefix_tier(
                 item.get("prefix_tier"),
                 cache_scope=str(item.get("cache_scope") or "none"),
                 cache_role=_cache_role(item.get("cache_role")),
             ),
+            "prefix_family": str(item.get("prefix_family") or ""),
+            "semantic_source": str(item.get("semantic_source") or ""),
+            "logical_segment_ref": str(item.get("logical_segment_ref") or ""),
+            "semantic_slot": str(item.get("semantic_slot") or ""),
+            "physical_prefix_lane": str(item.get("physical_prefix_lane") or ""),
+            "boundary_participation": str(item.get("boundary_participation") or "excluded"),
+            "exclusion_reason": str(item.get("exclusion_reason") or ""),
+            "consumer_contracts": tuple(str(value) for value in list(item.get("consumer_contracts") or [])),
+            "forbidden_authorities": tuple(str(value) for value in list(item.get("forbidden_authorities") or [])),
             "source": str(item.get("source_ref") or "model_request.tools"),
             "metadata": {
                 **metadata,
@@ -546,6 +601,109 @@ def _provider_payload_tool_segment(manifest: dict[str, Any]) -> dict[str, Any]:
             },
         }
     return {}
+
+
+def _provider_payload_message_segments_by_index(manifest: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    result: dict[int, dict[str, Any]] = {}
+    for item in list(dict(manifest or {}).get("segments") or []):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("transport_location") or "") != "messages":
+            continue
+        metadata = dict(item.get("metadata") or {})
+        index = _int(metadata.get("message_index"), default=-1)
+        if index < 0:
+            continue
+        result[index] = dict(item)
+    return result
+
+
+def _message_prompt_segment_identity(
+    *,
+    planned: dict[str, Any] | None,
+    planned_metadata: dict[str, Any],
+    provider_segment: dict[str, Any],
+    kind: str,
+    source_ref: str,
+) -> dict[str, Any]:
+    if provider_segment:
+        return {
+            "transport_location": str(provider_segment.get("transport_location") or "messages"),
+            "prefix_family": str(provider_segment.get("prefix_family") or ""),
+            "semantic_source": str(provider_segment.get("semantic_source") or ""),
+            "logical_segment_ref": str(provider_segment.get("logical_segment_ref") or ""),
+            "semantic_slot": str(provider_segment.get("semantic_slot") or ""),
+            "physical_prefix_lane": str(provider_segment.get("physical_prefix_lane") or ""),
+            "boundary_participation": str(provider_segment.get("boundary_participation") or "excluded"),
+            "exclusion_reason": str(provider_segment.get("exclusion_reason") or ""),
+            "consumer_contracts": tuple(str(value) for value in list(provider_segment.get("consumer_contracts") or [])),
+            "forbidden_authorities": tuple(str(value) for value in list(provider_segment.get("forbidden_authorities") or [])),
+        }
+    payload = dict(planned_metadata or {})
+    lane = str(payload.get("physical_prefix_lane") or "").strip()
+    included = lane in {"global_static_prefix", "provider_visible_context_prefix"}
+    return {
+        "transport_location": "messages",
+        "prefix_family": _message_prefix_family(lane),
+        "semantic_source": _first_text(
+            payload.get("context_semantic_source"),
+            payload.get("semantic_source"),
+            payload.get("source_kind"),
+            payload.get("context_source_kind"),
+            source_ref,
+        ),
+        "logical_segment_ref": _first_text(
+            payload.get("planned_segment_id"),
+            payload.get("segment_id"),
+            payload.get("block_id"),
+            str(planned.get("segment_id") or "") if planned else "",
+            kind,
+        ),
+        "semantic_slot": _first_text(
+            payload.get("context_semantic_slot"),
+            payload.get("semantic_slot"),
+            payload.get("slot"),
+            kind,
+        ),
+        "physical_prefix_lane": lane,
+        "boundary_participation": "included" if included else "excluded",
+        "exclusion_reason": "" if included else _message_exclusion_reason(lane),
+        "consumer_contracts": _PREFIX_CONSUMER_CONTRACTS,
+        "forbidden_authorities": _SEGMENT_IDENTITY_FORBIDDEN_AUTHORITIES,
+    }
+
+
+def _message_prefix_family(lane: str) -> str:
+    if lane == "global_static_prefix":
+        return "provider_global_static_prefix"
+    if lane == "provider_visible_context_prefix":
+        return "provider_visible_context_prefix"
+    return "dynamic_tail"
+
+
+def _message_exclusion_reason(lane: str) -> str:
+    normalized = str(lane or "").strip()
+    if normalized in {"current_turn_tail", "never_replay_tail"}:
+        return normalized
+    if normalized:
+        return f"non_cache_spine_lane:{normalized}"
+    return "no_physical_prefix_lane"
+
+
+def _tuple_text(value: Any) -> tuple[str, ...]:
+    if value in (None, ""):
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    return tuple(str(item) for item in list(value or []) if str(item or ""))
+
+
+def _first_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
 
 
 def _bindings_by_message_index(bindings: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:

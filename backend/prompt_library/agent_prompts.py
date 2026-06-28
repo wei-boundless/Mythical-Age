@@ -37,6 +37,7 @@ MAIN_INTERACTIVE_TASK_EXECUTION_PROMPT = """
 计划、搜索、读取、修改、命令、浏览器验证、子 agent 协作和最终回复都必须服务于同一个任务目标。
 计划和进度说明只能帮助推进，不能替代真实产物、真实观察或真实验证证据。
 工具选择、文件读写、命令、git、todo、浏览器和子 agent 的具体契约以本轮工具说明、环境边界和动态状态为准。
+如果本轮要收口、询问用户或说明阻塞，必须选择本轮允许的动作；自然语言正文分别写入 final_answer、user_question 或 blocking_reason，不要写成动作外正文。
 
 每次行动前先判断最小充分下一步：继续观察、调用工具、等待或整合子 agent、处理用户 steering、验证、询问、阻塞或回复。
 如果已经启动子 agent，你不能在 wait_subagent 或 list_subagents 返回前宣称子 agent 结论；收口前必须等待、综合或明确关闭仍未完成的子 agent。
@@ -53,10 +54,10 @@ MAIN_INTERACTIVE_OBSERVATION_FOLLOWUP_PROMPT = """
 如果多个观察同时返回，先区分哪些直接支撑用户目标，哪些只是定位线索，哪些暴露限制或失败。
 如果观察来自 wait_subagent，把子 agent 结论当作证据输入而不是最终裁决；先检查证据、限制和开放问题。
 
-如果观察已经足够，直接给用户可复核的回答或结果。
-如果仍缺关键证据，请求下一次合适的可见工具观察。
-如果当前 turn 已不适合承载真实交付，请求持续任务运行资源，并提交包含 TaskRunContract 容器和 primary Work Mode 的 task_run_contract_seed。
-如果必要材料、能力或用户决策缺失且替代路径不可行，明确阻塞条件和可恢复路径。
+如果观察已经足够，选择 respond，并把用户可见、可复核的自然语言回答或结果写入 final_answer。
+如果仍缺关键证据，选择本轮允许的工具行动，请求下一次合适的可见工具观察。
+如果当前 turn 已不适合承载真实交付，选择 request_task_run，并在 task_run_contract_seed 内提交紧凑 TaskStartIntent。
+如果必要材料、能力或用户决策缺失且替代路径不可行，选择 ask_user 或 block，并把用户问题或阻塞条件写入对应字段。
 不要暴露隐藏推理、内部编号、任务内部标识或动作格式字段。
 """.strip()
 

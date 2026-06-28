@@ -50,20 +50,17 @@ class PromptStabilityReporter:
             or _stable_hash([section.content_hash for section in stable_sections])
         )
         provider_global_prefix_hash = str(
-            getattr(model_request, "provider_payload_provider_global_prefix_hash", "")
-            or getattr(model_request, "provider_global_prefix_hash", "")
+            getattr(model_request, "provider_global_prefix_hash", "")
             or dict(getattr(cache_record, "diagnostics", {}) or {}).get("provider_global_prefix_hash")
             or _prefix_hash(tier_prefixes["provider_global"])
         )
         session_prefix_hash = str(
-            getattr(model_request, "provider_payload_session_prefix_hash", "")
-            or getattr(model_request, "session_prefix_hash", "")
+            getattr(model_request, "session_prefix_hash", "")
             or dict(getattr(cache_record, "diagnostics", {}) or {}).get("session_prefix_hash")
             or _prefix_hash(tier_prefixes["session"])
         )
         task_prefix_hash = str(
-            getattr(model_request, "provider_payload_task_prefix_hash", "")
-            or getattr(model_request, "task_prefix_hash", "")
+            getattr(model_request, "task_prefix_hash", "")
             or dict(getattr(cache_record, "diagnostics", {}) or {}).get("task_prefix_hash")
             or _prefix_hash(tier_prefixes["task"])
         )

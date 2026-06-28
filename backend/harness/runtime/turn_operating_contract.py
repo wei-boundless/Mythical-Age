@@ -232,8 +232,8 @@ def turn_action_request_contract_payload(
         "action_surface_ref": str(action_surface_ref or ""),
         "allowed_action_types": list(visible_allowed),
         "turn_attention": {
-            "identity": "你正在执行当前 turn。先回应用户当前输入，再选择一个本轮动作。",
-            "single_lifecycle": "所有动作都发生在当前 turn；任务资源、工具、恢复、控制和最终回复不是第二套模型生命周期。",
+            "identity": "你正在执行当前 turn。先判断用户当前输入需要什么，再选择一个本轮动作。",
+            "single_lifecycle": "所有动作都属于当前 turn：工具用于取得事实，任务资源用于保存持续工作，恢复用于接续中断，最终回复由你自己写出。",
             "selection": [
                 "能完成并收口时，使用 respond。",
                 "缺少用户信息时，使用 ask_user。",
@@ -244,7 +244,7 @@ def turn_action_request_contract_payload(
             ],
         },
         "action_shape_rules": [
-            "提交一个唯一动作；provider 控制工具可用时直接选择对应控制动作，否则提交顶层结构化 action object。",
+            "提交一个唯一动作；如果当前界面提供了对应动作入口，就直接选择并填写参数；否则提交顶层结构化 action object。",
             "respond 把用户可见最终回复写在顶层 final_answer。",
             "ask_user 把用户需要回答的问题写在顶层 user_question。",
             "block 把真实阻塞原因写在顶层 blocking_reason。",
@@ -252,8 +252,8 @@ def turn_action_request_contract_payload(
             "request_task_run 只在 task_run_contract_seed 内填写 TaskStartIntent；不要同时提交普通工具动作。",
         ],
         "public_response_obligation": {
-            "rule": "动作必须服务用户当前输入。工具、长任务资源申请和控制动作不能替代对用户当前输入的公开回应。",
-            "public_progress_note": "tool_call、request_task_run 或 active_work_control 需要一句用户可理解的公开判断；说明本轮要确认什么、申请什么资源或控制什么工作。",
+            "rule": "动作必须服务用户当前输入。工具可以帮助你取得事实，但工具动作本身不是给用户的回答；最终解释必须由你在可见回复字段中写出。",
+            "public_progress_note": "只在结构化 action object、控制动作，或工具参数明确提供同名公开字段时使用。它承载你给用户的短判断：本轮要确认什么、为什么查证、或为什么申请资源。直接工具调用只填写当前工具参数；不要把公开说明写在工具调用前后的普通文本里。",
             "public_action_state": "只写当前可公开判断、下一步和已观察风险；不要写隐藏推理、内部事件或开发说明。",
         },
         "request_task_run_intent_contract": task_start_intent_contract_payload(),
@@ -275,7 +275,7 @@ def turn_action_request_contract_payload(
             },
         },
         "forbidden": [
-            "不要让系统替你判断用户语义。",
+            "用户可见解释必须由你自己判断并写出。",
             "不要把 request_task_run 写成普通工具调用。",
             "不要把 todo 当 primary_mode；todo 是任务资源中的进度游标或工具。",
             "不要把 unsupported primary_mode 自动改成 open_work。",
@@ -356,10 +356,16 @@ def turn_output_contract_payload(
     allowed_actions: tuple[str, ...],
     control_capabilities: dict[str, Any],
     planning_protocol: dict[str, Any] | None = None,
+    phase: str = "initial_decision",
 ) -> dict[str, Any]:
     allowed = tuple(dict.fromkeys(str(item) for item in tuple(allowed_actions or ()) if str(item)))
     json_action_enabled = bool(control_capabilities.get("supports_json_action_protocol") is True)
     json_action_required = bool(control_capabilities.get("requires_json_action_protocol") is True)
+    output_phase = str(phase or "initial_decision").strip() or "initial_decision"
+    raw_text_allowed = (
+        output_phase == "initial_decision"
+        and bool(control_capabilities.get("may_emit_assistant_message") is not False)
+    )
     forbidden: list[str] = ["delegate_subagent"]
     if not json_action_enabled:
         forbidden.append("action_object_protocol")
@@ -370,8 +376,11 @@ def turn_output_contract_payload(
     if "active_work_control" not in allowed:
         forbidden.append("active_work_control")
     return {
-        "format": "natural_response_or_turn_action",
+        "format": "ordinary_initial_response_or_action" if raw_text_allowed else "action_phase_turn_action",
         "authority": "harness.runtime.turn_operating_contract.output_commit_contract",
+        "phase": output_phase,
+        "raw_assistant_text_allowed": raw_text_allowed,
+        "action_phase_natural_response_carrier": "respond.final_answer",
         "allowed_actions": list(allowed),
         "forbidden": list(dict.fromkeys(forbidden)),
         "action_protocol": {
@@ -384,9 +393,11 @@ def turn_output_contract_payload(
             },
             "assistant_messages": {
                 "enabled": bool(control_capabilities.get("may_emit_assistant_message") is not False),
-                "response_form": "natural_response",
-                "terminal_when_no_action": True,
+                "response_form": "ordinary_initial_natural_response" if raw_text_allowed else "not_user_visible_action_phase_transport",
+                "terminal_when_no_action": raw_text_allowed,
+                "raw_text_allowed": raw_text_allowed,
                 "raw_text_is_not_a_control_action": True,
+                "action_phase_natural_response_carrier": "respond.final_answer",
             },
             "ordinary_tool_calls": {
                 "enabled": "tool_call" in allowed,
