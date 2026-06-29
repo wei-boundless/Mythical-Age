@@ -48,7 +48,6 @@ from runtime.tool_runtime.tool_call_policy import ToolCallBindingOptions
 from .lightweight_chat_model import LightweightChatModel, LightweightConversationAgent, provider_message_payloads
 from .model_request import ModelRequestBuilder
 from .providers import ProviderRequestProfile, build_provider_adapter_result
-from .protocol_sanitizer import standardize_provider_tool_protocol_messages
 
 if TYPE_CHECKING:
     from agent_system.a2a.models import AgentDefinition
@@ -158,6 +157,7 @@ class ModelRuntime:
         self._prompt_stability_reporter = PromptStabilityReporter()
         self._model_request_builder = ModelRequestBuilder()
         self.runtime_observability: Any | None = None
+        self.turn_memory_store: Any | None = None
 
     @property
     def request_timeout_seconds(self) -> float:
@@ -223,6 +223,9 @@ class ModelRuntime:
 
     def attach_runtime_observability(self, observability: Any | None) -> None:
         self.runtime_observability = observability
+
+    def attach_turn_memory_store(self, store: Any | None) -> None:
+        self.turn_memory_store = store
 
     async def invoke_messages(
         self,
@@ -1040,6 +1043,7 @@ class ModelRuntime:
                 base_accounting["provider_visible_ledger_anchor_before"] = dict(
                     pending_commit.get("provider_visible_ledger_anchor_before") or {}
                 )
+        self._record_turn_memory_provider_request(base_accounting, status="pending")
         if ledger is None or model_request is None:
             return base_accounting
         try:
@@ -1221,6 +1225,118 @@ class ModelRuntime:
             logger.debug("Failed to record prompt accounting prediction", exc_info=True)
             return base_accounting
 
+    def _record_turn_memory_provider_request(self, accounting: dict[str, Any], *, status: str) -> None:
+        store = getattr(self, "turn_memory_store", None)
+        if store is None:
+            return
+        context = dict(dict(accounting or {}).get("accounting_context") or {})
+        session_id = str(dict(accounting or {}).get("session_id") or context.get("session_id") or "").strip()
+        turn_id = str(context.get("turn_id") or "").strip()
+        request_id = str(dict(accounting or {}).get("request_id") or "").strip()
+        if not session_id or not turn_id or not request_id:
+            return
+        manifest_refs = _prompt_accounting_manifest_refs(context.get("prompt_manifest"))
+        manifest_ref = _turn_memory_prompt_manifest_ref(manifest_refs)
+        try:
+            create = getattr(store, "create_or_get_turn", None)
+            append = getattr(store, "append_provider_request_ref", None)
+            checkpoint = getattr(store, "record_checkpoint", None)
+            if callable(create):
+                create(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    turn_run_id=str(dict(accounting or {}).get("run_id") or context.get("run_id") or ""),
+                    branch_id=session_id,
+                )
+            if callable(append):
+                append(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    request_ref=request_id,
+                    provider_payload_manifest_ref=manifest_ref,
+                )
+            if callable(checkpoint):
+                checkpoint(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    checkpoint_kind=f"provider_request_{status or 'pending'}",
+                    payload=_turn_memory_provider_checkpoint_payload(
+                        accounting,
+                        status=status,
+                        manifest_refs=manifest_refs,
+                    ),
+                )
+        except Exception:
+            logger.debug("failed to record provider request in TurnMemory", exc_info=True)
+
+    def _record_turn_memory_provider_result(
+        self,
+        accounting: dict[str, Any],
+        *,
+        status: str,
+        physical_prefix_frame_confirmation: dict[str, Any] | None = None,
+        error: BaseException | None = None,
+    ) -> None:
+        store = getattr(self, "turn_memory_store", None)
+        if store is None:
+            return
+        context = dict(dict(accounting or {}).get("accounting_context") or {})
+        session_id = str(dict(accounting or {}).get("session_id") or context.get("session_id") or "").strip()
+        turn_id = str(context.get("turn_id") or "").strip()
+        request_id = str(dict(accounting or {}).get("request_id") or "").strip()
+        if not session_id or not turn_id or not request_id:
+            return
+        manifest_refs = _prompt_accounting_manifest_refs(context.get("prompt_manifest"))
+        frame = dict(physical_prefix_frame_confirmation or {})
+        frame_id = str(frame.get("frame_id") or "").strip()
+        frame_status = str(frame.get("status") or "").strip()
+        confirmed_frame_id = frame_id if frame_status == "confirmed" else ""
+        try:
+            recorder = getattr(store, "record_provider_result", None)
+            checkpoint = getattr(store, "record_checkpoint", None)
+            if callable(recorder):
+                recorder(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    request_ref=request_id,
+                    status=status,
+                    provider_payload_manifest_ref=_turn_memory_prompt_manifest_ref(manifest_refs),
+                    physical_prefix_frame_id=confirmed_frame_id,
+                    frame_promotion_ref=confirmed_frame_id,
+                    pending_commit_summary={
+                        "provider_request_status": str(status or ""),
+                        "physical_prefix_frame_status": frame_status,
+                        "physical_prefix_frame_id": frame_id,
+                        "provider": str(dict(accounting or {}).get("provider") or ""),
+                        "model": str(dict(accounting or {}).get("model") or ""),
+                        **(
+                            {
+                                "provider_error": {
+                                    "type": type(error).__name__,
+                                    "detail": _compact_error_detail(str(error or "")),
+                                }
+                            }
+                            if error is not None
+                            else {}
+                        ),
+                    },
+                )
+            if callable(checkpoint):
+                checkpoint(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    checkpoint_kind=f"provider_request_{status or 'finished'}",
+                    payload=_turn_memory_provider_checkpoint_payload(
+                        accounting,
+                        status=status,
+                        manifest_refs=manifest_refs,
+                        physical_prefix_frame_confirmation=frame,
+                        error=error,
+                    ),
+                )
+        except Exception:
+            logger.debug("failed to record provider result in TurnMemory", exc_info=True)
+
     def _finish_prompt_accounting(self, accounting: dict[str, Any], *, response: Any, error: BaseException | None = None) -> None:
         ledger = self.prompt_accounting_ledger
         request_id = str(dict(accounting or {}).get("request_id") or "")
@@ -1231,6 +1347,7 @@ class ModelRuntime:
                 error=error,
                 reason="provider_request_failed",
             )
+            self._record_turn_memory_provider_result(accounting, status="failed", error=error)
             self._finish_model_trace_span(accounting, provider_usage=None, error=error)
             return
         provider_visible_confirmation = self._confirm_provider_visible_context_success(accounting, response=response)
@@ -1252,6 +1369,11 @@ class ModelRuntime:
             response=response,
             provider_visible_confirmation=provider_visible_confirmation,
             reason="provider_request_succeeded",
+        )
+        self._record_turn_memory_provider_result(
+            accounting,
+            status="succeeded",
+            physical_prefix_frame_confirmation=physical_prefix_frame_confirmation,
         )
         if ledger is None or not request_id:
             self._finish_model_trace_span(accounting, provider_usage=None, error=None)
@@ -1751,23 +1873,12 @@ class ModelRuntime:
             return provider_messages, accounting_context
         prompt_manifest = dict(context.get("prompt_manifest") or {})
         prompt_manifest["provider_visible_physical_context_transport"] = {
-            "status": "standardized",
+            "status": "passthrough",
             "input_message_count": len(provider_messages),
-            "rule": "provider_gateway_preserves_physical_context_assembler_order_after_tool_protocol_standardization",
+            "output_message_count": len(provider_messages),
+            "rule": "provider_gateway_preserves_physical_context_assembler_order_without_rewriting_old_context",
             "authority": "runtime.model_gateway.model_runtime.physical_context_transport_passthrough",
         }
-        sanitized = standardize_provider_tool_protocol_messages(
-            provider_messages,
-            turn_id=str(context.get("turn_id") or ""),
-            source=f"runtime.model_gateway.model_runtime.{call_kind}.physical_context_provider_boundary",
-        )
-        provider_messages = [dict(item) for item in sanitized.messages]
-        prompt_manifest["provider_visible_physical_context_transport"].update(
-            {
-                "output_message_count": len(provider_messages),
-                "tool_protocol_diagnostics": dict(sanitized.diagnostics),
-            }
-        )
         context["prompt_manifest"] = prompt_manifest
         return provider_messages, context
 
@@ -1935,6 +2046,74 @@ def _compact_error_detail(detail: str, *, limit: int = 500) -> str:
     if len(normalized) <= limit:
         return normalized
     return normalized[: limit - 3] + "..."
+
+
+def _turn_memory_prompt_manifest_ref(manifest_refs: dict[str, Any]) -> str:
+    refs = dict(manifest_refs or {})
+    for key in (
+        "manifest_id",
+        "segment_plan_ref",
+        "prompt_assembly_plan_ref",
+        "runtime_prompt_source_manifest_ref",
+        "runtime_context_load_plan_ref",
+        "prompt_slot_plan_ref",
+        "prompt_composition_ref",
+    ):
+        value = str(refs.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _turn_memory_provider_checkpoint_payload(
+    accounting: dict[str, Any],
+    *,
+    status: str,
+    manifest_refs: dict[str, Any],
+    physical_prefix_frame_confirmation: dict[str, Any] | None = None,
+    error: BaseException | None = None,
+) -> dict[str, Any]:
+    payload = dict(accounting or {})
+    context = dict(payload.get("accounting_context") or {})
+    model_request = payload.get("model_request")
+    frame = dict(physical_prefix_frame_confirmation or {})
+    return {
+        "request_id": str(payload.get("request_id") or ""),
+        "run_id": str(payload.get("run_id") or ""),
+        "session_id": str(payload.get("session_id") or context.get("session_id") or ""),
+        "turn_id": str(context.get("turn_id") or ""),
+        "packet_ref": str(context.get("packet_ref") or ""),
+        "source": str(context.get("source") or ""),
+        "status": str(status or ""),
+        "provider": str(payload.get("provider") or ""),
+        "model": str(payload.get("model") or ""),
+        "provider_lane": str(payload.get("provider_lane") or ""),
+        "provider_payload_manifest_ref": _turn_memory_prompt_manifest_ref(manifest_refs),
+        "prompt_manifest": dict(manifest_refs or {}),
+        "model_request_ref": str(getattr(model_request, "request_id", "") or ""),
+        "provider_payload_prefix_hash": str(getattr(model_request, "provider_payload_prefix_hash", "") or ""),
+        "physical_payload_family_hash": str(payload.get("physical_payload_family_hash") or ""),
+        "physical_prefix_frame": {
+            "status": str(frame.get("status") or ""),
+            "frame_id": str(frame.get("frame_id") or ""),
+            "previous_frame_id": str(frame.get("previous_frame_id") or ""),
+            "source_request_id": str(frame.get("source_request_id") or ""),
+            "segment_count": _int(frame.get("segment_count")),
+            "message_segment_count": _int(frame.get("message_segment_count")),
+            "tool_segment_count": _int(frame.get("tool_segment_count")),
+        },
+        **(
+            {
+                "provider_error": {
+                    "type": type(error).__name__,
+                    "detail": _compact_error_detail(str(error or "")),
+                }
+            }
+            if error is not None
+            else {}
+        ),
+        "authority": "runtime.model_gateway.turn_memory_provider_checkpoint",
+    }
 
 
 def _prompt_accounting_manifest_refs(value: Any) -> dict[str, Any]:

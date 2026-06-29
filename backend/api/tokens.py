@@ -22,7 +22,7 @@ from task_system.session_scope import assert_optional_session_scope, request_sco
 router = APIRouter()
 _SESSION_TOKENS_CACHE_TTL_SECONDS = 10.0
 _session_tokens_cache_guard = threading.Lock()
-_session_tokens_cache: dict[tuple[str, str, str, str], tuple[tuple[tuple[int, int], tuple[int, int], tuple[int, int]], float, dict[str, Any]]] = {}
+_session_tokens_cache: dict[tuple[str, str, str, str], tuple[tuple[tuple[int, int], ...], float, dict[str, Any]]] = {}
 _session_tokens_key_locks: dict[tuple[str, str, str, str], threading.Lock] = {}
 
 class FileTokensRequest(BaseModel):
@@ -110,7 +110,7 @@ def _session_tokens_payload(
 
 def _cached_session_tokens_payload(
     cache_key: tuple[str, str, str, str],
-    signature: tuple[tuple[int, int], tuple[int, int], tuple[int, int]],
+    signature: tuple[tuple[int, int], ...],
 ) -> dict[str, Any] | None:
     now = time.monotonic()
     with _session_tokens_cache_guard:
@@ -128,12 +128,13 @@ def _session_tokens_cache_signature(
     *,
     ledger: Any,
     session_id: str,
-) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]]:
+) -> tuple[tuple[int, int], ...]:
     session_signature = runtime.session_manager.session_storage_signature(session_id)
     return (
         session_signature,
         _ledger_file_signature(ledger, "token_usage.jsonl"),
         _ledger_file_signature(ledger, "prompt_cache.jsonl"),
+        _turn_memory_signature(runtime, session_id=session_id),
     )
 
 
@@ -156,6 +157,17 @@ def _ledger_file_signature(ledger: Any, filename: str) -> tuple[int, int]:
     except OSError:
         return (0, 0)
     return int(stat.st_mtime_ns), int(stat.st_size)
+
+
+def _turn_memory_signature(runtime: Any, *, session_id: str) -> tuple[int, int]:
+    store = _turn_memory_store(runtime)
+    signature = getattr(store, "session_signature", None)
+    if callable(signature):
+        try:
+            return tuple(signature(session_id))  # type: ignore[return-value]
+        except Exception:
+            return (0, 0)
+    return (0, 0)
 
 
 def _session_tokens_lock_for(cache_key: tuple[str, str, str, str]) -> threading.Lock:
@@ -204,6 +216,7 @@ def _build_session_tokens_payload(
         session_id=session_id,
         raw_messages=raw_messages,
     )
+    turn_memory = _turn_memory_session_projection(runtime, session_id=session_id)
     system_tokens = int(prompt_usage.get("prompt_tokens") or prompt_usage.get("predicted_total_tokens") or 0)
     message_tokens = _count_tokens(_messages_token_text(raw_messages))
     cumulative_transcript_tokens = _count_tokens(_messages_token_text(cumulative_messages))
@@ -255,6 +268,7 @@ def _build_session_tokens_payload(
         "billing_totals": billing_totals,
         "context_meter": context_meter,
         "context_recovery_package": context_recovery_package,
+        "turn_memory": turn_memory,
         "cache_metrics": cache_metrics,
         "compaction_readiness": compaction_readiness,
         "cumulative_transcript_tokens": cumulative_transcript_tokens,
@@ -275,6 +289,34 @@ def _build_session_tokens_payload(
         "prompt_accounting": prompt_usage,
     }
     return payload
+
+
+def _turn_memory_session_projection(runtime: Any, *, session_id: str) -> dict[str, Any]:
+    store = _turn_memory_store(runtime)
+    projector = getattr(store, "session_projection", None)
+    if not callable(projector):
+        return {
+            "authority": "runtime.turn_memory.session_projection",
+            "available": False,
+            "reason": "turn_memory_store_unavailable",
+            "turn_count": 0,
+            "recent_turns": [],
+        }
+    try:
+        return dict(projector(session_id, limit=20) or {})
+    except Exception as exc:
+        return {
+            "authority": "runtime.turn_memory.session_projection",
+            "available": False,
+            "reason": str(exc) or "turn_memory_projection_failed",
+            "turn_count": 0,
+            "recent_turns": [],
+        }
+
+
+def _turn_memory_store(runtime: Any) -> Any:
+    host = getattr(getattr(runtime, "harness_runtime", None), "single_agent_runtime_host", None)
+    return getattr(host, "turn_memory_store", None)
 
 
 def _history_compaction_status(

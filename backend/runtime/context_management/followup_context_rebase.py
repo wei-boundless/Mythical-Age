@@ -7,6 +7,7 @@ from runtime.prompt_accounting.serializer import canonical_json, normalize_messa
 
 from .context_segment_policy import (
     CONTEXT_APPEND,
+    CONTEXT_MEMORY_PREFIX,
     STATIC_PREFIX,
     context_segment_policy_for_spec,
     context_segment_policy_metadata,
@@ -61,7 +62,7 @@ def current_followup_append_context_policy(
     }
 
 
-def physical_frame_covered_followup_base_context_policy(
+def current_turn_exact_old_context_policy(
     base: dict[str, Any],
     *,
     message: dict[str, Any],
@@ -87,41 +88,44 @@ def physical_frame_covered_followup_base_context_policy(
         for key, value in dict(metadata or {}).items()
         if str(key).startswith("context_")
     }
-    covered_metadata = {
+    exact_metadata = {
         **_without_context_classification_metadata(dict(metadata or {})),
         "previous_context_structure": original_context,
-        "context_cache_section": CONTEXT_APPEND,
+        "context_cache_section": CONTEXT_MEMORY_PREFIX,
         "context_semantic_slot": str(dict(metadata or {}).get("context_semantic_slot") or "provider_visible_history"),
-        "context_commit_policy": "never_commit",
-        "context_replay_policy": "physical_prefix_frame_replay_only",
-        "physical_context_frame_covered": True,
-        "physical_context_frame_covered_reason": "old follow-up base context is replayed only by the physical prefix frame",
-        "provider_visible_history_status": "covered_by_physical_prefix_frame",
-        "provider_visible_history_authority": "runtime.context_management.followup_context_rebase.frame_covered_marker",
+        "fixed_context_package": "context_memory_prefix",
+        "context_commit_policy": "append_then_seal",
+        "context_replay_policy": "current_turn_exact_old_context",
+        "current_turn_exact_old_context": True,
+        "current_turn_exact_old_context_reason": "old follow-up base context is already present in the current turn model message prefix",
+        "provider_visible_history_status": "current_turn_exact_old_context",
+        "provider_visible_history_authority": "runtime.context_management.followup_context_rebase.current_turn_exact_old_context",
         "provider_visible_history_model_message_hash": _stable_model_message_hash(dict(message or {})),
-        "cache_impact": "covered_by_physical_prefix_frame",
+        "cache_impact": "current_turn_exact_old_context_prefix_preserved",
         "stability_rule": (
             "this message was already sent to the provider in an earlier request; "
-            "the follow-up path must not replay it directly because old-context replay is owned by the physical prefix frame"
+            "the follow-up path must preserve the exact provider message from the current turn prefix"
         ),
     }
-    covered_spec = {
+    exact_spec = {
         **dict(base or {}),
-        "cache_scope": "none",
-        "cache_role": "never_cache",
-        "prefix_tier": "none",
-        "metadata": covered_metadata,
+        "cache_scope": str(base.get("cache_scope") or original_policy.prefix_cache_scope or "session"),
+        "cache_role": str(base.get("cache_role") or original_policy.prefix_cache_role or "session_stable"),
+        "prefix_tier": str(base.get("prefix_tier") or original_policy.prefix_tier or "session"),
+        "metadata": exact_metadata,
     }
-    policy = context_segment_policy_for_spec(covered_spec, default_section=CONTEXT_APPEND)
+    policy = context_segment_policy_for_spec(exact_spec, default_section=CONTEXT_MEMORY_PREFIX)
     return {
-        "cache_scope": "none",
-        "cache_role": "never_cache",
-        "prefix_tier": "none",
+        "cache_scope": str(exact_spec.get("cache_scope") or policy.prefix_cache_scope or "session"),
+        "cache_role": str(exact_spec.get("cache_role") or policy.prefix_cache_role or "session_stable"),
+        "prefix_tier": str(exact_spec.get("prefix_tier") or policy.prefix_tier or "session"),
         "metadata": {
-            **covered_metadata,
+            **exact_metadata,
             **context_segment_policy_metadata(policy),
-            "physical_context_frame_covered": True,
-            "context_replay_policy": "physical_prefix_frame_replay_only",
+            "context_cache_section": CONTEXT_MEMORY_PREFIX,
+            "fixed_context_package": "context_memory_prefix",
+            "context_replay_policy": "current_turn_exact_old_context",
+            "current_turn_exact_old_context": True,
         },
     }
 

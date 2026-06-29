@@ -52,6 +52,8 @@ _RECOVERABLE_TURN_INTERRUPTION_REASONS = frozenset(
     }
 )
 
+_SUCCESSFUL_TURN_STATUSES = frozenset({"completed"})
+
 
 @dataclass(frozen=True, slots=True)
 class ContinuationSelection:
@@ -381,10 +383,12 @@ def _latest_interrupted_turn_record(runtime_host: Any, *, session_id: str) -> In
     for candidate in candidates:
         if not _interrupted_turn_continuation_pending(candidate):
             continue
+        if _interrupted_turn_shadowed_by_later_completed_turn(turn_runs, candidate):
+            continue
         record = _record_from_interrupted_turn_run(runtime_host, candidate)
         if record is not None:
             return record
-    return _record_from_interrupted_turn_run(runtime_host, candidates[0])
+    return None
 
 
 def _interrupted_turn_continuation_pending(turn_run: Any) -> bool:
@@ -395,6 +399,61 @@ def _interrupted_turn_continuation_pending(turn_run: Any) -> bool:
     if recovery_entry_event and diagnostics.get("semantic_terminal") is False and diagnostics.get("recoverable") is True:
         return True
     return False
+
+
+def _interrupted_turn_shadowed_by_later_completed_turn(turn_runs: list[Any], candidate: Any) -> bool:
+    """A later completed conversational turn means the old interrupted turn was already carried forward."""
+
+    for turn_run in turn_runs:
+        if _same_turn_run(turn_run, candidate):
+            continue
+        if not _turn_run_completed_successfully(turn_run):
+            continue
+        if _turn_run_occurs_after(turn_run, candidate):
+            return True
+    return False
+
+
+def _turn_run_completed_successfully(turn_run: Any) -> bool:
+    if _interrupted_turn_continuation_pending(turn_run):
+        return False
+    status = str(getattr(turn_run, "status", "") or "").strip()
+    if status not in _SUCCESSFUL_TURN_STATUSES:
+        return False
+    diagnostics = dict(getattr(turn_run, "diagnostics", {}) or {})
+    terminal_status = str(diagnostics.get("terminal_status") or status or "").strip()
+    if terminal_status in {"failed", "blocked", "aborted"}:
+        return False
+    if diagnostics.get("semantic_terminal") is False and diagnostics.get("recoverable") is True:
+        return False
+    return True
+
+
+def _turn_run_occurs_after(left: Any, right: Any) -> bool:
+    left_index = _turn_sequence_index(left)
+    right_index = _turn_sequence_index(right)
+    if left_index >= 0 and right_index >= 0 and left_index != right_index:
+        return left_index > right_index
+    left_created = float(getattr(left, "created_at", 0.0) or 0.0)
+    right_created = float(getattr(right, "created_at", 0.0) or 0.0)
+    if left_created and right_created and left_created != right_created:
+        return left_created > right_created
+    left_updated = float(getattr(left, "updated_at", 0.0) or 0.0)
+    right_updated = float(getattr(right, "updated_at", 0.0) or 0.0)
+    return left_updated > right_updated
+
+
+def _turn_sequence_index(turn_run: Any) -> int:
+    turn_id = str(getattr(turn_run, "turn_id", "") or "").strip()
+    tail = turn_id.rsplit(":", 1)[-1]
+    try:
+        return int(tail)
+    except (TypeError, ValueError):
+        return -1
+
+
+def _same_turn_run(left: Any, right: Any) -> bool:
+    return str(getattr(left, "turn_run_id", "") or "") == str(getattr(right, "turn_run_id", "") or "")
 
 
 def _record_from_interrupted_turn_run(runtime_host: Any, turn_run: Any) -> InterruptedTurnContinuationRecord | None:

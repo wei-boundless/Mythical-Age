@@ -4360,7 +4360,7 @@ body {
   border-color: var(--tool-accent);
   background: var(--console-surface);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--tool-accent) 14%, transparent);
-  animation: public-tool-pulse 1.6s ease-in-out infinite;
+  animation: none;
 }
 
 .agent-workbench .public-run-activity__tool-window-status--waiting,
@@ -4949,24 +4949,6 @@ body {
 
 .agent-workbench .public-run-activity__tool-window .public-run-activity__tool-console-output {
   color: var(--console-text-soft);
-}
-
-@keyframes public-tool-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--tool-accent) 12%, transparent);
-  }
-
-  50% {
-    box-shadow: 0 0 0 6px color-mix(in srgb, var(--tool-accent) 5%, transparent);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .agent-workbench .public-run-activity__tool-window-status--running .public-run-activity__tool-status-dot,
-  .agent-workbench .public-run-activity__tool-round--running .public-run-activity__tool-status-dot {
-    animation: none;
-  }
 }
 
 @media (max-width: 640px) {

@@ -164,6 +164,9 @@ class HarnessRuntimeFacade:
         attach_observability = getattr(self.model_runtime, "attach_runtime_observability", None)
         if callable(attach_observability):
             attach_observability(self.single_agent_runtime_host.observability)
+        attach_turn_memory = getattr(self.model_runtime, "attach_turn_memory_store", None)
+        if callable(attach_turn_memory):
+            attach_turn_memory(self.single_agent_runtime_host.turn_memory_store)
         self.agent_runtime_services = AgentRuntimeServices.from_runtime_host(
             self.single_agent_runtime_host,
             execute_task_run_callback=self.execute_task_run,

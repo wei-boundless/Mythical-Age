@@ -22,16 +22,15 @@ import React, { useEffect, useState } from "react";
 import type { ActivityEntry, ActivityRenderUnit, ToolUiFamily } from "./PublicTimelineActivity";
 
 export function ToolRound({ group }: { group: Extract<ActivityRenderUnit, { kind: "tool_round" }> }) {
-  const defaultOpen = toolToneIsActive(group.statusTone);
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(false);
   const primaryFamily = toolRoundFamily(group.entries);
   const preview = splitToolTitle(group.preview);
   const liveNow = useLiveToolNow(toolToneIsActive(group.statusTone));
   const timing = toolTimingRecord(group, group.statusTone, liveNow);
 
   useEffect(() => {
-    setOpen(defaultOpen);
-  }, [group.id, defaultOpen]);
+    setOpen(false);
+  }, [group.id]);
 
   return (
     <details
@@ -78,7 +77,6 @@ export function ToolRound({ group }: { group: Extract<ActivityRenderUnit, { kind
 export function ToolWindow({ entry, nested = false }: { entry: ActivityEntry; nested?: boolean }) {
   const statusTone = entry.statusTone ?? "running";
   const active = toolToneIsActive(statusTone);
-  const defaultOpen = active && !nested;
   const liveNow = useLiveToolNow(active);
   const timing = toolTimingRecord(entry, statusTone, liveNow);
   const consoleLabel = entry.consoleLabel || "工具操作";
@@ -88,7 +86,7 @@ export function ToolWindow({ entry, nested = false }: { entry: ActivityEntry; ne
   const outputText = entry.outputText
     || (statusTone === "running" || statusTone === "waiting" ? "等待返回结果" : "无输出");
   const metaSections = (entry.sections ?? []).slice(0, 3);
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(false);
   const title = splitToolTitle(entry.text);
   const isReadFileWindow = toolFamily === "file" && title.action === "读取文件";
   const inputRows = toolInputRows(metaSections, toolFamily);
@@ -115,8 +113,8 @@ export function ToolWindow({ entry, nested = false }: { entry: ActivityEntry; ne
     || showLiveNotice;
 
   useEffect(() => {
-    setOpen(defaultOpen);
-  }, [entry.id, defaultOpen]);
+    setOpen(false);
+  }, [entry.id]);
 
   return (
     <details

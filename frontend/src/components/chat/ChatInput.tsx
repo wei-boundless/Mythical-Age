@@ -108,12 +108,14 @@ export function ChatInput({
     streaming ? "chat-input-panel--streaming" : "",
     draftCompacted ? "chat-input-panel--draft-compact" : "",
   ].filter(Boolean).join(" ");
-  const primaryAction = streaming ? "stop_stream" : "send";
+  const primaryAction = streaming && trimmedValue ? "send_steer" : (streaming ? "stop_stream" : "send");
   const primaryDisabled = primaryAction === "stop_stream"
     ? false
     : inputDisabled || (!trimmedValue && !hasSelectedFiles);
   const primaryLabel = primaryAction === "stop_stream"
     ? "停止本轮生成"
+    : primaryAction === "send_steer"
+      ? "发送到当前回合"
     : "发送";
   const primaryButtonClassName = [
     "chat-send-button",
@@ -586,6 +588,17 @@ export function ChatInput({
           </div>
         </div>
         <div className="chat-input-panel__actions">
+          {streaming && primaryAction !== "stop_stream" ? (
+            <button
+              aria-label="停止本轮生成"
+              className="chat-send-button chat-stop-button chat-send-button--stop disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={onStop}
+              title="停止本轮生成"
+              type="button"
+            >
+              <Square size={15} />
+            </button>
+          ) : null}
           <button
             aria-label={primaryLabel}
             className={`${primaryButtonClassName} disabled:cursor-not-allowed disabled:opacity-50`}

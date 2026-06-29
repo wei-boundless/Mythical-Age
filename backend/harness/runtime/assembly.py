@@ -54,7 +54,7 @@ _BASE_RUNTIME_POLICY: dict[str, Any] = {
         "user_clarification": "allowed",
     },
     "planning_policy": {"plan_mode": "available", "specified_plan_allowed": True, "todo_required_when_task_run": True},
-    "task_lifecycle_policy": {"request_task_run": True, "requires_completion_evidence": True, "artifact_evidence_required": True},
+    "task_lifecycle_policy": {"request_task_run": False, "requires_completion_evidence": True, "artifact_evidence_required": True},
     "tool_exposure_policy": {},
     "context_policy": {
         "history_scope": "conversation_task_and_recovery",

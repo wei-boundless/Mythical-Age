@@ -137,7 +137,7 @@ def _current_append_specs(
         if (
             commit_stage == "provider_success_required"
             and payload_authority != "runtime.context_management.physical_prefix_frame.replay"
-            and replay_policy not in {"physical_prefix_frame_replay", "physical_prefix_frame_replay_only"}
+            and replay_policy != "physical_prefix_frame_replay"
             and history_status != "sealed_from_physical_prefix_frame"
         ):
             current_append_specs.append(spec)

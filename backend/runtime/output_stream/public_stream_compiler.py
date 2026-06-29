@@ -205,6 +205,14 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
     },
     "harness_run_started": {"task_run", "turn_run", "event"},
     "runtime_step_summary": {
+        "session_id",
+        "stream_run_id",
+        "turn_id",
+        "active_turn_id",
+        "turn_run_id",
+        "task_run_id",
+        "message_id",
+        "message_ref",
         "step",
         "status",
         "summary",
@@ -215,9 +223,20 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "completion_status",
         "presentation_source",
         "feedback_identity",
+        "runtime_event_id",
+        "source_task_event_id",
+        "source_task_event_offset",
         "event",
     },
     ASSISTANT_PUBLIC_FEEDBACK_EVENT: {
+        "session_id",
+        "stream_run_id",
+        "turn_id",
+        "active_turn_id",
+        "turn_run_id",
+        "task_run_id",
+        "message_id",
+        "message_ref",
         "step",
         "status",
         "summary",
@@ -228,6 +247,9 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "completion_status",
         "presentation_source",
         "feedback_identity",
+        "runtime_event_id",
+        "source_task_event_id",
+        "source_task_event_offset",
         "event",
     },
     "bounded_observation": {"event"},
@@ -462,6 +484,9 @@ def project_public_stream_event(event_type: str, event: dict[str, Any]) -> list[
     if normalized in {"step_summary_recorded", "runtime_step_summary"}:
         data = _runtime_step_summary_data(raw_data)
         return [("runtime_step_summary", data)] if data else []
+    if normalized == ASSISTANT_PUBLIC_FEEDBACK_EVENT:
+        data = _runtime_step_summary_data(raw_data)
+        return [(ASSISTANT_PUBLIC_FEEDBACK_EVENT, data)] if data else []
     if normalized == "stream_recovery":
         data = _stream_recovery_public_data(raw_data)
         return [(normalized, data)] if data else []
@@ -803,11 +828,6 @@ def _drop_empty_public_data(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _tool_action_public_events(raw_data: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     events: list[tuple[str, dict[str, Any]]] = []
-    payload = _semantic_event_payload(raw_data)
-    request = _record(payload.get("model_action_request") or raw_data.get("model_action_request"))
-    feedback_data = _model_action_public_feedback_data(raw_data, request=request)
-    if feedback_data:
-        events.append((ASSISTANT_PUBLIC_FEEDBACK_EVENT, feedback_data))
     request_items = _tool_call_requested_items(raw_data)
     if not request_items:
         return events
@@ -817,35 +837,6 @@ def _tool_action_public_events(raw_data: dict[str, Any]) -> list[tuple[str, dict
         if permission_data:
             events.append((TOOL_PERMISSION_DECIDED_EVENT, permission_data))
     return events
-
-
-def _model_action_public_feedback_data(raw_data: dict[str, Any], *, request: dict[str, Any]) -> dict[str, Any]:
-    if not request:
-        return {}
-    public_progress_note = _safe_public_action_text(request.get("public_progress_note"))
-    public_state = _record(request.get("public_action_state"))
-    current_judgment = _safe_public_action_text(public_state.get("current_judgment"))
-    next_action = _safe_public_action_text(public_state.get("next_action"))
-    if not any((public_progress_note, current_judgment, next_action)):
-        return {}
-    raw_event = _record(raw_data.get("event"))
-    payload = _semantic_event_payload(raw_data)
-    refs = _record(raw_event.get("refs"))
-    runtime_event_id = str(raw_event.get("event_id") or raw_data.get("event_id") or "").strip()
-    request_id = str(request.get("request_id") or refs.get("action_request_ref") or runtime_event_id or "").strip()
-    data = {
-        "status": "running",
-        "public_progress_note": public_progress_note,
-        "current_judgment": current_judgment,
-        "next_action": next_action,
-        "feedback_identity": f"model-action-feedback:{request_id or runtime_event_id}",
-        "turn_id": str(payload.get("turn_id") or raw_data.get("turn_id") or ""),
-        "active_turn_id": str(payload.get("turn_id") or raw_data.get("active_turn_id") or raw_data.get("turn_id") or ""),
-        "turn_run_id": str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
-        "task_run_id": str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
-        "runtime_event_id": runtime_event_id,
-    }
-    return _redact_public_stream_data(_drop_empty_public_data(data))
 
 
 def _tool_call_requested_items(raw_data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1209,7 +1200,14 @@ def _runtime_step_summary_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     if not any(visible_fields.values()):
         return {}
     data: dict[str, Any] = {
-        "task_run_id": str(payload.get("task_run_id") or raw_event.get("task_run_id") or raw_data.get("task_run_id") or "").strip(),
+        "session_id": str(payload.get("session_id") or raw_data.get("session_id") or refs.get("session_ref") or "").strip(),
+        "stream_run_id": str(payload.get("stream_run_id") or raw_data.get("stream_run_id") or "").strip(),
+        "turn_id": str(payload.get("turn_id") or payload.get("active_turn_id") or raw_data.get("turn_id") or raw_data.get("active_turn_id") or refs.get("turn_ref") or "").strip(),
+        "active_turn_id": str(payload.get("active_turn_id") or payload.get("turn_id") or raw_data.get("active_turn_id") or raw_data.get("turn_id") or refs.get("turn_ref") or "").strip(),
+        "turn_run_id": str(payload.get("turn_run_id") or raw_data.get("turn_run_id") or refs.get("turn_run_ref") or "").strip(),
+        "task_run_id": str(payload.get("task_run_id") or raw_event.get("task_run_id") or raw_data.get("task_run_id") or refs.get("task_run_ref") or "").strip(),
+        "message_id": str(payload.get("message_id") or payload.get("message_ref") or raw_data.get("message_id") or raw_data.get("message_ref") or "").strip(),
+        "message_ref": str(payload.get("message_ref") or payload.get("message_id") or raw_data.get("message_ref") or raw_data.get("message_id") or "").strip(),
         "step": str(payload.get("step") or "").strip(),
         "status": str(payload.get("status") or "running").strip() or "running",
         "presentation_source": str(payload.get("presentation_source") or "").strip(),
@@ -1410,17 +1408,22 @@ def _read_file_reuse_content_window_payload(*, tool_result: dict[str, Any]) -> d
         str(tool_result.get("reusable_result_ref") or "").strip(),
     ]
     ref_text = " / ".join(item for item in refs if item)
-    text_parts = [
-        "复用上次读取窗口：文件状态未变化，本次工具没有重新返回全文。",
-        f"文件：{path}" if path else "",
-        f"范围：{range_label} 行" if range_label else "",
-        f"引用：{ref_text}" if ref_text else "",
-    ]
-    clipped_text, preview_truncated, preview_lines = _bounded_read_window_text("\n".join(item for item in text_parts if item))
+    rehydrated_text = str(tool_result.get("text") or "")
+    content_available = bool(rehydrated_text)
+    if rehydrated_text:
+        clipped_text, preview_truncated, preview_lines = _bounded_read_window_text(rehydrated_text)
+    else:
+        text_parts = [
+            "复用上次读取窗口：文件状态未变化，本次工具没有重新返回全文。",
+            f"文件：{path}" if path else "",
+            f"范围：{range_label} 行" if range_label else "",
+            f"引用：{ref_text}" if ref_text else "",
+        ]
+        clipped_text, preview_truncated, preview_lines = _bounded_read_window_text("\n".join(item for item in text_parts if item))
     return {
         "kind": "read_file_reuse",
         "status": str(tool_result.get("status") or "reuse_unchanged").strip(),
-        "content_available": False,
+        "content_available": content_available,
         "path": path,
         "text": clipped_text,
         "start_line": start_line,
@@ -1436,6 +1439,7 @@ def _read_file_reuse_content_window_payload(*, tool_result: dict[str, Any]) -> d
         "reused_observation_ref": str(tool_result.get("reused_observation_ref") or tool_result.get("observation_ref") or "").strip(),
         "exact_artifact_ref": str(tool_result.get("exact_artifact_ref") or "").strip(),
         "reusable_result_ref": str(tool_result.get("reusable_result_ref") or "").strip(),
+        "reuse_text_source": str(tool_result.get("reuse_text_source") or "").strip(),
         "authority": "runtime.output_stream.read_file_reuse_window.v1",
     }
 

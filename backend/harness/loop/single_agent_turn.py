@@ -85,10 +85,10 @@ from runtime.context_management import (
 )
 from runtime.context_management.followup_context_rebase import (
     current_followup_append_context_policy,
-    physical_frame_covered_followup_base_context_policy,
+    current_turn_exact_old_context_policy,
 )
 from runtime.context_management.provider_tool_protocol import annotate_provider_tool_round_specs
-from runtime.output_stream.public_contract import TURN_COMPLETED_EVENT
+from runtime.output_stream.public_contract import ASSISTANT_PUBLIC_FEEDBACK_EVENT, TURN_COMPLETED_EVENT
 from runtime.context_management.tool_transcript import (
     TOOL_TRANSCRIPT_DELTA_KIND,
     is_current_tool_transcript_kind,
@@ -159,6 +159,7 @@ _REASONING_STATUS_MIN_CHAR_DELTA = 160
 
 _AGENT_CLOSEOUT_ACTION_TYPES = ("respond", "ask_user", "block")
 _AGENT_CLOSEOUT_SOURCE = "harness.single_agent_turn.agent_closeout"
+_ASSISTANT_CONTENT_PREAMBLE_PROGRESS_SOURCE = "model_action.assistant_content_preamble"
 _PARTIAL_STREAM_RECOVERY_SOURCE = "harness.single_agent_turn.partial_stream_recovery"
 _CONSECUTIVE_TOOL_FAILURE_CLOSEOUT_THRESHOLD = 3
 _MAX_SINGLE_TURN_PROTOCOL_RECOVERY_ATTEMPTS = 3
@@ -1655,6 +1656,7 @@ class SingleAgentActionParse:
     tool_actions: tuple[ModelActionRequest, ...] = ()
     control_action: ModelActionRequest | None = None
     assistant_final_text: str = ""
+    agent_public_feedback_note: str = ""
 
 
 async def run_single_agent_turn(
@@ -1702,6 +1704,13 @@ async def run_single_agent_turn(
                 agent_profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
                 stream_run_id=stream_run_id,
             )
+            _ensure_turn_memory_started(
+                runtime_host,
+                session_id=session_id,
+                turn_id=turn_id,
+                turn_run_id=turn_run.turn_run_id if turn_run is not None else "",
+                branch_id=str(runtime_branch.get("branch_id") or runtime_branch.get("branch") or session_id),
+            )
             yield {"type": "harness_run_started", "turn_run": turn_run.to_dict(), "event": start_event}
         compiler = RuntimeCompiler()
         active_work_payload = _active_work_payload(active_work_context)
@@ -1737,6 +1746,13 @@ async def run_single_agent_turn(
             agent_profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
             model_selection=dict(model_selection or {}),
             runtime_assembly=runtime_assembly,
+        )
+        _patch_turn_memory(
+            runtime_host,
+            session_id=session_id,
+            turn_id=turn_id,
+            current_user_message_ref=str(compilation.packet.packet_id),
+            current_append_hash=stable_text_hash(user_message),
         )
         if runtime_host is not None:
             evidence_event = _publish_packet_evidence_projection_event(
@@ -2402,6 +2418,17 @@ async def run_single_agent_turn(
                     repaired_or_parsed_final_action = action_parse
                 break
             tool_iteration += 1
+            for feedback_event in _record_model_action_public_feedback_events(
+                runtime_host,
+                turn_run=turn_run,
+                turn_id=turn_id,
+                packet_ref=current_packet_ref,
+                phase="tool_loop",
+                tool_iteration=tool_iteration,
+                action_parse=action_parse,
+                tool_actions=tool_actions,
+            ):
+                yield feedback_event
             invocation_rows: list[dict[str, Any]] = []
             for tool_action in tool_actions:
                 lifecycle = decide_model_action_lifecycle(
@@ -2656,6 +2683,18 @@ async def run_single_agent_turn(
                     assistant_model_message_index=tool_context_assistant_message_index,
                     tool_calls=assistant_tool_calls,
                     observations=round_observation_payloads,
+                )
+            if assistant_tool_calls or round_observation_payloads:
+                _record_turn_memory_tool_round(
+                    runtime_host,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    packet_ref=current_packet_ref,
+                    tool_batch_ref=batch_plan.batch_id,
+                    tool_iteration=tool_iteration,
+                    tool_calls=assistant_tool_calls,
+                    observations=round_observation_payloads,
+                    tool_context_entries=round_tool_context_entries,
                 )
             evidence_alignment_enabled = _runtime_system_group_enabled(
                 runtime_assembly,
@@ -3137,6 +3176,17 @@ async def run_single_agent_turn(
         tool_calls = action_parse.native_tool_calls
         action_request = action_parse.action_request
         if action_request is not None:
+            for feedback_event in _record_model_action_public_feedback_events(
+                runtime_host,
+                turn_run=turn_run,
+                turn_id=turn_id,
+                packet_ref=current_packet_ref,
+                phase="final",
+                tool_iteration=tool_iteration + 1,
+                action_parse=action_parse,
+                tool_actions=(action_request,),
+            ):
+                yield feedback_event
             lifecycle = decide_model_action_lifecycle(
                 action_request,
                 packet_allowed_action_types=current_allowed_action_types,
@@ -3203,6 +3253,17 @@ async def run_single_agent_turn(
                     action_parse = repaired_action_parse
                     tool_calls = action_parse.native_tool_calls
                     action_request = action_parse.action_request
+                    for feedback_event in _record_model_action_public_feedback_events(
+                        runtime_host,
+                        turn_run=turn_run,
+                        turn_id=turn_id,
+                        packet_ref=current_packet_ref,
+                        phase="final_admission_repair",
+                        tool_iteration=tool_iteration + 1,
+                        action_parse=action_parse,
+                        tool_actions=(action_request,),
+                    ):
+                        yield feedback_event
                     lifecycle = decide_model_action_lifecycle(
                         action_request,
                         packet_allowed_action_types=current_allowed_action_types,
@@ -4902,6 +4963,7 @@ def _single_agent_action_request_from_response(
                 ),
             )
         return SingleAgentActionParse(action_request=None, native_tool_calls=[])
+    agent_public_feedback_note = public_runtime_progress_summary(protocol.content).strip()
     native_parse = _action_requests_from_native_tool_calls_with_diagnostics(
         native_tool_calls,
         turn_id=turn_id,
@@ -4909,6 +4971,7 @@ def _single_agent_action_request_from_response(
         iteration=iteration,
         allowed_action_types=allowed_action_types,
         public_feedback_expected=public_feedback_expected,
+        agent_public_feedback_note=agent_public_feedback_note,
     )
     sidecar_actions = list(native_parse.actions)
     if native_parse.errors:
@@ -4986,6 +5049,7 @@ def _single_agent_action_request_from_response(
             action_request=tool_actions[0] if len(tool_actions) == 1 else None,
             native_tool_calls=native_tool_calls,
             tool_actions=tool_actions,
+            agent_public_feedback_note=agent_public_feedback_note,
         )
     if control_actions:
         if len(control_actions) != 1:
@@ -5012,6 +5076,7 @@ def _single_agent_action_request_from_response(
             action_request=control_actions[0],
             native_tool_calls=native_tool_calls,
             control_action=control_actions[0],
+            agent_public_feedback_note=agent_public_feedback_note,
         )
     if require_json_action:
         return SingleAgentActionParse(
@@ -5149,6 +5214,7 @@ def _action_requests_from_native_tool_calls(
     iteration: int,
     allowed_action_types: tuple[str, ...] = ("respond", "tool_call"),
     public_feedback_expected: bool = False,
+    agent_public_feedback_note: str = "",
 ) -> list[ModelActionRequest]:
     return list(
         _action_requests_from_native_tool_calls_with_diagnostics(
@@ -5158,6 +5224,7 @@ def _action_requests_from_native_tool_calls(
             iteration=iteration,
             allowed_action_types=allowed_action_types,
             public_feedback_expected=public_feedback_expected,
+            agent_public_feedback_note=agent_public_feedback_note,
         ).actions
     )
 
@@ -5170,9 +5237,11 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
     iteration: int,
     allowed_action_types: tuple[str, ...] = ("respond", "tool_call"),
     public_feedback_expected: bool = False,
+    agent_public_feedback_note: str = "",
 ) -> NativeActionRequestParse:
     actions: list[ModelActionRequest] = []
     errors: list[dict[str, Any]] = []
+    visible_feedback_note = public_runtime_progress_summary(agent_public_feedback_note).strip()
     for call in tool_calls:
         tool_name = str(call.get("name") or "").strip()
         if not tool_name:
@@ -5259,6 +5328,34 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
                 }
             )
             continue
+        if visible_feedback_note and not _model_action_request_has_public_response(action):
+            public_action_state = dict(action.public_action_state or {})
+            if not str(public_action_state.get("current_judgment") or "").strip():
+                public_action_state["current_judgment"] = visible_feedback_note
+            diagnostics = dict(action.diagnostics or {})
+            contract_gaps = [
+                str(item)
+                for item in list(diagnostics.get("contract_gaps") or [])
+                if str(item) not in {
+                    "public_feedback_omitted_for_native_tool_call",
+                    "public_feedback_omitted_for_tool_call",
+                    "public_progress_note_missing_for_tool_call",
+                }
+            ]
+            if contract_gaps:
+                diagnostics["contract_gaps"] = contract_gaps
+            else:
+                diagnostics.pop("contract_gaps", None)
+            action = replace(
+                action,
+                public_progress_note=visible_feedback_note,
+                public_action_state=public_action_state,
+                diagnostics={
+                    **diagnostics,
+                    "public_feedback_sidecar": "assistant_content_preamble",
+                    "public_progress_note_source": "assistant_content_preamble",
+                },
+            )
         if public_feedback_expected and not _model_action_request_has_public_response(action):
             diagnostics = dict(action.diagnostics or {})
             contract_gaps = [
@@ -5821,6 +5918,107 @@ def _model_action_request_has_public_response(action_request: ModelActionRequest
     if action_request.action_type == "block":
         return bool(str(action_request.blocking_reason or "").strip())
     return False
+
+
+def _model_action_request_should_emit_public_feedback(action_request: ModelActionRequest) -> bool:
+    if not _model_action_request_has_public_response(action_request):
+        return False
+    return str(action_request.action_type or "") in {
+        "tool_call",
+        "request_task_run",
+        "active_work_control",
+        "resume_recoverable_work",
+        "pause_for_user_steer",
+    }
+
+
+def _model_action_public_feedback_presentation_source(action_request: ModelActionRequest, values: dict[str, str]) -> str:
+    diagnostics = dict(action_request.diagnostics or {})
+    if str(diagnostics.get("public_feedback_sidecar") or "") == "assistant_content_preamble":
+        return _ASSISTANT_CONTENT_PREAMBLE_PROGRESS_SOURCE
+    public_progress_note = values.get("public_progress_note", "")
+    current_judgment = values.get("current_judgment", "")
+    return (
+        "model_action.public_progress_note"
+        if public_progress_note
+        else "model_action.current_judgment"
+        if current_judgment
+        else "model_action.next_action"
+    )
+
+
+def _model_action_public_feedback_values(action_request: ModelActionRequest) -> dict[str, str]:
+    public_state = dict(action_request.public_action_state or {})
+    return _drop_empty_dict(
+        {
+            "public_progress_note": public_runtime_progress_summary(action_request.public_progress_note).strip(),
+            "current_judgment": public_runtime_progress_summary(public_state.get("current_judgment") or "").strip(),
+            "next_action": public_runtime_progress_summary(public_state.get("next_action") or "").strip(),
+            "completion_status": public_runtime_progress_summary(public_state.get("completion_status") or "").strip(),
+        }
+    )
+
+
+def _model_action_public_feedback_key(action_request: ModelActionRequest) -> str:
+    values = _model_action_public_feedback_values(action_request)
+    identity_payload = {
+        "public_progress_note": values.get("public_progress_note", ""),
+        "current_judgment": values.get("current_judgment", ""),
+        "next_action": values.get("next_action", ""),
+        "completion_status": values.get("completion_status", ""),
+    }
+    return hashlib.sha256(
+        json.dumps(identity_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _model_action_public_feedback_source_actions(
+    action_parse: SingleAgentActionParse,
+    tool_actions: list[ModelActionRequest] | tuple[ModelActionRequest, ...],
+) -> tuple[ModelActionRequest, ...]:
+    primary = action_parse.action_request
+    candidates: list[ModelActionRequest] = []
+    if primary is not None and _model_action_request_should_emit_public_feedback(primary):
+        candidates.append(primary)
+    else:
+        candidates.extend(
+            action
+            for action in tuple(tool_actions or ())
+            if _model_action_request_should_emit_public_feedback(action)
+        )
+    selected: list[ModelActionRequest] = []
+    seen_feedback: set[str] = set()
+    for action in candidates:
+        feedback_key = _model_action_public_feedback_key(action)
+        if feedback_key in seen_feedback:
+            continue
+        seen_feedback.add(feedback_key)
+        selected.append(action)
+    return tuple(selected)
+
+
+def _model_public_feedback_identity(
+    *,
+    packet_ref: str,
+    tool_iteration: int,
+    tool_actions: list[ModelActionRequest] | tuple[ModelActionRequest, ...],
+) -> str:
+    action_refs = [
+        str(getattr(action, "request_id", "") or "").strip()
+        for action in tuple(tool_actions or ())
+        if str(getattr(action, "request_id", "") or "").strip()
+    ]
+    if len(action_refs) == 1:
+        return f"model-action-feedback:{action_refs[0]}"
+    payload = {
+        "packet_ref": str(packet_ref or ""),
+        "tool_iteration": int(tool_iteration or 0),
+        "action_refs": action_refs,
+    }
+    digest = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    return f"model-action-feedback:{digest}"
 
 
 _NATIVE_TOOL_PUBLIC_FEEDBACK_ARG_KEYS = {
@@ -7398,17 +7596,17 @@ def _single_agent_turn_followup_physical_context_assembly(
         }
     provider, model = _provider_model_from_selection(model_selection)
     static_prefix: list[dict[str, Any]] = []
+    exact_old_context: list[dict[str, Any]] = []
     provider_visible_specs: list[dict[str, Any]] = []
     dynamic_tail: list[dict[str, Any]] = []
-    frame_covered_spec_count = 0
     for raw_spec in list(specs or []):
         if not isinstance(raw_spec, dict):
             continue
         spec = dict(raw_spec)
         policy = context_segment_policy_for_spec(spec)
         metadata = dict(spec.get("metadata") or {})
-        if metadata.get("physical_context_frame_covered") is True:
-            frame_covered_spec_count += 1
+        if metadata.get("current_turn_exact_old_context") is True:
+            exact_old_context.append(_current_turn_exact_old_context_spec(spec))
             continue
         if policy.section == STATIC_PREFIX:
             static_prefix.append(spec)
@@ -7427,14 +7625,65 @@ def _single_agent_turn_followup_physical_context_assembly(
         model=model,
         provider_lane=PROVIDER_LANE_AGENT_TOOL_LOOP,
     )
-    return [dict(item) for item in assembly.message_specs], {
+    if exact_old_context:
+        message_specs = [
+            *static_prefix,
+            *exact_old_context,
+            *list(assembly.current_append_specs or ()),
+            *dynamic_tail,
+        ]
+        replay_status = "current_turn_exact_old_context_preserved"
+    else:
+        message_specs = [dict(item) for item in assembly.message_specs]
+        replay_status = "confirmed_physical_frame_replayed"
+    return message_specs, {
         **dict(assembly.diagnostics or {}),
         "input_static_prefix_spec_count": len(static_prefix),
         "input_provider_visible_spec_count": len(provider_visible_specs),
         "input_dynamic_tail_spec_count": len(dynamic_tail),
-        "input_frame_covered_spec_count": frame_covered_spec_count,
+        "current_turn_exact_old_context_spec_count": len(exact_old_context),
+        "old_context_replay_status": replay_status,
         "authority": "harness.loop.single_agent_turn.followup_physical_context_assembly",
     }
+
+
+def _current_turn_exact_old_context_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(spec or {})
+    message = _spec_model_message(payload)
+    metadata = {
+        **dict(payload.get("metadata") or {}),
+        "context_cache_section": CONTEXT_MEMORY_PREFIX,
+        "fixed_context_package": "context_memory_prefix",
+        "context_replay_policy": "current_turn_exact_old_context",
+        "current_turn_exact_old_context": True,
+        "provider_visible_history_status": "current_turn_exact_old_context",
+        "provider_visible_history_authority": "harness.loop.single_agent_turn.followup_physical_context_assembly",
+        "provider_visible_history_model_message_hash": stable_model_message_hash(dict(message or {})),
+        "cache_policy_rebased": "current_turn_exact_old_context_preserved",
+    }
+    exact = {
+        **payload,
+        "role": str(message.get("role") or payload.get("role") or "user"),
+        "content": str(message.get("content") if message.get("content") is not None else payload.get("content") or ""),
+        "cache_scope": str(payload.get("cache_scope") or "session"),
+        "cache_role": str(payload.get("cache_role") or "session_stable"),
+        "prefix_tier": str(payload.get("prefix_tier") or "session"),
+        "metadata": metadata,
+        "model_message": dict(message or {}),
+    }
+    policy = context_segment_policy_for_spec(exact, default_section=CONTEXT_MEMORY_PREFIX)
+    exact["metadata"] = {
+        **metadata,
+        **context_segment_policy_metadata(policy),
+        "context_cache_section": CONTEXT_MEMORY_PREFIX,
+        "fixed_context_package": "context_memory_prefix",
+        "context_replay_policy": "current_turn_exact_old_context",
+        "current_turn_exact_old_context": True,
+    }
+    exact["cache_scope"] = policy.prefix_cache_scope
+    exact["cache_role"] = policy.prefix_cache_role
+    exact["prefix_tier"] = policy.prefix_tier
+    return exact
 
 
 def _followup_spec_routes_to_physical_provider_visible_memory(
@@ -7840,11 +8089,11 @@ def _is_followup_provider_visible_replayed_prefix(
     history_status = str(metadata.get("provider_visible_history_status") or "").strip()
     if commit_policy.startswith("replay_only"):
         return True
-    if replay_policy in {"physical_prefix_frame_replay", "physical_prefix_frame_replay_only"}:
+    if replay_policy == "physical_prefix_frame_replay":
         return True
     if payload_authority == "runtime.context_management.physical_prefix_frame.replay":
         return True
-    return history_status in {"sealed_from_physical_prefix_frame", "covered_by_physical_prefix_frame", "static_context"}
+    return history_status in {"sealed_from_physical_prefix_frame", "static_context"}
 
 
 def _is_followup_provider_visible_current_append(
@@ -8465,7 +8714,7 @@ def _single_agent_turn_followup_base_message_spec(
                 metadata=metadata,
             )
             if is_current_tool_round
-            else physical_frame_covered_followup_base_context_policy(
+            else current_turn_exact_old_context_policy(
                 base,
                 message=message,
                 metadata=metadata,
@@ -9262,9 +9511,22 @@ async def _commit_final_message(
             **({"main_context": dict(main_context or {})} if main_context else {}),
         },
     )
+    _record_turn_memory_assistant_final(
+        runtime_host,
+        session_id=session_id,
+        turn_id=turn_id,
+        content=content,
+        final_ref=f"assistant-final:{request.run_id}:{turn_id}",
+    )
     result = await OutputCommitAuthority(runtime_host).commit_async(
         request,
         committer=commit_assistant_message,
+    )
+    _record_turn_memory_commit_result(
+        runtime_host,
+        session_id=session_id,
+        turn_id=turn_id,
+        receipt=dict(result.receipt or {}),
     )
     for event in (result.checked_event, result.terminal_event):
         if runtime_host is not None and turn_run is not None and event is not None:
@@ -9398,6 +9660,171 @@ def _start_turn_runtime(
     if active_registry is not None:
         active_registry.bind_turn_run(session_id=session_id, turn_id=turn_id, turn_run_id=turn_run_id)
     return updated, event.to_dict()
+
+
+def _ensure_turn_memory_started(
+    runtime_host: Any | None,
+    *,
+    session_id: str,
+    turn_id: str,
+    turn_run_id: str = "",
+    branch_id: str = "",
+) -> None:
+    store = getattr(runtime_host, "turn_memory_store", None)
+    create_or_get = getattr(store, "create_or_get_turn", None)
+    if not callable(create_or_get):
+        return
+    try:
+        create_or_get(
+            session_id=session_id,
+            turn_id=turn_id,
+            turn_run_id=turn_run_id,
+            branch_id=branch_id or session_id,
+        )
+    except Exception:
+        logger.debug("failed to start turn memory", exc_info=True)
+
+
+def _patch_turn_memory(
+    runtime_host: Any | None,
+    *,
+    session_id: str,
+    turn_id: str,
+    **changes: Any,
+) -> None:
+    store = getattr(runtime_host, "turn_memory_store", None)
+    patch = getattr(store, "patch_turn", None)
+    if not callable(patch):
+        return
+    try:
+        patch(session_id, turn_id, **changes)
+    except Exception:
+        logger.debug("failed to patch turn memory", exc_info=True)
+
+
+def _record_turn_memory_assistant_final(
+    runtime_host: Any | None,
+    *,
+    session_id: str,
+    turn_id: str,
+    content: str,
+    final_ref: str,
+) -> None:
+    store = getattr(runtime_host, "turn_memory_store", None)
+    create_or_get = getattr(store, "create_or_get_turn", None)
+    recorder = getattr(store, "record_assistant_final", None)
+    checkpoint = getattr(store, "record_checkpoint", None)
+    if not callable(recorder):
+        return
+    try:
+        if callable(create_or_get):
+            create_or_get(session_id=session_id, turn_id=turn_id)
+        recorder(
+            session_id=session_id,
+            turn_id=turn_id,
+            text=content,
+            final_ref=final_ref,
+        )
+        if callable(checkpoint):
+            checkpoint(
+                session_id=session_id,
+                turn_id=turn_id,
+                checkpoint_kind="assistant_final_ready",
+                payload={
+                    "assistant_final_ref": final_ref,
+                    "assistant_final_sha256": _text_sha256(content),
+                    "authority": "harness.loop.single_agent_turn.turn_memory_final",
+                },
+            )
+    except Exception:
+        logger.debug("failed to record assistant final in turn memory", exc_info=True)
+
+
+def _record_turn_memory_commit_result(
+    runtime_host: Any | None,
+    *,
+    session_id: str,
+    turn_id: str,
+    receipt: dict[str, Any],
+) -> None:
+    store = getattr(runtime_host, "turn_memory_store", None)
+    recorder = getattr(store, "record_commit_result", None)
+    checkpoint = getattr(store, "record_checkpoint", None)
+    if not callable(recorder):
+        return
+    try:
+        recorder(session_id=session_id, turn_id=turn_id, receipt=dict(receipt or {}))
+        if callable(checkpoint):
+            state = str(dict(receipt or {}).get("state") or dict(receipt or {}).get("status") or "unknown")
+            checkpoint(
+                session_id=session_id,
+                turn_id=turn_id,
+                checkpoint_kind=f"assistant_commit_{state}",
+                payload={
+                    "commit_state": state,
+                    "session_commit_ref": str(dict(receipt or {}).get("anchor_message_id") or dict(receipt or {}).get("event_id") or ""),
+                    "event_type": str(dict(receipt or {}).get("event_type") or ""),
+                    "authority": "harness.loop.single_agent_turn.turn_memory_commit",
+                },
+            )
+    except Exception:
+        logger.debug("failed to record commit result in turn memory", exc_info=True)
+
+
+def _record_turn_memory_tool_round(
+    runtime_host: Any | None,
+    *,
+    session_id: str,
+    turn_id: str,
+    packet_ref: str,
+    tool_batch_ref: str,
+    tool_iteration: int,
+    tool_calls: list[dict[str, Any]],
+    observations: list[dict[str, Any]],
+    tool_context_entries: list[dict[str, Any]],
+) -> None:
+    store = getattr(runtime_host, "turn_memory_store", None)
+    recorder = getattr(store, "record_tool_round", None)
+    checkpoint = getattr(store, "record_checkpoint", None)
+    if not callable(recorder):
+        return
+    observation_refs = tuple(
+        str(item.get("observation_id") or item.get("observation_ref") or "")
+        for item in list(observations or [])
+        if isinstance(item, dict) and str(item.get("observation_id") or item.get("observation_ref") or "").strip()
+    )
+    tool_round = {
+        "tool_round_ref": f"toolround:{tool_batch_ref}:{tool_iteration}",
+        "tool_batch_ref": tool_batch_ref,
+        "tool_iteration": tool_iteration,
+        "packet_ref": packet_ref,
+        "tool_calls": [dict(item) for item in list(tool_calls or []) if isinstance(item, dict)],
+        "observations": [dict(item) for item in list(observations or []) if isinstance(item, dict)],
+        "tool_context_entries": [dict(item) for item in list(tool_context_entries or []) if isinstance(item, dict)],
+        "authority": "harness.loop.single_agent_turn.turn_memory_tool_round",
+    }
+    try:
+        recorder(
+            session_id=session_id,
+            turn_id=turn_id,
+            tool_round=tool_round,
+            closed_tool_round_refs=observation_refs,
+        )
+        if callable(checkpoint):
+            checkpoint(
+                session_id=session_id,
+                turn_id=turn_id,
+                checkpoint_kind="tool_round_closed",
+                payload={
+                    "tool_round_ref": tool_round["tool_round_ref"],
+                    "packet_ref": packet_ref,
+                    "tool_iteration": tool_iteration,
+                    "observation_refs": list(observation_refs),
+                    "authority": "harness.loop.single_agent_turn.turn_memory_tool_round",
+                },
+            )
+    except Exception:
+        logger.debug("failed to record tool round in turn memory", exc_info=True)
 
 
 def _turn_run_agent_scope(
@@ -9580,6 +10007,110 @@ def _record_model_action_admission(
         )
     )
     return event.to_dict()
+
+
+def _record_model_action_public_feedback(
+    runtime_host: Any,
+    *,
+    turn_run: TurnRun,
+    turn_id: str,
+    packet_ref: str,
+    action_request: ModelActionRequest,
+    phase: str,
+    tool_iteration: int,
+) -> dict[str, Any]:
+    values = _model_action_public_feedback_values(action_request)
+    if not values:
+        return {}
+    public_progress_note = values.get("public_progress_note", "")
+    current_judgment = values.get("current_judgment", "")
+    next_action = values.get("next_action", "")
+    presentation_source = _model_action_public_feedback_presentation_source(action_request, values)
+    feedback_identity = _model_public_feedback_identity(
+        packet_ref=packet_ref,
+        tool_iteration=tool_iteration,
+        tool_actions=[action_request],
+    )
+    payload = _drop_empty_dict(
+        {
+            "turn_id": turn_id,
+            "active_turn_id": turn_id,
+            "turn_run_id": turn_run.turn_run_id,
+            "session_id": str(getattr(turn_run, "session_id", "") or ""),
+            "message_id": assistant_message_ref(turn_id=turn_id),
+            "message_ref": assistant_message_ref(turn_id=turn_id),
+            "step": "model_action_public_feedback",
+            "status": "running",
+            "phase": str(phase or ""),
+            "presentation_source": presentation_source,
+            "feedback_identity": feedback_identity,
+            "public_progress_note": public_progress_note,
+            "current_judgment": current_judgment,
+            "next_action": next_action,
+            "completion_status": values.get("completion_status", ""),
+        }
+    )
+    event = runtime_host.event_log.append(
+        turn_run.turn_run_id,
+        ASSISTANT_PUBLIC_FEEDBACK_EVENT,
+        payload=payload,
+        refs={
+            "turn_ref": turn_id,
+            "turn_run_ref": turn_run.turn_run_id,
+            "message_ref": assistant_message_ref(turn_id=turn_id),
+            "runtime_invocation_packet_ref": packet_ref,
+            "action_request_ref": action_request.request_id,
+        },
+    )
+    visible_feedback = public_progress_note or current_judgment or next_action
+    current = runtime_host.state_index.get_turn_run(turn_run.turn_run_id) or turn_run
+    runtime_host.state_index.upsert_turn_run(
+        replace(
+            current,
+            updated_at=event.created_at,
+            latest_event_offset=event.offset,
+            diagnostics={
+                **dict(current.diagnostics or {}),
+                "latest_public_progress_note": visible_feedback,
+                "latest_model_action_public_feedback_ref": feedback_identity,
+            },
+        )
+    )
+    return {
+        "type": ASSISTANT_PUBLIC_FEEDBACK_EVENT,
+        **payload,
+        "runtime_event_id": str(event.event_id or ""),
+        "event": event.to_dict(),
+    }
+
+
+def _record_model_action_public_feedback_events(
+    runtime_host: Any | None,
+    *,
+    turn_run: TurnRun | None,
+    turn_id: str,
+    packet_ref: str,
+    phase: str,
+    tool_iteration: int,
+    action_parse: SingleAgentActionParse,
+    tool_actions: list[ModelActionRequest] | tuple[ModelActionRequest, ...] = (),
+) -> list[dict[str, Any]]:
+    if runtime_host is None or turn_run is None:
+        return []
+    events: list[dict[str, Any]] = []
+    for action in _model_action_public_feedback_source_actions(action_parse, tool_actions):
+        event = _record_model_action_public_feedback(
+            runtime_host,
+            turn_run=turn_run,
+            turn_id=turn_id,
+            packet_ref=packet_ref,
+            action_request=action,
+            phase=phase,
+            tool_iteration=tool_iteration,
+        )
+        if event:
+            events.append(event)
+    return events
 
 
 def _record_turn_runtime_control_signal(
@@ -9982,7 +10513,116 @@ def _record_turn_terminal(
         turn_id=turn_id,
         terminal_reason=terminal_reason,
     )
+    _record_turn_memory_terminal(
+        runtime_host,
+        session_id=turn_run.session_id,
+        turn_id=turn_id,
+        status=status,
+        terminal_reason=terminal_reason,
+        terminal_event_ref=str(getattr(event, "event_id", "") or ""),
+    )
+    if status == "completed":
+        _release_consumed_interrupted_turn_handoffs(
+            runtime_host,
+            session_id=turn_run.session_id,
+            consuming_turn_id=turn_id,
+            terminal_event_ref=str(getattr(event, "event_id", "") or ""),
+        )
     return event.to_dict()
+
+
+def _record_turn_memory_terminal(
+    runtime_host: Any | None,
+    *,
+    session_id: str,
+    turn_id: str,
+    status: str,
+    terminal_reason: str,
+    terminal_event_ref: str,
+) -> None:
+    store = getattr(runtime_host, "turn_memory_store", None)
+    recorder = getattr(store, "record_terminal", None)
+    checkpoint = getattr(store, "record_checkpoint", None)
+    if not callable(recorder):
+        return
+    try:
+        recorder(
+            session_id=session_id,
+            turn_id=turn_id,
+            status=status,
+            terminal_reason=terminal_reason,
+            terminal_event_ref=terminal_event_ref,
+        )
+        if callable(checkpoint):
+            checkpoint(
+                session_id=session_id,
+                turn_id=turn_id,
+                checkpoint_kind="turn_terminal",
+                payload={
+                    "terminal_status": status,
+                    "terminal_reason": terminal_reason,
+                    "terminal_event_ref": terminal_event_ref,
+                    "authority": "harness.loop.single_agent_turn.turn_memory_terminal",
+                },
+            )
+    except Exception:
+        logger.debug("failed to record terminal in turn memory", exc_info=True)
+
+
+def _release_consumed_interrupted_turn_handoffs(
+    runtime_host: Any | None,
+    *,
+    session_id: str,
+    consuming_turn_id: str,
+    terminal_event_ref: str,
+) -> None:
+    store = getattr(runtime_host, "turn_memory_store", None)
+    lister = getattr(store, "list_session_turns", None)
+    releaser = getattr(store, "release_turn", None)
+    checkpoint = getattr(store, "record_checkpoint", None)
+    if not callable(lister) or not callable(releaser):
+        return
+    recoverable_states = {
+        "runtime_process_restarted",
+        "runtime_cell_missing_after_restart",
+        "runtime_cell_cancelled",
+        "runtime_stream_interrupted",
+        "stream_cancelled",
+        "stream_exception",
+        "missing_terminal_event",
+        "projection_stream_exception",
+        "projection_stream_missing_terminal",
+        "task_bridge_context_missing",
+    }
+    try:
+        records = list(lister(session_id, include_released=False) or [])
+        for record in records:
+            turn_id = str(getattr(record, "turn_id", "") or "").strip()
+            if not turn_id or turn_id == str(consuming_turn_id or "").strip():
+                continue
+            if str(getattr(record, "status", "") or "") != "handoff_ready":
+                continue
+            recovery_state = str(getattr(record, "recovery_state", "") or "").strip()
+            if recovery_state not in recoverable_states:
+                continue
+            if callable(checkpoint):
+                checkpoint(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    checkpoint_kind="interrupted_handoff_consumed",
+                    payload={
+                        "consuming_turn_id": str(consuming_turn_id or ""),
+                        "terminal_event_ref": str(terminal_event_ref or ""),
+                        "authority": "harness.loop.single_agent_turn.turn_memory_handoff_release",
+                    },
+                )
+            releaser(
+                session_id=session_id,
+                turn_id=turn_id,
+                reason=f"interrupted_handoff_consumed_by:{consuming_turn_id}",
+            )
+    except Exception:
+        logger.debug("failed to release consumed interrupted turn handoffs", exc_info=True)
 
 
 def _complete_active_turn_after_turn_terminal(

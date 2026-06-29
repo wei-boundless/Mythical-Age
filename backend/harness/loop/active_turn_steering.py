@@ -108,6 +108,14 @@ async def claim_active_turn_queued_user_steers(
     dispatched = tuple(item for item in claimed if item.queue_item_id not in failed_items)
     if not dispatched:
         return ActiveTurnQueuedUserSteers()
+    _record_claimed_steers_in_turn_memory(
+        runtime_host,
+        session_id=session_id,
+        turn_id=turn_id,
+        turn_run=turn_run,
+        active_turn=active_turn,
+        claimed=dispatched,
+    )
     model_message = (
         _queued_user_steer_model_message(dispatched, turn_id=turn_id, task_run_id=task_run_id, phase=phase)
         if include_model_message
@@ -141,6 +149,37 @@ async def claim_active_turn_queued_user_steers(
         events=(public_event,),
         task_steer_results=tuple(task_steer_results),
     )
+
+
+def _record_claimed_steers_in_turn_memory(
+    runtime_host: Any,
+    *,
+    session_id: str,
+    turn_id: str,
+    turn_run: TurnRun | None,
+    active_turn: Any,
+    claimed: tuple[QueuedUserInput, ...],
+) -> None:
+    store = getattr(runtime_host, "turn_memory_store", None)
+    create_or_get = getattr(store, "create_or_get_turn", None)
+    add_steer_ref = getattr(store, "add_steer_ref", None)
+    if not callable(create_or_get) or not callable(add_steer_ref):
+        return
+    try:
+        create_or_get(
+            session_id=session_id,
+            turn_id=turn_id,
+            turn_run_id=turn_run.turn_run_id if turn_run is not None else "",
+            branch_id=str(getattr(active_turn, "branch_id", "") or session_id),
+        )
+        for item in claimed:
+            add_steer_ref(
+                session_id=session_id,
+                turn_id=turn_id,
+                steer_ref=str(item.queue_item_id or item.client_message_id or ""),
+            )
+    except Exception:
+        logger.debug("failed to record active turn steer refs in turn memory", exc_info=True)
 
 
 def _resolve_active_turn_for_queued_steer(

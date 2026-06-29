@@ -56,6 +56,7 @@ from .physical_prefix_frame_ledger import (
     physical_prefix_frame_ledger_path,
     safe_physical_prefix_frame_scope_filename,
     save_physical_prefix_frame_ledger,
+    truncate_physical_prefix_frame_ledger_after_session_cutoff,
 )
 from .physical_prefix_frame_models import (
     PHYSICAL_PREFIX_FRAME_CONFIRMED_STATUS,
@@ -76,6 +77,7 @@ from .provider_visible_context_ledger import (
     provider_visible_message_hash,
     safe_provider_visible_context_ledger_filename,
     save_provider_visible_context_ledger,
+    truncate_provider_visible_context_ledger_after_session_cutoff,
 )
 from .context_segment_policy import (
     APPEND_ONLY_CONTEXT_KINDS,
@@ -186,6 +188,7 @@ __all__ = [
     "physical_prefix_frame_ledger_path",
     "safe_physical_prefix_frame_scope_filename",
     "save_physical_prefix_frame_ledger",
+    "truncate_physical_prefix_frame_ledger_after_session_cutoff",
     "PHYSICAL_PREFIX_FRAME_CONFIRMED_STATUS",
     "PHYSICAL_PREFIX_FRAME_SCHEMA_VERSION",
     "PhysicalPrefixFrame",
@@ -206,6 +209,7 @@ __all__ = [
     "provider_visible_context_ledger_path",
     "provider_visible_message_hash",
     "safe_provider_visible_context_ledger_filename",
+    "truncate_provider_visible_context_ledger_after_session_cutoff",
     "ContextSegmentPolicy",
     "context_append_order_key",
     "context_segment_is_provider_visible_sealable_spec",

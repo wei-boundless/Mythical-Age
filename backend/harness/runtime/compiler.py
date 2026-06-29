@@ -49,6 +49,7 @@ from harness.recovery_receipt import recovery_operation_availability_from_receip
 from core.project_layout import ProjectLayout
 from runtime.model_gateway.lightweight_chat_model import provider_message_payloads
 from runtime.model_gateway.protocol_sanitizer import ProtocolSanitizerResult, sanitize_messages_for_prompt
+from runtime.shared.protected_context import protected_old_context_spec
 from runtime.context_management.context_segment_policy import (
     CONTEXT_APPEND,
     DYNAMIC_TAIL,
@@ -2180,7 +2181,12 @@ class RuntimeCompiler:
             assembly_payload=assembly_payload,
         )
         tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
-        observation_allowed_actions = ("respond", "ask_user", "tool_call", "request_task_run", "block")
+        task_lifecycle = dict(profile_payload.get("task_lifecycle_policy") or {})
+        observation_allowed_actions = (
+            ("respond", "ask_user", "tool_call", "request_task_run", "block")
+            if task_lifecycle.get("request_task_run") is not False
+            else ("respond", "ask_user", "tool_call", "block")
+        )
         tool_call_contract = build_tool_call_contract(
             invocation_kind="tool_observation_followup",
             allowed_action_types=observation_allowed_actions,
@@ -2964,8 +2970,8 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
             "rule": "你始终要服务用户当前输入。工具可以帮你获得事实，但工具动作本身不是给用户的回答。",
             "turn_sequence": [
                 "第一步先判断当前是否已经足以回答。足以回答时，选择 respond，并把完整自然语言回复写入 final_answer。",
-                "第二步，如果还需要查证、读取、修改或验证，选择 tool_call/tool_calls。直接调用工具时，只填写当前工具参数；如果工具参数没有明确公开说明字段，这次输出就只会被理解为工具动作。不要在工具调用前后另写普通正文来解释，因为普通正文不会被当作公开反馈。",
-                "第三步，如果你使用结构化 action object 来发起工具动作，并且需要先向用户说明为什么查证，就把这句话写入 public_progress_note；它只说明本批工具共同要确认的公开事实，不逐个复述工具名。",
+                "第二步，如果还需要查证、读取、修改或验证，选择 tool_call/tool_calls。结构化 action object 使用顶层 public_progress_note；直接 provider 工具调用可以在同次输出的简短自然 preamble 中写公开反馈，或在工具参数 schema 明确提供 public_progress_note、public_note、current_judgment、public_action_state 这类公开 sidecar 字段时写入 sidecar。preamble 和 sidecar 都只说明本批工具共同要确认的公开事实，不逐个复述工具名。",
+                "第三步，如果你使用结构化 action object 来发起工具动作，并且需要先向用户说明为什么查证，就把这句话写入顶层 public_progress_note；它只说明本批工具共同要确认的公开事实，不逐个复述工具名。",
                 "第四步，工具观察返回后，重新判断：事实足够就 respond；缺用户决定就 ask_user；事实、权限或环境不足就 block；仍需查证且本轮允许时再继续 tool_call。",
                 "第五步，如果用户问的是为什么卡住、为什么没回应、是否正常，先解释你已经知道的状态或需要核对的状态，再决定是否继续执行。",
                 "只有用户只是明确说继续、恢复、接着执行，并且没有提出新问题时，才可以只承接执行。"
@@ -2994,7 +3000,7 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
                 "把工具名、动作字段或执行步骤列表当成给用户的回答。"
             ]
         },
-        "public_progress_note": "只在结构化 action object、控制动作，或工具参数明确提供同名公开字段时使用。它是你写给用户看的短判断：说明本轮要确认什么、为什么要查证、或为什么要申请资源。直接工具调用只填写当前工具参数；不要把公开说明写在工具调用前后的普通文本里。不要写内部事件、隐藏推理、泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
+        "public_progress_note": "这是你写给用户看的短判断：说明本轮要确认什么、为什么要查证、或为什么要申请资源。结构化 action object 使用顶层 public_progress_note；直接 provider 工具调用如果无法提交顶层字段，可以在同次输出的简短自然 preamble 中写这句反馈，或在工具参数 schema 明确提供 public_progress_note、public_note、current_judgment、public_action_state 这类公开 sidecar 字段时写入 sidecar。preamble 会被 runtime 归一为 assistant_public_feedback，不是 final_answer。不要写内部事件、隐藏推理、泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
         "public_action_state": {
             "visible_status": "机器状态；thinking|waiting_for_tool|tool_returned|responding|blocked。不是用户可见正文；不要复制到 public_progress_note、current_judgment、next_action、final_answer 或 blocking_reason。",
             "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写本轮已经确定的事实或边界，不写隐藏推理。",
@@ -4012,12 +4018,12 @@ def _sanitize_model_messages_for_prompt_packet(
     turn_id: str,
     source: str,
 ) -> ProtocolSanitizerResult:
-    sealed_replay_specs = [
+    protected_old_context_specs = [
         dict(item)
         for item in list(message_specs or ())
-        if isinstance(item, dict) and sealed_provider_visible_replay_spec(dict(item))
+        if isinstance(item, dict) and _protected_old_context_spec(dict(item))
     ]
-    if not sealed_replay_specs:
+    if not protected_old_context_specs:
         return sanitize_messages_for_prompt(messages, turn_id=turn_id, source=source)
     return ProtocolSanitizerResult(
         messages=tuple(dict(item) for item in list(messages or []) if isinstance(item, dict)),
@@ -4026,15 +4032,19 @@ def _sanitize_model_messages_for_prompt_packet(
             "turn_id": str(turn_id or ""),
             "input_message_count": len(list(messages or [])),
             "output_message_count": len([item for item in list(messages or []) if isinstance(item, dict)]),
-            "status": "bypassed_for_sealed_provider_visible_replay",
-            "sealed_replay_spec_count": len(sealed_replay_specs),
-            "sealed_replay_refs": [
+            "status": "bypassed_for_protected_old_context",
+            "protected_old_context_spec_count": len(protected_old_context_specs),
+            "protected_old_context_refs": [
                 str(spec.get("source_ref") or dict(spec.get("metadata") or {}).get("runtime_prompt_source_id") or "")
-                for spec in sealed_replay_specs[:20]
+                for spec in protected_old_context_specs[:20]
             ],
-            "authority": "harness.runtime.compiler.sealed_replay_sanitizer_guard",
+            "authority": "harness.runtime.compiler.protected_old_context_sanitizer_guard",
         },
     )
+
+
+def _protected_old_context_spec(spec: dict[str, Any]) -> bool:
+    return protected_old_context_spec(spec)
 
 
 def _context_physical_assembly_manifest_from_specs(
@@ -4092,6 +4102,8 @@ def _context_physical_assembly_manifest_from_specs(
 
 def _model_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
     raw_message = spec.get("model_message") if isinstance(spec.get("model_message"), dict) else spec
+    if protected_old_context_spec(spec):
+        return dict(raw_message)
     role = str(raw_message.get("role") or spec.get("role") or "user").strip() or "user"
     message: dict[str, Any] = {
         "role": role,
@@ -5471,9 +5483,15 @@ def _model_decision_contract_payload(
             "respond_requires_top_level_final_answer": "action_type=respond 时，最终给用户看的自然回复必须写在顶层 final_answer；不要放入 payload.content、payload.final_answer 或 action.content。",
             "ask_user_requires_top_level_user_question": "action_type=ask_user 时，用户要回答的问题必须写在顶层 user_question；不要通过工具调用表达。",
             "block_requires_top_level_blocking_reason": "action_type=block 时，真实阻塞原因必须写在顶层 blocking_reason。",
-            "request_task_run_uses_compact_task_start_intent": (
-                "action_type=request_task_run 时，只在 task_run_contract_seed 内填写紧凑 TaskStartIntent；"
-                "这是申请长任务资源的控制动作，不是普通工具调用，也不是第二套模型工作提示。"
+            **(
+                {
+                    "request_task_run_uses_compact_task_start_intent": (
+                        "action_type=request_task_run 时，只在 task_run_contract_seed 内填写紧凑 TaskStartIntent；"
+                        "这是申请长任务资源的控制动作，不是普通工具调用，也不是第二套模型工作提示。"
+                    )
+                }
+                if task_run_allowed
+                else {}
             ),
             **(
                 {
@@ -5508,43 +5526,56 @@ def _model_decision_contract_payload(
             if pause_for_user_steer_allowed
             else {}
         ),
-        "long_task_resource_rule": {
-            "request_task_run_allowed": bool(task_run_allowed),
-            "agent_selects_resource_request": bool(task_run_allowed),
-            "ask_user_when_contract_gaps_exist": True,
-            "task_start_requires_structured_request_task_run": True,
-            "resource_request_conditions": [
-                "需要跨 turn 保存目标、计划游标、todo 游标、证据、恢复点、验收边界或阶段反馈。",
-                "用户需要能暂停、停止、恢复或继续同一个工作单元。",
-                "当前动作需要一个明确的系统资源边界，而不是一次普通工具观察。",
-            ],
-            "request_task_run_when_agent_selects_resource": (
-                "如果你判断需要长任务资源，并且 TaskStartIntent 足够，提交 action_type=request_task_run；"
-                "不要先用普通工具调用替代资源申请。"
-            ),
-            "ask_user_when_resource_intent_incomplete": (
-                "如果你判断需要长任务资源但 primary_mode、task_shape、最小下一步、范围或验收模式不足，提交 ask_user 补齐。"
-            ),
-            "single_turn_tool_call_boundary": (
-                "tool_call 是当前 turn 内的有效路径，用于你判断有限工具观察即可回答、验证或推进的问题；"
-                "选择工具动作时，公开反馈应说明本次查证目标，不得宣称已经申请或绑定长任务资源。"
-            ),
-            "request_task_run_minimum_contract": [
-                "task_run_contract_seed.contract_shape=compact_task_start_intent_v3",
-                "task_run_contract_seed.primary_mode",
-                "task_run_contract_seed.task_shape",
-                "task_run_contract_seed.minimum_viable_next_step",
-                "task_run_contract_seed.working_scope",
-                "task_run_contract_seed.acceptance.mode",
-                "task_run_contract_seed.mode_payload",
-            ],
-        },
+        "long_task_resource_rule": (
+            {
+                "request_task_run_allowed": True,
+                "agent_selects_resource_request": True,
+                "ask_user_when_contract_gaps_exist": True,
+                "task_start_requires_structured_request_task_run": True,
+                "resource_request_conditions": [
+                    "需要跨 turn 保存目标、计划游标、todo 游标、证据、恢复点、验收边界或阶段反馈。",
+                    "用户需要能暂停、停止、恢复或继续同一个工作单元。",
+                    "当前动作需要一个明确的系统资源边界，而不是一次普通工具观察。",
+                ],
+                "request_task_run_when_agent_selects_resource": (
+                    "如果你判断需要长任务资源，并且 TaskStartIntent 足够，提交 action_type=request_task_run；"
+                    "不要先用普通工具调用替代资源申请。"
+                ),
+                "ask_user_when_resource_intent_incomplete": (
+                    "如果你判断需要长任务资源但 primary_mode、task_shape、最小下一步、范围或验收模式不足，提交 ask_user 补齐。"
+                ),
+                "request_task_run_minimum_contract": [
+                    "task_run_contract_seed.contract_shape=compact_task_start_intent_v3",
+                    "task_run_contract_seed.primary_mode",
+                    "task_run_contract_seed.task_shape",
+                    "task_run_contract_seed.minimum_viable_next_step",
+                    "task_run_contract_seed.working_scope",
+                    "task_run_contract_seed.acceptance.mode",
+                    "task_run_contract_seed.mode_payload",
+                ],
+                "single_turn_tool_call_boundary": (
+                    "tool_call 是当前 turn 内的有效路径，用于你判断有限工具观察即可回答、验证或推进的问题；"
+                    "选择工具动作时，公开反馈应说明本次查证目标，不得宣称已经申请或绑定长任务资源。"
+                ),
+            }
+            if task_run_allowed
+            else {
+                "request_task_run_allowed": False,
+                "agent_selects_resource_request": False,
+                "task_start_requires_structured_request_task_run": False,
+                "resource_request_unavailable": "当前运行配置没有提供长任务资源申请入口；不要提交 request_task_run，也不要把普通工具调用描述成已开启 task。",
+                "single_turn_tool_call_boundary": (
+                    "tool_call 是当前 turn 内的有效路径，用于你判断有限工具观察即可回答、验证或推进的问题；"
+                    "选择工具动作时，公开反馈应说明本次查证目标，不得宣称已经申请或绑定长任务资源。"
+                ),
+            }
+        ),
         "feedback_obligation": {
             "agent_must_give_user_feedback": True,
             "pure_control_feedback_is_carried_by_control_payload_and_projection": True,
             "do_not_emit_detached_assistant_body_for_pure_control": True,
             "public_feedback_must_match_action_type": True,
-            "task_resource_claim_requires_request_task_run": True,
+            "task_resource_claim_requires_request_task_run": bool(task_run_allowed),
         },
     }
 

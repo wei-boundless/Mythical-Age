@@ -5,6 +5,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from runtime.shared.protected_context import protected_old_context_spec
+
 from .context_segment_policy import (
     CONTEXT_APPEND,
     CONTEXT_MEMORY_PREFIX,
@@ -317,6 +319,8 @@ def _first_generation(segments: tuple[PhysicalContextPlanSegment, ...]) -> str:
 
 def _spec_content_hash(spec: dict[str, Any]) -> str:
     message = spec.get("model_message") if isinstance(spec.get("model_message"), dict) else {}
+    if _must_preserve_model_message_hash(spec):
+        return _stable_json_hash({"model_message": dict(message or {})})
     seed = {
         "role": str(dict(message).get("role") or spec.get("role") or ""),
         "content": str(dict(message).get("content") if dict(message).get("content") is not None else spec.get("content") or ""),
@@ -328,6 +332,10 @@ def _spec_content_hash(spec: dict[str, Any]) -> str:
         "source_ref": str(spec.get("source_ref") or ""),
     }
     return _stable_json_hash(seed)
+
+
+def _must_preserve_model_message_hash(spec: dict[str, Any]) -> bool:
+    return protected_old_context_spec(spec)
 
 
 def _physical_context_order_key(segment: PhysicalContextPlanSegment) -> tuple[Any, ...]:

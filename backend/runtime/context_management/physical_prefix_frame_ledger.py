@@ -405,6 +405,108 @@ def save_physical_prefix_frame_ledger(
     )
 
 
+def truncate_physical_prefix_frame_ledger_after_session_cutoff(
+    *,
+    storage_root: Path | str | None,
+    scope: str,
+    kept_turn_ids: set[str] | list[str] | tuple[str, ...],
+    cutoff_created_before: float,
+    reason: str = "session_history_truncated",
+) -> dict[str, Any]:
+    normalized_scope = str(scope or "default").strip() or "default"
+    kept = {str(item or "").strip() for item in list(kept_turn_ids or []) if str(item or "").strip()}
+    cutoff_ts = float(cutoff_created_before or time.time())
+    ledger = load_physical_prefix_frame_ledger(storage_root=storage_root, scope=normalized_scope)
+    frames = [dict(item) for item in list(ledger.get("frames") or []) if isinstance(item, dict)]
+    if not frames:
+        return {
+            "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
+            "scope": normalized_scope,
+            "removed_count": 0,
+            "retained_count": 0,
+            "reason": "physical_prefix_frame_ledger_empty",
+        }
+    target_frame = _latest_frame_for_kept_turn_lineage(frames, kept_turn_ids=kept)
+    retained_ids = _physical_frame_lineage_ids(frames, target_frame)
+    retained: list[dict[str, Any]] = []
+    removed: list[dict[str, Any]] = []
+    for frame in frames:
+        frame_id = str(frame.get("frame_id") or "").strip()
+        if frame_id and frame_id in retained_ids:
+            retained.append(frame)
+        else:
+            removed.append(frame)
+    if not removed:
+        payload = dict(ledger or {})
+        payload["last_truncate_cutoff"] = {
+            "reason": str(reason or "session_history_truncated"),
+            "cutoff_created_before": cutoff_ts,
+            "kept_turn_ids": sorted(kept),
+            "target_frame_id": str(target_frame.get("frame_id") or "") if target_frame else "",
+            "removed_frame_ids": [],
+            "removed_turn_ids": [],
+            "retained_lineage_frame_ids": sorted(retained_ids),
+            "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
+        }
+        payload = _finalize_ledger(payload)
+        save_physical_prefix_frame_ledger(storage_root=storage_root, scope=normalized_scope, ledger=payload)
+        return {
+            "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
+            "scope": normalized_scope,
+            "removed_count": 0,
+            "retained_count": len(retained),
+            "last_confirmed_frame_id": str(payload.get("last_confirmed_frame_id") or ""),
+            "reason": "physical_prefix_frame_lineage_already_at_cutoff",
+        }
+    payload = dict(ledger or {})
+    payload["frames"] = retained[-PHYSICAL_PREFIX_FRAME_MAX_RETAINED:]
+    latest = _latest_confirmed_frame_from_ledger(
+        payload,
+        provider="",
+        model="",
+        provider_lane="",
+    )
+    if latest:
+        payload["last_confirmed_frame_id"] = str(latest.get("frame_id") or "")
+        payload["last_confirmed_request_id"] = str(latest.get("source_request_id") or "")
+        payload["last_confirmed_provider_payload_prefix_hash"] = str(latest.get("provider_payload_prefix_hash") or "")
+        payload["last_confirmed_physical_cache_spine_message_subtotal_hash"] = str(
+            latest.get("physical_cache_spine_message_subtotal_hash") or ""
+        )
+    else:
+        payload["last_confirmed_frame_id"] = ""
+        payload["last_confirmed_request_id"] = ""
+        payload["last_confirmed_provider_payload_prefix_hash"] = ""
+        payload["last_confirmed_physical_cache_spine_message_subtotal_hash"] = ""
+    payload["last_truncate_cutoff"] = {
+        "reason": str(reason or "session_history_truncated"),
+        "cutoff_created_before": cutoff_ts,
+        "kept_turn_ids": sorted(kept),
+        "target_frame_id": str(target_frame.get("frame_id") or "") if target_frame else "",
+        "removed_frame_ids": [str(item.get("frame_id") or "") for item in removed if str(item.get("frame_id") or "")],
+        "removed_turn_ids": sorted(
+            {
+                _frame_source_turn_id(item)
+                for item in removed
+                if _frame_source_turn_id(item)
+            }
+        ),
+        "retained_lineage_frame_ids": sorted(retained_ids),
+        "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
+    }
+    payload = _finalize_ledger(payload)
+    save_physical_prefix_frame_ledger(storage_root=storage_root, scope=normalized_scope, ledger=payload)
+    return {
+        "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
+        "scope": normalized_scope,
+        "removed_count": len(removed),
+        "retained_count": len(payload.get("frames") or []),
+        "last_confirmed_frame_id": str(payload.get("last_confirmed_frame_id") or ""),
+        "removed_frame_ids": [str(item.get("frame_id") or "") for item in removed if str(item.get("frame_id") or "")],
+        "reason": str(reason or "session_history_truncated"),
+    }
+
+
 def physical_prefix_frame_ledger_path(*, storage_root: Path | str | None, scope: str) -> Path | None:
     if storage_root is None:
         return None
@@ -427,6 +529,48 @@ def safe_physical_prefix_frame_scope_filename(value: str) -> str:
         else:
             result.append("_")
     return "".join(result).strip("._")[:180] or "default"
+
+
+def _latest_frame_for_kept_turn_lineage(frames: list[dict[str, Any]], *, kept_turn_ids: set[str]) -> dict[str, Any]:
+    if not kept_turn_ids:
+        return {}
+    candidates: list[tuple[int, float, dict[str, Any]]] = []
+    for index, frame in enumerate(list(frames or [])):
+        if str(frame.get("status") or "") != PHYSICAL_PREFIX_FRAME_CONFIRMED_STATUS:
+            continue
+        if _frame_source_turn_id(frame) not in kept_turn_ids:
+            continue
+        candidates.append((index, _safe_float(frame.get("confirmed_at") or frame.get("created_at")), frame))
+    if not candidates:
+        return {}
+    candidates.sort(key=lambda item: (item[1], item[0]))
+    return dict(candidates[-1][2])
+
+
+def _physical_frame_lineage_ids(frames: list[dict[str, Any]], target_frame: dict[str, Any]) -> set[str]:
+    target_id = str(dict(target_frame or {}).get("frame_id") or "").strip()
+    if not target_id:
+        return set()
+    by_id = {
+        str(frame.get("frame_id") or "").strip(): dict(frame)
+        for frame in list(frames or [])
+        if isinstance(frame, dict) and str(frame.get("frame_id") or "").strip()
+    }
+    lineage: set[str] = set()
+    current_id = target_id
+    while current_id and current_id in by_id and current_id not in lineage:
+        lineage.add(current_id)
+        current = by_id.get(current_id) or {}
+        current_id = str(current.get("previous_frame_id") or "").strip()
+    return lineage
+
+
+def _frame_source_turn_id(frame: dict[str, Any]) -> str:
+    return str(
+        dict(frame or {}).get("source_turn_id")
+        or dict(dict(frame or {}).get("turn_snapshot") or {}).get("turn_id")
+        or ""
+    ).strip()
 
 
 def _ledger_for_append(*, ledger: dict[str, Any], scope: str, provider: str, model: str) -> dict[str, Any]:
@@ -549,27 +693,13 @@ def _validate_frame_segments(
     physical_spine: dict[str, Any],
     required_current_append_entry_indexes: list[int] | tuple[int, ...] = (),
 ) -> dict[str, Any]:
-    unclosed_rounds = [
-        dict(item)
-        for item in list(dict(physical_spine or {}).get("provider_tool_protocol_rounds") or [])
-        if isinstance(item, dict) and item.get("closed") is not True
-    ]
-    if unclosed_rounds:
-        return {
-            "status": "rejected",
-            "reason": "unclosed_provider_tool_round_in_physical_prefix",
-            "unclosed_provider_tool_rounds": unclosed_rounds,
-            "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
-        }
+    del physical_spine
     if not segments:
         return {
             "status": "rejected",
             "reason": "empty_physical_cache_spine",
             "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
         }
-    protocol_failure = _frame_tool_protocol_failure(segments) or _frame_message_shape_tool_protocol_failure(segments)
-    if protocol_failure:
-        return protocol_failure
     missing_current_append = _missing_current_append_entry_indexes(
         segments,
         required_current_append_entry_indexes=required_current_append_entry_indexes,
@@ -601,6 +731,7 @@ def _validate_frame_segments(
     return {
         "status": "ok",
         "segment_count": len(segments),
+        "validation_scope": "physical_storage_replay_only",
         "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
     }
 
@@ -873,127 +1004,6 @@ def _current_append_promotion_diagnostics(
         "content_source_rule": "copy_exact_provider_message_from_model_request",
         "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
     }
-
-
-def _frame_tool_protocol_failure(segments: list[PhysicalPrefixFrameSegment]) -> dict[str, Any]:
-    grouped: dict[str, list[PhysicalPrefixFrameSegment]] = {}
-    for segment in segments:
-        if segment.provider_tool_round_id:
-            grouped.setdefault(segment.provider_tool_round_id, []).append(segment)
-    for round_id, members in grouped.items():
-        assistant_members = [item for item in members if item.role == "assistant"]
-        tool_members = [item for item in members if item.role == "tool"]
-        expected_ids: list[str] = []
-        for item in members:
-            protocol = dict(item.metadata.get("provider_tool_protocol") or {})
-            for value in list(protocol.get("tool_call_ids") or []):
-                text = str(value or "").strip()
-                if text and text not in expected_ids:
-                    expected_ids.append(text)
-        if len(assistant_members) != 1 or not expected_ids:
-            return {
-                "status": "rejected",
-                "reason": "invalid_provider_tool_round_in_confirmed_frame",
-                "round_id": round_id,
-                "assistant_member_count": len(assistant_members),
-                "expected_tool_call_ids": expected_ids,
-                "tool_member_count": len(tool_members),
-                "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
-            }
-        found_ids: set[str] = set()
-        for item in tool_members:
-            protocol = dict(item.metadata.get("provider_tool_protocol") or {})
-            tool_call_id = str(protocol.get("tool_call_id") or dict(item.provider_message).get("tool_call_id") or "").strip()
-            if tool_call_id:
-                found_ids.add(tool_call_id)
-        if not set(expected_ids).issubset(found_ids):
-            return {
-                "status": "rejected",
-                "reason": "unclosed_provider_tool_round_in_confirmed_frame",
-                "round_id": round_id,
-                "expected_tool_call_ids": expected_ids,
-                "found_tool_call_ids": sorted(found_ids),
-                "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
-            }
-    return {}
-
-
-def _frame_message_shape_tool_protocol_failure(segments: list[PhysicalPrefixFrameSegment]) -> dict[str, Any]:
-    message_segments = [
-        segment
-        for segment in sorted(segments, key=lambda item: int(item.ordinal or 0))
-        if str(segment.transport_location or "") == "messages"
-    ]
-    pending_ids: list[str] = []
-    pending_assistant: PhysicalPrefixFrameSegment | None = None
-    found_ids: set[str] = set()
-    for segment in message_segments:
-        message = dict(segment.provider_message or {})
-        role = str(message.get("role") or segment.role or "").strip()
-        if pending_ids:
-            if role != "tool":
-                return {
-                    "status": "rejected",
-                    "reason": "unclosed_provider_tool_round_in_confirmed_frame",
-                    "assistant_segment_id": pending_assistant.segment_id if pending_assistant is not None else "",
-                    "expected_tool_call_ids": pending_ids,
-                    "found_tool_call_ids": sorted(found_ids),
-                    "next_segment_id": segment.segment_id,
-                    "next_role": role,
-                    "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
-                }
-            tool_call_id = str(message.get("tool_call_id") or "").strip()
-            if tool_call_id not in pending_ids or tool_call_id in found_ids:
-                return {
-                    "status": "rejected",
-                    "reason": "invalid_provider_tool_message_order_in_confirmed_frame",
-                    "assistant_segment_id": pending_assistant.segment_id if pending_assistant is not None else "",
-                    "expected_tool_call_ids": pending_ids,
-                    "tool_segment_id": segment.segment_id,
-                    "tool_call_id": tool_call_id,
-                    "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
-                }
-            found_ids.add(tool_call_id)
-            if set(pending_ids).issubset(found_ids):
-                pending_ids = []
-                pending_assistant = None
-                found_ids = set()
-            continue
-        if role == "tool":
-            return {
-                "status": "rejected",
-                "reason": "orphan_provider_tool_message_in_confirmed_frame",
-                "tool_segment_id": segment.segment_id,
-                "tool_call_id": str(message.get("tool_call_id") or ""),
-                "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
-            }
-        if role == "assistant":
-            tool_call_ids = _assistant_tool_call_ids_from_message(message)
-            if tool_call_ids:
-                pending_ids = tool_call_ids
-                pending_assistant = segment
-                found_ids = set()
-    if pending_ids:
-        return {
-            "status": "rejected",
-            "reason": "unclosed_provider_tool_round_at_frame_end",
-            "assistant_segment_id": pending_assistant.segment_id if pending_assistant is not None else "",
-            "expected_tool_call_ids": pending_ids,
-            "found_tool_call_ids": sorted(found_ids),
-            "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
-        }
-    return {}
-
-
-def _assistant_tool_call_ids_from_message(message: dict[str, Any]) -> list[str]:
-    ids: list[str] = []
-    for raw_call in list(dict(message or {}).get("tool_calls") or []):
-        if not isinstance(raw_call, dict):
-            continue
-        call_id = str(dict(raw_call).get("id") or "").strip()
-        if call_id and call_id not in ids:
-            ids.append(call_id)
-    return ids
 
 
 def _turn_snapshot(

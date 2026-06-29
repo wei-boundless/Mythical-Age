@@ -278,6 +278,7 @@ _RUNTIME_EVENT_FACT_TYPES = {
     "agent_turn_closing",
     "agent_turn_completed",
     "agent_turn_failed",
+    "assistant_public_feedback",
     "approval_resumed",
     "approval_waiting",
     "bounded_observation_recorded",
@@ -480,5 +481,4 @@ def _first_non_empty(*values: Any) -> str:
         if text:
             return text
     return ""
-
 

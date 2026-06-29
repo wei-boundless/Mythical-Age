@@ -82,6 +82,7 @@ def _runtime_profile(**payload: Any) -> AgentRuntimeProfile:
 def _main_agent_runtime_policy(environment_id: str) -> dict[str, Any]:
     return {
         "default_task_environment_id": environment_id,
+        "task_lifecycle_policy": {"request_task_run": False},
         "prompt_policy": {},
     }
 

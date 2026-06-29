@@ -282,6 +282,12 @@ def _result_metadata_for_tool(
     tool_result = dict(structured_payload.get("tool_result") or {})
     result_kind = str(tool_result.get("kind") or "").strip()
     result_status = str(tool_result.get("status") or "").strip()
+    is_reuse = result_kind == "read_file_reuse" or result_status == "reuse_unchanged"
+    includes_file_text = _read_file_result_includes_text(
+        tool_result=tool_result,
+        result_text=result_text,
+        is_reuse=is_reuse,
+    )
     path = str(tool_result.get("path") or (observed_paths[0] if observed_paths else "") or args.get("path") or "").strip()
     start_line = _int_or_none(tool_result.get("start_line"))
     end_line = _int_or_none(tool_result.get("end_line"))
@@ -308,37 +314,48 @@ def _result_metadata_for_tool(
             "reused_observation_ref": str(tool_result.get("reused_observation_ref") or "").strip(),
             "exact_artifact_ref": str(tool_result.get("exact_artifact_ref") or "").strip(),
             "reusable_result_ref": str(tool_result.get("reusable_result_ref") or "").strip(),
-            "includes_file_text": False if result_kind == "read_file_reuse" else None,
+            "includes_file_text": includes_file_text,
+            "content_available": includes_file_text if is_reuse else None,
+            "reuse_text_source": str(tool_result.get("reuse_text_source") or "").strip(),
         }
     )
     if not content_range:
         return {}
-    is_reuse = result_kind == "read_file_reuse" or result_status == "reuse_unchanged"
     result_boundary = _drop_empty_dict(
         {
             "fact_status": "unchanged_reused_window_evidence" if is_reuse else "window_evidence",
-            "usable_as": (
-                ["freshness_confirmation", "prior_file_window_reference"]
-                if is_reuse
-                else ["current_file_window"]
-            ),
+            "usable_as": _read_file_usable_as(is_reuse=is_reuse, includes_file_text=includes_file_text),
             "not_usable_as": (
-                ["new_file_text", "full_file_fact"]
-                if is_reuse
+                ["current_file_window", "full_file_fact"]
+                if is_reuse and not includes_file_text
                 else ["full_file_fact"] if has_more else []
             ),
             "freshness": "active",
             "requires_agent_judgment": True,
-            "includes_file_text": False if is_reuse else None,
+            "includes_file_text": includes_file_text,
         }
     )
     recovery_options: list[dict[str, Any]] = []
     if is_reuse:
+        if includes_file_text:
+            recovery_options.append(
+                _drop_empty_dict(
+                    {
+                        "kind": "use_included_exact_text",
+                        "condition": "the included rehydrated text is the current exact text for this unchanged range",
+                        "text_source": str(tool_result.get("reuse_text_source") or "read_observation_artifact"),
+                    }
+                )
+            )
         recovery_options.append(
             _drop_empty_dict(
                 {
                     "kind": "use_prior_evidence_reference",
-                    "condition": "the task only needs the unchanged range already covered by prior exact evidence",
+                    "condition": (
+                        "the task only needs the unchanged range already covered by prior exact evidence"
+                        if not includes_file_text
+                        else "prior evidence refs identify the rehydrated exact text included in this observation"
+                    ),
                     "observation_ref": str(tool_result.get("reused_observation_ref") or tool_result.get("observation_ref") or ""),
                     "exact_artifact_ref": str(tool_result.get("exact_artifact_ref") or ""),
                     "reusable_result_ref": str(tool_result.get("reusable_result_ref") or ""),
@@ -365,7 +382,10 @@ def _result_metadata_for_tool(
             {
                 "content_range": content_range,
                 "result_boundary": result_boundary,
-                "semantic_delta": dict(tool_result.get("semantic_delta") or {}),
+                "semantic_delta": _read_file_semantic_delta(
+                    tool_result=tool_result,
+                    includes_file_text=includes_file_text,
+                ),
                 "recovery_options": recovery_options,
             }
         )
@@ -396,6 +416,48 @@ def _result_metadata_for_tool(
         "result_boundary": result_boundary,
         "recovery_options": recovery_options,
     }
+
+
+def _read_file_result_includes_text(
+    *,
+    tool_result: dict[str, Any],
+    result_text: str,
+    is_reuse: bool,
+) -> bool:
+    explicit = tool_result.get("content_available")
+    if isinstance(explicit, bool):
+        return explicit
+    semantic_delta = dict(tool_result.get("semantic_delta") or {})
+    current = dict(semantic_delta.get("current_observation") or {})
+    semantic_value = current.get("includes_file_text")
+    if isinstance(semantic_value, bool):
+        return semantic_value
+    if str(tool_result.get("text") or "").strip():
+        return True
+    if str(result_text or "").strip():
+        return True
+    return not is_reuse
+
+
+def _read_file_usable_as(*, is_reuse: bool, includes_file_text: bool) -> list[str]:
+    if not is_reuse:
+        return ["current_file_window"]
+    if includes_file_text:
+        return ["current_file_window", "freshness_confirmation", "rehydrated_exact_read_window"]
+    return ["freshness_confirmation", "prior_file_window_reference"]
+
+
+def _read_file_semantic_delta(*, tool_result: dict[str, Any], includes_file_text: bool) -> dict[str, Any]:
+    semantic_delta = dict(tool_result.get("semantic_delta") or {})
+    if not semantic_delta:
+        return {}
+    current_observation = dict(semantic_delta.get("current_observation") or {})
+    current_observation["includes_file_text"] = bool(includes_file_text)
+    reuse_text_source = str(tool_result.get("reuse_text_source") or "").strip()
+    if includes_file_text and reuse_text_source and not str(current_observation.get("text_source") or "").strip():
+        current_observation["text_source"] = reuse_text_source
+    semantic_delta["current_observation"] = current_observation
+    return semantic_delta
 
 
 def _subagent_result_metadata(

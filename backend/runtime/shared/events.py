@@ -66,6 +66,7 @@ RuntimeEventType = Literal[
     "executor_started",
     "assistant_text_delta",
     "assistant_text_final",
+    "assistant_public_feedback",
     "assistant_stream_repair",
     "model_stream_recovery",
     "model_item_received",

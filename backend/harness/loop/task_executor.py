@@ -1977,19 +1977,28 @@ async def _execute_claimed_task_run(
             task_run_id=current_task.task_run_id,
             step=f"model_action_received:{step_index}",
             status="running",
-            summary=action_progress,
-            public_progress_note=action_request.public_progress_note,
-            agent_brief_output=action_brief,
+            summary="",
+            public_progress_note="",
+            agent_brief_output="",
             action_type=action_request.action_type,
-            current_judgment=public_action_state.get("current_judgment", ""),
-            next_action=public_action_state.get("next_action", ""),
-            completion_status=public_action_state.get("completion_status", ""),
-            open_risks=list(public_action_state.get("open_risks") or []),
-            evidence_refs=list(public_action_state.get("evidence_refs") or []),
-            presentation_source=presentation_source,
+            current_judgment="",
+            next_action="",
+            completion_status="",
+            open_risks=[],
+            evidence_refs=[],
+            presentation_source="model_action.trace",
             tool_name=action_tool_name,
             tool_target=action_tool_target,
             refs={"action_request_ref": action_request.request_id},
+        )
+        _record_task_model_action_public_feedback(
+            runtime_host,
+            task_run_id=current_task.task_run_id,
+            action_request=action_request,
+            step=f"model_action_received:{step_index}",
+            status="running",
+            presentation_source=presentation_source,
+            packet_ref=compilation.packet.packet_id,
         )
         consumed_steer_ids = _consumed_steer_ids(action_request, included_steer_ids)
         apply_contract_revision_decisions(
@@ -10108,6 +10117,111 @@ def _record_task_step_summary(
             )
         )
     return event.to_dict()
+
+
+def _record_task_model_action_public_feedback(
+    runtime_host: Any,
+    *,
+    task_run_id: str,
+    action_request: AnyModelActionRequest,
+    step: str,
+    status: str,
+    presentation_source: str,
+    packet_ref: str,
+) -> dict[str, Any]:
+    public_state = _action_public_state(action_request)
+    visible_note = public_runtime_progress_summary(action_request.public_progress_note)
+    visible_judgment = public_runtime_progress_summary(public_state.get("current_judgment") or "")
+    visible_next_action = public_runtime_progress_summary(public_state.get("next_action") or "")
+    visible_completion_status = public_runtime_progress_summary(public_state.get("completion_status") or "")
+    if not any((visible_note, visible_judgment, visible_next_action, visible_completion_status)):
+        return {}
+    request_id = str(getattr(action_request, "request_id", "") or "").strip()
+    feedback_identity = f"model-action-feedback:{request_id}" if request_id else _task_model_action_feedback_identity(
+        task_run_id=task_run_id,
+        step=step,
+        packet_ref=packet_ref,
+        visible_note=visible_note,
+        visible_judgment=visible_judgment,
+        visible_next_action=visible_next_action,
+        visible_completion_status=visible_completion_status,
+    )
+    payload = _drop_empty(
+        {
+            "task_run_id": task_run_id,
+            "turn_id": task_run_id,
+            "active_turn_id": task_run_id,
+            "message_id": assistant_message_ref(turn_id=task_run_id),
+            "message_ref": assistant_message_ref(turn_id=task_run_id),
+            "step": step,
+            "status": status,
+            "presentation_source": presentation_source or "model_action.public_feedback",
+            "feedback_identity": feedback_identity,
+            "public_progress_note": visible_note,
+            "current_judgment": visible_judgment,
+            "next_action": visible_next_action,
+            "completion_status": visible_completion_status,
+        }
+    )
+    event = runtime_host.event_log.append(
+        task_run_id,
+        ASSISTANT_PUBLIC_FEEDBACK_EVENT,
+        payload=payload,
+        refs={
+            "task_run_ref": task_run_id,
+            "turn_ref": task_run_id,
+            "message_ref": assistant_message_ref(turn_id=task_run_id),
+            "action_request_ref": request_id,
+            "runtime_invocation_packet_ref": packet_ref,
+        },
+    )
+    current = runtime_host.state_index.get_task_run(task_run_id)
+    if current is not None:
+        runtime_host.state_index.upsert_task_run(
+            replace(
+                current,
+                updated_at=event.created_at,
+                latest_event_offset=event.offset,
+                diagnostics={
+                    **dict(current.diagnostics or {}),
+                    "latest_public_progress_note": visible_note or visible_judgment or visible_next_action,
+                    "latest_model_action_public_feedback_ref": feedback_identity,
+                },
+            )
+        )
+    return {
+        "type": ASSISTANT_PUBLIC_FEEDBACK_EVENT,
+        **payload,
+        "runtime_event_id": str(event.event_id or ""),
+        "event": event.to_dict(),
+    }
+
+
+def _task_model_action_feedback_identity(
+    *,
+    task_run_id: str,
+    step: str,
+    packet_ref: str,
+    visible_note: str,
+    visible_judgment: str,
+    visible_next_action: str,
+    visible_completion_status: str,
+) -> str:
+    payload = json.dumps(
+        {
+            "task_run_id": task_run_id,
+            "step": step,
+            "packet_ref": packet_ref,
+            "public_progress_note": visible_note,
+            "current_judgment": visible_judgment,
+            "next_action": visible_next_action,
+            "completion_status": visible_completion_status,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return f"model-action-feedback:{hashlib.sha256(payload.encode('utf-8')).hexdigest()[:16]}"
 
 
 def _step_summary_feedback_identity(*, presentation_source: str, refs: dict[str, Any]) -> str:

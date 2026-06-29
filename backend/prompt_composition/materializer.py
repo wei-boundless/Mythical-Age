@@ -5,6 +5,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from runtime.shared.protected_context import protected_old_context_spec
+
 from .assembly_plan import PromptAssemblyPlan
 
 
@@ -89,6 +91,8 @@ def materialize_prompt_packet(
 
 def _model_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
     raw_message = spec.get("model_message") if isinstance(spec.get("model_message"), dict) else spec
+    if _must_preserve_model_message(spec):
+        return dict(raw_message)
     role = str(raw_message.get("role") or spec.get("role") or "user").strip() or "user"
     message: dict[str, Any] = {
         "role": role,
@@ -113,6 +117,10 @@ def _model_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
     if prefix is True or str(prefix or "").strip().lower() == "true":
         message["prefix"] = True
     return message
+
+
+def _must_preserve_model_message(spec: dict[str, Any]) -> bool:
+    return protected_old_context_spec(spec)
 
 
 def _stable_text_hash(text: str) -> str:

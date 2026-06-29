@@ -1325,6 +1325,7 @@ def _public_turn_context_from_event(
 ) -> PublicTurnOutputContext | None:
     event_type = str(event.get("type") or "").strip()
     turn_anchor_event_types = {
+        ASSISTANT_PUBLIC_FEEDBACK_EVENT,
         "input_commit_gate",
         "current_work_boundary_decided",
         "runtime_branch_decided",

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from runtime.prompt_accounting.provider_lane import provider_lane_from_accounting_context
+from runtime.shared.protected_context import protected_old_context_spec
 
 from .context_candidates import context_candidate_from_message_spec
 from .context_capability_policy import apply_context_capability_profile
@@ -116,14 +117,14 @@ def apply_context_capability_profile_to_specs(
     group_counts: dict[str, int] = {}
     bypassed: list[dict[str, Any]] = []
     for index, spec in enumerate([dict(item) for item in list(source_specs or []) if isinstance(item, dict)], start=1):
-        if sealed_provider_visible_replay_spec(spec):
+        if protected_old_context_spec(spec):
             kept.append(_annotated_context_capability_bypass_spec(spec))
             bypassed.append(
                 {
                     "index": index,
                     "kind": str(spec.get("kind") or ""),
                     "source_ref": str(spec.get("source_ref") or ""),
-                    "reason": "sealed_provider_visible_replay_is_not_reclassified",
+                    "reason": "protected_old_context_is_not_reclassified",
                 }
             )
             continue
@@ -146,8 +147,8 @@ def apply_context_capability_profile_to_specs(
         "context_capability_group_counts": group_counts,
         "rejected_context_capability_count": len(rejected),
         "rejected_context_capabilities": rejected[:30],
-        "bypassed_sealed_replay_count": len(bypassed),
-        "bypassed_sealed_replay_specs": bypassed[:30],
+        "bypassed_protected_old_context_count": len(bypassed),
+        "bypassed_protected_old_context_specs": bypassed[:30],
         "input_spec_count": len(list(source_specs or [])),
         "output_spec_count": len(kept),
         "invocation_kind": str(invocation_kind or ""),
@@ -486,7 +487,7 @@ def _annotated_context_capability_bypass_spec(spec: dict[str, Any]) -> dict[str,
     payload = dict(spec or {})
     metadata = {
         **dict(payload.get("metadata") or {}),
-        "context_capability_filter": "bypassed_for_sealed_provider_visible_replay",
+        "context_capability_filter": "bypassed_for_protected_old_context",
     }
     payload["metadata"] = metadata
     return payload

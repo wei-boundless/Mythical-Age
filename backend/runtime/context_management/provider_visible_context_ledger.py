@@ -75,11 +75,7 @@ def assemble_provider_visible_context_specs(
             adapter_contract=normalized_adapter,
         )
 
-    all_existing_entries = [
-        dict(item)
-        for item in list(dict(ledger or {}).get("entries") or [])
-        if isinstance(item, dict) and _ledger_entry_confirmed(item)
-    ]
+    all_existing_entries = _active_confirmed_ledger_entries(ledger)
     existing_entries = _ledger_entries_for_compaction_generation(
         all_existing_entries,
         compaction_generation=normalized_generation,
@@ -282,7 +278,8 @@ def confirm_provider_visible_context_entries(
             model=model,
             adapter_contract=str(ledger.get("adapter_contract") or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT),
         )
-        entries_by_key = _entries_by_key({"entries": _confirmed_ledger_entries(ledger)})
+        active_entries = _active_confirmed_ledger_entries(ledger)
+        entries_by_key = _entries_by_key({"entries": active_entries})
         changed = False
         group_failed = False
         group_confirmations: list[dict[str, Any]] = []
@@ -389,7 +386,7 @@ def confirm_provider_visible_context_entries(
                 kind=str(ref.kind or ""),
                 source_ref=str(ref.source_ref or ""),
                 semantic_commit_class=str(ref.semantic_commit_class or ""),
-                previous_entry_hash=_previous_entry_hash({"entries": _confirmed_ledger_entries(ledger)}),
+                previous_entry_hash=_previous_entry_hash({"entries": active_entries}),
                 provider=str(provider or ref.provider or ""),
                 model=str(model or ref.model or ""),
                 adapter_contract=candidate_adapter,
@@ -412,6 +409,7 @@ def confirm_provider_visible_context_entries(
             }
             ledger["next_entry_index"] = next_index + 1
             entries_by_key[item_key] = entry
+            active_entries = [*active_entries, entry]
             confirmation = {
                 "scope": scope,
                 "entry_index": next_index,
@@ -441,6 +439,7 @@ def confirm_provider_visible_context_entries(
                     for item in group_confirmations
                     if _safe_int(item.get("entry_index")) > 0
                 ],
+                active_entries=active_entries,
             )
             if anchor:
                 anchors.append(anchor)
@@ -475,7 +474,98 @@ def latest_provider_visible_context_success_anchor(*, storage_root: Path | str |
         storage_root=Path(storage_root) if storage_root else None,
         scope=scope,
     )
-    return dict(ledger.get("last_provider_success_anchor") or {})
+    return _active_provider_success_anchor(ledger)
+
+
+def truncate_provider_visible_context_ledger_after_session_cutoff(
+    *,
+    storage_root: Path | str | None,
+    scope: str,
+    kept_turn_ids: set[str] | list[str] | tuple[str, ...],
+    cutoff_created_before: float,
+    reason: str = "session_history_truncated",
+) -> dict[str, Any]:
+    normalized_scope = str(scope or "default").strip() or "default"
+    kept = {str(item or "").strip() for item in list(kept_turn_ids or []) if str(item or "").strip()}
+    cutoff_ts = float(cutoff_created_before or time.time())
+    root = Path(storage_root) if storage_root else None
+    ledger = load_provider_visible_context_ledger(storage_root=root, scope=normalized_scope)
+    active_entries = _active_confirmed_ledger_entries(ledger)
+    if not active_entries:
+        return {
+            "authority": "runtime.context_management.provider_visible_context_ledger.branch_cursor",
+            "scope": normalized_scope,
+            "deactivated_count": 0,
+            "active_count": 0,
+            "reason": "provider_visible_context_ledger_empty",
+        }
+
+    target_position = -1
+    for index, entry in enumerate(active_entries):
+        turn_id = _turn_id_from_provider_request_id(str(entry.get("confirmed_by_request_id") or ""))
+        if turn_id and turn_id in kept:
+            target_position = index
+
+    payload = dict(ledger or {})
+    target_entries = active_entries[: target_position + 1] if target_position >= 0 else []
+    deactivated_entries = active_entries[target_position + 1 :] if target_position >= 0 else active_entries
+    target_anchor = _provider_success_anchor_for_terminal_entries(
+        payload,
+        entries=target_entries,
+        scope=normalized_scope,
+        reason=str(reason or "session_history_truncated"),
+    )
+    payload = _set_active_provider_visible_cursor(payload, anchor=target_anchor, active_entries=target_entries)
+    payload["last_truncate_cutoff"] = {
+        "reason": str(reason or "session_history_truncated"),
+        "cutoff_created_before": cutoff_ts,
+        "kept_turn_ids": sorted(kept),
+        "active_entry_indexes": [
+            _safe_int(item.get("entry_index"))
+            for item in target_entries
+            if _safe_int(item.get("entry_index")) > 0
+        ],
+        "deactivated_entry_indexes": [
+            _safe_int(item.get("entry_index"))
+            for item in deactivated_entries
+            if _safe_int(item.get("entry_index")) > 0
+        ],
+        "deactivated_turn_ids": sorted(
+            {
+                _turn_id_from_provider_request_id(str(item.get("confirmed_by_request_id") or ""))
+                for item in deactivated_entries
+                if _turn_id_from_provider_request_id(str(item.get("confirmed_by_request_id") or ""))
+            }
+        ),
+        "target_anchor_id": str(target_anchor.get("anchor_id") or ""),
+        "target_terminal_entry_index": _safe_int(target_anchor.get("terminal_entry_index")),
+        "target_terminal_entry_hash": str(target_anchor.get("terminal_entry_hash") or ""),
+        "cursor_policy": "preserve_immutable_entries_switch_active_branch_head",
+        "authority": "runtime.context_management.provider_visible_context_ledger.branch_cursor",
+    }
+    payload = _finalize_ledger(
+        payload,
+        scope=normalized_scope,
+        provider=str(payload.get("provider") or ""),
+        model=str(payload.get("model") or ""),
+        adapter_contract=str(payload.get("adapter_contract") or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT),
+    )
+    save_provider_visible_context_ledger(storage_root=root, scope=normalized_scope, ledger=payload)
+    return {
+        "authority": "runtime.context_management.provider_visible_context_ledger.branch_cursor",
+        "scope": normalized_scope,
+        "deactivated_count": len(deactivated_entries),
+        "active_count": len(target_entries),
+        "active_success_anchor_id": str(payload.get("active_success_anchor_id") or ""),
+        "active_terminal_entry_index": _safe_int(payload.get("active_terminal_entry_index")),
+        "active_terminal_entry_hash": str(payload.get("active_terminal_entry_hash") or ""),
+        "deactivated_entry_indexes": [
+            _safe_int(item.get("entry_index"))
+            for item in deactivated_entries
+            if _safe_int(item.get("entry_index")) > 0
+        ],
+        "reason": str(reason or "session_history_truncated"),
+    }
 
 
 def load_provider_visible_context_ledger(*, storage_root: Path | None, scope: str) -> dict[str, Any]:
@@ -652,13 +742,19 @@ def _record_provider_success_anchor(
     transport_contract_hash: str,
     request_message_count: int,
     request_entry_indexes: list[int] | tuple[int, ...],
+    active_entries: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     normalized_request_id = str(request_id or "").strip()
     if not normalized_request_id:
         return dict(ledger or {}), {}
     payload = dict(ledger or {})
+    selected_entries = (
+        [dict(item) for item in list(active_entries or []) if isinstance(item, dict)]
+        if active_entries is not None
+        else _active_confirmed_ledger_entries(payload)
+    )
     entries = sorted(
-        _confirmed_ledger_entries(payload),
+        selected_entries,
         key=lambda item: (_safe_int(item.get("entry_index")), str(item.get("item_key") or "")),
     )
     if not entries:
@@ -685,6 +781,7 @@ def _record_provider_success_anchor(
         "provider": str(provider or payload.get("provider") or ""),
         "model": str(model or payload.get("model") or ""),
         "confirmed_ledger_entry_range": [entry_indexes[0], entry_indexes[-1]],
+        "confirmed_ledger_entry_indexes": entry_indexes,
         "confirmed_ledger_entry_count": len(entry_indexes),
         "request_confirmed_entry_indexes": request_indexes,
         "terminal_entry_index": entry_indexes[-1],
@@ -706,8 +803,7 @@ def _record_provider_success_anchor(
         and str(item.get("anchor_id") or "") != str(anchor.get("anchor_id") or "")
     ]
     payload["provider_success_anchors"] = [*existing, anchor][-32:]
-    payload["last_provider_success_anchor"] = anchor
-    payload["last_success_anchor_id"] = str(anchor.get("anchor_id") or "")
+    payload = _set_active_provider_visible_cursor(payload, anchor=anchor, active_entries=entries)
     return payload, anchor
 
 
@@ -727,13 +823,27 @@ def _finalize_ledger(
     payload["provider"] = str(provider or payload.get("provider") or "")
     payload["model"] = str(model or payload.get("model") or "")
     payload["entries"] = [dict(item) for item in list(payload.get("entries") or []) if isinstance(item, dict)]
+    active_entries = _active_confirmed_ledger_entries(payload)
     payload["items"] = {
         str(entry.get("item_key") or ""): _safe_int(entry.get("entry_index"))
-        for entry in _confirmed_ledger_entries(payload)
+        for entry in active_entries
         if str(entry.get("item_key") or "").strip()
     }
     payload["entry_index"] = max([_safe_int(entry.get("entry_index")) for entry in payload["entries"]] or [0])
     payload["next_entry_index"] = max(_safe_int(payload.get("next_entry_index")), int(payload["entry_index"]) + 1)
+    active_anchor = _active_provider_success_anchor(payload)
+    if not active_anchor and active_entries:
+        active_anchor = _provider_success_anchor_for_terminal_entries(
+            payload,
+            entries=active_entries,
+            scope=str(scope or payload.get("scope") or "default"),
+            reason="finalize_legacy_provider_visible_cursor",
+        )
+    payload = _set_active_provider_visible_cursor(
+        payload,
+        anchor=active_anchor,
+        active_entries=active_entries,
+    )
     payload["updated_at"] = time.time()
     content_hash = _ledger_content_hash(payload)
     payload["ledger_hash"] = content_hash
@@ -828,11 +938,7 @@ def _inherited_ledger_entries_for_anchor(
     failure = _ledger_failure(ledger, scope=normalized_scope, adapter_contract=adapter_contract)
     if failure:
         return [], [failure]
-    entries = [
-        dict(item)
-        for item in _confirmed_ledger_entries(ledger)
-        if 0 < _safe_int(item.get("entry_index")) <= terminal_entry_index
-    ]
+    entries = _active_confirmed_ledger_entries(ledger, anchor=normalized_anchor)
     entries = _ledger_entries_for_compaction_generation(
         entries,
         compaction_generation=_normalize_compaction_generation(compaction_generation),
@@ -913,6 +1019,18 @@ def _anchor_terminal_entry_index(anchor: dict[str, Any]) -> int:
     if isinstance(entry_range, (list, tuple)) and len(entry_range) >= 2:
         return _safe_int(entry_range[-1])
     return 0
+
+
+def _turn_id_from_provider_request_id(request_id: str) -> str:
+    text = str(request_id or "").strip()
+    prefix = "modelreq:rtpacket:"
+    if text.startswith(prefix):
+        rest = text[len(prefix):]
+        for marker in (":single_agent_turn", ":task_execution", ":recovery"):
+            marker_index = rest.find(marker)
+            if marker_index > 0:
+                return rest[:marker_index]
+    return ""
 
 
 def _current_context_append_spec_from_candidate(
@@ -1037,9 +1155,7 @@ def _entries_by_index(ledger: dict[str, Any]) -> dict[int, dict[str, Any]]:
 
 def _next_entry_index(ledger: dict[str, Any], *, entries_by_index: dict[int, dict[str, Any]]) -> int:
     next_index = _safe_int(dict(ledger or {}).get("next_entry_index"))
-    if next_index > 0:
-        return next_index
-    return max([*entries_by_index.keys(), 0]) + 1
+    return max(next_index, max([*entries_by_index.keys(), 0]) + 1)
 
 
 def _previous_entry_hash(ledger: dict[str, Any]) -> str:
@@ -1063,6 +1179,180 @@ def _confirmed_ledger_entries(ledger: dict[str, Any]) -> list[dict[str, Any]]:
         for item in list(dict(ledger or {}).get("entries") or [])
         if isinstance(item, dict) and _ledger_entry_confirmed(item)
     ]
+
+
+def _active_provider_success_anchor(ledger: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(ledger or {})
+    active = payload.get("active_provider_success_anchor")
+    if isinstance(active, dict) and active:
+        return dict(active)
+    legacy = payload.get("last_provider_success_anchor")
+    if isinstance(legacy, dict) and legacy:
+        return dict(legacy)
+    return {}
+
+
+def _active_confirmed_ledger_entries(
+    ledger: dict[str, Any],
+    *,
+    anchor: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    payload = dict(ledger or {})
+    entries = _confirmed_ledger_entries(ledger)
+    if not entries:
+        return []
+    explicit_anchor = anchor is not None
+    selected_anchor = dict(anchor or {}) if explicit_anchor else _active_provider_success_anchor(ledger)
+    terminal_hash = str(
+        selected_anchor.get("terminal_entry_hash")
+        or (payload.get("active_terminal_entry_hash") if not explicit_anchor else "")
+        or ""
+    ).strip()
+    if terminal_hash:
+        lineage = _entry_lineage_for_terminal_hash(entries, terminal_hash)
+        return lineage
+    terminal_index = _safe_int(
+        selected_anchor.get("terminal_entry_index")
+        or (payload.get("active_terminal_entry_index") if not explicit_anchor else 0)
+    )
+    if terminal_index > 0:
+        return [
+            dict(item)
+            for item in sorted(entries, key=lambda value: _safe_int(value.get("entry_index")))
+            if 0 < _safe_int(item.get("entry_index")) <= terminal_index
+        ]
+    if explicit_anchor or _has_explicit_active_provider_visible_cursor(payload):
+        return []
+    return sorted(entries, key=lambda value: _safe_int(value.get("entry_index")))
+
+
+def _has_explicit_active_provider_visible_cursor(ledger: dict[str, Any]) -> bool:
+    payload = dict(ledger or {})
+    return any(
+        key in payload
+        for key in (
+            "active_provider_success_anchor",
+            "active_success_anchor_id",
+            "active_terminal_entry_index",
+            "active_terminal_entry_hash",
+        )
+    )
+
+
+def _entry_lineage_for_terminal_hash(entries: list[dict[str, Any]], terminal_hash: str) -> list[dict[str, Any]]:
+    by_hash = {
+        str(item.get("entry_hash") or "").strip(): dict(item)
+        for item in list(entries or [])
+        if str(item.get("entry_hash") or "").strip()
+    }
+    current_hash = str(terminal_hash or "").strip()
+    lineage: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    while current_hash:
+        if current_hash in seen:
+            return []
+        seen.add(current_hash)
+        entry = dict(by_hash.get(current_hash) or {})
+        if not entry:
+            return []
+        lineage.append(entry)
+        current_hash = str(entry.get("previous_entry_hash") or "").strip()
+    return list(reversed(lineage))
+
+
+def _provider_success_anchor_for_terminal_entries(
+    ledger: dict[str, Any],
+    *,
+    entries: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    scope: str,
+    reason: str,
+) -> dict[str, Any]:
+    active_entries = [dict(item) for item in list(entries or []) if isinstance(item, dict)]
+    if not active_entries:
+        return {}
+    terminal = dict(active_entries[-1])
+    terminal_hash = str(terminal.get("entry_hash") or "").strip()
+    terminal_index = _safe_int(terminal.get("entry_index"))
+    anchors = [
+        dict(item)
+        for item in list(dict(ledger or {}).get("provider_success_anchors") or [])
+        if isinstance(item, dict)
+    ]
+    for anchor in reversed(anchors):
+        if terminal_hash and str(anchor.get("terminal_entry_hash") or "").strip() == terminal_hash:
+            return anchor
+        if terminal_index > 0 and _safe_int(anchor.get("terminal_entry_index")) == terminal_index:
+            return anchor
+    entry_indexes = [
+        _safe_int(item.get("entry_index"))
+        for item in active_entries
+        if _safe_int(item.get("entry_index")) > 0
+    ]
+    anchor_seed = {
+        "scope": str(scope or "default"),
+        "terminal_entry_index": terminal_index,
+        "terminal_entry_hash": terminal_hash,
+        "terminal_cumulative_prefix_hash": str(terminal.get("cumulative_prefix_hash") or ""),
+        "entry_indexes": entry_indexes,
+        "reason": str(reason or ""),
+    }
+    return {
+        "anchor_id": "provider-branch-anchor:" + _stable_json_hash(anchor_seed).split(":", 1)[-1][:16],
+        "request_id": str(terminal.get("confirmed_by_request_id") or ""),
+        "response_ref": str(terminal.get("confirmed_response_ref") or ""),
+        "scope": str(scope or "default"),
+        "provider": str(terminal.get("provider") or dict(ledger or {}).get("provider") or ""),
+        "model": str(terminal.get("model") or dict(ledger or {}).get("model") or ""),
+        "confirmed_ledger_entry_range": [entry_indexes[0], entry_indexes[-1]] if entry_indexes else [0, 0],
+        "confirmed_ledger_entry_indexes": entry_indexes,
+        "confirmed_ledger_entry_count": len(entry_indexes),
+        "request_confirmed_entry_indexes": [],
+        "terminal_entry_index": terminal_index,
+        "terminal_entry_hash": terminal_hash,
+        "terminal_cumulative_prefix_hash": str(terminal.get("cumulative_prefix_hash") or ""),
+        "compaction_generation": _normalize_compaction_generation(terminal.get("compaction_generation")),
+        "provider_payload_prefix_hash": "",
+        "provider_payload_messages_hash": "",
+        "physical_cache_spine_message_subtotal_hash": "",
+        "transport_contract_hash": "",
+        "request_message_count": 0,
+        "created_at": time.time(),
+        "reason": str(reason or ""),
+        "authority": "runtime.context_management.provider_visible_context_ledger.branch_anchor",
+    }
+
+
+def _set_active_provider_visible_cursor(
+    ledger: dict[str, Any],
+    *,
+    anchor: dict[str, Any],
+    active_entries: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> dict[str, Any]:
+    payload = dict(ledger or {})
+    active_anchor = dict(anchor or {})
+    entry_indexes = [
+        _safe_int(item.get("entry_index"))
+        for item in list(active_entries or [])
+        if isinstance(item, dict) and _safe_int(item.get("entry_index")) > 0
+    ]
+    if active_anchor:
+        payload["active_provider_success_anchor"] = active_anchor
+        payload["active_success_anchor_id"] = str(active_anchor.get("anchor_id") or "")
+        payload["active_terminal_entry_index"] = _safe_int(active_anchor.get("terminal_entry_index"))
+        payload["active_terminal_entry_hash"] = str(active_anchor.get("terminal_entry_hash") or "")
+        payload["last_provider_success_anchor"] = active_anchor
+        payload["last_success_anchor_id"] = str(active_anchor.get("anchor_id") or "")
+    else:
+        payload["active_provider_success_anchor"] = {}
+        payload["active_success_anchor_id"] = ""
+        payload["active_terminal_entry_index"] = 0
+        payload["active_terminal_entry_hash"] = ""
+        payload["last_provider_success_anchor"] = {}
+        payload["last_success_anchor_id"] = ""
+    payload["active_ledger_entry_indexes"] = entry_indexes
+    payload["active_ledger_entry_count"] = len(entry_indexes)
+    payload["branch_cursor_policy"] = "immutable_entries_active_head"
+    return payload
 
 
 def _ledger_entry_hash(entry: dict[str, Any]) -> str:

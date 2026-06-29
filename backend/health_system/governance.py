@@ -445,9 +445,11 @@ class HealthGovernanceBuilder:
             status = str(getattr(record, "cache_status", "") or "unknown")
             status_counts[status] = status_counts.get(status, 0) + 1
         rows = [self._provider_cache_ledger_row(record) for record in records]
+        turn_memory_sources = self._turn_memory_sources_for_provider_cache_records(records, limit=12)
         return {
             "authority": "health_system.governance.provider_cache_ledger",
             "source": "prompt_accounting.provider_cache_ledger",
+            "turn_memory_source": "runtime.turn_memory.session_projection",
             "summary": {
                 "record_count": len(records),
                 "prompt_tokens": prompt_tokens,
@@ -460,8 +462,10 @@ class HealthGovernanceBuilder:
                 "cold_start_count": int(status_counts.get("cold_start", 0)),
                 "hit_count": int(status_counts.get("hit", 0)),
                 "status_counts": status_counts,
+                "turn_memory_session_count": len(turn_memory_sources),
             },
             "records": rows,
+            "turn_memory_sessions": turn_memory_sources,
             "updated_at": self.now,
         }
 
@@ -510,6 +514,48 @@ class HealthGovernanceBuilder:
             "uncacheable_sidecar_tokens": int(getattr(record, "uncacheable_sidecar_tokens", 0) or 0),
             "created_at": float(getattr(record, "created_at", 0.0) or 0.0),
         }
+
+    def _turn_memory_sources_for_provider_cache_records(
+        self,
+        records: list[ProviderCacheLedgerRecord],
+        *,
+        limit: int = 12,
+    ) -> list[dict[str, Any]]:
+        store = getattr(self.runtime_host, "turn_memory_store", None)
+        projector = getattr(store, "session_projection", None)
+        if not callable(projector):
+            return []
+        session_ids: list[str] = []
+        for record in records:
+            session_id = str(getattr(record, "session_id", "") or "").strip()
+            if session_id and session_id not in session_ids:
+                session_ids.append(session_id)
+            if len(session_ids) >= max(1, min(int(limit or 12), 50)):
+                break
+        projections: list[dict[str, Any]] = []
+        for session_id in session_ids:
+            try:
+                projection = dict(projector(session_id, limit=8) or {})
+            except Exception:
+                continue
+            if not projection:
+                continue
+            projections.append(
+                {
+                    "session_id": session_id,
+                    "available": bool(projection.get("available", False)),
+                    "turn_count": int(projection.get("turn_count") or 0),
+                    "active_or_pending_turns": list(projection.get("active_or_pending_turns") or []),
+                    "latest_turn": dict(projection.get("latest_turn") or {}),
+                    "latest_physical_prefix_frame_id": str(projection.get("latest_physical_prefix_frame_id") or ""),
+                    "latest_provider_request_refs": list(projection.get("latest_provider_request_refs") or []),
+                    "latest_commit_state": str(projection.get("latest_commit_state") or ""),
+                    "latest_current_append_hash": str(projection.get("latest_current_append_hash") or ""),
+                    "latest_checkpoint_hash": str(projection.get("latest_checkpoint_hash") or ""),
+                    "authority": "runtime.turn_memory.session_projection",
+                }
+            )
+        return projections
 
     def build_token_usage(self, *, limit: int = 100) -> dict[str, Any]:
         scan_limit = max(120, min(max(int(limit or 100) * 6, 160), 500))

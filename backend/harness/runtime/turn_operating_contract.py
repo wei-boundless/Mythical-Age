@@ -226,6 +226,8 @@ def turn_action_request_contract_payload(
         "resume_recoverable_work",
         "block",
     )
+    task_run_available = "request_task_run" in set(visible_allowed)
+    active_work_available = "active_work_control" in set(visible_allowed)
     return {
         "contract_name": "turn_action_request",
         "authority": "harness.runtime.turn_operating_contract.action_request_contract",
@@ -233,13 +235,25 @@ def turn_action_request_contract_payload(
         "allowed_action_types": list(visible_allowed),
         "turn_attention": {
             "identity": "你正在执行当前 turn。先判断用户当前输入需要什么，再选择一个本轮动作。",
-            "single_lifecycle": "所有动作都属于当前 turn：工具用于取得事实，任务资源用于保存持续工作，恢复用于接续中断，最终回复由你自己写出。",
+            "single_lifecycle": (
+                "所有动作都属于当前 turn：工具用于取得事实，任务资源用于保存持续工作，恢复用于接续中断，最终回复由你自己写出。"
+                if task_run_available or active_work_available
+                else "所有动作都属于当前 turn：工具用于取得事实，最终回复由你自己写出。"
+            ),
             "selection": [
                 "能完成并收口时，使用 respond。",
                 "缺少用户信息时，使用 ask_user。",
                 "需要观察、查证、读取、修改或验证时，使用 tool_call 或 tool_calls。",
-                "需要系统分配长任务资源来保存目标、计划游标、恢复点、验收边界或阶段反馈时，使用 request_task_run。",
-                "当前 turn 已绑定可控工作，且用户正在控制这项工作时，使用 active_work_control。",
+                *(
+                    ["需要系统分配长任务资源来保存目标、计划游标、恢复点、验收边界或阶段反馈时，使用 request_task_run。"]
+                    if task_run_available
+                    else ["当前运行配置没有提供 task 开启入口；不要提交 request_task_run。"]
+                ),
+                *(
+                    ["当前 turn 已绑定可控工作，且用户正在控制这项工作时，使用 active_work_control。"]
+                    if active_work_available
+                    else []
+                ),
                 "不能继续时，使用 block。",
             ],
         },
@@ -249,21 +263,32 @@ def turn_action_request_contract_payload(
             "ask_user 把用户需要回答的问题写在顶层 user_question。",
             "block 把真实阻塞原因写在顶层 blocking_reason。",
             "tool_call 使用顶层 tool_call 或 tool_calls；工具名必须来自当前可见工具，args 必须是对象。",
-            "request_task_run 只在 task_run_contract_seed 内填写 TaskStartIntent；不要同时提交普通工具动作。",
+            *(
+                ["request_task_run 只在 task_run_contract_seed 内填写 TaskStartIntent；不要同时提交普通工具动作。"]
+                if task_run_available
+                else []
+            ),
         ],
         "public_response_obligation": {
             "rule": "动作必须服务用户当前输入。工具可以帮助你取得事实，但工具动作本身不是给用户的回答；最终解释必须由你在可见回复字段中写出。",
-            "public_progress_note": "只在结构化 action object、控制动作，或工具参数明确提供同名公开字段时使用。它承载你给用户的短判断：本轮要确认什么、为什么查证、或为什么申请资源。直接工具调用只填写当前工具参数；不要把公开说明写在工具调用前后的普通文本里。",
+            "public_progress_note": "它承载你给用户的短判断：本轮要确认什么、为什么查证、或为什么申请资源。结构化 action object 使用顶层 public_progress_note；直接 provider 工具调用可以在同次输出的简短自然 preamble 中写公开反馈，或在工具参数 schema 明确提供 public_progress_note、public_note、current_judgment、public_action_state 这类公开 sidecar 字段时写入 sidecar。preamble 会被 runtime 归一为 assistant_public_feedback，不是 final_answer。",
             "public_action_state": "只写当前可公开判断、下一步和已观察风险；不要写隐藏推理、内部事件或开发说明。",
         },
-        "request_task_run_intent_contract": task_start_intent_contract_payload(),
-        "task_run_contract_seed": task_start_intent_seed_template(),
+        **(
+            {
+                "request_task_run_intent_contract": task_start_intent_contract_payload(),
+                "task_run_contract_seed": task_start_intent_seed_template(),
+            }
+            if task_run_available
+            else {}
+        ),
         "fields": {
             "final_answer": "",
             "user_question": "",
             "blocking_reason": "",
             "tool_call": {"tool_name": "单工具调用时填写；批量时不要同时填写", "args": {}},
             "tool_calls": [{"tool_name": "批量工具调用时填写；与 tool_call 二选一", "args": {}}],
+            **({"task_run_contract_seed": {}} if task_run_available else {}),
             "public_progress_note": "",
             "public_action_state": {
                 "visible_status": "thinking|waiting_for_tool|tool_returned|responding|blocked",
@@ -276,9 +301,15 @@ def turn_action_request_contract_payload(
         },
         "forbidden": [
             "用户可见解释必须由你自己判断并写出。",
-            "不要把 request_task_run 写成普通工具调用。",
-            "不要把 todo 当 primary_mode；todo 是任务资源中的进度游标或工具。",
-            "不要把 unsupported primary_mode 自动改成 open_work。",
+            *(
+                [
+                    "不要把 request_task_run 写成普通工具调用。",
+                    "不要把 todo 当 primary_mode；todo 是任务资源中的进度游标或工具。",
+                    "不要把 unsupported primary_mode 自动改成 open_work。",
+                ]
+                if task_run_available
+                else ["当前运行配置没有提供 task 开启入口；不要输出 request_task_run、task_run_contract_seed 或 TaskStartIntent。"]
+            ),
         ],
     }
 

@@ -255,8 +255,8 @@ def context_segment_policy_for_spec(
     defaults = _policy_defaults(payload, metadata=metadata)
     kind = str(payload.get("kind") or metadata.get("kind") or "unknown_unplanned").strip() or "unknown_unplanned"
     section = _first_text(
-        defaults.section,
         _section_from_authoritative_context_metadata(payload, metadata=metadata),
+        defaults.section,
         _section_for_payload(payload, metadata=metadata, defaults=defaults),
         metadata.get("context_policy_section"),
         default_section,
@@ -480,14 +480,17 @@ def _section_from_authoritative_context_metadata(payload: dict[str, Any], *, met
         return DYNAMIC_TAIL
     if str(metadata.get("context_commit_policy") or metadata.get("memory_commit_policy") or "").strip() == "never_commit":
         return DYNAMIC_TAIL
-    if str(metadata.get("context_replay_policy") or "").strip() == "current_dynamic_tail_only":
+    replay_policy = str(metadata.get("context_replay_policy") or "").strip()
+    if replay_policy == "current_dynamic_tail_only":
         return DYNAMIC_TAIL
+    if replay_policy == "current_turn_exact_old_context":
+        return CONTEXT_MEMORY_PREFIX
     if metadata.get("provider_visible_context_ledger_entry_index"):
         return CONTEXT_MEMORY_PREFIX
     if str(metadata.get("provider_visible_context_ledger_commit_stage") or "").strip() == "provider_success_required":
         return CONTEXT_APPEND
     history_status = str(metadata.get("provider_visible_history_status") or "").strip()
-    if history_status == "sealed_from_physical_prefix_frame":
+    if history_status in {"sealed_from_physical_prefix_frame", "current_turn_exact_old_context"}:
         return CONTEXT_MEMORY_PREFIX
     if history_status == "current_tool_round_pending_provider_success":
         return CONTEXT_APPEND

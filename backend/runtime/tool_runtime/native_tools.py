@@ -54,6 +54,7 @@ from runtime.tool_runtime.read_file_window import (
 )
 from runtime.tool_runtime.read_evidence_reuse import (
     ReadFileCurrentFacts,
+    ReadEvidenceReuseDecision,
     decide_read_evidence_reuse,
 )
 from runtime.shared.file_observation_policy import (
@@ -378,14 +379,17 @@ class NativeReadFileTool(_NativeToolBase):
                 ),
             )
             if reuse_decision.should_reuse:
-                return self._envelope(
-                    tool_args=args,
-                    status="ok",
-                    text=reuse_decision.to_visible_text(),
-                    structured_payload={"tool_result": reuse_decision.to_tool_result()},
-                    observed_paths=(rel,),
-                    execution_receipt=context.execution_receipt,
-                )
+                reuse_text = _read_reused_read_observation_text(context=context, decision=reuse_decision)
+                if reuse_text:
+                    tool_result = _rehydrated_read_reuse_tool_result(reuse_decision, text=reuse_text)
+                    return self._envelope(
+                        tool_args=args,
+                        status="ok",
+                        text=reuse_text,
+                        structured_payload={"tool_result": tool_result},
+                        observed_paths=(rel,),
+                        execution_receipt=context.execution_receipt,
+                    )
             content = files.read_text(file_path, limit=None)
             window = build_read_file_window_result(
                 content,
@@ -467,20 +471,23 @@ class NativeReadFileTool(_NativeToolBase):
                 repository_id=repository_id,
             )
             if reuse_decision.should_reuse:
-                return self._envelope(
-                    tool_args=args,
-                    status="ok",
-                    text=reuse_decision.to_visible_text(),
-                    structured_payload={
-                        "tool_result": reuse_decision.to_tool_result(),
-                        "file_gateway": {
-                            "access_decision": "reuse_unchanged",
-                            "repository_id": repository_id,
+                reuse_text = _read_reused_read_observation_text(context=context, decision=reuse_decision)
+                if reuse_text:
+                    tool_result = _rehydrated_read_reuse_tool_result(reuse_decision, text=reuse_text)
+                    return self._envelope(
+                        tool_args=args,
+                        status="ok",
+                        text=reuse_text,
+                        structured_payload={
+                            "tool_result": tool_result,
+                            "file_gateway": {
+                                "access_decision": "reuse_unchanged",
+                                "repository_id": repository_id,
+                            },
                         },
-                    },
-                    observed_paths=(display_path,),
-                    execution_receipt=context.execution_receipt,
-                )
+                        observed_paths=(display_path,),
+                        execution_receipt=context.execution_receipt,
+                    )
             result = gateway.read_text(
                 target.repository_id,
                 target.logical_path,
@@ -901,6 +908,99 @@ def _read_artifact_tool_result_fields(artifact: dict[str, Any], *, visible_exact
     if mtime_ns is not None:
         fields["mtime_ns"] = mtime_ns
     return fields
+
+
+def _read_reused_read_observation_text(
+    *,
+    context: ToolUseContext,
+    decision: ReadEvidenceReuseDecision,
+) -> str:
+    refs = tuple(
+        dict.fromkeys(
+            str(item or "").strip()
+            for item in (
+                decision.exact_artifact_ref,
+                decision.reusable_result_ref,
+                decision.reused_observation_ref,
+            )
+            if str(item or "").strip()
+        )
+    )
+    if not refs:
+        return ""
+    roots = tuple(_runtime_context_storage_roots(context)) or (_read_observation_primary_root(context),)
+    for root in roots:
+        try:
+            store = ReadObservationArtifactStore(root)
+        except Exception:
+            continue
+        for ref in refs:
+            try:
+                payload = store.read_payload(ref)
+            except Exception:
+                continue
+            text = _read_observation_text_for_decision(payload, decision=decision)
+            if text:
+                return text
+    return ""
+
+
+def _rehydrated_read_reuse_tool_result(
+    decision: ReadEvidenceReuseDecision,
+    *,
+    text: str,
+) -> dict[str, Any]:
+    tool_result = decision.to_tool_result()
+    tool_result["text"] = str(text or "")
+    tool_result["content_available"] = True
+    tool_result["reuse_text_source"] = "read_observation_artifact"
+    tool_result["agent_observation_policy"] = "rehydrated_exact_text_for_model"
+    semantic_delta = dict(tool_result.get("semantic_delta") or {})
+    current_observation = dict(semantic_delta.get("current_observation") or {})
+    current_observation["includes_file_text"] = True
+    current_observation["text_source"] = "read_observation_artifact"
+    semantic_delta["current_observation"] = current_observation
+    semantic_delta["agent_guidance"] = (
+        "Use the exact text included in this tool observation. The file was unchanged, "
+        "and the text was rehydrated from the prior read observation artifact."
+    )
+    tool_result["semantic_delta"] = semantic_delta
+    return tool_result
+
+
+def _read_observation_text_for_decision(
+    payload: dict[str, Any],
+    *,
+    decision: ReadEvidenceReuseDecision,
+) -> str:
+    metadata = dict(payload.get("metadata") or {})
+    metadata_path = str(metadata.get("path") or "").replace("\\", "/").strip().strip("/")
+    decision_path = str(decision.path or "").replace("\\", "/").strip().strip("/")
+    if metadata_path and decision_path and metadata_path != decision_path:
+        return ""
+    source_start = _native_int_or_none(metadata.get("start_line"))
+    source_end = _native_int_or_none(metadata.get("end_line"))
+    requested_start = int(decision.start_line or 0)
+    requested_end = int(decision.end_line or 0)
+    text = str(payload.get("text") or "")
+    if not text:
+        return ""
+    if (
+        source_start is None
+        or source_end is None
+        or requested_start <= 0
+        or requested_end < requested_start
+        or source_start == requested_start
+        and source_end == requested_end
+    ):
+        return text
+    if source_start <= requested_start and source_end >= requested_end:
+        lines = text.splitlines()
+        offset_start = max(0, requested_start - source_start)
+        offset_end = max(offset_start, requested_end - source_start + 1)
+        sliced = lines[offset_start:offset_end]
+        return "\n".join(sliced)
+    return ""
 
 
 def _read_observation_primary_root(context: ToolUseContext) -> Path:

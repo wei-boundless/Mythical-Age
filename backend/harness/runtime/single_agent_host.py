@@ -29,6 +29,7 @@ from runtime.shared.runtime_run_registry import RuntimeRun, RuntimeRunRegistry
 from runtime.shared.runtime_object_store import RuntimeObjectStore
 from runtime.shared.stream_replay import RuntimeStreamReplayService
 from runtime.trace import RuntimeTraceService
+from runtime.turn_memory import TurnMemoryStore
 from runtime.cache_manager import RuntimeCacheManager
 from runtime.tool_runtime.tool_control_plane import RuntimeToolControlPlane
 from .active_turn import ActiveTurnRegistry
@@ -75,6 +76,7 @@ class SingleAgentRuntimeHost:
         self.file_state_store = FileStateAuthorityStore(self.root_dir)
         self.state_index = RuntimeStateIndex(self.root_dir)
         self.runtime_objects = RuntimeObjectStore(self.root_dir)
+        self.turn_memory_store = TurnMemoryStore(self.root_dir)
         self.trace_service = RuntimeTraceService(self.root_dir, fact_ledger=self.fact_ledger)
         self.observability = RuntimeObservabilityKernel(
             event_log=self.event_log,
@@ -411,6 +413,14 @@ class SingleAgentRuntimeHost:
                     },
                 )
             )
+            self._mark_turn_memory_interrupted_handoff(
+                session_id=str(getattr(latest, "session_id", "") or current.session_id),
+                turn_id=str(getattr(latest, "turn_id", "") or ""),
+                turn_run_id=turn_run.turn_run_id,
+                failure_code=failure_code,
+                failure_reason=failure_reason,
+                interruption_event=turn_interruption_event,
+            )
             turn_run_recorded = True
         current = self.run_registry.update_run(
             current.stream_run_id,
@@ -431,6 +441,61 @@ class SingleAgentRuntimeHost:
             "runtime_interruption_recorded": True,
             "failure_code": failure_code,
         }
+
+    def _mark_turn_memory_interrupted_handoff(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        turn_run_id: str,
+        failure_code: str,
+        failure_reason: str,
+        interruption_event: Any | None,
+    ) -> None:
+        normalized_session = str(session_id or "").strip()
+        normalized_turn = str(turn_id or "").strip()
+        if not normalized_session or not normalized_turn:
+            return
+        store = getattr(self, "turn_memory_store", None)
+        create = getattr(store, "create_or_get_turn", None)
+        patch = getattr(store, "patch_turn", None)
+        checkpoint = getattr(store, "record_checkpoint", None)
+        if not callable(patch):
+            return
+        event_ref = str(getattr(interruption_event, "event_id", "") or "")
+        event_offset = int(getattr(interruption_event, "offset", -1) or -1)
+        summary = {
+            "runtime_interruption_code": str(failure_code or ""),
+            "runtime_interruption_reason": str(failure_reason or ""),
+            "interrupted_turn_recovery_entry_event_id": event_ref,
+            "interrupted_turn_recovery_entry_offset": event_offset,
+            "authority": "single_agent_runtime_host.turn_memory_interrupted_handoff",
+        }
+        try:
+            if callable(create):
+                create(
+                    session_id=normalized_session,
+                    turn_id=normalized_turn,
+                    turn_run_id=str(turn_run_id or ""),
+                    branch_id=normalized_session,
+                )
+            patch(
+                normalized_session,
+                normalized_turn,
+                status="handoff_ready",
+                phase="recovering",
+                recovery_state=str(failure_code or "runtime_stream_interrupted"),
+                pending_commit_summary=summary,
+            )
+            if callable(checkpoint):
+                checkpoint(
+                    session_id=normalized_session,
+                    turn_id=normalized_turn,
+                    checkpoint_kind="turn_interrupted_handoff",
+                    payload=summary,
+                )
+        except Exception:
+            logger.debug("failed to mark interrupted turn memory handoff", exc_info=True)
 
     def _turn_run_for_stream_run(self, run: RuntimeRun) -> Any | None:
         for turn_run_id in _turn_run_id_candidates_for_runtime_run(run):
@@ -864,4 +929,3 @@ def _turn_run_id_candidates_for_runtime_run(run: RuntimeRun) -> list[str]:
         seen.add(candidate)
         result.append(candidate)
     return result
-
