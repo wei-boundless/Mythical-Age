@@ -66,8 +66,8 @@ class ProviderCacheLedgerRecord:
     prompt_cache_record_ref: str = ""
     created_at: float = 0.0
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "runtime.prompt_accounting.provider_cache_ledger"
-    ledger_version: str = "provider_cache_ledger.v1"
+    authority: str = "runtime.prompt_accounting.provider_cache_bus"
+    ledger_version: str = "provider_cache_bus.v1"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -125,8 +125,8 @@ class ProviderCacheLedgerRecord:
             prompt_cache_record_ref=str(payload.get("prompt_cache_record_ref") or ""),
             created_at=_float(payload.get("created_at")),
             diagnostics=dict(payload.get("diagnostics") or {}),
-            authority=str(payload.get("authority") or "runtime.prompt_accounting.provider_cache_ledger"),
-            ledger_version=str(payload.get("ledger_version") or "provider_cache_ledger.v1"),
+            authority=str(payload.get("authority") or "runtime.prompt_accounting.provider_cache_bus"),
+            ledger_version=str(payload.get("ledger_version") or "provider_cache_bus.v1"),
         )
 
 
@@ -155,6 +155,7 @@ def build_provider_cache_ledger_record(
         or cache_record.prefix_hash
         or ""
     )
+    prefix_cache_health = dict(diagnostics.get("provider_prefix_cache_health") or {})
     break_status, first_break_segment = _break_status_from_diagnostics(diagnostics)
     prior_same_family = _has_previous_same_family(
         previous_cache_records,
@@ -162,7 +163,11 @@ def build_provider_cache_ledger_record(
         physical_payload_family_hash=family_hash,
         physical_cache_spine_hash=spine_hash,
     )
-    provider_under_read_tokens = int(diagnostics.get("provider_cache_read_physical_spine_under_read_tokens") or 0)
+    provider_under_read_tokens = int(
+        prefix_cache_health.get("under_read_tokens")
+        or diagnostics.get("provider_cache_read_physical_spine_under_read_tokens")
+        or 0
+    )
     cache_status = _ledger_cache_status(
         cache_record=cache_record,
         cached_tokens=cached_tokens,
@@ -171,6 +176,7 @@ def build_provider_cache_ledger_record(
         provider_under_read_tokens=provider_under_read_tokens,
         prior_same_family=prior_same_family,
         physical_cache_spine_hash=spine_hash,
+        prefix_cache_health=prefix_cache_health,
     )
     ledger_id = f"pcledger:{provider_usage.request_id or cache_record.request_id}"
     return ProviderCacheLedgerRecord(
@@ -252,6 +258,7 @@ def build_provider_cache_ledger_record(
             "physical_cache_spine_tool_transport_selected": int(diagnostics.get("physical_cache_spine_tool_transport_selected") or 0),
             "physical_cache_spine_first_blocker": dict(diagnostics.get("physical_cache_spine_first_blocker") or {}),
             "physical_cache_spine_blockers": list(diagnostics.get("physical_cache_spine_blockers") or []),
+            "provider_prefix_cache_health": prefix_cache_health,
         },
     )
 
@@ -269,6 +276,13 @@ def _prefix_segments(selected_prefix: dict[str, Any], diagnostics: dict[str, Any
 
 
 def _break_status_from_diagnostics(diagnostics: dict[str, Any]) -> tuple[ProviderCacheBreakStatus, dict[str, Any]]:
+    first_missing_identity = dict(
+        dict(diagnostics.get("provider_prefix_cache_health") or {}).get("first_missing_expected_prefix_identity")
+        or diagnostics.get("provider_cache_read_first_missing_expected_prefix_identity")
+        or {}
+    )
+    if first_missing_identity:
+        return "local_physical_break", first_missing_identity
     first_uncovered = dict(diagnostics.get("provider_cache_read_first_uncovered_physical_spine_segment") or {})
     uncovered_count = int(diagnostics.get("provider_cache_read_uncovered_physical_spine_count") or 0)
     if first_uncovered or uncovered_count > 0:
@@ -305,13 +319,19 @@ def _ledger_cache_status(
     provider_under_read_tokens: int,
     prior_same_family: bool,
     physical_cache_spine_hash: str,
+    prefix_cache_health: dict[str, Any],
 ) -> ProviderCacheLedgerStatus:
     if str(cache_record.status or "") == "bypassed" or not physical_cache_spine_hash:
         return "bypassed"
-    if break_status == "local_physical_break":
-        return "local_physical_break"
+    health_verdict = str(dict(prefix_cache_health or {}).get("verdict") or "")
     if int(cached_tokens or 0) <= 0:
         return "miss" if prior_same_family else "cold_start"
+    if health_verdict == "covered":
+        return "hit"
+    if health_verdict == "provider_under_read":
+        return "provider_under_read"
+    if break_status == "local_physical_break":
+        return "local_physical_break"
     if int(provider_under_read_tokens or 0) > 0:
         return "provider_under_read"
     if int(prompt_tokens or 0) > 0:

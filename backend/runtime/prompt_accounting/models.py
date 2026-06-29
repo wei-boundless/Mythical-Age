@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 
 TokenUsageSource = Literal["provider_usage", "local_prediction", "trace_estimate"]
+TokenUsagePhase = Literal["provider_usage", "local_prediction", "trace_estimate", ""]
 PromptCacheStatus = Literal["eligible", "hit", "miss", "bypassed", "invalidated"]
 PromptCacheScope = Literal["global", "org", "session", "none"]
 PromptCacheRole = Literal["cacheable_prefix", "session_stable", "volatile", "never_cache"]
@@ -33,6 +34,8 @@ class PromptSegment:
     ordinal: int = 0
     role: str = ""
     content_hash: str = ""
+    content_version_hash: str = ""
+    provider_serialized_hash: str = ""
     byte_length: int = 0
     predicted_tokens: int = 0
     cache_role: PromptCacheRole = "volatile"
@@ -43,8 +46,10 @@ class PromptSegment:
     prefix_family: str = ""
     semantic_source: str = ""
     logical_segment_ref: str = ""
+    prefix_segment_ref: str = ""
     semantic_slot: str = ""
     physical_prefix_lane: str = ""
+    prefix_identity: dict[str, Any] = field(default_factory=dict)
     boundary_participation: str = "excluded"
     exclusion_reason: str = ""
     consumer_contracts: tuple[str, ...] = ()
@@ -72,7 +77,7 @@ class PromptSegmentMap:
     predicted_prompt_tokens: int = 0
     created_at: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "runtime.prompt_accounting.prompt_segment_map"
+    authority: str = "runtime.prompt_accounting.prompt_manifest"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -90,6 +95,7 @@ class ModelTokenUsageRecord:
     provider: str = ""
     model: str = ""
     source: TokenUsageSource = "local_prediction"
+    phase: TokenUsagePhase = ""
     prompt_tokens: int = 0
     completion_tokens: int = 0
     reasoning_tokens: int = 0
@@ -116,6 +122,7 @@ class ModelTokenUsageRecord:
             provider=str(payload.get("provider") or ""),
             model=str(payload.get("model") or ""),
             source=_usage_source(payload.get("source")),
+            phase=_usage_phase(payload.get("phase") or payload.get("source")),
             prompt_tokens=_int(payload.get("prompt_tokens")),
             completion_tokens=_int(payload.get("completion_tokens")),
             reasoning_tokens=_int(payload.get("reasoning_tokens")),
@@ -196,6 +203,13 @@ def _usage_source(value: Any) -> TokenUsageSource:
     if source in {"provider_usage", "local_prediction", "trace_estimate"}:
         return source  # type: ignore[return-value]
     return "local_prediction"
+
+
+def _usage_phase(value: Any) -> TokenUsagePhase:
+    phase = str(value or "").strip()
+    if phase in {"provider_usage", "local_prediction", "trace_estimate"}:
+        return phase  # type: ignore[return-value]
+    return ""
 
 
 def _cache_status(value: Any) -> PromptCacheStatus:

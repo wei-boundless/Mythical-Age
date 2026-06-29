@@ -25,8 +25,8 @@ from runtime.prompt_accounting import (
     PromptCacheBreakDetector,
     PromptCachePlanner,
     PromptStabilityReporter,
-    build_provider_cache_ledger_record,
     extract_provider_usage,
+    publish_provider_cache_usage,
 )
 from runtime.prompt_accounting.provider_lane import (
     physical_payload_family_components,
@@ -1079,6 +1079,7 @@ class ModelRuntime:
                 provider=spec.provider,
                 model=spec.model,
                 source="local_prediction",
+                phase="local_prediction",
                 prompt_tokens=segment_map.predicted_prompt_tokens,
                 total_tokens=segment_map.predicted_prompt_tokens,
                 created_at=created_at,
@@ -1466,16 +1467,13 @@ class ModelRuntime:
                     },
                 )
                 ledger.record_prompt_cache(updated_cache_record)
-                record_provider_cache_ledger = getattr(ledger, "record_provider_cache_ledger", None)
-                if callable(record_provider_cache_ledger):
-                    record_provider_cache_ledger(
-                        build_provider_cache_ledger_record(
-                            cache_record=updated_cache_record,
-                            provider_usage=provider_usage,
-                            previous_cache_records=previous_cache_records,
-                            created_at=finished_at,
-                        )
-                    )
+                publish_provider_cache_usage(
+                    ledger=ledger,
+                    cache_record=updated_cache_record,
+                    provider_usage=provider_usage,
+                    previous_cache_records=previous_cache_records,
+                    created_at=finished_at,
+                )
                 break_record = self._prompt_cache_break_detector.detect(
                     cache_record=updated_cache_record,
                     provider_usage=provider_usage,
@@ -1489,6 +1487,7 @@ class ModelRuntime:
                 updated_stability_report = self._prompt_stability_reporter.with_provider_usage(
                     stability_report,
                     provider_usage,
+                    cache_record=updated_cache_record if cache_record is not None else None,
                 )
                 ledger.record_prompt_stability(updated_stability_report)
         except Exception:
@@ -2273,12 +2272,19 @@ def _normalize_tool_call_options(
 def _provider_visible_context_commit_candidates_from_accounting(accounting: dict[str, Any]) -> list[ContextCommitCandidate]:
     model_request = dict(accounting or {}).get("model_request")
     candidates: list[ContextCommitCandidate] = []
-    seen: set[tuple[str, str, str, str]] = set()
+    seen: set[tuple[str, str, str, str, str, str]] = set()
     for segment in _provider_visible_context_ref_segments(model_request):
         candidate = ContextCommitCandidate.from_provider_payload_segment(segment)
         if candidate is None:
             continue
-        identity = (candidate.storage_root, candidate.scope, candidate.item_key, candidate.provider_visible_hash)
+        identity = (
+            candidate.storage_root,
+            candidate.scope,
+            candidate.item_key,
+            candidate.provider,
+            candidate.model,
+            candidate.physical_lane_before_commit,
+        )
         if identity in seen:
             continue
         seen.add(identity)

@@ -2298,19 +2298,78 @@ def _run_response(runtime: Any, run: RuntimeRun) -> dict[str, Any]:
     payload = run.to_dict()
     payload.pop("owner_process_id", None)
     payload.pop("owner_instance_id", None)
+    now = time.time()
     execution_attached = chat_run_execution_attached(
         runtime.harness_runtime.single_agent_runtime_host,
         run,
         terminal_statuses=TERMINAL_RUN_STATUSES,
     )
+    restore_contract = _run_restore_contract(
+        runtime,
+        run,
+        execution_attached=execution_attached,
+        now=now,
+    )
     return {
         **payload,
         "chat_run_execution_attached": execution_attached,
-        "is_reconnectable": run.reconnectable_until >= time.time()
-        and run.status not in TERMINAL_RUN_STATUSES
-        and execution_attached,
+        **restore_contract,
         "replay_url": f"/api/chat/runs/{run.stream_run_id}/events/replay",
         "live_ws_url": f"/api/chat/sessions/{run.session_id}/live",
+    }
+
+
+def _run_restore_contract(
+    runtime: Any,
+    run: RuntimeRun,
+    *,
+    execution_attached: bool,
+    now: float,
+) -> dict[str, Any]:
+    diagnostics = dict(run.diagnostics or {})
+    terminal = str(run.status or "").strip() in TERMINAL_RUN_STATUSES
+    latest_event_offset = int(getattr(run, "latest_event_offset", -1) or -1)
+    live_reconnectable = bool(
+        run.reconnectable_until >= now
+        and not terminal
+        and execution_attached
+    )
+    replay_available = bool(str(run.event_log_id or "").strip() and latest_event_offset >= 0)
+    recoverable_interruption = bool(
+        diagnostics.get("recoverable") is True
+        and diagnostics.get("semantic_terminal") is False
+    )
+    continuation_ref: dict[str, Any] = {}
+    continuation_available = False
+    if recoverable_interruption:
+        try:
+            host = runtime.harness_runtime.single_agent_runtime_host
+            context_status = _session_context_recovery_status(runtime, run.session_id)
+            selection = select_session_continuation(
+                host,
+                session_id=run.session_id,
+                active_work_present=_active_work_blocks_continuation(runtime, run.session_id),
+                context_recovery_status=context_status,
+            )
+            continuation_ref = selection.to_dict()
+            continuation_available = bool(selection.record is not None or selection.interrupted_turn is not None)
+        except Exception:
+            logger.debug(
+                "Failed to project chat run continuation contract.",
+                exc_info=True,
+                extra={"stream_run_id": run.stream_run_id},
+            )
+            continuation_ref = {
+                "reason": "continuation_projection_failed",
+                "authority": "api.chat.run_restore_contract",
+            }
+    return {
+        "live_reconnectable": live_reconnectable,
+        "replay_available": replay_available,
+        "recoverable_interruption": recoverable_interruption,
+        "continuation_available": continuation_available,
+        "continuation_ref": continuation_ref,
+        "restore_contract_authority": "api.chat.run_restore_contract",
     }
 
 

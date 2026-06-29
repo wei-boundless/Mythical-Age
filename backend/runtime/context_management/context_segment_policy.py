@@ -83,7 +83,7 @@ class ContextSegmentPolicy:
     provider_adapter_contract: str
     sequence: float
     semantic_commit_class: str = ""
-    identity_policy: str = "content_addressed_when_unkeyed"
+    identity_policy: str = "origin_ref_stable"
     contract_slot: str = ""
     contract_ref: str = ""
     repair_feedback_slot: str = ""
@@ -175,7 +175,7 @@ def _install_builtin_policy_defaults() -> None:
         prefix_tier="session",
         commit_policy="append_then_seal",
         replay_policy="physical_prefix_frame_replay",
-        identity_policy="content_addressed_when_unkeyed",
+        identity_policy="origin_ref_stable",
     )
     for stream, slot in STREAM_CONTEXT_APPEND_SLOT_DEFAULTS.items():
         register_context_segment_policy_defaults(stream=stream, semantic_slot=slot)
@@ -195,7 +195,7 @@ def _install_builtin_policy_defaults() -> None:
             semantic_slot_rank=rank,
             commit_policy="never_commit",
             replay_policy="current_dynamic_tail_only",
-            identity_policy="task_run_contract_ref_plus_content_hash",
+            identity_policy="task_run_contract_ref_stable",
         )
     for kind in {"session_history", "session_history_context"}:
         register_context_segment_policy_defaults(
@@ -208,7 +208,7 @@ def _install_builtin_policy_defaults() -> None:
             semantic_slot_rank=18,
             commit_policy="never_commit",
             replay_policy="current_turn_semantic_history_tail_only",
-            identity_policy="content_addressed_when_unkeyed",
+            identity_policy="origin_ref_stable",
         )
     for kind, slot in {
         "turn_state_guidance": "turn_state_guidance",
@@ -324,7 +324,7 @@ def context_segment_policy_for_spec(
             metadata.get("context_identity_policy"),
             metadata.get("provider_visible_context_identity_policy"),
             defaults.identity_policy,
-            "content_addressed_when_unkeyed",
+            "origin_ref_stable",
         ),
         contract_slot=_first_text(
             metadata.get("context_contract_slot"),

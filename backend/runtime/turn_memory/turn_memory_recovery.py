@@ -66,6 +66,24 @@ def decide_turn_memory_recovery(record: TurnMemoryRecord | None) -> TurnMemoryRe
             recoverable=True,
             payload={"assistant_draft_ref": record.assistant_draft_ref, "assistant_draft_sha256": record.assistant_draft_sha256},
         )
+    if record.status == "handoff_ready":
+        return TurnMemoryRecoveryDecision(
+            action="recover_interrupted_turn",
+            reason="turn_interrupted_handoff_ready",
+            turn_id=record.turn_id,
+            commit_state=record.commit_state,
+            recoverable=True,
+            payload={
+                "recovery_state": record.recovery_state,
+                "pending_commit_summary": dict(record.pending_commit_summary or {}),
+                "pending_tool_summary": dict(record.pending_tool_summary or {}),
+                "closed_tool_round_refs": list(record.closed_tool_round_refs),
+                "active_steer_refs": list(record.active_steer_refs),
+                "physical_prefix_frame_id": record.physical_prefix_frame_id,
+                "assistant_final_ref": record.assistant_final_ref,
+                "assistant_final_sha256": record.assistant_final_sha256,
+            },
+        )
     return TurnMemoryRecoveryDecision(
         action="inspect",
         reason="turn_memory_present_without_recovery_action",

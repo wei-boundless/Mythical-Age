@@ -3031,6 +3031,39 @@ async def run_single_agent_turn(
                 yield event
             terminal_recorded = True
             return
+        if response is None:
+            terminal_reason = "single_agent_turn_model_response_missing"
+            control_signal = _model_invocation_failure_closeout_control_signal(
+                turn_id=turn_id,
+                packet_ref=current_packet_ref,
+                phase="model_invocation",
+                response={
+                    "type": "error",
+                    "code": terminal_reason,
+                    "reason": "model invocation completed without a response payload",
+                    "retryable": True,
+                },
+                recent_observations=tool_observation_payloads,
+            )
+            if runtime_host is not None and turn_run is not None:
+                event = _record_turn_runtime_control_signal(
+                    runtime_host,
+                    turn_run=turn_run,
+                    turn_id=turn_id,
+                    packet_ref=current_packet_ref,
+                    control_signal=control_signal,
+                )
+                yield {"type": "turn_runtime_control_signal_observed", "event": event}
+            async for event in emit_agent_authored_closeout(
+                reason=terminal_reason,
+                phase="model_invocation_missing_response",
+                terminal_reason=terminal_reason,
+                control_signal=control_signal,
+                completion_state="model_invocation_missing_response",
+            ):
+                yield event
+            terminal_recorded = True
+            return
         if repaired_or_parsed_final_action is not None:
             action_parse = repaired_or_parsed_final_action
         else:
@@ -8049,7 +8082,17 @@ def _followup_provider_visible_candidate_source_spec(spec: dict[str, Any]) -> di
         "fixed_context_package": "context_memory_append",
         "context_commit_policy": "append_then_seal",
         "context_replay_policy": "current_append_commit_on_provider_success_then_next_physical_prefix_frame",
-        "context_identity_policy": "content_addressed_when_unkeyed",
+        "context_identity_policy": "origin_ref_stable",
+        "context_origin_authority": "harness.loop.single_agent_turn.followup_provider_visible_commit_candidate",
+        "context_origin_ref": str(
+            metadata.get("context_origin_ref")
+            or metadata.get("prefix_origin_ref")
+            or metadata.get("origin_ref")
+            or metadata.get("stable_origin_ref")
+            or payload.get("source_ref")
+            or kind
+            or ""
+        ).strip(),
         "semantic_commit_class": _followup_provider_visible_replay_only_class(kind),
         "provider_visible_replay_only": True,
         "semantic_memory_visible": False,
@@ -8907,7 +8950,9 @@ def _single_agent_turn_followup_message_spec(
                 "context_prefix_tier": "volatile",
                 "context_commit_policy": "append_then_seal",
                 "context_replay_policy": "current_append_commit_on_provider_success_then_next_physical_prefix_frame",
-                "context_identity_policy": "content_addressed_when_unkeyed",
+                "context_identity_policy": "origin_ref_stable",
+                "context_origin_authority": "harness.loop.single_agent_turn.followup_tool_transcript",
+                "context_origin_ref": source_ref,
                 "semantic_commit_class": "tool_transcript",
                 "provider_visible_history_status": "current_tool_round_pending_provider_success",
                 "provider_visible_history_authority": "harness.loop.single_agent_turn.followup_tool_transcript",
@@ -8932,7 +8977,9 @@ def _single_agent_turn_followup_message_spec(
                 "context_prefix_tier": "volatile",
                 "context_commit_policy": "append_then_seal",
                 "context_replay_policy": "current_append_commit_on_provider_success_then_next_physical_prefix_frame",
-                "context_identity_policy": "content_addressed_when_unkeyed",
+                "context_identity_policy": "origin_ref_stable",
+                "context_origin_authority": "harness.loop.single_agent_turn.followup_user_steer",
+                "context_origin_ref": source_ref,
                 "semantic_commit_class": "current_user_context",
                 "provider_visible_history_status": "current_user_context_pending_provider_success",
                 "provider_visible_history_authority": "harness.loop.single_agent_turn.followup_user_steer",

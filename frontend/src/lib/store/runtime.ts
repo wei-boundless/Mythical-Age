@@ -3096,7 +3096,7 @@ export class WorkspaceRuntime {
         !cursorRun
         || cursorRun.session_id !== sessionId
         || cursorRun.event_log_id !== effectiveCursor.eventLogId
-        || cursorRun.is_reconnectable === false
+        || !this.chatRunLiveReconnectable(cursorRun)
       ) {
         clearChatStreamCursor(sessionId);
         return false;
@@ -3135,7 +3135,7 @@ export class WorkspaceRuntime {
   private chatRunCursorFromActiveRun(run: ChatRun | null | undefined): ChatStreamCursor | null {
     const streamRunId = runtimeText(run?.stream_run_id);
     const eventLogId = runtimeText(run?.event_log_id);
-    if (!streamRunId || !eventLogId || run?.is_reconnectable === false) {
+    if (!streamRunId || !eventLogId || !this.chatRunLiveReconnectable(run)) {
       return null;
     }
     return {
@@ -3144,6 +3144,10 @@ export class WorkspaceRuntime {
       lastEventOffset: -1,
       lastEventId: "",
     };
+  }
+
+  private chatRunLiveReconnectable(run: ChatRun | null | undefined) {
+    return run?.live_reconnectable === true;
   }
 
   private visibleSessionNeedsHistoryHydration(sessionId: string) {

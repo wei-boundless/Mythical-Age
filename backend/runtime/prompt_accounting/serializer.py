@@ -5,6 +5,7 @@ import json
 import time
 from typing import Any
 
+from runtime.context_management.context_prefix_identity import build_context_prefix_identity
 from runtime.prompt_accounting.cache_policy import normalize_cache_role, normalize_compression_role, normalize_prefix_tier
 
 from .cache_planner import stable_text_hash
@@ -18,12 +19,12 @@ _PREFIX_CONSUMER_CONTRACTS = (
     "runtime.prompt_accounting.cache_planner",
     "runtime.prompt_accounting.cache_baseline",
     "runtime.prompt_accounting.cache_break_detector",
-    "runtime.prompt_accounting.provider_cache_ledger",
+    "runtime.prompt_accounting.provider_cache_bus",
 )
 _SEGMENT_IDENTITY_FORBIDDEN_AUTHORITIES = (
     "runtime.prompt_accounting.serializer.reclassify_prefix_family",
     "runtime.prompt_accounting.cache_planner.reclassify_prefix_family",
-    "runtime.prompt_accounting.provider_cache_ledger.reclassify_prefix_family",
+    "runtime.prompt_accounting.provider_cache_bus.reclassify_prefix_family",
     "runtime.prompt_accounting.cache_break_detector.reclassify_prefix_family",
     "frontend.presentation.reclassify_prefix_family",
 )
@@ -109,6 +110,16 @@ class CanonicalPromptSerializer:
                     ordinal=ordinal,
                     role=str(tool_schema_profile.get("role") or "tool_schema"),
                     content_hash=str(tool_schema_profile.get("content_hash") or stable_text_hash(segment_payload)),
+                    content_version_hash=str(
+                        tool_schema_profile.get("content_version_hash")
+                        or tool_schema_profile.get("content_hash")
+                        or stable_text_hash(segment_payload)
+                    ),
+                    provider_serialized_hash=str(
+                        tool_schema_profile.get("provider_serialized_hash")
+                        or tool_schema_profile.get("content_hash")
+                        or stable_text_hash(segment_payload)
+                    ),
                     byte_length=int(tool_schema_profile.get("byte_length") or len(segment_payload.encode("utf-8", errors="ignore"))),
                     predicted_tokens=token_count.tokens,
                     cache_role=str(tool_schema_profile.get("cache_role") or "never_cache"),
@@ -119,8 +130,10 @@ class CanonicalPromptSerializer:
                     prefix_family=str(tool_schema_profile.get("prefix_family") or ""),
                     semantic_source=str(tool_schema_profile.get("semantic_source") or ""),
                     logical_segment_ref=str(tool_schema_profile.get("logical_segment_ref") or ""),
+                    prefix_segment_ref=str(tool_schema_profile.get("prefix_segment_ref") or tool_schema_profile.get("logical_segment_ref") or ""),
                     semantic_slot=str(tool_schema_profile.get("semantic_slot") or ""),
                     physical_prefix_lane=str(tool_schema_profile.get("physical_prefix_lane") or ""),
+                    prefix_identity=dict(tool_schema_profile.get("prefix_identity") or {}),
                     boundary_participation=boundary_participation,
                     exclusion_reason=str(tool_schema_profile.get("exclusion_reason") or ""),
                     consumer_contracts=_tuple_text(tool_schema_profile.get("consumer_contracts")),
@@ -173,6 +186,9 @@ class CanonicalPromptSerializer:
                 provider_segment=provider_message_segment,
                 kind=kind,
                 source_ref=source_ref,
+                content_version_hash=str(provider_message_segment.get("content_version_hash") or provider_message_segment.get("content_hash") or stable_text_hash(segment_payload)),
+                provider_serialized_hash=str(provider_message_segment.get("provider_serialized_hash") or provider_message_segment.get("content_hash") or stable_text_hash(segment_payload)),
+                request_ordinal=ordinal,
             )
             segments.append(
                 PromptSegment(
@@ -185,6 +201,16 @@ class CanonicalPromptSerializer:
                     ordinal=ordinal,
                     role=str(message.get("role") or ""),
                     content_hash=str(provider_message_segment.get("content_hash") or stable_text_hash(segment_payload)),
+                    content_version_hash=str(
+                        provider_message_segment.get("content_version_hash")
+                        or provider_message_segment.get("content_hash")
+                        or stable_text_hash(segment_payload)
+                    ),
+                    provider_serialized_hash=str(
+                        provider_message_segment.get("provider_serialized_hash")
+                        or provider_message_segment.get("content_hash")
+                        or stable_text_hash(segment_payload)
+                    ),
                     byte_length=int(provider_message_segment.get("byte_length") or len(segment_payload.encode("utf-8", errors="ignore"))),
                     predicted_tokens=token_count.tokens + reasoning_token_supplement,
                     cache_role=cache_role,
@@ -195,8 +221,10 @@ class CanonicalPromptSerializer:
                     prefix_family=str(identity.get("prefix_family") or ""),
                     semantic_source=str(identity.get("semantic_source") or ""),
                     logical_segment_ref=str(identity.get("logical_segment_ref") or ""),
+                    prefix_segment_ref=str(identity.get("prefix_segment_ref") or identity.get("logical_segment_ref") or ""),
                     semantic_slot=str(identity.get("semantic_slot") or ""),
                     physical_prefix_lane=str(identity.get("physical_prefix_lane") or ""),
+                    prefix_identity=dict(identity.get("prefix_identity") or {}),
                     boundary_participation=str(identity.get("boundary_participation") or "excluded"),
                     exclusion_reason=str(identity.get("exclusion_reason") or ""),
                     consumer_contracts=_tuple_text(identity.get("consumer_contracts")),
@@ -574,6 +602,8 @@ def _provider_payload_tool_segment(manifest: dict[str, Any]) -> dict[str, Any]:
             "role": str(item.get("role") or "tool_schema"),
             "transport_location": str(item.get("transport_location") or "tools"),
             "content_hash": str(item.get("content_hash") or ""),
+            "content_version_hash": str(item.get("content_version_hash") or item.get("content_hash") or ""),
+            "provider_serialized_hash": str(item.get("provider_serialized_hash") or item.get("content_hash") or ""),
             "byte_length": _int_value(item.get("byte_length")),
             "cache_role": _cache_role(item.get("cache_role")),
             "prefix_tier": _prefix_tier(
@@ -584,8 +614,10 @@ def _provider_payload_tool_segment(manifest: dict[str, Any]) -> dict[str, Any]:
             "prefix_family": str(item.get("prefix_family") or ""),
             "semantic_source": str(item.get("semantic_source") or ""),
             "logical_segment_ref": str(item.get("logical_segment_ref") or ""),
+            "prefix_segment_ref": str(item.get("prefix_segment_ref") or item.get("logical_segment_ref") or ""),
             "semantic_slot": str(item.get("semantic_slot") or ""),
             "physical_prefix_lane": str(item.get("physical_prefix_lane") or ""),
+            "prefix_identity": dict(item.get("prefix_identity") or {}),
             "boundary_participation": str(item.get("boundary_participation") or "excluded"),
             "exclusion_reason": str(item.get("exclusion_reason") or ""),
             "consumer_contracts": tuple(str(value) for value in list(item.get("consumer_contracts") or [])),
@@ -625,6 +657,9 @@ def _message_prompt_segment_identity(
     provider_segment: dict[str, Any],
     kind: str,
     source_ref: str,
+    content_version_hash: str = "",
+    provider_serialized_hash: str = "",
+    request_ordinal: int = 0,
 ) -> dict[str, Any]:
     if provider_segment:
         return {
@@ -632,8 +667,10 @@ def _message_prompt_segment_identity(
             "prefix_family": str(provider_segment.get("prefix_family") or ""),
             "semantic_source": str(provider_segment.get("semantic_source") or ""),
             "logical_segment_ref": str(provider_segment.get("logical_segment_ref") or ""),
+            "prefix_segment_ref": str(provider_segment.get("prefix_segment_ref") or provider_segment.get("logical_segment_ref") or ""),
             "semantic_slot": str(provider_segment.get("semantic_slot") or ""),
             "physical_prefix_lane": str(provider_segment.get("physical_prefix_lane") or ""),
+            "prefix_identity": dict(provider_segment.get("prefix_identity") or {}),
             "boundary_participation": str(provider_segment.get("boundary_participation") or "excluded"),
             "exclusion_reason": str(provider_segment.get("exclusion_reason") or ""),
             "consumer_contracts": tuple(str(value) for value in list(provider_segment.get("consumer_contracts") or [])),
@@ -642,30 +679,40 @@ def _message_prompt_segment_identity(
     payload = dict(planned_metadata or {})
     lane = str(payload.get("physical_prefix_lane") or "").strip()
     included = lane in {"global_static_prefix", "provider_visible_context_prefix"}
+    semantic_source = _first_text(
+        payload.get("context_semantic_source"),
+        payload.get("semantic_source"),
+        payload.get("source_kind"),
+        payload.get("context_source_kind"),
+        source_ref,
+    )
+    semantic_slot = _first_text(
+        payload.get("context_semantic_slot"),
+        payload.get("semantic_slot"),
+        payload.get("slot"),
+        kind,
+    )
+    prefix_identity = build_context_prefix_identity(
+        kind=kind,
+        metadata=payload,
+        source_ref=source_ref,
+        physical_lane=lane,
+        semantic_source=semantic_source,
+        semantic_slot=semantic_slot,
+        content_version_hash=content_version_hash,
+        provider_serialized_hash=provider_serialized_hash,
+        request_ordinal=request_ordinal,
+        transport_location="messages",
+    ).to_dict()
     return {
         "transport_location": "messages",
         "prefix_family": _message_prefix_family(lane),
-        "semantic_source": _first_text(
-            payload.get("context_semantic_source"),
-            payload.get("semantic_source"),
-            payload.get("source_kind"),
-            payload.get("context_source_kind"),
-            source_ref,
-        ),
-        "logical_segment_ref": _first_text(
-            payload.get("planned_segment_id"),
-            payload.get("segment_id"),
-            payload.get("block_id"),
-            str(planned.get("segment_id") or "") if planned else "",
-            kind,
-        ),
-        "semantic_slot": _first_text(
-            payload.get("context_semantic_slot"),
-            payload.get("semantic_slot"),
-            payload.get("slot"),
-            kind,
-        ),
+        "semantic_source": semantic_source,
+        "logical_segment_ref": str(prefix_identity.get("logical_segment_ref") or ""),
+        "prefix_segment_ref": str(prefix_identity.get("logical_segment_ref") or ""),
+        "semantic_slot": semantic_slot,
         "physical_prefix_lane": lane,
+        "prefix_identity": prefix_identity,
         "boundary_participation": "included" if included else "excluded",
         "exclusion_reason": "" if included else _message_exclusion_reason(lane),
         "consumer_contracts": _PREFIX_CONSUMER_CONTRACTS,

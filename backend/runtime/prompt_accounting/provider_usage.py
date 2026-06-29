@@ -112,6 +112,7 @@ def extract_provider_usage(
         provider=str(provider or _response_provider(response) or ""),
         model=str(model or _response_model(response) or ""),
         source="provider_usage",
+        phase="provider_usage",
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         reasoning_tokens=reasoning_tokens,

@@ -92,6 +92,127 @@ export type SessionScope = {
   project_id?: string;
 };
 
+export type ProviderCacheLogRecord = {
+  ledger_id: string;
+  request_id: string;
+  run_id: string;
+  task_run_id: string;
+  session_id: string;
+  provider: string;
+  model: string;
+  provider_lane: string;
+  cache_status: string;
+  break_status: string;
+  prompt_tokens: number;
+  cached_tokens: number;
+  miss_tokens: number;
+  hit_rate: number;
+  expected_cacheable_tokens?: number;
+  physical_cache_spine_hash?: string;
+  transport_contract_hash?: string;
+  physical_cache_spine_provider_scaled_tokens?: number;
+  physical_cache_spine_segment_kinds?: string[];
+  provider_under_read_tokens: number;
+  current_context_append_tokens?: number;
+  dynamic_tail_tokens?: number;
+  tool_schema_blocker_tokens?: number;
+  non_spine_prompt_tokens?: number;
+  first_break_segment?: Record<string, unknown>;
+  provider_prefix_cache_health?: Record<string, unknown>;
+  created_at: number;
+};
+
+export type ProviderCacheLog = {
+  authority: string;
+  source: string;
+  run_id?: string;
+  task_run_id?: string;
+  session_id: string;
+  summary: {
+    record_count: number;
+    prompt_tokens: number;
+    cached_tokens: number;
+    miss_tokens: number;
+    hit_rate: number;
+    latest_status?: string;
+    latest_prefix_health?: Record<string, unknown>;
+    latest_under_read_tokens?: number;
+    warm_provider_under_read_tokens?: number;
+    cold_start_under_read_tokens?: number;
+    history_under_read_tokens?: number;
+    current_prefix_covered?: boolean;
+    current_cache_spine_hash?: string;
+    current_transport_contract_hash?: string;
+    provider_under_read_count: number;
+    local_physical_break_count: number;
+    cold_start_count: number;
+    hit_count: number;
+    status_counts: Record<string, number>;
+  };
+  records: ProviderCacheLogRecord[];
+  updated_at: number;
+};
+
+export type SessionTokensPayload = {
+  system_tokens: number;
+  message_tokens: number;
+  total_tokens: number;
+  context_meter?: {
+    current_context_tokens?: number;
+    current_context_ratio?: number;
+    compaction_pressure_tokens?: number;
+    context_window_tokens?: number;
+    input_capacity_tokens?: number;
+    replacement_threshold_tokens?: number;
+    compaction_pressure_ratio?: number;
+    compaction_remaining_tokens?: number;
+    compaction_remaining_ratio?: number;
+    pressure_level?: string;
+  };
+  context_recovery_package?: {
+    present?: boolean;
+    fresh?: boolean;
+    source?: string;
+    schema_version?: string;
+    covered_message_count?: number;
+    covered_event_run_id?: string;
+    covered_event_offset_end?: number | null;
+    summary_hash?: string;
+    source_summary_hash?: string;
+    freshness_status?: string;
+    stale_reason?: string;
+  };
+  compaction_readiness?: {
+    pressure_level?: string;
+    auto_replacement_allowed?: boolean;
+    replacement_threshold_tokens?: number;
+    warning_threshold_tokens?: number;
+    ready_threshold_tokens?: number;
+    current_context_tokens?: number;
+    compaction_pressure_tokens?: number;
+    blocked_reason?: string;
+    context_recovery_package_present?: boolean;
+    context_recovery_package_fresh?: boolean;
+    context_recovery_package_source?: string;
+  };
+  provider_cache_log?: ProviderCacheLog;
+  cumulative_transcript_tokens?: number;
+  cumulative_transcript_message_count?: number;
+  compression_saved_tokens?: number;
+  compression_ratio?: number;
+  raw_history_tokens: number;
+  history_tokens: number;
+  history_budget_tokens: number;
+  history_remaining_tokens: number;
+  history_usage_ratio: number;
+  history_remaining_ratio: number;
+  history_pressure_level: string;
+  history_compaction_strategy: string;
+  history_did_compact: boolean;
+  history_did_microcompact: boolean;
+  history_did_full_compact: boolean;
+};
+
 export type WorkbenchSessionRef = {
   authority?: string;
   session_id?: string;
@@ -4118,7 +4239,11 @@ export type ChatRun = {
   diagnostics?: Record<string, unknown>;
   latest_event_offset: number;
   chat_run_execution_attached?: boolean;
-  is_reconnectable?: boolean;
+  live_reconnectable?: boolean;
+  replay_available?: boolean;
+  recoverable_interruption?: boolean;
+  continuation_available?: boolean;
+  continuation_ref?: Record<string, unknown>;
   terminal_event?: string;
   replay_url: string;
   live_ws_url: string;

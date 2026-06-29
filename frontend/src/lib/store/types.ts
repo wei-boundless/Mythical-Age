@@ -21,7 +21,8 @@ import type {
   WorkspaceContext,
   CodeEnvironmentWorkspaceTree,
   ProjectWorkspaceSummary,
-  ChatAttachment
+  ChatAttachment,
+  ProviderCacheLog
 } from "@/lib/api";
 import type {
   ChronologicalProjectionLedger,
@@ -195,6 +196,7 @@ export type TokenStats = {
     context_recovery_package_fresh?: boolean;
     context_recovery_package_source?: string;
   };
+  provider_cache_log?: ProviderCacheLog;
   cumulative_transcript_tokens?: number;
   cumulative_transcript_message_count?: number;
   compression_saved_tokens?: number;

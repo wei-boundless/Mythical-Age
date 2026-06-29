@@ -147,7 +147,7 @@ def context_candidate_from_message_spec(spec: dict[str, Any]) -> ContextCandidat
     kind = str(payload.get("kind") or metadata.get("canonical_kind") or "").strip()
     source_ref = str(payload.get("source_ref") or metadata.get("source_ref") or "").strip()
     content = str(payload.get("content") or "")
-    content_hash = str(metadata.get("provider_visible_hash") or metadata.get("content_hash") or "")
+    content_hash = str(metadata.get("content_version_hash") or metadata.get("content_hash") or "")
     if not content_hash:
         content_hash = "sha256:" + hashlib.sha256(content.encode("utf-8", errors="ignore")).hexdigest()
     seed = {
@@ -164,7 +164,14 @@ def context_candidate_from_message_spec(spec: dict[str, Any]) -> ContextCandidat
         semantic_title=title,
         source_route=str(metadata.get("source_route") or metadata.get("content_source") or ""),
         source_ref=source_ref,
-        identity=str(metadata.get("context_identity") or metadata.get("tool_call_id") or source_ref or content_hash),
+        identity=str(
+            metadata.get("context_identity")
+            or metadata.get("context_origin_ref")
+            or metadata.get("origin_ref")
+            or metadata.get("tool_call_id")
+            or source_ref
+            or content_hash
+        ),
         payload={},
         content_ref=str(metadata.get("content_ref") or metadata.get("reusable_result_ref") or ""),
         content_hash=content_hash,

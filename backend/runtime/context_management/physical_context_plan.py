@@ -339,22 +339,24 @@ def _must_preserve_model_message_hash(spec: dict[str, Any]) -> bool:
 
 
 def _physical_context_order_key(segment: PhysicalContextPlanSegment) -> tuple[Any, ...]:
+    lane_rank = PHYSICAL_CONTEXT_LANE_RANK.get(segment.lane, 999)
     ledger_entry_index = _safe_int(segment.metadata.get("provider_visible_context_ledger_entry_index"))
+    provider_round_start = 0
+    provider_round_order = 0
     if ledger_entry_index > 0 and segment.lane == PROVIDER_VISIBLE_CONTEXT_PREFIX:
-        tool_round_order = provider_tool_protocol_order(
+        round_start, round_order, ordered_entry_index = provider_tool_protocol_order(
             segment.metadata,
             fallback_entry_index=ledger_entry_index,
         )
-        return (
-            PHYSICAL_CONTEXT_LANE_RANK[PROVIDER_VISIBLE_CONTEXT_PREFIX],
-            *tool_round_order,
-            int(segment.index or 0),
-            str(segment.source_ref or ""),
-        )
+        provider_round_start = _safe_int(round_start)
+        provider_round_order = _safe_int(round_order)
+        ledger_entry_index = _safe_int(ordered_entry_index) or ledger_entry_index
     return (
-        PHYSICAL_CONTEXT_LANE_RANK.get(segment.lane, 999),
+        lane_rank,
+        provider_round_start,
+        provider_round_order,
+        ledger_entry_index,
         int(segment.index or 0),
-        0,
         str(segment.source_ref or ""),
     )
 

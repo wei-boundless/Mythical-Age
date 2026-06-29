@@ -14,6 +14,7 @@ from runtime.prompt_accounting.cache_policy import (
     normalize_compression_role,
     normalize_prefix_tier,
 )
+from runtime.context_management.context_prefix_identity import build_context_prefix_identity
 from runtime.prompt_accounting.serializer import canonical_json
 
 
@@ -22,12 +23,12 @@ _PREFIX_CONSUMER_CONTRACTS = (
     "runtime.prompt_accounting.cache_planner",
     "runtime.prompt_accounting.cache_baseline",
     "runtime.prompt_accounting.cache_break_detector",
-    "runtime.prompt_accounting.provider_cache_ledger",
+    "runtime.prompt_accounting.provider_cache_bus",
 )
 _SEGMENT_IDENTITY_FORBIDDEN_AUTHORITIES = (
     "runtime.prompt_accounting.serializer.reclassify_prefix_family",
     "runtime.prompt_accounting.cache_planner.reclassify_prefix_family",
-    "runtime.prompt_accounting.provider_cache_ledger.reclassify_prefix_family",
+    "runtime.prompt_accounting.provider_cache_bus.reclassify_prefix_family",
     "runtime.prompt_accounting.cache_break_detector.reclassify_prefix_family",
     "frontend.presentation.reclassify_prefix_family",
 )
@@ -47,6 +48,8 @@ class ProviderPayloadSegment:
     role: str = ""
     source_ref: str = ""
     content_hash: str = ""
+    content_version_hash: str = ""
+    provider_serialized_hash: str = ""
     byte_length: int = 0
     cache_scope: str = "none"
     cache_role: str = "volatile"
@@ -55,8 +58,10 @@ class ProviderPayloadSegment:
     prefix_family: str = ""
     semantic_source: str = ""
     logical_segment_ref: str = ""
+    prefix_segment_ref: str = ""
     semantic_slot: str = ""
     physical_prefix_lane: str = ""
+    prefix_identity: dict[str, Any] = field(default_factory=dict)
     boundary_participation: str = "excluded"
     exclusion_reason: str = ""
     consumer_contracts: tuple[str, ...] = ()
@@ -67,6 +72,7 @@ class ProviderPayloadSegment:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["metadata"] = dict(self.metadata)
+        payload["prefix_identity"] = dict(self.prefix_identity)
         return payload
 
 
@@ -128,8 +134,12 @@ def build_provider_payload_manifest(
         identity = _message_structural_identity(
             kind=str(getattr(binding, "kind", "") or "message"),
             metadata=metadata,
-            content_hash=payload_hash,
+            source_ref=source_ref,
+            content_version_hash=payload_hash,
+            provider_serialized_hash=payload_hash,
+            request_ordinal=ordinal,
         )
+        prefix_identity = dict(identity.get("prefix_identity") or {})
         segments.append(
             ProviderPayloadSegment(
                 segment_id=str(getattr(binding, "planned_segment_id", "") or _segment_id(request_id, ordinal, getattr(binding, "kind", "message"), payload)),
@@ -139,6 +149,8 @@ def build_provider_payload_manifest(
                 role=str(getattr(binding, "model_message_role", "") or message.get("role") or ""),
                 source_ref=source_ref,
                 content_hash=payload_hash,
+                content_version_hash=str(prefix_identity.get("content_version_hash") or payload_hash),
+                provider_serialized_hash=str(prefix_identity.get("provider_serialized_hash") or payload_hash),
                 byte_length=len(payload.encode("utf-8", errors="ignore")),
                 cache_scope=str(getattr(binding, "cache_scope", "") or "none"),
                 cache_role=normalize_cache_role(getattr(binding, "cache_role", "")),
@@ -151,8 +163,10 @@ def build_provider_payload_manifest(
                 prefix_family=str(identity.get("prefix_family") or ""),
                 semantic_source=str(identity.get("semantic_source") or ""),
                 logical_segment_ref=str(identity.get("logical_segment_ref") or ""),
+                prefix_segment_ref=str(identity.get("prefix_segment_ref") or identity.get("logical_segment_ref") or ""),
                 semantic_slot=str(identity.get("semantic_slot") or ""),
                 physical_prefix_lane=str(identity.get("physical_prefix_lane") or ""),
+                prefix_identity=prefix_identity,
                 boundary_participation=str(identity.get("boundary_participation") or "excluded"),
                 exclusion_reason=str(identity.get("exclusion_reason") or ""),
                 consumer_contracts=_tuple_text(identity.get("consumer_contracts")),
@@ -170,8 +184,12 @@ def build_provider_payload_manifest(
         identity = _message_structural_identity(
             kind="unplanned_message",
             metadata=metadata,
-            content_hash=payload_hash,
+            source_ref="model_request.unplanned_message",
+            content_version_hash=payload_hash,
+            provider_serialized_hash=payload_hash,
+            request_ordinal=ordinal,
         )
+        prefix_identity = dict(identity.get("prefix_identity") or {})
         segments.append(
             ProviderPayloadSegment(
                 segment_id=_segment_id(request_id, ordinal, "unplanned_message", payload),
@@ -181,6 +199,8 @@ def build_provider_payload_manifest(
                 role=str(dict(message).get("role") or ""),
                 source_ref="model_request.unplanned_message",
                 content_hash=payload_hash,
+                content_version_hash=str(prefix_identity.get("content_version_hash") or payload_hash),
+                provider_serialized_hash=str(prefix_identity.get("provider_serialized_hash") or payload_hash),
                 byte_length=len(payload.encode("utf-8", errors="ignore")),
                 cache_scope="none",
                 cache_role="never_cache",
@@ -189,8 +209,10 @@ def build_provider_payload_manifest(
                 prefix_family=str(identity.get("prefix_family") or ""),
                 semantic_source=str(identity.get("semantic_source") or ""),
                 logical_segment_ref=str(identity.get("logical_segment_ref") or ""),
+                prefix_segment_ref=str(identity.get("prefix_segment_ref") or identity.get("logical_segment_ref") or ""),
                 semantic_slot=str(identity.get("semantic_slot") or ""),
                 physical_prefix_lane=str(identity.get("physical_prefix_lane") or ""),
+                prefix_identity=prefix_identity,
                 boundary_participation=str(identity.get("boundary_participation") or "excluded"),
                 exclusion_reason=str(identity.get("exclusion_reason") or ""),
                 consumer_contracts=_tuple_text(identity.get("consumer_contracts")),
@@ -207,6 +229,8 @@ def build_provider_payload_manifest(
             tool_catalog_manifest=dict(tool_catalog_manifest or {}),
         )
         payload = canonical_json({"tools": [dict(item) for item in tools]})
+        payload_hash = _stable_text_hash(payload)
+        logical_segment_ref = str(profile.get("logical_segment_ref") or "")
         segments.append(
             ProviderPayloadSegment(
                 segment_id=_segment_id(request_id, ordinal, str(profile.get("kind") or "native_tool_binding_schema"), payload),
@@ -215,7 +239,9 @@ def build_provider_payload_manifest(
                 ordinal=ordinal,
                 role="tool_schema",
                 source_ref=str(profile.get("source_ref") or "model_request.tools"),
-                content_hash=_stable_text_hash(payload),
+                content_hash=payload_hash,
+                content_version_hash=payload_hash,
+                provider_serialized_hash=payload_hash,
                 byte_length=len(payload.encode("utf-8", errors="ignore")),
                 cache_scope=str(profile.get("cache_scope") or "none"),
                 cache_role=str(profile.get("cache_role") or "never_cache"),
@@ -223,7 +249,8 @@ def build_provider_payload_manifest(
                 compression_role="preserve",
                 prefix_family=str(profile.get("prefix_family") or ""),
                 semantic_source=str(profile.get("semantic_source") or ""),
-                logical_segment_ref=str(profile.get("logical_segment_ref") or ""),
+                logical_segment_ref=logical_segment_ref,
+                prefix_segment_ref=logical_segment_ref,
                 semantic_slot=str(profile.get("semantic_slot") or ""),
                 physical_prefix_lane=str(profile.get("physical_prefix_lane") or ""),
                 boundary_participation=str(profile.get("boundary_participation") or "excluded"),
@@ -239,6 +266,7 @@ def build_provider_payload_manifest(
     if tool_call_options:
         ordinal += 1
         payload = canonical_json({"tool_call_options": tool_call_options})
+        payload_hash = _stable_text_hash(payload)
         segments.append(
             ProviderPayloadSegment(
                 segment_id=_segment_id(request_id, ordinal, "tool_call_options", payload),
@@ -247,7 +275,9 @@ def build_provider_payload_manifest(
                 ordinal=ordinal,
                 role="transport_contract",
                 source_ref="model_request.tool_call_options",
-                content_hash=_stable_text_hash(payload),
+                content_hash=payload_hash,
+                content_version_hash=payload_hash,
+                provider_serialized_hash=payload_hash,
                 byte_length=len(payload.encode("utf-8", errors="ignore")),
                 cache_scope="none",
                 cache_role="never_cache",
@@ -256,6 +286,7 @@ def build_provider_payload_manifest(
                 prefix_family="transport_contract_family_selector",
                 semantic_source="model_request.tool_call_options",
                 logical_segment_ref="tool_call_options",
+                prefix_segment_ref="tool_call_options",
                 semantic_slot="tool_call_options",
                 physical_prefix_lane="",
                 boundary_participation="non_token_family_selector",
@@ -268,6 +299,7 @@ def build_provider_payload_manifest(
     if response_format not in (None, "", [], {}):
         ordinal += 1
         payload = canonical_json({"response_format": response_format})
+        payload_hash = _stable_text_hash(payload)
         segments.append(
             ProviderPayloadSegment(
                 segment_id=_segment_id(request_id, ordinal, "response_format", payload),
@@ -276,7 +308,9 @@ def build_provider_payload_manifest(
                 ordinal=ordinal,
                 role="transport_contract",
                 source_ref="model_request.response_format",
-                content_hash=_stable_text_hash(payload),
+                content_hash=payload_hash,
+                content_version_hash=payload_hash,
+                provider_serialized_hash=payload_hash,
                 byte_length=len(payload.encode("utf-8", errors="ignore")),
                 cache_scope="none",
                 cache_role="never_cache",
@@ -285,6 +319,7 @@ def build_provider_payload_manifest(
                 prefix_family="transport_contract_family_selector",
                 semantic_source="model_request.response_format",
                 logical_segment_ref="response_format",
+                prefix_segment_ref="response_format",
                 semantic_slot="response_format",
                 physical_prefix_lane="",
                 boundary_participation="non_token_family_selector",
@@ -297,6 +332,7 @@ def build_provider_payload_manifest(
     if params:
         ordinal += 1
         payload = canonical_json({"cache_relevant_params": params})
+        payload_hash = _stable_text_hash(payload)
         segments.append(
             ProviderPayloadSegment(
                 segment_id=_segment_id(request_id, ordinal, "provider_params", payload),
@@ -305,7 +341,9 @@ def build_provider_payload_manifest(
                 ordinal=ordinal,
                 role="transport_contract",
                 source_ref="model_request.cache_relevant_params",
-                content_hash=_stable_text_hash(payload),
+                content_hash=payload_hash,
+                content_version_hash=payload_hash,
+                provider_serialized_hash=payload_hash,
                 byte_length=len(payload.encode("utf-8", errors="ignore")),
                 cache_scope="none",
                 cache_role="never_cache",
@@ -314,6 +352,7 @@ def build_provider_payload_manifest(
                 prefix_family="transport_contract_family_selector",
                 semantic_source="model_request.cache_relevant_params",
                 logical_segment_ref="provider_params",
+                prefix_segment_ref="provider_params",
                 semantic_slot="provider_params",
                 physical_prefix_lane="",
                 boundary_participation="non_token_family_selector",
@@ -341,6 +380,10 @@ def build_provider_payload_manifest(
                 "transport_location": segment.transport_location,
                 "role": segment.role,
                 "content_hash": segment.content_hash,
+                "content_version_hash": segment.content_version_hash,
+                "provider_serialized_hash": segment.provider_serialized_hash,
+                "prefix_segment_ref": segment.prefix_segment_ref,
+                "logical_segment_ref": segment.logical_segment_ref,
                 "physical_prefix_lane": segment.physical_prefix_lane,
                 "boundary_participation": segment.boundary_participation,
             }
@@ -533,11 +576,13 @@ def _message_structural_identity(
     *,
     kind: str,
     metadata: dict[str, Any],
-    content_hash: str = "",
+    source_ref: str = "",
+    content_version_hash: str = "",
+    provider_serialized_hash: str = "",
+    request_ordinal: int = 0,
 ) -> dict[str, Any]:
     payload = dict(metadata or {})
     lane = str(payload.get("physical_prefix_lane") or "").strip()
-    included = lane in {"global_static_prefix", "provider_visible_context_prefix"}
     semantic_source = _first_text(
         payload.get("context_semantic_source"),
         payload.get("semantic_source"),
@@ -553,19 +598,37 @@ def _message_structural_identity(
         payload.get("slot"),
         kind,
     )
+    prefix_identity = _prefix_identity_dict(
+        kind=kind,
+        metadata=payload,
+        source_ref=source_ref,
+        physical_lane=lane,
+        semantic_source=semantic_source,
+        semantic_slot=semantic_slot,
+        content_version_hash=content_version_hash,
+        provider_serialized_hash=provider_serialized_hash,
+        request_ordinal=request_ordinal,
+        transport_location="messages",
+    )
+    lifecycle_state = str(prefix_identity.get("lifecycle_state") or "").strip()
+    cache_read_expectation = str(prefix_identity.get("cache_read_expectation") or "").strip()
+    included = (
+        cache_read_expectation == "expected_read"
+        and (
+            lane == "global_static_prefix"
+            or (lane == "provider_visible_context_prefix" and lifecycle_state == "confirmed_frame_replay")
+        )
+    )
     return {
         "prefix_family": _message_prefix_family(lane),
         "semantic_source": semantic_source,
-        "logical_segment_ref": _stable_logical_segment_ref(
-            kind=kind,
-            semantic_source=semantic_source,
-            semantic_slot=semantic_slot,
-            content_hash=content_hash,
-        ),
+        "logical_segment_ref": str(prefix_identity.get("logical_segment_ref") or ""),
+        "prefix_segment_ref": str(prefix_identity.get("logical_segment_ref") or ""),
         "semantic_slot": semantic_slot,
         "physical_prefix_lane": lane,
+        "prefix_identity": prefix_identity,
         "boundary_participation": "included" if included else "excluded",
-        "exclusion_reason": "" if included else _message_exclusion_reason(lane),
+        "exclusion_reason": "" if included else _message_exclusion_reason(lane, lifecycle_state=lifecycle_state),
         "consumer_contracts": _PREFIX_CONSUMER_CONTRACTS,
         "forbidden_authorities": _SEGMENT_IDENTITY_FORBIDDEN_AUTHORITIES,
     }
@@ -579,8 +642,11 @@ def _message_prefix_family(lane: str) -> str:
     return "dynamic_tail"
 
 
-def _message_exclusion_reason(lane: str) -> str:
+def _message_exclusion_reason(lane: str, *, lifecycle_state: str = "") -> str:
     normalized = str(lane or "").strip()
+    lifecycle = str(lifecycle_state or "").strip()
+    if normalized == "provider_visible_context_prefix" and lifecycle != "confirmed_frame_replay":
+        return f"provider_visible_context_prefix_not_confirmed:{lifecycle or 'unknown_lifecycle'}"
     if normalized in {"current_turn_tail", "never_replay_tail"}:
         return normalized
     if normalized:
@@ -604,21 +670,31 @@ def _first_text(*values: Any) -> str:
     return ""
 
 
-def _stable_logical_segment_ref(
+def _prefix_identity_dict(
     *,
     kind: str,
+    metadata: dict[str, Any],
+    source_ref: str,
+    physical_lane: str,
     semantic_source: str,
     semantic_slot: str,
-    content_hash: str,
-) -> str:
-    seed = {
-        "kind": str(kind or ""),
-        "semantic_source": str(semantic_source or ""),
-        "semantic_slot": str(semantic_slot or ""),
-        "content_hash": str(content_hash or ""),
-    }
-    digest = _stable_text_hash(canonical_json(seed)).removeprefix("sha256:")[:16]
-    return f"logical:{str(kind or 'segment')}:{digest}"
+    content_version_hash: str,
+    provider_serialized_hash: str,
+    request_ordinal: int,
+    transport_location: str,
+) -> dict[str, Any]:
+    return build_context_prefix_identity(
+        kind=kind,
+        metadata=metadata,
+        source_ref=source_ref,
+        physical_lane=physical_lane,
+        semantic_source=semantic_source,
+        semantic_slot=semantic_slot,
+        content_version_hash=content_version_hash,
+        provider_serialized_hash=provider_serialized_hash,
+        request_ordinal=request_ordinal,
+        transport_location=transport_location,
+    ).to_dict()
 
 
 def _tool_schema_logical_segment_ref(
@@ -828,8 +904,10 @@ def _physical_cache_spine_segments(
         if participation == "blocker":
             break
         if participation == "included":
-            result.append(segment)
-            continue
+            if _is_physical_cache_spine_segment(segment):
+                result.append(segment)
+                continue
+            break
         if str(segment.transport_location or "") in {"tools", "messages"}:
             break
         break
@@ -838,6 +916,10 @@ def _physical_cache_spine_segments(
 
 def _is_cache_family_selector_segment(segment: ProviderPayloadSegment) -> bool:
     return str(segment.boundary_participation or "") == "non_token_family_selector"
+
+
+def _is_physical_cache_spine_segment(segment: ProviderPayloadSegment) -> bool:
+    return _is_provider_tool_schema_prefix_segment(segment) or _is_physical_cache_spine_message_segment(segment)
 
 
 def _is_provider_tool_schema_prefix_segment(segment: ProviderPayloadSegment) -> bool:
@@ -850,13 +932,18 @@ def _is_provider_tool_schema_prefix_segment(segment: ProviderPayloadSegment) -> 
 
 
 def _is_physical_cache_spine_message_segment(segment: ProviderPayloadSegment) -> bool:
+    prefix_identity = dict(segment.prefix_identity or {})
+    lifecycle_state = str(prefix_identity.get("lifecycle_state") or "").strip()
+    cache_read_expectation = str(prefix_identity.get("cache_read_expectation") or "").strip()
+    lane = str(segment.physical_prefix_lane or "")
     return (
         str(segment.transport_location or "") == "messages"
         and str(segment.boundary_participation or "") == "included"
-        and str(segment.physical_prefix_lane or "") in {
-            "global_static_prefix",
-            "provider_visible_context_prefix",
-        }
+        and cache_read_expectation == "expected_read"
+        and (
+            lane == "global_static_prefix"
+            or (lane == "provider_visible_context_prefix" and lifecycle_state == "confirmed_frame_replay")
+        )
     )
 
 
@@ -891,10 +978,14 @@ def _physical_cache_spine_prefix_diagnostics(
                 "role": segment.role,
                 "source_ref": segment.source_ref,
                 "content_hash": segment.content_hash,
+                "content_version_hash": segment.content_version_hash,
+                "provider_serialized_hash": segment.provider_serialized_hash,
                 "byte_length": int(segment.byte_length or 0),
                 "prefix_family": segment.prefix_family,
                 "semantic_source": segment.semantic_source,
                 "logical_segment_ref": segment.logical_segment_ref,
+                "prefix_segment_ref": segment.prefix_segment_ref,
+                "prefix_identity": dict(segment.prefix_identity or {}),
                 "semantic_slot": segment.semantic_slot,
                 "physical_prefix_lane": lane,
                 "boundary_participation": segment.boundary_participation,
@@ -963,10 +1054,14 @@ def _segment_projection(segment: ProviderPayloadSegment) -> dict[str, Any]:
         "role": segment.role,
         "source_ref": segment.source_ref,
         "content_hash": segment.content_hash,
+        "content_version_hash": segment.content_version_hash,
+        "provider_serialized_hash": segment.provider_serialized_hash,
         "byte_length": int(segment.byte_length or 0),
         "prefix_family": segment.prefix_family,
         "semantic_source": segment.semantic_source,
         "logical_segment_ref": segment.logical_segment_ref,
+        "prefix_segment_ref": segment.prefix_segment_ref,
+        "prefix_identity": dict(segment.prefix_identity or {}),
         "semantic_slot": segment.semantic_slot,
         "physical_prefix_lane": segment.physical_prefix_lane,
         "boundary_participation": segment.boundary_participation,
@@ -1042,12 +1137,20 @@ def _with_provider_payload_ordinal(
     ordinal: int,
 ) -> ProviderPayloadSegment:
     stable_segment_id = _provider_payload_segment_id(segment=segment, ordinal=ordinal)
-    if int(segment.ordinal or 0) == int(ordinal or 0) and str(segment.segment_id or "") == stable_segment_id:
+    prefix_identity = dict(segment.prefix_identity or {})
+    if prefix_identity:
+        prefix_identity["request_ordinal"] = int(ordinal or 0)
+    if (
+        int(segment.ordinal or 0) == int(ordinal or 0)
+        and str(segment.segment_id or "") == stable_segment_id
+        and dict(segment.prefix_identity or {}) == prefix_identity
+    ):
         return segment
     return replace(
         segment,
         ordinal=int(ordinal or 0),
         segment_id=stable_segment_id,
+        prefix_identity=prefix_identity,
     )
 
 
@@ -1060,6 +1163,10 @@ def _provider_payload_segment_id(*, segment: ProviderPayloadSegment, ordinal: in
                 "transport_location": str(segment.transport_location or ""),
                 "role": str(segment.role or ""),
                 "content_hash": str(segment.content_hash or ""),
+                "content_version_hash": str(segment.content_version_hash or ""),
+                "provider_serialized_hash": str(segment.provider_serialized_hash or ""),
+                "logical_segment_ref": str(segment.logical_segment_ref or ""),
+                "prefix_segment_ref": str(segment.prefix_segment_ref or ""),
                 "physical_prefix_lane": str(segment.physical_prefix_lane or ""),
                 "boundary_participation": str(segment.boundary_participation or ""),
             }
@@ -1078,7 +1185,7 @@ def _segments_hash(segments: list[ProviderPayloadSegment]) -> str:
                 {
                     "transport_location": segment.transport_location,
                     "role": segment.role,
-                    "content_hash": segment.content_hash,
+                    "provider_serialized_hash": segment.provider_serialized_hash or segment.content_hash,
                     "physical_prefix_lane": segment.physical_prefix_lane,
                     "boundary_participation": segment.boundary_participation,
                 }
@@ -1134,10 +1241,14 @@ def _transport_stable_contract(
                 "role": segment.role,
                 "source_ref": segment.source_ref,
                 "content_hash": segment.content_hash,
+                "content_version_hash": segment.content_version_hash,
+                "provider_serialized_hash": segment.provider_serialized_hash,
                 "byte_length": int(segment.byte_length or 0),
                 "prefix_family": segment.prefix_family,
                 "semantic_source": segment.semantic_source,
                 "logical_segment_ref": segment.logical_segment_ref,
+                "prefix_segment_ref": segment.prefix_segment_ref,
+                "prefix_identity": dict(segment.prefix_identity or {}),
                 "semantic_slot": segment.semantic_slot,
                 "boundary_participation": segment.boundary_participation,
                 "cache_role": segment.cache_role,

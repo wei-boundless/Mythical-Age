@@ -692,7 +692,8 @@ export function sessionContextMeterPresentation(tokenStats: TokenStats | null) {
   const thresholdRatio = contextThresholdRatio(displayTokens, thresholdTokens);
   const usedPercent = percentFromRatio(thresholdRatio);
   const thresholdPercentText = thresholdTokens > 0 ? `${usedPercent}%` : "--";
-  const levelClass = contextThresholdLevelClass(thresholdRatio);
+  const prefixCacheWarningTitle = providerPrefixCacheWarningTitle(tokenStats);
+  const levelClass = prefixCacheWarningTitle ? "cache_under_read" : contextThresholdLevelClass(thresholdRatio);
   const remainingTokens = Math.max(0, thresholdTokens - displayTokens);
   const usedTokenText = formatTokenCount(displayTokens);
   const thresholdTokenText = thresholdTokens > 0 ? formatTokenCount(thresholdTokens) : "--";
@@ -702,6 +703,7 @@ export function sessionContextMeterPresentation(tokenStats: TokenStats | null) {
     thresholdTokens > 0 ? `阈值占比 ${thresholdPercentText}` : "",
     contextWindowTokens > 0 ? `模型窗口 ${formatExactTokenCount(contextWindowTokens)} tokens` : "",
     thresholdTokens > 0 ? `距自动压缩还剩 ${formatExactTokenCount(remainingTokens)} tokens` : "",
+    prefixCacheWarningTitle,
   ].filter(Boolean).join("；");
   return {
     usedPercent,
@@ -712,8 +714,38 @@ export function sessionContextMeterPresentation(tokenStats: TokenStats | null) {
   };
 }
 
+function providerPrefixCacheWarningTitle(tokenStats: TokenStats) {
+  const cacheLog = tokenStats.provider_cache_log;
+  if (!cacheLog) {
+    return "";
+  }
+  const records = Array.isArray(cacheLog.records) ? cacheLog.records : [];
+  const latest = records[0];
+  const latestHealth = recordValue(latest?.provider_prefix_cache_health ?? cacheLog.summary?.latest_prefix_health);
+  const latestStatus = textValue(latest?.cache_status ?? cacheLog.summary?.latest_status);
+  const latestVerdict = textValue(latestHealth.verdict);
+  const latestUnderReadTokens = nonNegativeTokenCount(
+    cacheLog.summary?.latest_under_read_tokens
+      ?? latest?.provider_under_read_tokens
+      ?? latestHealth.under_read_tokens,
+  );
+  if (
+    latestStatus === "provider_under_read" ||
+    latestVerdict === "provider_under_read" ||
+    latestUnderReadTokens > 0
+  ) {
+    return `最新前缀缓存未完整命中，under-read ${formatExactTokenCount(latestUnderReadTokens)} tokens`;
+  }
+  return "";
+}
+
 function percentFromRatio(value: unknown) {
   return Math.max(0, Math.min(100, Math.round(Number(value || 0) * 100)));
+}
+
+function nonNegativeTokenCount(value: unknown) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? Math.max(0, Math.round(number)) : 0;
 }
 
 function compactionPressureTokens(tokenStats: TokenStats) {

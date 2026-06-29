@@ -103,9 +103,12 @@ class PromptStabilityReporter:
         self,
         report: PromptStabilityReport,
         usage: ModelTokenUsageRecord | None,
+        cache_record: Any | None = None,
     ) -> PromptStabilityReport:
         if usage is None:
             return report
+        cache_diagnostics = dict(getattr(cache_record, "diagnostics", {}) or {})
+        provider_prefix_cache_health = dict(cache_diagnostics.get("provider_prefix_cache_health") or {})
         cached_tokens = max(int(usage.cached_tokens or 0), int(usage.cache_read_tokens or 0))
         cache_miss_tokens = int(usage.cache_miss_tokens or 0)
         prompt_tokens = int(usage.prompt_tokens or 0)
@@ -127,6 +130,7 @@ class PromptStabilityReporter:
         }
         likely_break_reason = _likely_break_reason_with_provider_usage(
             diagnostics=dict(report.diagnostics or {}),
+            provider_prefix_cache_health=provider_prefix_cache_health,
             cached_tokens=cached_tokens,
             prompt_tokens=prompt_tokens,
         )
@@ -136,6 +140,7 @@ class PromptStabilityReporter:
             diagnostics={
                 **dict(report.diagnostics or {}),
                 "provider_usage_ref": usage.usage_id,
+                "provider_prefix_cache_health": provider_prefix_cache_health,
                 "likely_break_reason": likely_break_reason,
             },
         )
@@ -166,9 +171,15 @@ def _section_from_segment(segment: PromptSegment) -> PromptStabilitySection:
         source_ref=segment.source,
         cache_role=segment.cache_role,
         prefix_tier=str(getattr(segment, "prefix_tier", "") or "volatile"),
+        transport_location=str(getattr(segment, "transport_location", "") or ""),
+        logical_segment_ref=str(getattr(segment, "logical_segment_ref", "") or ""),
+        semantic_slot=str(getattr(segment, "semantic_slot", "") or ""),
+        content_version_hash=str(getattr(segment, "content_version_hash", "") or segment.content_hash or ""),
+        provider_serialized_hash=str(getattr(segment, "provider_serialized_hash", "") or segment.content_hash or ""),
         content_hash=segment.content_hash,
         predicted_tokens=int(segment.predicted_tokens or 0),
         volatility_reason=str(metadata.get("volatility_reason") or metadata.get("cache_impact") or ""),
+        prefix_identity=dict(getattr(segment, "prefix_identity", {}) or {}),
     )
 
 
@@ -219,6 +230,7 @@ def _section_from_provider_payload_segment(
     metadata = dict(payload.get("metadata") or {})
     kind = str(payload.get("kind") or "")
     content_hash = str(payload.get("content_hash") or "")
+    prefix_identity = dict(payload.get("prefix_identity") or {})
     return PromptStabilitySection(
         section_id=str(payload.get("segment_id") or ""),
         kind=kind,
@@ -226,9 +238,15 @@ def _section_from_provider_payload_segment(
         source_ref=str(payload.get("source_ref") or ""),
         cache_role=str(payload.get("cache_role") or "volatile"),
         prefix_tier=str(payload.get("prefix_tier") or "volatile"),
+        transport_location=str(payload.get("transport_location") or ""),
+        logical_segment_ref=str(payload.get("logical_segment_ref") or prefix_identity.get("logical_segment_ref") or ""),
+        semantic_slot=str(payload.get("semantic_slot") or prefix_identity.get("semantic_slot") or ""),
+        content_version_hash=str(payload.get("content_version_hash") or prefix_identity.get("content_version_hash") or content_hash),
+        provider_serialized_hash=str(payload.get("provider_serialized_hash") or prefix_identity.get("provider_serialized_hash") or content_hash),
         content_hash=content_hash,
         predicted_tokens=int(token_lookup.get((kind, content_hash)) or token_lookup.get(("", content_hash)) or 0),
         volatility_reason=str(metadata.get("volatility_reason") or metadata.get("cache_impact") or ""),
+        prefix_identity=prefix_identity,
     )
 
 
@@ -292,6 +310,45 @@ def _diff_stable_sections(
         return [], {}
     previous_sections = list(previous_report.stable_sections)
     changed: list[dict[str, Any]] = []
+    previous_by_identity = {
+        _section_identity(section): section
+        for section in previous_sections
+        if _section_identity(section)
+    }
+    current_by_identity = {
+        _section_identity(section): section
+        for section in current_sections
+        if _section_identity(section)
+    }
+    for identity in sorted(set(previous_by_identity) & set(current_by_identity)):
+        previous = previous_by_identity[identity]
+        current = current_by_identity[identity]
+        if int(previous.ordinal or 0) != int(current.ordinal or 0):
+            changed.append(
+                {
+                    "ordinal": current.ordinal,
+                    "change_type": "position_changed",
+                    "logical_segment_ref": identity,
+                    "previous_ordinal": previous.ordinal,
+                    "current_ordinal": current.ordinal,
+                    "kind": current.kind,
+                    "semantic_slot": current.semantic_slot,
+                }
+            )
+        if _section_content_version(previous) != _section_content_version(current):
+            changed.append(
+                {
+                    "ordinal": current.ordinal,
+                    "change_type": "content_version_changed",
+                    "logical_segment_ref": identity,
+                    "kind": current.kind,
+                    "semantic_slot": current.semantic_slot,
+                    "previous_content_version_hash": _section_content_version(previous),
+                    "current_content_version_hash": _section_content_version(current),
+                    "previous_provider_serialized_hash": previous.provider_serialized_hash,
+                    "current_provider_serialized_hash": current.provider_serialized_hash,
+                }
+            )
     max_len = max(len(previous_sections), len(current_sections))
     for index in range(max_len):
         previous = previous_sections[index] if index < len(previous_sections) else None
@@ -307,28 +364,54 @@ def _diff_stable_sections(
             }
             changed.append(item)
             continue
-        if (
-            previous.cache_role,
-            previous.content_hash,
-        ) != (
-            current.cache_role,
-            current.content_hash,
-        ):
+        previous_identity = _section_identity(previous)
+        current_identity = _section_identity(current)
+        if previous_identity and current_identity and previous_identity == current_identity:
+            continue
+        if previous_identity != current_identity:
             changed.append(
                 {
                     "ordinal": current.ordinal,
-                    "change_type": "section_changed",
+                    "change_type": "identity_changed",
                     "previous_section_id": previous.section_id,
                     "current_section_id": current.section_id,
+                    "previous_logical_segment_ref": previous_identity,
+                    "current_logical_segment_ref": current_identity,
+                    "previous_semantic_slot": previous.semantic_slot,
+                    "current_semantic_slot": current.semantic_slot,
                     "previous_kind": previous.kind,
                     "current_kind": current.kind,
                     "previous_source_ref": previous.source_ref,
                     "current_source_ref": current.source_ref,
-                    "previous_content_hash": previous.content_hash,
-                    "current_content_hash": current.content_hash,
                 }
             )
-    return changed, changed[0] if changed else {}
+    ordered = sorted(
+        changed,
+        key=lambda item: (
+            int(item.get("ordinal") or item.get("current_ordinal") or 0),
+            str(item.get("change_type") or ""),
+        ),
+    )
+    return ordered, ordered[0] if ordered else {}
+
+
+def _section_identity(section: PromptStabilitySection) -> str:
+    identity = dict(getattr(section, "prefix_identity", {}) or {})
+    return str(
+        getattr(section, "logical_segment_ref", "")
+        or identity.get("logical_segment_ref")
+        or getattr(section, "section_id", "")
+        or ""
+    )
+
+
+def _section_content_version(section: PromptStabilitySection) -> str:
+    return str(
+        getattr(section, "content_version_hash", "")
+        or getattr(section, "provider_serialized_hash", "")
+        or getattr(section, "content_hash", "")
+        or ""
+    )
 
 
 def _diagnostics(
@@ -345,11 +428,14 @@ def _diagnostics(
         {
             "has_previous_report": previous_report is not None,
             "physical_cache_spine_changed": physical_cache_spine_changed,
+            "physical_cache_spine_change_type": str(first_changed.get("change_type") or ""),
+            "physical_cache_spine_change_summary": dict(first_changed or {}),
             "dynamic_params_changed": dynamic_params_changed,
             "dynamic_param_diff": dynamic_param_diff,
             "likely_break_reason": _likely_break_reason(
                 physical_cache_spine_changed=physical_cache_spine_changed,
                 dynamic_params_changed=dynamic_params_changed,
+                first_changed=first_changed,
             ),
             "provider_payload": provider_payload_boundary_diagnostics(
                 model_request=model_request,
@@ -382,10 +468,18 @@ def _top_level_diff(previous: dict[str, Any], current: dict[str, Any]) -> dict[s
     return diff
 
 
-def _likely_break_reason(*, physical_cache_spine_changed: bool, dynamic_params_changed: bool) -> str:
+def _likely_break_reason(
+    *,
+    physical_cache_spine_changed: bool,
+    dynamic_params_changed: bool,
+    first_changed: dict[str, Any],
+) -> str:
     if dynamic_params_changed:
-        return "dynamic_request_params_changed"
+        return "transport_contract_changed"
     if physical_cache_spine_changed:
+        change_type = str(dict(first_changed or {}).get("change_type") or "").strip()
+        if change_type in {"identity_changed", "content_version_changed", "position_changed"}:
+            return change_type
         return "physical_cache_spine_changed"
     return "physical_cache_spine_unchanged"
 
@@ -393,11 +487,16 @@ def _likely_break_reason(*, physical_cache_spine_changed: bool, dynamic_params_c
 def _likely_break_reason_with_provider_usage(
     *,
     diagnostics: dict[str, Any],
+    provider_prefix_cache_health: dict[str, Any],
     cached_tokens: int,
     prompt_tokens: int,
 ) -> str:
-    if int(cached_tokens or 0) > 0:
-        return "provider_cache_hit"
+    health = dict(provider_prefix_cache_health or {})
+    verdict = str(health.get("verdict") or "").strip()
+    if verdict == "provider_under_read":
+        return "provider_prefix_under_read"
+    if verdict == "covered":
+        return "provider_prefix_cache_covered"
     existing = str(diagnostics.get("likely_break_reason") or "")
     if existing and existing not in {"stable_prefix_unchanged", "physical_cache_spine_unchanged"}:
         return existing

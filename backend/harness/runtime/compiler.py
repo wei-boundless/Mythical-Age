@@ -632,12 +632,12 @@ class RuntimeCompiler:
         )
         if recoverable_work_payload:
             volatile_runtime_payload["recoverable_work"] = recoverable_work_payload
-        interrupted_turn_payload = _interrupted_turn_work_model_visible_payload(
-            session_context_payload.get("interrupted_turn_work"),
+        turn_memory_recovery_payload = _turn_memory_recovery_model_visible_payload(
+            session_context_payload.get("turn_memory_recovery"),
             current_user_message=user_message,
         )
-        if interrupted_turn_payload:
-            volatile_runtime_payload["interrupted_turn_work"] = interrupted_turn_payload
+        if turn_memory_recovery_payload:
+            volatile_runtime_payload["turn_memory_recovery"] = turn_memory_recovery_payload
         recovery_boundary_receipt_payload = _recovery_boundary_receipt_model_visible_payload(
             session_context_payload.get("recovery_boundary_receipt")
         )
@@ -866,7 +866,7 @@ class RuntimeCompiler:
                     compression_role="summarize",
                     metadata={
                         **_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
-                        **_current_user_context_append_metadata(current_turn_delta_payload),
+                        **_current_user_context_append_metadata(current_turn_delta_payload, turn_id=turn_id),
                     },
                 ),
                 _runtime_payload_spec(
@@ -1000,7 +1000,7 @@ class RuntimeCompiler:
             "recent_work_outcome",
             "current_work_boundary_receipt",
             "recoverable_work",
-            "interrupted_turn_work",
+            "turn_memory_recovery",
             "recovery_boundary_receipt",
             "runtime_observations",
             "turn_input_facts",
@@ -2577,7 +2577,7 @@ class RuntimeCompiler:
                     compression_role="ref_only",
                     metadata={
                         **_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
-                        **_current_user_context_append_metadata(current_turn_delta_payload),
+                        **_current_user_context_append_metadata(current_turn_delta_payload, turn_id=turn_id),
                     },
                 ),
             ],
@@ -3170,62 +3170,80 @@ def _continuation_record_model_visible_payload(record: dict[str, Any] | None) ->
     )
 
 
-def _interrupted_turn_work_model_visible_payload(
-    record: dict[str, Any] | None,
+def _turn_memory_recovery_model_visible_payload(
+    context: dict[str, Any] | None,
     *,
     current_user_message: str = "",
 ) -> dict[str, Any]:
-    payload = dict(record or {})
+    payload = dict(context or {})
     if not payload:
         return {}
-    if str(payload.get("authority") or "") != "harness.continuation.interrupted_turn_record":
+    if str(payload.get("authority") or "") != "runtime.turn_memory.recovery_context":
         return {}
-    if str(payload.get("state") or "") != "interrupted_continuation_context":
+    decision = dict(payload.get("recovery_decision") or {})
+    if not bool(decision.get("recoverable") is True):
         return {}
-    visible_prefix = str(payload.get("visible_assistant_prefix") or "")
-    agent_contract_feedback = _agent_contract_feedback_model_visible_payload(
-        payload.get("agent_contract_feedback")
+    decision_payload = dict(decision.get("payload") or {})
+    current_context = dict(payload.get("current_turn_context") or {})
+    handoff_context = dict(payload.get("handoff_context") or {})
+    pending_commit_summary = dict(
+        payload.get("pending_commit_summary")
+        or decision_payload.get("pending_commit_summary")
+        or {}
     )
-    visible_prefix_payload = _drop_empty_payload(
-        {
-            "content": visible_prefix,
-            "truncated_from_start": bool(payload.get("visible_assistant_prefix_truncated") is True),
-            "continuation_rule": (
-                "Do not repeat this already visible assistant prefix. Continue from the next useful token, "
-                "and only restate context if the user explicitly asks for a recap."
-            )
-            if visible_prefix
-            else "",
-        }
+    pending_tool_summary = dict(
+        payload.get("pending_tool_summary")
+        or decision_payload.get("pending_tool_summary")
+        or {}
     )
+    action = str(decision.get("action") or "")
     return _drop_empty_payload(
         {
-            "resume_ref": str(payload.get("continuation_id") or ""),
-            "state": "interrupted_continuation_context",
-            "continuation_allowed": True,
-            "resume_allowed": False,
-            "resume_strategy": str(payload.get("resume_strategy") or "continue_next_single_agent_turn"),
-            "interruption_kind": str(payload.get("interruption_kind") or ""),
-            "terminal_status": str(payload.get("terminal_status") or ""),
-            "terminal_reason": str(payload.get("terminal_reason") or ""),
-            "latest_progress": str(payload.get("latest_progress") or ""),
-            "latest_step": str(payload.get("latest_step") or ""),
-            "next_recommended_step": str(payload.get("next_recommended_step") or ""),
-            "model_visible_summary": str(payload.get("model_visible_summary") or ""),
-            "agent_contract_feedback": agent_contract_feedback,
+            "authority": "harness.runtime.compiler.turn_memory_recovery",
+            "state": "turn_memory_recovery_context",
+            "previous_turn_id": str(payload.get("previous_turn_id") or decision.get("turn_id") or ""),
+            "turn_run_id": str(payload.get("turn_run_id") or ""),
+            "branch_id": str(payload.get("branch_id") or ""),
+            "status": str(payload.get("status") or ""),
+            "phase": str(payload.get("phase") or ""),
+            "recovery_state": str(payload.get("recovery_state") or ""),
+            "recovery_decision": _drop_empty_payload(
+                {
+                    "action": action,
+                    "reason": str(decision.get("reason") or ""),
+                    "commit_state": str(decision.get("commit_state") or ""),
+                    "recoverable": True,
+                }
+            ),
             "current_user_instruction": _compact_text(current_user_message, limit=4000),
-            "visible_assistant_prefix": visible_prefix_payload,
-            "evidence_continuity": {
-                "current_packet_exact_evidence_ref": "Task current exact read evidence",
-                "reuse_rule": (
-                    "Treat current packet read_evidence_injection entries as inherited same-session evidence. "
-                    "Reuse visible exact evidence when it is present and not stale; re-read only when missing, stale, changed, or too coarse for the requested judgment."
-                ),
-            },
+            "turn_refs": _drop_empty_payload(
+                {
+                    "current_user_message_ref": str(current_context.get("current_user_message_ref") or ""),
+                    "physical_prefix_frame_id": str(payload.get("physical_prefix_frame_id") or handoff_context.get("physical_prefix_frame_id") or ""),
+                    "provider_request_refs": list(payload.get("provider_request_refs") or [])[-8:],
+                    "provider_payload_manifest_refs": list(payload.get("provider_payload_manifest_refs") or [])[-8:],
+                    "closed_tool_round_refs": list(payload.get("closed_tool_round_refs") or handoff_context.get("closed_tool_round_refs") or [])[-8:],
+                    "active_steer_refs": list(payload.get("active_steer_refs") or handoff_context.get("active_steer_refs") or [])[-8:],
+                    "assistant_draft_ref": str(payload.get("assistant_draft_ref") or decision_payload.get("assistant_draft_ref") or ""),
+                    "assistant_draft_sha256": str(payload.get("assistant_draft_sha256") or decision_payload.get("assistant_draft_sha256") or ""),
+                    "assistant_final_ref": str(payload.get("assistant_final_ref") or decision_payload.get("assistant_final_ref") or ""),
+                    "assistant_final_sha256": str(payload.get("assistant_final_sha256") or decision_payload.get("assistant_final_sha256") or ""),
+                    "frame_promotion_ref": str(payload.get("frame_promotion_ref") or decision_payload.get("frame_promotion_ref") or ""),
+                    "current_append_hash": str(payload.get("current_append_hash") or ""),
+                }
+            ),
+            "pending_summaries": _drop_empty_payload(
+                {
+                    "tool": pending_tool_summary,
+                    "commit": pending_commit_summary,
+                }
+            ),
             "followup_contract": [
-                "Treat the current user request as a continuation of the interrupted ordinary conversation turn.",
-                "Continue from latest_progress, exact read evidence, and visible_assistant_prefix instead of starting a new unrelated answer.",
-                "If visible_assistant_prefix.content is present, do not repeat that prefix; append the missing continuation.",
+                "Treat these TurnMemory facts as the authoritative pending state for the previous ordinary conversation turn.",
+                "Keep the same user goal, constraints, tool facts, and confirmed evidence unless the current user instruction changes them.",
+                "If recovery_decision.action is retry_commit or retry_frame_promotion, do not regenerate an assistant final that already exists; preserve the recorded final refs and let the runtime close the missing boundary.",
+                "If recovery_decision.action is recover_interrupted_turn or recover_from_checkpoint, continue the ordinary conversation from the recorded pending state and the current user instruction.",
+                "Do not call resume_recoverable_work for this payload; that action belongs to task recovery, not ordinary single-agent turn recovery.",
             ],
             "allowed_followup_posture": "ordinary_turn_continuation",
             "forbidden_action": "resume_recoverable_work",
@@ -4216,11 +4234,14 @@ def _dynamic_context_segment_metadata(
     raise ValueError(f"dynamic context section report missing for source: {source_text}")
 
 
-def _current_user_context_append_metadata(payload: dict[str, Any] | None) -> dict[str, Any]:
+def _current_user_context_append_metadata(payload: dict[str, Any] | None, *, turn_id: str = "") -> dict[str, Any]:
     user_message = str(dict(payload or {}).get("user_message") or "")
+    origin_ref = f"turn:{str(turn_id or '').strip()}:current_user_context" if str(turn_id or "").strip() else ""
     return {
         "authority_class": "current_user_context",
         "content_source": "harness.runtime.compiler.current_turn_user_context",
+        "context_origin_authority": "harness.runtime.compiler.current_turn_user_context",
+        "context_origin_ref": origin_ref,
         "runtime_fragment_role": "current_user_request",
         "context_cache_section": CONTEXT_APPEND,
         "context_prefix_cache_scope": "none",

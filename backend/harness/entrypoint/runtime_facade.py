@@ -33,6 +33,7 @@ from harness.entrypoint.current_work_boundary import (
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
 from runtime.context_management.session_compaction import auto_compact_session_if_needed, compact_session_history
 from runtime.shared.history_assembler import assemble_runtime_history
+from runtime.turn_memory import build_turn_memory_recovery_context
 from permissions.policy import normalize_permission_mode
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.identity import normalize_agent_id
@@ -652,10 +653,25 @@ class HarnessRuntimeFacade:
                 )
                 continuation_record = continuation_selection.record
                 interrupted_turn_record = continuation_selection.interrupted_turn
-                if continuation_record is not None or interrupted_turn_record is not None:
-                    session_context["continuation_selection"] = continuation_selection.to_dict()
-                if interrupted_turn_record is not None:
-                    session_context["interrupted_turn_work"] = interrupted_turn_record.to_dict()
+                turn_memory_recovery_context = build_turn_memory_recovery_context(
+                    self.single_agent_runtime_host.turn_memory_store,
+                    session_id=request.session_id,
+                )
+                if (
+                    continuation_record is not None
+                    or interrupted_turn_record is not None
+                    or turn_memory_recovery_context
+                ):
+                    selection_payload = continuation_selection.to_dict()
+                    if turn_memory_recovery_context:
+                        selection_payload["turn_memory_recovery"] = {
+                            "selected_turn_id": str(turn_memory_recovery_context.get("previous_turn_id") or ""),
+                            "decision": dict(turn_memory_recovery_context.get("recovery_decision") or {}),
+                            "authority": str(turn_memory_recovery_context.get("authority") or ""),
+                        }
+                    session_context["continuation_selection"] = selection_payload
+                if turn_memory_recovery_context:
+                    session_context["turn_memory_recovery"] = turn_memory_recovery_context
                 recent_work_outcome: dict[str, Any] = {}
                 recoverable_work_candidate: dict[str, Any] = {}
                 if continuation_record is not None and continuation_record.state != "terminal_read_only":

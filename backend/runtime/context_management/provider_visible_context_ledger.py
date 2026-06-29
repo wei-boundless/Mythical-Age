@@ -1107,6 +1107,7 @@ def _provider_visible_message(message: dict[str, Any]) -> dict[str, Any]:
 
 def _provider_visible_item_key(spec: dict[str, Any], *, provider_visible_hash: str, policy: Any) -> str:
     metadata = dict(spec.get("metadata") or {})
+    prefix_identity = dict(spec.get("prefix_identity") or metadata.get("prefix_identity") or {})
     explicit = str(
         metadata.get("provider_visible_context_ledger_item_key")
         or metadata.get("append_only_context_item_key")
@@ -1115,22 +1116,58 @@ def _provider_visible_item_key(spec: dict[str, Any], *, provider_visible_hash: s
     if explicit:
         return explicit
     identity_policy = str(getattr(policy, "identity_policy", "") or "").strip()
-    if identity_policy == "source_ref_stable":
-        source_ref = str(spec.get("source_ref") or "").strip()
-        if source_ref:
-            return _stable_json_hash(
-                {
-                    "normalization": PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT,
-                    "kind": str(spec.get("kind") or ""),
-                    "source_ref": source_ref,
-                }
-            )
+    semantic_slot = str(
+        metadata.get("context_semantic_slot")
+        or metadata.get("semantic_slot")
+        or getattr(policy, "semantic_slot", "")
+        or spec.get("kind")
+        or ""
+    ).strip()
+    origin_authority = str(
+        metadata.get("context_origin_authority")
+        or metadata.get("prefix_origin_authority")
+        or metadata.get("origin_authority")
+        or metadata.get("content_source")
+        or metadata.get("context_semantic_source")
+        or metadata.get("semantic_source")
+        or metadata.get("source_kind")
+        or metadata.get("context_source_kind")
+        or spec.get("kind")
+        or ""
+    ).strip()
+    origin_ref = str(
+        metadata.get("context_origin_ref")
+        or metadata.get("prefix_origin_ref")
+        or metadata.get("origin_ref")
+        or metadata.get("stable_origin_ref")
+        or prefix_identity.get("origin_ref")
+        or prefix_identity.get("logical_segment_ref")
+        or metadata.get("logical_segment_ref")
+        or spec.get("logical_segment_ref")
+        or metadata.get("provider_visible_context_candidate_source_ref")
+        or spec.get("source_ref")
+        or ""
+    ).strip()
+    if origin_ref:
+        return _stable_json_hash(
+            {
+                "schema": "provider_visible_context_item_identity.v1",
+                "normalization": PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT,
+                "identity_policy": identity_policy or "origin_ref_stable",
+                "kind": str(spec.get("kind") or ""),
+                "semantic_slot": semantic_slot,
+                "origin_authority": origin_authority,
+                "origin_ref": origin_ref,
+            }
+        )
     return _stable_json_hash(
         {
+            "schema": "provider_visible_context_item_identity.v1",
             "normalization": PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT,
+            "identity_policy": "missing_origin_ref_diagnostic",
             "kind": str(spec.get("kind") or ""),
-            "source_ref": str(spec.get("source_ref") or ""),
-            "provider_visible_hash": str(provider_visible_hash or ""),
+            "semantic_slot": semantic_slot,
+            "origin_authority": origin_authority,
         }
     )
 

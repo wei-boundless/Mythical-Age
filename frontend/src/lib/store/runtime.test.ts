@@ -3906,7 +3906,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         runtime_task_run_id: taskRunId,
       },
       latest_event_offset: 0,
-      is_reconnectable: true,
+      live_reconnectable: true,
       replay_url: "/api/chat/runs/strun:detached-steer/events/replay",
       live_ws_url: "/api/chat/sessions/session-detached-steer/live",
     });
@@ -4001,7 +4001,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         active_turn_input_policy: "steer",
       },
       latest_event_offset: 0,
-      is_reconnectable: true,
+      live_reconnectable: true,
       replay_url: "/api/chat/runs/strun:queued-dispatch/events/replay",
       live_ws_url: "/api/chat/sessions/session-auto-active-stream/live",
     });
@@ -6336,7 +6336,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         runtime_task_run_id: "taskrun:session:existing:7",
       },
       latest_event_offset: 3,
-      is_reconnectable: true,
+      live_reconnectable: true,
       replay_url: "/api/chat/runs/strun:resume/events/replay",
       live_ws_url: "/api/chat/sessions/session:existing/live",
     });
@@ -6442,7 +6442,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         runtime_task_run_id: "taskrun:wait",
       },
       latest_event_offset: 1,
-      is_reconnectable: true,
+      live_reconnectable: true,
       replay_url: "/api/chat/runs/strun:wait/events/replay",
       live_ws_url: "/api/chat/sessions/session:wait/live",
     });
@@ -6493,7 +6493,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       status: "running",
       diagnostics: {},
       latest_event_offset: 1,
-      is_reconnectable: true,
+      live_reconnectable: true,
       replay_url: "/api/chat/runs/strun:visible-recovery/events/replay",
       live_ws_url: "/api/chat/sessions/session:visible-recovery/live",
     });
@@ -6627,7 +6627,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       root_request_ref: "chatreq:latest",
       status: "running",
       latest_event_offset: 3,
-      is_reconnectable: true,
+      live_reconnectable: true,
       replay_url: "/api/chat/runs/strun:latest/events/replay",
       live_ws_url: "/api/chat/sessions/session:latest/live",
     });
@@ -6691,7 +6691,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       root_request_ref: "chatreq:latest-after-stale",
       status: "running",
       latest_event_offset: 1,
-      is_reconnectable: true,
+      live_reconnectable: true,
       replay_url: "/api/chat/runs/strun:latest-after-stale/events/replay",
       live_ws_url: "/api/chat/sessions/session:latest-after-stale/live",
     });
@@ -6754,7 +6754,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       status: "completed",
       latest_event_offset: 9,
       terminal_event: "turn_completed",
-      is_reconnectable: true,
+      live_reconnectable: true,
       replay_url: "/api/chat/runs/strun:terminal/events/replay",
       live_ws_url: "/api/chat/sessions/session:terminal/live",
     });
@@ -8189,5 +8189,4 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 });
-
 

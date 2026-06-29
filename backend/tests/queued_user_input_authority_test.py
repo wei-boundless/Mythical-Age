@@ -336,7 +336,7 @@ def test_latest_chat_run_active_only_returns_attached_execution_signal(monkeypat
 
     assert response["stream_run_id"] == "strun:attached"
     assert response["chat_run_execution_attached"] is True
-    assert response["is_reconnectable"] is True
+    assert response["live_reconnectable"] is True
 
 
 def test_dispatch_retargets_auto_queue_item_to_live_active_turn_authority(tmp_path, monkeypatch) -> None:

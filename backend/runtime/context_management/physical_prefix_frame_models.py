@@ -19,9 +19,15 @@ class PhysicalPrefixFrameSegment:
     kind: str
     source_ref: str
     content_hash: str
+    content_version_hash: str = ""
+    provider_serialized_hash: str = ""
     byte_length: int = 0
     physical_prefix_lane: str = ""
     prefix_family: str = ""
+    logical_segment_ref: str = ""
+    prefix_segment_ref: str = ""
+    semantic_slot: str = ""
+    prefix_identity: dict[str, Any] = field(default_factory=dict)
     cache_scope: str = "none"
     cache_role: str = "volatile"
     prefix_tier: str = "volatile"
@@ -39,6 +45,7 @@ class PhysicalPrefixFrameSegment:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["provider_message"] = dict(self.provider_message)
+        payload["prefix_identity"] = dict(self.prefix_identity)
         payload["metadata"] = dict(self.metadata)
         return payload
 
@@ -53,9 +60,15 @@ class PhysicalPrefixFrameSegment:
             kind=str(item.get("kind") or ""),
             source_ref=str(item.get("source_ref") or ""),
             content_hash=str(item.get("content_hash") or ""),
+            content_version_hash=str(item.get("content_version_hash") or item.get("content_hash") or ""),
+            provider_serialized_hash=str(item.get("provider_serialized_hash") or item.get("content_hash") or ""),
             byte_length=_safe_int(item.get("byte_length")),
             physical_prefix_lane=str(item.get("physical_prefix_lane") or ""),
             prefix_family=str(item.get("prefix_family") or ""),
+            logical_segment_ref=str(item.get("logical_segment_ref") or ""),
+            prefix_segment_ref=str(item.get("prefix_segment_ref") or item.get("logical_segment_ref") or ""),
+            semantic_slot=str(item.get("semantic_slot") or ""),
+            prefix_identity=dict(item.get("prefix_identity") or {}),
             cache_scope=str(item.get("cache_scope") or "none"),
             cache_role=str(item.get("cache_role") or "volatile"),
             prefix_tier=str(item.get("prefix_tier") or "volatile"),

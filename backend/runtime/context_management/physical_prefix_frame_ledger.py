@@ -15,6 +15,7 @@ from .physical_prefix_frame_models import (
     json_stable,
     stable_json_hash,
 )
+from .context_prefix_identity import build_context_prefix_identity
 
 
 PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY = "runtime.context_management.physical_prefix_frame_ledger"
@@ -167,10 +168,6 @@ def build_physical_prefix_frame_from_provider_payload(
     segments_by_id = {str(item.get("segment_id") or ""): dict(item) for item in full_segments}
     provider_message_list = [dict(item) for item in list(provider_messages or []) if isinstance(item, dict)]
     confirmation_by_item_key = _confirmation_indexes_by_item_key(provider_visible_confirmation)
-    confirmation_by_hash = _confirmation_indexes_by_hash(
-        provider_visible_confirmation,
-        full_segments=full_segments,
-    )
     round_closed_by_id = {
         str(item.get("round_id") or ""): bool(item.get("closed") is True)
         for item in list(physical_spine.get("provider_tool_protocol_rounds") or [])
@@ -184,7 +181,6 @@ def build_physical_prefix_frame_from_provider_payload(
         physical_spine=physical_spine,
         current_append_entry_indexes=normalized_current_append,
         confirmation_by_item_key=confirmation_by_item_key,
-        confirmation_by_hash=confirmation_by_hash,
     )
     frame_segments: list[PhysicalPrefixFrameSegment] = []
     for spine_segment in frame_source_segments:
@@ -206,8 +202,6 @@ def build_physical_prefix_frame_from_provider_payload(
         provider_visible_entry_index = _safe_int(metadata.get("provider_visible_context_ledger_entry_index"))
         if provider_visible_entry_index <= 0 and provider_visible_item_key:
             provider_visible_entry_index = _safe_int(confirmation_by_item_key.get(provider_visible_item_key))
-        if provider_visible_entry_index <= 0 and provider_visible_hash:
-            provider_visible_entry_index = _safe_int(confirmation_by_hash.get(provider_visible_hash))
         protocol = dict(metadata.get("provider_tool_protocol") or {})
         round_id = str(protocol.get("round_id") or "")
         promoted_lane = _frame_segment_physical_lane(full, metadata=metadata)
@@ -221,6 +215,52 @@ def build_physical_prefix_frame_from_provider_payload(
         if original_lane and original_lane != promoted_lane:
             frame_metadata["physical_prefix_frame_original_lane"] = original_lane
         frame_metadata["physical_prefix_frame_provider_message_source"] = provider_message_source
+        segment_source_ref = str(full.get("source_ref") or spine_segment.get("source_ref") or "")
+        segment_content_hash = str(full.get("content_hash") or spine_segment.get("content_hash") or "")
+        segment_content_version_hash = str(
+            full.get("content_version_hash")
+            or spine_segment.get("content_version_hash")
+            or segment_content_hash
+            or ""
+        )
+        segment_provider_serialized_hash = str(
+            full.get("provider_serialized_hash")
+            or spine_segment.get("provider_serialized_hash")
+            or segment_content_hash
+            or ""
+        )
+        segment_semantic_source = str(full.get("semantic_source") or spine_segment.get("semantic_source") or "")
+        segment_semantic_slot = str(full.get("semantic_slot") or spine_segment.get("semantic_slot") or "")
+        original_prefix_identity = dict(full.get("prefix_identity") or spine_segment.get("prefix_identity") or {})
+        frame_identity_metadata = {
+            **frame_metadata,
+            "context_prefix_lifecycle_state": "confirmed_frame_replay",
+        }
+        if original_prefix_identity:
+            frame_identity_metadata.setdefault(
+                "context_origin_authority",
+                str(original_prefix_identity.get("origin_authority") or ""),
+            )
+            frame_identity_metadata.setdefault(
+                "context_origin_ref",
+                str(original_prefix_identity.get("origin_ref") or ""),
+            )
+        frame_prefix_identity = build_context_prefix_identity(
+            kind=str(full.get("kind") or spine_segment.get("kind") or ""),
+            metadata=frame_identity_metadata,
+            source_ref=segment_source_ref,
+            physical_lane=promoted_lane,
+            semantic_source=segment_semantic_source,
+            semantic_slot=segment_semantic_slot,
+            content_version_hash=segment_content_version_hash,
+            provider_serialized_hash=segment_provider_serialized_hash,
+            request_ordinal=_safe_int(full.get("ordinal") or spine_segment.get("ordinal")),
+            transport_location=str(full.get("transport_location") or spine_segment.get("transport_location") or ""),
+        ).to_dict()
+        frame_metadata["context_origin_authority"] = str(frame_prefix_identity.get("origin_authority") or "")
+        frame_metadata["context_origin_ref"] = str(frame_prefix_identity.get("origin_ref") or "")
+        frame_metadata["context_prefix_identity"] = frame_prefix_identity
+        frame_metadata["logical_segment_ref"] = str(frame_prefix_identity.get("logical_segment_ref") or "")
         frame_segments.append(
             PhysicalPrefixFrameSegment(
                 ordinal=_safe_int(full.get("ordinal") or spine_segment.get("ordinal")),
@@ -228,11 +268,17 @@ def build_physical_prefix_frame_from_provider_payload(
                 transport_location=str(full.get("transport_location") or spine_segment.get("transport_location") or ""),
                 role=str(full.get("role") or spine_segment.get("role") or ""),
                 kind=str(full.get("kind") or spine_segment.get("kind") or ""),
-                source_ref=str(full.get("source_ref") or spine_segment.get("source_ref") or ""),
-                content_hash=str(full.get("content_hash") or spine_segment.get("content_hash") or ""),
+                source_ref=segment_source_ref,
+                content_hash=segment_content_hash,
+                content_version_hash=segment_content_version_hash,
+                provider_serialized_hash=segment_provider_serialized_hash,
                 byte_length=_safe_int(full.get("byte_length") or spine_segment.get("byte_length")),
                 physical_prefix_lane=promoted_lane,
                 prefix_family=str(full.get("prefix_family") or spine_segment.get("prefix_family") or ""),
+                logical_segment_ref=str(frame_prefix_identity.get("logical_segment_ref") or ""),
+                prefix_segment_ref=str(frame_prefix_identity.get("logical_segment_ref") or ""),
+                semantic_slot=segment_semantic_slot,
+                prefix_identity=frame_prefix_identity,
                 cache_scope=str(full.get("cache_scope") or "none"),
                 cache_role=str(full.get("cache_role") or "volatile"),
                 prefix_tier=str(full.get("prefix_tier") or "volatile"),
@@ -671,22 +717,6 @@ def _confirmation_indexes_by_item_key(confirmation: dict[str, Any] | None) -> di
     return result
 
 
-def _confirmation_indexes_by_hash(
-    confirmation: dict[str, Any] | None,
-    *,
-    full_segments: list[dict[str, Any]],
-) -> dict[str, int]:
-    by_key = _confirmation_indexes_by_item_key(confirmation)
-    result: dict[str, int] = {}
-    for segment in full_segments:
-        metadata = dict(segment.get("metadata") or {})
-        item_key = str(metadata.get("provider_visible_context_ledger_item_key") or "").strip()
-        provider_hash = str(metadata.get("provider_visible_hash") or "").strip()
-        if item_key and provider_hash and by_key.get(item_key):
-            result[provider_hash] = by_key[item_key]
-    return result
-
-
 def _validate_frame_segments(
     segments: list[PhysicalPrefixFrameSegment],
     *,
@@ -742,7 +772,6 @@ def _frame_source_segments(
     physical_spine: dict[str, Any],
     current_append_entry_indexes: list[int] | tuple[int, ...] = (),
     confirmation_by_item_key: dict[str, int] | None = None,
-    confirmation_by_hash: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     included_ids = {
         str(segment_id)
@@ -759,11 +788,6 @@ def _frame_source_segments(
         for key, value in dict(confirmation_by_item_key or {}).items()
         if str(key or "") and _safe_int(value) > 0
     }
-    hash_confirmations = {
-        str(key or ""): _safe_int(value)
-        for key, value in dict(confirmation_by_hash or {}).items()
-        if str(key or "") and _safe_int(value) > 0
-    }
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
     seen_entry_indexes: set[int] = set()
@@ -774,7 +798,6 @@ def _frame_source_segments(
         entry_index = _resolved_segment_provider_visible_entry_index(
             segment,
             confirmation_by_item_key=item_key_confirmations,
-            confirmation_by_hash=hash_confirmations,
         )
         if entry_index > 0 and entry_index in seen_entry_indexes:
             continue
@@ -789,7 +812,6 @@ def _frame_source_segments(
         entry_index = _resolved_segment_provider_visible_entry_index(
             segment,
             confirmation_by_item_key=item_key_confirmations,
-            confirmation_by_hash=hash_confirmations,
         )
         if entry_index > 0 and entry_index in seen_entry_indexes:
             continue
@@ -860,7 +882,6 @@ def _resolved_segment_provider_visible_entry_index(
     segment: dict[str, Any],
     *,
     confirmation_by_item_key: dict[str, int],
-    confirmation_by_hash: dict[str, int],
 ) -> int:
     entry_index = _segment_provider_visible_entry_index(segment)
     if entry_index > 0:
@@ -869,11 +890,6 @@ def _resolved_segment_provider_visible_entry_index(
     item_key = str(metadata.get("provider_visible_context_ledger_item_key") or "").strip()
     if item_key:
         confirmed = _safe_int(confirmation_by_item_key.get(item_key))
-        if confirmed > 0:
-            return confirmed
-    provider_hash = str(metadata.get("provider_visible_hash") or "").strip()
-    if provider_hash:
-        confirmed = _safe_int(confirmation_by_hash.get(provider_hash))
         if confirmed > 0:
             return confirmed
     return 0
@@ -1090,9 +1106,18 @@ def _segment_projection(segment: dict[str, Any]) -> dict[str, Any]:
 def _frame_segment_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     keys = {
         "context_cache_section",
+        "context_identity_policy",
+        "context_origin_authority",
+        "context_origin_ref",
         "context_replay_policy",
+        "context_semantic_slot",
+        "origin_authority",
+        "origin_ref",
+        "prefix_origin_authority",
+        "prefix_origin_ref",
         "semantic_commit_class",
         "semantic_visibility",
+        "stable_origin_ref",
         "validity_scope",
         "provider_visible_payload_authority",
         "provider_visible_context_ledger_authority",

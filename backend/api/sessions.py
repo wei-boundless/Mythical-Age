@@ -1140,8 +1140,8 @@ def _kept_sealed_turn_ids_from_messages(messages: list[dict[str, Any]]) -> set[s
 
 def _latest_prompt_manifest_summary(runtime: Any, session_id: str) -> dict[str, Any]:
     ledger = runtime.harness_runtime.single_agent_runtime_host.prompt_accounting_ledger
-    maps = ledger.list_segment_maps(session_id=session_id)
-    latest = maps[-1] if maps else {}
+    manifests = ledger.list_prompt_manifests(session_id=session_id)
+    latest = manifests[-1] if manifests else {}
     return {
         "authority": "api.sessions.latest_prompt_manifest_summary",
         "available": bool(latest),

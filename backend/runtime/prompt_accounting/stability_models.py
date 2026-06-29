@@ -12,9 +12,15 @@ class PromptStabilitySection:
     source_ref: str = ""
     cache_role: str = "volatile"
     prefix_tier: str = "volatile"
+    transport_location: str = ""
+    logical_segment_ref: str = ""
+    semantic_slot: str = ""
+    content_version_hash: str = ""
+    provider_serialized_hash: str = ""
     content_hash: str = ""
     predicted_tokens: int = 0
     volatility_reason: str = ""
+    prefix_identity: dict[str, Any] = field(default_factory=dict)
     authority: str = "runtime.prompt_accounting.prompt_stability_section"
 
     def to_dict(self) -> dict[str, Any]:
@@ -29,9 +35,15 @@ class PromptStabilitySection:
             source_ref=str(payload.get("source_ref") or ""),
             cache_role=str(payload.get("cache_role") or "volatile"),
             prefix_tier=str(payload.get("prefix_tier") or "volatile"),
+            transport_location=str(payload.get("transport_location") or ""),
+            logical_segment_ref=str(payload.get("logical_segment_ref") or ""),
+            semantic_slot=str(payload.get("semantic_slot") or ""),
+            content_version_hash=str(payload.get("content_version_hash") or payload.get("content_hash") or ""),
+            provider_serialized_hash=str(payload.get("provider_serialized_hash") or payload.get("content_hash") or ""),
             content_hash=str(payload.get("content_hash") or ""),
             predicted_tokens=_int(payload.get("predicted_tokens")),
             volatility_reason=str(payload.get("volatility_reason") or ""),
+            prefix_identity=dict(payload.get("prefix_identity") or {}),
             authority=str(payload.get("authority") or "runtime.prompt_accounting.prompt_stability_section"),
         )
 

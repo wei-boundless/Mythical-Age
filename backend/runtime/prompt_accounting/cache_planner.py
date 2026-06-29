@@ -10,6 +10,7 @@ from typing import Any
 from runtime.prompt_accounting.cache_policy import is_cache_eligible_prefix, is_prefix_eligible_for_tier
 
 from .models import ModelTokenUsageRecord, PromptCacheRecord, PromptSegmentMap
+from .prefix_cache_health import evaluate_prefix_cache_health
 from .provider_payload_boundary import (
     provider_payload_boundary_diagnostics,
     provider_payload_cache_boundary,
@@ -380,7 +381,11 @@ def _physical_cache_spine_boundary_diagnostics(segment_map: PromptSegmentMap) ->
             "transport_location": str(getattr(segment, "transport_location", "") or ""),
             "role": str(getattr(segment, "role", "") or ""),
             "prefix_family": str(getattr(segment, "prefix_family", "") or ""),
+            "logical_segment_ref": str(getattr(segment, "logical_segment_ref", "") or ""),
+            "prefix_segment_ref": str(getattr(segment, "prefix_segment_ref", "") or ""),
+            "semantic_slot": str(getattr(segment, "semantic_slot", "") or ""),
             "physical_prefix_lane": physical_lane,
+            "prefix_identity": dict(getattr(segment, "prefix_identity", {}) or {}),
             "boundary_participation": str(getattr(segment, "boundary_participation", "") or ""),
             "exclusion_reason": str(getattr(segment, "exclusion_reason", "") or ""),
             "cache_role": str(segment.cache_role or ""),
@@ -412,225 +417,11 @@ def _provider_cache_read_coverage_diagnostics(
     usage: ModelTokenUsageRecord,
     cached_tokens: int,
 ) -> dict[str, Any]:
-    raw_boundaries = [
-        dict(item)
-        for item in list(diagnostics.get("provider_cache_read_required_segment_boundaries") or [])
-        if isinstance(item, dict)
-    ]
-    all_boundaries = [
-        dict(item)
-        for item in list(
-            diagnostics.get("provider_cache_read_physical_spine_segment_boundaries")
-            or diagnostics.get("provider_cache_read_stable_segment_boundaries")
-            or []
-        )
-        if isinstance(item, dict)
-    ]
-    predicted_total = int(
-        diagnostics.get("target_warm_cache_read_rate_total_tokens")
-        or diagnostics.get("predicted_prompt_tokens_total")
-        or 0
+    return evaluate_prefix_cache_health(
+        diagnostics=diagnostics,
+        usage=usage,
+        cached_tokens=cached_tokens,
     )
-    provider_prompt_tokens = int(usage.prompt_tokens or 0)
-    token_scale = (
-        round(provider_prompt_tokens / predicted_total, 6)
-        if predicted_total > 0 and provider_prompt_tokens > 0
-        else 0.0
-    )
-    physical_spine_predicted_tokens = int(
-        diagnostics.get("physical_cache_spine_expected_read_predicted_tokens")
-        or 0
-    )
-    context_append_predicted_tokens = int(diagnostics.get("context_append_prefix_predicted_tokens") or 0)
-    has_physical_cache_spine = physical_spine_predicted_tokens > 0
-    expected_cache_read_boundaries = [
-        item
-        for item in all_boundaries
-        if not has_physical_cache_spine
-        or int(item.get("cumulative_predicted_tokens") or 0) <= physical_spine_predicted_tokens
-    ]
-    expected_required_boundaries = [
-        item
-        for item in raw_boundaries
-        if not has_physical_cache_spine
-        or int(item.get("cumulative_predicted_tokens") or 0) <= physical_spine_predicted_tokens
-    ]
-    current_append_boundaries = [
-        item
-        for item in all_boundaries
-        if has_physical_cache_spine
-        and int(item.get("cumulative_predicted_tokens") or 0) > physical_spine_predicted_tokens
-    ]
-    internal_required_coverage = [
-        _coverage_item(
-            item,
-            cached_tokens=cached_tokens,
-            predicted_total=predicted_total,
-            provider_prompt_tokens=provider_prompt_tokens,
-        )
-        for item in expected_required_boundaries
-    ]
-    internal_stable_coverage = [
-        _coverage_item(
-            item,
-            cached_tokens=cached_tokens,
-            predicted_total=predicted_total,
-            provider_prompt_tokens=provider_prompt_tokens,
-        )
-        for item in expected_cache_read_boundaries
-    ]
-    current_append_coverage = [
-        _coverage_item(
-            item,
-            cached_tokens=cached_tokens,
-            predicted_total=predicted_total,
-            provider_prompt_tokens=provider_prompt_tokens,
-        )
-        for item in current_append_boundaries
-    ]
-    uncovered_required = [
-        item
-        for item in internal_required_coverage
-        if item.get("covered_by_provider_scaled_boundary") is False
-    ]
-    internal_uncovered_physical_spine = [
-        item
-        for item in internal_stable_coverage
-        if item.get("covered_by_provider_scaled_boundary") is False
-    ]
-    physical_spine_estimated_tokens = 0
-    physical_spine_estimated_source = "unmeasured"
-    if has_physical_cache_spine:
-        physical_spine_estimated_tokens = _scaled_boundary_tokens(
-            physical_spine_predicted_tokens,
-            predicted_total=predicted_total,
-            provider_prompt_tokens=provider_prompt_tokens,
-        )
-        physical_spine_estimated_source = "physical_cache_spine"
-    elif internal_stable_coverage:
-        physical_spine_estimated_tokens = int(internal_stable_coverage[-1].get("provider_scaled_cumulative_tokens") or 0)
-        physical_spine_estimated_source = "last_physical_spine_segment_boundary"
-    current_context_append_estimated_tokens = _scaled_boundary_tokens(
-        context_append_predicted_tokens,
-        predicted_total=predicted_total,
-        provider_prompt_tokens=provider_prompt_tokens,
-    )
-    status = "unmeasured"
-    if internal_required_coverage:
-        status = "estimated_covered" if not uncovered_required else "estimated_partial"
-    physical_spine_estimated_covered = (
-        bool(physical_spine_estimated_tokens)
-        and int(cached_tokens or 0) >= physical_spine_estimated_tokens
-    )
-    if has_physical_cache_spine:
-        required_coverage: list[dict[str, Any]] = []
-        uncovered_required = []
-        uncovered_physical_spine: list[dict[str, Any]] = []
-        logical_boundary_precision = "physical_spine_total_only"
-        status = "physical_spine_estimated_covered" if physical_spine_estimated_covered else "physical_spine_estimated_partial"
-    else:
-        required_coverage = internal_required_coverage
-        uncovered_physical_spine = internal_uncovered_physical_spine
-        logical_boundary_precision = "logical_segment_estimate"
-    return {
-        "provider_cache_read_token_scale": token_scale,
-        "provider_cache_read_token_scale_source": "local_prediction_to_provider_prompt_token_scale_estimate",
-        "provider_cache_read_prompt_tokens": provider_prompt_tokens,
-        "provider_cache_read_cached_tokens": int(cached_tokens or 0),
-        "provider_cache_read_coverage_scope": (
-            "physical_cache_spine"
-            if has_physical_cache_spine
-            else "physical_cache_spine_boundary"
-        ),
-        "provider_cache_read_physical_spine_predicted_tokens": physical_spine_predicted_tokens,
-        "provider_cache_read_physical_spine_provider_scaled_tokens": physical_spine_estimated_tokens
-        if has_physical_cache_spine
-        else 0,
-        "provider_cache_read_current_context_append_predicted_tokens": context_append_predicted_tokens,
-        "provider_cache_read_current_context_append_provider_scaled_tokens": current_context_append_estimated_tokens,
-        "provider_cache_read_current_context_append_promoted_to_next_turn": context_append_predicted_tokens > 0,
-        "provider_cache_read_non_expected_prompt_predicted_tokens": max(
-            0,
-            int(predicted_total or 0) - int(physical_spine_predicted_tokens or 0),
-        )
-        if has_physical_cache_spine
-        else 0,
-        "provider_cache_read_required_coverage_status": status,
-        "provider_cache_read_required_coverage_evidence": (
-            "physical_spine_total_estimate"
-            if has_physical_cache_spine
-            else ("estimated_from_local_token_scale" if required_coverage else "unmeasured")
-        ),
-        "provider_cache_read_required_segment_coverage": required_coverage,
-        "provider_cache_read_uncovered_required_segments": [
-            str(item.get("kind") or "") for item in uncovered_required
-        ],
-        "provider_cache_read_uncovered_required_count": len(uncovered_required),
-        "provider_cache_read_physical_spine_segment_coverage": internal_stable_coverage,
-        "provider_cache_read_physical_spine_internal_boundary_coverage": internal_stable_coverage,
-        "provider_cache_read_physical_spine_uncovered_boundary_precision": logical_boundary_precision,
-        "provider_cache_read_first_uncovered_physical_spine_segment": dict(uncovered_physical_spine[0]) if uncovered_physical_spine else {},
-        "provider_cache_read_uncovered_physical_spine_count": len(uncovered_physical_spine),
-        "provider_cache_read_current_context_append_segment_coverage": current_append_coverage,
-        "provider_cache_read_first_current_context_append_segment": dict(current_append_coverage[0]) if current_append_coverage else {},
-        "provider_cache_read_current_context_append_segment_count": len(current_append_coverage),
-        "provider_cache_read_physical_spine_estimated_tokens": physical_spine_estimated_tokens,
-        "provider_cache_read_physical_spine_estimated_source": physical_spine_estimated_source,
-        "provider_cache_read_physical_spine_estimated_covered": physical_spine_estimated_covered,
-        "provider_cache_read_physical_spine_under_read_tokens": max(
-            0,
-            physical_spine_estimated_tokens - int(cached_tokens or 0),
-        ),
-        "provider_cache_read_physical_spine_covered": None,
-        "provider_cache_read_physical_spine_coverage_evidence": (
-            "physical_spine_total_estimate"
-            if has_physical_cache_spine
-            else (
-                "estimated_from_local_token_scale"
-                if internal_stable_coverage and physical_spine_estimated_covered
-                else ("unmeasured_by_provider_usage" if internal_stable_coverage else "unmeasured")
-            )
-        ),
-    }
-
-
-def _coverage_item(
-    boundary: dict[str, Any],
-    *,
-    cached_tokens: int,
-    predicted_total: int,
-    provider_prompt_tokens: int,
-) -> dict[str, Any]:
-    raw_boundary = int(boundary.get("cumulative_predicted_tokens") or 0)
-    scaled_boundary = _scaled_boundary_tokens(
-        raw_boundary,
-        predicted_total=predicted_total,
-        provider_prompt_tokens=provider_prompt_tokens,
-    )
-    covered_scaled = bool(scaled_boundary) and int(cached_tokens or 0) >= scaled_boundary
-    return {
-        **boundary,
-        "raw_cumulative_predicted_tokens": raw_boundary,
-        "provider_scaled_cumulative_tokens": scaled_boundary,
-        "covered_by_raw_predicted_boundary": bool(raw_boundary) and int(cached_tokens or 0) >= raw_boundary,
-        "covered_by_provider_scaled_boundary": covered_scaled,
-        "covered_by_provider_scaled_boundary_estimate": covered_scaled,
-        "coverage_evidence": "estimated_from_local_token_scale" if scaled_boundary else "unmeasured",
-        "provider_scaled_under_read_tokens": max(0, scaled_boundary - int(cached_tokens or 0)) if scaled_boundary else 0,
-    }
-
-
-def _scaled_boundary_tokens(
-    raw_boundary: int,
-    *,
-    predicted_total: int,
-    provider_prompt_tokens: int,
-) -> int:
-    if int(raw_boundary or 0) <= 0:
-        return 0
-    if int(predicted_total or 0) <= 0 or int(provider_prompt_tokens or 0) <= 0:
-        return int(raw_boundary or 0)
-    return max(1, int(math.ceil(int(raw_boundary or 0) * int(provider_prompt_tokens or 0) / int(predicted_total or 1))))
 
 
 def _cache_read_target_diagnostics(
@@ -800,6 +591,11 @@ def _provider_cache_under_read_blockers(
     goal: float,
 ) -> list[dict[str, Any]]:
     first_uncovered = dict(diagnostics.get("provider_cache_read_first_uncovered_physical_spine_segment") or {})
+    first_missing_identity = dict(
+        dict(diagnostics.get("provider_prefix_cache_health") or {}).get("first_missing_expected_prefix_identity")
+        or diagnostics.get("provider_cache_read_first_missing_expected_prefix_identity")
+        or {}
+    )
     physical_spine_estimated_tokens = int(diagnostics.get("provider_cache_read_physical_spine_estimated_tokens") or 0)
     current_context_append_tokens = int(diagnostics.get("provider_cache_read_current_context_append_predicted_tokens") or 0)
     current_context_append_scaled_tokens = int(diagnostics.get("provider_cache_read_current_context_append_provider_scaled_tokens") or 0)
@@ -826,6 +622,8 @@ def _provider_cache_under_read_blockers(
         ),
         "non_expected_prompt_predicted_tokens": int(diagnostics.get("provider_cache_read_non_expected_prompt_predicted_tokens") or 0),
     }
+    if first_missing_identity:
+        blocker["first_missing_expected_prefix_identity"] = first_missing_identity
     if first_uncovered:
         blocker["first_uncovered_physical_spine_segment"] = {
             "kind": str(first_uncovered.get("kind") or ""),
@@ -1130,7 +928,11 @@ def _provider_payload_selected_prefix_boundaries(
             "transport_location": str(item.get("transport_location") or ""),
             "role": str(item.get("role") or ""),
             "prefix_family": str(item.get("prefix_family") or ""),
+            "logical_segment_ref": str(item.get("logical_segment_ref") or ""),
+            "prefix_segment_ref": str(item.get("prefix_segment_ref") or ""),
+            "semantic_slot": str(item.get("semantic_slot") or ""),
             "physical_prefix_lane": str(item.get("physical_prefix_lane") or ""),
+            "prefix_identity": dict(item.get("prefix_identity") or {}),
             "boundary_participation": str(item.get("boundary_participation") or ""),
             "exclusion_reason": str(item.get("exclusion_reason") or ""),
             "cache_role": str(item.get("cache_role") or ""),

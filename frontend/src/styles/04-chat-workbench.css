@@ -2463,6 +2463,19 @@
   color: var(--console-warning);
 }
 
+.agent-workbench .chat-token-meter--cache_under_read {
+  border-color: color-mix(in srgb, var(--console-danger) 42%, transparent);
+  background: var(--console-danger-soft);
+}
+
+.agent-workbench .chat-token-meter--cache_under_read::before {
+  background: color-mix(in srgb, var(--console-danger) 18%, transparent);
+}
+
+.agent-workbench .chat-token-meter--cache_under_read strong {
+  color: var(--console-danger);
+}
+
 .agent-workbench .session-activity-bar {
   width: auto;
   flex: 1 1 220px;

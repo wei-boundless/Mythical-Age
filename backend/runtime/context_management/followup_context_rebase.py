@@ -20,6 +20,11 @@ def current_followup_append_context_policy(
     message: dict[str, Any],
     metadata: dict[str, Any],
 ) -> dict[str, Any]:
+    origin_authority = _origin_authority(
+        metadata,
+        fallback="runtime.context_management.followup_context_rebase.current_append",
+    )
+    origin_ref = _origin_ref(base=base, metadata=metadata)
     append_metadata = {
         **_without_context_classification_metadata(dict(metadata or {})),
         "previous_context_structure": {
@@ -34,8 +39,11 @@ def current_followup_append_context_policy(
         "context_prefix_tier": "volatile",
         "context_commit_policy": "append_then_seal",
         "context_replay_policy": "current_append_commit_on_provider_success_then_next_physical_prefix_frame",
+        "context_identity_policy": "origin_ref_stable",
+        "context_origin_authority": origin_authority,
+        "context_origin_ref": origin_ref,
         "provider_visible_history_status": "current_tool_round_pending_provider_success",
-        "provider_visible_history_authority": "runtime.context_management.followup_context_rebase.current_append",
+        "provider_visible_history_authority": origin_authority,
         "provider_visible_history_model_message_hash": _stable_model_message_hash(dict(message or {})),
         "cache_impact": "current_context_append_promotes_to_next_prefix",
         "stability_rule": (
@@ -83,6 +91,11 @@ def current_turn_exact_old_context_policy(
             },
         }
 
+    origin_authority = _origin_authority(
+        metadata,
+        fallback="runtime.context_management.followup_context_rebase.current_turn_exact_old_context",
+    )
+    origin_ref = _origin_ref(base=base, metadata=metadata)
     original_context = {
         key: value
         for key, value in dict(metadata or {}).items()
@@ -96,10 +109,13 @@ def current_turn_exact_old_context_policy(
         "fixed_context_package": "context_memory_prefix",
         "context_commit_policy": "append_then_seal",
         "context_replay_policy": "current_turn_exact_old_context",
+        "context_identity_policy": "origin_ref_stable",
+        "context_origin_authority": origin_authority,
+        "context_origin_ref": origin_ref,
         "current_turn_exact_old_context": True,
         "current_turn_exact_old_context_reason": "old follow-up base context is already present in the current turn model message prefix",
         "provider_visible_history_status": "current_turn_exact_old_context",
-        "provider_visible_history_authority": "runtime.context_management.followup_context_rebase.current_turn_exact_old_context",
+        "provider_visible_history_authority": origin_authority,
         "provider_visible_history_model_message_hash": _stable_model_message_hash(dict(message or {})),
         "cache_impact": "current_turn_exact_old_context_prefix_preserved",
         "stability_rule": (
@@ -158,6 +174,39 @@ def _without_context_classification_metadata(metadata: dict[str, Any]) -> dict[s
     ):
         payload.pop(key, None)
     return payload
+
+
+def _origin_authority(metadata: dict[str, Any], *, fallback: str) -> str:
+    return _first_text(
+        dict(metadata or {}).get("context_origin_authority"),
+        dict(metadata or {}).get("prefix_origin_authority"),
+        dict(metadata or {}).get("origin_authority"),
+        dict(metadata or {}).get("provider_visible_history_authority"),
+        fallback,
+    )
+
+
+def _origin_ref(*, base: dict[str, Any], metadata: dict[str, Any]) -> str:
+    base_payload = dict(base or {})
+    meta = dict(metadata or {})
+    return _first_text(
+        meta.get("context_origin_ref"),
+        meta.get("prefix_origin_ref"),
+        meta.get("origin_ref"),
+        meta.get("stable_origin_ref"),
+        meta.get("runtime_context_segment_source_ref"),
+        base_payload.get("source_ref"),
+        base_payload.get("kind"),
+        "current_followup_context",
+    )
+
+
+def _first_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
 
 
 def _stable_model_message_hash(message: dict[str, Any]) -> str:

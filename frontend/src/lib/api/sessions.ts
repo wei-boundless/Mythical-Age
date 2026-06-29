@@ -7,6 +7,7 @@ import type {
   SessionProjectBinding,
   SessionScope,
   SessionSummary,
+  SessionTokensPayload,
   SessionTimeline,
   SessionTruncateResponse,
   WorkbenchCurrentSessionPayload,
@@ -245,62 +246,5 @@ export async function truncateSessionMessages(sessionId: string, messageIndex: n
 }
 
 export async function getSessionTokens(sessionId: string, scope?: Partial<SessionScope>) {
-  return request<{
-    system_tokens: number;
-    message_tokens: number;
-    total_tokens: number;
-    context_meter?: {
-      current_context_tokens?: number;
-      current_context_ratio?: number;
-      compaction_pressure_tokens?: number;
-      context_window_tokens?: number;
-      input_capacity_tokens?: number;
-      replacement_threshold_tokens?: number;
-      compaction_pressure_ratio?: number;
-      compaction_remaining_tokens?: number;
-      compaction_remaining_ratio?: number;
-      pressure_level?: string;
-    };
-    context_recovery_package?: {
-      present?: boolean;
-      fresh?: boolean;
-      source?: string;
-      schema_version?: string;
-      covered_message_count?: number;
-      covered_event_run_id?: string;
-      covered_event_offset_end?: number | null;
-      summary_hash?: string;
-      source_summary_hash?: string;
-      freshness_status?: string;
-      stale_reason?: string;
-    };
-    compaction_readiness?: {
-      pressure_level?: string;
-      auto_replacement_allowed?: boolean;
-      replacement_threshold_tokens?: number;
-      warning_threshold_tokens?: number;
-      ready_threshold_tokens?: number;
-      current_context_tokens?: number;
-      compaction_pressure_tokens?: number;
-      blocked_reason?: string;
-      context_recovery_package_present?: boolean;
-      context_recovery_package_fresh?: boolean;
-      context_recovery_package_source?: string;
-    };
-    cumulative_transcript_tokens?: number;
-    cumulative_transcript_message_count?: number;
-    compression_saved_tokens?: number;
-    compression_ratio?: number;
-    raw_history_tokens: number;
-    history_tokens: number;
-    history_budget_tokens: number;
-    history_remaining_tokens: number;
-    history_usage_ratio: number;
-    history_remaining_ratio: number;
-    history_pressure_level: string;
-    history_compaction_strategy: string;
-    history_did_compact: boolean;
-    history_did_microcompact: boolean;
-    history_did_full_compact: boolean;
-  }>(withSessionScopeQuery(`/tokens/session/${sessionId}`, scope));
+  return request<SessionTokensPayload>(withSessionScopeQuery(`/tokens/session/${sessionId}`, scope));
 }

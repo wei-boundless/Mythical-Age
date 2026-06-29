@@ -315,7 +315,7 @@ Frontend restore must not require live execution attachment to display a recover
 - `replay_available = event_log_id exists && latest_event_offset >= 0`
 - `recoverable_interruption = diagnostics.recoverable && semantic_terminal is false`
 - `continuation_available = continuation selector has interrupted_turn or continuation record`
-- `is_reconnectable` 暂时保留为旧字段，但前端新逻辑不再把它当展示依据。
+- 删除旧 live 兼容字段；live 重连接入只允许读取 `live_reconnectable`。
 
 ### Phase 5: 前端刷新恢复接入 replay / continuation
 

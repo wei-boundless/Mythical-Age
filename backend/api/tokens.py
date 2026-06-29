@@ -17,6 +17,12 @@ from runtime.context_management.session_compaction import (
     count_tokens,
     prompt_accounting_ledger,
 )
+from runtime.prompt_accounting import (
+    PROMPT_CACHE_FILE,
+    PROVIDER_CACHE_BUS_FILE,
+    TOKEN_OBSERVATIONS_FILE,
+    build_provider_cache_log_view,
+)
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 
 router = APIRouter()
@@ -132,8 +138,9 @@ def _session_tokens_cache_signature(
     session_signature = runtime.session_manager.session_storage_signature(session_id)
     return (
         session_signature,
-        _ledger_file_signature(ledger, "token_usage.jsonl"),
-        _ledger_file_signature(ledger, "prompt_cache.jsonl"),
+        _ledger_file_signature(ledger, TOKEN_OBSERVATIONS_FILE),
+        _ledger_file_signature(ledger, PROMPT_CACHE_FILE),
+        _ledger_file_signature(ledger, PROVIDER_CACHE_BUS_FILE),
         _turn_memory_signature(runtime, session_id=session_id),
     )
 
@@ -217,6 +224,12 @@ def _build_session_tokens_payload(
         raw_messages=raw_messages,
     )
     turn_memory = _turn_memory_session_projection(runtime, session_id=session_id)
+    provider_cache_log = build_provider_cache_log_view(
+        ledger,
+        session_id=session_id,
+        limit=50,
+        authority="api.tokens.provider_cache_log",
+    )
     system_tokens = int(prompt_usage.get("prompt_tokens") or prompt_usage.get("predicted_total_tokens") or 0)
     message_tokens = _count_tokens(_messages_token_text(raw_messages))
     cumulative_transcript_tokens = _count_tokens(_messages_token_text(cumulative_messages))
@@ -269,6 +282,7 @@ def _build_session_tokens_payload(
         "context_meter": context_meter,
         "context_recovery_package": context_recovery_package,
         "turn_memory": turn_memory,
+        "provider_cache_log": provider_cache_log,
         "cache_metrics": cache_metrics,
         "compaction_readiness": compaction_readiness,
         "cumulative_transcript_tokens": cumulative_transcript_tokens,

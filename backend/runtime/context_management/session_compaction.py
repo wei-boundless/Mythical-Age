@@ -151,6 +151,7 @@ def _model_usage_record_from_context_snapshot(snapshot: dict[str, Any]) -> Model
         provider=str(payload.get("provider") or ""),
         model=str(payload.get("model") or ""),
         source="provider_usage" if source == "provider_usage" else "local_prediction",
+        phase="provider_usage" if source == "provider_usage" else "local_prediction",
         prompt_tokens=prompt_tokens,
         completion_tokens=int(payload.get("completion_tokens") or 0),
         reasoning_tokens=int(payload.get("reasoning_tokens") or 0),

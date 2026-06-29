@@ -8,7 +8,6 @@ from .recovery_package import (
     context_recovery_package_from_session_memory,
     render_context_recovery_markdown,
 )
-from .session_compaction import auto_compact_session_if_needed, compact_session_history
 from .context_commit_record import (
     CONTEXT_COMMIT_RECORD_SCHEMA_VERSION,
     context_commit_record_path,
@@ -22,6 +21,13 @@ from .context_candidates import (
     ContextPolicyDecision,
     PhysicalContextSegment,
     context_candidate_from_message_spec,
+)
+from .context_prefix_identity import (
+    CONTEXT_PREFIX_IDENTITY_AUTHORITY,
+    CONTEXT_PREFIX_IDENTITY_SCHEMA,
+    PROVIDER_PROMPT_PREFIX_DOMAIN,
+    PrefixIdentity,
+    build_context_prefix_identity,
 )
 from .context_candidate_registry import ContextCandidateContributor, ContextCandidateRegistry
 from .context_pipeline import (
@@ -135,6 +141,19 @@ from .tool_transcript import (
     is_tool_transcript_kind,
 )
 
+
+def auto_compact_session_if_needed(*args, **kwargs):
+    from .session_compaction import auto_compact_session_if_needed as _auto_compact_session_if_needed
+
+    return _auto_compact_session_if_needed(*args, **kwargs)
+
+
+def compact_session_history(*args, **kwargs):
+    from .session_compaction import compact_session_history as _compact_session_history
+
+    return _compact_session_history(*args, **kwargs)
+
+
 __all__ = [
     "ContentReplacement",
     "DEFAULT_FIELD_SIZE_LIMIT_BYTES",
@@ -161,6 +180,11 @@ __all__ = [
     "ContextPolicyDecision",
     "PhysicalContextSegment",
     "context_candidate_from_message_spec",
+    "CONTEXT_PREFIX_IDENTITY_AUTHORITY",
+    "CONTEXT_PREFIX_IDENTITY_SCHEMA",
+    "PROVIDER_PROMPT_PREFIX_DOMAIN",
+    "PrefixIdentity",
+    "build_context_prefix_identity",
     "ContextCandidateContributor",
     "ContextCandidateRegistry",
     "ContextPipelineResult",

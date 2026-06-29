@@ -495,8 +495,6 @@ def project_public_stream_event(event_type: str, event: dict[str, Any]) -> list[
     if normalized in {ASSISTANT_TEXT_DELTA_EVENT, ASSISTANT_TEXT_FINAL_EVENT, ASSISTANT_STREAM_REPAIR_EVENT}:
         data = _assistant_stream_public_data(normalized, raw_data)
         return [(normalized, data)] if data else []
-    if _is_runtime_status_only_error_event(normalized, raw_data):
-        return []
     if normalized in {"done", "error", "stopped"}:
         return [(TURN_COMPLETED_EVENT, turn_completed_data(normalized, raw_data))]
     if normalized in LEGACY_BODY_WRITER_EVENTS:
@@ -644,21 +642,6 @@ def public_terminal_reason(value: Any) -> str:
     if _looks_like_runtime_reason_code(reason):
         return "状态已更新"
     return reason
-
-
-def _is_runtime_status_only_error_event(event_type: str, raw_data: dict[str, Any]) -> bool:
-    if str(event_type or "").strip().lower() != "error":
-        return False
-    persist_policy = str(raw_data.get("answer_persist_policy") or "").strip().lower()
-    finalization_policy = str(raw_data.get("answer_finalization_policy") or "").strip().lower()
-    return (
-        persist_policy == "runtime_status_only"
-        or finalization_policy
-        in {
-            "no_agent_answer_runtime_unavailable",
-            "no_agent_answer_runtime_status",
-        }
-    )
 
 
 def _assistant_stream_public_data(event_type: str, raw_data: dict[str, Any]) -> dict[str, Any]:

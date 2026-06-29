@@ -73,6 +73,23 @@ class PromptCacheBreakDetector:
             if record.cache_key == cache_record.cache_key
         ]
         latest_previous = _latest_record(comparable_records)
+        prefix_cache_health = dict(dict(cache_record.diagnostics or {}).get("provider_prefix_cache_health") or {})
+        if str(prefix_cache_health.get("verdict") or "") == "provider_under_read" and repeated_prefix:
+            return _build_break_record(
+                cache_record=cache_record,
+                provider_usage=provider_usage,
+                previous_repeated_records=repeated_prefix,
+                latest_previous=latest_previous,
+                reason="provider_prefix_cache_under_read",
+                created_at=created_at,
+                extra_diagnostics={
+                    "provider_prefix_cache_health": prefix_cache_health,
+                    "provider_under_read_tokens": int(prefix_cache_health.get("under_read_tokens") or 0),
+                    "first_missing_expected_prefix_identity": dict(
+                        prefix_cache_health.get("first_missing_expected_prefix_identity") or {}
+                    ),
+                },
+            )
         uncovered_required = _uncovered_required_segments(cache_record)
         if uncovered_required and repeated_prefix and _required_coverage_is_authoritative(cache_record):
             return _build_break_record(
