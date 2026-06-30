@@ -150,6 +150,8 @@ def model_action_request_from_payload(
     if not isinstance(active_work_control, dict):
         errors.append("active_work_control_must_be_object")
         active_work_control = {}
+    else:
+        active_work_control = _normalize_active_work_control_payload(dict(active_work_control))
     if not isinstance(task_recovery_resume, dict):
         errors.append("task_recovery_resume_must_be_object")
         task_recovery_resume = {}
@@ -423,6 +425,24 @@ def _normalize_task_recovery_resume(value: dict[str, Any]) -> dict[str, Any]:
     if resume_ref and not str(payload.get("continuation_id") or "").strip():
         payload["continuation_id"] = resume_ref
     return payload
+
+
+def _normalize_active_work_control_payload(value: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(value or {})
+    normalized = {
+        **payload,
+        "action": str(payload.get("action") or "").strip(),
+        "appended_instruction": str(
+            payload.get("appended_instruction")
+            or payload.get("instruction")
+            or ""
+        ).strip(),
+        "response": str(payload.get("response") or payload.get("answer") or "").strip(),
+        "reason": str(payload.get("reason") or "").strip(),
+    }
+    normalized.pop("instruction", None)
+    normalized.pop("answer", None)
+    return _drop_empty_payload(normalized)
 
 
 _REQUEST_TASK_RUN_SYSTEM_SETTING_FIELDS = (

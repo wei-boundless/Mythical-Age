@@ -3168,6 +3168,13 @@ def _admission_observation_refs(
     action_lifecycle_ref = str(payload.get("action_lifecycle_ref") or "")
     if action_lifecycle_ref:
         refs["action_lifecycle_ref"] = action_lifecycle_ref
+    admission = dict(payload.get("admission") or {})
+    control_output_line_ref = str(admission.get("control_output_line_ref") or "")
+    if control_output_line_ref:
+        refs["control_output_line_ref"] = control_output_line_ref
+    control_output_line_authority = str(admission.get("control_output_line_authority") or "")
+    if control_output_line_authority:
+        refs["control_output_line_authority"] = control_output_line_authority
     return refs
 
 
@@ -3175,7 +3182,7 @@ def _public_admission_observation_refs(refs: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in dict(refs or {}).items()
-        if key in {"observation_ref", "action_request_ref", "action_lifecycle_ref"}
+        if key in {"observation_ref", "action_request_ref", "action_lifecycle_ref", "control_output_line_ref"}
     }
 
 

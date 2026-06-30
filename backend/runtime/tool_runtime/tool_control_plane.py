@@ -1180,6 +1180,7 @@ def _observation(
         diagnostics=dict(diagnostics or {}),
         operation_gate=dict(operation_gate or {}),
     )
+    permit_refs = _action_permit_observation_refs(request)
     receipt = {
         **dict(execution_receipt or {}),
         "agent_run_id": str(request.agent_run_id or ""),
@@ -1188,6 +1189,7 @@ def _observation(
         "caller_kind": str(request.caller_kind or ""),
         "caller_ref": str(request.caller_ref or ""),
         "tool_invocation_id": str(request.invocation_id or ""),
+        **permit_refs,
     }
     envelope = dict(result_envelope or {})
     if not envelope:
@@ -1267,8 +1269,25 @@ def _observation(
                 if recovery_instruction
                 else {}
             ),
+            **permit_refs,
         },
     )
+
+
+def _action_permit_observation_refs(request: ToolInvocationRequest) -> dict[str, Any]:
+    permit = dict(request.action_permit or {}) if isinstance(request.action_permit, dict) else {}
+    if not permit:
+        return {}
+    return {
+        "action_permit_ref": str(permit.get("permit_id") or ""),
+        "action_permit_authority": str(permit.get("authority") or ""),
+        "control_output_line_ref": str(permit.get("control_output_line_ref") or ""),
+        "control_output_line_authority": str(permit.get("control_output_line_authority") or ""),
+        "observation_contract": str(
+            dict(permit.get("control_output_line_contract") or {}).get("observation_contract")
+            or ""
+        ),
+    }
 
 
 def _tool_boundary_repair_instruction(

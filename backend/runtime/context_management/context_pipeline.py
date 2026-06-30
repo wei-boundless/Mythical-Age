@@ -7,7 +7,7 @@ from typing import Any
 from runtime.prompt_accounting.provider_lane import normalize_provider_lane
 
 from .context_candidates import context_candidate_from_message_spec
-from .context_capability_policy import apply_context_capability_profile
+from .context_candidate_gateway import build_context_candidate_gateway
 from .context_segment_policy import (
     context_segment_policy_for_spec,
     context_segment_policy_is_provider_visible_sealable,
@@ -17,10 +17,6 @@ from .physical_context_assembler import (
     PhysicalContextInputs,
     assemble_physical_context_spine,
     classify_physical_context_inputs,
-)
-from .provider_message_replay_contract import (
-    provider_message_byte_preservation_required,
-    provider_message_replay_kind,
 )
 from .provider_visible_append_ledger import assemble_provider_visible_append_specs
 
@@ -63,13 +59,17 @@ def build_context_pipeline(
     clean_specs = [dict(item) for item in list(specs or ()) if isinstance(item, dict)]
     candidate_trace = [context_candidate_from_message_spec(item).to_dict() for item in clean_specs]
     capability_diagnostics: dict[str, Any] = {}
+    candidate_gateway_diagnostics: dict[str, Any] = {}
     if apply_capability_profile_stage:
-        clean_specs, capability_diagnostics = apply_context_capability_profile_to_specs(
+        gateway_result = build_context_candidate_gateway(
             clean_specs,
             invocation_kind=invocation_kind,
             context_capability_profile=context_capability_profile,
             system_wiring_manifest=system_wiring_manifest,
         )
+        clean_specs = [dict(item) for item in gateway_result.message_specs]
+        candidate_gateway_diagnostics = dict(gateway_result.diagnostics or {})
+        capability_diagnostics = dict(candidate_gateway_diagnostics.get("context_line_activation") or {})
     clean_specs = specs_with_context_compaction_generation(
         clean_specs,
         compaction_generation=compaction_generation,
@@ -103,6 +103,7 @@ def build_context_pipeline(
             "candidate_trace": candidate_trace[:80],
             "candidate_trace_count": len(candidate_trace),
             "context_capability": capability_diagnostics,
+            "context_candidate_gateway": candidate_gateway_diagnostics,
             "provider_visible_append_stage": append_stage_diagnostics,
             "physical_context_inputs": final_inputs.to_diagnostics(),
             "physical_context_assembly": dict(physical_assembly.diagnostics or {}),
@@ -119,56 +120,15 @@ def apply_context_capability_profile_to_specs(
     context_capability_profile: dict[str, Any] | None,
     system_wiring_manifest: dict[str, Any] | None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    profile = dict(context_capability_profile or {})
-    if not profile:
-        compiled = dict(dict(system_wiring_manifest or {}).get("compiled") or {})
-        profile = dict(compiled.get("context_capability_profile") or {})
-    if not profile:
-        return [dict(item) for item in list(source_specs or []) if isinstance(item, dict)], {}
-
-    kept: list[dict[str, Any]] = []
-    rejected: list[dict[str, Any]] = []
-    group_counts: dict[str, int] = {}
-    byte_preservation_specs: list[dict[str, Any]] = []
-    for index, spec in enumerate([dict(item) for item in list(source_specs or []) if isinstance(item, dict)], start=1):
-        if provider_message_byte_preservation_required(spec):
-            kept.append(_annotated_provider_message_byte_preservation_spec(spec))
-            byte_preservation_specs.append(
-                {
-                    "index": index,
-                    "kind": str(spec.get("kind") or ""),
-                    "source_ref": str(spec.get("source_ref") or ""),
-                    "byte_preservation_contract": provider_message_replay_kind(spec),
-                    "reason": "provider_message_byte_preservation_contract_preserves_provider_payload",
-                }
-            )
-            continue
-        filtered, diagnostics = apply_context_capability_profile(
-            [dict(spec)],
-            profile=profile,
-            invocation_kind=invocation_kind,
-        )
-        for group, count in dict(diagnostics.get("context_capability_group_counts") or {}).items():
-            group_id = str(group or "")
-            group_counts[group_id] = group_counts.get(group_id, 0) + int(count or 0)
-        if filtered:
-            kept.extend(filtered)
-            continue
-        for item in list(diagnostics.get("rejected_context_capabilities") or []):
-            if isinstance(item, dict):
-                rejected.append({"source_index": index, **dict(item)})
-    return kept, {
-        "context_capability_profile": profile,
-        "context_capability_group_counts": group_counts,
-        "rejected_context_capability_count": len(rejected),
-        "rejected_context_capabilities": rejected[:30],
-        "provider_message_byte_preservation_contract_count": len(byte_preservation_specs),
-        "provider_message_byte_preservation_contract_specs": byte_preservation_specs[:30],
-        "input_spec_count": len(list(source_specs or [])),
-        "output_spec_count": len(kept),
-        "invocation_kind": str(invocation_kind or ""),
-        "authority": "runtime.context_management.context_pipeline.context_capability_filter",
-    }
+    gateway_result = build_context_candidate_gateway(
+        source_specs,
+        invocation_kind=invocation_kind,
+        context_capability_profile=context_capability_profile,
+        system_wiring_manifest=system_wiring_manifest,
+    )
+    diagnostics = dict(dict(gateway_result.diagnostics or {}).get("context_line_activation") or {})
+    diagnostics["context_candidate_gateway"] = dict(gateway_result.diagnostics or {})
+    return [dict(item) for item in gateway_result.message_specs], diagnostics
 
 
 def enrich_physical_context_inputs_with_provider_visible_append_ledger(
@@ -456,17 +416,6 @@ def provider_lane_from_model_selection(
 ) -> str:
     selection = dict(model_selection or {})
     return normalize_provider_lane(selection.get("provider_lane"))
-
-
-def _annotated_provider_message_byte_preservation_spec(spec: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(spec or {})
-    metadata = {
-        **dict(payload.get("metadata") or {}),
-        "context_capability_filter": "preserved_by_provider_message_byte_preservation_contract",
-        "provider_message_byte_preservation_contract": provider_message_replay_kind(payload),
-    }
-    payload["metadata"] = metadata
-    return payload
 
 
 def _safe_int(value: Any) -> int:

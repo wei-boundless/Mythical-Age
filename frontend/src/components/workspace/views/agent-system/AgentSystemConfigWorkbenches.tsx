@@ -56,6 +56,8 @@ type RuntimeDraftLike = {
     capability_tags?: string[];
     metadata?: Record<string, unknown>;
   };
+  prompt_set_refs?: string[];
+  prompt_bindings?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 };
 
@@ -340,6 +342,81 @@ function runtimeTemplateIssue(config: GenericRuntimeConfig) {
   if (config.runtime_kind !== expectedKind) return `模板要求 Runtime Kind 为 ${expectedKind}`;
   if (!runtimeTemplateStrategies(config.template_id).includes(config.execution_strategy)) return `模板不支持执行策略 ${config.execution_strategy}`;
   return "";
+}
+
+export function AgentSystemPromptWiringWorkbench({
+  runtimeDraft,
+  patchRuntimeDraft,
+  runtimeSaveBlocked,
+  saveRuntimeProfile,
+  saving,
+}: {
+  runtimeDraft: RuntimeDraftLike;
+  patchRuntimeDraft: (patch: Partial<RuntimeDraftLike>) => void;
+  runtimeSaveBlocked: boolean;
+  saveRuntimeProfile: () => Promise<void>;
+  saving: "" | "agent" | "runtime" | "group" | "create" | "delete";
+}) {
+  const promptSetRefs = dedupe(runtimeDraft.prompt_set_refs ?? []);
+  const promptBindings = runtimeDraft.prompt_bindings ?? {};
+  const [bindingsText, setBindingsText] = useState(() => JSON.stringify(promptBindings, null, 2));
+  const [bindingsError, setBindingsError] = useState("");
+
+  useEffect(() => {
+    setBindingsText(JSON.stringify(runtimeDraft.prompt_bindings ?? {}, null, 2));
+    setBindingsError("");
+  }, [runtimeDraft.prompt_bindings]);
+
+  function applyBindingsText() {
+    try {
+      const parsed = JSON.parse(bindingsText || "{}");
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+        setBindingsError("prompt_bindings 必须是 JSON object。");
+        return;
+      }
+      patchRuntimeDraft({ prompt_bindings: parsed as Record<string, unknown> });
+      setBindingsError("");
+    } catch (exc) {
+      setBindingsError(exc instanceof Error ? exc.message : "JSON 解析失败");
+    }
+  }
+
+  return (
+    <section className="boundary-layer-grid boundary-layer-grid--wide">
+      <div className="boundary-card">
+        <header>
+          <strong>Prompt Wiring</strong>
+          <AgentSystemBadge>{promptSetRefs.length ? `${promptSetRefs.length} refs` : "default"}</AgentSystemBadge>
+        </header>
+        <div className="agent-system-identity-note">
+          <span>配置落点：AgentRuntimeProfile.prompt_set_refs / prompt_bindings。</span>
+          <strong>提示词正文由后端 owner 域保存；这里只保存当前 Agent 的接线引用。</strong>
+        </div>
+        <div className="boundary-form">
+          <AgentSystemField label="PromptSet Refs" wide>
+            <textarea
+              rows={7}
+              value={promptSetRefs.join("\n")}
+              onChange={(event) => patchRuntimeDraft({ prompt_set_refs: dedupe(event.target.value.split(/[\n,，]/)) })}
+            />
+          </AgentSystemField>
+          <AgentSystemField label="Prompt Bindings" wide>
+            <textarea rows={12} value={bindingsText} onChange={(event) => setBindingsText(event.target.value)} />
+          </AgentSystemField>
+        </div>
+        {bindingsError ? <Notice icon={<AlertTriangle size={16} />} tone="error">{bindingsError}</Notice> : null}
+        <div className="boundary-actions">
+          <button onClick={applyBindingsText} type="button">应用 Bindings</button>
+          <button disabled={saving === "runtime" || runtimeSaveBlocked} onClick={() => void saveRuntimeProfile()} type="button">
+            <Save size={15} /> 保存运行档案
+          </button>
+        </div>
+      </div>
+      <AgentSystemReadinessCard label="PromptSet" ready={promptSetRefs.length > 0} value={promptSetRefs.length ? `${promptSetRefs.length} 个` : "默认推导"} />
+      <AgentSystemReadinessCard label="Bindings" ready={Object.keys(promptBindings).length > 0} value={Object.keys(promptBindings).length ? `${Object.keys(promptBindings).length} 项` : "未覆盖"} />
+      <AgentSystemReadinessCard label="Owner" ready value="backend" />
+    </section>
+  );
 }
 
 function nextSearchSources(config: SearchRuntimeConfig) {
@@ -1698,8 +1775,6 @@ export function AgentSystemDiagnosticsWorkbench({
     </section>
   );
 }
-
-
 
 
 

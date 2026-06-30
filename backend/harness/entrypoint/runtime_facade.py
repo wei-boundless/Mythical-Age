@@ -1118,7 +1118,7 @@ class HarnessRuntimeFacade:
             max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
         )
         if not resume_result.get("ok"):
-            payload = _active_work_control_failure_payload(resume_result)
+            payload = _task_resume_control_failure_payload(resume_result)
             for event in await self._task_recovery_resume_failure_events(
                 request=request,
                 turn_id=turn_id,
@@ -1138,7 +1138,7 @@ class HarnessRuntimeFacade:
         )
         schedule_result = dict(resume_result.get("schedule") or {})
         if not _schedule_result_allows_progress(schedule_result):
-            payload = _active_work_schedule_failure_payload(schedule_result)
+            payload = _task_resume_schedule_failure_payload(schedule_result)
             for event in await self._task_recovery_resume_failure_events(
                 request=request,
                 turn_id=turn_id,
@@ -1436,7 +1436,7 @@ class HarnessRuntimeFacade:
                 **refs,
             }
             return
-        needs_agent_response = active_decision.action in {"answer_about_active_work", "answer_then_continue_active_work"}
+        needs_agent_response = active_decision.action in {"answer_about_active_work"}
         public_control_content = content if needs_agent_response and has_agent_authored_control_response else ""
         if needs_agent_response and not has_agent_authored_control_response:
             yield {
@@ -1468,7 +1468,7 @@ class HarnessRuntimeFacade:
             public_control_content = commit_result.decision.content
         else:
             commit_result = None
-        if active_decision.action in {"continue_active_work", "append_instruction_to_active_work", "answer_then_continue_active_work"} and status != "blocked":
+        if active_decision.action in {"append_instruction_to_active_work"} and status != "blocked":
             yield {
                 "type": "active_task_steer_accepted",
                 "summary": content,
@@ -2066,27 +2066,6 @@ class HarnessRuntimeFacade:
                 task_run_id=context.task_run_id,
                 state="running_task" if context.running else "waiting_executor",
             )
-        if result.get("ok") and context.resumable:
-            resume_result = self._resume_task_run_through_control_gateway(
-                session_id=context.session_id,
-                task_run_id=context.task_run_id,
-                reason="conversation_instruction",
-                turn_id=turn_id,
-                scheduler="conversation_instruction",
-                max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
-            )
-            if resume_result.get("ok"):
-                schedule_result = dict(resume_result.get("schedule") or {})
-                if not _schedule_result_allows_progress(schedule_result):
-                    return _active_work_schedule_failure_payload(schedule_result)
-                self._bind_current_turn_to_task_run(
-                    session_id=context.session_id,
-                    turn_id=turn_id,
-                    task_run_id=context.task_run_id,
-                    state="running_task",
-                )
-            else:
-                return _active_work_control_failure_payload(resume_result)
         if not result.get("ok"):
             return active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
         if result.get("ok") and not context.running and not context.resumable:
@@ -2105,17 +2084,7 @@ class HarnessRuntimeFacade:
     ) -> str | dict[str, Any]:
         action = decision.action
         response = public_active_work_text(decision.response) or default_reply_for_action(action, context)
-        if action == "continue_active_work":
-            response = self._apply_continue_active_work(
-                context=context,
-                turn_id=turn_id,
-                user_message=user_message,
-                appended_instruction=decision.appended_instruction,
-                continuation_strategy=decision.continuation_strategy,
-                default_response=response,
-                editor_context=dict(editor_context or {}),
-            )
-        elif action == "pause_active_work":
+        if action == "pause_active_work":
             result = self._task_run_control_gateway(schedule_task_run_executor=None).pause_task_run(
                 context.task_run_id,
                 reason="conversation_pause",
@@ -2154,16 +2123,6 @@ class HarnessRuntimeFacade:
                 default_response=response,
                 editor_context=dict(editor_context or {}),
             )
-        elif action == "answer_then_continue_active_work":
-            response = self._apply_continue_active_work(
-                context=context,
-                turn_id=turn_id,
-                user_message=user_message,
-                appended_instruction=decision.appended_instruction,
-                continuation_strategy=decision.continuation_strategy,
-                default_response=response,
-                editor_context=dict(editor_context or {}),
-            )
         elif action == "answer_about_active_work":
             response = decision.response or active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
         elif action == "ask_user":
@@ -2174,77 +2133,6 @@ class HarnessRuntimeFacade:
                 "content": public_active_work_text(str(response.get("content") or "")),
             }
         return public_active_work_text(response)
-
-    def _apply_continue_active_work(
-        self,
-        *,
-        context: ActiveWorkContext,
-        turn_id: str,
-        user_message: str,
-        appended_instruction: str = "",
-        continuation_strategy: str = "",
-        default_response: str,
-        editor_context: dict[str, Any] | None = None,
-    ) -> str | dict[str, Any]:
-        host = self.single_agent_runtime_host
-        strategy = _continuation_strategy_for_execution(
-            decision_strategy=continuation_strategy,
-            context=context,
-        )
-        if strategy == "same_run_resume":
-            if not (context.same_run_allowed or context.resumable):
-                return active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
-            instruction = str(appended_instruction or "").strip()
-            if instruction:
-                append_user_work_instruction(
-                    host,
-                    context.task_run_id,
-                    content=instruction,
-                    turn_id=turn_id,
-                    intent="conversation_continue",
-                    editor_context=dict(editor_context or {}),
-                )
-            result = self._resume_task_run_through_control_gateway(
-                session_id=context.session_id,
-                task_run_id=context.task_run_id,
-                reason="conversation_continue",
-                turn_id=turn_id,
-                scheduler="conversation_continue",
-                max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
-            )
-            if result.get("ok"):
-                schedule_result = dict(result.get("schedule") or {})
-                if not _schedule_result_allows_progress(schedule_result):
-                    return _active_work_schedule_failure_payload(schedule_result)
-                self._bind_current_turn_to_task_run(
-                    session_id=context.session_id,
-                    turn_id=turn_id,
-                    task_run_id=context.task_run_id,
-                    state="running_task",
-                )
-                return default_response or "好，我接着处理。"
-            return _active_work_control_failure_payload(result)
-        if strategy == "already_running":
-            if not context.running:
-                return active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
-            self._bind_current_turn_to_task_run(
-                session_id=context.session_id,
-                turn_id=turn_id,
-                task_run_id=context.task_run_id,
-                state="running_task",
-            )
-            instruction = str(appended_instruction or "").strip()
-            if instruction:
-                append_user_work_instruction(
-                    host,
-                    context.task_run_id,
-                    content=instruction,
-                    turn_id=turn_id,
-                    intent="conversation_steer_while_running",
-                    editor_context=dict(editor_context or {}),
-                )
-            return default_response or "我正在接着处理，新的进展会继续更新在这里。"
-        return active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
 
     def _bind_current_turn_to_task_run(
         self,
@@ -3035,7 +2923,7 @@ class HarnessRuntimeFacade:
             return None
         return getter(name)
 
-def _active_work_schedule_failure_reply(result: dict[str, Any]) -> str:
+def _task_resume_schedule_failure_reply(result: dict[str, Any]) -> str:
     reason = str(result.get("reason") or result.get("error") or "unknown").strip()
     if not reason:
         reason = "unknown"
@@ -3056,44 +2944,40 @@ def _current_work_control_status_projection(*, action: str, status: str, content
         return "当前工作已接收补充", detail or "补充要求已接入当前工作。", "running"
     if normalized_action == "answer_about_active_work":
         return "当前工作状态", detail or "已返回当前工作状态。", "done"
-    if normalized_action == "answer_then_continue_active_work":
-        return "当前工作继续执行", detail or "已回应并继续当前工作。", "running"
-    if normalized_action == "continue_active_work":
-        return "继续当前工作", detail or "当前工作将继续执行。", "running"
     return "当前工作控制", detail or "当前工作控制请求已处理。", "done"
 
 
-def _active_work_schedule_failure_payload(result: dict[str, Any]) -> dict[str, Any]:
+def _task_resume_schedule_failure_payload(result: dict[str, Any]) -> dict[str, Any]:
     reason = str(result.get("reason") or result.get("error") or "unknown").strip() or "unknown"
     return {
         "status": "blocked",
         "terminal_reason": "active_work_schedule_failed",
         "reason": reason,
-        "content": _active_work_schedule_failure_reply(result),
+        "content": _task_resume_schedule_failure_reply(result),
     }
 
 
-def _active_work_resume_failure_reply(result: dict[str, Any]) -> str:
+def _task_resume_failure_reply(result: dict[str, Any]) -> str:
     reason = str(result.get("reason") or result.get("error") or "unknown").strip()
     if not reason:
         reason = "unknown"
     return f"当前工作没有成功恢复：{reason}。断点已保留；如本轮包含补充要求，也已保留。需要先修复这个运行问题，再由 agent 在新的模型轮次中继续处理。"
 
 
-def _active_work_resume_failure_payload(result: dict[str, Any]) -> dict[str, Any]:
+def _task_resume_failure_payload(result: dict[str, Any]) -> dict[str, Any]:
     reason = str(result.get("reason") or result.get("error") or "unknown").strip() or "unknown"
     return {
         "status": "blocked",
         "terminal_reason": "active_work_resume_failed",
         "reason": reason,
-        "content": _active_work_resume_failure_reply(result),
+        "content": _task_resume_failure_reply(result),
     }
 
 
-def _active_work_control_failure_payload(result: dict[str, Any]) -> dict[str, Any]:
+def _task_resume_control_failure_payload(result: dict[str, Any]) -> dict[str, Any]:
     if "schedule" in dict(result or {}):
-        return _active_work_schedule_failure_payload(result)
-    return _active_work_resume_failure_payload(result)
+        return _task_resume_schedule_failure_payload(result)
+    return _task_resume_failure_payload(result)
 
 
 def _schedule_result_allows_progress(result: dict[str, Any]) -> bool:
@@ -3350,17 +3234,6 @@ def _slash_task_action_runtime_branch(signal: TaskModeSlashSignal) -> dict[str, 
         },
         "authority": "harness.entrypoint.runtime_branch",
     }
-
-
-def _continuation_strategy_for_execution(*, decision_strategy: str, context: ActiveWorkContext) -> str:
-    strategy = str(decision_strategy or "").strip()
-    if strategy in {"same_run_resume", "already_running", "defer", "none"}:
-        return strategy
-    if context.running:
-        return "already_running"
-    if context.same_run_allowed or context.resumable:
-        return "same_run_resume"
-    return "defer"
 
 
 def _explicit_contract_action_request(

@@ -12,6 +12,7 @@ from prompt_library import (
     PromptAssemblyResult,
     PromptAssemblyService,
     build_runtime_prompt_manifest,
+    build_runtime_prompt_wiring_plan,
     default_pack_ref_for_invocation,
 )
 from prompt_library.assembly import (
@@ -43,7 +44,6 @@ from prompt_composition import (
     render_text_context_fragment,
 )
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, model_visible_artifact_refs, normalize_artifact_ref
-from agent_system.identity import normalize_agent_id_sequence
 from harness.current_work_receipt import current_work_operation_availability_from_receipt
 from core.project_layout import ProjectLayout
 from runtime.model_gateway.lightweight_chat_model import provider_message_payloads
@@ -61,8 +61,8 @@ from runtime.context_management.context_segment_policy import (
     DYNAMIC_TAIL,
     context_segment_policy_for_spec,
 )
+from runtime.context_management.context_candidate_gateway import build_context_candidate_gateway
 from runtime.context_management.context_pipeline import (
-    apply_context_capability_profile_to_specs,
     build_context_pipeline,
     normalize_context_compaction_generation,
 )
@@ -75,6 +75,7 @@ from .dynamic_context import DynamicContextInput, DynamicContextManager, Dynamic
 from .envelope import RuntimeEnvelope
 from .invocation_packet import RuntimeInvocationPacket
 from .action_schema_manifest import ActionSchemaManifest, build_action_schema_manifest
+from .agent_visible_projection.projector import build_agent_visible_runtime_projection
 from .artifact_scope_manifest import ArtifactScopeManifest, build_artifact_scope_manifest
 from .bound_task_context import build_bound_task_context
 from .context_contract import build_context_contract_inspection_payload, build_context_contract_manifest
@@ -84,6 +85,12 @@ from .environment_prompt_controller import (
     build_base_prompt_mount_plan,
     prompt_mount_plan_for_invocation,
     prompt_mount_plan_from_payload,
+)
+from .harness_spine_contract import (
+    TASK_EXECUTOR_BASE_ACTION_TYPES,
+    TASK_EXECUTOR_CONDITIONAL_ACTION_TYPES,
+    TASK_EXECUTOR_FORBIDDEN_ORDINARY_ACTION_TYPES,
+    TASK_EXECUTOR_RUNNER_CONTRACT_ID,
 )
 from .incremental_context_frame import (
     TASK_EXECUTION_INCREMENTAL_CONTEXT_CURSOR_SOURCE_REF,
@@ -101,7 +108,7 @@ from .runtime_control_signal_projection import canonical_runtime_control_signal_
 from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
 from .task_run_contract_manifest import TaskRunContractManifest, build_task_run_contract_manifest_from_contract
 from .tool_catalog_manifest import ToolCatalogManifest, build_tool_catalog_manifest
-from .tool_call_contract import ToolCallContract, build_tool_call_contract
+from .tool_call_contract import build_tool_call_contract
 from .turn_operating_contract import (
     build_turn_operating_contract,
     turn_action_request_contract_payload,
@@ -130,6 +137,14 @@ class RuntimeCompilationResult:
             "envelope": self.envelope.to_dict(),
             "packet": self.packet.to_dict(),
         }
+
+
+@dataclass(frozen=True, slots=True)
+class _RuntimePromptProfileView:
+    agent_profile_id: str
+    prompt_set_refs: tuple[str, ...] = ()
+    prompt_bindings: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class RuntimeCompiler:
@@ -433,6 +448,7 @@ class RuntimeCompiler:
         assembly_payload = packet_context.runtime_assembly
         self._bind_assembly_base_dir(assembly_payload)
         profile_payload = packet_context.profile_payload
+        prompt_policy = dict(profile_payload.get("prompt_policy") or assembly_payload.get("prompt_policy") or {})
         environment_payload = packet_context.environment_payload
         _ensure_environment_storage_dirs_for_runtime(self.base_dir, environment_payload)
         control_capabilities = packet_context.control_capabilities
@@ -472,7 +488,7 @@ class RuntimeCompiler:
             tool_call_contract=tool_call_contract,
             output_contract=output_contract,
         )
-        agent_visible_runtime_projection = _agent_visible_runtime_projection(
+        agent_visible_runtime_projection = build_agent_visible_runtime_projection(
             invocation_kind="single_agent_turn",
             allowed_action_types=allowed_actions,
             profile_payload=profile_payload,
@@ -518,6 +534,18 @@ class RuntimeCompiler:
             task_environment_ref=task_environment_ref,
             assembly_payload=assembly_payload,
         )
+        runtime_prompt_wiring_plan = _build_invocation_prompt_wiring_plan(
+            base_dir=self.base_dir,
+            assembly_payload=assembly_payload,
+            invocation_kind="single_agent_turn",
+            allowed_actions=allowed_actions,
+            operation_availability=operation_availability,
+            active_work_context=dict(active_work_context or {}),
+            memory_context=memory_context or session_context_payload.get("memory_context"),
+            visible_tools=single_turn_tools,
+            session_context=session_context_payload,
+            prompt_pack_refs=prompt_assembly.prompt_pack_refs,
+        )
         prompt_mount_plan = prompt_mount_plan_for_invocation(
             _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload),
             invocation_kind="single_agent_turn",
@@ -529,6 +557,7 @@ class RuntimeCompiler:
             session_context=session_context_payload,
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
         )
+        prompt_mount_plan = _prompt_mount_plan_with_wiring_guidance(prompt_mount_plan, runtime_prompt_wiring_plan)
         tool_catalog_manifest = _build_tool_catalog_manifest_for_mount_plan(
             invocation_kind="single_agent_turn",
             tool_payloads=single_turn_tools,
@@ -1035,6 +1064,10 @@ class RuntimeCompiler:
         prompt_manifest["runtime_context_load_plan_ref"] = context_load_plan.plan_id
         prompt_manifest["runtime_context_load_plan"] = context_load_plan.to_dict()
         prompt_manifest["prompt_mount_plan"] = prompt_mount_plan.to_dict()
+        prompt_manifest["prompt_wiring_plan"] = _prompt_wiring_plan_manifest_payload(
+            runtime_prompt_wiring_plan,
+            prompt_policy=prompt_policy,
+        )
         prompt_manifest["tool_call_contract"] = tool_call_contract.to_hidden_control_payload()
         prompt_manifest["turn_operating_contract"] = turn_operating_contract.to_hidden_control_payload()
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
@@ -1193,7 +1226,7 @@ class RuntimeCompiler:
             runtime_assembly=assembly_payload,
             tool_plan=packet_context.tool_plan,
         )
-        agent_visible_runtime_projection = _agent_visible_runtime_projection(
+        agent_visible_runtime_projection = build_agent_visible_runtime_projection(
             invocation_kind="task_execution",
             allowed_action_types=allowed_actions,
             profile_payload=profile_payload,
@@ -1264,6 +1297,17 @@ class RuntimeCompiler:
             task_environment_ref=task_environment_ref,
             assembly_payload=assembly_payload,
         )
+        runtime_prompt_wiring_plan = _build_invocation_prompt_wiring_plan(
+            base_dir=self.base_dir,
+            assembly_payload=assembly_payload,
+            invocation_kind="task_execution",
+            allowed_actions=allowed_actions,
+            memory_context=memory_context,
+            observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
+            visible_tools=tool_payloads,
+            execution_state=dict(execution_state or {}),
+            prompt_pack_refs=prompt_assembly.prompt_pack_refs,
+        )
         prompt_mount_plan = prompt_mount_plan_for_invocation(
             _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload),
             invocation_kind="task_execution",
@@ -1274,6 +1318,7 @@ class RuntimeCompiler:
             execution_state=dict(execution_state or {}),
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
         )
+        prompt_mount_plan = _prompt_mount_plan_with_wiring_guidance(prompt_mount_plan, runtime_prompt_wiring_plan)
         tool_catalog_manifest = _build_tool_catalog_manifest_for_mount_plan(
             invocation_kind="task_execution",
             tool_payloads=tool_payloads,
@@ -2048,6 +2093,10 @@ class RuntimeCompiler:
             prompt_mount_plan,
             prompt_policy=prompt_policy,
         )
+        prompt_manifest["prompt_wiring_plan"] = _prompt_wiring_plan_manifest_payload(
+            runtime_prompt_wiring_plan,
+            prompt_policy=prompt_policy,
+        )
         prompt_manifest["tool_call_contract"] = tool_call_contract.to_hidden_control_payload()
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
         prompt_manifest["context_window"] = _context_window_report(
@@ -2178,7 +2227,7 @@ class RuntimeCompiler:
             available_tools=tool_payloads,
             runtime_assembly=assembly_payload,
         )
-        agent_visible_runtime_projection = _agent_visible_runtime_projection(
+        agent_visible_runtime_projection = build_agent_visible_runtime_projection(
             invocation_kind="tool_observation_followup",
             allowed_action_types=observation_allowed_actions,
             profile_payload=profile_payload,
@@ -2219,6 +2268,16 @@ class RuntimeCompiler:
             task_environment_ref=task_environment_ref,
             assembly_payload=assembly_payload,
         )
+        runtime_prompt_wiring_plan = _build_invocation_prompt_wiring_plan(
+            base_dir=self.base_dir,
+            assembly_payload=assembly_payload,
+            invocation_kind="tool_observation_followup",
+            allowed_actions=observation_allowed_actions,
+            observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
+            visible_tools=tool_payloads,
+            session_context=dict(session_context or {}),
+            prompt_pack_refs=prompt_assembly.prompt_pack_refs,
+        )
         prompt_mount_plan = prompt_mount_plan_for_invocation(
             _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload),
             invocation_kind="tool_observation_followup",
@@ -2228,6 +2287,7 @@ class RuntimeCompiler:
             session_context=dict(session_context or {}),
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
         )
+        prompt_mount_plan = _prompt_mount_plan_with_wiring_guidance(prompt_mount_plan, runtime_prompt_wiring_plan)
         tool_catalog_manifest = _build_tool_catalog_manifest_for_mount_plan(
             invocation_kind="tool_observation_followup",
             tool_payloads=tool_payloads,
@@ -2616,6 +2676,10 @@ class RuntimeCompiler:
         prompt_manifest["runtime_context_load_plan_ref"] = context_load_plan.plan_id
         prompt_manifest["runtime_context_load_plan"] = context_load_plan.to_dict()
         prompt_manifest["prompt_mount_plan"] = prompt_mount_plan.to_dict()
+        prompt_manifest["prompt_wiring_plan"] = _prompt_wiring_plan_manifest_payload(
+            runtime_prompt_wiring_plan,
+            prompt_policy={},
+        )
         prompt_manifest["tool_call_contract"] = tool_call_contract.to_hidden_control_payload()
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
         prompt_manifest["context_window"] = _context_window_report(
@@ -2926,18 +2990,35 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
     return turn_action_request_contract_payload()
 
 def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) -> dict[str, Any]:
+    requested_allowed = tuple(allowed_action_types or TASK_EXECUTOR_BASE_ACTION_TYPES)
+    forbidden_requested = tuple(
+        dict.fromkeys(
+            str(item).strip()
+            for item in requested_allowed
+            if str(item).strip() in set(TASK_EXECUTOR_FORBIDDEN_ORDINARY_ACTION_TYPES)
+        )
+    )
+    if forbidden_requested:
+        raise ValueError(
+            "task_execution_action_schema received ordinary-turn control actions: "
+            + ",".join(forbidden_requested)
+        )
     allowed = tuple(
         dict.fromkeys(
             str(item).strip()
-            for item in tuple(allowed_action_types or ("respond", "ask_user", "tool_call", "block"))
+            for item in requested_allowed
             if str(item).strip()
         )
     )
     pause_for_user_steer_available = "pause_for_user_steer" in allowed
     schema = {
         "contract_name": "task_execution_action",
+        "contract_ref": f"{TASK_EXECUTOR_RUNNER_CONTRACT_ID}.action_schema",
         "action_type": "|".join(allowed),
         "allowed_action_types": list(allowed),
+        "base_action_types": list(TASK_EXECUTOR_BASE_ACTION_TYPES),
+        "conditional_action_types": list(TASK_EXECUTOR_CONDITIONAL_ACTION_TYPES),
+        "forbidden_action_types": list(TASK_EXECUTOR_FORBIDDEN_ORDINARY_ACTION_TYPES),
         "action_shape_rules": [
             "每次只选择一个当前请求行动。需要工具、控制、询问或阻塞时，把动作写成一个顶层结构化对象；如果只是最终回答且当前请求边界允许 assistant 正文，可以直接自然回复。",
             "respond 必须把用户可见最终回复写在顶层 final_answer；不要写 payload.final_answer、payload.content、action.final_answer 或 action.content。",
@@ -3525,12 +3606,10 @@ def _active_work_model_visible_payload(
     if not context:
         return {}
     controls = [
-        "continue_active_work",
         "pause_active_work",
         "stop_active_work",
         "append_instruction_to_active_work",
         "answer_about_active_work",
-        "answer_then_continue_active_work",
     ] if controls_enabled else []
     payload = _drop_empty_payload(
         {
@@ -3940,11 +4019,16 @@ def _model_messages_and_segment_plan(
         spec["content"] = str(model_message.get("content") or spec.get("content") or "")
         spec["model_message"] = model_message
         source_specs.append(spec)
-    source_specs, _context_capability_diagnostics = apply_context_capability_profile_to_specs(
+    context_candidate_gateway_result = build_context_candidate_gateway(
         source_specs,
         invocation_kind=invocation_kind,
         context_capability_profile=context_capability_profile,
         system_wiring_manifest=system_wiring_manifest,
+    )
+    source_specs = [dict(item) for item in context_candidate_gateway_result.message_specs]
+    _context_candidate_gateway_diagnostics = dict(context_candidate_gateway_result.diagnostics or {})
+    _context_capability_diagnostics = dict(
+        _context_candidate_gateway_diagnostics.get("context_line_activation") or {}
     )
     source_bundle = build_prompt_source_bundle(
         packet_id=packet_id,
@@ -4004,6 +4088,7 @@ def _model_messages_and_segment_plan(
         diagnostics={
             **dict(_context_physical_diagnostics or {}),
             "provider_visible_append_stage": dict(_provider_visible_append_stage_diagnostics or {}),
+            "context_candidate_gateway": dict(_context_candidate_gateway_diagnostics or {}),
             "context_capability": dict(_context_capability_diagnostics or {}),
             "context_pipeline": context_pipeline_diagnostics,
             "dynamic_context_metadata_validation": dynamic_context_validation,
@@ -5045,6 +5130,80 @@ def _prompt_pack_refs_for_invocation(
     )
 
 
+def _build_invocation_prompt_wiring_plan(
+    *,
+    base_dir: Path,
+    assembly_payload: dict[str, Any],
+    invocation_kind: str,
+    allowed_actions: tuple[str, ...] = (),
+    operation_availability: dict[str, Any] | None = None,
+    active_work_context: dict[str, Any] | None = None,
+    memory_context: dict[str, Any] | None = None,
+    observations: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
+    visible_tools: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
+    execution_state: dict[str, Any] | None = None,
+    session_context: dict[str, Any] | None = None,
+    prompt_pack_refs: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    environment_payload = dict(assembly_payload.get("task_environment") or {})
+    environment_id = str(environment_payload.get("environment_id") or environment_payload.get("requested_environment_id") or "").strip()
+    profile_view = _runtime_prompt_profile_view_from_assembly(assembly_payload, environment_id=environment_id)
+    wiring_plan = build_runtime_prompt_wiring_plan(
+        base_dir=base_dir,
+        agent_profile=profile_view,
+        invocation_kind=invocation_kind,
+        environment_id=environment_id,
+        allowed_actions=allowed_actions,
+        operation_availability=operation_availability,
+        active_work_context=active_work_context,
+        memory_context=memory_context,
+        observations=observations,
+        visible_tools=visible_tools,
+        execution_state=execution_state,
+        session_context=session_context,
+        prompt_pack_refs=prompt_pack_refs,
+    ).to_dict()
+    _attach_invocation_prompt_wiring_plan(assembly_payload, invocation_kind=invocation_kind, wiring_plan=wiring_plan)
+    return wiring_plan
+
+
+def _runtime_prompt_profile_view_from_assembly(
+    assembly_payload: dict[str, Any],
+    *,
+    environment_id: str,
+) -> _RuntimePromptProfileView:
+    profile_payload = dict(assembly_payload.get("profile") or {})
+    agent_profile_id = str(
+        assembly_payload.get("agent_profile_ref")
+        or profile_payload.get("profile_ref")
+        or "main_interactive_agent"
+    ).strip()
+    metadata = dict(profile_payload.get("metadata") or {})
+    metadata.setdefault("default_task_environment_id", environment_id)
+    return _RuntimePromptProfileView(
+        agent_profile_id=agent_profile_id,
+        prompt_set_refs=_string_tuple(profile_payload.get("prompt_set_refs")),
+        prompt_bindings=dict(profile_payload.get("prompt_bindings") or {}),
+        metadata=metadata,
+    )
+
+
+def _attach_invocation_prompt_wiring_plan(
+    assembly_payload: dict[str, Any],
+    *,
+    invocation_kind: str,
+    wiring_plan: dict[str, Any],
+) -> None:
+    invocation = str(invocation_kind or "").strip()
+    if not invocation:
+        return
+    plans = dict(assembly_payload.get("prompt_wiring_plans_by_invocation") or {})
+    plans[invocation] = dict(wiring_plan or {})
+    assembly_payload["prompt_wiring_plans_by_invocation"] = plans
+    if invocation == "single_agent_turn" or not dict(assembly_payload.get("prompt_wiring_plan") or {}):
+        assembly_payload["prompt_wiring_plan"] = dict(wiring_plan or {})
+
+
 def _prompt_wiring_refs_for_slot(
     assembly_payload: dict[str, Any],
     *,
@@ -5063,6 +5222,16 @@ def _prompt_wiring_pack_refs_for_slot(
 ) -> tuple[str, ...]:
     slot = _prompt_wiring_slot(assembly_payload, invocation_kind=invocation_kind, slot_name=slot_name)
     return _string_tuple(slot.get("pack_refs"))
+
+
+def _prompt_wiring_slot_from_plan(wiring_plan: dict[str, Any], *, slot_name: str) -> dict[str, Any]:
+    target = str(slot_name or "").strip()
+    for raw_slot in list(dict(wiring_plan or {}).get("slots") or []):
+        if not isinstance(raw_slot, dict):
+            continue
+        if str(raw_slot.get("slot") or "").strip() == target:
+            return dict(raw_slot)
+    return {}
 
 
 def _prompt_wiring_slot(
@@ -5169,6 +5338,62 @@ def _prompt_mount_plan_manifest_payload(prompt_mount_plan: Any, *, prompt_policy
             "hidden_turn_state_guidance_prompt_keys": hidden_runtime_guidance_keys,
             "hidden_environment_guidance_trigger_reasons": hidden_environment_guidance_trigger_reasons,
             "hidden_turn_state_guidance_trigger_reasons": hidden_turn_state_guidance_trigger_reasons,
+            "authority": "runtime.prompt_policy",
+        }
+    )
+    payload["diagnostics"] = diagnostics
+    return payload
+
+
+def _prompt_mount_plan_with_wiring_guidance(prompt_mount_plan: Any, wiring_plan: dict[str, Any]) -> Any:
+    payload = dict(prompt_mount_plan.to_dict() if hasattr(prompt_mount_plan, "to_dict") else dict(prompt_mount_plan or {}))
+    stable_slot = _prompt_wiring_slot_from_plan(wiring_plan, slot_name="environment_guidance_stable")
+    runtime_slot = _prompt_wiring_slot_from_plan(wiring_plan, slot_name="environment_guidance_runtime")
+    if stable_slot:
+        stable_metadata = dict(stable_slot.get("metadata") or {})
+        payload["environment_guidance_prompt_refs"] = list(_string_tuple(stable_slot.get("refs")))
+        payload["environment_guidance_prompt_keys"] = list(_string_tuple(stable_metadata.get("environment_guidance_prompt_keys")))
+        payload["environment_guidance_trigger_reasons"] = dict(stable_metadata.get("environment_guidance_trigger_reasons") or {})
+    if runtime_slot:
+        runtime_metadata = dict(runtime_slot.get("metadata") or {})
+        payload["turn_state_guidance_prompt_refs"] = list(_string_tuple(runtime_slot.get("refs")))
+        payload["turn_state_guidance_prompt_keys"] = list(_string_tuple(runtime_metadata.get("environment_guidance_prompt_keys")))
+        payload["turn_state_guidance_trigger_reasons"] = dict(runtime_metadata.get("environment_guidance_trigger_reasons") or {})
+    diagnostics = dict(payload.get("diagnostics") or {})
+    diagnostics.update(
+        {
+            "environment_guidance_selector_authority": "prompt_library.wiring.build_runtime_prompt_wiring_plan",
+            "prompt_wiring_plan_ref": str(dict(wiring_plan or {}).get("wiring_id") or ""),
+            "prompt_mount_plan_role": "environment_mount_fact_adapter",
+        }
+    )
+    payload["diagnostics"] = diagnostics
+    return prompt_mount_plan_from_payload(payload)
+
+
+def _prompt_wiring_plan_manifest_payload(wiring_plan: dict[str, Any], *, prompt_policy: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(wiring_plan or {})
+    if _prompt_policy_visible(prompt_policy, "environment_prompt_visibility", default=True):
+        return payload
+    hidden_slots: list[dict[str, Any]] = []
+    visible_slots: list[dict[str, Any]] = []
+    for raw_slot in list(payload.get("slots") or []):
+        if not isinstance(raw_slot, dict):
+            continue
+        slot = dict(raw_slot)
+        if str(slot.get("owner_layer") or "") == "environment":
+            hidden_slots.append(slot)
+            slot["refs"] = []
+            metadata = dict(slot.get("metadata") or {})
+            metadata["hidden_by_prompt_policy"] = "environment_prompt_visibility"
+            slot["metadata"] = metadata
+        visible_slots.append(slot)
+    payload["slots"] = visible_slots
+    diagnostics = dict(payload.get("diagnostics") or {})
+    diagnostics.update(
+        {
+            "environment_prompt_visibility": "hidden",
+            "hidden_environment_wiring_slots": hidden_slots,
             "authority": "runtime.prompt_policy",
         }
     )
@@ -5379,420 +5604,6 @@ def _planning_protocol_payload(
             "authority": "harness.runtime.plan_mode_protocol",
         }
     )
-
-
-def _agent_visible_runtime_projection(
-    *,
-    invocation_kind: str,
-    allowed_action_types: tuple[str, ...],
-    profile_payload: dict[str, Any],
-    environment_payload: dict[str, Any],
-    operation_authorization: dict[str, Any],
-    available_tools: tuple[dict[str, Any], ...],
-    permission_mode: str = "default",
-    prompt_policy: dict[str, Any] | None = None,
-    tool_plan: Any | None = None,
-    tool_call_contract: ToolCallContract | None = None,
-) -> dict[str, Any]:
-    prompt_policy_payload = dict(prompt_policy or {})
-    task_lifecycle = dict(profile_payload.get("task_lifecycle_policy") or {})
-    planning = dict(profile_payload.get("planning_policy") or {})
-    planning_protocol = _planning_protocol_payload(
-        invocation_kind=invocation_kind,
-        profile_payload=profile_payload,
-        permission_mode=permission_mode,
-    )
-    self_review = dict(profile_payload.get("self_review_policy") or {})
-    step_summary = dict(profile_payload.get("step_summary_policy") or {})
-    permission = dict(profile_payload.get("permission_policy") or {})
-    subagent = dict(profile_payload.get("subagent_policy") or {})
-    storage = dict(environment_payload.get("storage_space") or {})
-    environment_boundary = dict(environment_payload.get("environment_boundary") or {})
-    artifact_scope = runtime_artifact_scope_from_environment(environment_payload)
-    allowed_operations = [
-        str(item)
-        for item in list(operation_authorization.get("allowed_operations") or [])
-        if str(item)
-    ]
-    tool_names = [
-        str(item.get("tool_name") or item.get("name") or "")
-        for item in available_tools
-        if str(item.get("tool_name") or item.get("name") or "")
-    ]
-    task_scoped_tool_routes = _task_scoped_tool_routes_from_tool_plan(tool_plan)
-    service_surface = _service_surface_payload(
-        invocation_kind=invocation_kind,
-        allowed_action_types=allowed_action_types,
-        available_tools=available_tools,
-        tool_plan=tool_plan,
-    )
-    resolved_tool_call_contract = tool_call_contract or build_tool_call_contract(
-        invocation_kind=invocation_kind,
-        allowed_action_types=allowed_action_types,
-        available_tools=available_tools,
-        runtime_assembly={"profile": profile_payload},
-        tool_plan=tool_plan,
-    )
-    tool_call_contract_visible = resolved_tool_call_contract.to_agent_visible_payload()
-    visible_tool_name_set = {name for name in tool_names if name}
-    subagent_lifecycle_enabled = bool(subagent.get("enabled") is True) and bool(
-        visible_tool_name_set.intersection(
-            {
-                "spawn_subagent",
-                "send_subagent_message",
-                "wait_subagent",
-                "list_subagents",
-                "close_subagent",
-            }
-        )
-    )
-    task_run_allowed = "request_task_run" in allowed_action_types and task_lifecycle.get("request_task_run") is not False
-    model_decision_contract = _model_decision_contract_payload(
-        invocation_kind=invocation_kind,
-        allowed_action_types=allowed_action_types,
-        task_run_allowed=task_run_allowed,
-        tool_call_contract=resolved_tool_call_contract,
-    )
-    execution_boundary = _execution_boundary_payload(
-        profile_payload=profile_payload,
-        operation_authorization=operation_authorization,
-        permission_mode=permission_mode,
-    )
-    payload = {
-        "authority": "harness.runtime.agent_visible_runtime_projection",
-        "invocation_kind": str(invocation_kind or ""),
-        "action_surface": model_decision_contract,
-        "tool_capability_surface": _tool_capability_surface_payload(
-            service_surface=service_surface,
-            tool_call_contract=resolved_tool_call_contract,
-        ),
-        "tool_call_contract": tool_call_contract_visible,
-        "model_decision_contract": model_decision_contract,
-        "service_surface": service_surface,
-        "execution_boundary": execution_boundary,
-        "allowed_action_types": list(allowed_action_types),
-        "task_lifecycle": {
-            "request_task_run_allowed": task_run_allowed,
-            "requires_completion_evidence": bool(task_lifecycle.get("requires_completion_evidence") is True),
-            "artifact_evidence_required": bool(task_lifecycle.get("artifact_evidence_required") is True),
-        },
-        "planning": {
-            **planning_protocol,
-            "specified_plan_allowed": bool(planning.get("specified_plan_allowed") is True),
-            "todo_required_when_task_run": bool(planning.get("todo_required_when_task_run") is True),
-        },
-        "self_review": {
-            "enabled": bool(self_review.get("enabled") is True),
-            "before_final": str(self_review.get("before_final") or ""),
-            "checkpoints": [str(item) for item in list(self_review.get("checkpoints") or []) if str(item)],
-            "failure_recovery": str(self_review.get("failure_recovery") or ""),
-        },
-        "step_summary": {
-            "enabled": bool(step_summary.get("enabled") is True),
-            "detail": str(step_summary.get("detail") or ""),
-        },
-        "tool_boundary": {
-            "visible_tool_count": len(tool_names),
-            "visible_tool_names": tool_names,
-            "task_scoped_tool_routes": task_scoped_tool_routes,
-            "allowed_operation_count": len(allowed_operations),
-            "tools_are_limited_to_visible_context": True,
-            "subagent_lifecycle_enabled": subagent_lifecycle_enabled,
-            "allowed_subagent_ids": list(
-                normalize_agent_id_sequence(str(item) for item in list(subagent.get("allowed_subagent_ids") or []) if str(item))
-            ),
-        },
-        "permission_boundary": {
-            "permission_scope": str(permission.get("permission_scope") or permission.get("scope") or ""),
-            "permission_mode": str(permission_mode or "default"),
-        },
-    }
-    if _prompt_policy_visible(prompt_policy_payload, "runtime_environment_boundary_visibility", default=True):
-        payload["environment_boundary"] = {
-            "environment_contract_present": bool(environment_payload.get("environment_id") or environment_boundary),
-            "artifact_workspace_available": bool(artifact_scope.artifact_root or storage.get("artifact_root")),
-            "persistent_environment_storage_available": bool(storage.get("environment_storage_root")),
-        }
-    return payload
-
-
-def _model_decision_contract_payload(
-    *,
-    invocation_kind: str,
-    allowed_action_types: tuple[str, ...],
-    task_run_allowed: bool,
-    tool_call_contract: ToolCallContract | None = None,
-) -> dict[str, Any]:
-    allowed_actions = [str(item) for item in tuple(allowed_action_types or ()) if str(item)]
-    control_actions = [
-        item
-        for item in ("ask_user", "block", "request_task_run", "active_work_control", "pause_for_user_steer")
-        if item in allowed_actions
-    ]
-    pause_for_user_steer_allowed = "pause_for_user_steer" in allowed_actions
-    tool_contract = tool_call_contract.to_hidden_control_payload() if tool_call_contract is not None else {}
-    ordinary_tool_submission = str(tool_contract.get("ordinary_tool_submission") or "none")
-    control_action_submission = str(tool_contract.get("control_action_submission") or "none")
-    ordinary_initial_response_allowed = str(invocation_kind or "") == "single_agent_turn"
-    model_invocation_phase = "initial_decision" if ordinary_initial_response_allowed else f"{str(invocation_kind or 'runtime')}_action_decision"
-    return {
-        "authority": "harness.runtime.model_decision_contract",
-        "prompt_authority": "runtime_action_contract",
-        "invocation_kind": str(invocation_kind or ""),
-        "model_invocation_phase": model_invocation_phase,
-        "allowed_action_types": allowed_actions,
-        "control_actions": control_actions,
-        "assistant_response_form": (
-            "ordinary_initial_assistant_message"
-            if ordinary_initial_response_allowed
-            else "model_action_user_visible_field"
-        ),
-        "natural_response_carrier": (
-            "assistant_message"
-            if ordinary_initial_response_allowed
-            else "assistant_message_or_respond.final_answer"
-        ),
-        "ordinary_tool_action": "choose_available_tool_and_fill_arguments"
-        if ordinary_tool_submission != "none"
-        else "not_available",
-        "control_action_submission": control_action_submission if control_actions else "none",
-        "action_object_required_for": (
-            "non_provider_control_fallback_only"
-            if ordinary_initial_response_allowed
-            else "all_action_phase_decisions_without_provider_control_tool"
-        ),
-        "assistant_text_allowed_when_no_action": bool(ordinary_initial_response_allowed),
-        "required_action_form": (
-            "assistant_message_or_tool_action_or_control_action"
-            if ordinary_initial_response_allowed
-            else "tool_action_or_control_action_or_structured_action_object"
-        ),
-        "action_phase_natural_response_carrier": "assistant_message_or_respond.final_answer",
-        "action_object_shape": {
-            "authority": "harness.loop.model_action_request",
-            "single_unambiguous_action_required": True,
-            "markdown_fence_allowed_when_single_action": True,
-            "wrapper_text_allowed_when_single_action": True,
-            "respond_requires_top_level_final_answer": "action_type=respond 时，最终给用户看的自然回复必须写在顶层 final_answer；不要放入 payload.content、payload.final_answer 或 action.content。",
-            "ask_user_requires_top_level_user_question": "action_type=ask_user 时，用户要回答的问题必须写在顶层 user_question；不要通过工具调用表达。",
-            "block_requires_top_level_blocking_reason": "action_type=block 时，真实阻塞原因必须写在顶层 blocking_reason。",
-            **(
-                {
-                    "request_task_run_uses_compact_task_start_intent": (
-                        "action_type=request_task_run 时，只在 task_run_contract_seed 内填写紧凑 TaskStartIntent；"
-                        "这是申请长任务资源的控制动作，不是普通工具调用，也不是第二套模型工作提示。"
-                    )
-                }
-                if task_run_allowed
-                else {}
-            ),
-            **(
-                {
-                    "pause_for_user_steer_requires_top_level_pause_request": (
-                        "action_type=pause_for_user_steer 时，必须填写顶层 pause_request。"
-                        "pause_request.reason 必须是 user_steer_requires_pause，必须引用当前 pending_user_steers 中的 steer_ref，"
-                        "并写出 checkpoint_summary；不要把这条 steer 放入 consumed_steer_refs。"
-                    )
-                }
-                if pause_for_user_steer_allowed
-                else {}
-            ),
-        },
-        **(
-            {
-                "task_pause_rule": {
-                    "pause_for_user_steer_allowed": True,
-                    "authority_boundary": "model_decides_semantic_pause_after_current_context_exposes_pending_user_steer",
-                    "use_only_when": [
-                        "当前请求上下文包含指向当前 task_run 的 pending_user_steers 或等价用户 steer 事实。",
-                        "你判断继续当前执行步骤会越过用户最新要求，需要停在可继续边界。",
-                        "你能提供 steer_ref 和 checkpoint_summary，让后续接入时先重新判断用户 steer。",
-                    ],
-                    "do_not_use_for": [
-                        "缺权限、缺资源、缺文件、缺外部事实、工具失败、预算耗尽或普通不确定。",
-                        "没有 pending_user_steers 的普通任务暂停。",
-                        "已经真正处理并消费该 steer 的情况。",
-                    ],
-                    "resume_contract": "暂停后会留下可继续的事实和句柄；后续接入时，你仍要根据上下文缓存、pending steer 和当前工作事实重新判断下一步。",
-                }
-            }
-            if pause_for_user_steer_allowed
-            else {}
-        ),
-        "long_task_resource_rule": (
-            {
-                "request_task_run_allowed": True,
-                "agent_selects_resource_request": True,
-                "ask_user_when_contract_gaps_exist": True,
-                "task_start_requires_structured_request_task_run": True,
-                "resource_request_conditions": [
-                    "需要为后续请求保存目标、计划游标、todo 游标、证据、检查点、验收边界或阶段反馈。",
-                    "用户需要能暂停、停止或继续同一个工作单元。",
-                    "当前动作需要一个明确的系统资源边界，而不是一次普通工具观察。",
-                ],
-                "request_task_run_when_agent_selects_resource": (
-                    "如果你判断需要长任务资源，并且 TaskStartIntent 足够，提交 action_type=request_task_run；"
-                    "不要先用普通工具调用替代资源申请。"
-                ),
-                "ask_user_when_resource_intent_incomplete": (
-                    "如果你判断需要长任务资源但 primary_mode、task_shape、最小下一步、范围或验收模式不足，提交 ask_user 补齐。"
-                ),
-                "request_task_run_minimum_contract": [
-                    "task_run_contract_seed.contract_shape=compact_task_start_intent",
-                    "task_run_contract_seed.primary_mode",
-                    "task_run_contract_seed.task_shape",
-                    "task_run_contract_seed.minimum_viable_next_step",
-                    "task_run_contract_seed.working_scope",
-                    "task_run_contract_seed.acceptance.mode",
-                    "task_run_contract_seed.mode_payload",
-                ],
-                "single_turn_tool_call_boundary": (
-                    "tool_call 是当前请求内的有效路径，用于你判断有限工具观察即可回答、验证或推进的问题；"
-                    "选择工具动作时，公开反馈应说明本次查证目标，不得宣称已经申请或绑定长任务资源。"
-                ),
-            }
-            if task_run_allowed
-            else {
-                "request_task_run_allowed": False,
-                "agent_selects_resource_request": False,
-                "task_start_requires_structured_request_task_run": False,
-                "resource_request_unavailable": "当前可用能力没有提供长任务资源申请入口；不要提交 request_task_run，也不要把普通工具调用描述成已开启 task。",
-                "single_turn_tool_call_boundary": (
-                    "tool_call 是当前请求内的有效路径，用于你判断有限工具观察即可回答、验证或推进的问题；"
-                    "选择工具动作时，公开反馈应说明本次查证目标，不得宣称已经申请或绑定长任务资源。"
-                ),
-            }
-        ),
-        "feedback_obligation": {
-            "agent_must_give_user_feedback": True,
-            "pure_control_feedback_is_carried_by_control_payload_and_projection": True,
-            "do_not_emit_detached_assistant_body_for_pure_control": True,
-            "public_feedback_must_match_action_type": True,
-            "task_resource_claim_requires_request_task_run": bool(task_run_allowed),
-        },
-    }
-
-
-def _service_surface_payload(
-    *,
-    invocation_kind: str,
-    allowed_action_types: tuple[str, ...],
-    available_tools: tuple[dict[str, Any], ...],
-    tool_plan: Any | None,
-) -> dict[str, Any]:
-    mounted_tools: list[dict[str, str]] = []
-    for tool in available_tools:
-        payload = dict(tool or {})
-        tool_name = str(payload.get("tool_name") or payload.get("name") or "").strip()
-        if not tool_name:
-            continue
-        mounted_tools.append(
-            {
-                "tool_name": tool_name,
-                "operation_id": str(payload.get("operation_id") or tool_name),
-                "owner_scope": str(payload.get("owner_scope") or "none"),
-            }
-        )
-    return {
-        "authority": "harness.runtime.service_surface",
-        "invocation_kind": str(invocation_kind or ""),
-        "tool_action_available": "tool_call" in set(allowed_action_types or ()),
-        "ordinary_tool_submission": "tool_action" if "tool_call" in set(allowed_action_types or ()) else "none",
-        "mounted_tools": mounted_tools,
-        "unmounted_services": [
-            {
-                "service": str(issue.get("tool_name") or issue.get("operation_id") or ""),
-                "tool_name": str(issue.get("tool_name") or ""),
-                "operation_id": str(issue.get("operation_id") or ""),
-                "category": _tool_filter_issue_category(issue),
-                "reason": str(issue.get("reason") or ""),
-                "source": str(issue.get("source") or ""),
-                "required_action": str(dict(issue.get("metadata") or {}).get("required_action") or ""),
-            }
-            for issue in _tool_filter_issues_from_tool_plan(tool_plan)
-            if str(issue.get("tool_name") or issue.get("operation_id") or "").strip()
-        ],
-    }
-
-
-def _tool_capability_surface_payload(
-    *,
-    service_surface: dict[str, Any],
-    tool_call_contract: ToolCallContract,
-) -> dict[str, Any]:
-    contract = tool_call_contract.to_hidden_control_payload()
-    mounted_tools = [
-        {
-            "tool_name": str(item.get("tool_name") or ""),
-            "operation_id": str(item.get("operation_id") or ""),
-            "owner_scope": str(item.get("owner_scope") or "none"),
-        }
-        for item in list(dict(service_surface or {}).get("mounted_tools") or [])
-        if isinstance(item, dict) and str(item.get("tool_name") or "").strip()
-    ]
-    return {
-        "authority": "harness.runtime.tool_capability_surface",
-        "tool_action_available": str(contract.get("ordinary_tool_submission") or "none") != "none",
-        "tool_action_submission": "choose_available_tool_and_fill_arguments"
-        if str(contract.get("ordinary_tool_submission") or "none") != "none"
-        else "not_available",
-        "mounted_tools": mounted_tools,
-        "unavailable_tools": list(dict(service_surface or {}).get("unmounted_services") or []),
-        "mounted_tools_ref": "tool_index_stable.available_tools",
-        "feedback_boundary": "denied, invalid, unmounted, or budget-exhausted tool actions return feedback for the next agent decision",
-    }
-
-
-def _execution_boundary_payload(
-    *,
-    profile_payload: dict[str, Any],
-    operation_authorization: dict[str, Any],
-    permission_mode: str,
-) -> dict[str, Any]:
-    permission = dict(profile_payload.get("permission_policy") or {})
-    return {
-        "permission_mode": str(permission_mode or "default"),
-        "permission_scope": str(permission.get("permission_scope") or permission.get("scope") or ""),
-        "allowed_operation_count": len(list(operation_authorization.get("allowed_operations") or [])),
-        "approval_required_operation_count": len(list(operation_authorization.get("requires_approval_operations") or [])),
-        "operation_gate_stage": "concrete tool actions are rechecked at execution time for permission and side-effect risk",
-    }
-
-
-def _tool_filter_issues_from_tool_plan(tool_plan: Any | None) -> list[dict[str, Any]]:
-    plan = tool_plan.to_dict() if hasattr(tool_plan, "to_dict") else dict(tool_plan or {})
-    capability_table = dict(plan.get("capability_table") or {})
-    return [dict(item or {}) for item in list(capability_table.get("filtered") or []) if isinstance(item, dict)]
-
-
-def _tool_filter_issue_category(issue: dict[str, Any]) -> str:
-    reason = str(dict(issue or {}).get("reason") or "")
-    source = str(dict(issue or {}).get("source") or "")
-    if reason == "task_scoped_tool_requires_task_run":
-        return "requires_task_run"
-    if "approval" in reason:
-        return "approval_required"
-    if "denied" in reason or source == "operation_authorization":
-        return "permission_denied"
-    return "service_unavailable"
-
-
-def _task_scoped_tool_routes_from_tool_plan(tool_plan: Any | None) -> list[dict[str, str]]:
-    routes: list[dict[str, str]] = []
-    for item in _tool_filter_issues_from_tool_plan(tool_plan):
-        issue = dict(item or {})
-        if str(issue.get("reason") or "") != "task_scoped_tool_requires_task_run":
-            continue
-        metadata = dict(issue.get("metadata") or {})
-        routes.append(
-            {
-                "tool_name": str(issue.get("tool_name") or ""),
-                "operation_id": str(issue.get("operation_id") or ""),
-                "owner_scope": str(metadata.get("owner_scope") or ""),
-                "required_action": str(metadata.get("required_action") or "request_task_run"),
-            }
-        )
-    return [item for item in routes if item["tool_name"]]
 
 
 def _runtime_projection_instruction(projection: dict[str, Any], *, validity_scope: str = "") -> str:

@@ -119,7 +119,11 @@ export type ProviderCacheLogRecord = {
   physical_cache_spine_control_signals?: string[];
   provider_under_read_tokens: number;
   current_context_append_tokens?: number;
-  dynamic_tail_tokens?: number;
+  volatile_tokens?: number;
+  current_turn_tail_tokens?: number;
+  never_replay_tail_tokens?: number;
+  unconfirmed_provider_replay_tokens?: number;
+  non_cache_payload_breakdown_available?: boolean;
   tool_schema_blocker_tokens?: number;
   non_spine_prompt_tokens?: number;
   first_mismatch_segment?: Record<string, unknown>;
@@ -142,6 +146,11 @@ export type ProviderCacheLog = {
     latest_status?: string;
     latest_prefix_health?: Record<string, unknown>;
     latest_under_read_tokens?: number;
+    latest_volatile_tokens?: number;
+    latest_current_turn_tail_tokens?: number;
+    latest_never_replay_tail_tokens?: number;
+    latest_unconfirmed_provider_replay_tokens?: number;
+    latest_non_cache_payload_breakdown_available?: boolean;
     warm_provider_under_read_tokens?: number;
     cold_start_under_read_tokens?: number;
     history_under_read_tokens?: number;
@@ -172,7 +181,7 @@ export type RuntimeTopologyNodeKind =
   | "diagnostic"
   | string;
 
-export type RuntimeTopologyEdgeStatus = "connected" | "weak" | "planned" | string;
+export type RuntimeTopologyEdgeStatus = "connected" | "weak" | "planned" | "missing_status" | "disconnected" | "broken" | string;
 
 export type RuntimeTopologyNode = {
   id: string;
@@ -235,6 +244,36 @@ export type RuntimeTopologyBranch = {
   label: string;
 };
 
+export type RuntimeTopologyDiagnosticIssueLink = {
+  issue_id: string;
+  code: string;
+  severity?: string;
+  message?: string;
+  subject?: string;
+  subject_type?: string;
+  affected_edge_id?: string;
+  affected_node_id?: string;
+  affected_line_id?: string;
+  affected_action_type?: string;
+  affected_contract_id?: string;
+  line_inventory_ref?: string;
+  governance_ref?: string;
+  line_domain?: string;
+  broken_segment?: string;
+  authority?: string;
+  details?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+export type RuntimeTopologyDiagnostics = {
+  issue_count?: number;
+  issues?: Array<Record<string, unknown>>;
+  diagnostic_issue_links?: RuntimeTopologyDiagnosticIssueLink[];
+  diagnostic_issue_link_count?: number;
+  line_governance?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
 export type AgentControlNetworkPayload = {
   schema: string;
   authority: string;
@@ -259,7 +298,7 @@ export type AgentControlNetworkPayload = {
   domains?: Array<Record<string, unknown>>;
   nodes: RuntimeTopologyNode[];
   edges: RuntimeTopologyEdge[];
-  diagnostics?: Record<string, unknown>;
+  diagnostics?: RuntimeTopologyDiagnostics;
   runtime_evidence?: {
     available?: boolean;
     reason?: string;
@@ -2152,6 +2191,8 @@ export type AgentSystemAgentRuntimeProfile = {
   trace_policy: string;
   lifecycle_policy: string;
   model_profile?: AgentSystemAgentModelProfile;
+  prompt_set_refs?: string[];
+  prompt_bindings?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 };
 

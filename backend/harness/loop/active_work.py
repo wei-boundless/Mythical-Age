@@ -7,31 +7,24 @@ from harness.runtime.public_progress import public_runtime_progress_summary
 
 
 ActiveWorkTurnAction = Literal[
-    "continue_active_work",
     "pause_active_work",
     "stop_active_work",
     "append_instruction_to_active_work",
     "answer_about_active_work",
     "ask_user",
-    "answer_then_continue_active_work",
 ]
 
 _ALLOWED_ACTIONS: set[str] = {
-    "continue_active_work",
     "pause_active_work",
     "stop_active_work",
     "append_instruction_to_active_work",
     "answer_about_active_work",
-    "ask_user",
-    "answer_then_continue_active_work",
 }
 _CURRENT_WORK_ACTIONS = {
-    "continue_active_work",
     "pause_active_work",
     "stop_active_work",
     "append_instruction_to_active_work",
     "answer_about_active_work",
-    "answer_then_continue_active_work",
 }
 
 
@@ -117,15 +110,10 @@ def active_work_turn_decision_from_payload(payload: dict[str, Any] | None, *, us
         action=action,
     )
     continuation_strategy = _normalize_continuation_strategy(raw.get("continuation_strategy"))
-    if action in _CURRENT_WORK_ACTIONS and relation_to_current_work != "current_work":
-        denied_reason = (
-            "active_work_relation_declared_independent"
-            if relation_to_current_work == "independent_turn"
-            else "active_work_relation_ambiguous"
-        )
+    if action in _CURRENT_WORK_ACTIONS and relation_to_current_work == "independent_turn":
         return _denied_active_work_decision(
-            denied_reason,
-            reason=denied_reason,
+            "active_work_relation_declared_independent",
+            reason="active_work_relation_declared_independent",
             relation_to_current_work=relation_to_current_work,
             evidence=evidence,
             turn_response_policy=turn_response_policy,
@@ -133,6 +121,8 @@ def active_work_turn_decision_from_payload(payload: dict[str, Any] | None, *, us
             answer_obligation=answer_obligation,
             continuation_strategy=continuation_strategy,
         )
+    if action in _CURRENT_WORK_ACTIONS and relation_to_current_work != "current_work":
+        relation_to_current_work = "current_work"
     return ActiveWorkTurnDecision(
         action=action,  # type: ignore[arg-type]
         response=response,
@@ -196,9 +186,11 @@ def _normalize_turn_response_policy(value: Any, *, action: str) -> str:
     policy = str(value or "").strip().lower()
     if policy in {"answer_only", "answer_then_active_work", "active_work_only", "no_user_reply"}:
         return policy
-    if action == "answer_then_continue_active_work":
-        return "answer_then_active_work"
-    return "answer_then_active_work"
+    if action == "answer_about_active_work":
+        return "answer_only"
+    if action in {"pause_active_work", "stop_active_work", "append_instruction_to_active_work"}:
+        return "active_work_only"
+    return "answer_only"
 
 
 def _normalize_user_turn_kind(value: Any) -> str:
@@ -228,9 +220,7 @@ def _normalize_answer_obligation(value: Any, *, user_turn_kind: str, turn_respon
         return "none"
     if user_turn_kind in {"question", "complaint", "mixed"}:
         return "direct_answer_required"
-    if action == "answer_then_continue_active_work":
-        return "direct_answer_required"
-    if action in {"continue_active_work", "append_instruction_to_active_work", "pause_active_work", "stop_active_work"}:
+    if action in {"append_instruction_to_active_work", "pause_active_work", "stop_active_work"}:
         return "acknowledgement_only"
     if turn_response_policy == "answer_then_active_work":
         return "acknowledgement_only"
@@ -296,8 +286,6 @@ def active_work_status_reply(context: ActiveWorkContext) -> str:
 
 
 def default_reply_for_action(action: str, context: ActiveWorkContext) -> str:
-    if action == "continue_active_work":
-        return "好，我接着处理。"
     if action == "pause_active_work":
         return "好，我先停在这里。后面你说继续，我会从这里接着做。"
     if action == "stop_active_work":
@@ -306,8 +294,6 @@ def default_reply_for_action(action: str, context: ActiveWorkContext) -> str:
         return "收到，我会按这个补充方向继续处理。"
     if action == "answer_about_active_work":
         return active_work_status_reply(context)
-    if action == "answer_then_continue_active_work":
-        return "我先回答你这句话，然后继续处理当前工作。"
     return ""
 
 def _public_progress_text(value: str) -> str:

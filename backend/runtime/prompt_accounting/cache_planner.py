@@ -207,12 +207,9 @@ def _prefix_diagnostics(
     volatile_tokens = sum(
         int(segment.predicted_tokens or 0)
         for segment in segment_map.segments
-        if (
-            str(segment.cache_role or "") in {"volatile", "never_cache"}
-            or str(segment.prefix_tier or "") in {"volatile", "none"}
-        )
-        and not _is_provider_payload_tool_blocker_segment(segment)
+        if _is_non_cache_payload_segment(segment)
     )
+    non_cache_lane_tokens = _non_cache_payload_lane_tokens(segment_map)
     provider_tool_schema_blocker_tokens = sum(
         int(segment.predicted_tokens or 0)
         for segment in segment_map.segments
@@ -283,6 +280,11 @@ def _prefix_diagnostics(
         "prompt_stable_prefix_predicted_tokens": stable_prefix_tokens,
         "prompt_stable_cache_role_predicted_tokens": stable_role_tokens,
         "volatile_predicted_tokens": volatile_tokens,
+        "volatile_non_cache_predicted_tokens": volatile_tokens,
+        "current_turn_tail_predicted_tokens": non_cache_lane_tokens["current_turn_tail"],
+        "never_replay_tail_predicted_tokens": non_cache_lane_tokens["never_replay_tail"],
+        "unconfirmed_provider_replay_predicted_tokens": non_cache_lane_tokens["provider_visible_context_prefix"],
+        "other_non_cache_payload_predicted_tokens": non_cache_lane_tokens["other"],
         "provider_tool_schema_blocker_predicted_tokens": provider_tool_schema_blocker_tokens,
         "body_after_prompt_stable_prefix_predicted_tokens": max(0, total_tokens - stable_prefix_tokens),
         "provider_global_prefix_token_ratio": _ratio(provider_global_tokens, total_tokens),
@@ -326,12 +328,10 @@ def _ratio(numerator: int, denominator: int) -> float:
 def _top_volatile_segment_families(segment_map: PromptSegmentMap, *, limit: int = 8) -> list[dict[str, Any]]:
     totals: dict[str, dict[str, Any]] = {}
     for segment in segment_map.segments:
-        if _is_provider_payload_tool_blocker_segment(segment):
+        if not _is_non_cache_payload_segment(segment):
             continue
         cache_role = str(segment.cache_role or "")
         prefix_tier = str(segment.prefix_tier or "")
-        if cache_role not in {"volatile", "never_cache"} and prefix_tier not in {"volatile", "none"}:
-            continue
         kind = str(segment.kind or "unknown")
         payload = totals.setdefault(
             kind,
@@ -359,6 +359,33 @@ def _top_volatile_segment_families(segment_map: PromptSegmentMap, *, limit: int 
         for item in ordered
         if int(item["predicted_tokens"]) > 0
     ]
+
+
+def _is_non_cache_payload_segment(segment: Any) -> bool:
+    if _is_provider_payload_tool_blocker_segment(segment):
+        return False
+    cache_role = str(getattr(segment, "cache_role", "") or "")
+    prefix_tier = str(getattr(segment, "prefix_tier", "") or "")
+    return cache_role in {"volatile", "never_cache"} or prefix_tier in {"volatile", "none"}
+
+
+def _non_cache_payload_lane_tokens(segment_map: PromptSegmentMap) -> dict[str, int]:
+    lane_tokens = {
+        "current_turn_tail": 0,
+        "never_replay_tail": 0,
+        "provider_visible_context_prefix": 0,
+        "other": 0,
+    }
+    for segment in segment_map.segments:
+        if not _is_non_cache_payload_segment(segment):
+            continue
+        tokens = int(segment.predicted_tokens or 0)
+        lane = str(getattr(segment, "physical_prefix_lane", "") or "").strip()
+        if lane in lane_tokens and lane != "other":
+            lane_tokens[lane] += tokens
+        else:
+            lane_tokens["other"] += tokens
+    return lane_tokens
 
 
 def _physical_cache_spine_boundary_diagnostics(segment_map: PromptSegmentMap) -> dict[str, Any]:
@@ -463,6 +490,10 @@ def _expected_miss_budget_diagnostics(
     expected_prefix_tokens = int(target_diagnostics.get("target_warm_cache_read_rate_prefix_tokens") or 0)
     current_append_tokens = int(token_diagnostics.get("context_append_prefix_predicted_tokens") or 0)
     volatile_tokens = int(diagnostics.get("volatile_predicted_tokens") or 0)
+    current_turn_tail_tokens = int(diagnostics.get("current_turn_tail_predicted_tokens") or 0)
+    never_replay_tail_tokens = int(diagnostics.get("never_replay_tail_predicted_tokens") or 0)
+    unconfirmed_replay_tokens = int(diagnostics.get("unconfirmed_provider_replay_predicted_tokens") or 0)
+    other_non_cache_tokens = int(diagnostics.get("other_non_cache_payload_predicted_tokens") or 0)
     blocker_tokens = int(token_diagnostics.get("provider_tool_schema_blocker_predicted_tokens") or 0)
     expected_miss_tokens = max(0, total_tokens - expected_prefix_tokens)
     categorized_tokens = current_append_tokens + volatile_tokens + blocker_tokens
@@ -472,7 +503,10 @@ def _expected_miss_budget_diagnostics(
     families: list[dict[str, Any]] = []
     for kind, tokens, reason in (
         ("current_context_append", current_append_tokens, "new append materializes this turn and can only be cached on a later request"),
-        ("dynamic_or_never_replay_tail", volatile_tokens, "current control tail is invocation-local and must remain outside the cache spine"),
+        ("current_turn_tail", current_turn_tail_tokens, "current turn tool/user append is provider-visible now but not cache-readable in this request"),
+        ("unconfirmed_provider_replay", unconfirmed_replay_tokens, "provider protocol replay is not confirmed as part of the cache spine for this request"),
+        ("never_replay_tail", never_replay_tail_tokens, "dynamic runtime tail is invocation-local and must remain outside the cache spine"),
+        ("other_non_cache_payload", other_non_cache_tokens, "non-cache payload is outside the physical cache spine and should be inspected if large"),
         ("unvalidated_provider_tool_schema", blocker_tokens, "unvalidated provider tool schema is outside the physical cache spine and blocks provider prefix reuse"),
         ("uncategorized_non_prefix_payload", uncategorized_tokens, "remaining non-prefix payload should be inspected for cache pollution"),
     ):

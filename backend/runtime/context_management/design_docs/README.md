@@ -16,6 +16,7 @@
 | P0 | `execution_plans/provider_cache_prefix_health_authority_cleanup_20260630.md` | 缓存健康裁决清洗：ProviderCacheBus / prefix health 取代 `cached_tokens > 0` |
 | P0 | `execution_plans/turn_heartbeat_hot_journal_rewrite_recover_steer_authority_plan_20260629.md` | TurnMemory 热账本、recover、steer、commit pending 的设计依据 |
 | P0 | `execution_plans/context_prefix_authority_unification_refactor_plan_20260629.md` | prefix identity、四段物理模型和缓存命中裁决的设计依据 |
+| P0 | `execution_plans/system_asset_line_governance_optimization_plan_20260701.md` | 当前 SystemAssetLine / ContextLineState / ContextCandidateGateway / ControlOutputLine / agent-control-network 线路治理权威 |
 | P0 | `cache_prefix_hit_audit_report_20260629.md` | 最新缓存命中问题分析，强调前缀命中而不是总 hit rate |
 | P0 | `cache_prefix_identity_format_audit_report_20260629.md` | prefix 格式、身份标识和成熟 agent 对比报告 |
 
@@ -38,7 +39,7 @@
 ## 目录分层
 
 - `execution_plans/`：runtime、harness、TurnMemory、cache、task mode、代码结构迁移计划。
-- `semantic_space/`：agent 使用空间、提示词内容、上下文分层研究；后续作为参考，不覆盖 harness 主脊柱。
+- `semantic_space/`：历史语义空间研究和术语演化记录；只作参考和证据，不覆盖当前 `SystemAssetLine -> ContextLineState -> ContextCandidateGateway -> PhysicalContextInputs` 主链。
 - `capability_tools/`：工具契约、provider tools、MCP、Skills、能力供给。
 - `cache_provider/`：prompt cache、DeepSeek/provider adapter、prefix envelope、provider-visible context 策略。
 
@@ -52,3 +53,4 @@
 - 缓存健康以 expected prefix coverage、under-read、first missing prefix identity 为准；总 hit rate 只能辅助观察。
 - 新增架构文档必须归入上述四类之一，不再堆到 `context_management` 根目录。
 - `design_docs` 是可追踪目录；不要使用名为 `docs` 的子目录，因为项目 `.gitignore` 会忽略它。
+- 当前术语以 `SystemAssetLine`、`ContextLineState`、`ContextInputEnvelope`、`PhysicalContextInputs`、`ControlOutputLine` 为准；旧文档中的 `session memory`、`memory prefix`、`provider old context` 不能作为当前实现术语。

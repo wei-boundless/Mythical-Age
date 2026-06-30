@@ -695,6 +695,7 @@ export function sessionContextMeterPresentation(tokenStats: TokenStats | null) {
   const usedPercent = percentFromRatio(thresholdRatio);
   const thresholdPercentText = thresholdTokens > 0 ? `${usedPercent}%` : "--";
   const prefixCacheWarningTitle = providerPrefixCacheWarningTitle(tokenStats);
+  const cachePayloadTitle = providerCachePayloadBreakdownTitle(tokenStats);
   const levelClass = prefixCacheWarningTitle ? "cache_under_read" : contextThresholdLevelClass(thresholdRatio);
   const remainingTokens = Math.max(0, thresholdTokens - displayTokens);
   const usedTokenText = formatTokenCount(displayTokens);
@@ -706,6 +707,7 @@ export function sessionContextMeterPresentation(tokenStats: TokenStats | null) {
     contextWindowTokens > 0 ? `模型窗口 ${formatExactTokenCount(contextWindowTokens)} tokens` : "",
     thresholdTokens > 0 ? `距自动压缩还剩 ${formatExactTokenCount(remainingTokens)} tokens` : "",
     prefixCacheWarningTitle,
+    cachePayloadTitle,
   ].filter(Boolean).join("；");
   return {
     usedPercent,
@@ -739,6 +741,30 @@ function providerPrefixCacheWarningTitle(tokenStats: TokenStats) {
     return `最新前缀缓存未完整命中，under-read ${formatExactTokenCount(latestUnderReadTokens)} tokens`;
   }
   return "";
+}
+
+function providerCachePayloadBreakdownTitle(tokenStats: TokenStats) {
+  const cacheLog = tokenStats.provider_cache_log;
+  const summary = cacheLog?.summary;
+  if (!summary) {
+    return "";
+  }
+  const volatileTokens = nonNegativeTokenCount(summary.latest_volatile_tokens);
+  if (volatileTokens <= 0) {
+    return "";
+  }
+  if (summary.latest_non_cache_payload_breakdown_available !== true) {
+    return `非缓存 payload ${formatExactTokenCount(volatileTokens)} tokens，拆分将在下一次 provider response 后可用`;
+  }
+  const currentTurnTailTokens = nonNegativeTokenCount(summary.latest_current_turn_tail_tokens);
+  const pendingReplayTokens = nonNegativeTokenCount(summary.latest_unconfirmed_provider_replay_tokens);
+  const neverReplayTailTokens = nonNegativeTokenCount(summary.latest_never_replay_tail_tokens);
+  return [
+    `非缓存 payload ${formatExactTokenCount(volatileTokens)} tokens`,
+    `当前轮尾部 ${formatExactTokenCount(currentTurnTailTokens)}`,
+    `待确认 replay ${formatExactTokenCount(pendingReplayTokens)}`,
+    `永不重放尾部 ${formatExactTokenCount(neverReplayTailTokens)}`,
+  ].join("，");
 }
 
 function percentFromRatio(value: unknown) {

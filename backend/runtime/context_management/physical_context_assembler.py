@@ -58,6 +58,20 @@ class PhysicalContextInputs:
             "old_context_replay_spec_count": len(self.old_context_replay_specs),
             "current_append_spec_count": len(self.current_append_specs),
             "current_tail_spec_count": len(self.current_tail_specs),
+            "segment_lineage": {
+                "static_prefix_specs": _segment_lineage(self.static_prefix_specs),
+                "old_context_replay_specs": _segment_lineage(self.old_context_replay_specs),
+                "current_append_specs": _segment_lineage(self.current_append_specs),
+                "current_tail_specs": _segment_lineage(self.current_tail_specs),
+            },
+            "lineage_completeness": _lineage_completeness(
+                [
+                    *self.static_prefix_specs,
+                    *self.old_context_replay_specs,
+                    *self.current_append_specs,
+                    *self.current_tail_specs,
+                ]
+            ),
             "diagnostics": dict(self.diagnostics or {}),
             "authority": PHYSICAL_CONTEXT_ASSEMBLER_AUTHORITY,
         }
@@ -127,6 +141,7 @@ def classify_physical_context_inputs(
                 "context_cache_section": section,
                 "route": route,
                 "semantic_slot": str(policy.semantic_slot or ""),
+                **_lineage_ref_payload(spec),
             }
         )
 
@@ -228,6 +243,14 @@ def assemble_physical_context_spine(
         "never_replay_tail_spec_count": len(never_replay_tail_specs),
         "static_prefix_spec_count": len(clean_static),
         "output_spec_count": len(result_specs),
+        "physical_segment_lineage": {
+            "static_prefix": _segment_lineage(physical_static_specs),
+            "confirmed_old_context_replay": _segment_lineage(physical_replay_specs),
+            "current_append": _segment_lineage(physical_current_append_specs),
+            "current_tail": _segment_lineage(physical_current_tail_specs),
+            "never_replay_tail": _segment_lineage(physical_tail_specs),
+        },
+        "output_lineage_completeness": _lineage_completeness(result_specs),
         "frame_replay": frame_replay_diagnostics,
         "provider_message_replay_authority": PHYSICAL_CONTEXT_ASSEMBLER_AUTHORITY,
         "physical_splice_rule": "static_prefix_then_confirmed_old_context_then_current_append_then_dynamic_tail",
@@ -312,6 +335,71 @@ def _with_physical_assembly_indexes(
         spec["metadata"] = metadata
         result.append(spec)
     return result
+
+
+def _segment_lineage(
+    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    limit: int = 80,
+) -> dict[str, Any]:
+    payload = [dict(item) for item in list(specs or ()) if isinstance(item, dict)]
+    return {
+        "spec_count": len(payload),
+        "items": [_lineage_ref_payload(spec) for spec in payload[: max(0, int(limit or 0))]],
+        "preview_count": min(len(payload), max(0, int(limit or 0))),
+        "completeness": _lineage_completeness(payload),
+        "authority": PHYSICAL_CONTEXT_ASSEMBLER_AUTHORITY,
+    }
+
+
+def _lineage_completeness(specs: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> dict[str, Any]:
+    payload = [dict(item) for item in list(specs or ()) if isinstance(item, dict)]
+    missing_candidate = 0
+    missing_line = 0
+    missing_envelope = 0
+    frame_replay = 0
+    for spec in payload:
+        metadata = dict(spec.get("metadata") or {})
+        is_frame_replay = bool(str(metadata.get("physical_prefix_frame_segment_id") or "").strip())
+        if is_frame_replay:
+            frame_replay += 1
+            continue
+        if not str(metadata.get("context_candidate_ref") or "").strip():
+            missing_candidate += 1
+        if not str(metadata.get("context_line_id") or "").strip():
+            missing_line += 1
+        if not str(metadata.get("context_input_envelope_ref") or "").strip():
+            missing_envelope += 1
+    return {
+        "spec_count": len(payload),
+        "frame_replay_spec_count": frame_replay,
+        "missing_candidate_ref_count": missing_candidate,
+        "missing_context_line_id_count": missing_line,
+        "missing_context_input_envelope_ref_count": missing_envelope,
+        "all_non_frame_specs_have_candidate_ref": missing_candidate == 0,
+        "all_non_frame_specs_have_context_line_id": missing_line == 0,
+        "all_non_frame_specs_have_context_input_envelope_ref": missing_envelope == 0,
+    }
+
+
+def _lineage_ref_payload(spec: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(spec or {})
+    metadata = dict(payload.get("metadata") or {})
+    return {
+        "kind": str(payload.get("kind") or ""),
+        "source_ref": str(payload.get("source_ref") or ""),
+        "context_candidate_ref": str(metadata.get("context_candidate_ref") or ""),
+        "context_message_producer_id": str(metadata.get("context_message_producer_id") or ""),
+        "context_line_id": str(metadata.get("context_line_id") or ""),
+        "system_asset_line_id": str(metadata.get("system_asset_line_id") or ""),
+        "context_input_envelope_ref": str(metadata.get("context_input_envelope_ref") or ""),
+        "context_input_envelope_source_identity": str(metadata.get("context_input_envelope_source_identity") or ""),
+        "context_input_envelope_content_identity": str(metadata.get("context_input_envelope_content_identity") or ""),
+        "physical_prefix_frame_id": str(metadata.get("physical_prefix_frame_id") or ""),
+        "physical_prefix_frame_segment_id": str(metadata.get("physical_prefix_frame_segment_id") or ""),
+        "provider_visible_append_item_key": str(metadata.get("provider_visible_append_item_key") or ""),
+        "context_cache_section": str(metadata.get("context_cache_section") or ""),
+    }
 
 
 def _spec_with_context_policy_metadata(spec: dict[str, Any]) -> dict[str, Any]:

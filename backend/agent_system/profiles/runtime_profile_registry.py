@@ -843,6 +843,8 @@ class AgentRuntimeRegistry:
         trace_policy: str = "runtime_event_log",
         lifecycle_policy: str = "agent_system_managed",
         model_profile: dict[str, Any] | None = None,
+        prompt_set_refs: tuple[str, ...] | None = None,
+        prompt_bindings: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> AgentRuntimeProfile:
         target = normalize_agent_id(agent_id)
@@ -866,6 +868,16 @@ class AgentRuntimeRegistry:
             extra_allowed_operations=requested_extra_operations,
             blocked_operations=raw_blocked_operations,
         )
+        requested_prompt_set_refs = (
+            current.prompt_set_refs
+            if prompt_set_refs is None and current
+            else tuple(str(item).strip() for item in tuple(prompt_set_refs or ()) if str(item).strip())
+        )
+        requested_prompt_bindings = (
+            dict(current.prompt_bindings or {})
+            if prompt_bindings is None and current
+            else dict(prompt_bindings or {})
+        )
         profile = AgentRuntimeProfile(
             agent_profile_id=str(agent_profile_id or (current.agent_profile_id if current else f"{target.removeprefix('agent:').replace(':', '_')}_runtime")).strip(),
             agent_id=target,
@@ -882,8 +894,8 @@ class AgentRuntimeRegistry:
             trace_policy=str(trace_policy or "runtime_event_log").strip() or "runtime_event_log",
             lifecycle_policy=str(lifecycle_policy or "agent_system_managed").strip() or "agent_system_managed",
             model_profile=parse_agent_model_profile(model_profile if model_profile is not None else (current.model_profile.to_dict() if current else {})),
-            prompt_set_refs=current.prompt_set_refs if current else (),
-            prompt_bindings=dict(current.prompt_bindings or {}) if current else {},
+            prompt_set_refs=requested_prompt_set_refs,
+            prompt_bindings=requested_prompt_bindings,
             metadata=metadata_payload,
         )
         profiles = [item for item in self.list_profiles() if item.agent_id != target]

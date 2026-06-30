@@ -1283,6 +1283,7 @@ class HealthGovernanceBuilder:
                 "exact_tokens": 0,
                 "predicted_tokens": 0,
                 "trace_estimate_tokens": 0,
+                "cached_tokens": 0,
                 "cache_savings_tokens": 0,
                 "records": 0,
                 "effective_records": 0,
@@ -1300,6 +1301,7 @@ class HealthGovernanceBuilder:
                     source = str(record.source or "")
                     if source == "provider_usage":
                         bucket["exact_tokens"] = int(bucket["exact_tokens"]) + int(record.total_tokens or 0)
+                        bucket["cached_tokens"] = int(bucket["cached_tokens"]) + int(record.cached_tokens or 0)
                     elif source == "local_prediction":
                         bucket["predicted_tokens"] = int(bucket["predicted_tokens"]) + int(record.total_tokens or 0)
                     elif source == "trace_estimate":
@@ -1353,6 +1355,7 @@ class HealthGovernanceBuilder:
             "exact_tokens",
             "predicted_tokens",
             "trace_estimate_tokens",
+            "cached_tokens",
             "cache_savings_tokens",
             "records",
             "effective_records",
@@ -1378,6 +1381,7 @@ class HealthGovernanceBuilder:
             exact_tokens = 0
             predicted_tokens = 0
             trace_tokens = 0
+            cached_tokens = 0
             cache_savings_tokens = 0
             records = 0
             sessions: set[str] = set()
@@ -1388,6 +1392,7 @@ class HealthGovernanceBuilder:
                     exact_tokens += int(task.get("exact_token_total") or 0)
                     predicted_tokens += int(task.get("predicted_token_total") or 0)
                     trace_tokens += int(task.get("trace_estimate_token_total") or 0)
+                    cached_tokens += int(task.get("cached_tokens") or 0)
                     cache_savings_tokens += int(task.get("cache_savings_tokens") or 0)
                     records += 1
                     session_id = str(task.get("session_id") or "")
@@ -1402,6 +1407,7 @@ class HealthGovernanceBuilder:
                     "exact_tokens": exact_tokens,
                     "predicted_tokens": predicted_tokens,
                     "trace_estimate_tokens": trace_tokens,
+                    "cached_tokens": cached_tokens,
                     "cache_savings_tokens": cache_savings_tokens,
                     "records": records,
                     "sessions": len(sessions),

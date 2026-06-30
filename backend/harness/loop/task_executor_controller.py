@@ -8,6 +8,7 @@ from typing import Any
 from .task_run_recovery_state import recovery_state_for_task_run, should_auto_continue_task_run
 from .work_rollout import append_work_rollout_item
 from harness.task_run_status import runtime_control_state_from_task_run
+from harness.runtime.harness_spine_contract import task_executor_runner_contract
 
 
 class TaskExecutorController:
@@ -31,6 +32,21 @@ class TaskExecutorController:
         max_steps: int = 50,
         recovered_from: str = "",
     ) -> dict[str, Any]:
+        if _scheduler_forbidden_for_task_executor(scheduler):
+            return _schedule_result(
+                ok=False,
+                scheduled=False,
+                task_run_id=task_run_id,
+                reason="conversation_continue_must_enter_single_agent_turn",
+                scheduler=scheduler,
+                recovered_from=recovered_from,
+                harness_spine_contract=task_executor_runner_contract(
+                    scheduler=scheduler,
+                    task_run_id=task_run_id,
+                    turn_id=turn_id,
+                    recovered_from=recovered_from,
+                ),
+            )
         runtime_host = self.runtime_host
         task_run = runtime_host.state_index.get_task_run(task_run_id)
         if task_run is None:
@@ -41,6 +57,12 @@ class TaskExecutorController:
                 reason="task_run_not_found",
                 scheduler=scheduler,
                 recovered_from=recovered_from,
+                harness_spine_contract=task_executor_runner_contract(
+                    scheduler=scheduler,
+                    task_run_id=task_run_id,
+                    turn_id=turn_id,
+                    recovered_from=recovered_from,
+                ),
             )
         if _is_session_deleted(runtime_host, task_run):
             return _schedule_result(
@@ -50,6 +72,12 @@ class TaskExecutorController:
                 reason="session_deleted",
                 scheduler=scheduler,
                 recovered_from=recovered_from,
+                harness_spine_contract=task_executor_runner_contract(
+                    scheduler=scheduler,
+                    task_run_id=task_run_id,
+                    turn_id=turn_id,
+                    recovered_from=recovered_from,
+                ),
             )
         if str(scheduler or "").strip() == "runtime_start_recovery":
             return _schedule_result(
@@ -59,6 +87,12 @@ class TaskExecutorController:
                 reason="runtime_start_recovery_does_not_auto_schedule",
                 scheduler=scheduler,
                 recovered_from=recovered_from,
+                harness_spine_contract=task_executor_runner_contract(
+                    scheduler=scheduler,
+                    task_run_id=task_run_id,
+                    turn_id=turn_id,
+                    recovered_from=recovered_from,
+                ),
             )
         active_cell = _active_task_run_executor_cell(runtime_host, task_run)
         if active_cell is not None:
@@ -72,6 +106,12 @@ class TaskExecutorController:
                 run_cell_id=active_cell.scope.run_cell_id,
                 worker_backend=active_cell.worker_backend.backend_name,
                 recovered_from=recovered_from,
+                harness_spine_contract=task_executor_runner_contract(
+                    scheduler=scheduler,
+                    task_run_id=task_run_id,
+                    turn_id=turn_id,
+                    recovered_from=recovered_from,
+                ),
             )
         if not _is_task_run_schedulable(task_run, runtime_host=runtime_host):
             return _schedule_result(
@@ -81,6 +121,12 @@ class TaskExecutorController:
                 reason=f"not_executable:{getattr(task_run, 'status', '')}",
                 scheduler=scheduler,
                 recovered_from=recovered_from,
+                harness_spine_contract=task_executor_runner_contract(
+                    scheduler=scheduler,
+                    task_run_id=task_run_id,
+                    turn_id=turn_id,
+                    recovered_from=recovered_from,
+                ),
             )
         def _commit_scheduled(scope: Any, worker_backend: str) -> None:
             current = runtime_host.state_index.get_task_run(task_run_id) or task_run
@@ -121,6 +167,12 @@ class TaskExecutorController:
             worker_backend=str(supervisor_result.get("worker_backend") or ""),
             error=str(supervisor_result.get("error") or ""),
             recovered_from=recovered_from,
+            harness_spine_contract=task_executor_runner_contract(
+                scheduler=scheduler,
+                task_run_id=task_run_id,
+                turn_id=turn_id,
+                recovered_from=recovered_from,
+            ),
         )
 
     def _mark_worker_start_failed(self, *, task_run_id: str, scheduler: str, supervisor_result: dict[str, Any]) -> None:
@@ -142,6 +194,20 @@ class TaskExecutorController:
         max_steps: int = 50,
         recovered_from: str = "scheduled_executor_claim",
     ) -> dict[str, Any]:
+        if _scheduler_forbidden_for_task_executor(scheduler):
+            return _schedule_result(
+                ok=False,
+                scheduled=False,
+                task_run_id=task_run_id,
+                reason="conversation_continue_must_enter_single_agent_turn",
+                scheduler=scheduler,
+                recovered_from=recovered_from,
+                harness_spine_contract=task_executor_runner_contract(
+                    scheduler=scheduler,
+                    task_run_id=task_run_id,
+                    recovered_from=recovered_from,
+                ),
+            )
         runtime_host = self.runtime_host
         task_run = runtime_host.state_index.get_task_run(task_run_id)
         if task_run is None:
@@ -152,6 +218,11 @@ class TaskExecutorController:
                 reason="task_run_not_found",
                 scheduler=scheduler,
                 recovered_from=recovered_from,
+                harness_spine_contract=task_executor_runner_contract(
+                    scheduler=scheduler,
+                    task_run_id=task_run_id,
+                    recovered_from=recovered_from,
+                ),
             )
         if _is_session_deleted(runtime_host, task_run):
             return _schedule_result(
@@ -161,6 +232,11 @@ class TaskExecutorController:
                 reason="session_deleted",
                 scheduler=scheduler,
                 recovered_from=recovered_from,
+                harness_spine_contract=task_executor_runner_contract(
+                    scheduler=scheduler,
+                    task_run_id=task_run_id,
+                    recovered_from=recovered_from,
+                ),
             )
         if str(scheduler or "").strip() == "runtime_start_recovery":
             return _schedule_result(
@@ -170,6 +246,11 @@ class TaskExecutorController:
                 reason="runtime_start_recovery_does_not_auto_schedule",
                 scheduler=scheduler,
                 recovered_from=recovered_from,
+                harness_spine_contract=task_executor_runner_contract(
+                    scheduler=scheduler,
+                    task_run_id=task_run_id,
+                    recovered_from=recovered_from,
+                ),
             )
         active_cell = _active_task_run_executor_cell(runtime_host, task_run)
         if active_cell is not None:
@@ -183,6 +264,11 @@ class TaskExecutorController:
                 run_cell_id=active_cell.scope.run_cell_id,
                 worker_backend=active_cell.worker_backend.backend_name,
                 recovered_from=recovered_from,
+                harness_spine_contract=task_executor_runner_contract(
+                    scheduler=scheduler,
+                    task_run_id=task_run_id,
+                    recovered_from=recovered_from,
+                ),
             )
         executor_status = str(dict(getattr(task_run, "diagnostics", {}) or {}).get("executor_status") or "")
         if executor_status != "scheduled":
@@ -198,6 +284,11 @@ class TaskExecutorController:
             scheduler=scheduler,
             max_steps=max_steps,
             recovered_from=recovered_from,
+            harness_spine_contract=task_executor_runner_contract(
+                scheduler=scheduler,
+                task_run_id=task_run_id,
+                recovered_from=recovered_from,
+            ),
         )
         supervisor_reason = str(supervisor_result.get("reason") or "recovered_scheduled_executor")
         if not bool(supervisor_result.get("ok")) and supervisor_reason == "worker_start_failed":
@@ -340,6 +431,12 @@ class TaskExecutorController:
             **({"run_cell_id": normalized_run_cell_id} if normalized_run_cell_id else {}),
             **({"worker_backend": normalized_worker_backend} if normalized_worker_backend else {}),
         }
+        harness_spine_contract = task_executor_runner_contract(
+            scheduler=scheduler,
+            task_run_id=task_run_id,
+            turn_id=turn_id,
+            recovered_from=recovered_from,
+        )
         identity_refs = {
             **({"agent_run_ref": normalized_agent_run_id} if normalized_agent_run_id else {}),
             **({"run_cell_ref": normalized_run_cell_id} if normalized_run_cell_id else {}),
@@ -351,6 +448,7 @@ class TaskExecutorController:
                 "task_run_id": task_run_id,
                 "max_steps": max_steps,
                 "scheduler": scheduler,
+                "harness_spine_contract": harness_spine_contract,
                 **({"turn_id": turn_id} if turn_id else {}),
                 **({"recovered_from": recovered_from} if recovered_from else {}),
                 **identity_payload,
@@ -367,6 +465,7 @@ class TaskExecutorController:
                 "summary": progress_summary,
                 "visibility": "internal",
                 "presentation_source": "task_executor_controller_schedule",
+                "harness_spine_contract": harness_spine_contract,
                 **identity_payload,
             },
             refs={"task_run_ref": task_run_id, **({"turn_ref": turn_id} if turn_id else {}), **identity_refs},
@@ -389,6 +488,7 @@ class TaskExecutorController:
                     **({"latest_interaction_turn_id": turn_id} if turn_id else {}),
                     **({"executor_scheduler": scheduler} if scheduler else {}),
                     **({"executor_recovered_from": recovered_from} if recovered_from else {}),
+                    "harness_spine_contract": harness_spine_contract,
                     **({"agent_run_scope": scope_payload} if scope_payload else {}),
                     **({"agent_run_id": normalized_agent_run_id} if normalized_agent_run_id else {}),
                     **({"run_cell_id": normalized_run_cell_id} if normalized_run_cell_id else {}),
@@ -517,6 +617,16 @@ def _executor_failure_identity(
         **({"run_cell_ref": normalized_run_cell_id} if normalized_run_cell_id else {}),
     }
     return payload, refs
+
+
+def _scheduler_forbidden_for_task_executor(scheduler: Any) -> bool:
+    normalized = str(scheduler or "").strip()
+    return normalized in {
+        "conversation_continue",
+        "conversation_instruction",
+        "answer_then_continue_active_work",
+        "active_work_control",
+    }
 
 
 def _strip_agent_cell_claim_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
@@ -652,6 +762,7 @@ def _schedule_result(
     worker_backend: str = "",
     error: str = "",
     recovered_from: str = "",
+    harness_spine_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "ok": ok,
@@ -664,4 +775,12 @@ def _schedule_result(
         "worker_backend": worker_backend,
         "error": error,
         "recovered_from": recovered_from,
+        "harness_spine_contract": dict(
+            harness_spine_contract
+            or task_executor_runner_contract(
+                scheduler=scheduler,
+                task_run_id=task_run_id,
+                recovered_from=recovered_from,
+            )
+        ),
     }

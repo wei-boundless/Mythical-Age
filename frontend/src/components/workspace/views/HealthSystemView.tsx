@@ -71,7 +71,6 @@ export function HealthSystemView() {
   } = useHealthSystemController();
   const {
     activeTokenBuckets,
-    cacheSavingsTotal,
     cachedTokenTotal,
     efficiencyTasks,
     exactTokenTotal,
@@ -317,7 +316,7 @@ export function HealthSystemView() {
               accent="cache"
               label="缓存命中"
               value={tokenLabel(cachedTokenTotal)}
-              detail={`${tokenLabel(cacheSavingsTotal)} 节省估算 · provider cached`}
+              detail="来自 provider usage 的 cached tokens"
             />
           </section>
 
@@ -390,7 +389,7 @@ export function HealthSystemView() {
                     const exactTokens = numberValue(bucket.exact_tokens);
                     const predictedTokens = numberValue(bucket.predicted_tokens);
                     const traceTokens = numberValue(bucket.trace_estimate_tokens);
-                    const cacheTokens = numberValue(bucket.cached_tokens ?? bucket.cache_savings_tokens);
+                    const cacheTokens = numberValue(bucket.cached_tokens);
                     return (
                       <div className="health-token-table__row" key={String(bucket.bucket)} role="row">
                         <span>{String(bucket.bucket)}</span>
@@ -531,7 +530,7 @@ function TokenTaskLedger({ rows }: { rows: Array<Record<string, unknown>> }) {
           const exact = numberValue(row.exact_token_total);
           const predicted = numberValue(row.predicted_token_total);
           const trace = numberValue(row.trace_estimate_token_total);
-          const cache = numberValue(row.cached_tokens ?? row.cache_savings_tokens);
+          const cache = numberValue(row.cached_tokens);
           const effective = numberValue(row.token_total);
           return (
             <section className="health-token-task-row" key={`${String(row.task_run_id || index)}`}>
@@ -580,7 +579,7 @@ function TaskDetail({ task, detail, loading }: { task: HealthTaskRecord | null; 
             <Metric label="耗时" value={durationLabel(task.duration_seconds)} />
             <Metric label="精确 Token" value={tokenLabel(task.exact_token_total ?? 0)} />
             <Metric label="预测 Token" value={tokenLabel(task.predicted_token_total ?? 0)} />
-            <Metric label="缓存命中" value={tokenLabel(task.cached_tokens ?? task.cache_savings_tokens ?? 0)} />
+            <Metric label="缓存命中" value={tokenLabel(task.cached_tokens ?? 0)} />
           </div>
           <section className="health-semantic-box">
             <span>任务记录</span>

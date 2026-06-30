@@ -61,6 +61,13 @@ def build_provider_cache_log_view(
     latest_health = dict(latest.get("provider_prefix_cache_health") or {}) if latest else {}
     latest_status = str(latest.get("cache_status") or "")
     latest_under_read_tokens = _row_under_read_tokens(latest)
+    latest_volatile_tokens = int(latest.get("volatile_tokens") or 0) if latest else 0
+    latest_current_turn_tail_tokens = int(latest.get("current_turn_tail_tokens") or 0) if latest else 0
+    latest_never_replay_tail_tokens = int(latest.get("never_replay_tail_tokens") or 0) if latest else 0
+    latest_unconfirmed_provider_replay_tokens = int(latest.get("unconfirmed_provider_replay_tokens") or 0) if latest else 0
+    latest_non_cache_payload_breakdown_available = bool(
+        latest.get("non_cache_payload_breakdown_available") is True
+    ) if latest else False
     history_under_read_tokens = sum(_row_under_read_tokens(row) for row in rows[1:])
     cold_start_under_read_tokens = sum(
         _row_under_read_tokens(row)
@@ -93,6 +100,11 @@ def build_provider_cache_log_view(
             "latest_status": latest_status,
             "latest_prefix_health": latest_health,
             "latest_under_read_tokens": latest_under_read_tokens,
+            "latest_volatile_tokens": latest_volatile_tokens,
+            "latest_current_turn_tail_tokens": latest_current_turn_tail_tokens,
+            "latest_never_replay_tail_tokens": latest_never_replay_tail_tokens,
+            "latest_unconfirmed_provider_replay_tokens": latest_unconfirmed_provider_replay_tokens,
+            "latest_non_cache_payload_breakdown_available": latest_non_cache_payload_breakdown_available,
             "warm_provider_under_read_tokens": warm_provider_under_read_tokens,
             "cold_start_under_read_tokens": cold_start_under_read_tokens,
             "history_under_read_tokens": history_under_read_tokens,
@@ -156,6 +168,7 @@ def list_provider_cache_log_records(
 def provider_cache_log_row(record: ProviderCacheBusRecord) -> dict[str, Any]:
     diagnostics = dict(getattr(record, "diagnostics", {}) or {})
     provider_prefix_cache_health = dict(diagnostics.get("provider_prefix_cache_health") or {})
+    non_cache_payload_breakdown_available = _non_cache_payload_breakdown_available(record, diagnostics)
     return {
         "bus_record_id": str(getattr(record, "bus_record_id", "") or ""),
         "request_id": str(getattr(record, "request_id", "") or ""),
@@ -192,13 +205,38 @@ def provider_cache_log_row(record: ProviderCacheBusRecord) -> dict[str, Any]:
         "physical_cache_spine_control_signals": list(getattr(record, "physical_cache_spine_control_signals", ()) or ()),
         "provider_under_read_tokens": int(getattr(record, "provider_under_read_tokens", 0) or 0),
         "current_context_append_tokens": int(getattr(record, "current_context_append_tokens", 0) or 0),
-        "dynamic_tail_tokens": int(getattr(record, "dynamic_tail_tokens", 0) or 0),
+        "volatile_tokens": int(getattr(record, "volatile_tokens", 0) or 0),
+        "current_turn_tail_tokens": int(getattr(record, "current_turn_tail_tokens", 0) or 0),
+        "never_replay_tail_tokens": int(getattr(record, "never_replay_tail_tokens", 0) or 0),
+        "unconfirmed_provider_replay_tokens": int(getattr(record, "unconfirmed_provider_replay_tokens", 0) or 0),
+        "non_cache_payload_breakdown_available": non_cache_payload_breakdown_available,
         "tool_schema_blocker_tokens": int(getattr(record, "tool_schema_blocker_tokens", 0) or 0),
         "non_spine_prompt_tokens": int(getattr(record, "non_spine_prompt_tokens", 0) or 0),
         "first_mismatch_segment": dict(getattr(record, "first_mismatch_segment", {}) or {}),
         "provider_prefix_cache_health": provider_prefix_cache_health,
         "created_at": float(getattr(record, "created_at", 0.0) or 0.0),
     }
+
+
+def _non_cache_payload_breakdown_available(record: ProviderCacheBusRecord, diagnostics: dict[str, Any]) -> bool:
+    if any(
+        key in diagnostics
+        for key in (
+            "current_turn_tail_predicted_tokens",
+            "never_replay_tail_predicted_tokens",
+            "unconfirmed_provider_replay_predicted_tokens",
+            "other_non_cache_payload_predicted_tokens",
+        )
+    ):
+        return True
+    return any(
+        int(getattr(record, field, 0) or 0) > 0
+        for field in (
+            "current_turn_tail_tokens",
+            "never_replay_tail_tokens",
+            "unconfirmed_provider_replay_tokens",
+        )
+    )
 
 
 def _row_under_read_tokens(row: dict[str, Any]) -> int:

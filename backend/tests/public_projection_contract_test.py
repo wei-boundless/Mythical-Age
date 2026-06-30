@@ -5,7 +5,6 @@ from types import SimpleNamespace
 
 from api.chat import (
     ChatTaskBridgeContext,
-    _agent_todo_observation_summary,
     _allow_public_stream_flush,
     _append_chat_public_event,
     _append_task_bridge_terminal,
@@ -13,10 +12,8 @@ from api.chat import (
     _project_task_runtime_event_to_chat,
     project_public_stream_event,
     _public_turn_status_for_task_status,
-    _public_terminal_reason,
     _run_chat_to_event_log,
     _task_terminal_context_from_task_run,
-    _tool_permission_decided_data,
     TASK_BRIDGE_TERMINAL_EVENT_TYPES,
     replay_chat_run_events,
 )
@@ -24,6 +21,11 @@ from harness.entrypoint.models import HarnessRuntimeRequest
 from harness.runtime.projection.authority import PUBLIC_PROJECTION_AUTHORITY, PUBLIC_PROJECTION_CONTRACT_REVISION
 from harness.runtime.projection.guards import public_text
 from harness.runtime.projection.projector import ProjectionLifecycleState, project_public_projection_event
+from runtime.output_stream.public_stream_compiler import (
+    _agent_todo_observation_summary,
+    _tool_permission_decided_data,
+    public_terminal_reason as _public_terminal_reason,
+)
 from runtime.output_stream.public_contract import (
     ASSISTANT_PUBLIC_FEEDBACK_EVENT,
     ASSISTANT_TEXT_DELTA_EVENT,
@@ -1039,17 +1041,28 @@ def test_externalized_write_file_admission_still_projects_tool_record() -> None:
     assert permission["permission_decision_id"] == "permit:write-plan:call:write-plan"
 
 
-def test_tool_call_requested_is_the_only_live_main_tool_projection() -> None:
-    frame = _frame(
+def test_tool_call_requested_and_started_are_live_main_tool_projection() -> None:
+    lifecycle = ProjectionLifecycleState()
+    anchor = {
+        "session_id": "session:test",
+        "turn_id": "turn:test",
+        "stream_run_id": "strun:test",
+        "task_run_id": "taskrun:turn:test:1",
+    }
+    frame = project_public_projection_event(
         TOOL_CALL_REQUESTED_EVENT,
         {
+            "public_anchor": anchor,
             "tool_call_id": "call:read",
             "tool_lifecycle_id": "call:read",
             "tool_name": "read_file",
             "public_action_state": {"next_action": "读取 README.md"},
             "target": "README.md",
         },
-    )
+        session_id="session:test",
+        sequence=1,
+        lifecycle_state=lifecycle,
+    )["public_projection_frame"]
 
     assert frame["authority"] == PUBLIC_PROJECTION_AUTHORITY
     assert frame["op"] == "item_upsert"
@@ -1061,6 +1074,41 @@ def test_tool_call_requested_is_the_only_live_main_tool_projection() -> None:
     assert frame["tool_lifecycle_id"] == "call:read"
     assert frame["event_family"] == "tool_control"
     assert frame["channel"] == "control"
+
+    project_public_projection_event(
+        TOOL_PERMISSION_DECIDED_EVENT,
+        {
+            "public_anchor": anchor,
+            "tool_call_id": "call:read",
+            "permission_decision_id": "admission:request:read",
+            "permission_decision": "allow",
+        },
+        session_id="session:test",
+        sequence=2,
+        lifecycle_state=lifecycle,
+    )
+    started = project_public_projection_event(
+        TOOL_ITEM_STARTED_EVENT,
+        {
+            "public_anchor": anchor,
+            "tool_call_id": "call:read",
+            "permission_decision_id": "admission:request:read",
+            "tool_name": "read_file",
+            "tool_lifecycle_id": "toolinv:read:1",
+            "target": "README.md",
+        },
+        session_id="session:test",
+        sequence=3,
+        lifecycle_state=lifecycle,
+    )["public_projection_frame"]
+
+    assert started["op"] == "item_upsert"
+    assert started["slot"] == "current_action"
+    assert started["source_authority"] == "tool"
+    assert started["main_visibility"] == "visible_live"
+    assert started["retention"] == "transient"
+    assert started["tool_call_id"] == "call:read"
+    assert started["tool_lifecycle_id"] == "toolinv:read:1"
 
 
 def test_path_inspection_tool_request_uses_user_facing_title() -> None:

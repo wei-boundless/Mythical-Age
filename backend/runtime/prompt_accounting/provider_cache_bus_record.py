@@ -58,7 +58,10 @@ class ProviderCacheBusRecord:
     hit_rate: float = 0.0
     expected_cacheable_tokens: int = 0
     current_context_append_tokens: int = 0
-    dynamic_tail_tokens: int = 0
+    volatile_tokens: int = 0
+    current_turn_tail_tokens: int = 0
+    never_replay_tail_tokens: int = 0
+    unconfirmed_provider_replay_tokens: int = 0
     tool_schema_blocker_tokens: int = 0
     provider_under_read_tokens: int = 0
     non_spine_prompt_tokens: int = 0
@@ -127,7 +130,10 @@ class ProviderCacheBusRecord:
             hit_rate=_float(payload.get("hit_rate")),
             expected_cacheable_tokens=_int(payload.get("expected_cacheable_tokens")),
             current_context_append_tokens=_int(payload.get("current_context_append_tokens")),
-            dynamic_tail_tokens=_int(payload.get("dynamic_tail_tokens")),
+            volatile_tokens=_int(payload.get("volatile_tokens") or payload.get("dynamic_tail_tokens")),
+            current_turn_tail_tokens=_int(payload.get("current_turn_tail_tokens")),
+            never_replay_tail_tokens=_int(payload.get("never_replay_tail_tokens")),
+            unconfirmed_provider_replay_tokens=_int(payload.get("unconfirmed_provider_replay_tokens")),
             tool_schema_blocker_tokens=_int(payload.get("tool_schema_blocker_tokens")),
             provider_under_read_tokens=_int(payload.get("provider_under_read_tokens")),
             non_spine_prompt_tokens=_int(payload.get("non_spine_prompt_tokens")),
@@ -242,7 +248,10 @@ def build_provider_cache_bus_record(
         hit_rate=_ratio(cached_tokens, cached_tokens + miss_tokens if cached_tokens + miss_tokens > 0 else prompt_tokens),
         expected_cacheable_tokens=int(diagnostics.get("physical_cache_spine_expected_read_predicted_tokens") or diagnostics.get("physical_cache_spine_predicted_tokens") or 0),
         current_context_append_tokens=int(diagnostics.get("provider_cache_read_current_context_append_predicted_tokens") or diagnostics.get("context_append_prefix_predicted_tokens") or 0),
-        dynamic_tail_tokens=int(diagnostics.get("volatile_predicted_tokens") or 0),
+        volatile_tokens=int(diagnostics.get("volatile_non_cache_predicted_tokens") or diagnostics.get("volatile_predicted_tokens") or 0),
+        current_turn_tail_tokens=int(diagnostics.get("current_turn_tail_predicted_tokens") or 0),
+        never_replay_tail_tokens=int(diagnostics.get("never_replay_tail_predicted_tokens") or 0),
+        unconfirmed_provider_replay_tokens=int(diagnostics.get("unconfirmed_provider_replay_predicted_tokens") or 0),
         tool_schema_blocker_tokens=int(diagnostics.get("provider_tool_schema_blocker_predicted_tokens") or 0),
         provider_under_read_tokens=provider_under_read_tokens,
         non_spine_prompt_tokens=int(diagnostics.get("provider_cache_read_non_expected_prompt_predicted_tokens") or 0),

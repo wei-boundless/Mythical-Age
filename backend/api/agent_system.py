@@ -46,6 +46,8 @@ class AgentRuntimeProfileRequest(BaseModel):
     trace_policy: str = Field(default="runtime_event_log", max_length=120)
     lifecycle_policy: str = Field(default="agent_system_managed", max_length=120)
     model_profile: dict[str, Any] = Field(default_factory=dict)
+    prompt_set_refs: list[str] = Field(default_factory=list)
+    prompt_bindings: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -705,6 +707,8 @@ async def upsert_agent_system_agent_runtime_profile(
             trace_policy=payload.trace_policy,
             lifecycle_policy=payload.lifecycle_policy,
             model_profile=payload.model_profile,
+            prompt_set_refs=tuple(payload.prompt_set_refs),
+            prompt_bindings=payload.prompt_bindings,
             metadata=payload.metadata,
         )
     except PermissionError as exc:

@@ -264,7 +264,7 @@ export type AgentSystemInspectorTarget = {
   turnIndex?: number;
   artifactPath?: string;
   reason?: string;
-  agentSystemLayer?: "registry" | "groups" | "runtime" | "permissions" | "model_runtime" | "context" | "eligibility";
+  agentSystemLayer?: "registry" | "groups" | "runtime" | "permissions" | "prompt_wiring" | "model_runtime" | "context" | "eligibility";
   agentId?: string;
   agentProfileId?: string;
   graphId?: string;

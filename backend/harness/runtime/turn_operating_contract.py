@@ -242,7 +242,10 @@ def turn_action_request_contract_payload(
                     else ["当前可用能力没有提供 task 开启入口；不要提交 request_task_run。"]
                 ),
                 *(
-                    ["当前请求已绑定可控工作，且用户正在控制这项工作时，使用 active_work_control。"]
+                    [
+                        "当前请求已绑定可控工作且用户要求继续推进时，把 task 状态当作上下文，在当前 turn 里继续选择 tool_call、respond、ask_user 或 block。不要用 active_work_control 调度另一个执行器。",
+                        "只有用户明确要求暂停、停止、记录补充要求或询问当前工作状态时，使用 active_work_control。",
+                    ]
                     if active_work_available
                     else []
                 ),
@@ -482,6 +485,13 @@ def turn_output_contract_payload(
             "active_work_control": {
                 "enabled": "active_work_control" in allowed,
                 "operation_availability_gate": "Use only when Current Request Context exposes active_work_control=true.",
+                "allowed_control_actions": [
+                    "pause_active_work",
+                    "stop_active_work",
+                    "append_instruction_to_active_work",
+                    "answer_about_active_work",
+                ],
+                "not_for": "continuing execution; continue current work through this same turn's ordinary actions.",
             },
             **(
                 {

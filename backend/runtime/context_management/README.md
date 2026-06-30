@@ -153,17 +153,16 @@ Pipeline 输出 `ContextPipelineResult.message_specs` 后，由上游（`compile
 | `prefix_tier` | 层级：`"static"` / `"dynamic"` / `"volatile"` |
 | `semantic_slot` | 语义槽位（用于排序和 content replacement） |
 
-**映射规则：** `context_segment_policy_for_spec()` 从 `context_segment_registry` 查找 spec.kind 对应的声明，若找不到则使用 `CONTEXT_APPEND` 兜底。
+**映射规则：** `context_segment_policy_for_spec()` 只接受 `context_segment_registry` 已声明的 `spec.kind`。未声明 kind 会被标记为 `undeclared_context_segment` 隔离策略；主链路中的 `SystemLineController` 会阻止它进入 `ContextInputEnvelope` 和四段物理输入。新增上下文资产必须先补 `ContextSegmentKindDeclaration` / `SystemAssetLine`，不能靠 append 兜底进入 provider payload。
 
 **已知 kind 分类示例：**
 
 ```
-STATIC_PREFIX_KINDS: system, runtime_instruction
-CONFIRMED_REPLAY_CONTEXT_KINDS: physical_prefix_frame_*_replay
-CURRENT_MEMORY_HINT_KINDS: runtime_memory_context, session_history, session_emphasis
-APPEND_ONLY_CONTEXT_KINDS: user_message, tool_call, tool_result, prompt_censorship
-CURRENT_CONTROL_TAIL_KINDS: current_turn_instruction, provider_prefill
-DYNAMIC_TAIL: tool_observation_followup
+STATIC_PREFIX_KINDS: global_static, agent_stable, tool_index_stable, turn_operating_contract
+CONTEXT_MEMORY_PREFIX: physical_prefix_frame_*_replay
+CONTEXT_APPEND: provider_protocol_history, current_turn_user_context, runtime_memory_context, tool_transcript_delta
+DYNAMIC_TAIL: runtime_control_signal_tail, turn_attention_index, partial_stream_recovery_instruction
+UNDECLARED_KIND: blocked by SystemLineController before materialization
 ```
 
 ### 3.2 Context Segment Registry (`context_segment_registry.py`)

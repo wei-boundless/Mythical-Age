@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .assembly import PromptAssemblyService
+from .descriptor_resolver import PromptDescriptor, PromptDescriptorResolver
 from .environment_guidance_prompts import (
     ALL_ENVIRONMENT_GUIDANCE_PROMPT_IDS,
     ENVIRONMENT_GUIDANCE_PROMPT_DEFAULTS_BY_ENVIRONMENT,
@@ -22,6 +23,15 @@ from .models import (
     AgentPromptBinding,
     RuntimePromptWiringPlan,
     RuntimePromptWiringSlot,
+)
+from .taxonomy import (
+    CONFLICT_POLICIES,
+    CONTRACT_PRIORITIES,
+    PROMPT_LAYERS,
+    PROMPT_VISIBILITIES,
+    normalize_conflict_policy,
+    normalize_contract_priority,
+    normalize_prompt_scope,
 )
 from .packs import default_pack_ref_for_invocation, list_builtin_prompt_packs, list_builtin_runtime_prompt_resources
 from .personality_prompts import DEFAULT_PERSONALITY_PROMPT_REF, list_builtin_personality_prompt_resources
@@ -97,6 +107,8 @@ __all__ = [
     "default_pack_ref_for_invocation",
     "PromptLibraryRegistry",
     "PromptAssemblyService",
+    "PromptDescriptor",
+    "PromptDescriptorResolver",
     "PromptAssemblyRequest",
     "PromptAssemblyResult",
     "PromptPack",
@@ -112,6 +124,13 @@ __all__ = [
     "RuntimePromptWiringSlot",
     "RuntimePromptManifest",
     "build_runtime_prompt_manifest",
+    "PROMPT_LAYERS",
+    "PROMPT_VISIBILITIES",
+    "CONTRACT_PRIORITIES",
+    "CONFLICT_POLICIES",
+    "normalize_contract_priority",
+    "normalize_conflict_policy",
+    "normalize_prompt_scope",
     "CORE_RUNTIME_SCHEMA_REFS",
     "agent_prompt_binding_from_profile",
     "build_runtime_prompt_wiring_plan",

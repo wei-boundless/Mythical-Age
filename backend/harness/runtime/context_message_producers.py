@@ -68,9 +68,18 @@ class ContextMessageProducerRegistry:
         missing = [producer_id for producer_id in producer_order if producer_id not in self.producers]
         if missing:
             raise ValueError(f"context message producer(s) not registered: {', '.join(missing)}")
-        for producer_id in producer_order:
+        for producer_index, producer_id in enumerate(producer_order, start=1):
             producer = self.producers.get(producer_id)
             produced = tuple(dict(item) for item in tuple(producer.collect(request) or ()) if isinstance(item, dict))
+            produced = tuple(
+                _annotate_context_message_producer_spec(
+                    item,
+                    producer_id=producer_id,
+                    producer_index=producer_index,
+                    item_index=item_index,
+                )
+                for item_index, item in enumerate(produced, start=1)
+            )
             if produced:
                 specs.extend(produced)
             producer_counts[producer_id] = len(produced)
@@ -78,6 +87,10 @@ class ContextMessageProducerRegistry:
             "producer_order": list(producer_order),
             "producer_counts": producer_counts,
             "message_spec_count": len(specs),
+            "producer_identity_all_specs_annotated": all(
+                bool(str(dict(spec.get("metadata") or {}).get("context_message_producer_id") or "").strip())
+                for spec in specs
+            ),
             "authority": "harness.runtime.context_message_producers.registry",
         }
 
@@ -987,6 +1000,29 @@ def _optional_dynamic_context_segment_metadata(
         return _dynamic_context_segment_metadata(projection, source=source)
     except ValueError:
         return {}
+
+
+def _annotate_context_message_producer_spec(
+    spec: dict[str, Any],
+    *,
+    producer_id: str,
+    producer_index: int,
+    item_index: int,
+) -> dict[str, Any]:
+    payload = dict(spec or {})
+    metadata = {
+        **dict(payload.get("metadata") or {}),
+        "context_message_producer_id": str(producer_id or "").strip(),
+        "context_message_producer_authority": "harness.runtime.context_message_producers.registry",
+        "context_message_producer_order": int(producer_index or 0),
+        "context_message_producer_item_index": int(item_index or 0),
+    }
+    metadata.setdefault(
+        "context_candidate_source_route",
+        str(metadata.get("source_route") or metadata.get("content_source") or producer_id or "").strip(),
+    )
+    payload["metadata"] = metadata
+    return payload
 
 
 def _drop_empty_payload(payload: dict[str, Any]) -> dict[str, Any]:

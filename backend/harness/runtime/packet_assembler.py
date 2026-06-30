@@ -13,6 +13,13 @@ from .context_budget_policy import build_model_aware_context_budget_policy
 from .dynamic_context import dynamic_context_storage_root
 from .dynamic_context.evidence_index_cursor import file_state_from_evidence_index_cursor
 from .dynamic_context.read_evidence_projector import build_read_evidence_projection_payload
+from .harness_spine_contract import (
+    HARNESS_SPINE_CONTRACT_AUTHORITY,
+    TASK_EXECUTOR_BASE_ACTION_TYPES,
+    TASK_EXECUTOR_CONDITIONAL_ACTION_TYPES,
+    TASK_EXECUTOR_FORBIDDEN_ORDINARY_ACTION_TYPES,
+    TASK_EXECUTOR_RUNNER_CONTRACT_ID,
+)
 from .packet_context import RuntimePacketContext, RuntimePacketModelActionSurface
 from .tool_plan import RuntimeToolPlan, build_runtime_tool_plan
 
@@ -441,16 +448,20 @@ def _task_execution_model_action_surface(
         user_steering_payload,
         task_run_id=task_run_id,
     )
-    actions = ["respond", "ask_user", "tool_call", "block"]
+    actions = list(TASK_EXECUTOR_BASE_ACTION_TYPES)
     if steer_refs:
-        actions.append("pause_for_user_steer")
+        actions.extend(TASK_EXECUTOR_CONDITIONAL_ACTION_TYPES)
     return RuntimePacketModelActionSurface(
         allowed_action_types=tuple(actions),
+        contract_ref=f"{TASK_EXECUTOR_RUNNER_CONTRACT_ID}.action_surface",
+        source_authority=HARNESS_SPINE_CONTRACT_AUTHORITY,
         diagnostics={
             "source": "task_execution_runtime_contract",
+            "contract_id": TASK_EXECUTOR_RUNNER_CONTRACT_ID,
             "visible_tool_count": len(model_visible_tools),
             "pause_for_user_steer_available": bool(steer_refs),
             "pause_for_user_steer_refs": list(steer_refs),
+            "forbidden_action_types": list(TASK_EXECUTOR_FORBIDDEN_ORDINARY_ACTION_TYPES),
         },
     )
 

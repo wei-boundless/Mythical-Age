@@ -15,6 +15,7 @@ export type AgentSystemLayer =
   | "groups"
   | "runtime_permissions"
   | "runtime_config"
+  | "prompt_wiring"
   | "model_runtime"
   | "context_memory"
   | "collaboration"
@@ -102,6 +103,8 @@ export const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
   trace_policy: "runtime_event_log",
   lifecycle_policy: "agent_system_managed",
   model_profile: {},
+  prompt_set_refs: [],
+  prompt_bindings: {},
   metadata: { managed_by: "agent_system_console" },
 };
 
@@ -432,6 +435,8 @@ export function runtimeDraftFrom(
     trace_policy: String(merged.trace_policy || "runtime_event_log"),
     lifecycle_policy: String(merged.lifecycle_policy || "agent_system_managed"),
     model_profile: normalizeModelProfile(merged.model_profile),
+    prompt_set_refs: uniqueList(merged.prompt_set_refs ?? []),
+    prompt_bindings: merged.prompt_bindings ?? {},
     metadata: merged.metadata ?? { managed_by: "agent_system_console" },
   };
 }
@@ -449,6 +454,8 @@ export function runtimePayloadFromDraft(draft: RuntimeDraft) {
     trace_policy: draft.trace_policy,
     lifecycle_policy: draft.lifecycle_policy,
     model_profile: normalizeModelProfile(draft.model_profile),
+    prompt_set_refs: uniqueList(draft.prompt_set_refs ?? []),
+    prompt_bindings: draft.prompt_bindings ?? {},
     metadata: { ...(draft.metadata ?? {}), managed_by: "agent_system_console" },
   };
 }
@@ -491,6 +498,4 @@ export function searchText(agent: AssemblyAgentRecord) {
     .join(" ")
     .toLowerCase();
 }
-
-
 

@@ -54,6 +54,7 @@ MEMORY_CONTEXT_KINDS = set(context_segment_declared_kinds(section=CONTEXT_APPEND
 )
 APPEND_ONLY_CONTEXT_KINDS = set(context_segment_declared_kinds(append_only=True))
 CURRENT_CONTROL_TAIL_KINDS = set(context_segment_declared_kinds(section=DYNAMIC_TAIL))
+DECLARED_CONTEXT_SEGMENT_KINDS = set(context_segment_declared_kinds())
 CURRENT_PRESENT_ONLY_CONTEXT_KINDS = {
     "current_turn_user_context",
     "single_agent_turn_user_steer_context",
@@ -212,6 +213,20 @@ def _install_builtin_policy_defaults() -> None:
         contract_slot="active_execution_lease",
     )
     register_context_segment_policy_defaults(
+        kind="runtime_control_signal_tail",
+        section=DYNAMIC_TAIL,
+        prefix_cache_scope="none",
+        prefix_cache_role="volatile",
+        prefix_tier="volatile",
+        semantic_slot="runtime_control_contract",
+        semantic_slot_rank=25,
+        commit_policy="never_commit",
+        replay_policy="current_dynamic_tail_only",
+        identity_policy="current_invocation_only",
+        contract_slot="runtime_control_contract",
+        repair_feedback_slot="system_repair_feedback",
+    )
+    register_context_segment_policy_defaults(
         kind="session_history",
         section=CONTEXT_APPEND,
         prefix_cache_scope="none",
@@ -273,6 +288,8 @@ def context_segment_policy_for_spec(
         or metadata.get("kind")
         or "unknown_unplanned"
     ).strip() or "unknown_unplanned"
+    if kind not in DECLARED_CONTEXT_SEGMENT_KINDS:
+        return _undeclared_context_segment_policy(kind, payload, metadata=metadata)
     section = _first_text(
         _section_from_authoritative_context_metadata(payload, metadata=metadata),
         defaults.section,
@@ -362,6 +379,37 @@ def context_segment_policy_for_spec(
             metadata.get("repair_feedback_slot"),
             defaults.repair_feedback_slot,
         ),
+    )
+
+
+def _undeclared_context_segment_policy(
+    kind: str,
+    payload: dict[str, Any],
+    *,
+    metadata: dict[str, Any],
+) -> ContextSegmentPolicy:
+    return ContextSegmentPolicy(
+        kind=str(kind or "unknown_unplanned").strip() or "unknown_unplanned",
+        section=DYNAMIC_TAIL,
+        prefix_cache_scope="none",
+        prefix_cache_role="never_cache",
+        prefix_tier="none",
+        semantic_slot="undeclared_context_segment",
+        semantic_slot_rank=9999,
+        commit_policy="never_commit",
+        replay_policy="undeclared_context_segment_blocked",
+        provider_adapter_contract=_first_text(
+            metadata.get("provider_adapter_contract"),
+            metadata.get("provider_visible_adapter_contract"),
+            payload.get("provider_adapter_contract"),
+            DEFAULT_PROVIDER_ADAPTER_CONTRACT,
+        ),
+        sequence=_sequence(payload, metadata=metadata),
+        semantic_commit_class="undeclared_context_segment",
+        identity_policy="current_invocation_only",
+        contract_slot="undeclared_context_segment",
+        contract_ref="runtime.context_management.system_asset_lines.required",
+        repair_feedback_slot="structural_context_line_gap",
     )
 
 

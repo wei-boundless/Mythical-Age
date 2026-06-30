@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .environment_guidance_prompts import ENVIRONMENT_GUIDANCE_PROMPT_DEFAULTS_BY_ENVIRONMENT
 from .models import PromptSet, PromptSetSlot
 from .worker_prompts import WORKER_PROMPT_SPECS
 
@@ -178,6 +179,7 @@ def _environment_prompt_set(
     orientation_ref: str,
     title: str,
 ) -> PromptSet:
+    guidance_slot_refs = dict(ENVIRONMENT_GUIDANCE_PROMPT_DEFAULTS_BY_ENVIRONMENT.get(environment_id) or {})
     return PromptSet(
         prompt_set_id=prompt_set_id,
         owner_kind="environment",
@@ -191,9 +193,25 @@ def _environment_prompt_set(
                 owner_layer="environment",
                 cache_scope="static_environment",
             ),
+            "environment_guidance_catalog": PromptSetSlot(
+                slot="environment_guidance_catalog",
+                prompt_refs=tuple(guidance_slot_refs.values()),
+                owner_layer="environment",
+                cache_scope="static_environment",
+                visibility="metadata_only",
+                contract_priority="owner_guidance",
+                conflict_policy="scoped_guidance",
+                scope=f"environment:{environment_id}",
+                metadata={
+                    "environment_id": environment_id,
+                    "guidance_slot_refs": guidance_slot_refs,
+                    "catalog_role": "wiring_candidate_set",
+                },
+            ),
         },
         metadata={
             "environment_id": environment_id,
-            "migration_note": "Functional environment guidance resolves through environment_prompt_controller until PromptSet owns all environment guidance slots.",
+            "environment_guidance_prompt_defaults": guidance_slot_refs,
+            "environment_guidance_authority": "prompt_set",
         },
     )

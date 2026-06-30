@@ -19,6 +19,7 @@ import { getAgentControlNetwork, getAgentControlNetworkSession } from "@/lib/api
 import type {
   AgentControlNetworkPayload,
   RuntimeTopologyBranch,
+  RuntimeTopologyDiagnosticIssueLink,
   RuntimeTopologyEdge,
   RuntimeTopologyNode,
 } from "@/lib/api/types";
@@ -80,7 +81,10 @@ const KIND_LABELS: Record<string, string> = {
 };
 
 const STATUS_LABELS: Record<string, string> = {
+  broken: "断线",
   connected: "已接通",
+  disconnected: "未接通",
+  missing_status: "缺状态",
   planned: "待标准化",
   weak: "弱连接",
 };
@@ -121,6 +125,7 @@ function normalizedNode(raw: RuntimeTopologyNode, index: number): NetworkNode {
 }
 
 function normalizedEdge(raw: RuntimeTopologyEdge, index: number): NetworkEdge {
+  const explicitStatus = String(raw.status || "").trim();
   return {
     ...raw,
     id: String(raw.id || `edge-${index}`),
@@ -128,7 +133,7 @@ function normalizedEdge(raw: RuntimeTopologyEdge, index: number): NetworkEdge {
     target: String(raw.target || ""),
     label: String(raw.label || raw.signal || `Edge ${index + 1}`),
     edge_kind: String(raw.edge_kind || "runtime_connection"),
-    status: String(raw.status || "connected"),
+    status: explicitStatus || "missing_status",
     failureRoute: String(raw.failureRoute || raw.failure_route || ""),
     forbiddenRoute: String(raw.forbiddenRoute || raw.forbidden_route || ""),
   };
@@ -173,6 +178,20 @@ function prefixCoverageLabel(cacheDiagnostics: Record<string, unknown>) {
 
 function annotationKey(type: SelectedType, id: string) {
   return `${type}:${id}`;
+}
+
+function issueTargetLabel(issue: RuntimeTopologyDiagnosticIssueLink) {
+  return textValue(
+    issue.affected_edge_id
+    || issue.affected_node_id
+    || issue.affected_line_id
+    || issue.affected_action_type
+    || issue.affected_contract_id
+    || issue.governance_ref
+    || issue.subject
+    || issue.subject_type
+    || "unscoped",
+  );
 }
 
 export default function AgentNetworkPage() {
@@ -247,7 +266,20 @@ export default function AgentNetworkPage() {
   const selectedKey = annotationKey(selectedType, selectedId);
   const selectedNote = annotations.notes[selectedKey] || "";
   const runtimeEvidence = payload?.runtime_evidence || {};
+  const diagnostics = payload?.diagnostics || {};
+  const lineGovernanceDiagnostics = diagnostics.line_governance && typeof diagnostics.line_governance === "object" && !Array.isArray(diagnostics.line_governance)
+    ? diagnostics.line_governance as Record<string, unknown>
+    : {};
+  const issueCount = Number(diagnostics.issue_count ?? 0);
+  const lineGovernanceIssueCount = Number(lineGovernanceDiagnostics.issue_count ?? 0);
+  const issueLinks = Array.isArray(diagnostics.diagnostic_issue_links)
+    ? diagnostics.diagnostic_issue_links
+    : [];
   const cacheDiagnostics = runtimeEvidence.cache_diagnostics || {};
+  const nonCacheBreakdownAvailable = cacheDiagnostics.latest_non_cache_payload_breakdown_available === true;
+  const nonCacheBreakdownValue = (value: unknown) => (
+    nonCacheBreakdownAvailable ? textValue(value ?? "unscoped") : "unscoped"
+  );
   const turnMemory = runtimeEvidence.turn_memory || {};
   const contextRecoveryPackage = runtimeEvidence.context_recovery_package || {};
 
@@ -259,6 +291,18 @@ export default function AgentNetworkPage() {
   function selectEdge(edgeId: string) {
     setSelectedType("edge");
     setSelectedId(edgeId);
+  }
+
+  function selectIssue(issue: RuntimeTopologyDiagnosticIssueLink) {
+    const edgeId = String(issue.affected_edge_id || "").trim();
+    const nodeId = String(issue.affected_node_id || "").trim();
+    if (edgeId && edges.some((edge) => edge.id === edgeId)) {
+      selectEdge(edgeId);
+      return;
+    }
+    if (nodeId && nodeById.has(nodeId)) {
+      selectNode(nodeId);
+    }
   }
 
   function updateSelectedNote(value: string) {
@@ -383,6 +427,11 @@ export default function AgentNetworkPage() {
           <strong>{nodes.length} / {edges.length}</strong>
         </div>
         <div>
+          <AlertTriangle size={15} />
+          <span>diagnostics</span>
+          <strong>{Number.isFinite(issueCount) ? issueCount : "unscoped"} / {Number.isFinite(lineGovernanceIssueCount) ? lineGovernanceIssueCount : "unscoped"}</strong>
+        </div>
+        <div>
           <Activity size={15} />
           <span>prefix</span>
           <strong>{prefixCoverageLabel(cacheDiagnostics)}</strong>
@@ -446,7 +495,7 @@ export default function AgentNetworkPage() {
             </div>
             {visibleEdges.map((edge) => (
               <button
-                className={selectedType === "edge" && selectedId === edge.id ? "agent-network-edge-row agent-network-edge-row--active" : "agent-network-edge-row"}
+                className={`agent-network-edge-row agent-network-edge-row--${edge.status}${selectedType === "edge" && selectedId === edge.id ? " agent-network-edge-row--active" : ""}`}
                 key={edge.id}
                 onClick={() => selectEdge(edge.id)}
                 type="button"
@@ -513,6 +562,38 @@ export default function AgentNetworkPage() {
             </div>
           </div>
 
+          <div className="agent-network-issue-panel">
+            <div className="agent-network-panel-head agent-network-panel-head--compact">
+              <AlertTriangle size={15} />
+              <strong>结构诊断</strong>
+              <span>{issueLinks.length} 条</span>
+            </div>
+            <div className="agent-network-issue-list">
+              {issueLinks.length ? issueLinks.slice(0, 8).map((issue) => {
+                const canSelect = Boolean(
+                  (issue.affected_edge_id && edges.some((edge) => edge.id === issue.affected_edge_id))
+                  || (issue.affected_node_id && nodeById.has(issue.affected_node_id)),
+                );
+                return (
+                  <button
+                    className="agent-network-issue-row"
+                    disabled={!canSelect}
+                    key={issue.issue_id || `${issue.code}-${issue.subject}`}
+                    onClick={() => selectIssue(issue)}
+                    type="button"
+                  >
+                    <span>{issue.severity || "P3"}</span>
+                    <strong>{issue.code || "unknown_issue"}</strong>
+                    <small>{issue.line_domain || "topology"} · {issue.broken_segment || "diagnostic"} · {issueTargetLabel(issue)}</small>
+                    {issue.governance_ref ? <em>{issue.governance_ref}</em> : null}
+                  </button>
+                );
+              }) : (
+                <div className="agent-network-issue-empty">0 个结构问题</div>
+              )}
+            </div>
+          </div>
+
           {selectedEdge ? (
             <div className="agent-network-detail">
               <h2>{selectedEdge.label}</h2>
@@ -544,6 +625,22 @@ export default function AgentNetworkPage() {
             <div>
               <span>under-read</span>
               <strong>{textValue(cacheDiagnostics.latest_under_read_tokens ?? "unscoped")}</strong>
+            </div>
+            <div>
+              <span>non-cache payload</span>
+              <strong>{textValue(cacheDiagnostics.latest_volatile_tokens ?? "unscoped")}</strong>
+            </div>
+            <div>
+              <span>current turn tail</span>
+              <strong>{nonCacheBreakdownValue(cacheDiagnostics.latest_current_turn_tail_tokens)}</strong>
+            </div>
+            <div>
+              <span>replay pending</span>
+              <strong>{nonCacheBreakdownValue(cacheDiagnostics.latest_unconfirmed_provider_replay_tokens)}</strong>
+            </div>
+            <div>
+              <span>never replay tail</span>
+              <strong>{nonCacheBreakdownValue(cacheDiagnostics.latest_never_replay_tail_tokens)}</strong>
             </div>
             <div>
               <span>latest commit</span>

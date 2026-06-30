@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from .taxonomy import normalize_conflict_policy, normalize_contract_priority, normalize_prompt_scope
+
 
 @dataclass(frozen=True, slots=True)
 class PromptResource:
@@ -10,6 +12,8 @@ class PromptResource:
     category: str = ""
     subtype: str = ""
     owner_layer: str = ""
+    owner_kind: str = ""
+    owner_ref: str = ""
     allowed_invocation_kinds: tuple[str, ...] = ()
     allowed_agent_refs: tuple[str, ...] = ()
     allowed_environment_refs: tuple[str, ...] = ()
@@ -30,6 +34,9 @@ class PromptResource:
     priority: int = 100
     cache_scope: str = "static"
     model_visible: bool = True
+    contract_priority: str = ""
+    conflict_policy: str = ""
+    scope: str = ""
     source_ref: str = ""
     version: str = "v1"
     enabled: bool = True
@@ -43,6 +50,22 @@ class PromptResource:
         category = str(self.category or _category_from_resource_type(self.resource_type)).strip()
         subtype = str(self.subtype or _subtype_from_resource_type(self.resource_type)).strip()
         owner_layer = str(self.owner_layer or _owner_layer_from_category(category)).strip()
+        owner_kind = str(self.owner_kind or dict(self.metadata or {}).get("owner_kind") or owner_layer).strip()
+        owner_ref = str(self.owner_ref or dict(self.metadata or {}).get("owner_ref") or "").strip()
+        contract_priority = normalize_contract_priority(
+            self.contract_priority or dict(self.metadata or {}).get("contract_priority"),
+            category=category,
+            resource_type=resource_type,
+        )
+        conflict_policy = normalize_conflict_policy(
+            self.conflict_policy or dict(self.metadata or {}).get("conflict_policy"),
+            contract_priority=contract_priority,
+        )
+        scope = normalize_prompt_scope(
+            self.scope or dict(self.metadata or {}).get("scope"),
+            owner_kind=owner_kind,
+            owner_ref=owner_ref,
+        )
         status = str(self.status or ("active" if self.enabled else "deprecated")).strip()
         object.__setattr__(self, "prompt_id", prompt_id)
         object.__setattr__(self, "resource_id", resource_id)
@@ -50,6 +73,11 @@ class PromptResource:
         object.__setattr__(self, "category", category)
         object.__setattr__(self, "subtype", subtype)
         object.__setattr__(self, "owner_layer", owner_layer)
+        object.__setattr__(self, "owner_kind", owner_kind)
+        object.__setattr__(self, "owner_ref", owner_ref)
+        object.__setattr__(self, "contract_priority", contract_priority)
+        object.__setattr__(self, "conflict_policy", conflict_policy)
+        object.__setattr__(self, "scope", scope)
         object.__setattr__(self, "status", status)
 
     def to_dict(self) -> dict[str, Any]:
@@ -217,6 +245,9 @@ class PromptSetSlot:
     cache_scope: str = ""
     visibility: str = "model_visible"
     locked: bool = False
+    contract_priority: str = ""
+    conflict_policy: str = ""
+    scope: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -225,6 +256,21 @@ class PromptSetSlot:
         object.__setattr__(self, "prompt_pack_refs", _string_tuple(self.prompt_pack_refs))
         object.__setattr__(self, "prompt_refs_by_invocation", _string_tuple_map(self.prompt_refs_by_invocation))
         object.__setattr__(self, "prompt_pack_refs_by_invocation", _string_tuple_map(self.prompt_pack_refs_by_invocation))
+        contract_priority = normalize_contract_priority(
+            self.contract_priority or dict(self.metadata or {}).get("contract_priority"),
+            category=str(self.owner_layer or ""),
+        )
+        conflict_policy = normalize_conflict_policy(
+            self.conflict_policy or dict(self.metadata or {}).get("conflict_policy"),
+            contract_priority=contract_priority,
+        )
+        object.__setattr__(self, "contract_priority", contract_priority)
+        object.__setattr__(self, "conflict_policy", conflict_policy)
+        object.__setattr__(
+            self,
+            "scope",
+            normalize_prompt_scope(self.scope or dict(self.metadata or {}).get("scope"), owner_kind=str(self.owner_layer or "")),
+        )
 
     def refs_for_invocation(self, invocation_kind: str) -> tuple[str, ...]:
         invocation = str(invocation_kind or "").strip()
@@ -251,6 +297,9 @@ class PromptSetSlot:
             "cache_scope": self.cache_scope,
             "visibility": self.visibility,
             "locked": self.locked,
+            "contract_priority": self.contract_priority,
+            "conflict_policy": self.conflict_policy,
+            "scope": self.scope,
             "metadata": dict(self.metadata),
         }
 
@@ -336,6 +385,9 @@ class RuntimePromptWiringSlot:
     cache_scope: str = ""
     visibility: str = "model_visible"
     locked: bool = False
+    contract_priority: str = ""
+    conflict_policy: str = ""
+    scope: str = ""
     source_prompt_sets: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -344,6 +396,24 @@ class RuntimePromptWiringSlot:
         object.__setattr__(self, "refs", _string_tuple(self.refs))
         object.__setattr__(self, "pack_refs", _string_tuple(self.pack_refs))
         object.__setattr__(self, "source_prompt_sets", _string_tuple(self.source_prompt_sets))
+        contract_priority = normalize_contract_priority(
+            self.contract_priority or dict(self.metadata or {}).get("contract_priority"),
+            category=str(self.owner_layer or ""),
+        )
+        object.__setattr__(self, "contract_priority", contract_priority)
+        object.__setattr__(
+            self,
+            "conflict_policy",
+            normalize_conflict_policy(
+                self.conflict_policy or dict(self.metadata or {}).get("conflict_policy"),
+                contract_priority=contract_priority,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "scope",
+            normalize_prompt_scope(self.scope or dict(self.metadata or {}).get("scope"), owner_kind=str(self.owner_layer or "")),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -354,6 +424,9 @@ class RuntimePromptWiringSlot:
             "cache_scope": self.cache_scope,
             "visibility": self.visibility,
             "locked": self.locked,
+            "contract_priority": self.contract_priority,
+            "conflict_policy": self.conflict_policy,
+            "scope": self.scope,
             "source_prompt_sets": list(self.source_prompt_sets),
             "metadata": dict(self.metadata),
         }
@@ -464,6 +537,9 @@ def prompt_set_slot_from_dict(payload: dict[str, Any]) -> PromptSetSlot:
         cache_scope=str(payload.get("cache_scope") or ""),
         visibility=str(payload.get("visibility") or "model_visible"),
         locked=bool(payload.get("locked") is True),
+        contract_priority=str(payload.get("contract_priority") or ""),
+        conflict_policy=str(payload.get("conflict_policy") or ""),
+        scope=str(payload.get("scope") or ""),
         metadata=dict(payload.get("metadata") or {}),
     )
 
@@ -505,6 +581,9 @@ def runtime_prompt_wiring_slot_from_dict(payload: dict[str, Any]) -> RuntimeProm
         cache_scope=str(payload.get("cache_scope") or ""),
         visibility=str(payload.get("visibility") or "model_visible"),
         locked=bool(payload.get("locked") is True),
+        contract_priority=str(payload.get("contract_priority") or ""),
+        conflict_policy=str(payload.get("conflict_policy") or ""),
+        scope=str(payload.get("scope") or ""),
         source_prompt_sets=_string_tuple(payload.get("source_prompt_sets")),
         metadata=dict(payload.get("metadata") or {}),
     )
@@ -536,6 +615,8 @@ def prompt_resource_from_dict(payload: dict[str, Any]) -> PromptResource:
         category=str(payload.get("category") or ""),
         subtype=str(payload.get("subtype") or ""),
         owner_layer=str(payload.get("owner_layer") or ""),
+        owner_kind=str(payload.get("owner_kind") or ""),
+        owner_ref=str(payload.get("owner_ref") or ""),
         allowed_invocation_kinds=tuple(
             str(item).strip()
             for item in list(payload.get("allowed_invocation_kinds") or [])
@@ -568,6 +649,9 @@ def prompt_resource_from_dict(payload: dict[str, Any]) -> PromptResource:
         priority=int(payload.get("priority") or 100),
         cache_scope=str(payload.get("cache_scope") or "static"),
         model_visible=bool(payload.get("model_visible", True)),
+        contract_priority=str(payload.get("contract_priority") or ""),
+        conflict_policy=str(payload.get("conflict_policy") or ""),
+        scope=str(payload.get("scope") or ""),
         source_ref=str(payload.get("source_ref") or ""),
         version=str(payload.get("version") or "v1"),
         enabled=bool(payload.get("enabled", True)),

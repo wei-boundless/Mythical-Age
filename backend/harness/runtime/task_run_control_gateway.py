@@ -13,6 +13,7 @@ from harness.loop.task_executor import (
 from harness.loop.task_run_recovery_state import recovery_state_for_task_run
 from harness.loop.task_launch_gate import matching_launch_gate_pass_for_pending
 from harness.loop.task_tool_approval import matching_approval_grant_for_pending
+from harness.runtime.harness_spine_contract import task_executor_runner_contract
 
 
 ScheduleTaskRunExecutor = Callable[..., dict[str, Any]]
@@ -280,6 +281,11 @@ class TaskRunControlGateway:
                 "task_run_id": task_run_id,
                 "error": "task_run_scheduler_unavailable",
                 "authority": self.authority,
+                "harness_spine_contract": task_executor_runner_contract(
+                    scheduler=scheduler,
+                    task_run_id=task_run_id,
+                    turn_id=turn_id,
+                ),
                 **({"approval": approval_result} if approval_result is not None else {}),
                 **({"launch_gate": launch_gate_result} if launch_gate_result is not None else {}),
             }
@@ -298,6 +304,14 @@ class TaskRunControlGateway:
                 "error": _schedule_rejection_detail(schedule_result),
                 "schedule": dict(schedule_result or {}),
                 "authority": self.authority,
+                "harness_spine_contract": dict(
+                    schedule_result.get("harness_spine_contract")
+                    or task_executor_runner_contract(
+                        scheduler=scheduler,
+                        task_run_id=task_run_id,
+                        turn_id=turn_id,
+                    )
+                ),
                 **({"approval": approval_result} if approval_result is not None else {}),
                 **({"launch_gate": launch_gate_result} if launch_gate_result is not None else {}),
             }
@@ -311,6 +325,14 @@ class TaskRunControlGateway:
             "background_started": bool(schedule_result.get("scheduled")),
             "schedule": dict(schedule_result or {}),
             "authority": self.authority,
+            "harness_spine_contract": dict(
+                schedule_result.get("harness_spine_contract")
+                or task_executor_runner_contract(
+                    scheduler=scheduler,
+                    task_run_id=task_run_id,
+                    turn_id=turn_id,
+                )
+            ),
             **({"executor_already_running": True} if _schedule_result_already_running(schedule_result) else {}),
             **({"approval": approval_result} if approval_result is not None else {}),
             **({"launch_gate": launch_gate_result} if launch_gate_result is not None else {}),

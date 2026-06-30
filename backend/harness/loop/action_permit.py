@@ -5,6 +5,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from harness.runtime.control_action_schema import control_output_line_binding
+
 from .model_action_protocol import AnyModelActionRequest
 
 
@@ -36,6 +38,9 @@ class ActionPermit:
     issue_category: str = ""
     issue_code: str = ""
     action_issue: dict[str, Any] = field(default_factory=dict)
+    control_output_line_ref: str = ""
+    control_output_line_authority: str = ""
+    control_output_line_contract: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.loop.action_permit"
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
@@ -59,6 +64,7 @@ class ActionPermit:
         payload["allowed_tool_names"] = list(self.allowed_tool_names)
         payload["resource_scope"] = dict(self.resource_scope or {})
         payload["action_issue"] = dict(self.action_issue or {})
+        payload["control_output_line_contract"] = dict(self.control_output_line_contract or {})
         payload["diagnostics"] = dict(self.diagnostics or {})
         return payload
 
@@ -84,6 +90,11 @@ def action_permit_from_admission(
     permission_request = dict(getattr(action_request, "permission_request", {}) or {})
     tool_call = dict(getattr(action_request, "tool_call", {}) or {})
     decision = str(getattr(admission, "decision", "") or "")
+    action_type = str(getattr(action_request, "action_type", "") or "")
+    line_contract = (
+        dict(getattr(admission, "control_output_line_contract", {}) or {})
+        or control_output_line_binding(action_type)
+    )
     denied_reason = "" if decision == "allow" else str(getattr(admission, "system_reason", "") or decision)
     tool_name = str(permission_delta.get("tool_name") or tool_call.get("tool_name") or tool_call.get("name") or "").strip()
     operation_id = str(permission_delta.get("operation_id") or tool_name).strip()
@@ -113,7 +124,7 @@ def action_permit_from_admission(
     return ActionPermit(
         permit_id=f"action-permit:{getattr(action_request, 'request_id', '')}",
         action_request_ref=str(getattr(action_request, "request_id", "") or ""),
-        action_type=str(getattr(action_request, "action_type", "") or ""),
+        action_type=action_type,
         decision=decision,
         invocation_kind=str(invocation_kind or ""),
         session_id=resolved_session_id,
@@ -141,9 +152,15 @@ def action_permit_from_admission(
         issue_category=str(getattr(admission, "issue_category", "") or action_issue.get("category") or ""),
         issue_code=str(getattr(admission, "issue_code", "") or action_issue.get("code") or ""),
         action_issue=action_issue,
+        control_output_line_ref=str(line_contract.get("control_output_line_ref") or ""),
+        control_output_line_authority=str(line_contract.get("control_output_line_authority") or ""),
+        control_output_line_contract=line_contract,
         diagnostics={
             "admission_ref": str(getattr(admission, "admission_id", "") or ""),
             "admission_authority": str(getattr(admission, "authority", "") or ""),
+            "control_output_line_ref": str(line_contract.get("control_output_line_ref") or ""),
+            "control_output_line_authority": str(line_contract.get("control_output_line_authority") or ""),
+            "control_output_line_contract": line_contract,
             "permission_delta": permission_delta,
             "action_issue": action_issue,
         },

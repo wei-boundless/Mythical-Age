@@ -3,8 +3,15 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from runtime.context_management.system_asset_lines import (
+    HarnessControlSpineLine,
+    build_system_asset_line_inventory,
+)
+from runtime.context_management.system_line_controller import build_context_line_state_inventory
 from runtime.prompt_accounting import build_provider_cache_log_view
 
+from ..harness_spine_contract import task_executor_runner_contract_inventory
+from ..control_action_schema import control_output_line_declarations, control_output_line_id
 from .diagnostics import diagnose_runtime_topology_projection
 from .nodes import ContextContractManifest
 
@@ -51,6 +58,7 @@ def build_runtime_topology_projection(
 ) -> dict[str, Any]:
     nodes = _runtime_topology_nodes()
     edges = _runtime_topology_edges()
+    line_governance = _runtime_line_governance_projection()
     normalized_session_id = str(session_id or "").strip()
     host = _runtime_host(runtime)
     runtime_available = runtime is not None
@@ -60,6 +68,7 @@ def build_runtime_topology_projection(
         edges,
         runtime_available=runtime_available,
         runtime_host_available=runtime_host_available,
+        line_governance=line_governance,
     )
     payload = {
         "schema": RUNTIME_TOPOLOGY_SCHEMA,
@@ -83,6 +92,7 @@ def build_runtime_topology_projection(
         "domains": _runtime_topology_domains(nodes),
         "nodes": nodes,
         "edges": edges,
+        "line_governance": line_governance,
         "diagnostics": diagnostics,
         "runtime_evidence": _runtime_session_evidence(runtime, session_id=normalized_session_id)
         if normalized_session_id
@@ -119,6 +129,110 @@ def _runtime_topology_branches() -> list[dict[str, str]]:
         {"id": "memory", "label": "热账本"},
         {"id": "diagnostic", "label": "诊断"},
     ]
+
+
+def _runtime_line_governance_projection() -> dict[str, Any]:
+    asset_inventory = build_system_asset_line_inventory()
+    line_state_inventory = build_context_line_state_inventory()
+    control_output_lines = tuple(control_output_line_declarations())
+    harness_spine_lines = _harness_control_spine_lines()
+    harness_spine_contracts = tuple(task_executor_runner_contract_inventory())
+    asset_diagnostics = dict(asset_inventory.get("diagnostics") or {})
+    line_state_summary = dict(line_state_inventory.get("summary") or {})
+    return {
+        "schema": "runtime_line_governance_projection",
+        "authority": f"{RUNTIME_TOPOLOGY_AUTHORITY}.line_governance",
+        "summary": {
+            "system_asset_line_count": int(dict(asset_inventory.get("summary") or {}).get("line_count") or 0),
+            "context_line_state_count": int(line_state_summary.get("line_state_count") or 0),
+            "control_output_line_count": len(control_output_lines),
+            "harness_control_spine_line_count": len(harness_spine_lines),
+            "harness_runtime_spine_contract_count": len(harness_spine_contracts),
+            "system_asset_issue_count": int(asset_diagnostics.get("issue_count") or 0),
+        },
+        "system_asset_lines": asset_inventory,
+        "context_line_states": line_state_inventory,
+        "control_output_lines": [line.to_dict() for line in control_output_lines],
+        "harness_control_spine_lines": [line.to_dict() for line in harness_spine_lines],
+        "harness_runtime_spine_contracts": [dict(item) for item in harness_spine_contracts],
+    }
+
+
+def _harness_control_spine_lines() -> tuple[HarnessControlSpineLine, ...]:
+    return tuple(
+        _harness_control_spine_line(
+            action_type="respond",
+            receipt_ref="",
+            commit_ref="harness.runtime.output_commit_authority",
+            terminal_policy="assistant final must pass OutputCommitAuthority",
+        )
+        + _harness_control_spine_line(
+            action_type="ask_user",
+            receipt_ref="",
+            commit_ref="harness.runtime.output_commit_authority",
+            terminal_policy="assistant question must pass OutputCommitAuthority",
+        )
+        + _harness_control_spine_line(
+            action_type="block",
+            receipt_ref="",
+            commit_ref="harness.runtime.output_commit_authority",
+            terminal_policy="blocked response must pass OutputCommitAuthority",
+        )
+        + _harness_control_spine_line(
+            action_type="request_task_run",
+            receipt_ref="task_run_contract_seed",
+            commit_ref="",
+            terminal_policy="task resource allocation requires admitted task contract seed",
+        )
+        + _harness_control_spine_line(
+            action_type="active_work_control",
+            receipt_ref="harness.current_work_receipt.CurrentWorkBoundaryReceipt",
+            commit_ref="",
+            terminal_policy="active work control requires CurrentWorkBoundaryReceipt and admission",
+        )
+        + _harness_control_spine_line(
+            action_type="resume_task_recovery",
+            receipt_ref="harness.recovery_receipt.RecoveryReceipt",
+            commit_ref="",
+            terminal_policy="task recovery resume requires enforced RecoveryReceipt and route",
+        )
+        + _harness_control_spine_line(
+            action_type="pause_for_user_steer",
+            receipt_ref="task_execution_action_surface",
+            commit_ref="",
+            terminal_policy="pause for user steer is only valid inside explicit task execution action surface",
+        )
+    )
+
+
+def _harness_control_spine_line(
+    *,
+    action_type: str,
+    receipt_ref: str,
+    commit_ref: str,
+    terminal_policy: str,
+) -> tuple[HarnessControlSpineLine, ...]:
+    action = str(action_type or "").strip()
+    if not action:
+        return ()
+    return (
+        HarnessControlSpineLine(
+            control_line_id=f"harness_control_spine:{action}",
+            action_type=action,
+            model_action_ref=f"harness.loop.model_action_protocol:{action}",
+            packet_context_ref="harness.runtime.packet_context.RuntimePacketContext",
+            receipt_ref=receipt_ref,
+            admission_ref=f"harness.loop.admission:{action}",
+            permit_ref="harness.loop.action_permit.ActionPermit",
+            tool_plan_ref="harness.runtime.packet_context.RuntimePacketContext.tool_plan",
+            tool_invocation_ref="runtime.tool_runtime.tool_control_plane.RuntimeToolControlPlane",
+            runtime_gateway_ref="harness.runtime.runtime_gateway.RuntimeGateway",
+            commit_ref=commit_ref,
+            projection_ref="harness.runtime.context_contract.inspection_payload.runtime_topology_projection",
+            terminal_policy=terminal_policy,
+            control_output_line_ref=control_output_line_id(action),
+        ),
+    )
 
 
 def _runtime_topology_nodes() -> list[dict[str, Any]]:
@@ -1114,6 +1228,15 @@ def _runtime_session_evidence(runtime: Any | None, *, session_id: str) -> dict[s
             "latest_status": str(cache_summary.get("latest_status") or ""),
             "latest_prefix_health": latest_prefix_health,
             "latest_under_read_tokens": int(cache_summary.get("latest_under_read_tokens") or 0),
+            "latest_volatile_tokens": int(cache_summary.get("latest_volatile_tokens") or 0),
+            "latest_current_turn_tail_tokens": int(cache_summary.get("latest_current_turn_tail_tokens") or 0),
+            "latest_never_replay_tail_tokens": int(cache_summary.get("latest_never_replay_tail_tokens") or 0),
+            "latest_unconfirmed_provider_replay_tokens": int(
+                cache_summary.get("latest_unconfirmed_provider_replay_tokens") or 0
+            ),
+            "latest_non_cache_payload_breakdown_available": bool(
+                cache_summary.get("latest_non_cache_payload_breakdown_available") is True
+            ),
             "current_prefix_covered": bool(cache_summary.get("current_prefix_covered") is True),
             "current_cache_spine_hash": str(cache_summary.get("current_cache_spine_hash") or ""),
             "current_transport_contract_hash": str(cache_summary.get("current_transport_contract_hash") or ""),

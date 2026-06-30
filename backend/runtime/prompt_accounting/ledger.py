@@ -2360,6 +2360,7 @@ def _daily_token_stats(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "exact_tokens": 0,
                 "predicted_tokens": 0,
                 "trace_estimate_tokens": 0,
+                "cached_tokens": 0,
                 "cache_savings_tokens": 0,
                 "records": 0,
                 "sessions": set(),
@@ -2369,6 +2370,7 @@ def _daily_token_stats(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         bucket["exact_tokens"] = int(bucket["exact_tokens"]) + int(summary.get("exact_total_tokens") or 0)
         bucket["predicted_tokens"] = int(bucket["predicted_tokens"]) + int(summary.get("predicted_total_tokens") or 0)
         bucket["trace_estimate_tokens"] = int(bucket["trace_estimate_tokens"]) + int(summary.get("trace_estimate_total_tokens") or 0)
+        bucket["cached_tokens"] = int(bucket["cached_tokens"]) + int(summary.get("cached_tokens") or 0)
         bucket["cache_savings_tokens"] = int(bucket["cache_savings_tokens"]) + int(summary.get("cache_savings_tokens") or 0)
         bucket["records"] = int(bucket["records"]) + int(summary.get("record_count") or 0)
         session_id = str(entry.get("session_id") or "")

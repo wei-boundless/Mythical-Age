@@ -76,6 +76,7 @@ from runtime.context_management import (
     PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT,
     STATIC_PREFIX,
     build_physical_context_plan,
+    build_context_candidate_gateway,
     build_context_pipeline,
     context_segment_is_provider_visible_sealable_spec,
     context_segment_policy_for_spec,
@@ -196,10 +197,13 @@ _RUNTIME_CONTEXT_SEGMENT_SOURCES: dict[str, tuple[str, str, str]] = {
 }
 _CONTROL_ACTION_NAMES = set(CONTROL_ACTION_TOOL_NAMES)
 _ACTIVE_WORK_CONTROL_ACTIONS = {
-    "continue_active_work",
     "pause_active_work",
     "stop_active_work",
     "append_instruction_to_active_work",
+    "answer_about_active_work",
+}
+_LEGACY_ACTIVE_WORK_CONTROL_MARKERS = {
+    "continue_active_work",
     "answer_then_continue_active_work",
 }
 _LEGACY_CONTROL_ACTION_NAMES = {"task_run_request"}
@@ -3462,6 +3466,7 @@ async def run_single_agent_turn(
                         final_content=content,
                     ),
                     main_context=memory_maintenance_main_context_for_commit(),
+                    control_refs=_control_refs_from_action_lifecycle(lifecycle),
                 )
                 if final_commit_not_committed(commit_decision):
                     async for event in emit_final_commit_blocked_closeout(
@@ -3552,6 +3557,7 @@ async def run_single_agent_turn(
                         final_content=content,
                     ),
                     main_context=memory_maintenance_main_context_for_commit(),
+                    control_refs=_control_refs_from_action_lifecycle(lifecycle),
                 )
                 if final_commit_not_committed(commit_decision):
                     async for event in emit_final_commit_blocked_closeout(
@@ -3606,6 +3612,7 @@ async def run_single_agent_turn(
                         final_content=content,
                     ),
                     main_context=memory_maintenance_main_context_for_commit(),
+                    control_refs=_control_refs_from_action_lifecycle(lifecycle),
                 )
                 if final_commit_not_committed(commit_decision):
                     async for event in emit_final_commit_blocked_closeout(
@@ -5173,7 +5180,7 @@ def _looks_like_malformed_single_agent_action_payload(payload: dict[str, Any]) -
     raw_action = str(payload.get("action") or "").strip()
     if not raw_action:
         return False
-    return raw_action in _ACTIVE_WORK_CONTROL_ACTIONS
+    return raw_action in _ACTIVE_WORK_CONTROL_ACTIONS or raw_action in _LEGACY_ACTIVE_WORK_CONTROL_MARKERS
 
 
 def _parse_diagnostics_contains_mixed_public_text_and_action_intent(parse_diagnostics: dict[str, Any] | None) -> bool:
@@ -7529,6 +7536,12 @@ def _single_agent_turn_followup_prompt_payload(
         scope=provider_visible_append_scope,
         model_selection=model_selection,
     )
+    context_candidate_gateway_result = build_context_candidate_gateway(
+        specs,
+        invocation_kind="single_agent_turn_tool_followup",
+    )
+    specs = [dict(item) for item in context_candidate_gateway_result.message_specs]
+    context_candidate_gateway_diagnostics = dict(context_candidate_gateway_result.diagnostics or {})
     context_pipeline_result = build_context_pipeline(
         specs,
         invocation_kind="single_agent_turn_tool_followup",
@@ -7560,6 +7573,7 @@ def _single_agent_turn_followup_prompt_payload(
     segment_plan.setdefault("diagnostics", {})
     segment_plan["diagnostics"] = {
         **dict(segment_plan.get("diagnostics") or {}),
+        "context_candidate_gateway": context_candidate_gateway_diagnostics,
         "physical_context_assembly": physical_assembly_diagnostics,
         "context_pipeline": context_pipeline_diagnostics,
     }
@@ -9353,6 +9367,7 @@ async def _commit_final_message(
     answer_source: str,
     provider_protocol_messages_to_append: list[dict[str, Any]] | None = None,
     main_context: dict[str, Any] | None = None,
+    control_refs: dict[str, Any] | None = None,
 ) -> FinalMessageCommit:
     sanitized_protocol_messages = _sanitize_model_messages(
         [dict(item) for item in list(provider_protocol_messages_to_append or []) if isinstance(item, dict)],
@@ -9383,6 +9398,7 @@ async def _commit_final_message(
             "turn_ref": turn_id,
             "turn_run_ref": turn_run.turn_run_id if turn_run is not None else "",
             **_agent_scope_refs(agent_scope),
+            **dict(control_refs or {}),
         },
         commit_payload_overrides={
             "provider_protocol_messages_to_append": sanitized_protocol_messages,
@@ -9414,6 +9430,28 @@ async def _commit_final_message(
         events=result.events,
         receipt=result.receipt,
     )
+
+
+def _control_refs_from_action_lifecycle(lifecycle: Any) -> dict[str, Any]:
+    payload = lifecycle.to_dict() if hasattr(lifecycle, "to_dict") else dict(lifecycle or {})
+    action_permit = dict(payload.get("action_permit") or {})
+    refs = {
+        "action_request_ref": str(payload.get("action_request_ref") or ""),
+        "action_lifecycle_ref": str(payload.get("lifecycle_id") or ""),
+        "admission_ref": str(dict(payload.get("admission") or {}).get("admission_id") or ""),
+        "action_permit_ref": str(action_permit.get("permit_id") or ""),
+        "control_output_line_ref": str(
+            payload.get("control_output_line_ref")
+            or action_permit.get("control_output_line_ref")
+            or ""
+        ),
+        "control_output_line_authority": str(
+            payload.get("control_output_line_authority")
+            or action_permit.get("control_output_line_authority")
+            or ""
+        ),
+    }
+    return {key: value for key, value in refs.items() if value}
 
 
 def _update_turn_run_event_offset(runtime_host: Any, *, turn_run: TurnRun, event: Any) -> None:

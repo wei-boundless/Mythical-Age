@@ -1,9 +1,25 @@
 # 提示词体系与 Agent 可见语义架构重构计划书
 
-状态：待审阅，未实施  
+状态：已按计划完成第一轮结构落地，进入验证/后续扩展审查  
 日期：2026-07-01  
 范围：`prompt_library`、`prompt_composition`、runtime compiler、context message projection、agent-visible action/context contracts  
 原则：不加 V2，不保留旧链路并行；先统一权威边界，再调整代码。
+
+## 0. 实施记录
+
+本轮实施已完成：
+
+- `AgentRuntimeProfile.prompt_set_refs/prompt_bindings` 已接入前后端配置链路。
+- `PromptSet` 已声明 environment guidance 候选目录，`PromptWiringPlan` 负责按 invocation 当前事实选择实际注入的 `environment_guidance_stable` 与 `environment_guidance_runtime`。
+- `PromptMountPlan` 已降级为环境挂载事实/旧诊断摘要，不再拥有 environment guidance 最终选择权。
+- agent-visible runtime projection 已从 compiler 移入 `backend/harness/runtime/agent_visible_projection/`。
+- composition 层的 agent-visible payload/key/title 清洗已移入 projection sanitizer，`prompt_composition.runtime_fragments` 只负责 fragment 渲染。
+- compiler 三条主入口 `single_agent_turn`、`task_execution`、`tool_observation_followup` 均会生成并消费本次 invocation 的 `prompt_wiring_plan`。
+
+仍需后续独立推进的扩展项：
+
+- tool/skill/MCP owner 域的提示词正文编辑入口需要等对应注册页/registry 暴露稳定 prompt refs 后再接入。
+- `context_message_producers` 仍可继续演进为 typed context package producer；本轮先把 agent-visible sanitizer/projection 权威前移，避免 composition/ compiler 继续承载业务语义清洗。
 
 ## 1. 问题定义
 
